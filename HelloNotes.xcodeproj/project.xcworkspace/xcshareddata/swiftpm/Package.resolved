@@ -1,0 +1,87 @@
+{
+  "originHash" : "6e5f0f72c8dffed414d3fed572e0bca9501838ea292a6344ece919af7d53f47f",
+  "pins" : [
+    {
+      "identity" : "beautiful-mermaid-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lukilabs/beautiful-mermaid-swift.git",
+      "state" : {
+        "revision" : "6a23a29e91af8f5b3e9fc09945332ca193bd69ec",
+        "version" : "1.0.4"
+      }
+    },
+    {
+      "identity" : "elk-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lukilabs/elk-swift",
+      "state" : {
+        "revision" : "32f8042e3509a4819f00ff9cd46e829ec2b26da0",
+        "version" : "1.0.2"
+      }
+    },
+    {
+      "identity" : "highlighterswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/smittytone/HighlighterSwift",
+      "state" : {
+        "revision" : "fe7aae9c9b31d3b296fd3d2dd575e1a207bb29e0",
+        "version" : "3.1.0"
+      }
+    },
+    {
+      "identity" : "libgit2",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ibrahimcetin/libgit2.git",
+      "state" : {
+        "revision" : "52287b0914f300f916b58fec80e13d8dd8f6824f",
+        "version" : "1.9.2"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark.git",
+      "state" : {
+        "revision" : "924936d0427cb25a61169739a7660230bffa6ea6",
+        "version" : "0.8.0"
+      }
+    },
+    {
+      "identity" : "swift-markdown",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-markdown.git",
+      "state" : {
+        "revision" : "3c6f9523da3a1ec2fd829673e472d95b8097a3b8",
+        "version" : "0.8.0"
+      }
+    },
+    {
+      "identity" : "swift-markdown-engine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nodes-app/swift-markdown-engine.git",
+      "state" : {
+        "revision" : "7d537d0646a6a3170a0779d4e08f6e951b378eb9",
+        "version" : "0.8.0"
+      }
+    },
+    {
+      "identity" : "swiftgitx",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ibrahimcetin/SwiftGitX.git",
+      "state" : {
+        "revision" : "fcfb71e3dcbbaa70d120b98b7477ce173074aec3",
+        "version" : "0.4.0"
+      }
+    },
+    {
+      "identity" : "swiftmath",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mgriebling/SwiftMath",
+      "state" : {
+        "revision" : "fa8244ed032f4a1ade4cb0571bf87d2f1a9fd2d7",
+        "version" : "1.7.3"
+      }
+    }
+  ],
+  "version" : 3
+}
