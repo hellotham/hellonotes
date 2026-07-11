@@ -18,7 +18,8 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 | Version / build | `MARKETING_VERSION = 1.0`, `CURRENT_PROJECT_VERSION = 1` |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements today | App Sandbox, User‑selected files (read/write) |
-| Min OS | **macOS 26.5** (see ⚠️ in §1) |
+| Min OS | **macOS 15.0** |
+| Website | <https://christham.net/hellonotes/> (Privacy · Support live) |
 
 ---
 
@@ -41,21 +42,18 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 
 ## 1 · Project hardening (pre‑flight) — do these before archiving
 
+> **✅ Already done in this repo:** §1a (min OS lowered to **macOS 15.0**),
+> §1c (Info.plist document types cleaned), §1d (`ITSAppUsesNonExemptEncryption`
+> added), plus the app icon and screenshots. **Still your call:** §1b (Git remote
+> sync), and §1e–§1h (signing check, version policy, dependency pin, final build).
+
 Work through each; several are genuine blockers or reviewer red flags.
 
-### 1a. ⚠️ Decide the minimum macOS version
-The project is set to **`MACOSX_DEPLOYMENT_TARGET = 26.5`**, so the app will only
-install on **macOS Tahoe 26.5 or newer** — a very small audience. The only feature
-that *needs* 26 is on‑device Apple Intelligence, and it is already guarded with
-`#available(macOS 26.0, *)`, so it degrades gracefully.
-
-- **To reach more Macs:** lower it (e.g. macOS 15.0). In Xcode ▸ target
-  **HelloNotes** ▸ **General** ▸ *Minimum Deployments* ▸ macOS = `15.0`. Then
-  re‑test that everything except Apple Intelligence still builds/runs.
-- **To ship fast and narrow:** leave it at 26.5.
-
-*(Recommendation: lower to the oldest macOS you’re willing to support; the AI
-features stay gated.)*
+### 1a. ✅ Minimum macOS version — done
+Lowered to **`MACOSX_DEPLOYMENT_TARGET = 15.0`** so the app installs on macOS 15+
+(Release build verified clean). On‑device Apple Intelligence stays guarded with
+`#available(macOS 26.0, *)`, so it degrades gracefully on older systems. Raise or
+lower further via Xcode ▸ target ▸ **General** ▸ *Minimum Deployments* if you wish.
 
 ### 1b. ⚠️ Git sync needs a network entitlement (or disable remote sync for v1)
 The sandbox entitlements today are App Sandbox + user‑selected files only — **no
@@ -73,12 +71,9 @@ build. Two options:
   (SSH‑agent/keychain credential access from a sandbox is still limited — HTTPS
   remotes with a token are the realistic path.)
 
-### 1c. Fix the placeholder document types in `Info.plist`
-`HelloNotes/Info.plist` still contains Xcode’s **example** UTI junk
-(`com.example.plain-text`, `exampletext`, `exampledocument`). Replace the whole
-file body with a proper Markdown declaration (or, if you don’t want Finder to open
-`.md` into HelloNotes yet, just delete the `CFBundleDocumentTypes` /
-`UTImportedTypeDeclarations` blocks):
+### 1c. ✅ Info.plist document types — done
+The placeholder `com.example.*` UTIs were replaced with a proper Markdown
+declaration (now in `HelloNotes/Info.plist`):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -103,15 +98,9 @@ file body with a proper Markdown declaration (or, if you don’t want Finder to 
 </plist>
 ```
 
-### 1d. Skip the export‑compliance question on every upload
-HelloNotes only uses standard TLS/HTTPS (system + Git), which is **exempt**. Add
-this so App Store Connect stops asking each build. Xcode ▸ target ▸ **Info** ▸ add
-a row (or edit `Info.plist`):
-
-```xml
-<key>ITSAppUsesNonExemptEncryption</key>
-<false/>
-```
+### 1d. ✅ Export‑compliance key — done
+`ITSAppUsesNonExemptEncryption` = `false` is set in `Info.plist` (the app uses only
+exempt TLS/HTTPS), so App Store Connect won’t ask on each upload.
 
 ### 1e. Confirm distribution signing
 Target ▸ **Signing & Capabilities** ▸ **Release**:
@@ -234,12 +223,12 @@ markdown,knowledge base,wiki,backlinks,zettelkasten,pkm,notes,notetaking,git,gra
 
 **Support URL** (required — replace with a real page you control):
 ```
-https://hellotham.com/hellonotes/support
+https://christham.net/hellonotes/support.html
 ```
 
 **Marketing URL** (optional):
 ```
-https://hellotham.com/hellonotes
+https://christham.net/hellonotes/
 ```
 
 **Copyright**:
@@ -269,10 +258,11 @@ App Store Connect ▸ your app ▸ **App Privacy**.
 - **Data collection:** choose **“No, we do not collect data from this app.”**
   HelloNotes stores everything locally; on-device AI sends nothing off-device; any
   Git remote is a destination the *user* configures for their *own* data.
-- **Privacy Policy URL** (required even when nothing is collected). Host the text
-  in Appendix C at a stable URL and paste it here, e.g.:
+- **Privacy Policy URL** (required even when nothing is collected). ✅ **Live** — the
+  landing site is deployed at <https://christham.net/hellonotes/> with working
+  Privacy and Support pages. Paste:
   ```
-  https://hellotham.com/hellonotes/privacy
+  https://christham.net/hellonotes/privacy.html
   ```
 
 ---
@@ -305,10 +295,10 @@ Provide **at least 1** (up to 10). Retina capture is easiest:
    ```bash
    sips -z 1600 2560 --padColor FFFFFF shot.png --out shot-2560x1600.png
    ```
-Good shots to include: the editor with a rendered note (callouts + Mermaid + math),
-the graph view, the “Ask your vault” panel, and full‑text search.
-
-*(Ask me and I can generate a set from the running app.)*
+**✅ A ready-made set of 5 screenshots at 2560×1600 is already generated** in
+`dist/HelloNotes.dmg`’s sibling folder **`dist/screenshots/`** (`screenshot_01…05.png`
+— note list, math+diagrams, callouts, graph, ask-vault, each on a branded gradient
+with captions). Upload those directly, or capture your own with the recipe above.
 
 ---
 
