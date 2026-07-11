@@ -85,8 +85,9 @@ Still deferred, with rationale:
 iOS scope note: macOS-only features (live styling / code / math via MarkdownEngine, FSEvents watching, Open Quickly, folder tree, tags, Git UI, image paste, Mermaid preview) are not on iOS yet — it is a browse / read / plain-text-edit companion for now. A richer iOS editor (UITextView / TextKit 2) is a future milestone.
 
 ### iPadOS layout ✅
-- The iOS shell is a single adaptive `NavigationSplitView` (replacing the earlier `NavigationStack`): a **two-column** list + editor on iPad (and iPhone landscape / regular width), automatically **collapsing to a single-column push stack** on iPhone. One code path serves iPhone, iPad, and iPhone-in-landscape.
-- Verified in both simulators: on iPad, selecting a note opens it in the right-hand editor while the list stays visible on the left; on iPhone, the same selection pushes to a full-screen editor with a back button. Editing autosaves to disk on both.
+- The iOS shell is a single adaptive **three-column** `NavigationSplitView` that mirrors the macOS app: a navigation **sidebar** (vault name, "All Notes", and a `#tags` filter), the **note list**, and the **editor**.
+- **iPad landscape** shows all three columns at once (like macOS); **iPad portrait** tucks the sidebar behind a toggle (balanced style); **iPhone** collapses to a push stack and, via `preferredCompactColumn = .content`, opens straight to the note list (back reveals the filter sidebar).
+- Shares `VaultSearchModel` with macOS for the tag index. Verified in both simulators (iPad Pro 11" landscape + portrait, iPhone 17): three columns on iPad landscape with note selection loading the editor while the list stays visible; iPhone opens to the list and pushes to the editor. Editing autosaves to disk on both.
 
 ---
 
