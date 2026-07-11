@@ -18,6 +18,7 @@ struct IntelligenceView: View {
     var onInsertSummary: (String) -> Void
     var onAddTags: ([String]) -> Void
     var onAddLinks: ([String]) -> Void
+    var onReplaceBody: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -26,6 +27,7 @@ struct IntelligenceView: View {
     @State private var summary: String?
     @State private var tags: [String] = []
     @State private var links: [String] = []
+    @State private var expanded: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -63,6 +65,7 @@ struct IntelligenceView: View {
                     if let summary { summarySection(summary) }
                     if !tags.isEmpty { tagsSection }
                     if !links.isEmpty { linksSection }
+                    if let expanded { expandedSection(expanded) }
                 }
                 .padding()
             }
@@ -81,8 +84,26 @@ struct IntelligenceView: View {
             Button { run { links = try await NoteIntelligence.suggestLinks(for: noteText, candidates: linkCandidates) } } label: {
                 Label("Suggest Links", systemImage: "link")
             }
+            Button { run { expanded = try await NoteIntelligence.expand(noteText) } } label: {
+                Label("Expand", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
         }
         .disabled(busy)
+    }
+
+    private func expandedSection(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Expanded Note").font(.subheadline.bold())
+            Text(text)
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+            HStack {
+                Button("Replace Note Body") { onReplaceBody(text); dismiss() }
+                Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
+            }
+        }
     }
 
     private func summarySection(_ text: String) -> some View {

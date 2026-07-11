@@ -102,6 +102,39 @@ struct NoteIntelligence {
         throw IntelligenceError.unavailable
     }
 
+    static func expand(_ noteText: String) async throws -> String {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            let session = LanguageModelSession(
+                instructions: "You expand brief notes and outlines into clear, well-structured Markdown prose. Preserve the author's intent, headings, and any lists. Return only the expanded note, no preamble."
+            )
+            let response = try await session.respond(to: "Expand and flesh out this note:\n\n\(clean(noteText))")
+            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        #endif
+        throw IntelligenceError.unavailable
+    }
+
+    /// Answer a question grounded in the supplied vault notes, citing titles.
+    static func answer(question: String, context: [(title: String, text: String)]) async throws -> String {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            let session = LanguageModelSession(
+                instructions: "You answer questions using ONLY the provided notes from the user's vault. Cite the note titles you used, in brackets like [Title]. If the notes don't contain the answer, say you couldn't find it in the vault."
+            )
+            // Budget the context across notes so the whole prompt stays in-window.
+            let perNote = max(400, maxInputChars / max(context.count, 1))
+            let contextText = context
+                .map { "## \($0.title)\n\(String($0.text.prefix(perNote)))" }
+                .joined(separator: "\n\n")
+            let prompt = "Notes from my vault:\n\n\(contextText)\n\nQuestion: \(question)"
+            let response = try await session.respond(to: prompt)
+            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        #endif
+        throw IntelligenceError.unavailable
+    }
+
     static func suggestLinks(for noteText: String, candidates: [String]) async throws -> [String] {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {

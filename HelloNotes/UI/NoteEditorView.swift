@@ -392,7 +392,8 @@ struct NoteEditorView: View {
                         linkCandidates: linkCandidates,
                         onInsertSummary: insertSummaryCallout,
                         onAddTags: addTags,
-                        onAddLinks: addLinks
+                        onAddLinks: addLinks,
+                        onReplaceBody: replaceBody
                     )
                 }
                 .sheet(isPresented: $showHistory) {
@@ -442,6 +443,18 @@ struct NoteEditorView: View {
         guard !fresh.isEmpty else { return }
         let line = fresh.map { "#\($0)" }.joined(separator: " ")
         editor.text = editor.text.trimmingTrailingNewlines() + "\n\n" + line + "\n"
+    }
+
+    /// Replace the note body (keeping front matter) with an expanded version.
+    private func replaceBody(_ text: String) {
+        let full = editor.text
+        let body = FrontMatter.body(of: full)
+        if body.count < full.count {
+            let frontMatter = String(full.dropLast(body.count))
+            editor.text = frontMatter + text
+        } else {
+            editor.text = text
+        }
     }
 
     /// Append suggested `[[links]]` under a "Related" heading.

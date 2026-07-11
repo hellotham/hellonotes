@@ -58,6 +58,7 @@ struct MacContentView: View {
 
     /// Whether the link-graph sheet is showing.
     @State private var showGraph = false
+    @State private var showVaultChat = false
 
     /// How notes are ordered in the folder tree.
     @State private var sortOrder: VaultSortOrder = .modified
@@ -218,6 +219,14 @@ struct MacContentView: View {
                 }
             }
         }
+        .sheet(isPresented: $showVaultChat) {
+            VaultChatView(notes: indexer.notes, search: search) { note in
+                selectedTag = nil
+                searchText = ""
+                selectedNoteID = note.id
+                showVaultChat = false
+            }
+        }
     }
 
     // MARK: - Column 1: Sidebar
@@ -258,6 +267,14 @@ struct MacContentView: View {
                     Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(indexer.notes.isEmpty)
+
+                Button {
+                    showVaultChat = true
+                } label: {
+                    Label("Ask Vault", systemImage: "sparkles.rectangle.stack")
+                }
+                .keyboardShortcut("j", modifiers: [.command, .shift])
                 .disabled(indexer.notes.isEmpty)
 
                 let bookmarked = bookmarks.bookmarkedNotes(from: indexer.notes)
