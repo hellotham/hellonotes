@@ -14,12 +14,34 @@ struct HelloNotesTests {
 
     // MARK: - Helpers
 
-    /// Create a unique temporary directory to act as a throwaway vault.
-    private func makeTempVault() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
+    /// The repo's committed sample vault (`SampleVault/`), located relative to
+    /// this source file so tests exercise the same demo content shipped in the repo.
+    private static var sampleVaultURL: URL {
+        URL(filePath: #filePath)          // …/HelloNotesTests/HelloNotesTests.swift
+            .deletingLastPathComponent()  // …/HelloNotesTests
+            .deletingLastPathComponent()  // …/<repo root>
+            .appending(path: "SampleVault")
+    }
+
+    /// The sample vault's note titles (Markdown files, recursively — including the
+    /// notes in `Projects/` and `Templates/`, and its `README`).
+    private static let sampleNoteTitles: Set<String> = [
+        "2026-07-11", "Callouts", "Diagram", "Ideas", "MathNote", "README",
+        "RichTransclude", "Transclude", "Welcome", "Roadmap", "Daily",
+    ]
+
+    /// Copy the repo's sample vault into a unique temp directory so tests read
+    /// (and may safely mutate) real content without touching the committed fixture.
+    private func copiedSampleVault() throws -> URL {
+        let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("HelloNotesTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        try FileManager.default.copyItem(at: Self.sampleVaultURL, to: dest)
+        return dest
+    }
+
+    /// The file URL of a root-level note in a vault.
+    private func note(_ title: String, in vault: URL) -> URL {
+        vault.appending(path: "\(title).md")
     }
 
     private func write(_ text: String, to url: URL) throws {
@@ -30,28 +52,28 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func openLoadsFileContents() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let fileURL = vault.appendingPathComponent("Hello.md")
-        try write("# Hello\n\nWorld.", to: fileURL)
-        let note = Note(title: "Hello", fileURL: fileURL, lastModified: .now)
+        let fileURL = note("Welcome", in: vault)
+        let onDisk = try String(contentsOf: fileURL, encoding: .utf8)
+        let note = Note(title: "Welcome", fileURL: fileURL, lastModified: .now)
 
         let editor = EditorModel()
         await editor.open(note)
 
-        #expect(editor.text == "# Hello\n\nWorld.")
+        #expect(editor.text == onDisk)
+        #expect(editor.text.contains("# Welcome to HelloNotes"))
         #expect(editor.isDirty == false)
     }
 
     @Test @MainActor
     func editThenFlushPersistsToDisk() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let fileURL = vault.appendingPathComponent("Note.md")
-        try write("original", to: fileURL)
-        let note = Note(title: "Note", fileURL: fileURL, lastModified: .now)
+        let fileURL = note("Ideas", in: vault)
+        let note = Note(title: "Ideas", fileURL: fileURL, lastModified: .now)
 
         let editor = EditorModel()
         await editor.open(note)
@@ -68,12 +90,11 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func externalChangeReloadsCleanBuffer() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let fileURL = vault.appendingPathComponent("Note.md")
-        try write("original", to: fileURL)
-        let note = Note(title: "Note", fileURL: fileURL, lastModified: .now)
+        let fileURL = note("Ideas", in: vault)
+        let note = Note(title: "Ideas", fileURL: fileURL, lastModified: .now)
 
         let editor = EditorModel()
         await editor.open(note)
@@ -88,12 +109,11 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func externalChangeWithUnsavedEditsRaisesConflict() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let fileURL = vault.appendingPathComponent("Note.md")
-        try write("original", to: fileURL)
-        let note = Note(title: "Note", fileURL: fileURL, lastModified: .now)
+        let fileURL = note("Ideas", in: vault)
+        let note = Note(title: "Ideas", fileURL: fileURL, lastModified: .now)
 
         let editor = EditorModel()
         await editor.open(note)
@@ -113,16 +133,15 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func switchingNotesFlushesPreviousEdits() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let firstURL = vault.appendingPathComponent("First.md")
-        let secondURL = vault.appendingPathComponent("Second.md")
-        try write("first", to: firstURL)
-        try write("second", to: secondURL)
+        let firstURL = note("Ideas", in: vault)
+        let secondURL = note("Welcome", in: vault)
+        let secondOnDisk = try String(contentsOf: secondURL, encoding: .utf8)
 
-        let first = Note(title: "First", fileURL: firstURL, lastModified: .now)
-        let second = Note(title: "Second", fileURL: secondURL, lastModified: .now)
+        let first = Note(title: "Ideas", fileURL: firstURL, lastModified: .now)
+        let second = Note(title: "Welcome", fileURL: secondURL, lastModified: .now)
 
         let editor = EditorModel()
         await editor.open(first)
@@ -133,36 +152,38 @@ struct HelloNotesTests {
 
         let firstOnDisk = try String(contentsOf: firstURL, encoding: .utf8)
         #expect(firstOnDisk == "first edited")
-        #expect(editor.text == "second")
+        #expect(editor.text == secondOnDisk)
     }
 
     // MARK: - WorkspaceIndexer
 
     @Test
     func scanFindsMarkdownFilesOnly() throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        try write("# A", to: vault.appendingPathComponent("A.md"))
-        try write("# B", to: vault.appendingPathComponent("B.markdown"))
-        try write("not markdown", to: vault.appendingPathComponent("C.txt"))
+        // A non-Markdown file dropped into the vault must be ignored.
+        try write("not markdown", to: vault.appendingPathComponent("Notes.txt"))
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
         indexer.scanVault()
 
         let titles = Set(indexer.notes.map(\.title))
-        #expect(indexer.notes.count == 2)
-        #expect(titles == ["A", "B"])
+        // Every sample note (including those in Projects/ and Templates/) is found…
+        #expect(titles == Self.sampleNoteTitles)
+        // …and the .txt file is not indexed.
+        #expect(!titles.contains("Notes"))
     }
 
     @Test
     func createAndDeleteNote() throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
+        indexer.scanVault()
 
         let created = try #require(indexer.createNote(title: "Fresh"))
         #expect(created.title == "Fresh")
@@ -176,18 +197,20 @@ struct HelloNotesTests {
 
     @Test
     func createNoteDisambiguatesDuplicateNames() throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
+        indexer.scanVault()
 
-        let first = try #require(indexer.createNote(title: "Untitled"))
-        let second = try #require(indexer.createNote(title: "Untitled"))
+        // "Welcome" already exists in the sample vault, so a new one is disambiguated.
+        let first = try #require(indexer.createNote(title: "Welcome"))
+        let second = try #require(indexer.createNote(title: "Welcome"))
 
         #expect(first.fileURL != second.fileURL)
-        #expect(first.fileURL.lastPathComponent == "Untitled.md")
-        #expect(second.fileURL.lastPathComponent == "Untitled 2.md")
+        #expect(first.fileURL.lastPathComponent == "Welcome 2.md")
+        #expect(second.fileURL.lastPathComponent == "Welcome 3.md")
     }
 
     // MARK: - MarkdownParsing
@@ -250,13 +273,8 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func backlinksResolveAcrossNotes() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
-
-        let welcome = vault.appendingPathComponent("Welcome.md")
-        let ideas = vault.appendingPathComponent("Ideas.md")
-        try write("# Welcome\n\nNothing links here yet.", to: welcome)
-        try write("# Ideas\n\nThoughts about [[Welcome]] and [[welcome]] again.", to: ideas)
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
@@ -265,11 +283,13 @@ struct HelloNotesTests {
         let graph = LinkGraph()
         await graph.rebuild(from: indexer.notes)
 
-        let welcomeNote = try #require(indexer.notes.first { $0.title == "Welcome" })
-        let backlinks = graph.backlinks(for: welcomeNote, in: indexer.notes)
+        // In the sample vault, Ideas and Roadmap both link `[[Welcome]]`.
+        let welcome = try #require(indexer.notes.first { $0.title == "Welcome" })
+        #expect(Set(graph.backlinks(for: welcome, in: indexer.notes).map(\.title)) == ["Ideas", "Roadmap"])
 
-        // Ideas links to Welcome (case-insensitively); Welcome doesn't back-link itself.
-        #expect(backlinks.map(\.title) == ["Ideas"])
+        // The daily note links `[[Ideas]]`; Welcome doesn't back-link itself.
+        let ideas = try #require(indexer.notes.first { $0.title == "Ideas" })
+        #expect(graph.backlinks(for: ideas, in: indexer.notes).map(\.title) == ["2026-07-11"])
     }
 
     // MARK: - FuzzyMatch
@@ -290,11 +310,8 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func fullTextSearchFindsBodyMatchesWithSnippet() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
-
-        try write("# Alpha\n\nThe quick brown fox jumps.", to: vault.appendingPathComponent("Alpha.md"))
-        try write("# Beta\n\nNothing to see.", to: vault.appendingPathComponent("Beta.md"))
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
@@ -303,17 +320,16 @@ struct HelloNotesTests {
         let search = VaultSearchModel()
         await search.refresh(from: indexer.notes)
 
-        let hits = search.fullTextResults(query: "brown fox")
-        #expect(hits.map(\.note.title) == ["Alpha"])
-        #expect(hits.first?.snippet.contains("brown fox") == true)
+        // "local-first" appears only in Welcome's body.
+        let hits = search.fullTextResults(query: "local-first")
+        #expect(hits.map(\.note.title) == ["Welcome"])
+        #expect(hits.first?.snippet.contains("local-first") == true)
     }
 
     @Test @MainActor
     func openQuicklyMatchesTitlesAndHeadings() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
-
-        try write("# Meeting Notes\n\n## Action Items\n\nDo the thing.", to: vault.appendingPathComponent("Meeting Notes.md"))
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
@@ -322,23 +338,19 @@ struct HelloNotesTests {
         let search = VaultSearchModel()
         await search.refresh(from: indexer.notes)
 
-        // The note and its heading are both candidates.
+        // The Welcome note and its "Getting Started" heading are both candidates.
         let all = search.quickOpenResults(query: "")
-        #expect(all.contains { $0.kind == .note && $0.title == "Meeting Notes" })
+        #expect(all.contains { $0.kind == .note && $0.title == "Welcome" })
 
         // Fuzzy query surfaces the heading candidate.
-        let actionHits = search.quickOpenResults(query: "action")
-        #expect(actionHits.contains { $0.kind == .heading && $0.subtitle == "Action Items" })
+        let hits = search.quickOpenResults(query: "getting")
+        #expect(hits.contains { $0.kind == .heading && $0.subtitle == "Getting Started" })
     }
 
     @Test @MainActor
     func tagsAreIndexedAndFilterable() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
-
-        try write("# One\n\nTagged #project and #urgent.", to: vault.appendingPathComponent("One.md"))
-        try write("# Two\n\nJust #project here.", to: vault.appendingPathComponent("Two.md"))
-        try write("# Three\n\nNo tags.", to: vault.appendingPathComponent("Three.md"))
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
@@ -347,9 +359,10 @@ struct HelloNotesTests {
         let search = VaultSearchModel()
         await search.refresh(from: indexer.notes)
 
-        #expect(search.allTags() == ["project", "urgent"])
-        #expect(Set(search.notesTagged("project").map(\.title)) == ["One", "Two"])
-        #expect(search.notesTagged("urgent").map(\.title) == ["One"])
+        // The sample vault's inline hashtags: #intro (Ideas) and #todo (Ideas, Roadmap, daily note).
+        #expect(search.allTags() == ["intro", "todo"])
+        #expect(Set(search.notesTagged("todo").map(\.title)) == ["Ideas", "Roadmap", "2026-07-11"])
+        #expect(search.notesTagged("intro").map(\.title) == ["Ideas"])
     }
 
     @Test
@@ -366,9 +379,10 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func notesTaggedMatchesNestedChildren() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
+        // Add nested-tag notes on top of the sample vault (which has no `project/*` tags).
         try write("# A\n\n#project/hellonotes", to: vault.appendingPathComponent("A.md"))
         try write("# B\n\n#project here", to: vault.appendingPathComponent("B.md"))
         try write("# C\n\n#personal", to: vault.appendingPathComponent("C.md"))
@@ -399,10 +413,8 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func linkGraphResolvesAliasesAndOutgoing() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
-        try write("---\naliases: [Home]\n---\n# Welcome", to: vault.appendingPathComponent("Welcome.md"))
-        try write("Link to [[Home]] and [[Welcome]].", to: vault.appendingPathComponent("Ideas.md"))
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
@@ -412,11 +424,12 @@ struct HelloNotesTests {
 
         let welcome = try #require(indexer.notes.first { $0.title == "Welcome" })
         let ideas = try #require(indexer.notes.first { $0.title == "Ideas" })
-        // Ideas links Welcome via its alias and title → a single backlink from Ideas.
-        #expect(graph.backlinks(for: welcome, in: indexer.notes).map(\.title) == ["Ideas"])
-        // Outgoing from Ideas resolves both targets to the one Welcome note.
-        #expect(graph.outgoingLinks(for: ideas, in: indexer.notes).map(\.title) == ["Welcome"])
+        // Welcome declares `aliases: [Home, Intro]`, so both resolve to its file.
         #expect(graph.resolve("home") == welcome.fileURL)
+        #expect(graph.resolve("intro") == welcome.fileURL)
+        // Ideas links `[[Welcome]]`, `[[Roadmap]]`, and `[[Welcome#Getting Started]]` →
+        // resolving to the two distinct notes Welcome and Roadmap.
+        #expect(Set(graph.outgoingLinks(for: ideas, in: indexer.notes).map(\.title)) == ["Welcome", "Roadmap"])
     }
 
     @Test
@@ -492,10 +505,8 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func gitInitStatusAndCommit() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
-
-        try write("# Note", to: vault.appendingPathComponent("Note.md"))
 
         let git = GitService()
         git.vaultURL = vault
@@ -505,7 +516,7 @@ struct HelloNotesTests {
 
         await git.initializeRepository()
         #expect(git.status.isRepository == true)
-        #expect(git.status.changeCount == 1)   // Note.md is untracked
+        #expect(git.status.changeCount > 0)   // the sample notes are untracked
 
         // Commit works even without a global git identity (ensureCommitIdentity
         // sets a local one), and leaves the tree clean.
@@ -516,14 +527,16 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func gitNoteHistoryTracksFileRevisions() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
-        let noteURL = vault.appendingPathComponent("Note.md")
 
         let git = GitService()
         git.vaultURL = vault
         await git.initializeRepository()
+        await git.commitAll(message: "Import sample vault")   // baseline
 
+        // Track a fresh note's revisions on top of the sample-vault baseline.
+        let noteURL = vault.appendingPathComponent("History.md")
         try write("# Version one", to: noteURL)
         await git.commitAll(message: "First")
         try write("# Version two", to: noteURL)
@@ -563,27 +576,25 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func editorTabsOpenReuseAndClose() async throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let a = vault.appendingPathComponent("A.md")
-        let b = vault.appendingPathComponent("B.md")
-        try write("# A", to: a)
-        try write("# B", to: b)
-        let noteA = Note(title: "A", fileURL: a, lastModified: .now)
-        let noteB = Note(title: "B", fileURL: b, lastModified: .now)
+        let a = note("Ideas", in: vault)
+        let b = note("Welcome", in: vault)
+        let noteA = Note(title: "Ideas", fileURL: a, lastModified: .now)
+        let noteB = Note(title: "Welcome", fileURL: b, lastModified: .now)
 
         let tabs = EditorTabs()
         await tabs.editor(for: noteA)
         await tabs.editor(for: noteB)
-        #expect(tabs.openNotes.map(\.title) == ["A", "B"])
+        #expect(tabs.openNotes.map(\.title) == ["Ideas", "Welcome"])
 
         // Reopening an existing note doesn't add a second tab.
         await tabs.editor(for: noteA)
         #expect(tabs.openNotes.count == 2)
 
         let next = await tabs.close(noteA.id)
-        #expect(tabs.openNotes.map(\.title) == ["B"])
+        #expect(tabs.openNotes.map(\.title) == ["Welcome"])
         #expect(next == noteB.id)
     }
 
@@ -591,11 +602,10 @@ struct HelloNotesTests {
 
     @Test @MainActor
     func pastedImageIsSavedAndLinked() throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let noteURL = vault.appendingPathComponent("Note.md")
-        try write("# Note", to: noteURL)
+        let noteURL = note("Welcome", in: vault)
 
         // Build a 1×1 PNG and put it on a pasteboard.
         let image = NSImage(size: NSSize(width: 1, height: 1))
@@ -625,14 +635,8 @@ struct HelloNotesTests {
 
     @Test
     func buildsFolderTreeWithFoldersFirst() throws {
-        let vault = try makeTempVault()
+        let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
-
-        let projects = vault.appendingPathComponent("Projects", isDirectory: true)
-        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
-        try write("# Root", to: vault.appendingPathComponent("Root.md"))
-        try write("# Alpha", to: projects.appendingPathComponent("Alpha.md"))
-        try write("# Beta", to: projects.appendingPathComponent("Beta.md"))
 
         let indexer = WorkspaceIndexer()
         indexer.selectedVaultURL = vault
@@ -640,13 +644,16 @@ struct HelloNotesTests {
 
         let tree = VaultTree.build(from: indexer.notes, vaultURL: vault, sort: .name)
 
-        // Folder "Projects" comes before the root-level note "Root".
-        #expect(tree.map(\.name) == ["Projects", "Root"])
-        #expect(tree[0].isFolder)
-        #expect(tree[1].note?.title == "Root")
+        // The sample vault's folders (Projects, Templates) sort before root-level notes.
+        #expect(tree.prefix(2).map(\.name) == ["Projects", "Templates"])
+        #expect(tree[0].isFolder && tree[1].isFolder)
+        // Root notes follow the folders.
+        #expect(tree.contains { $0.note?.title == "Welcome" })
 
-        // The folder's children are the two notes, name-sorted.
-        let childTitles = tree[0].children?.compactMap { $0.note?.title }
-        #expect(childTitles == ["Alpha", "Beta"])
+        // Each folder's children are its notes.
+        let projects = try #require(tree.first { $0.name == "Projects" })
+        #expect(projects.children?.compactMap { $0.note?.title } == ["Roadmap"])
+        let templates = try #require(tree.first { $0.name == "Templates" })
+        #expect(templates.children?.compactMap { $0.note?.title } == ["Daily"])
     }
 }
