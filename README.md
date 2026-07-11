@@ -78,7 +78,7 @@ open HelloNotes.xcodeproj
 xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' build
 ```
 
-Run the **HelloNotes** scheme, then click **Select Vault Folder** and choose any directory of Markdown files.
+Run the **HelloNotes** scheme, then click **Select Vault Folder** and choose any directory of Markdown files — or point it at the bundled [`SampleVault/`](SampleVault/), whose notes demonstrate callouts, diagrams, math, transclusion, wiki-links, tags, daily notes, and templates.
 
 ## 🗂️ Project layout
 ```
