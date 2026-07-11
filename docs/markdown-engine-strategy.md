@@ -123,8 +123,9 @@ Mermaid) are the *cheapest* because the engine already contains the pattern.
    - ✅ Summarize the current note (insertable as a `> [!summary]` callout).
    - ✅ Suggest `#tags` for a note (`@Generable`, reuses existing vault tags).
    - ✅ Suggest `[[links]]` (`@Generable`, chosen from real note titles).
-   - *Still candidate:* semantic vault search / "chat with your vault" (retrieve over the
-     search index, answer with citations); generate-from-template / expand a stub note.
+   - ✅ Expand a stub/outline note into fuller prose (replaces the body).
+   - ✅ "Ask Your Vault" (⌘⇧J): keyword-overlap retrieval over the search index →
+     grounded answer with clickable note citations.
    These are a separate workstream from the engine fork and can proceed in parallel.
 
 ## Risks & mitigations

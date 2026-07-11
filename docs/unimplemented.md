@@ -33,17 +33,17 @@ we'd need. Several features have been shaped around these walls.
 - ✅ **Note transclusion / embeds `![[Note]]` / `![[Note#heading]]`** *(Obsidian review)* —
   **RESOLVED (host-side).** A `VaultEmbedProvider` set as the engine's image provider renders a
   referenced note (or one `#heading` section) to an inline card image via `NoteTranscluder`,
-  reusing the existing image-embed block path — no engine change needed. Verified live.
-  *(Limitation: the transclusion is a lightweight static render — headings/lists/emphasis/code,
-  front matter stripped — not the full live editor, so LaTeX/Mermaid/callouts inside a
-  transcluded note don't render. Refresh on the source note's change via a vault-revision
-  fingerprint.)*
+  reusing the existing image-embed block path — no engine change needed. The card renders
+  headings, lists, emphasis, code, **inline/block LaTeX** (SwiftMath) and **Mermaid diagrams**
+  (front matter stripped), refreshing on the source note's change via a vault-revision
+  fingerprint. Verified live. *(Limitation: still a static image render — nested callouts and
+  live selection inside a transclusion aren't supported.)*
 
 - ✅ **Callouts `> [!note]` and comments `%%…%%`** *(Obsidian review)* — **RESOLVED via the
   fork.** `> [!type]` callouts render as tinted boxes (colored band + accent bar + bold title,
   `[!` `]` hidden) via a new `.calloutTint` fragment attribute; `%%…%%` comments (inline and
-  multi-line) are dimmed. Verified live (fork @ `51e64e2`). *(Follow-up: callout header icons
-  and collapsible callouts.)*
+  multi-line) are dimmed. Callout headers now show **type SF Symbols**, and `[!type]-`/`[!type]+`
+  callouts are **collapsible** with a clickable chevron. Verified live.
 
 - ✅ **Tag autocomplete** *(Milestone 8 — the `#` half of "wiki-link & tag autocomplete")* —
   **RESOLVED via the fork.** The fork adds a `.tag` inline-selection kind: when the caret is
