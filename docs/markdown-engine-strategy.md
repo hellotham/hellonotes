@@ -24,9 +24,11 @@
   undo). Verified live.
 - **Fix #4 landed — tag autocomplete.** The fork adds a `.tag` inline-selection kind (caret
   scan + caret rect) and an `isLiteralMode` replacement (fork @ `41f4304`); HelloNotes offers
-  existing vault tags in the same popup as wiki-links. Verified live. Remaining engine items:
-  callouts/comments/front-matter-hide (#5–7), transclusion (#8), plus the Foundation Models
-  track.
+  existing vault tags in the same popup as wiki-links. Verified live.
+- **Fixes #5–7 landed — callouts, comments, front-matter hiding.** Three styling passes on the
+  fork (@ `51e64e2`): `> [!type]` callouts render as tinted boxes (new `.calloutTint` fragment
+  attribute), `%%…%%` comments dim, and the leading `---` front matter collapses (revealing on
+  caret). All verified live. Remaining: transclusion (#8), plus the Foundation Models track.
 - Workflow: patches land on `hellonotes-patches`; open upstream PRs to shrink the delta.
 
 Every editor-layer item in [unimplemented.md](unimplemented.md) is blocked by a missing

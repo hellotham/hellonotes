@@ -36,10 +36,11 @@ we'd need. Several features have been shaped around these walls.
   doesn't expose (same class as inline Mermaid). **Unblock:** an upstream embed/render
   hook, or a fork.
 
-- 🧱 **Callouts `> [!note]` and comments `%%…%%`** *(Obsidian review)*
-  Obsidian-flavored callout blocks and hidden comments aren't rendered specially — the
-  engine has no custom block/inline renderer for them. **Unblock:** an engine render
-  hook.
+- ✅ **Callouts `> [!note]` and comments `%%…%%`** *(Obsidian review)* — **RESOLVED via the
+  fork.** `> [!type]` callouts render as tinted boxes (colored band + accent bar + bold title,
+  `[!` `]` hidden) via a new `.calloutTint` fragment attribute; `%%…%%` comments (inline and
+  multi-line) are dimmed. Verified live (fork @ `51e64e2`). *(Follow-up: callout header icons
+  and collapsible callouts.)*
 
 - ✅ **Tag autocomplete** *(Milestone 8 — the `#` half of "wiki-link & tag autocomplete")* —
   **RESOLVED via the fork.** The fork adds a `.tag` inline-selection kind: when the caret is
@@ -63,10 +64,10 @@ we'd need. Several features have been shaped around these walls.
   background + zinc light/dark) and **wide diagrams clamp to the reading column** with a
   horizontal scroller (the engine's scrollable-block overlay). Both verified live.
 
-- 🧱 **Hiding raw front matter in the editor** *(Milestone 5)*
-  The leading `---` YAML block renders as plain text in the editor; we show a separate
-  key/value summary panel above it. Suppressing the raw block needs an editor hook we
-  don't have. **Unblock:** an engine hook to hide/replace a source range.
+- ✅ **Hiding raw front matter in the editor** *(Milestone 5)* — **RESOLVED via the fork.**
+  The leading `---` YAML block now collapses to nothing in the editor (its fence
+  thematic-break rules suppressed), pairing with the editable Properties panel; the raw YAML
+  reveals only when the caret is inside it. Verified live (fork @ `51e64e2`).
 
 ---
 
