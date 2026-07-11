@@ -21,7 +21,12 @@
 - **Fix #3 landed — find & replace.** The fork adds `replaceCurrent` / `replaceAll` bus
   handlers on top of the existing display-coordinate find (fork @ `7221f73`); HelloNotes
   ships a ⌘F find/replace bar (live count, next/prev, replace, replace-all, single-step
-  undo). Verified live. Next: Fix #4 (tag autocomplete), or the Foundation Models track.
+  undo). Verified live.
+- **Fix #4 landed — tag autocomplete.** The fork adds a `.tag` inline-selection kind (caret
+  scan + caret rect) and an `isLiteralMode` replacement (fork @ `41f4304`); HelloNotes offers
+  existing vault tags in the same popup as wiki-links. Verified live. Remaining engine items:
+  callouts/comments/front-matter-hide (#5–7), transclusion (#8), plus the Foundation Models
+  track.
 - Workflow: patches land on `hellonotes-patches`; open upstream PRs to shrink the delta.
 
 Every editor-layer item in [unimplemented.md](unimplemented.md) is blocked by a missing

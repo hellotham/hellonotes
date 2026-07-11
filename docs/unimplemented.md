@@ -41,13 +41,12 @@ we'd need. Several features have been shaped around these walls.
   engine has no custom block/inline renderer for them. **Unblock:** an engine render
   hook.
 
-- 🧱 **Tag autocomplete** *(Milestone 8 — the `#` half of "wiki-link & tag autocomplete")*
-  Wiki-link autocomplete shipped; tag autocomplete did not. The engine fires
-  inline-token callbacks (`onInlineSelectionChange`) and provides a caret rect **only**
-  for `[[wiki-links]]` / `![[image-embeds]]`, not `#tags`, and exposes no caret
-  character offset to the host — so there's no reliable way to detect a `#partial`
-  token or anchor a popup to it. **Unblock:** a tag-token callback or a caret-offset
-  hook from the engine.
+- ✅ **Tag autocomplete** *(Milestone 8 — the `#` half of "wiki-link & tag autocomplete")* —
+  **RESOLVED via the fork.** The fork adds a `.tag` inline-selection kind: when the caret is
+  in a `#tag` (≥1 body char, `#` at a whitespace/line boundary so headings don't match) the
+  engine fires `onInlineSelectionChange(.tag)` with the tag text + caret rect, plus an
+  `isLiteralMode` replacement so the host can commit a plain `#tag ` verbatim. HelloNotes reuses
+  its wiki-link completion popup to offer existing vault tags. Verified live (fork @ `41f4304`).
 
 - 🧱 **Create-on-miss by clicking a muted `[[link]]`** *(Milestone 3)*
   Clicking a wiki-link to a non-existent note should offer to create it. The engine
