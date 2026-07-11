@@ -28,7 +28,8 @@ Early development. Implemented so far:
 - ✅ **Knowledge graph & math (Milestone 2):** clickable `[[wiki-links]]` (existing vs broken), a backlinks panel, native LaTeX, and syntax-highlighted code.
 - ✅ **Search & navigation (Milestone 3):** full-text search with snippets, "Open Quickly" (⌘O) fuzzy finder over notes & headings, and live external-change detection (FSEvents).
 - ✅ **Folder tree & polish:** a real folder tree with sort options, a `#tags` sidebar filter, and open-note conflict handling (silent reload / keep-mine).
-- 🚧 Next: Git sync (Milestone 4) — status, background auto-commit, push/pull.
+- ✅ **Git sync (Milestone 4):** repo status, initialize, local commit, opt-in auto-commit, and user-initiated push/fetch via SwiftGitX.
+- 🚧 Next: pull/merge, remote auth & an in-app git identity, then the iOS shell.
 
 Roadmap and milestones: [docs/implementation-plan.md](docs/implementation-plan.md).
 

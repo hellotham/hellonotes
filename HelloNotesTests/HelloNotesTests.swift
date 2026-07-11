@@ -316,6 +316,32 @@ struct HelloNotesTests {
         #expect(search.notesTagged("urgent").map(\.title) == ["One"])
     }
 
+    // MARK: - GitService
+
+    @Test @MainActor
+    func gitInitStatusAndCommit() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        try write("# Note", to: vault.appendingPathComponent("Note.md"))
+
+        let git = GitService()
+        git.vaultURL = vault
+
+        await git.refreshStatus()
+        #expect(git.status.isRepository == false)
+
+        await git.initializeRepository()
+        #expect(git.status.isRepository == true)
+        #expect(git.status.changeCount == 1)   // Note.md is untracked
+
+        // Commit works even without a global git identity (ensureCommitIdentity
+        // sets a local one), and leaves the tree clean.
+        await git.commitAll(message: "Initial commit")
+        #expect(git.lastError == nil)
+        #expect(git.status.isClean)
+    }
+
     // MARK: - VaultTree
 
     @Test

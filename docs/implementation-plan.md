@@ -52,10 +52,18 @@ Still deferred, with rationale:
 - **Create-on-miss by clicking a muted `[[link]]`** — MarkdownEngine doesn't fire the link callback for non-existent targets; needs a different hook.
 - **Incremental (per-note) index/graph updates** — the current full rebuild is correct and fast for target vault sizes; optimize when large-vault profiling warrants it.
 
-## Milestone 4 — Git sync (v0.3)  [P1]
-- `Core/GitEngine` + `GitService` actor over SwiftGitX.
-- Repo status in the sidebar; background auto-commit (debounced) + "Sync now".
-- Push/pull to remote; surface conflicts (P2 resolution UI).
+## Milestone 4 — Git sync (v0.3)  ✅ (mostly done)  [P1]
+- ✅ `State/GitService` (`@Observable`) over SwiftGitX; blocking libgit2 calls run off the main actor.
+- ✅ Repo status in the sidebar (branch, clean / N-changed); **Initialize Repository** (explicit — never auto-creates `.git`).
+- ✅ Local **Commit** (stages all, commits) + opt-in debounced **auto-commit** (local only; never auto-pushes).
+- ✅ **Push** / **Fetch** wired as user-initiated actions (Sync menu).
+- **Notable fix:** a GUI-launched app can't resolve the user's global `~/.gitconfig`, so `git_commit_create_from_stage` had no signature and commits failed silently. `GitService.ensureCommitIdentity` now writes a commit identity into the repo's **local** config (from global if readable, else the macOS account name), so commits always succeed.
+
+Still deferred, with rationale:
+- **Pull / merge** — SwiftGitX exposes `fetch` and `push` but no merge, so a true pull isn't available yet; Fetch updates refs and the user merges externally.
+- **Remote auth** — push/fetch rely on libgit2's configured credentials (SSH agent / stored tokens); the app doesn't manage credentials (and must not, per safety rules). Push was implemented but not exercised against a real remote.
+- **Real git identity UI** — commits currently fall back to the OS account identity when global config is unreadable; a proper in-app git-identity setting is a follow-up.
+- **Conflict-resolution UI** for merge conflicts (P2).
 
 ## Milestone 5 — Native rendering polish (v0.3+)  [P1/P2]
 - Mermaid code blocks → native diagrams (beautiful-mermaid-swift).

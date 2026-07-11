@@ -29,6 +29,12 @@ struct MacContentView: View {
     /// Watches the vault for external changes (edits, git pulls, Finder ops).
     @State private var fileWatcher: FileWatcher?
 
+    /// Git status + operations for the vault.
+    @State private var git = GitService()
+
+    /// Opt-in background local auto-commit (never auto-pushes).
+    @AppStorage("gitAutoCommit") private var autoCommit = false
+
     /// Selected note identity (its file URL — stable across re-indexing).
     @State private var selectedNoteID: Note.ID?
 
@@ -100,6 +106,8 @@ struct MacContentView: View {
             }
             if let url = indexer.selectedVaultURL {
                 startWatching(url)
+                git.vaultURL = url
+                await git.refreshStatus()
             }
             refreshDerived(with: indexer.notes)
         }
@@ -108,15 +116,24 @@ struct MacContentView: View {
             Task { await editor.open(note) }
         }
         .onChange(of: indexer.selectedVaultURL) { _, url in
-            if let url { startWatching(url) }
+            if let url {
+                startWatching(url)
+                git.vaultURL = url
+                Task { await git.refreshStatus() }
+            }
         }
         .onChange(of: indexer.notes) { _, notes in
             // Note set changed (scan / create / delete): refresh derived data.
             refreshDerived(with: notes)
+            Task { await git.refreshStatus() }
         }
         .onChange(of: editor.savedRevision) { _, _ in
             // A note's contents changed on disk: refresh links & search index.
             refreshDerived(with: indexer.notes)
+            Task { await git.refreshStatus() }
+            if autoCommit {
+                git.scheduleAutoCommit(message: autoCommitMessage)
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             // Safety net beyond the debounce: flush unsaved edits when the app
@@ -188,10 +205,88 @@ struct MacContentView: View {
             }
 
             Spacer()
+
+            if indexer.selectedVaultURL != nil {
+                gitSection
+            }
         }
         .padding()
         .navigationTitle("HelloNotes")
         .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+    }
+
+    // MARK: - Git section
+
+    @ViewBuilder
+    private var gitSection: some View {
+        Divider()
+
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.branch")
+            Text("GIT").font(.caption2).foregroundStyle(.secondary)
+            Spacer()
+            if git.isBusy { ProgressView().controlSize(.small) }
+        }
+
+        if !git.status.isRepository {
+            Text("Not a Git repository")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button {
+                Task { await git.initializeRepository() }
+            } label: {
+                Label("Initialize Repository", systemImage: "plus.circle")
+            }
+            .disabled(git.isBusy)
+        } else {
+            HStack {
+                Label(git.status.branch ?? "—", systemImage: "point.3.filled.connected.trianglepath.dotted")
+                    .font(.caption)
+                    .lineLimit(1)
+                Spacer()
+                Text(git.status.isClean ? "Clean" : "\(git.status.changeCount) changed")
+                    .font(.caption)
+                    .foregroundStyle(git.status.isClean ? Color.secondary : Color.orange)
+            }
+
+            HStack {
+                Button {
+                    Task { await git.commitAll(message: autoCommitMessage) }
+                } label: {
+                    Label("Commit", systemImage: "checkmark.seal")
+                }
+                .disabled(git.status.isClean || git.isBusy)
+
+                Menu {
+                    Button("Push") { Task { await git.push() } }
+                    Button("Fetch") { Task { await git.fetch() } }
+                } label: {
+                    Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(git.isBusy)
+                .fixedSize()
+            }
+
+            Toggle("Auto-commit", isOn: $autoCommit)
+                .font(.caption)
+                .toggleStyle(.checkbox)
+
+            if let error = git.lastError {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            } else if let message = git.lastMessage {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var autoCommitMessage: String {
+        "Update notes — \(Date.now.formatted(date: .abbreviated, time: .shortened))"
     }
 
     // MARK: - Column 2: Note list
