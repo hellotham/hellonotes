@@ -29,6 +29,9 @@ struct NoteEditorView: View {
     /// Resolves which `[[wiki-link]]` targets exist (drives link clickability).
     var wikiResolver: VaultWikiLinkResolver
 
+    /// Renders `![[Note]]` transclusions to inline images.
+    var embedProvider: VaultEmbedProvider
+
     /// Git state for the vault — drives the version-history button.
     var git: GitService
 
@@ -586,6 +589,7 @@ struct NoteEditorView: View {
         config.services.latex = Self.latexRenderer
         config.services.diagrams = Self.diagramRenderer
         config.services.wikiLinks = wikiResolver
+        config.services.images = embedProvider
         config.services.bus.findQuery = .hnEditorFindQuery
         config.services.bus.findClearHighlights = .hnEditorClearHighlights
         config.services.bus.findResults = .hnEditorFindResults

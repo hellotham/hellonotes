@@ -21,6 +21,7 @@ struct NoteWindowView: View {
 
     @State private var editor = EditorModel()
     @State private var wikiResolver = VaultWikiLinkResolver()
+    @State private var embedProvider = VaultEmbedProvider()
     @State private var git = GitService()
     @State private var didLoad = false
 
@@ -35,6 +36,7 @@ struct NoteWindowView: View {
                     editor: editor,
                     backlinks: [],
                     wikiResolver: wikiResolver,
+                    embedProvider: embedProvider,
                     git: git,
                     linkCandidates: indexer.notes.map(\.title),
                     onOpenWikiLink: openWikiLink,
@@ -54,6 +56,7 @@ struct NoteWindowView: View {
             guard !didLoad else { return }
             didLoad = true
             wikiResolver.update(titles: indexer.notes.map(\.title))
+            embedProvider.update(notes: indexer.notes)
             if let vault = indexer.selectedVaultURL {
                 git.vaultURL = vault
                 await git.refreshStatus()

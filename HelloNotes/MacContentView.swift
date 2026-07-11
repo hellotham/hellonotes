@@ -24,6 +24,9 @@ struct MacContentView: View {
     /// Tells the editor which wiki-link targets exist (drives clickability).
     @State private var wikiResolver = VaultWikiLinkResolver()
 
+    /// Renders `![[Note]]` transclusions to inline images.
+    @State private var embedProvider = VaultEmbedProvider()
+
     /// Caches note contents for full-text search and "Open Quickly".
     @State private var search = VaultSearchModel()
 
@@ -412,6 +415,7 @@ struct MacContentView: View {
                     outgoingLinks: outgoingLinks,
                     unlinkedMentions: unlinkedMentions,
                     wikiResolver: wikiResolver,
+                    embedProvider: embedProvider,
                     git: git,
                     linkCandidates: search.linkTargets(),
                     tagCandidates: search.allTags(),
@@ -566,6 +570,7 @@ struct MacContentView: View {
         // Titles first so links are clickable immediately; the async rebuild then
         // adds aliases to the resolver so `[[alias]]` resolves too.
         wikiResolver.update(titles: notes.map(\.title))
+        embedProvider.update(notes: notes)
         Task {
             await linkGraph.rebuild(from: notes)
             await search.refresh(from: notes)

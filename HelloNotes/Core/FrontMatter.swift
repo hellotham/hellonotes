@@ -115,6 +115,14 @@ nonisolated enum FrontMatter {
         return rendered + body
     }
 
+    /// The document body with any leading front-matter block removed.
+    static func body(of text: String) -> String {
+        if let block = block(in: text) {
+            return String(text[block.bodyStart...])
+        }
+        return text
+    }
+
     // MARK: - Private
 
     private struct Block {
