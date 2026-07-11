@@ -7,16 +7,22 @@
 
 #if os(macOS)
 import AppKit
+import MarkdownEngine
+import MarkdownEngineLatex
+import BeautifulMermaid
 
 /// Renders a note's Markdown to an image for inline transclusion (`![[Note]]`).
-/// This is a lightweight preview renderer — headings, lists, blockquotes,
-/// emphasis and code — not the full live editor (no LaTeX/Mermaid/callouts).
-/// It draws a titled "card" with a left accent bar so a transclusion reads as
-/// embedded content.
+/// A lightweight preview renderer — headings, lists, blockquotes, emphasis,
+/// code, plus rendered LaTeX (`$…$` / `$$…$$`) and Mermaid diagrams — drawn as
+/// a titled "card" with a left accent bar so a transclusion reads as embedded
+/// content.
 enum NoteTranscluder {
     private static let contentWidth: CGFloat = 560
     private static let padding: CGFloat = 14
     private static let barWidth: CGFloat = 3
+    private static var textContentWidth: CGFloat { contentWidth - padding * 2 - barWidth }
+
+    private static let latex = SwiftMathBridge()
 
     static func image(markdown: String, title: String, isDark: Bool) -> NSImage? {
         let body = attributedBody(from: markdown, isDark: isDark)
@@ -99,43 +105,82 @@ enum NoteTranscluder {
         let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 
         let out = NSMutableAttributedString()
-        var inFence = false
-        for rawLine in text.components(separatedBy: "\n") {
-            let line = rawLine
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
+        let lines = text.components(separatedBy: "\n")
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Fenced block: ```mermaid renders a diagram, others stay as code.
+            if trimmed.hasPrefix("```") {
+                let lang = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased()
+                var body: [String] = []
+                i += 1
+                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                    body.append(lines[i]); i += 1
+                }
+                i += 1   // skip closing fence
+                let source = body.joined(separator: "\n")
+                if lang == "mermaid", let img = mermaidImage(source, isDark: isDark) {
+                    out.append(imageAttachment(img, maxWidth: textContentWidth))
+                    out.append(NSAttributedString(string: "\n"))
+                } else {
+                    out.append(inline(source + "\n", font: mono, color: muted, isDark: isDark, plain: true))
+                }
                 continue
             }
-            if inFence {
-                out.append(inline(line + "\n", font: mono, color: muted, plain: true))
+
+            // Block LaTeX `$$ … $$`.
+            if trimmed == "$$" {
+                var body: [String] = []
+                i += 1
+                while i < lines.count, lines[i].trimmingCharacters(in: .whitespaces) != "$$" {
+                    body.append(lines[i]); i += 1
+                }
+                i += 1
+                if let img = latexImage(body.joined(separator: "\n"), fontSize: 16, isDark: isDark) {
+                    out.append(imageAttachment(img, maxWidth: textContentWidth))
+                    out.append(NSAttributedString(string: "\n"))
+                }
                 continue
             }
+
             if let (level, title) = headingParts(line) {
                 let sizes: [CGFloat] = [20, 18, 16, 15, 14, 13]
                 let font = NSFont.systemFont(ofSize: sizes[min(level - 1, 5)], weight: .bold)
-                out.append(inline(title + "\n", font: font, color: textColor))
-                continue
+                out.append(inline(title + "\n", font: font, color: textColor, isDark: isDark))
+            } else if let m = line.range(of: #"^\s*[-*+]\s+"#, options: .regularExpression) {
+                out.append(inline("•  " + String(line[m.upperBound...]) + "\n", font: base, color: textColor, isDark: isDark))
+            } else if let m = line.range(of: #"^\s*>\s?"#, options: .regularExpression) {
+                out.append(inline(String(line[m.upperBound...]) + "\n", font: base, color: muted, isDark: isDark))
+            } else {
+                out.append(inline(line + "\n", font: base, color: textColor, isDark: isDark))
             }
-            if let m = line.range(of: #"^\s*[-*+]\s+"#, options: .regularExpression) {
-                out.append(inline("•  " + String(line[m.upperBound...]) + "\n", font: base, color: textColor))
-                continue
-            }
-            if let m = line.range(of: #"^\s*>\s?"#, options: .regularExpression) {
-                out.append(inline(String(line[m.upperBound...]) + "\n", font: base, color: muted))
-                continue
-            }
-            out.append(inline(line + "\n", font: base, color: textColor))
+            i += 1
         }
         return out
     }
 
-    /// Strip `**bold**`, `*italic*`, `` `code` `` markers, applying traits.
-    private static func inline(_ s: String, font: NSFont, color: NSColor, plain: Bool = false) -> NSAttributedString {
+    /// Apply `**bold**`, `*italic*` traits and render inline `$latex$`.
+    private static func inline(_ s: String, font: NSFont, color: NSColor, isDark: Bool, plain: Bool = false) -> NSAttributedString {
         let result = NSMutableAttributedString(string: s, attributes: [.font: font, .foregroundColor: color])
         guard !plain else { return result }
+        // Inline LaTeX first (before emphasis, so `$…$` content isn't mangled).
+        applyInlineLatex(to: result, fontSize: font.pointSize, isDark: isDark)
         applyTrait(#"\*\*(.+?)\*\*"#, to: result, base: font) { boldFont($0) }
         applyTrait(#"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#, to: result, base: font) { italicFont($0) }
         return result
+    }
+
+    private static func applyInlineLatex(to str: NSMutableAttributedString, fontSize: CGFloat, isDark: Bool) {
+        guard let regex = try? NSRegularExpression(pattern: #"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)"#) else { return }
+        let full = str.string
+        let matches = regex.matches(in: full, range: NSRange(full.startIndex..., in: full)).reversed()
+        for m in matches where m.numberOfRanges >= 2 {
+            let latexSrc = (str.string as NSString).substring(with: m.range(at: 1))
+            guard let img = latexImage(latexSrc, fontSize: fontSize, isDark: isDark) else { continue }
+            str.replaceCharacters(in: m.range, with: attachmentString(img, maxWidth: textContentWidth))
+        }
     }
 
     private static func applyTrait(_ pattern: String, to str: NSMutableAttributedString, base: NSFont, transform: (NSFont) -> NSFont) {
@@ -147,6 +192,48 @@ enum NoteTranscluder {
             str.replaceCharacters(in: m.range, with: inner)
             str.addAttribute(.font, value: transform(base), range: NSRange(location: m.range.location, length: (inner as NSString).length))
         }
+    }
+
+    // MARK: - Embedded images (LaTeX / Mermaid)
+
+    private static func latexImage(_ source: String, fontSize: CGFloat, isDark: Bool) -> NSImage? {
+        var theme = MarkdownEditorTheme.default
+        let color: NSColor = isDark ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.1, alpha: 1)
+        theme.latexLightModeText = color
+        theme.latexDarkModeText = color
+        return latex.render(latex: source, fontSize: fontSize, theme: theme)?.image
+    }
+
+    private static func mermaidImage(_ source: String, isDark: Bool) -> NSImage? {
+        let diagramTheme = (isDark ? DiagramTheme.zincDark : DiagramTheme.zincLight).withTransparent()
+        guard let rendered = (try? MermaidRenderer.renderImage(source: source, theme: diagramTheme)) ?? nil,
+              rendered.size.width > 0, rendered.size.height > 0 else { return nil }
+        // BeautifulMermaid draws bottom-left origin; flip to display upright.
+        let size = rendered.size
+        let flipped = NSImage(size: size)
+        flipped.lockFocus()
+        let t = NSAffineTransform()
+        t.translateX(by: 0, yBy: size.height); t.scaleX(by: 1, yBy: -1); t.concat()
+        rendered.draw(at: .zero, from: NSRect(origin: .zero, size: size), operation: .copy, fraction: 1)
+        flipped.unlockFocus()
+        return flipped
+    }
+
+    /// A standalone (block) image line scaled to fit `maxWidth`.
+    private static func imageAttachment(_ image: NSImage, maxWidth: CGFloat) -> NSAttributedString {
+        attachmentString(image, maxWidth: maxWidth)
+    }
+
+    private static func attachmentString(_ image: NSImage, maxWidth: CGFloat) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        var size = image.size
+        if size.width > maxWidth {
+            let scale = maxWidth / size.width
+            size = NSSize(width: maxWidth, height: size.height * scale)
+        }
+        attachment.bounds = CGRect(origin: .zero, size: size)
+        return NSAttributedString(attachment: attachment)
     }
 
     private static func boldFont(_ f: NSFont) -> NSFont {
