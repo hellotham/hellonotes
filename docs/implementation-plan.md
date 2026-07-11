@@ -84,6 +84,10 @@ Still deferred, with rationale:
 
 iOS scope note: macOS-only features (live styling / code / math via MarkdownEngine, FSEvents watching, Open Quickly, folder tree, tags, Git UI, image paste, Mermaid preview) are not on iOS yet — it is a browse / read / plain-text-edit companion for now. A richer iOS editor (UITextView / TextKit 2) is a future milestone.
 
+### iPadOS layout ✅
+- The iOS shell is a single adaptive `NavigationSplitView` (replacing the earlier `NavigationStack`): a **two-column** list + editor on iPad (and iPhone landscape / regular width), automatically **collapsing to a single-column push stack** on iPhone. One code path serves iPhone, iPad, and iPhone-in-landscape.
+- Verified in both simulators: on iPad, selecting a note opens it in the right-hand editor while the list stays visible on the left; on iPhone, the same selection pushes to a full-screen editor with a back button. Editing autosaves to disk on both.
+
 ---
 
 ## Sequencing notes

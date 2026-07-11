@@ -30,7 +30,7 @@ Early development. Implemented so far:
 - ✅ **Folder tree & polish:** a real folder tree with sort options, a `#tags` sidebar filter, and open-note conflict handling (silent reload / keep-mine).
 - ✅ **Git sync (Milestone 4):** repo status, initialize, local commit, opt-in auto-commit, and user-initiated push/fetch via SwiftGitX.
 - ✅ **Native rendering (Milestone 5):** image paste → `assets/` folder, a front-matter panel, and native Mermaid diagram preview (no WebView).
-- ✅ **iOS shell (Milestone 6):** a `NavigationStack` app — folder picker, note list, and a plain-text editor sharing the Core/State layers (browse/read/edit companion).
+- ✅ **iOS & iPadOS shell (Milestone 6):** an adaptive `NavigationSplitView` — two columns (list + editor) on iPad, collapsing to a push stack on iPhone — sharing the Core/State layers (browse/read/edit companion).
 - 🚧 Next: a richer iOS editor, pull/merge, and an in-app git identity.
 
 Roadmap and milestones: [docs/implementation-plan.md](docs/implementation-plan.md).
