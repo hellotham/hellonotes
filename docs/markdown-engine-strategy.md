@@ -28,7 +28,11 @@
 - **Fixes #5–7 landed — callouts, comments, front-matter hiding.** Three styling passes on the
   fork (@ `51e64e2`): `> [!type]` callouts render as tinted boxes (new `.calloutTint` fragment
   attribute), `%%…%%` comments dim, and the leading `---` front matter collapses (revealing on
-  caret). All verified live. Remaining: transclusion (#8), plus the Foundation Models track.
+  caret). All verified live.
+- **Fix #8 landed — note transclusion.** Host-side: a `VaultEmbedProvider` renders `![[Note]]`
+  / `![[Note#heading]]` to an inline card via `NoteTranscluder`, reusing the engine's
+  image-embed path (no engine change). Verified live. All eight editor limitations are now
+  resolved. Next: the Foundation Models track.
 - Workflow: patches land on `hellonotes-patches`; open upstream PRs to shrink the delta.
 
 Every editor-layer item in [unimplemented.md](unimplemented.md) is blocked by a missing

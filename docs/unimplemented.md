@@ -30,11 +30,14 @@ we'd need. Several features have been shaped around these walls.
   renders resolved/clickable), and the host parses the fragment on click to post the same
   `.hnEditorFindQuery`. Verified live.
 
-- 🧱 **Note transclusion / embeds `![[Note]]` / `![[Note#heading]]`** *(Obsidian review)*
-  Rendering another note (or a heading/block of it) inline. Image embeds `![[image]]`
-  work, but embedding note *content* needs a custom block-render hook the engine
-  doesn't expose (same class as inline Mermaid). **Unblock:** an upstream embed/render
-  hook, or a fork.
+- ✅ **Note transclusion / embeds `![[Note]]` / `![[Note#heading]]`** *(Obsidian review)* —
+  **RESOLVED (host-side).** A `VaultEmbedProvider` set as the engine's image provider renders a
+  referenced note (or one `#heading` section) to an inline card image via `NoteTranscluder`,
+  reusing the existing image-embed block path — no engine change needed. Verified live.
+  *(Limitation: the transclusion is a lightweight static render — headings/lists/emphasis/code,
+  front matter stripped — not the full live editor, so LaTeX/Mermaid/callouts inside a
+  transcluded note don't render. Refresh on the source note's change via a vault-revision
+  fingerprint.)*
 
 - ✅ **Callouts `> [!note]` and comments `%%…%%`** *(Obsidian review)* — **RESOLVED via the
   fork.** `> [!type]` callouts render as tinted boxes (colored band + accent bar + bold title,
