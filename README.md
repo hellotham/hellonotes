@@ -69,7 +69,7 @@ Swift Package Manager, native Apple frameworks, **zero WebView/Electron dependen
 Requirements: **macOS 14+**, **Xcode 26+** (Swift 5.10+).
 
 ```bash
-git clone https://github.com/ChristineTham/hellonotes.git
+git clone https://github.com/hellotham/hellonotes.git
 cd hellonotes
 
 # Open in Xcode (SPM dependencies resolve automatically on first open)

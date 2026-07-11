@@ -19,7 +19,7 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements today | App Sandbox, User‑selected files (read/write) |
 | Min OS | **macOS 15.0** |
-| Website | <https://christham.net/hellonotes/> (Privacy · Support live) |
+| Website | <https://hellotham.github.io/hellonotes/> (Privacy · Support live) |
 
 ---
 
@@ -223,12 +223,12 @@ markdown,knowledge base,wiki,backlinks,zettelkasten,pkm,notes,notetaking,git,gra
 
 **Support URL** (required — replace with a real page you control):
 ```
-https://christham.net/hellonotes/support.html
+https://hellotham.github.io/hellonotes/support.html
 ```
 
 **Marketing URL** (optional):
 ```
-https://christham.net/hellonotes/
+https://hellotham.github.io/hellonotes/
 ```
 
 **Copyright**:
@@ -259,10 +259,10 @@ App Store Connect ▸ your app ▸ **App Privacy**.
   HelloNotes stores everything locally; on-device AI sends nothing off-device; any
   Git remote is a destination the *user* configures for their *own* data.
 - **Privacy Policy URL** (required even when nothing is collected). ✅ **Live** — the
-  landing site is deployed at <https://christham.net/hellonotes/> with working
+  landing site is deployed at <https://hellotham.github.io/hellonotes/> with working
   Privacy and Support pages. Paste:
   ```
-  https://christham.net/hellonotes/privacy.html
+  https://hellotham.github.io/hellonotes/privacy.html
   ```
 
 ---
