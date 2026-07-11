@@ -32,7 +32,11 @@
 - **Fix #8 landed — note transclusion.** Host-side: a `VaultEmbedProvider` renders `![[Note]]`
   / `![[Note#heading]]` to an inline card via `NoteTranscluder`, reusing the engine's
   image-embed path (no engine change). Verified live. All eight editor limitations are now
-  resolved. Next: the Foundation Models track.
+  resolved.
+- **Foundation Models track landed.** `NoteIntelligence` wraps Apple's on-device model
+  (macOS 26+, gated by `canImport` + `@available`): Summarize, Suggest Tags, and Suggest Links
+  (the latter two via `@Generable` guided generation), surfaced through an Intelligence sheet.
+  Editor-independent, as planned. Verified live on-device.
 - Workflow: patches land on `hellonotes-patches`; open upstream PRs to shrink the delta.
 
 Every editor-layer item in [unimplemented.md](unimplemented.md) is blocked by a missing
@@ -100,6 +104,10 @@ does something structurally identical we can copy.
 Net: **six of eight are easy/moderate**, and the two highest-value (jump-to-location, inline
 Mermaid) are the *cheapest* because the engine already contains the pattern.
 
+> **Status:** all eight are now **shipped** (see the Progress section above). #8 landed
+> host-side (rendering the transcluded note to an image) rather than via a new engine
+> block-render hook.
+
 ## Apple Intelligence — two independent tracks
 
 1. **Writing Tools** (rewrite / proofread / summarize a selection, macOS 15.1+): **already
@@ -111,14 +119,12 @@ Mermaid) are the *cheapest* because the engine already contains the pattern.
 2. **Foundation Models framework** (on-device LLM, macOS 26 / Xcode 26): the app-level AI
    path, **entirely independent of the editor**. A `LanguageModelSession` runs inference
    in a few lines of Swift; WWDC26 also lets other providers (incl. Anthropic/Google) swap
-   into the same API. Candidate HelloNotes features, all buildable without touching the
-   engine:
-   - Summarize / outline the current note or a selection.
-   - Semantic vault search and "chat with your vault" (retrieve over the existing search
-     index, answer with citations to notes).
-   - Suggest `[[links]]` and `#tags` for a note (great pairing with our unlinked-mentions
-     and tag features).
-   - Generate from a template / expand a stub note.
+   into the same API. **Shipped** as `NoteIntelligence` + the Intelligence sheet:
+   - ✅ Summarize the current note (insertable as a `> [!summary]` callout).
+   - ✅ Suggest `#tags` for a note (`@Generable`, reuses existing vault tags).
+   - ✅ Suggest `[[links]]` (`@Generable`, chosen from real note titles).
+   - *Still candidate:* semantic vault search / "chat with your vault" (retrieve over the
+     search index, answer with citations); generate-from-template / expand a stub note.
    These are a separate workstream from the engine fork and can proceed in parallel.
 
 ## Risks & mitigations
