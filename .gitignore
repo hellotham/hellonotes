@@ -14,3 +14,7 @@ DerivedData/
 ## Swift Package Manager
 .swiftpm/
 .build/
+
+# Distribution artifacts
+dist/
+*.dmg
