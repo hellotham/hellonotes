@@ -14,6 +14,12 @@ struct DocumentHeading: Hashable {
     let title: String
 }
 
+/// A `key: value` line from a note's YAML front matter.
+struct FrontMatterField: Hashable {
+    let key: String
+    let value: String
+}
+
 /// Pure, UI-agnostic Markdown parsing helpers (Core layer).
 ///
 /// Wiki-links and hashtags are not part of GitHub-Flavored Markdown, so they
@@ -54,6 +60,39 @@ nonisolated enum MarkdownParsing {
     /// The distinct hashtags in `text`, without the leading `#`.
     static func tags(in text: String) -> [String] {
         matches(of: tagRegex, in: text, group: 1).uniqued()
+    }
+
+    /// Matches fenced ```mermaid blocks, capturing the diagram source (group 1).
+    private static let mermaidRegex = try! NSRegularExpression(
+        pattern: "```mermaid[ \\t]*\\n(.*?)\\n```",
+        options: [.dotMatchesLineSeparators]
+    )
+
+    /// The Mermaid diagram sources found in fenced ```mermaid blocks.
+    static func mermaidBlocks(in text: String) -> [String] {
+        matches(of: mermaidRegex, in: text, group: 1)
+    }
+
+    /// Parse leading YAML front matter (a `---`-delimited block at the very top)
+    /// into ordered `key: value` fields. Returns `nil` when there is no
+    /// well-formed front matter (missing opening or closing `---`).
+    static func frontMatter(in text: String) -> [FrontMatterField]? {
+        let lines = text.components(separatedBy: "\n")
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return nil }
+
+        var fields: [FrontMatterField] = []
+        for line in lines.dropFirst() {
+            if line.trimmingCharacters(in: .whitespaces) == "---" {
+                return fields // reached the closing delimiter → valid
+            }
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let key = line[..<colon].trimmingCharacters(in: .whitespaces)
+            let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            if !key.isEmpty {
+                fields.append(FrontMatterField(key: key, value: value))
+            }
+        }
+        return nil // no closing delimiter → not front matter
     }
 
     /// The headings in `text`, in document order, parsed from the GFM AST.

@@ -7,6 +7,7 @@
 
 import Testing
 import Foundation
+import AppKit
 @testable import HelloNotes
 
 struct HelloNotesTests {
@@ -200,6 +201,41 @@ struct HelloNotesTests {
     }
 
     @Test
+    func parsesFrontMatter() {
+        let withFM = "---\ntitle: My Note\ntags: a, b\n---\n\n# Body"
+        let fields = MarkdownParsing.frontMatter(in: withFM)
+        #expect(fields == [
+            FrontMatterField(key: "title", value: "My Note"),
+            FrontMatterField(key: "tags", value: "a, b"),
+        ])
+
+        // No closing delimiter → not front matter.
+        #expect(MarkdownParsing.frontMatter(in: "---\ntitle: X\n\n# Body") == nil)
+        // No opening delimiter → nil.
+        #expect(MarkdownParsing.frontMatter(in: "# Just a heading") == nil)
+    }
+
+    @Test
+    func extractsMermaidBlocks() {
+        let text = """
+        # Diagrams
+
+        ```mermaid
+        graph TD
+        A --> B
+        ```
+
+        Some text.
+
+        ```swift
+        let x = 1
+        ```
+        """
+        let blocks = MarkdownParsing.mermaidBlocks(in: text)
+        #expect(blocks == ["graph TD\nA --> B"])
+    }
+
+    @Test
     func extractsHeadingsAndTags() {
         let text = "# Title\n\nBody #alpha and #beta/child.\n\n## Sub"
         let headings = MarkdownParsing.headings(in: text)
@@ -340,6 +376,40 @@ struct HelloNotesTests {
         await git.commitAll(message: "Initial commit")
         #expect(git.lastError == nil)
         #expect(git.status.isClean)
+    }
+
+    // MARK: - Image paste
+
+    @Test @MainActor
+    func pastedImageIsSavedAndLinked() throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let noteURL = vault.appendingPathComponent("Note.md")
+        try write("# Note", to: noteURL)
+
+        // Build a 1×1 PNG and put it on a pasteboard.
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.red.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        let png = NSBitmapImageRep(data: image.tiffRepresentation!)!.representation(using: .png, properties: [:])!
+
+        let pasteboard = NSPasteboard(name: .init("HelloNotesTestPasteboard"))
+        pasteboard.clearContents()
+        pasteboard.setData(png, forType: .png)
+
+        let markdown = try #require(
+            ImagePaste.saveImage(from: pasteboard, nextTo: noteURL, timestamp: Date(timeIntervalSince1970: 1_000_000))
+        )
+
+        #expect(markdown.hasPrefix("![](assets/Pasted-"))
+        #expect(markdown.hasSuffix(".png)"))
+        // The referenced file exists next to the note.
+        let assetName = markdown.dropFirst("![](assets/".count).dropLast(")".count)
+        let assetURL = vault.appendingPathComponent("assets").appendingPathComponent(String(assetName))
+        #expect(FileManager.default.fileExists(atPath: assetURL.path))
     }
 
     // MARK: - VaultTree

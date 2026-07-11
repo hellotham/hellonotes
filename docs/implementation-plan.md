@@ -65,9 +65,15 @@ Still deferred, with rationale:
 - **Real git identity UI** — commits currently fall back to the OS account identity when global config is unreadable; a proper in-app git-identity setting is a follow-up.
 - **Conflict-resolution UI** for merge conflicts (P2).
 
-## Milestone 5 — Native rendering polish (v0.3+)  [P1/P2]
-- Mermaid code blocks → native diagrams (beautiful-mermaid-swift).
-- Tables UX, footnotes, front-matter panel, image paste → asset folder.
+## Milestone 5 — Native rendering polish (v0.3+)  ✅ (mostly done)  [P1/P2]
+- ✅ **Image paste → asset folder** (`Core/ImagePaste`): a pasted image is saved as a PNG in an `assets/` folder beside the note, and a relative `![](assets/…)` link is inserted — notes stay plain text referencing real files.
+- ✅ **Front-matter panel** (`MarkdownParsing.frontMatter` + `NoteEditorView`): leading `---` YAML is shown as a key/value summary above the editor.
+- ✅ **Native Mermaid** (`UI/MermaidPreviewView` + beautiful-mermaid): a Diagrams toolbar button renders the note's ```mermaid blocks as native images — no WebView. (Fixed a Core Graphics origin flip so diagrams display right-way-up.)
+- Tables & footnotes already render live via MarkdownEngine.
+
+Still deferred, with rationale:
+- **Inline Mermaid in the editor** — MarkdownEngine exposes no custom code-block render hook, so diagrams preview in a sheet rather than rendering inline. Inline would require an upstream feature or a fork.
+- **Hiding raw front matter in the editor** — MarkdownEngine renders the `---` block as text; the panel is an additional summary. Suppressing the raw block needs an editor hook we don't have.
 
 ## Milestone 6 — iOS shell (v0.4)  [P2]
 - Extract Core/State into platform-agnostic form.

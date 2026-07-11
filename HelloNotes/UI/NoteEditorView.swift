@@ -29,6 +29,16 @@ struct NoteEditorView: View {
     /// Called to open a note from the backlinks panel.
     var onOpenNote: (Note) -> Void = { _ in }
 
+    @State private var showMermaid = false
+
+    private var frontMatter: [FrontMatterField]? {
+        MarkdownParsing.frontMatter(in: editor.text)
+    }
+
+    private var mermaidSources: [String] {
+        MarkdownParsing.mermaidBlocks(in: editor.text)
+    }
+
     var body: some View {
         Group {
             if editor.note == nil {
@@ -43,10 +53,16 @@ struct NoteEditorView: View {
                         conflictBanner
                     }
 
+                    if let frontMatter, !frontMatter.isEmpty {
+                        frontMatterPanel(frontMatter)
+                        Divider()
+                    }
+
                     NativeTextViewWrapper(
                         text: $editor.text,
                         configuration: configuration,
                         documentId: editor.note?.fileURL.path ?? "default",
+                        onPasteImage: pasteImage,
                         onLinkClick: onOpenWikiLink
                     )
 
@@ -58,11 +74,53 @@ struct NoteEditorView: View {
                 .navigationTitle(editor.note?.title ?? "")
                 .toolbar {
                     ToolbarItem(placement: .automatic) {
+                        Button {
+                            showMermaid = true
+                        } label: {
+                            Label("Diagrams", systemImage: "chart.xyaxis.line")
+                        }
+                        .help("Preview Mermaid diagrams")
+                        .disabled(mermaidSources.isEmpty)
+                    }
+                    ToolbarItem(placement: .automatic) {
                         saveStatus
                     }
                 }
+                .sheet(isPresented: $showMermaid) {
+                    MermaidPreviewView(sources: mermaidSources)
+                }
             }
         }
+    }
+
+    // MARK: - Front matter
+
+    private func frontMatterPanel(_ fields: [FrontMatterField]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(fields, id: \.self) { field in
+                HStack(alignment: .top, spacing: 8) {
+                    Text(field.key)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 80, alignment: .leading)
+                    Text(field.value)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.3))
+    }
+
+    // MARK: - Image paste
+
+    /// Persist a pasted image beside the note and return the Markdown to insert.
+    private func pasteImage(_ pasteboard: NSPasteboard) -> String? {
+        guard let noteURL = editor.note?.fileURL else { return nil }
+        return ImagePaste.saveImage(from: pasteboard, nextTo: noteURL, timestamp: .now)
     }
 
     // MARK: - Conflict banner
