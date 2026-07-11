@@ -55,10 +55,13 @@ we'd need. Several features have been shaped around these walls.
   when navigating via the link resolver elsewhere; this is specifically the in-editor
   click path.) **Unblock:** a link-click callback that also fires for unresolved links.
 
-- 🧱 **Inline Mermaid rendering in the editor** *(Milestone 5)*
-  ` ```mermaid ` blocks preview in a sheet (Diagrams button) rather than rendering
-  inline, because the engine exposes no custom code-block render hook. **Unblock:**
-  an upstream custom-renderer hook, or a fork.
+- ✅ **Inline Mermaid rendering in the editor** *(Milestone 5)* — **RESOLVED via the fork.**
+  The fork adds a `DiagramRenderer` service (mirroring `LatexRenderer`); HelloNotes supplies
+  a `MermaidDiagramRenderer` (BeautifulMermaid) so standalone ` ```mermaid ` blocks now render
+  as native images **inline in the editor**, collapsing the fence like block LaTeX. The caret
+  reveals the source for editing and re-renders on blur. Verified live. The Diagrams sheet
+  remains as a full-size gallery. *(Follow-ups: theme-match the diagram to light/dark, and clamp
+  very wide diagrams to the reading width — the engine has a scrollable-block mode we don't use yet.)*
 
 - 🧱 **Hiding raw front matter in the editor** *(Milestone 5)*
   The leading `---` YAML block renders as plain text in the editor; we show a separate

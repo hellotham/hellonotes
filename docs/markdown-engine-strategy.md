@@ -11,8 +11,13 @@
   uses the TextKit 2 fragment path universally (7-line change). Outline **jump-to-heading
   now scrolls** (verified live). `[[Note#heading]]` **link clicks** now navigate *and*
   scroll — a host-side follow-up: the resolver strips the `#heading` so the link renders
-  clickable, and the click handler posts the find query to scroll. Next: Fix #2 (inline
-  Mermaid).
+  clickable, and the click handler posts the find query to scroll.
+- **Fix #2 landed — inline Mermaid.** The fork adds a `DiagramRenderer` service and a
+  `styleDiagramBlocks` pass (`hellonotes-patches` @ `759c26e`); HelloNotes supplies a
+  `MermaidDiagramRenderer` so ` ```mermaid ` fences render inline as images and toggle to
+  source on caret-enter (verified live). Same `appendRenderedStandaloneBlock` machinery as
+  block LaTeX. Next: Fix #3 (find & replace) / #4 (tag autocomplete), or the Foundation
+  Models track.
 - Workflow: patches land on `hellonotes-patches`; open upstream PRs to shrink the delta.
 
 Every editor-layer item in [unimplemented.md](unimplemented.md) is blocked by a missing
