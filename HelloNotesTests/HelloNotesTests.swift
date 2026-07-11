@@ -387,6 +387,107 @@ struct HelloNotesTests {
         #expect(search.tagTree().first { $0.name == "project" }?.children.map(\.name) == ["hellonotes"])
     }
 
+    // MARK: - Aliases, links & mentions
+
+    @Test
+    func aliasesParsedFromFrontMatter() {
+        #expect(MarkdownParsing.aliases(in: "---\naliases: [NL, NoteLens]\ntitle: X\n---\nbody") == ["NL", "NoteLens"])
+        #expect(MarkdownParsing.aliases(in: "---\naliases:\n  - NL\n  - Note Lens\n---\n") == ["NL", "Note Lens"])
+        #expect(MarkdownParsing.aliases(in: "---\naliases: NL\n---\n") == ["NL"])
+        #expect(MarkdownParsing.aliases(in: "no front matter here") == [])
+    }
+
+    @Test @MainActor
+    func linkGraphResolvesAliasesAndOutgoing() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        try write("---\naliases: [Home]\n---\n# Welcome", to: vault.appendingPathComponent("Welcome.md"))
+        try write("Link to [[Home]] and [[Welcome]].", to: vault.appendingPathComponent("Ideas.md"))
+
+        let indexer = WorkspaceIndexer()
+        indexer.selectedVaultURL = vault
+        indexer.scanVault()
+        let graph = LinkGraph()
+        await graph.rebuild(from: indexer.notes)
+
+        let welcome = try #require(indexer.notes.first { $0.title == "Welcome" })
+        let ideas = try #require(indexer.notes.first { $0.title == "Ideas" })
+        // Ideas links Welcome via its alias and title → a single backlink from Ideas.
+        #expect(graph.backlinks(for: welcome, in: indexer.notes).map(\.title) == ["Ideas"])
+        // Outgoing from Ideas resolves both targets to the one Welcome note.
+        #expect(graph.outgoingLinks(for: ideas, in: indexer.notes).map(\.title) == ["Welcome"])
+        #expect(graph.resolve("home") == welcome.fileURL)
+    }
+
+    @Test
+    func mentionScannerDetectsAndLinks() {
+        #expect(MentionScanner.containsMention(of: ["Welcome"], in: "See Welcome for intro. Also [[Welcome]].") == true)
+        #expect(MentionScanner.containsMention(of: ["Welcome"], in: "Only [[Welcome]] here.") == false)
+        #expect(MentionScanner.containsMention(of: ["Missing"], in: "no mention") == false)
+        #expect(MentionScanner.linkingFirstMention(of: "Welcome", in: "See Welcome now.") == "See [[Welcome]] now.")
+        #expect(MentionScanner.linkingFirstMention(of: "Welcome", in: "Only [[Welcome]].") == nil)
+    }
+
+    // MARK: - Templates, properties & graph layout
+
+    @Test
+    func templateExpanderExpandsPlaceholders() {
+        let utc = TimeZone(identifier: "UTC")!
+        let date = Date(timeIntervalSince1970: 1_782_777_600)
+        let out = TemplateExpander.expand("# {{title}} — {{date}} {{time}}", title: "Note", date: date, timeZone: utc)
+        #expect(out.contains("# Note — "))
+        #expect(!out.contains("{{"))
+        #expect(TemplateExpander.dailyNoteName(for: date, format: "yyyy-MM-dd", timeZone: utc).count == 10)
+    }
+
+    @Test
+    func frontMatterParsesTypesAndRoundTrips() {
+        let text = """
+        ---
+        title: Hello World
+        published: true
+        count: 3
+        due: 2026-07-11
+        tags:
+          - a
+          - b
+        ---
+        Body text here.
+        """
+        let props = FrontMatter.properties(in: text)
+        #expect(props.map(\.key) == ["title", "published", "count", "due", "tags"])
+        #expect(props.first { $0.key == "published" }?.kind == .checkbox)
+        #expect(props.first { $0.key == "published" }?.bool == true)
+        #expect(props.first { $0.key == "count" }?.kind == .number)
+        #expect(props.first { $0.key == "due" }?.kind == .date)
+        #expect(props.first { $0.key == "tags" }?.items == ["a", "b"])
+
+        let applied = FrontMatter.applying(props, to: text)
+        #expect(applied.contains("Body text here."))
+        let reparsed = FrontMatter.properties(in: applied)
+        #expect(reparsed.map(\.key) == props.map(\.key))
+        #expect(reparsed.first { $0.key == "tags" }?.items == ["a", "b"])
+
+        // Removing all properties strips the front matter, keeping the body.
+        let stripped = FrontMatter.applying([], to: text)
+        #expect(stripped.contains("Body text here."))
+        #expect(!stripped.contains("---"))
+    }
+
+    @Test
+    func graphLayoutPlacesNodesInBounds() {
+        let size = CGSize(width: 400, height: 300)
+        let positions = GraphLayout.positions(
+            count: 5, edges: [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)], size: size, iterations: 50
+        )
+        #expect(positions.count == 5)
+        for point in positions {
+            #expect(point.x >= 0 && point.x <= size.width)
+            #expect(point.y >= 0 && point.y <= size.height)
+        }
+        #expect(GraphLayout.positions(count: 0, edges: [], size: size).isEmpty)
+    }
+
     // MARK: - GitService
 
     @Test @MainActor

@@ -33,8 +33,16 @@ struct MacContentView: View {
     /// Git status + operations for the vault.
     @State private var git = GitService()
 
+    /// Per-vault bookmarked notes.
+    @State private var bookmarks = BookmarksStore()
+
     /// Opt-in background local auto-commit (never auto-pushes).
     @AppStorage("gitAutoCommit") private var autoCommit = false
+
+    /// Daily-notes & templates configuration.
+    @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
+    @AppStorage("dailyDateFormat") private var dailyDateFormat = "yyyy-MM-dd"
+    @AppStorage("templatesFolder") private var templatesFolder = "Templates"
 
     /// Selected note identity (its file URL — stable across re-indexing).
     @State private var selectedNoteID: Note.ID?
@@ -44,6 +52,9 @@ struct MacContentView: View {
 
     /// Whether the ⌘O "Open Quickly" palette is showing.
     @State private var showOpenQuickly = false
+
+    /// Whether the link-graph sheet is showing.
+    @State private var showGraph = false
 
     /// How notes are ordered in the folder tree.
     @State private var sortOrder: VaultSortOrder = .modified
@@ -80,6 +91,21 @@ struct MacContentView: View {
     /// The vault's hashtags as a nested tree for the sidebar.
     private var tagTree: [TagNode] { search.tagTree() }
 
+    /// Nodes and resolved edges for the link-graph view.
+    private var graphData: (nodes: [GraphNode], edges: [GraphEdge]) {
+        let notes = indexer.notes
+        let indexByURL = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.fileURL, $0) })
+        var edges: [GraphEdge] = []
+        for (i, note) in notes.enumerated() {
+            for target in linkGraph.outgoingByURL[note.fileURL] ?? [] {
+                if let destURL = linkGraph.resolve(target), let j = indexByURL[destURL], j != i {
+                    edges.append(GraphEdge(from: i, to: j))
+                }
+            }
+        }
+        return (notes.map { GraphNode(url: $0.fileURL, label: $0.title) }, edges)
+    }
+
     private var selectedNote: Note? {
         indexer.notes.first { $0.id == selectedNoteID }
     }
@@ -92,6 +118,28 @@ struct MacContentView: View {
     private var backlinks: [Note] {
         guard let selectedNote else { return [] }
         return linkGraph.backlinks(for: selectedNote, in: indexer.notes)
+    }
+
+    private var outgoingLinks: [Note] {
+        guard let selectedNote else { return [] }
+        return linkGraph.outgoingLinks(for: selectedNote, in: indexer.notes)
+    }
+
+    /// The open note's title plus any aliases — the names an unlinked mention
+    /// can use to refer to it.
+    private var currentNoteNames: [String] {
+        guard let selectedNote else { return [] }
+        let text = activeEditor?.text ?? search.text(of: selectedNote) ?? ""
+        return [selectedNote.title] + MarkdownParsing.aliases(in: text)
+    }
+
+    private var unlinkedMentions: [Note] {
+        guard let selectedNote else { return [] }
+        return search.unlinkedMentions(
+            of: selectedNote,
+            names: currentNoteNames,
+            excluding: Set(backlinks.map(\.fileURL))
+        )
     }
 
     var body: some View {
@@ -112,6 +160,7 @@ struct MacContentView: View {
                 git.vaultURL = url
                 await git.refreshStatus()
             }
+            bookmarks.load(vaultURL: indexer.selectedVaultURL)
             refreshDerived(with: indexer.notes)
         }
         .onChange(of: selectedNoteID) { _, newID in
@@ -126,6 +175,7 @@ struct MacContentView: View {
                 git.vaultURL = url
                 Task { await git.refreshStatus() }
             }
+            bookmarks.load(vaultURL: url)
         }
         .onChange(of: indexer.notes) { _, notes in
             // Note set changed (scan / create / delete): refresh derived data
@@ -155,6 +205,16 @@ struct MacContentView: View {
         .sheet(isPresented: $showOpenQuickly) {
             OpenQuicklyView(search: search) { selectedNoteID = $0.id }
         }
+        .sheet(isPresented: $showGraph) {
+            let data = graphData
+            GraphView(nodes: data.nodes, edges: data.edges) { url in
+                if let note = indexer.notes.first(where: { $0.fileURL == url }) {
+                    selectedTag = nil
+                    searchText = ""
+                    selectedNoteID = note.id
+                }
+            }
+        }
     }
 
     // MARK: - Column 1: Sidebar
@@ -180,6 +240,41 @@ struct MacContentView: View {
                     newNote()
                 } label: {
                     Label("New Note", systemImage: "square.and.pencil")
+                }
+
+                Button {
+                    openTodaysNote()
+                } label: {
+                    Label("Today's Note", systemImage: "calendar")
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+
+                Button {
+                    showGraph = true
+                } label: {
+                    Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(indexer.notes.isEmpty)
+
+                let bookmarked = bookmarks.bookmarkedNotes(from: indexer.notes)
+                if !bookmarked.isEmpty {
+                    Divider()
+                    Text("BOOKMARKS")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    ForEach(bookmarked) { note in
+                        Button {
+                            selectedTag = nil
+                            searchText = ""
+                            selectedNoteID = note.id
+                        } label: {
+                            Label(note.title, systemImage: "bookmark.fill")
+                                .lineLimit(1)
+                                .foregroundStyle(selectedNoteID == note.id ? Color.accentColor : Color.primary)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
 
                 if !tags.isEmpty {
@@ -314,11 +409,15 @@ struct MacContentView: View {
                 NoteEditorView(
                     editor: activeEditor,
                     backlinks: backlinks,
+                    outgoingLinks: outgoingLinks,
+                    unlinkedMentions: unlinkedMentions,
                     wikiResolver: wikiResolver,
                     git: git,
-                    linkCandidates: indexer.notes.map(\.title),
+                    linkCandidates: search.linkTargets(),
+                    headingProvider: { search.headings(forName: $0) },
                     onOpenWikiLink: openWikiLink,
-                    onOpenNote: { selectedNoteID = $0.id }
+                    onOpenNote: { selectedNoteID = $0.id },
+                    onLinkMention: linkMention
                 )
             } else {
                 ContentUnavailableView(
@@ -349,9 +448,13 @@ struct MacContentView: View {
                 ForEach(taggedRows) { flatRow($0) }
             } else {
                 ForEach(tree) { node in
-                    VaultTreeRow(node: node, onDelete: delete) { note in
-                        openWindow(value: note.fileURL)
-                    }
+                    VaultTreeRow(
+                        node: node,
+                        onDelete: delete,
+                        onOpenInNewWindow: { openWindow(value: $0.fileURL) },
+                        isBookmarked: bookmarks.isBookmarked,
+                        onToggleBookmark: bookmarks.toggle
+                    )
                 }
             }
         }
@@ -369,6 +472,21 @@ struct MacContentView: View {
                     Label("Sort", systemImage: "arrow.up.arrow.down")
                 }
                 .disabled(indexer.notes.isEmpty || isSearching || selectedTag != nil)
+            }
+            ToolbarItem {
+                Menu {
+                    if templateNotes.isEmpty {
+                        Text("No templates in \(templatesFolder.isEmpty ? "—" : "\"\(templatesFolder)\"")")
+                    } else {
+                        ForEach(templateNotes) { template in
+                            Button(template.title) { insertTemplate(template) }
+                        }
+                    }
+                } label: {
+                    Label("Insert Template", systemImage: "doc.badge.plus")
+                }
+                .help("Insert a template into the current note")
+                .disabled(activeEditor == nil || templateNotes.isEmpty)
             }
             ToolbarItem {
                 Button {
@@ -412,6 +530,7 @@ struct MacContentView: View {
         }
         .tag(row.note.id)
         .contextMenu {
+            bookmarkButton(row.note)
             Button {
                 openWindow(value: row.note.fileURL)
             } label: {
@@ -426,15 +545,30 @@ struct MacContentView: View {
         }
     }
 
+    /// Context-menu toggle for bookmarking a note.
+    @ViewBuilder
+    private func bookmarkButton(_ note: Note) -> some View {
+        let on = bookmarks.isBookmarked(note)
+        Button {
+            bookmarks.toggle(note)
+        } label: {
+            Label(on ? "Remove Bookmark" : "Add Bookmark",
+                  systemImage: on ? "bookmark.slash" : "bookmark")
+        }
+    }
+
     // MARK: - Actions
 
     /// Keep the derived data (wiki-link resolver, backlink graph, search index)
     /// in sync with the current note set.
     private func refreshDerived(with notes: [Note]) {
+        // Titles first so links are clickable immediately; the async rebuild then
+        // adds aliases to the resolver so `[[alias]]` resolves too.
         wikiResolver.update(titles: notes.map(\.title))
         Task {
             await linkGraph.rebuild(from: notes)
             await search.refresh(from: notes)
+            wikiResolver.update(titles: Array(linkGraph.resolution.keys))
         }
     }
 
@@ -451,10 +585,50 @@ struct MacContentView: View {
         fileWatcher = watcher
     }
 
+    /// Turn the first plain-text mention of the open note (by title) in `note`
+    /// into a `[[link]]`, writing the change to disk and re-indexing.
+    private func linkMention(_ note: Note) {
+        guard let target = selectedNote,
+              let text = try? String(contentsOf: note.fileURL, encoding: .utf8),
+              let updated = MentionScanner.linkingFirstMention(of: target.title, in: text) else { return }
+        try? Data(updated.utf8).write(to: note.fileURL, options: .atomic)
+        indexer.scanVault()
+    }
+
     private func newNote() {
         if let note = indexer.createNote() {
             selectedNoteID = note.id
         }
+    }
+
+    // MARK: - Daily notes & templates
+
+    /// Open today's daily note, creating it (with a date heading) if needed.
+    private func openTodaysNote() {
+        let name = TemplateExpander.dailyNoteName(for: .now, format: dailyDateFormat)
+        let rel = dailyNoteFolder.isEmpty ? "\(name).md" : "\(dailyNoteFolder)/\(name).md"
+        if let note = indexer.note(atRelativePath: rel, creatingWith: "# \(name)\n\n") {
+            selectedTag = nil
+            searchText = ""
+            selectedNoteID = note.id
+        }
+    }
+
+    /// Notes that live under the configured templates folder.
+    private var templateNotes: [Note] {
+        guard !templatesFolder.isEmpty, let vault = indexer.selectedVaultURL else { return [] }
+        let base = vault.appendingPathComponent(templatesFolder).standardizedFileURL.path + "/"
+        return indexer.notes
+            .filter { $0.fileURL.standardizedFileURL.path.hasPrefix(base) }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    /// Append a template's expanded contents to the active note.
+    private func insertTemplate(_ template: Note) {
+        guard let editor = activeEditor,
+              let raw = try? String(contentsOf: template.fileURL, encoding: .utf8) else { return }
+        let expanded = TemplateExpander.expand(raw, title: editor.note?.title ?? "", date: .now)
+        editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
     }
 
     private func delete(_ note: Note) {
@@ -477,9 +651,16 @@ struct MacContentView: View {
             return
         }
 
-        if let match = indexer.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(target) == .orderedSame }) {
+        // Drop any `#heading` suffix — we navigate to the note (the editor can't
+        // reliably scroll to a heading; see docs/unimplemented.md).
+        let base = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
+
+        if let url = linkGraph.resolve(base),
+           let note = indexer.notes.first(where: { $0.fileURL == url }) {
+            selectedNoteID = note.id
+        } else if let match = indexer.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame }) {
             selectedNoteID = match.id
-        } else if let created = indexer.createNote(title: target) {
+        } else if let created = indexer.createNote(title: base) {
             selectedNoteID = created.id
         }
     }

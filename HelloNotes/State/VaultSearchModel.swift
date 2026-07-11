@@ -38,6 +38,7 @@ final class VaultSearchModel {
         let text: String
         let headings: [DocumentHeading]
         let tags: [String]
+        let aliases: [String]
     }
 
     private var entries: [Entry] = []
@@ -47,15 +48,15 @@ final class VaultSearchModel {
         let urls = notes.map(\.fileURL)
         let noteByURL = Dictionary(notes.map { ($0.fileURL, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let loaded = await Task.detached(priority: .utility) { () -> [(URL, String, [DocumentHeading], [String])] in
+        let loaded = await Task.detached(priority: .utility) { () -> [(URL, String, [DocumentHeading], [String], [String])] in
             urls.compactMap { url in
                 guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-                return (url, text, MarkdownParsing.headings(in: text), MarkdownParsing.tags(in: text))
+                return (url, text, MarkdownParsing.headings(in: text), MarkdownParsing.tags(in: text), MarkdownParsing.aliases(in: text))
             }
         }.value
 
-        entries = loaded.compactMap { url, text, headings, tags in
-            noteByURL[url].map { Entry(note: $0, text: text, headings: headings, tags: tags) }
+        entries = loaded.compactMap { url, text, headings, tags, aliases in
+            noteByURL[url].map { Entry(note: $0, text: text, headings: headings, tags: tags, aliases: aliases) }
         }
     }
 
@@ -68,6 +69,15 @@ final class VaultSearchModel {
     /// The vault's hashtags as a hierarchical tree (`a/b` nests `b` under `a`).
     func tagTree() -> [TagNode] {
         TagTree.build(from: allTags())
+    }
+
+    /// All note titles plus their aliases — the candidate targets a
+    /// `[[wiki-link]]` can point at.
+    func linkTargets() -> [String] {
+        var seen = Set<String>()
+        return entries
+            .flatMap { [$0.note.title] + $0.aliases }
+            .filter { seen.insert($0.lowercased()).inserted }
     }
 
     /// Notes tagged with `tag` or any of its nested children (case-insensitive):
@@ -83,6 +93,32 @@ final class VaultSearchModel {
                 }
             }
             .map(\.note)
+    }
+
+    /// Notes that mention `note` by title/alias as plain text without linking it.
+    /// `excluding` skips notes that already link it (shown as backlinks instead).
+    func unlinkedMentions(of note: Note, names: [String], excluding: Set<URL>) -> [Note] {
+        entries.compactMap { entry in
+            guard entry.note.fileURL != note.fileURL,
+                  !excluding.contains(entry.note.fileURL),
+                  MentionScanner.containsMention(of: names, in: entry.text) else { return nil }
+            return entry.note
+        }
+    }
+
+    /// The cached text of a note, if indexed (used to derive its aliases, etc.).
+    func text(of note: Note) -> String? {
+        entries.first { $0.note.fileURL == note.fileURL }?.text
+    }
+
+    /// Heading titles of the note named `name` (matched by title or alias),
+    /// for `[[Note#heading]]` autocomplete.
+    func headings(forName name: String) -> [String] {
+        let needle = name.lowercased()
+        guard let entry = entries.first(where: {
+            $0.note.title.lowercased() == needle || $0.aliases.contains { $0.lowercased() == needle }
+        }) else { return [] }
+        return entry.headings.map(\.title)
     }
 
     /// Notes whose title or body contains `query` (case-insensitive), each with
@@ -132,6 +168,15 @@ final class VaultSearchModel {
                 title: entry.note.title,
                 subtitle: nil
             )]
+            for alias in entry.aliases {
+                items.append(QuickOpenItem(
+                    id: "\(entry.note.fileURL.path)|alias|\(alias)",
+                    note: entry.note,
+                    kind: .note,
+                    title: entry.note.title,
+                    subtitle: "alias: \(alias)"
+                ))
+            }
             for heading in entry.headings {
                 items.append(QuickOpenItem(
                     id: "\(entry.note.fileURL.path)#\(heading.title)",

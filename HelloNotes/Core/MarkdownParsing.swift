@@ -62,6 +62,62 @@ nonisolated enum MarkdownParsing {
         matches(of: tagRegex, in: text, group: 1).uniqued()
     }
 
+    /// The note's alternate names, from an `aliases:` key in YAML front matter.
+    /// Handles a flow list (`aliases: [A, B]`), a block list (`- A` lines), or a
+    /// single scalar (`aliases: A`). Quotes are stripped; order preserved.
+    static func aliases(in text: String) -> [String] {
+        let lines = text.components(separatedBy: "\n")
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return [] }
+
+        var result: [String] = []
+        var index = 1
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "---" { break } // end of front matter
+
+            guard let colon = line.firstIndex(of: ":"),
+                  line[..<colon].trimmingCharacters(in: .whitespaces).lowercased() == "aliases" else {
+                index += 1
+                continue
+            }
+
+            let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            if value.hasPrefix("[") {
+                // Flow list: [A, B, C]
+                let inner = value.dropFirst().drop { $0 == " " }
+                let body = inner.hasSuffix("]") ? inner.dropLast() : inner[...]
+                result = body.split(separator: ",").map { cleanScalar(String($0)) }.filter { !$0.isEmpty }
+            } else if value.isEmpty {
+                // Block list: subsequent `- item` lines.
+                var j = index + 1
+                while j < lines.count {
+                    let itemLine = lines[j].trimmingCharacters(in: .whitespaces)
+                    // A list item is `- x` or a bare `-` — not the closing `---` fence.
+                    guard itemLine == "-" || itemLine.hasPrefix("- ") else { break }
+                    let item = cleanScalar(String(itemLine.dropFirst()))
+                    if !item.isEmpty { result.append(item) }
+                    j += 1
+                }
+            } else {
+                // Single scalar.
+                let scalar = cleanScalar(value)
+                if !scalar.isEmpty { result = [scalar] }
+            }
+            break
+        }
+        return result.uniqued()
+    }
+
+    /// Trim whitespace and surrounding single/double quotes from a YAML scalar.
+    private static func cleanScalar(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespaces)
+        for quote in ["\"", "'"] where s.hasPrefix(quote) && s.hasSuffix(quote) && s.count >= 2 {
+            s = String(s.dropFirst().dropLast())
+        }
+        return s.trimmingCharacters(in: .whitespaces)
+    }
+
     /// Matches fenced ```mermaid blocks, capturing the diagram source (group 1).
     private static let mermaidRegex = try! NSRegularExpression(
         pattern: "```mermaid[ \\t]*\\n(.*?)\\n```",

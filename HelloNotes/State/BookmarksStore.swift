@@ -1,0 +1,74 @@
+//
+//  BookmarksStore.swift
+//  HelloNotes
+//
+//  Created by Chris Tham on 11/7/2026.
+//
+
+import Foundation
+import Observation
+
+/// Per-vault bookmarks: notes the user has pinned for quick access. Stored as a
+/// list of vault-relative paths in `UserDefaults`, keyed by the vault's path, so
+/// each vault keeps its own set.
+@MainActor
+@Observable
+final class BookmarksStore {
+    /// Bookmarked notes as vault-relative paths, in the order added.
+    private(set) var paths: [String] = []
+
+    private var vaultURL: URL?
+
+    /// Point the store at a vault and load its saved bookmarks.
+    func load(vaultURL: URL?) {
+        self.vaultURL = vaultURL
+        guard let key = Self.key(for: vaultURL) else { paths = []; return }
+        paths = UserDefaults.standard.stringArray(forKey: key) ?? []
+    }
+
+    func isBookmarked(_ note: Note) -> Bool {
+        guard let rel = relativePath(of: note) else { return false }
+        return paths.contains(rel)
+    }
+
+    /// Add or remove `note` from bookmarks and persist.
+    func toggle(_ note: Note) {
+        guard let rel = relativePath(of: note) else { return }
+        if let index = paths.firstIndex(of: rel) {
+            paths.remove(at: index)
+        } else {
+            paths.append(rel)
+        }
+        persist()
+    }
+
+    /// The bookmarked notes present in `notes`, in bookmark order. (Bookmarks to
+    /// notes that no longer exist are simply skipped.)
+    func bookmarkedNotes(from notes: [Note]) -> [Note] {
+        let byRel = Dictionary(
+            notes.compactMap { note in relativePath(of: note).map { ($0, note) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return paths.compactMap { byRel[$0] }
+    }
+
+    // MARK: - Private
+
+    private func relativePath(of note: Note) -> String? {
+        guard let vaultURL else { return nil }
+        let file = note.fileURL.standardizedFileURL.path
+        var base = vaultURL.standardizedFileURL.path
+        if !base.hasSuffix("/") { base += "/" }
+        guard file.hasPrefix(base) else { return nil }
+        return String(file.dropFirst(base.count))
+    }
+
+    private func persist() {
+        guard let key = Self.key(for: vaultURL) else { return }
+        UserDefaults.standard.set(paths, forKey: key)
+    }
+
+    private static func key(for vaultURL: URL?) -> String? {
+        vaultURL.map { "bookmarks:" + $0.standardizedFileURL.path }
+    }
+}

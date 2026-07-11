@@ -8,21 +8,33 @@
 #if os(macOS)
 import SwiftUI
 
-/// A small floating list of note-title suggestions shown next to the caret
-/// while typing inside a `[[wiki-link]]`. Click a row to insert it. (Keyboard
-/// navigation isn't available because the text view keeps first-responder
-/// focus while the list is open.)
+/// One suggestion in the `[[wiki-link]]` autocomplete popup — either a note
+/// title/alias or a heading within a note.
+struct WikiCompletion: Identifiable, Hashable {
+    /// Text shown in the row.
+    let label: String
+    /// Inner text to place inside `[[ ]]` (e.g. `Note` or `Note#Heading`).
+    let insert: String
+    /// Whether this is a heading (drives the row icon).
+    let isHeading: Bool
+
+    var id: String { (isHeading ? "#" : "") + insert }
+}
+
+/// A small floating list of suggestions shown next to the caret while typing
+/// inside a `[[wiki-link]]`. Click a row to insert it. (Keyboard navigation
+/// isn't available because the text view keeps first-responder focus.)
 struct WikiLinkCompletionList: View {
-    let matches: [String]
-    let onSelect: (String) -> Void
+    let matches: [WikiCompletion]
+    let onSelect: (WikiCompletion) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(matches, id: \.self) { title in
+            ForEach(matches) { match in
                 Button {
-                    onSelect(title)
+                    onSelect(match)
                 } label: {
-                    Label(title, systemImage: "doc.text")
+                    Label(match.label, systemImage: match.isHeading ? "number" : "doc.text")
                         .lineLimit(1)
                         .padding(.vertical, 4)
                         .padding(.horizontal, 8)
@@ -32,7 +44,7 @@ struct WikiLinkCompletionList: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(width: 240, alignment: .leading)
+        .frame(width: 260, alignment: .leading)
         .padding(4)
         .background(.regularMaterial, in: .rect(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))

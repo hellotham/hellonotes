@@ -10,6 +10,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [docs/PRD.md](docs/PRD.md) | Product vision, users, MVP scope, roadmap, success metrics |
 | [docs/architecture.md](docs/architecture.md) | 4-layer architecture + evaluation of every Swift package (alternatives & recommendations) |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestone-by-milestone build sequence |
+| [docs/unimplemented.md](docs/unimplemented.md) | Deferred / not-yet-built items, with reasons and what would unblock each |
 
 ## ✨ Core features (target)
 - **Local-first** — no CoreData/SwiftData/iCloud store; your `.md` files are the truth.
@@ -33,6 +34,7 @@ Early development. Implemented so far:
 - ✅ **iOS & iPadOS shell (Milestone 6):** an adaptive three-column `NavigationSplitView` — sidebar (tags) + note list + editor on iPad landscape (like macOS), collapsing to a push stack on iPhone — sharing the Core/State layers (browse/read/edit companion).
 - ✅ **Writing companions (Lettera-inspired):** a document **statistics** panel (words, characters, paragraphs, reading time), a read-only **outline** (table of contents) for orientation, **HTML/PDF export**, and **multi-tab editing** (open several notes side-by-side, macOS).
 - ✅ **Organization & navigation (Bear-inspired):** **nested tags** (`#parent/child`) as a sidebar tree where selecting a parent matches all descendants; **Git-powered version history** (browse a note's past commits and restore any of them); **wiki-link autocomplete** (type `[[` for a caret-anchored note picker); and **open a note in its own window** (macOS).
+- ✅ **Core knowledge-base features (Obsidian-inspired):** note **aliases** (`aliases:` frontmatter, resolvable and searchable); **link to a heading** (`[[Note#heading]]` with heading autocomplete); **outgoing links & unlinked mentions** (with one-click linking); a native **graph view** of the vault; **daily notes** + **templates** (`{{date}}`/`{{time}}`/`{{title}}`); **bookmarks**; and an editable, typed **properties** panel for YAML frontmatter.
 - 🚧 Next: a richer iOS editor, pull/merge, and an in-app git identity.
 
 Roadmap and milestones: [docs/implementation-plan.md](docs/implementation-plan.md).

@@ -14,6 +14,8 @@ struct VaultTreeRow: View {
     let node: VaultTreeNode
     let onDelete: (Note) -> Void
     let onOpenInNewWindow: (Note) -> Void
+    let isBookmarked: (Note) -> Bool
+    let onToggleBookmark: (Note) -> Void
 
     var body: some View {
         if let note = node.note {
@@ -26,6 +28,13 @@ struct VaultTreeRow: View {
             }
             .tag(note.id)
             .contextMenu {
+                let on = isBookmarked(note)
+                Button {
+                    onToggleBookmark(note)
+                } label: {
+                    Label(on ? "Remove Bookmark" : "Add Bookmark",
+                          systemImage: on ? "bookmark.slash" : "bookmark")
+                }
                 Button {
                     onOpenInNewWindow(note)
                 } label: {
@@ -41,7 +50,8 @@ struct VaultTreeRow: View {
         } else {
             DisclosureGroup {
                 ForEach(node.children ?? []) { child in
-                    VaultTreeRow(node: child, onDelete: onDelete, onOpenInNewWindow: onOpenInNewWindow)
+                    VaultTreeRow(node: child, onDelete: onDelete, onOpenInNewWindow: onOpenInNewWindow,
+                                 isBookmarked: isBookmarked, onToggleBookmark: onToggleBookmark)
                 }
             } label: {
                 Label(node.name, systemImage: "folder")

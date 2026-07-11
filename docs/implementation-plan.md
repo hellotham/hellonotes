@@ -113,6 +113,23 @@ Verified live on macOS: the tag tree expands and parent-selection filters by des
 Deferred, with rationale:
 - **Tag autocomplete** (the `#` half of the approved "wiki-link & tag autocomplete") is not implemented. The engine surfaces inline-token callbacks (`onInlineSelectionChange`) and a caret rect **only** for `[[wiki-links]]` / `![[image-embeds]]`, not `#tags`, and exposes no caret character offset to the host — so there's no reliable way to detect a `#partial` token or anchor a popup to it. Revisit if MarkdownEngine adds a tag-token callback or a caret-offset hook. (Same class as the Milestone 3 "scroll-to-heading" and Milestone 7 "outline jump" deferrals.)
 
+## Milestone 9 — Core knowledge-base features (Obsidian-inspired)  ✅ (done)  [P2]
+Seven features surveyed from [Obsidian's help](https://obsidian.md/help/) (core functionality only — no plugins/themes/API):
+- ✅ **Aliases** (`MarkdownParsing.aliases` + `LinkGraph` + `VaultSearchModel`): a note's `aliases:` front matter makes `[[alias]]` resolve to it, and Open Quickly finds it by alias. `LinkGraph` now resolves links through titles **and** aliases and indexes backlinks by URL.
+- ✅ **Link to a heading** (`[[Note#heading]]`): the wiki-link autocomplete offers a note's headings after `#` (`VaultSearchModel.headings(forName:)`); clicking a link navigates to the note (heading scroll is not available — see below).
+- ✅ **Outgoing links & unlinked mentions** (`LinkGraph.outgoingLinks` + `MentionScanner` + `VaultSearchModel.unlinkedMentions`): the references panel now shows outgoing links, linked mentions (backlinks), and unlinked mentions — notes that name this one in plain text — each with a one-click **Link** that rewrites the mention.
+- ✅ **Graph view** (`Core/GraphLayout` + `UI/GraphView`): a native `Canvas` force-directed graph of notes and `[[wiki-links]]`; node size scales with degree; click a node to open it. Deterministic layout (no WebView).
+- ✅ **Daily notes & templates** (`Core/TemplateExpander` + `WorkspaceIndexer.note(atRelativePath:)`): "Today's Note" (⇧⌘T) opens/creates a dated note; "Insert Template" appends a template's contents with `{{date}}` / `{{time}}` / `{{title}}` expanded. Folders/format are `@AppStorage` settings (`Templates`, `yyyy-MM-dd`).
+- ✅ **Bookmarks** (`State/BookmarksStore`): pin notes into a sidebar section, per-vault, persisted in `UserDefaults`; toggled from the note context menus.
+- ✅ **Editable properties** (`Core/FrontMatter` + `UI/PropertiesEditor`): the front-matter panel is now a typed editor — checkbox toggles, list add/remove, text/number/date fields, add/remove property — splicing YAML back into the note (which autosaves).
+
+Verified live on macOS: alias search, `[[Note#heading]]` completion, unlinked→linked mention conversion, the graph (with click-to-open), daily-note creation, template insertion with expansion, bookmarking, and property write-back (checkbox → `published: false` on disk). Unit tests: `aliasesParsedFromFrontMatter`, `linkGraphResolvesAliasesAndOutgoing`, `mentionScannerDetectsAndLinks`, `templateExpanderExpandsPlaceholders`, `frontMatterParsesTypesAndRoundTrips`, `graphLayoutPlacesNodesInBounds`.
+
+Deferred, with rationale:
+- **Heading scroll for `[[Note#heading]]`** — navigation opens the note at the top; scrolling to the heading hits the same TextKit 2 wall as the outline jump (Milestone 7).
+- **Note transclusion `![[Note]]`, callouts, comments** — need MarkdownEngine render hooks it doesn't expose (see `docs/unimplemented.md`).
+- Raw front matter still renders as text in the editor (no engine hook to hide it); the properties panel is an editable overlay above it.
+
 ---
 
 ## Sequencing notes

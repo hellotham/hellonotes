@@ -20,20 +20,32 @@ struct NoteEditorView: View {
     /// Notes that link to the open note.
     var backlinks: [Note] = []
 
+    /// Notes the open note links out to.
+    var outgoingLinks: [Note] = []
+
+    /// Notes that mention the open note by name but don't link it.
+    var unlinkedMentions: [Note] = []
+
     /// Resolves which `[[wiki-link]]` targets exist (drives link clickability).
     var wikiResolver: VaultWikiLinkResolver
 
     /// Git state for the vault — drives the version-history button.
     var git: GitService
 
-    /// Candidate note titles offered by `[[wiki-link]]` autocomplete.
+    /// Candidate note titles/aliases offered by `[[wiki-link]]` autocomplete.
     var linkCandidates: [String] = []
+
+    /// Headings of the note with the given name, for `[[Note#heading]]` completion.
+    var headingProvider: (String) -> [String] = { _ in [] }
 
     /// Called when a `[[wiki-link]]` (or plain link) is clicked, with its target.
     var onOpenWikiLink: (String) -> Void = { _ in }
 
-    /// Called to open a note from the backlinks panel.
+    /// Called to open a note from the references panel.
     var onOpenNote: (Note) -> Void = { _ in }
+
+    /// Called to turn an unlinked mention into a `[[link]]` in that note.
+    var onLinkMention: (Note) -> Void = { _ in }
 
     @Environment(\.openWindow) private var openWindow
 
@@ -41,23 +53,28 @@ struct NoteEditorView: View {
     @State private var showOutline = false
     @State private var showHistory = false
 
+    // Editable front-matter properties, seeded per note.
+    @State private var properties: [Property] = []
+    @State private var showProperties = false
+
     // Wiki-link autocomplete state, driven by the engine's inline-selection bus.
     @State private var inlineSelection: InlineSelectionState?
     @State private var caretRect: CGRect = .zero
     @State private var pendingReplacement: InlineReplacementRequest?
 
-    private var frontMatter: [FrontMatterField]? {
-        MarkdownParsing.frontMatter(in: editor.text)
+    /// Splice the edited properties back into the note's front matter.
+    private func applyProperties() {
+        editor.text = FrontMatter.applying(properties, to: editor.text)
     }
 
     private var mermaidSources: [String] {
         MarkdownParsing.mermaidBlocks(in: editor.text)
     }
 
-    /// Note-title suggestions for the active `[[wiki-link]]` the caret is in.
-    /// Empty when the caret isn't in a wiki-link, or the link already exactly
-    /// names an existing note (nothing left to complete).
-    private var wikiMatches: [String] {
+    /// Suggestions for the active `[[wiki-link]]` the caret is in. Before a `#`
+    /// these are note titles/aliases; after a `#` they are headings of the named
+    /// note (or this note, for `[[#heading]]`). Empty when not in a wiki-link.
+    private var wikiMatches: [WikiCompletion] {
         guard inlineSelection?.kind == .wikiLink,
               let raw = inlineSelection?.selection.placeholder else { return [] }
         // The engine's placeholder spans the whole token, brackets included
@@ -65,37 +82,64 @@ struct NoteEditorView: View {
         var inner = raw
         if inner.hasPrefix("[[") { inner.removeFirst(2) }
         if inner.hasSuffix("]]") { inner.removeLast(2) }
-        let trimmed = inner.trimmingCharacters(in: .whitespaces)
 
+        if let hash = inner.firstIndex(of: "#") {
+            return headingCompletions(notePart: String(inner[..<hash]),
+                                      query: String(inner[inner.index(after: hash)...]))
+        }
+        return noteCompletions(query: inner.trimmingCharacters(in: .whitespaces))
+    }
+
+    private func noteCompletions(query: String) -> [WikiCompletion] {
         let ranked: [String]
-        if trimmed.isEmpty {
+        if query.isEmpty {
             ranked = Array(linkCandidates.prefix(8))
         } else {
             ranked = linkCandidates
-                .compactMap { title -> (String, Int)? in
-                    FuzzyMatch.score(query: trimmed, candidate: title).map { (title, $0) }
-                }
+                .compactMap { title in FuzzyMatch.score(query: query, candidate: title).map { (title, $0) } }
                 .sorted { $0.1 > $1.1 }
                 .prefix(8)
                 .map(\.0)
         }
-
         // Nothing to offer if the only match is exactly what's already typed.
-        if ranked.count == 1, ranked[0].localizedCaseInsensitiveCompare(trimmed) == .orderedSame {
+        if ranked.count == 1, ranked[0].localizedCaseInsensitiveCompare(query) == .orderedSame {
             return []
         }
-        return ranked
+        return ranked.map { WikiCompletion(label: $0, insert: $0, isHeading: false) }
+    }
+
+    private func headingCompletions(notePart: String, query: String) -> [WikiCompletion] {
+        let noteName = notePart.trimmingCharacters(in: .whitespaces)
+        // Empty note part → headings of the note being edited (`[[#heading]]`).
+        let headings = noteName.isEmpty
+            ? MarkdownParsing.headings(in: editor.text).map(\.title)
+            : headingProvider(noteName)
+        let q = query.trimmingCharacters(in: .whitespaces)
+
+        let ranked: [String]
+        if q.isEmpty {
+            ranked = Array(headings.prefix(8))
+        } else {
+            ranked = headings
+                .compactMap { h in FuzzyMatch.score(query: q, candidate: h).map { (h, $0) } }
+                .sorted { $0.1 > $1.1 }
+                .prefix(8)
+                .map(\.0)
+        }
+        return ranked.map { heading in
+            WikiCompletion(label: heading, insert: "\(noteName)#\(heading)", isHeading: true)
+        }
     }
 
     /// Commit a wiki-link autocomplete choice through the engine's inline
     /// replacement bus, which rewrites the `[[…]]` token and restores the caret.
-    private func acceptWikiCompletion(_ title: String) {
+    private func acceptWikiCompletion(_ completion: WikiCompletion) {
         guard let selection = inlineSelection?.selection,
               let documentId = editor.note?.fileURL.path else { return }
         pendingReplacement = InlineReplacementRequest(
             documentId: documentId,
             selection: selection,
-            storageFragment: "[[\(title)]]",
+            storageFragment: "[[\(completion.insert)]]",
             isImageEmbedMode: false
         )
         inlineSelection = nil
@@ -115,8 +159,8 @@ struct NoteEditorView: View {
                         conflictBanner
                     }
 
-                    if let frontMatter, !frontMatter.isEmpty {
-                        frontMatterPanel(frontMatter)
+                    if !properties.isEmpty || showProperties {
+                        PropertiesEditor(properties: $properties, onChange: applyProperties)
                         Divider()
                     }
 
@@ -140,13 +184,26 @@ struct NoteEditorView: View {
                         }
                     }
 
-                    if !backlinks.isEmpty {
+                    if hasReferences {
                         Divider()
-                        backlinksPanel
+                        referencesPanel
                     }
                 }
                 .navigationTitle(editor.note?.title ?? "")
+                .task(id: editor.note?.fileURL) {
+                    properties = FrontMatter.properties(in: editor.text)
+                    showProperties = false
+                }
                 .toolbar {
+                    ToolbarItem(placement: .automatic) {
+                        Button {
+                            showProperties = true
+                        } label: {
+                            Label("Properties", systemImage: "list.bullet.rectangle")
+                        }
+                        .help("Edit front-matter properties")
+                        .disabled(editor.note == nil)
+                    }
                     ToolbarItem(placement: .automatic) {
                         Button {
                             showOutline = true
@@ -219,28 +276,6 @@ struct NoteEditorView: View {
         }
     }
 
-    // MARK: - Front matter
-
-    private func frontMatterPanel(_ fields: [FrontMatterField]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(fields, id: \.self) { field in
-                HStack(alignment: .top, spacing: 8) {
-                    Text(field.key)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 80, alignment: .leading)
-                    Text(field.value)
-                        .font(.caption)
-                        .textSelection(.enabled)
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.3))
-    }
-
     // MARK: - Image paste
 
     /// Persist a pasted image beside the note and return the Markdown to insert.
@@ -266,32 +301,71 @@ struct NoteEditorView: View {
         .background(.orange.opacity(0.15))
     }
 
-    // MARK: - Backlinks
+    // MARK: - References (outgoing / backlinks / unlinked mentions)
 
-    private var backlinksPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(backlinks.count == 1 ? "1 Linked Reference" : "\(backlinks.count) Linked References")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+    private var hasReferences: Bool {
+        !outgoingLinks.isEmpty || !backlinks.isEmpty || !unlinkedMentions.isEmpty
+    }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(backlinks) { note in
-                        Button {
-                            onOpenNote(note)
-                        } label: {
-                            Label(note.title, systemImage: "link")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.vertical, 2)
-                    }
+    private var referencesPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if !outgoingLinks.isEmpty {
+                    referenceSection("Outgoing Links", systemImage: "arrow.up.forward", notes: outgoingLinks)
+                }
+                if !backlinks.isEmpty {
+                    referenceSection("Linked Mentions", systemImage: "link", notes: backlinks)
+                }
+                if !unlinkedMentions.isEmpty {
+                    unlinkedSection
                 }
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
-        .frame(maxHeight: 160)
+        .frame(maxHeight: 200)
         .background(.quaternary.opacity(0.4))
+    }
+
+    private func referenceSection(_ title: String, systemImage: String, notes: [Note]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(title.uppercased()) · \(notes.count)")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(notes) { note in
+                Button {
+                    onOpenNote(note)
+                } label: {
+                    Label(note.title, systemImage: systemImage)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 1)
+            }
+        }
+    }
+
+    private var unlinkedSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("UNLINKED MENTIONS · \(unlinkedMentions.count)")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(unlinkedMentions) { note in
+                HStack {
+                    Button {
+                        onOpenNote(note)
+                    } label: {
+                        Label(note.title, systemImage: "text.magnifyingglass")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    Button("Link") { onLinkMention(note) }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                }
+                .padding(.vertical, 1)
+            }
+        }
     }
 
     // MARK: - Save status

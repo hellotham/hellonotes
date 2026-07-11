@@ -129,6 +129,27 @@ final class WorkspaceIndexer {
         return notes.first { $0.fileURL == candidate }
     }
 
+    /// Return the note at `relativePath` inside the vault, creating the file
+    /// (and any intermediate folders) with `content` if it doesn't exist yet.
+    /// Used for daily notes, which reuse today's file if it's already there.
+    @discardableResult
+    func note(atRelativePath relativePath: String, creatingWith content: @autoclosure () -> String) -> Note? {
+        guard let vaultURL = selectedVaultURL else { return nil }
+        let url = vaultURL.appendingPathComponent(relativePath)
+        let fileManager = FileManager.default
+
+        if !fileManager.fileExists(atPath: url.path) {
+            try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            do {
+                try Data(content().utf8).write(to: url, options: .withoutOverwriting)
+            } catch {
+                return nil
+            }
+            scanVault()
+        }
+        return notes.first { $0.fileURL.standardizedFileURL == url.standardizedFileURL }
+    }
+
     /// Move a note to the Trash (never a hard delete) and re-index.
     func deleteNote(_ note: Note) {
         try? FileManager.default.trashItem(at: note.fileURL, resultingItemURL: nil)
