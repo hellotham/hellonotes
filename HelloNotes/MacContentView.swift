@@ -547,7 +547,7 @@ struct MacContentView: View {
                     VaultTreeRow(
                         node: node,
                         onDelete: delete,
-                        onOpenInNewWindow: { openWindow(value: $0.fileURL) },
+                        onOpenInNewWindow: { openWindow(value: NoteRef($0.fileURL)) },
                         isBookmarked: bookmarks.isBookmarked,
                         onToggleBookmark: bookmarks.toggle
                     )
@@ -628,7 +628,7 @@ struct MacContentView: View {
         .contextMenu {
             bookmarkButton(row.note)
             Button {
-                openWindow(value: row.note.fileURL)
+                openWindow(value: NoteRef(row.note.fileURL))
             } label: {
                 Label("Open in New Window", systemImage: "macwindow.badge.plus")
             }

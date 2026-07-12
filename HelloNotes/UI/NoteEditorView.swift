@@ -353,7 +353,7 @@ struct NoteEditorView: View {
                     }
                     ToolbarItem(placement: .automatic) {
                         Button {
-                            if let url = editor.note?.fileURL { openWindow(value: url) }
+                            if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
                         } label: {
                             Label("Open in New Window", systemImage: "macwindow.badge.plus")
                         }

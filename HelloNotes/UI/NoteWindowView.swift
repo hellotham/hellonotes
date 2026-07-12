@@ -40,7 +40,7 @@ struct NoteWindowView: View {
                     git: git,
                     linkCandidates: indexer.notes.map(\.title),
                     onOpenWikiLink: openWikiLink,
-                    onOpenNote: { openWindow(value: $0.fileURL) }
+                    onOpenNote: { openWindow(value: NoteRef($0.fileURL)) }
                 )
             } else {
                 ContentUnavailableView(
@@ -83,7 +83,7 @@ struct NoteWindowView: View {
                                 omittingEmptySubsequences: false).first
             .map(String.init) ?? target
         if let match = indexer.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame }) {
-            openWindow(value: match.fileURL)
+            openWindow(value: NoteRef(match.fileURL))
         }
     }
 }

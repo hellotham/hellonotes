@@ -23,10 +23,11 @@ struct HelloNotesApp: App {
         }
 
         #if os(macOS)
-        // Standalone single-note windows, opened via `openWindow(value: url)`.
-        WindowGroup(for: URL.self) { $url in
-            if let url {
-                NoteWindowView(fileURL: url)
+        // Standalone single-note windows, opened via `openWindow(value: NoteRef(url))`.
+        // NoteRef (not URL) keeps macOS from treating this as a document scene.
+        WindowGroup(for: NoteRef.self) { $ref in
+            if let ref {
+                NoteWindowView(fileURL: ref.url)
                     .environment(indexer)
             }
         }
