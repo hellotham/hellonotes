@@ -56,12 +56,14 @@ final class NoteOutlineItem {
 
 struct NoteOutlineList: NSViewRepresentable {
     var roots: [NoteOutlineItem]
-    /// Changes only when the *structure* changes, so we reload the outline only
-    /// when needed (not on every unrelated SwiftUI update).
+    /// Changes only when the *structure* (or text scale) changes, so we reload
+    /// the outline only when needed (not on every unrelated SwiftUI update).
     var signature: String
     @Binding var selection: URL?
     var focusedCollectionID: Collection.ID?
     var accent: Color
+    /// Multiplies the row fonts and heights with the app's text-size setting.
+    var fontScale: CGFloat = 1
 
     var isBookmarked: (Note) -> Bool
     var onToggleBookmark: (Note) -> Void
@@ -76,7 +78,7 @@ struct NoteOutlineList: NSViewRepresentable {
         let outline = NSOutlineView()
         outline.headerView = nil
         outline.rowSizeStyle = .custom
-        outline.indentationPerLevel = 14
+        outline.indentationPerLevel = 14 * fontScale
         outline.selectionHighlightStyle = .regular
         outline.floatsGroupRows = false
         outline.usesAutomaticRowHeights = false
@@ -113,7 +115,10 @@ struct NoteOutlineList: NSViewRepresentable {
         coord.parent = self
         coord.accentColor = NSColor(accent)
         coord.focusedCollectionID = focusedCollectionID
-        coord.reload(roots: roots, signature: signature)   // no-op if signature unchanged
+        (scroll.documentView as? NSOutlineView)?.indentationPerLevel = 14 * fontScale
+        // `signature` includes the text scale, so a scale change reloads the
+        // outline (re-querying cell fonts and row heights).
+        coord.reload(roots: roots, signature: signature)
         coord.refreshAccent()
         coord.applySelection(selection)
     }
@@ -224,9 +229,10 @@ struct NoteOutlineList: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            guard let node = item as? NoteOutlineItem else { return 24 }
-            if case .note = node.kind { return 42 }
-            return 26
+            let scale = parent.fontScale
+            guard let node = item as? NoteOutlineItem else { return 24 * scale }
+            if case .note = node.kind { return 42 * scale }
+            return 26 * scale
         }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -257,11 +263,17 @@ struct NoteOutlineList: NSViewRepresentable {
 
         // MARK: Cells
 
+        private func symbolIcon(_ name: String) -> NSImageView {
+            let icon = NSImageView(image: NSImage(systemSymbolName: name, accessibilityDescription: nil) ?? NSImage())
+            icon.contentTintColor = .secondaryLabelColor
+            icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12 * parent.fontScale, weight: .regular)
+            return icon
+        }
+
         private func groupCell(_ collection: Collection) -> NSView {
             let container = NSTableCellView()
-            let icon = NSImageView(image: NSImage(systemSymbolName: "books.vertical", accessibilityDescription: nil) ?? NSImage())
-            icon.contentTintColor = .secondaryLabelColor
-            let name = label(collection.name, font: .systemFont(ofSize: 11,
+            let icon = symbolIcon("books.vertical")
+            let name = label(collection.name, font: .systemFont(ofSize: 11 * parent.fontScale,
                 weight: collection.id == focusedCollectionID ? .semibold : .regular), color: .secondaryLabelColor)
 
             let close = HoverButton()
@@ -304,9 +316,9 @@ struct NoteOutlineList: NSViewRepresentable {
 
         private func noteCell(_ note: Note, snippet: String?) -> NSView {
             let container = NSTableCellView()
-            let title = label(note.title, font: .systemFont(ofSize: 13, weight: .semibold), color: .labelColor)
+            let title = label(note.title, font: .systemFont(ofSize: 13 * parent.fontScale, weight: .semibold), color: .labelColor)
             let subtitleText = snippet ?? Self.dateFormatter.string(from: note.lastModified)
-            let subtitle = label(subtitleText, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+            let subtitle = label(subtitleText, font: .systemFont(ofSize: 11 * parent.fontScale), color: .secondaryLabelColor)
             subtitle.lineBreakMode = .byTruncatingTail
             let stack = NSStackView(views: [title, subtitle])
             stack.orientation = .vertical
@@ -324,9 +336,8 @@ struct NoteOutlineList: NSViewRepresentable {
 
         private func labelCell(_ text: String, symbol: String, secondary: Bool) -> NSView {
             let container = NSTableCellView()
-            let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
-            icon.contentTintColor = .secondaryLabelColor
-            let name = label(text, font: .systemFont(ofSize: 12), color: .labelColor)
+            let icon = symbolIcon(symbol)
+            let name = label(text, font: .systemFont(ofSize: 12 * parent.fontScale), color: .labelColor)
             name.lineBreakMode = .byTruncatingTail
             let stack = NSStackView(views: [icon, name])
             stack.orientation = .horizontal

@@ -657,6 +657,7 @@ struct MacContentView: View {
             selection: $selectedNoteID,
             focusedCollectionID: library.focusedID,
             accent: appearance.resolvedAccent,
+            fontScale: appearance.textScale,
             isBookmarked: { note in
                 library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
             },
@@ -776,7 +777,7 @@ struct MacContentView: View {
         func walk(_ items: [NoteOutlineItem]) -> String {
             items.map { $0.id + "[" + walk($0.children) + "]" }.joined(separator: ",")
         }
-        return "\(sortOrder.rawValue)|\(library.focusedID ?? "")|" + walk(roots)
+        return "\(sortOrder.rawValue)|\(library.focusedID ?? "")|\(appearance.textScale)|" + walk(roots)
     }
 
     // MARK: - Actions
