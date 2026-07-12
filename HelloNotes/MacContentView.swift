@@ -166,6 +166,9 @@ struct MacContentView: View {
             editorColumn
         }
         .task {
+            // Create the assistant model up front so its conversation persists
+            // across sheet open/close and it's non-nil when first presented.
+            if assistant == nil { assistant = AssistantModel(settings: llmSettings) }
             // Reopen the last vault on first launch.
             if indexer.selectedVaultURL == nil {
                 indexer.restoreVault()
@@ -261,7 +264,7 @@ struct MacContentView: View {
 
     private func openAssistant() {
         if assistant == nil { assistant = AssistantModel(settings: llmSettings) }
-        showAssistant = true
+        DispatchQueue.main.async { showAssistant = true }
     }
 
     // MARK: - Column 1: Sidebar
