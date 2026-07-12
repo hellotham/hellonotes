@@ -62,6 +62,15 @@ struct NoteEditorView: View {
     /// the same folder as the note. Configured in Settings.
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
 
+    /// How the editor presents the note. Persisted across launches; macOS
+    /// defaults to the live WYSIWYG editor.
+    @AppStorage("editorViewMode") private var storedMode = EditorMode.edit.rawValue
+
+    private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .edit }
+    private var modeBinding: Binding<EditorMode> {
+        Binding(get: { mode }, set: { storedMode = $0.rawValue })
+    }
+
     /// The intelligence service for the user's chosen provider.
     private var intelligence: IntelligenceService { IntelligenceService(settings: llmSettings) }
 
@@ -243,52 +252,11 @@ struct NoteEditorView: View {
                         conflictBanner
                     }
 
-                    if showFindBar {
-                        FindReplaceBar(
-                            findText: $findText,
-                            replaceText: $replaceText,
-                            currentIndex: $findCurrentIndex,
-                            matchCount: findMatchCount,
-                            onFindChanged: postFindQuery,
-                            onNext: { stepMatch(by: 1) },
-                            onPrevious: { stepMatch(by: -1) },
-                            onReplace: replaceCurrentMatch,
-                            onReplaceAll: replaceAllMatches,
-                            onClose: closeFindBar
-                        )
-                    }
-
-                    if !properties.isEmpty || showProperties {
-                        PropertiesEditor(properties: $properties, onChange: applyProperties)
-                        Divider()
-                    }
-
-                    NativeTextViewWrapper(
-                        text: $editor.text,
-                        pendingInlineReplacement: $pendingReplacement,
-                        configuration: configuration,
-                        fontSize: appearance.editorFontSize,
-                        documentId: editor.note?.fileURL.path ?? "default",
-                        onPasteImage: pasteImage,
-                        onSmartPaste: smartPaste,
-                        onLinkClick: onOpenWikiLink,
-                        onCaretRectChange: { caretRect = $0 },
-                        onInlineSelectionChange: { inlineSelection = $0 }
-                    )
-                    .overlay(alignment: .topLeading) {
-                        let matches = activeCompletions
-                        if !matches.isEmpty {
-                            WikiLinkCompletionList(matches: matches, onSelect: acceptCompletion)
-                                .offset(
-                                    x: max(4, caretRect.minX),
-                                    y: caretRect.maxY + 2
-                                )
-                        }
-                    }
-
-                    if hasReferences {
-                        Divider()
-                        referencesPanel
+                    switch mode {
+                    case .edit:     editModeContent
+                    case .preview:  previewModeContent
+                    case .markdown: sourceEditor
+                    case .split:    splitModeContent
                     }
 
                     Divider()
@@ -340,6 +308,114 @@ struct NoteEditorView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Editor modes
+
+    /// The live, editable WYSIWYG editor plus its edit-only chrome: the
+    /// find bar, front-matter properties, `[[wiki-link]]`/`#tag` completion
+    /// popup, and the references panel.
+    @ViewBuilder
+    private var editModeContent: some View {
+        if showFindBar {
+            FindReplaceBar(
+                findText: $findText,
+                replaceText: $replaceText,
+                currentIndex: $findCurrentIndex,
+                matchCount: findMatchCount,
+                onFindChanged: postFindQuery,
+                onNext: { stepMatch(by: 1) },
+                onPrevious: { stepMatch(by: -1) },
+                onReplace: replaceCurrentMatch,
+                onReplaceAll: replaceAllMatches,
+                onClose: closeFindBar
+            )
+        }
+
+        if !properties.isEmpty || showProperties {
+            PropertiesEditor(properties: $properties, onChange: applyProperties)
+            Divider()
+        }
+
+        NativeTextViewWrapper(
+            text: $editor.text,
+            pendingInlineReplacement: $pendingReplacement,
+            configuration: configuration,
+            fontSize: appearance.editorFontSize,
+            documentId: editor.note?.fileURL.path ?? "default",
+            onPasteImage: pasteImage,
+            onSmartPaste: smartPaste,
+            onLinkClick: onOpenWikiLink,
+            onCaretRectChange: { caretRect = $0 },
+            onInlineSelectionChange: { inlineSelection = $0 }
+        )
+        .overlay(alignment: .topLeading) {
+            let matches = activeCompletions
+            if !matches.isEmpty {
+                WikiLinkCompletionList(matches: matches, onSelect: acceptCompletion)
+                    .offset(
+                        x: max(4, caretRect.minX),
+                        y: caretRect.maxY + 2
+                    )
+            }
+        }
+
+        if hasReferences {
+            Divider()
+            referencesPanel
+        }
+    }
+
+    /// Read-only rendering: the same MarkdownEngine view with no caret, so the
+    /// note reads as it will look, with `[[wiki-links]]` still clickable.
+    @ViewBuilder
+    private var previewModeContent: some View {
+        previewEngine
+        if hasReferences {
+            Divider()
+            referencesPanel
+        }
+    }
+
+    /// A non-editable MarkdownEngine render of the current note. Uses a distinct
+    /// `documentId` so it never disturbs the editable document's undo stack, and
+    /// a read-only binding so it can never write back.
+    private var previewEngine: some View {
+        NativeTextViewWrapper(
+            text: Binding(get: { editor.text }, set: { _ in }),
+            configuration: configuration,
+            fontSize: appearance.editorFontSize,
+            documentId: (editor.note?.fileURL.path ?? "default") + "#preview",
+            isEditable: false,
+            onLinkClick: onOpenWikiLink
+        )
+    }
+
+    /// The raw Markdown source in a plain monospaced editor, bound straight to
+    /// the note buffer (so edits autosave like everywhere else).
+    private var sourceEditor: some View {
+        TextEditor(text: $editor.text)
+            .font(.system(size: appearance.editorFontSize, design: .monospaced))
+            .lineSpacing(2)
+            .scrollContentBackground(.hidden)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Source + preview together. Lays them out side by side in a landscape
+    /// (wide) column and stacked in a portrait (tall) one.
+    private var splitModeContent: some View {
+        GeometryReader { geo in
+            let sideBySide = geo.size.width >= geo.size.height
+            let layout = sideBySide
+                ? AnyLayout(HStackLayout(spacing: 0))
+                : AnyLayout(VStackLayout(spacing: 0))
+            layout {
+                sourceEditor
+                Divider()
+                previewEngine
             }
         }
     }
@@ -639,9 +715,14 @@ struct NoteEditorView: View {
 
             Spacer(minLength: 12)
 
+            modePicker
+
+            Divider().frame(height: 11)
+
             // Actions (right) — dynamic per context
             barButton("Find & replace (⌘F)", "magnifyingglass", action: toggleFindBar)
                 .keyboardShortcut("f", modifiers: .command)
+                .disabled(mode != .edit)
             barButton("Edit front-matter properties", "list.bullet.rectangle") { showProperties = true }
             barButton("Outline & statistics", "list.bullet.indent") { showOutline = true }
                 .popover(isPresented: $showOutline, arrowEdge: .bottom) {
@@ -685,6 +766,22 @@ struct NoteEditorView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.bar)
+    }
+
+    /// Segmented Edit / Preview / Markdown / Split switcher.
+    private var modePicker: some View {
+        Picker("View mode", selection: modeBinding) {
+            ForEach(EditorMode.macCases) { m in
+                Image(systemName: m.symbol)
+                    .help(m.label)
+                    .accessibilityLabel(m.label)
+                    .tag(m)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .help("View mode: Edit, Preview, Markdown source, or Split")
     }
 
     private func barButton(_ help: String, _ systemImage: String, action: @escaping () -> Void) -> some View {

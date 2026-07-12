@@ -20,7 +20,19 @@ import UniformTypeIdentifiers
 /// by the same autosave logic.
 struct iOSContentView: View {
     @Environment(Library.self) private var library
+    @Environment(AppearanceSettings.self) private var appearance
     @Environment(\.scenePhase) private var scenePhase
+
+    /// How the editor presents the note. iOS has no live WYSIWYG editor, so it
+    /// starts in read-only Preview and offers Preview / Markdown / Split.
+    @AppStorage("iosEditorViewMode") private var storedMode = EditorMode.preview.rawValue
+    private var mode: EditorMode {
+        let m = EditorMode(rawValue: storedMode) ?? .preview
+        return m == .edit ? .preview : m   // `edit` isn't available on iOS
+    }
+    private var modeBinding: Binding<EditorMode> {
+        Binding(get: { mode }, set: { storedMode = $0.rawValue })
+    }
 
     @State private var editor = EditorModel()
     @State private var showImporter = false
@@ -247,12 +259,24 @@ struct iOSContentView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if editor.note != nil {
-            TextEditor(text: Binding(get: { editor.text }, set: { editor.text = $0 }))
-                .font(.body.monospaced())
-                .padding(.horizontal, 4)
-                .navigationTitle(editor.note?.title ?? "")
-                .navigationBarTitleDisplayMode(.inline)
+        if let note = editor.note {
+            Group {
+                switch mode {
+                case .markdown:
+                    sourceEditor
+                case .split:
+                    splitEditor(note)
+                default:
+                    preview(note)
+                }
+            }
+            .navigationTitle(note.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    modePicker
+                }
+            }
         } else {
             ContentUnavailableView(
                 "Select a Note",
@@ -260,6 +284,52 @@ struct iOSContentView: View {
                 description: Text("Choose a note from the list, or create a new one.")
             )
         }
+    }
+
+    /// Raw Markdown source editor, bound straight to the note buffer.
+    private var sourceEditor: some View {
+        TextEditor(text: Binding(get: { editor.text }, set: { editor.text = $0 }))
+            .font(.system(size: appearance.editorFontSize, design: .monospaced))
+            .padding(.horizontal, 4)
+    }
+
+    /// Read-only rendered preview (WKWebView over the shared HTML export).
+    private func preview(_ note: Note) -> some View {
+        MarkdownWebView(
+            markdown: editor.text,
+            title: note.title,
+            baseURL: note.fileURL.deletingLastPathComponent(),
+            fontScale: appearance.textScale
+        )
+    }
+
+    /// Source + preview together — side by side on a wide (landscape) screen,
+    /// stacked on a tall (portrait) one.
+    private func splitEditor(_ note: Note) -> some View {
+        GeometryReader { geo in
+            let sideBySide = geo.size.width >= geo.size.height
+            let layout = sideBySide
+                ? AnyLayout(HStackLayout(spacing: 0))
+                : AnyLayout(VStackLayout(spacing: 0))
+            layout {
+                sourceEditor
+                Divider()
+                preview(note)
+            }
+        }
+    }
+
+    /// Preview / Markdown / Split switcher.
+    private var modePicker: some View {
+        Picker("View mode", selection: modeBinding) {
+            ForEach(EditorMode.iOSCases) { m in
+                Image(systemName: m.symbol)
+                    .accessibilityLabel(m.label)
+                    .tag(m)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
     }
 }
 #endif

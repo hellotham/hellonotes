@@ -12,9 +12,11 @@ import Markdown
 /// pure string transformation, callable from any actor.
 nonisolated enum MarkdownExport {
 
-    /// Render `markdown` to a self-contained, styled HTML document.
-    static func html(from markdown: String, title: String) -> String {
+    /// Render `markdown` to a self-contained, styled HTML document. `fontScale`
+    /// multiplies the root font size to honour the app's Text Size setting.
+    static func html(from markdown: String, title: String, fontScale: Double = 1) -> String {
         let body = HTMLFormatter.format(markdown)
+        let rootFontPercent = Int((fontScale * 100).rounded())
         return """
         <!DOCTYPE html>
         <html lang="en">
@@ -23,7 +25,7 @@ nonisolated enum MarkdownExport {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>\(escaped(title))</title>
         <style>
-        :root { color-scheme: light dark; }
+        :root { color-scheme: light dark; font-size: \(rootFontPercent)%; }
         body {
           font: -apple-system-body, system-ui, sans-serif;
           max-width: 44rem; margin: 2rem auto; padding: 0 1.25rem;
