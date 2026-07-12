@@ -36,6 +36,7 @@ struct iOSContentView: View {
 
     @State private var editor = EditorModel()
     @State private var showImporter = false
+    @State private var showSettings = false
     @State private var searchText = ""
     @State private var selectedNoteID: Note.ID?
     @State private var selectedTag: String?
@@ -88,6 +89,9 @@ struct iOSContentView: View {
             if case let .success(urls) = result {
                 Task { await openPicked(urls) }
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            iOSSettingsView(settings: appearance)
         }
         .task {
             if library.isEmpty {
@@ -167,6 +171,12 @@ struct iOSContentView: View {
                         showImporter = true
                     } label: {
                         Label("Open Obsidian Vault…", systemImage: "shippingbox")
+                    }
+                    Divider()
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Label("Settings…", systemImage: "gearshape")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")

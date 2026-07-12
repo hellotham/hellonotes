@@ -61,6 +61,10 @@ struct MacContentView: View {
     @State private var showMindMap = false
     @State private var showLibraryChat = false
 
+    /// Rename-note prompt state (set via the context menu or the Note menu).
+    @State private var renameTarget: Note?
+    @State private var renameTitle = ""
+
     /// How notes are ordered in the folder tree.
     @State private var sortOrder: SortOrder = .modified
 
@@ -298,6 +302,86 @@ struct MacContentView: View {
         .sheet(isPresented: $showLLMSettings) {
             LLMSettingsView(settings: llmSettings)
         }
+        .alert("Rename Note",
+               isPresented: Binding(get: { renameTarget != nil },
+                                    set: { if !$0 { renameTarget = nil } })) {
+            TextField("Title", text: $renameTitle)
+            Button("Rename") { performRename() }
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+        } message: {
+            Text("Wiki links to this note across the collection are updated too.")
+        }
+        .focusedSceneValue(\.appActions, appActions)
+    }
+
+    // MARK: - Menu-bar actions (File / Note / View commands)
+
+    /// The command surface published to the menu bar for this window.
+    private var appActions: AppActions {
+        AppActions(
+            canNewNote: focused != nil,
+            newNote: { newNote() },
+            todaysNote: { openTodaysNote() },
+            openLauncher: { showLauncher = true },
+            canOpenQuickly: !(focused?.notes.isEmpty ?? true),
+            openQuickly: { showOpenQuickly = true },
+            canGraph: !(focused?.notes.isEmpty ?? true),
+            graphView: { showGraph = true },
+            canAsk: !library.allNotes.isEmpty,
+            askLibrary: { showLibraryChat = true },
+            assistant: { openAssistant() },
+            note: selectedNote.map { note in
+                NoteMenuActions(
+                    isBookmarked: library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false,
+                    rename: { beginRename(note) },
+                    duplicate: {
+                        if let copy = library.collection(containing: note.fileURL)?.duplicateNote(note) {
+                            selectedNoteID = copy.id
+                        }
+                    },
+                    toggleBookmark: { library.collection(containing: note.fileURL)?.bookmarks.toggle(note) },
+                    copyWikiLink: {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("[[\(note.title)]]", forType: .string)
+                    },
+                    revealInFinder: { NSWorkspace.shared.activateFileViewerSelecting([note.fileURL]) },
+                    openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
+                    exportHTML: {
+                        if let editor = activeEditor {
+                            EditorExport.exportHTML(markdown: editor.text, title: note.title)
+                        }
+                    },
+                    exportPDF: {
+                        if let editor = activeEditor {
+                            EditorExport.exportPDF(markdown: editor.text, title: note.title)
+                        }
+                    },
+                    moveToTrash: {
+                        if let c = library.collection(containing: note.fileURL) { delete(note, in: c) }
+                    }
+                )
+            }
+        )
+    }
+
+    /// Open the rename prompt pre-filled with the note's current title.
+    private func beginRename(_ note: Note) {
+        renameTitle = note.title
+        renameTarget = note
+    }
+
+    /// Flush pending edits (the file is about to move), rename, and reselect.
+    private func performRename() {
+        guard let note = renameTarget,
+              let c = library.collection(containing: note.fileURL) else { renameTarget = nil; return }
+        let title = renameTitle
+        renameTarget = nil
+        Task {
+            await tabs.flushAll()
+            if let renamed = c.renameNote(note, to: title) {
+                selectedNoteID = renamed.id
+            }
+        }
     }
 
     /// Point the assistant's tools and chat store at the focused collection.
@@ -363,7 +447,6 @@ struct MacContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .keyboardShortcut("o", modifiers: [.command, .shift])
             .help("Recents, Obsidian vaults, libraries, clone, or a new repository")
 
             if let focused {
@@ -380,24 +463,20 @@ struct MacContentView: View {
                 Button { openTodaysNote() } label: {
                     Label("Today's Note", systemImage: "calendar")
                 }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
 
                 Button { showGraph = true } label: {
                     Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
                 }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(focused.notes.isEmpty)
 
                 Button { showLibraryChat = true } label: {
                     Label("Ask Library", systemImage: "sparkles.rectangle.stack")
                 }
-                .keyboardShortcut("j", modifiers: [.command, .shift])
                 .disabled(library.allNotes.isEmpty)
 
                 Button { openAssistant() } label: {
                     Label("Assistant", systemImage: "sparkles")
                 }
-                .keyboardShortcut("a", modifiers: [.command, .shift])
 
                 let bookmarked = focused.bookmarks.bookmarkedNotes(from: focused.notes)
                 if !bookmarked.isEmpty {
@@ -674,7 +753,23 @@ struct MacContentView: View {
                 }
                 library.close(collection)
             },
-            onFocusCollection: { library.focus($0) }
+            onFocusCollection: { library.focus($0) },
+            onRename: { beginRename($0) },
+            onDuplicate: { note in
+                if let copy = library.collection(containing: note.fileURL)?.duplicateNote(note) {
+                    selectedNoteID = copy.id
+                }
+            },
+            onNewNote: { collection, folderID in
+                // A folder id is the folder's absolute path (collection id + relative path).
+                if let folderID, let c = library.collections.first(where: { folderID.hasPrefix($0.id) }) {
+                    if let note = c.createNote(in: URL(fileURLWithPath: folderID, isDirectory: true)) {
+                        selectedNoteID = note.id
+                    }
+                } else if let note = (collection ?? focused)?.createNote() {
+                    selectedNoteID = note.id
+                }
+            }
         )
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search all collections")
         .navigationTitle(selectedTag.map { "#\($0)" } ?? "Notes")
@@ -712,7 +807,6 @@ struct MacContentView: View {
                 } label: {
                     Label("Open Quickly", systemImage: "magnifyingglass")
                 }
-                .keyboardShortcut("o", modifiers: .command)
                 .help("Open Quickly (⌘O)")
                 .disabled(focused?.notes.isEmpty ?? true)
             }
@@ -753,20 +847,23 @@ struct MacContentView: View {
         } else {
             return library.collections.map { collection in
                 NoteOutlineItem(id: collection.id, kind: .collection(collection),
-                                children: outlineItems(from: tree(for: collection)))
+                                children: outlineItems(from: tree(for: collection), prefix: collection.id))
             }
         }
     }
 
-    private func outlineItems(from nodes: [CollectionTreeNode]) -> [NoteOutlineItem] {
+    /// `prefix` (the owning collection's id) namespaces folder ids so equal
+    /// relative paths in different collections stay distinct — and lets folder
+    /// actions (New Note Here) recover the collection + folder from the id.
+    private func outlineItems(from nodes: [CollectionTreeNode], prefix: String) -> [NoteOutlineItem] {
         nodes.map { node in
             if let note = node.note {
                 return NoteOutlineItem(id: node.id, kind: .note(note, snippet: nil))
             } else if let file = node.file {
                 return NoteOutlineItem(id: node.id, kind: .file(file))
             } else {
-                return NoteOutlineItem(id: node.id, kind: .folder(node.name),
-                                       children: outlineItems(from: node.children ?? []))
+                return NoteOutlineItem(id: prefix + node.id, kind: .folder(node.name),
+                                       children: outlineItems(from: node.children ?? [], prefix: prefix))
             }
         }
     }

@@ -46,6 +46,7 @@ struct NoteWindowView: View {
                     embedProvider: embedProvider,
                     git: git,
                     linkCandidates: notes.map(\.title),
+                    tagCandidates: collection?.search.allTags() ?? [],
                     onOpenWikiLink: openWikiLink,
                     onOpenNote: { openWindow(value: NoteRef($0.fileURL)) }
                 )

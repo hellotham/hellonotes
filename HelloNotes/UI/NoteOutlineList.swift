@@ -71,6 +71,11 @@ struct NoteOutlineList: NSViewRepresentable {
     var onOpenInNewWindow: (Note) -> Void
     var onCloseCollection: (Collection) -> Void
     var onFocusCollection: (Collection) -> Void
+    var onRename: (Note) -> Void = { _ in }
+    var onDuplicate: (Note) -> Void = { _ in }
+    /// "New Note" on a collection row (in its root) or a folder row (inside it).
+    /// The second argument is the folder outline-item id, `nil` for the root.
+    var onNewNote: (Collection?, String?) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -386,17 +391,34 @@ struct NoteOutlineList: NSViewRepresentable {
                   let node = outline.item(atRow: outline.clickedRow) as? NoteOutlineItem else { return }
 
             if let note = node.note {
+                addItem(menu, "Rename…") { self.parent.onRename(note) }
+                addItem(menu, "Duplicate") { self.parent.onDuplicate(note) }
                 let on = parent.isBookmarked(note)
                 addItem(menu, on ? "Remove Bookmark" : "Add Bookmark") { self.parent.onToggleBookmark(note) }
+                menu.addItem(.separator())
+                addItem(menu, "Copy Wiki Link") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("[[\(note.title)]]", forType: .string)
+                }
                 addItem(menu, "Open in New Window") { self.parent.onOpenInNewWindow(note) }
+                addItem(menu, "Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([note.fileURL])
+                }
                 menu.addItem(.separator())
                 addItem(menu, "Move to Trash") { self.parent.onDelete(note) }
             } else if let file = node.file {
                 addItem(menu, "Open in Default App") { NSWorkspace.shared.open(file.url) }
                 addItem(menu, "Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
             } else if let collection = node.collection {
+                addItem(menu, "New Note") { self.parent.onNewNote(collection, nil) }
+                menu.addItem(.separator())
                 addItem(menu, "Focus Collection") { self.parent.onFocusCollection(collection) }
+                addItem(menu, "Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([collection.rootURL])
+                }
                 addItem(menu, "Close Collection") { self.parent.onCloseCollection(collection) }
+            } else if case .folder = node.kind {
+                addItem(menu, "New Note Here") { self.parent.onNewNote(nil, node.id) }
             }
         }
 

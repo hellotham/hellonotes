@@ -31,6 +31,9 @@ struct HelloNotesApp: App {
                 .themedRoot(appearance)
             #endif
         }
+        #if os(macOS)
+        .commands { HelloNotesCommands() }
+        #endif
 
         #if os(macOS)
         // Standalone single-note windows, opened via `openWindow(value: NoteRef(url))`.

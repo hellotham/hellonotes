@@ -183,15 +183,17 @@ final class Collection: Identifiable {
     // MARK: - File operations
 
     /// Create a new empty Markdown note and return it. The filename is derived
-    /// from `title`, disambiguated if it already exists.
+    /// from `title`, disambiguated if it already exists. `directory` defaults to
+    /// the collection root; pass a subfolder URL to create the note there.
     @discardableResult
-    func createNote(title: String = "Untitled") -> Note? {
+    func createNote(title: String = "Untitled", in directory: URL? = nil) -> Note? {
         let fileManager = FileManager.default
         let base = title.isEmpty ? "Untitled" : title
-        var candidate = rootURL.appendingPathComponent("\(base).md")
+        let folder = directory ?? rootURL
+        var candidate = folder.appendingPathComponent("\(base).md")
         var counter = 2
         while fileManager.fileExists(atPath: candidate.path) {
-            candidate = rootURL.appendingPathComponent("\(base) \(counter).md")
+            candidate = folder.appendingPathComponent("\(base) \(counter).md")
             counter += 1
         }
 
@@ -204,6 +206,81 @@ final class Collection: Identifiable {
         scan()
         refreshDerived()
         return notes.first { $0.fileURL.standardizedFileURL == candidate.standardizedFileURL }
+    }
+
+    /// Rename a note's file to `newTitle` and rewrite every `[[wiki-link]]`
+    /// (and `![[embed]]`) across the collection that pointed at the old title,
+    /// so renaming never silently breaks links. Returns the renamed note, or
+    /// `nil` if the name is empty/unchanged or the destination already exists.
+    @discardableResult
+    func renameNote(_ note: Note, to newTitle: String) -> Note? {
+        let title = newTitle
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        guard !title.isEmpty, title != note.title else { return nil }
+
+        let destination = note.fileURL.deletingLastPathComponent()
+            .appendingPathComponent("\(title).md")
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return nil }
+        do {
+            try FileManager.default.moveItem(at: note.fileURL, to: destination)
+        } catch {
+            return nil
+        }
+
+        rewriteWikiLinks(from: note.title, to: title, renamed: note.fileURL, movedTo: destination)
+        scan()
+        refreshDerived()
+        return notes.first { $0.fileURL.standardizedFileURL == destination.standardizedFileURL }
+    }
+
+    /// Duplicate a note beside the original ("Title copy.md", disambiguated)
+    /// and return the copy.
+    @discardableResult
+    func duplicateNote(_ note: Note) -> Note? {
+        let folder = note.fileURL.deletingLastPathComponent()
+        let base = "\(note.title) copy"
+        var candidate = folder.appendingPathComponent("\(base).md")
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent("\(base) \(counter).md")
+            counter += 1
+        }
+        do {
+            try FileManager.default.copyItem(at: note.fileURL, to: candidate)
+        } catch {
+            return nil
+        }
+        scan()
+        refreshDerived()
+        return notes.first { $0.fileURL.standardizedFileURL == candidate.standardizedFileURL }
+    }
+
+    /// Rewrite `[[oldTitle]]`, `[[oldTitle|alias]]`, `[[oldTitle#heading]]` and
+    /// their `![[…]]` embed forms to the new title in every note — including the
+    /// renamed note itself, whose file has already moved to `movedTo`.
+    /// Case-insensitive and whitespace-tolerant; aliases and headings survive.
+    private func rewriteWikiLinks(from oldTitle: String, to newTitle: String,
+                                  renamed oldURL: URL, movedTo newURL: URL) {
+        let escaped = NSRegularExpression.escapedPattern(for: oldTitle)
+        guard let regex = try? NSRegularExpression(
+            pattern: #"(\[\[)\s*"# + escaped + #"\s*(?=[#|\]])"#,
+            options: [.caseInsensitive]
+        ) else { return }
+
+        let template = "$1" + NSRegularExpression.escapedTemplate(for: newTitle)
+        for other in notes {
+            // `notes` is pre-rescan, so the renamed note still lists its old URL.
+            let url = other.fileURL == oldURL ? newURL : other.fileURL
+            guard let text = try? String(contentsOf: url, encoding: .utf8),
+                  text.contains("[[") else { continue }
+            let range = NSRange(text.startIndex..., in: text)
+            guard regex.firstMatch(in: text, options: [], range: range) != nil else { continue }
+            let updated = regex.stringByReplacingMatches(in: text, options: [], range: range,
+                                                         withTemplate: template)
+            try? Data(updated.utf8).write(to: url, options: .atomic)
+        }
     }
 
     /// Return the note at `relativePath`, creating the file (and any intermediate
