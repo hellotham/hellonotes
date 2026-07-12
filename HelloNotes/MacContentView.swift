@@ -71,6 +71,7 @@ struct MacContentView: View {
 
     /// Whether the link-graph sheet is showing.
     @State private var showGraph = false
+    @State private var showMindMap = false
     @State private var showVaultChat = false
 
     /// How notes are ordered in the folder tree.
@@ -248,6 +249,15 @@ struct MacContentView: View {
             let data = graphData
             GraphView(nodes: data.nodes, edges: data.edges) { url in
                 if let note = indexer.notes.first(where: { $0.fileURL == url }) {
+                    selectedTag = nil
+                    searchText = ""
+                    selectedNoteID = note.id
+                }
+            }
+        }
+        .sheet(isPresented: $showMindMap) {
+            if let note = selectedNote {
+                MindMapView(rootURL: note.fileURL, notes: indexer.notes, linkGraph: linkGraph) { note in
                     selectedTag = nil
                     searchText = ""
                     selectedNoteID = note.id
@@ -526,7 +536,8 @@ struct MacContentView: View {
                     headingProvider: { search.headings(forName: $0) },
                     onOpenWikiLink: openWikiLink,
                     onOpenNote: { selectedNoteID = $0.id },
-                    onLinkMention: linkMention
+                    onLinkMention: linkMention,
+                    onShowMindMap: { showMindMap = true }
                 )
             } else {
                 ContentUnavailableView(

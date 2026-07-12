@@ -52,6 +52,7 @@ struct NoteEditorView: View {
 
     /// Called to turn an unlinked mention into a `[[link]]` in that note.
     var onLinkMention: (Note) -> Void = { _ in }
+    var onShowMindMap: () -> Void = { }
 
     @Environment(\.openWindow) private var openWindow
 
@@ -591,6 +592,7 @@ struct NoteEditorView: View {
                 .popover(isPresented: $showOutline, arrowEdge: .bottom) {
                     OutlineView(text: editor.text, onSelectHeading: jumpToHeading)
                 }
+            barButton("Mind map of this note's links", "brain") { onShowMindMap() }
             if !mermaidSources.isEmpty {
                 barButton("Preview Mermaid diagrams", "chart.xyaxis.line") { showMermaid = true }
             }
