@@ -521,8 +521,53 @@ struct MacContentView: View {
                     systemImage: "doc.text",
                     description: Text("Select a note from the list, or create a new one.")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if indexer.selectedVaultURL != nil {
+                    Divider()
+                    noNoteStatusBar
+                }
             }
         }
+    }
+
+    /// Bottom status bar shown when a vault is open but no note is selected:
+    /// vault stats on the left, quick-start actions on the right. Mirrors the
+    /// editor's bottom bar so the toolbar always lives at the bottom.
+    private var noNoteStatusBar: some View {
+        HStack(spacing: 8) {
+            if let vault = indexer.selectedVaultURL {
+                Label(vault.lastPathComponent, systemImage: "folder").foregroundStyle(.secondary)
+                Divider().frame(height: 11)
+            }
+            Text("\(indexer.notes.count) note\(indexer.notes.count == 1 ? "" : "s")")
+                .foregroundStyle(.secondary)
+            if !tags.isEmpty {
+                Divider().frame(height: 11)
+                Text("\(tags.count) tag\(tags.count == 1 ? "" : "s")").foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            statusBarButton("New note", "square.and.pencil") { newNote() }
+            statusBarButton("Today's note", "calendar") { openTodaysNote() }
+            statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { showGraph = true }
+                .disabled(indexer.notes.isEmpty)
+            statusBarButton("Ask your vault", "sparkles.rectangle.stack") { showVaultChat = true }
+                .disabled(indexer.notes.isEmpty)
+            statusBarButton("Assistant", "sparkles") { openAssistant() }
+        }
+        .font(.callout)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.bar)
+    }
+
+    private func statusBarButton(_ help: String, _ systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage).frame(width: 22, height: 18)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
     }
 
     private func closeTab(_ id: Note.ID) {
