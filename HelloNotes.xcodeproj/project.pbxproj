@@ -157,7 +157,6 @@
 				8768A2E43001C10000346ACB /* MarkdownEngineLatex */,
 				8768A2E53001C10000346ACB /* Markdown */,
 				CAFE000000000000000000B1 /* OpenAI */,
-				CAFE000000000000000000B2 /* SwiftAnthropic */,
 				CAFE000000000000000000B3 /* MLXLLM */,
 				CAFE000000000000000000B4 /* MLXLMCommon */,
 				CAFE000000000000000000B5 /* Tokenizers */,
@@ -252,7 +251,6 @@
 				8768A2503001B49B00346ACB /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */,
 				8768A2553001B5FE00346ACB /* XCRemoteSwiftPackageReference "SwiftGitX" */,
 				CAFE000000000000000000A1 /* XCRemoteSwiftPackageReference "OpenAI" */,
-				CAFE000000000000000000A2 /* XCRemoteSwiftPackageReference "SwiftAnthropic" */,
 				CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
 				CAFE000000000000000000A4 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 			);
@@ -734,14 +732,6 @@
 				minimumVersion = 0.5.0;
 			};
 		};
-		CAFE000000000000000000A2 /* XCRemoteSwiftPackageReference "SwiftAnthropic" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/jamesrochabrun/SwiftAnthropic.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.2.0;
-			};
-		};
 		CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-examples.git";
@@ -800,11 +790,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CAFE000000000000000000A1 /* XCRemoteSwiftPackageReference "OpenAI" */;
 			productName = OpenAI;
-		};
-		CAFE000000000000000000B2 /* SwiftAnthropic */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CAFE000000000000000000A2 /* XCRemoteSwiftPackageReference "SwiftAnthropic" */;
-			productName = SwiftAnthropic;
 		};
 		CAFE000000000000000000B3 /* MLXLLM */ = {
 			isa = XCSwiftPackageProductDependency;

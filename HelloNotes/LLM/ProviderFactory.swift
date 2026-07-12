@@ -31,8 +31,31 @@ enum ProviderFactory {
             let provider = OpenAICompatibleProvider(kind: kind, baseURL: config.baseURL, apiKey: key)
             return (provider, config.model)
 
-        case .anthropic, .gemini, .foundationModels, .mlx:
-            throw LLMError.unsupported("\(kind.displayName) support is coming in a later phase.")
+        case .anthropic:
+            guard let key = LLMKeychain.key(for: kind), !key.isEmpty else {
+                throw LLMError.missingAPIKey(kind.displayName)
+            }
+            return (AnthropicProvider(baseURL: config.baseURL, apiKey: key), config.model)
+
+        case .gemini:
+            guard let key = LLMKeychain.key(for: kind), !key.isEmpty else {
+                throw LLMError.missingAPIKey(kind.displayName)
+            }
+            return (GeminiProvider(baseURL: config.baseURL, apiKey: key), config.model)
+
+        case .foundationModels:
+            #if os(macOS)
+            return (FoundationModelsProvider(), config.model)
+            #else
+            throw LLMError.unsupported("On-device models require macOS.")
+            #endif
+
+        case .mlx:
+            #if os(macOS)
+            return (MLXProvider(), config.model)
+            #else
+            throw LLMError.unsupported("On-device models require macOS.")
+            #endif
         }
     }
 }
