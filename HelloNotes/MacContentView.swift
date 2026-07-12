@@ -36,6 +36,10 @@ struct MacContentView: View {
     /// Git status + operations for the vault.
     @State private var git = GitService()
 
+    /// Git commit identity + hosting-service accounts (GitHub, GitLab, …).
+    @State private var gitAccounts = GitAccountsStore()
+    @State private var showGitSettings = false
+
     /// Per-vault bookmarked notes.
     @State private var bookmarks = BookmarksStore()
 
@@ -227,6 +231,9 @@ struct MacContentView: View {
                 showVaultChat = false
             }
         }
+        .sheet(isPresented: $showGitSettings) {
+            GitSettingsView(store: gitAccounts, git: git)
+        }
     }
 
     // MARK: - Column 1: Sidebar
@@ -347,6 +354,11 @@ struct MacContentView: View {
             Text("GIT").font(.caption2).foregroundStyle(.secondary)
             Spacer()
             if git.isBusy { ProgressView().controlSize(.small) }
+            Button { showGitSettings = true } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .help("Git identity & accounts")
         }
 
         if !git.status.isRepository {
@@ -378,14 +390,21 @@ struct MacContentView: View {
                 }
                 .disabled(git.status.isClean || git.isBusy)
 
-                Menu {
-                    Button("Push") { Task { await git.push() } }
-                    Button("Fetch") { Task { await git.fetch() } }
-                } label: {
-                    Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                if git.status.hasRemote {
+                    Menu {
+                        Button("Push") { Task { await git.push() } }
+                        Button("Fetch") { Task { await git.fetch() } }
+                    } label: {
+                        Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(git.isBusy)
+                    .fixedSize()
+                } else {
+                    Button { showGitSettings = true } label: {
+                        Label("Connect Remote", systemImage: "link.badge.plus")
+                    }
+                    .fixedSize()
                 }
-                .disabled(git.isBusy)
-                .fixedSize()
             }
 
             Toggle("Auto-commit", isOn: $autoCommit)

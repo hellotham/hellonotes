@@ -19,11 +19,21 @@ import SwiftGitX
 @MainActor
 @Observable
 final class GitService {
+    struct RemoteInfo: Equatable, Sendable, Identifiable {
+        var id: String { name }
+        var name: String
+        var displayURL: String        // credentials stripped
+        var host: String?
+        var hasEmbeddedCredentials: Bool
+    }
+
     struct RepoStatus: Equatable, Sendable {
         var isRepository = false
         var branch: String?
         var changeCount = 0
+        var remotes: [RemoteInfo] = []
         var isClean: Bool { changeCount == 0 }
+        var hasRemote: Bool { !remotes.isEmpty }
     }
 
     private(set) var status = RepoStatus()
@@ -215,8 +225,67 @@ final class GitService {
             }
             let entries = (try? repo.status()) ?? []
             let branch = try? repo.branch.current.name
-            return RepoStatus(isRepository: true, branch: branch, changeCount: entries.count)
+            let remotes = ((try? repo.remote.list()) ?? []).map { remote in
+                RemoteInfo(
+                    name: remote.name,
+                    displayURL: GitRemoteURL.sanitized(remote.url).absoluteString,
+                    host: GitRemoteURL.host(of: remote.url),
+                    hasEmbeddedCredentials: remote.url.password != nil
+                )
+            }
+            return RepoStatus(isRepository: true, branch: branch, changeCount: entries.count, remotes: remotes)
         }.value
+    }
+
+    // MARK: - Remotes
+
+    /// Add or replace a remote (default `origin`). When `account`/`token` are
+    /// supplied for an HTTPS URL, the token is embedded so push/fetch authenticate.
+    func connectRemote(urlString: String, name: String = "origin",
+                       account: GitAccount? = nil, token: String? = nil) async {
+        guard let vaultURL else { return }
+        let trimmed = urlString.trimmingCharacters(in: .whitespaces)
+        guard let baseURL = URL(string: trimmed), baseURL.scheme != nil else {
+            lastError = "Enter a valid remote URL (https://…)."
+            return
+        }
+        let finalURL: URL = {
+            if let account, let token, let authed = GitRemoteURL.authenticated(baseURL, username: account.username, token: token) {
+                return authed
+            }
+            return baseURL
+        }()
+        await run(success: "Connected remote “\(name)”") {
+            let repo = try Repository.open(at: vaultURL)
+            if let existing = try? repo.remote.get(named: name) {
+                try repo.remote.remove(existing)
+            }
+            try repo.remote.add(named: name, at: finalURL)
+            // Best-effort: track the current branch against the new remote.
+            if let branch = try? repo.branch.current,
+               let upstream = try? repo.branch.get(named: "\(name)/\(branch.name)", type: .remote) {
+                try? repo.branch.setUpstream(from: branch, to: upstream)
+            }
+        }
+    }
+
+    /// Rewrite an existing remote's URL to embed credentials from an account.
+    func authenticateRemote(_ name: String, account: GitAccount, token: String) async {
+        guard let vaultURL else { return }
+        guard let repo = try? Repository.open(at: vaultURL),
+              let remote = try? repo.remote.get(named: name) else { return }
+        let base = GitRemoteURL.sanitized(remote.url)
+        await connectRemote(urlString: base.absoluteString, name: name, account: account, token: token)
+    }
+
+    func removeRemote(_ name: String) async {
+        guard let vaultURL else { return }
+        await run(success: "Removed remote “\(name)”") {
+            let repo = try Repository.open(at: vaultURL)
+            if let remote = try? repo.remote.get(named: name) {
+                try repo.remote.remove(remote)
+            }
+        }
     }
 }
 
@@ -227,8 +296,14 @@ extension GitService {
     /// copy the global identity into the repo's local config, falling back to a
     /// generic identity when none is available.
     nonisolated static func ensureCommitIdentity(_ repo: Repository) {
-        let hasName = ((try? repo.config.string(forKey: "user.name")) ?? nil) != nil
-        let hasEmail = ((try? repo.config.string(forKey: "user.email")) ?? nil) != nil
+        // App-managed identity (set in Git Settings) always wins when present.
+        let storedName = UserDefaults.standard.string(forKey: "gitUserName")?.nonEmpty
+        let storedEmail = UserDefaults.standard.string(forKey: "gitUserEmail")?.nonEmpty
+        if let storedName { try? repo.config.set("user.name", to: storedName) }
+        if let storedEmail { try? repo.config.set("user.email", to: storedEmail) }
+
+        let hasName = storedName != nil || ((try? repo.config.string(forKey: "user.name")) ?? nil) != nil
+        let hasEmail = storedEmail != nil || ((try? repo.config.string(forKey: "user.email")) ?? nil) != nil
         guard !hasName || !hasEmail else { return }
 
         let globalName = (try? Repository.config.string(forKey: "user.name")) ?? nil
@@ -238,8 +313,8 @@ extension GitService {
         let fallbackName = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
         let fallbackEmail = "\(NSUserName())@localhost"
 
-        try? repo.config.set("user.name", to: globalName ?? fallbackName)
-        try? repo.config.set("user.email", to: globalEmail ?? fallbackEmail)
+        if !hasName { try? repo.config.set("user.name", to: globalName ?? fallbackName) }
+        if !hasEmail { try? repo.config.set("user.email", to: globalEmail ?? fallbackEmail) }
     }
 }
 
