@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  Views a non-Markdown vault file in the detail column. Dispatches by kind:
+//  Views a non-Markdown collection file in the detail column. Dispatches by kind:
 //  PDF → PDFKit, CSV/TSV → a table, and everything else (images incl. SVG, and
 //  arbitrary files) → QuickLook, which renders them natively. A bottom bar
 //  offers "Open in Default App" and "Reveal in Finder".
@@ -17,7 +17,7 @@ import PDFKit
 import QuickLookUI
 
 struct FileViewerView: View {
-    let file: VaultFile
+    let file: CollectionFile
 
     var body: some View {
         VStack(spacing: 0) {

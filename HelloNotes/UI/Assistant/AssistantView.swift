@@ -47,7 +47,7 @@ struct AssistantView: View {
                     Image(systemName: model.agentMode ? "wrench.and.screwdriver.fill" : "bubble.left")
                 }
                 .toggleStyle(.button)
-                .help(model.agentMode ? "Agent mode: can read & edit the vault" : "Chat only")
+                .help(model.agentMode ? "Agent mode: can read & edit the collection" : "Chat only")
             }
             providerPicker
             Button {

@@ -6,7 +6,7 @@
 //
 //  Browse a connected account's repositories (or paste any clone URL), choose a
 //  destination folder, and clone. On success the cloned folder is handed back to
-//  open as the vault.
+//  open as the collection.
 //
 
 #if os(macOS)
@@ -17,7 +17,7 @@ struct CloneRepositoryView: View {
     @Bindable var store: GitAccountsStore
     @Bindable var git: GitService
 
-    /// Called with the cloned folder's URL so the caller can open it as a vault.
+    /// Called with the cloned folder's URL so the caller can open it as a collection.
     var onCloned: (URL) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -186,7 +186,7 @@ struct CloneRepositoryView: View {
 
         Task {
             let started = parent.startAccessingSecurityScopedResource()
-            defer { if started { /* kept open by setVault for the app's lifetime */ } }
+            defer { if started { /* kept open by open(url:) for the app's lifetime */ } }
             if let cloned = await git.cloneRepository(from: urlString, into: parent, account: account, token: token) {
                 onCloned(cloned)
                 dismiss()

@@ -1,10 +1,10 @@
 //
-//  VaultTools.swift
+//  CollectionTools.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  The vault-scoped tools the assistant can call: read/list/search notes and,
+//  The collection-scoped tools the assistant can call: read/list/search notes and,
 //  gated by the permission broker with a diff preview + per-edit Git commit,
 //  create/write/edit/delete them. Retrieval is agentic (grep/read) rather than
 //  embedding-based — always fresh, no index to maintain.
@@ -12,13 +12,13 @@
 
 import Foundation
 
-enum VaultTools {
-    /// The default tool set for a vault: retrieval, editing (gated), web
+enum CollectionTools {
+    /// The default tool set for a collection: retrieval, editing (gated), web
     /// research, and skills.
     @MainActor
     static func all() -> [AgentTool] {
         [
-            ListNotesTool(), ReadNoteTool(), SearchNotesTool(), GrepVaultTool(),
+            ListNotesTool(), ReadNoteTool(), SearchNotesTool(), GrepTool(),
             CreateNoteTool(), EditNoteTool(), WriteNoteTool(), DeleteNoteTool(),
             WebSearchTool(), WebFetchTool(), DeepResearchTool(), LoadSkillTool(),
         ]
@@ -29,12 +29,12 @@ enum VaultTools {
 
 struct ListNotesTool: AgentTool {
     let name = "list_notes"
-    let description = "List all notes in the vault (title and relative path). Use this to discover what exists."
+    let description = "List all notes in the collection (title and relative path). Use this to discover what exists."
     var parameters: JSONValue { .objectSchema(properties: [:]) }
 
     func run(_ arguments: JSONValue, context: ToolContext) async throws -> String {
         let notes = context.notes
-        guard !notes.isEmpty else { return "The vault is empty." }
+        guard !notes.isEmpty else { return "The collection is empty." }
         return notes.map { "- \($0.title)  (\(context.relativePath($0)))" }.joined(separator: "\n")
     }
 }
@@ -59,7 +59,7 @@ struct ReadNoteTool: AgentTool {
 
 struct SearchNotesTool: AgentTool {
     let name = "search_notes"
-    let description = "Full-text search the vault for a query and return the top matching notes with snippets."
+    let description = "Full-text search the collection for a query and return the top matching notes with snippets."
     var parameters: JSONValue {
         .objectSchema(
             properties: [
@@ -82,8 +82,8 @@ struct SearchNotesTool: AgentTool {
     }
 }
 
-struct GrepVaultTool: AgentTool {
-    let name = "grep_vault"
+struct GrepTool: AgentTool {
+    let name = "grep_collection"
     let description = "Find lines across all notes containing a substring (case-insensitive). Returns note title, line number, and the line."
     var parameters: JSONValue {
         .objectSchema(
@@ -124,22 +124,22 @@ struct CreateNoteTool: AgentTool {
             properties: [
                 "title": .stringSchema("The note title (also the filename)."),
                 "content": .stringSchema("The Markdown body of the new note."),
-                "folder": .stringSchema("Optional vault-relative folder to create it in."),
+                "folder": .stringSchema("Optional collection-relative folder to create it in."),
             ],
             required: ["title", "content"]
         )
     }
 
     func run(_ arguments: JSONValue, context: ToolContext) async throws -> String {
-        guard let vault = context.vaultURL else { throw ToolError.failed("No vault open.") }
+        guard let root = context.rootURL else { throw ToolError.failed("No collection open.") }
         guard let title = arguments.string("title"), let content = arguments["content"]?.stringValue else {
             throw ToolError.badArguments("`title` and `content` are required.")
         }
         let safe = title.replacingOccurrences(of: "/", with: "-")
-        var dir = vault
-        if let folder = arguments.string("folder") { dir = vault.appendingPathComponent(folder) }
+        var dir = root
+        if let folder = arguments.string("folder") { dir = root.appendingPathComponent(folder) }
         let url = dir.appendingPathComponent(safe + ".md")
-        let rel = url.path.replacingOccurrences(of: vault.path + "/", with: "")
+        let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
 
         let ok = await context.permissions.confirm(
             title: "Create note",
@@ -271,7 +271,7 @@ struct DeleteNoteTool: AgentTool {
         )
         guard ok else { throw ToolError.declined }
 
-        context.indexer.deleteNote(note)
+        context.collection.deleteNote(note)
         await context.refreshAfterMutation()
         await context.commit("assistant: delete \(rel)")
         return "Moved “\(rel)” to the Trash."

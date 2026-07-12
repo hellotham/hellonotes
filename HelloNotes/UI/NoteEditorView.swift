@@ -27,18 +27,18 @@ struct NoteEditorView: View {
     var unlinkedMentions: [Note] = []
 
     /// Resolves which `[[wiki-link]]` targets exist (drives link clickability).
-    var wikiResolver: VaultWikiLinkResolver
+    var wikiResolver: CollectionWikiLinkResolver
 
     /// Renders `![[Note]]` transclusions to inline images.
-    var embedProvider: VaultEmbedProvider
+    var embedProvider: CollectionEmbedProvider
 
-    /// Git state for the vault — drives the version-history button.
+    /// Git state for the collection — drives the version-history button.
     var git: GitService
 
     /// Candidate note titles/aliases offered by `[[wiki-link]]` autocomplete.
     var linkCandidates: [String] = []
 
-    /// Existing vault tags (without `#`) offered by `#tag` autocomplete.
+    /// Existing collection tags (without `#`) offered by `#tag` autocomplete.
     var tagCandidates: [String] = []
 
     /// Headings of the note with the given name, for `[[Note#heading]]` completion.
@@ -707,7 +707,7 @@ struct NoteEditorView: View {
     private static let diagramRenderer = MermaidDiagramRenderer()
 
     /// Editor configuration wiring in the HighlighterSwift (code) and SwiftMath
-    /// (LaTeX) bridges plus the vault wiki-link resolver, so fenced code blocks
+    /// (LaTeX) bridges plus the collection wiki-link resolver, so fenced code blocks
     /// are syntax-highlighted, `$…$` / `$$…$$` math renders natively, and
     /// `[[wiki-links]]` to existing notes are clickable.
     private var configuration: MarkdownEditorConfiguration {

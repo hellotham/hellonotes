@@ -10,31 +10,16 @@ import SwiftUI
 import AppKit
 
 /// The macOS three-column navigation shell: sidebar, note list, and editor.
+/// The note list shows every open collection in the library; the editor and Git
+/// panel act on the focused collection (the one owning the selected note).
 struct MacContentView: View {
-    @Environment(WorkspaceIndexer.self) private var indexer
+    @Environment(Library.self) private var library
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
 
-    /// Open notes as tabs, each with its own debounced-autosave editor.
+    /// Open notes as tabs, each with its own debounced-autosave editor. Tabs may
+    /// hold notes from any collection in the library.
     @State private var tabs = EditorTabs()
-
-    /// The vault's `[[wiki-link]]` / backlink index.
-    @State private var linkGraph = LinkGraph()
-
-    /// Tells the editor which wiki-link targets exist (drives clickability).
-    @State private var wikiResolver = VaultWikiLinkResolver()
-
-    /// Renders `![[Note]]` transclusions to inline images.
-    @State private var embedProvider = VaultEmbedProvider()
-
-    /// Caches note contents for full-text search and "Open Quickly".
-    @State private var search = VaultSearchModel()
-
-    /// Watches the vault for external changes (edits, git pulls, Finder ops).
-    @State private var fileWatcher: FileWatcher?
-
-    /// Git status + operations for the vault.
-    @State private var git = GitService()
 
     /// Git commit identity + hosting-service accounts (GitHub, GitLab, …).
     @State private var gitAccounts = GitAccountsStore()
@@ -50,9 +35,6 @@ struct MacContentView: View {
     @State private var showAssistant = false
     @State private var showLLMSettings = false
 
-    /// Per-vault bookmarked notes.
-    @State private var bookmarks = BookmarksStore()
-
     /// Opt-in background local auto-commit (never auto-pushes).
     @AppStorage("gitAutoCommit") private var autoCommit = false
 
@@ -64,75 +46,38 @@ struct MacContentView: View {
     /// Selected note identity (its file URL — stable across re-indexing).
     @State private var selectedNoteID: Note.ID?
 
-    /// Full-text query for the note list.
+    /// Full-text query for the note list (searches across every collection).
     @State private var searchText = ""
 
-    /// Whether the ⌘O "Open Quickly" palette is showing.
     @State private var showOpenQuickly = false
-
-    /// Whether the link-graph sheet is showing.
     @State private var showGraph = false
     @State private var showMindMap = false
-    @State private var showVaultChat = false
+    @State private var showLibraryChat = false
 
     /// How notes are ordered in the folder tree.
-    @State private var sortOrder: VaultSortOrder = .modified
+    @State private var sortOrder: SortOrder = .modified
 
-    /// Active tag filter, if any (mutually exclusive with the folder tree).
+    /// Active tag filter, if any (within the focused collection).
     @State private var selectedTag: String?
+
+    // MARK: - Focused / selection helpers
+
+    /// The focused collection — drives the editor, Git panel, and note actions.
+    private var focused: Collection? { library.focused }
+
+    /// The selected note, wherever it lives across the open collections.
+    private var selectedNote: Note? {
+        library.allNotes.first { $0.id == selectedNoteID }
+    }
+
+    /// The collection that owns the current selection (falls back to focused).
+    private var editorCollection: Collection? {
+        if let note = selectedNote { return library.collection(containing: note.fileURL) ?? focused }
+        return focused
+    }
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// Full-text hits shown as flat rows while searching.
-    private var searchRows: [NoteRow] {
-        search.fullTextResults(query: searchText).map {
-            NoteRow(note: $0.note, snippet: $0.snippet.isEmpty ? nil : $0.snippet)
-        }
-    }
-
-    /// Notes matching the active tag filter, as flat rows.
-    private var taggedRows: [NoteRow] {
-        guard let selectedTag else { return [] }
-        return search.notesTagged(selectedTag).map { NoteRow(note: $0, snippet: nil) }
-    }
-
-    /// The folder tree for the current vault and sort order.
-    private var tree: [VaultTreeNode] {
-        guard let vault = indexer.selectedVaultURL else { return [] }
-        return VaultTree.build(from: indexer.notes, attachments: indexer.attachments,
-                               vaultURL: vault, sort: sortOrder)
-    }
-
-    /// The attachment file the current selection points at, if any.
-    private var selectedAttachment: VaultFile? {
-        indexer.attachments.first { $0.url == selectedNoteID }
-    }
-
-    /// Distinct hashtags across the vault.
-    private var tags: [String] { search.allTags() }
-
-    /// The vault's hashtags as a nested tree for the sidebar.
-    private var tagTree: [TagNode] { search.tagTree() }
-
-    /// Nodes and resolved edges for the link-graph view.
-    private var graphData: (nodes: [GraphNode], edges: [GraphEdge]) {
-        let notes = indexer.notes
-        let indexByURL = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.fileURL, $0) })
-        var edges: [GraphEdge] = []
-        for (i, note) in notes.enumerated() {
-            for target in linkGraph.outgoingByURL[note.fileURL] ?? [] {
-                if let destURL = linkGraph.resolve(target), let j = indexByURL[destURL], j != i {
-                    edges.append(GraphEdge(from: i, to: j))
-                }
-            }
-        }
-        return (notes.map { GraphNode(url: $0.fileURL, label: $0.title) }, edges)
-    }
-
-    private var selectedNote: Note? {
-        indexer.notes.first { $0.id == selectedNoteID }
     }
 
     /// The editor for the active tab (the selected note).
@@ -140,31 +85,82 @@ struct MacContentView: View {
         tabs.editor(withID: selectedNoteID)
     }
 
+    /// The attachment file the current selection points at, if any.
+    private var selectedAttachment: CollectionFile? {
+        library.collections.lazy.compactMap { c in c.attachments.first { $0.url == selectedNoteID } }.first
+    }
+
+    // MARK: - Note list rows
+
+    /// A collection paired with its full-text search hits (for grouped results).
+    private struct SearchGroup: Identifiable {
+        let collection: Collection
+        let rows: [NoteRow]
+        var id: Collection.ID { collection.id }
+    }
+
+    private var searchGroups: [SearchGroup] {
+        library.collections.compactMap { collection in
+            let rows = collection.search.fullTextResults(query: searchText).map {
+                NoteRow(note: $0.note, snippet: $0.snippet.isEmpty ? nil : $0.snippet)
+            }
+            return rows.isEmpty ? nil : SearchGroup(collection: collection, rows: rows)
+        }
+    }
+
+    /// Notes matching the active tag filter in the focused collection, flat rows.
+    private var taggedRows: [NoteRow] {
+        guard let selectedTag, let focused else { return [] }
+        return focused.search.notesTagged(selectedTag).map { NoteRow(note: $0, snippet: nil) }
+    }
+
+    /// The folder tree for `collection` and the current sort order.
+    private func tree(for collection: Collection) -> [CollectionTreeNode] {
+        CollectionTree.build(from: collection.notes, attachments: collection.attachments,
+                             rootURL: collection.rootURL, sort: sortOrder)
+    }
+
+    // MARK: - Editor derived data (for the selection's collection)
+
     private var backlinks: [Note] {
-        guard let selectedNote else { return [] }
-        return linkGraph.backlinks(for: selectedNote, in: indexer.notes)
+        guard let selectedNote, let c = editorCollection else { return [] }
+        return c.linkGraph.backlinks(for: selectedNote, in: c.notes)
     }
 
     private var outgoingLinks: [Note] {
-        guard let selectedNote else { return [] }
-        return linkGraph.outgoingLinks(for: selectedNote, in: indexer.notes)
+        guard let selectedNote, let c = editorCollection else { return [] }
+        return c.linkGraph.outgoingLinks(for: selectedNote, in: c.notes)
     }
 
-    /// The open note's title plus any aliases — the names an unlinked mention
-    /// can use to refer to it.
     private var currentNoteNames: [String] {
-        guard let selectedNote else { return [] }
-        let text = activeEditor?.text ?? search.text(of: selectedNote) ?? ""
+        guard let selectedNote, let c = editorCollection else { return [] }
+        let text = activeEditor?.text ?? c.search.text(of: selectedNote) ?? ""
         return [selectedNote.title] + MarkdownParsing.aliases(in: text)
     }
 
     private var unlinkedMentions: [Note] {
-        guard let selectedNote else { return [] }
-        return search.unlinkedMentions(
+        guard let selectedNote, let c = editorCollection else { return [] }
+        return c.search.unlinkedMentions(
             of: selectedNote,
             names: currentNoteNames,
             excluding: Set(backlinks.map(\.fileURL))
         )
+    }
+
+    /// Nodes and resolved edges for the focused collection's link-graph view.
+    private var graphData: (nodes: [GraphNode], edges: [GraphEdge]) {
+        guard let c = focused else { return ([], []) }
+        let notes = c.notes
+        let indexByURL = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.fileURL, $0) })
+        var edges: [GraphEdge] = []
+        for (i, note) in notes.enumerated() {
+            for target in c.linkGraph.outgoingByURL[note.fileURL] ?? [] {
+                if let destURL = c.linkGraph.resolve(target), let j = indexByURL[destURL], j != i {
+                    edges.append(GraphEdge(from: i, to: j))
+                }
+            }
+        }
+        return (notes.map { GraphNode(url: $0.fileURL, label: $0.title) }, edges)
     }
 
     var body: some View {
@@ -176,80 +172,55 @@ struct MacContentView: View {
             editorColumn
         }
         .task {
-            // Create the assistant model up front so its conversation persists
-            // across sheet open/close and it's non-nil when first presented.
             if assistant == nil {
                 let model = AssistantModel(settings: llmSettings)
-                model.registry = ToolRegistry(tools: VaultTools.all())
-                model.toolContext = ToolContext(
-                    indexer: indexer, search: search, git: git, permissions: permissions,
-                    settings: llmSettings, skills: skills)
-                model.sessionStore = ChatSessionStore(vaultURL: indexer.selectedVaultURL)
+                model.registry = ToolRegistry(tools: CollectionTools.all())
                 assistant = model
             }
-            // Reopen the last vault on first launch.
-            if indexer.selectedVaultURL == nil {
-                indexer.restoreVault()
+            library.onExternalChange = { @MainActor in
+                Task { await tabs.reconcileAll() }
+                revalidateSelection()
             }
-            if let url = indexer.selectedVaultURL {
-                startWatching(url)
-                git.vaultURL = url
-                await git.refreshStatus()
+            if library.isEmpty {
+                await library.restore()
             }
-            bookmarks.load(vaultURL: indexer.selectedVaultURL)
-            refreshDerived(with: indexer.notes)
+            syncFocusedServices()
         }
         .onChange(of: selectedNoteID) { _, newID in
-            // Ensure a tab exists for (and loads) the selected note.
-            if let note = indexer.notes.first(where: { $0.id == newID }) {
+            if let note = library.allNotes.first(where: { $0.id == newID }) {
+                library.focusCollection(containing: note.fileURL)
                 Task { await tabs.editor(for: note) }
             }
         }
-        .onChange(of: indexer.selectedVaultURL) { _, url in
-            if let url {
-                startWatching(url)
-                git.vaultURL = url
-                Task { await git.refreshStatus() }
-            }
-            bookmarks.load(vaultURL: url)
+        .onChange(of: library.focusedID) { _, _ in
+            selectedTag = nil
+            syncFocusedServices()
         }
-        .onChange(of: indexer.notes) { _, notes in
-            // Note set changed (scan / create / delete): refresh derived data
-            // and drop tabs for notes that no longer exist.
-            refreshDerived(with: notes)
+        .onChange(of: library.allNotes) { _, notes in
             tabs.prune(keeping: Set(notes.map(\.id)))
-            // Keep the selection if it's a note that still exists or a viewable
-            // attachment; otherwise fall back to the last open tab.
-            let stillValid = selectedNoteID.map { id in
-                notes.contains { $0.id == id } || indexer.attachments.contains { $0.url == id }
-            } ?? true
-            if !stillValid {
-                selectedNoteID = tabs.openNotes.last?.id
-            }
-            Task { await git.refreshStatus() }
+            revalidateSelection()
+            if let c = focused { skills.refresh(from: c.notes) }
         }
         .onChange(of: tabs.totalSavedRevision) { _, _ in
-            // A tab saved: refresh links & search index.
-            refreshDerived(with: indexer.notes)
-            Task { await git.refreshStatus() }
-            if autoCommit {
-                git.scheduleAutoCommit(message: autoCommitMessage)
+            if let c = editorCollection {
+                Task { await c.git.refreshStatus() }
+                if autoCommit { c.git.scheduleAutoCommit(message: autoCommitMessage) }
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            // Safety net beyond the debounce: flush unsaved edits when the app
-            // is no longer active (hidden, backgrounded, or quitting).
             if newPhase != .active {
                 Task { await tabs.flushAll() }
             }
         }
         .sheet(isPresented: $showOpenQuickly) {
-            OpenQuicklyView(search: search) { selectedNoteID = $0.id }
+            if let c = focused {
+                OpenQuicklyView(search: c.search) { selectedNoteID = $0.id }
+            }
         }
         .sheet(isPresented: $showGraph) {
             let data = graphData
             GraphView(nodes: data.nodes, edges: data.edges) { url in
-                if let note = indexer.notes.first(where: { $0.fileURL == url }) {
+                if let note = focused?.notes.first(where: { $0.fileURL == url }) {
                     selectedTag = nil
                     searchText = ""
                     selectedNoteID = note.id
@@ -257,29 +228,31 @@ struct MacContentView: View {
             }
         }
         .sheet(isPresented: $showMindMap) {
-            if let note = selectedNote {
-                MindMapView(rootURL: note.fileURL, notes: indexer.notes, linkGraph: linkGraph) { note in
+            if let note = selectedNote, let c = editorCollection {
+                MindMapView(rootURL: note.fileURL, notes: c.notes, linkGraph: c.linkGraph) { note in
                     selectedTag = nil
                     searchText = ""
                     selectedNoteID = note.id
                 }
             }
         }
-        .sheet(isPresented: $showVaultChat) {
-            VaultChatView(intelligence: IntelligenceService(settings: llmSettings),
-                          notes: indexer.notes, search: search) { note in
+        .sheet(isPresented: $showLibraryChat) {
+            LibraryChatView(intelligence: IntelligenceService(settings: llmSettings),
+                            notes: library.allNotes, searches: library.collections.map(\.search)) { note in
                 selectedTag = nil
                 searchText = ""
                 selectedNoteID = note.id
-                showVaultChat = false
+                showLibraryChat = false
             }
         }
         .sheet(isPresented: $showGitSettings) {
-            GitSettingsView(store: gitAccounts, git: git)
+            if let c = focused {
+                GitSettingsView(store: gitAccounts, git: c.git)
+            }
         }
         .sheet(isPresented: $showClone) {
-            CloneRepositoryView(store: gitAccounts, git: git) { url in
-                indexer.setVault(url)
+            CloneRepositoryView(store: gitAccounts, git: focused?.git ?? GitService()) { url in
+                Task { await library.open(url: url) }
             }
         }
         .sheet(isPresented: $showAssistant) {
@@ -295,8 +268,28 @@ struct MacContentView: View {
         }
     }
 
+    /// Point the assistant's tools and chat store at the focused collection.
+    private func syncFocusedServices() {
+        guard let assistant, let c = focused else { return }
+        assistant.toolContext = ToolContext(
+            collection: c, search: c.search, git: c.git, permissions: permissions,
+            settings: llmSettings, skills: skills)
+        assistant.sessionStore = ChatSessionStore(collectionURL: c.rootURL)
+        skills.refresh(from: c.notes)
+    }
+
+    /// Drop the selection if the note (or attachment) it pointed at is gone.
+    private func revalidateSelection() {
+        let stillValid = selectedNoteID.map { id in
+            library.allNotes.contains { $0.id == id }
+                || library.collections.contains { $0.attachments.contains { $0.url == id } }
+        } ?? true
+        if !stillValid { selectedNoteID = tabs.openNotes.last?.id }
+    }
+
     private func openAssistant() {
         if assistant == nil { assistant = AssistantModel(settings: llmSettings) }
+        syncFocusedServices()
         DispatchQueue.main.async { showAssistant = true }
     }
 
@@ -305,9 +298,9 @@ struct MacContentView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                indexer.requestVaultAccess()
+                library.requestOpenCollections()
             } label: {
-                Label("Select Vault Folder", systemImage: "folder")
+                Label("Open Collection", systemImage: "folder.badge.plus")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -319,50 +312,40 @@ struct MacContentView: View {
             }
             .help("Browse and clone a repository from a connected account")
 
-            if let vaultURL = indexer.selectedVaultURL {
-                Text(vaultURL.lastPathComponent)
+            if let focused {
+                Text(focused.name)
                     .font(.headline)
-                Text("\(indexer.notes.count) notes")
+                Text("\(focused.notes.count) notes")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Button {
-                    newNote()
-                } label: {
+                Button { newNote() } label: {
                     Label("New Note", systemImage: "square.and.pencil")
                 }
 
-                Button {
-                    openTodaysNote()
-                } label: {
+                Button { openTodaysNote() } label: {
                     Label("Today's Note", systemImage: "calendar")
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
 
-                Button {
-                    showGraph = true
-                } label: {
+                Button { showGraph = true } label: {
                     Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(indexer.notes.isEmpty)
+                .disabled(focused.notes.isEmpty)
 
-                Button {
-                    showVaultChat = true
-                } label: {
-                    Label("Ask Vault", systemImage: "sparkles.rectangle.stack")
+                Button { showLibraryChat = true } label: {
+                    Label("Ask Library", systemImage: "sparkles.rectangle.stack")
                 }
                 .keyboardShortcut("j", modifiers: [.command, .shift])
-                .disabled(indexer.notes.isEmpty)
+                .disabled(library.allNotes.isEmpty)
 
-                Button {
-                    openAssistant()
-                } label: {
+                Button { openAssistant() } label: {
                     Label("Assistant", systemImage: "sparkles")
                 }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
 
-                let bookmarked = bookmarks.bookmarkedNotes(from: indexer.notes)
+                let bookmarked = focused.bookmarks.bookmarkedNotes(from: focused.notes)
                 if !bookmarked.isEmpty {
                     Divider()
                     Text("BOOKMARKS")
@@ -382,12 +365,11 @@ struct MacContentView: View {
                     }
                 }
 
+                let tags = focused.search.allTags()
                 if !tags.isEmpty {
                     Divider()
 
-                    Button {
-                        selectedTag = nil
-                    } label: {
+                    Button { selectedTag = nil } label: {
                         Label("All Notes", systemImage: "tray.full")
                             .fontWeight(selectedTag == nil ? .semibold : .regular)
                     }
@@ -399,7 +381,7 @@ struct MacContentView: View {
 
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(tagTree) { node in
+                            ForEach(focused.search.tagTree()) { node in
                                 TagTreeRow(node: node, selectedTag: selectedTag) { tag in
                                     selectedTag = tag
                                     searchText = ""
@@ -412,7 +394,7 @@ struct MacContentView: View {
 
             Spacer()
 
-            if indexer.selectedVaultURL != nil {
+            if focused != nil {
                 gitSection
             }
         }
@@ -421,84 +403,86 @@ struct MacContentView: View {
         .navigationSplitViewColumnWidth(min: 200, ideal: 220)
     }
 
-    // MARK: - Git section
+    // MARK: - Git section (focused collection)
 
     @ViewBuilder
     private var gitSection: some View {
-        Divider()
+        if let git = focused?.git {
+            Divider()
 
-        HStack(spacing: 6) {
-            Image(systemName: "arrow.triangle.branch")
-            Text("GIT").font(.caption2).foregroundStyle(.secondary)
-            Spacer()
-            if git.isBusy { ProgressView().controlSize(.small) }
-            Button { showGitSettings = true } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.borderless)
-            .help("Git identity & accounts")
-        }
-
-        if !git.status.isRepository {
-            Text("Not a Git repository")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button {
-                Task { await git.initializeRepository() }
-            } label: {
-                Label("Initialize Repository", systemImage: "plus.circle")
-            }
-            .disabled(git.isBusy)
-        } else {
-            HStack {
-                Label(git.status.branch ?? "—", systemImage: "point.3.filled.connected.trianglepath.dotted")
-                    .font(.caption)
-                    .lineLimit(1)
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.branch")
+                Text("GIT").font(.caption2).foregroundStyle(.secondary)
                 Spacer()
-                Text(git.status.isClean ? "Clean" : "\(git.status.changeCount) changed")
+                if git.isBusy { ProgressView().controlSize(.small) }
+                Button { showGitSettings = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.borderless)
+                .help("Git identity & accounts")
+            }
+
+            if !git.status.isRepository {
+                Text("Not a Git repository")
                     .font(.caption)
-                    .foregroundStyle(git.status.isClean ? Color.secondary : Color.orange)
-            }
-
-            HStack {
-                Button {
-                    Task { await git.commitAll(message: autoCommitMessage) }
-                } label: {
-                    Label("Commit", systemImage: "checkmark.seal")
-                }
-                .disabled(git.status.isClean || git.isBusy)
-
-                if git.status.hasRemote {
-                    Menu {
-                        Button("Push") { Task { await git.push() } }
-                        Button("Fetch") { Task { await git.fetch() } }
-                    } label: {
-                        Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .disabled(git.isBusy)
-                    .fixedSize()
-                } else {
-                    Button { showGitSettings = true } label: {
-                        Label("Connect Remote", systemImage: "link.badge.plus")
-                    }
-                    .fixedSize()
-                }
-            }
-
-            Toggle("Auto-commit", isOn: $autoCommit)
-                .font(.caption)
-                .toggleStyle(.checkbox)
-
-            if let error = git.lastError {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-            } else if let message = git.lastMessage {
-                Text(message)
-                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                Button {
+                    Task { await git.initializeRepository() }
+                } label: {
+                    Label("Initialize Repository", systemImage: "plus.circle")
+                }
+                .disabled(git.isBusy)
+            } else {
+                HStack {
+                    Label(git.status.branch ?? "—", systemImage: "point.3.filled.connected.trianglepath.dotted")
+                        .font(.caption)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(git.status.isClean ? "Clean" : "\(git.status.changeCount) changed")
+                        .font(.caption)
+                        .foregroundStyle(git.status.isClean ? Color.secondary : Color.orange)
+                }
+
+                HStack {
+                    Button {
+                        Task { await git.commitAll(message: autoCommitMessage) }
+                    } label: {
+                        Label("Commit", systemImage: "checkmark.seal")
+                    }
+                    .disabled(git.status.isClean || git.isBusy)
+
+                    if git.status.hasRemote {
+                        Menu {
+                            Button("Push") { Task { await git.push() } }
+                            Button("Fetch") { Task { await git.fetch() } }
+                        } label: {
+                            Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .disabled(git.isBusy)
+                        .fixedSize()
+                    } else {
+                        Button { showGitSettings = true } label: {
+                            Label("Connect Remote", systemImage: "link.badge.plus")
+                        }
+                        .fixedSize()
+                    }
+                }
+
+                Toggle("Auto-commit", isOn: $autoCommit)
+                    .font(.caption)
+                    .toggleStyle(.checkbox)
+
+                if let error = git.lastError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                } else if let message = git.lastMessage {
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
     }
@@ -524,18 +508,18 @@ struct MacContentView: View {
 
             if let attachment = selectedAttachment {
                 FileViewerView(file: attachment)
-            } else if let activeEditor {
+            } else if let activeEditor, let c = editorCollection {
                 NoteEditorView(
                     editor: activeEditor,
                     backlinks: backlinks,
                     outgoingLinks: outgoingLinks,
                     unlinkedMentions: unlinkedMentions,
-                    wikiResolver: wikiResolver,
-                    embedProvider: embedProvider,
-                    git: git,
-                    linkCandidates: search.linkTargets(),
-                    tagCandidates: search.allTags(),
-                    headingProvider: { search.headings(forName: $0) },
+                    wikiResolver: c.wikiResolver,
+                    embedProvider: c.embedProvider,
+                    git: c.git,
+                    linkCandidates: c.search.linkTargets(),
+                    tagCandidates: c.search.allTags(),
+                    headingProvider: { c.search.headings(forName: $0) },
                     onOpenWikiLink: openWikiLink,
                     onOpenNote: { selectedNoteID = $0.id },
                     onLinkMention: linkMention,
@@ -548,7 +532,7 @@ struct MacContentView: View {
                     description: Text("Select a note from the list, or create a new one.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if indexer.selectedVaultURL != nil {
+                if focused != nil {
                     Divider()
                     noNoteStatusBar
                 }
@@ -556,20 +540,19 @@ struct MacContentView: View {
         }
     }
 
-    /// Bottom status bar shown when a vault is open but no note is selected:
-    /// vault stats on the left, quick-start actions on the right. Mirrors the
-    /// editor's bottom bar so the toolbar always lives at the bottom.
+    /// Bottom status bar shown when a collection is open but no note is selected.
     private var noNoteStatusBar: some View {
         HStack(spacing: 8) {
-            if let vault = indexer.selectedVaultURL {
-                Label(vault.lastPathComponent, systemImage: "folder").foregroundStyle(.secondary)
+            if let focused {
+                Label(focused.name, systemImage: "folder").foregroundStyle(.secondary)
                 Divider().frame(height: 11)
-            }
-            Text("\(indexer.notes.count) note\(indexer.notes.count == 1 ? "" : "s")")
-                .foregroundStyle(.secondary)
-            if !tags.isEmpty {
-                Divider().frame(height: 11)
-                Text("\(tags.count) tag\(tags.count == 1 ? "" : "s")").foregroundStyle(.secondary)
+                Text("\(focused.notes.count) note\(focused.notes.count == 1 ? "" : "s")")
+                    .foregroundStyle(.secondary)
+                let tagCount = focused.search.allTags().count
+                if tagCount > 0 {
+                    Divider().frame(height: 11)
+                    Text("\(tagCount) tag\(tagCount == 1 ? "" : "s")").foregroundStyle(.secondary)
+                }
             }
 
             Spacer(minLength: 12)
@@ -577,9 +560,9 @@ struct MacContentView: View {
             statusBarButton("New note", "square.and.pencil") { newNote() }
             statusBarButton("Today's note", "calendar") { openTodaysNote() }
             statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { showGraph = true }
-                .disabled(indexer.notes.isEmpty)
-            statusBarButton("Ask your vault", "sparkles.rectangle.stack") { showVaultChat = true }
-                .disabled(indexer.notes.isEmpty)
+                .disabled(focused?.notes.isEmpty ?? true)
+            statusBarButton("Ask your library", "sparkles.rectangle.stack") { showLibraryChat = true }
+                .disabled(library.allNotes.isEmpty)
             statusBarButton("Assistant", "sparkles") { openAssistant() }
         }
         .font(.callout)
@@ -605,40 +588,50 @@ struct MacContentView: View {
         }
     }
 
-    // MARK: - Column 2: Note list
+    // MARK: - Column 2: Note list (all collections)
 
     private var noteList: some View {
         List(selection: $selectedNoteID) {
             if isSearching {
-                ForEach(searchRows) { flatRow($0) }
-            } else if selectedTag != nil {
-                ForEach(taggedRows) { flatRow($0) }
+                ForEach(searchGroups) { group in
+                    Section(group.collection.name) {
+                        ForEach(group.rows) { flatRow($0, in: group.collection) }
+                    }
+                }
+            } else if selectedTag != nil, let focused {
+                ForEach(taggedRows) { flatRow($0, in: focused) }
             } else {
-                ForEach(tree) { node in
-                    VaultTreeRow(
-                        node: node,
-                        onDelete: delete,
-                        onOpenInNewWindow: { openWindow(value: NoteRef($0.fileURL)) },
-                        isBookmarked: bookmarks.isBookmarked,
-                        onToggleBookmark: bookmarks.toggle
-                    )
+                ForEach(library.collections) { collection in
+                    Section {
+                        ForEach(tree(for: collection)) { node in
+                            CollectionTreeRow(
+                                node: node,
+                                onDelete: { delete($0, in: collection) },
+                                onOpenInNewWindow: { openWindow(value: NoteRef($0.fileURL)) },
+                                isBookmarked: collection.bookmarks.isBookmarked,
+                                onToggleBookmark: collection.bookmarks.toggle
+                            )
+                        }
+                    } header: {
+                        collectionHeader(collection)
+                    }
                 }
             }
         }
-        .searchable(text: $searchText, placement: .sidebar, prompt: "Search notes & contents")
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Search all collections")
         .navigationTitle(selectedTag.map { "#\($0)" } ?? "Notes")
         .toolbar {
             ToolbarItem {
                 Menu {
                     Picker("Sort By", selection: $sortOrder) {
-                        ForEach(VaultSortOrder.allCases) { order in
+                        ForEach(SortOrder.allCases) { order in
                             Label(order.rawValue, systemImage: order.systemImage).tag(order)
                         }
                     }
                 } label: {
                     Label("Sort", systemImage: "arrow.up.arrow.down")
                 }
-                .disabled(indexer.notes.isEmpty || isSearching || selectedTag != nil)
+                .disabled(library.isEmpty || isSearching || selectedTag != nil)
             }
             ToolbarItem {
                 Menu {
@@ -663,24 +656,52 @@ struct MacContentView: View {
                 }
                 .keyboardShortcut("o", modifiers: .command)
                 .help("Open Quickly (⌘O)")
-                .disabled(indexer.notes.isEmpty)
+                .disabled(focused?.notes.isEmpty ?? true)
             }
         }
         .overlay {
-            if indexer.notes.isEmpty {
+            if library.isEmpty {
                 ContentUnavailableView(
-                    "No Notes",
-                    systemImage: "doc.text",
-                    description: Text("Select a vault folder to index your Markdown files.")
+                    "No Collections",
+                    systemImage: "folder",
+                    description: Text("Open a folder of Markdown files to start a collection.")
                 )
-            } else if isSearching && searchRows.isEmpty {
+            } else if isSearching && searchGroups.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
         }
     }
 
+    /// A collection's section header: name, Git indicator, and a close button.
+    /// Tapping it focuses the collection.
+    private func collectionHeader(_ collection: Collection) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "books.vertical")
+            Text(collection.name)
+                .fontWeight(collection.id == focused?.id ? .semibold : .regular)
+            if collection.git.status.isRepository {
+                Circle()
+                    .fill(collection.git.status.isClean ? Color.secondary : Color.orange)
+                    .frame(width: 6, height: 6)
+            }
+            Spacer()
+            Button {
+                if selectedNote.map({ library.collection(containing: $0.fileURL)?.id == collection.id }) ?? false {
+                    selectedNoteID = nil
+                }
+                library.close(collection)
+            } label: {
+                Image(systemName: "xmark.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Close “\(collection.name)”")
+        }
+        .contentShape(.rect)
+        .onTapGesture { library.focus(collection) }
+    }
+
     /// A flat (non-tree) note row used for search results and tag filtering.
-    private func flatRow(_ row: NoteRow) -> some View {
+    private func flatRow(_ row: NoteRow, in collection: Collection) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(row.note.title)
                 .font(.headline)
@@ -697,7 +718,7 @@ struct MacContentView: View {
         }
         .tag(row.note.id)
         .contextMenu {
-            bookmarkButton(row.note)
+            bookmarkButton(row.note, in: collection)
             Button {
                 openWindow(value: NoteRef(row.note.fileURL))
             } label: {
@@ -705,7 +726,7 @@ struct MacContentView: View {
             }
             Divider()
             Button(role: .destructive) {
-                delete(row.note)
+                delete(row.note, in: collection)
             } label: {
                 Label("Move to Trash", systemImage: "trash")
             }
@@ -714,10 +735,10 @@ struct MacContentView: View {
 
     /// Context-menu toggle for bookmarking a note.
     @ViewBuilder
-    private func bookmarkButton(_ note: Note) -> some View {
-        let on = bookmarks.isBookmarked(note)
+    private func bookmarkButton(_ note: Note, in collection: Collection) -> some View {
+        let on = collection.bookmarks.isBookmarked(note)
         Button {
-            bookmarks.toggle(note)
+            collection.bookmarks.toggle(note)
         } label: {
             Label(on ? "Remove Bookmark" : "Add Bookmark",
                   systemImage: on ? "bookmark.slash" : "bookmark")
@@ -726,68 +747,41 @@ struct MacContentView: View {
 
     // MARK: - Actions
 
-    /// Keep the derived data (wiki-link resolver, backlink graph, search index)
-    /// in sync with the current note set.
-    private func refreshDerived(with notes: [Note]) {
-        // Titles first so links are clickable immediately; the async rebuild then
-        // adds aliases to the resolver so `[[alias]]` resolves too.
-        wikiResolver.update(titles: notes.map(\.title))
-        embedProvider.update(notes: notes)
-        skills.refresh(from: notes)
-        Task {
-            await linkGraph.rebuild(from: notes)
-            await search.refresh(from: notes)
-            wikiResolver.update(titles: Array(linkGraph.resolution.keys))
-        }
-    }
-
-    /// Start watching the vault directory; external changes trigger a re-index
-    /// and reconcile the open note against its on-disk copy.
-    private func startWatching(_ url: URL) {
-        let watcher = FileWatcher {
-            Task { @MainActor in
-                indexer.scanVault()
-                await tabs.reconcileAll()
-            }
-        }
-        watcher.start(url: url)
-        fileWatcher = watcher
-    }
-
     /// Turn the first plain-text mention of the open note (by title) in `note`
     /// into a `[[link]]`, writing the change to disk and re-indexing.
     private func linkMention(_ note: Note) {
-        guard let target = selectedNote,
+        guard let target = selectedNote, let c = editorCollection,
               let text = try? String(contentsOf: note.fileURL, encoding: .utf8),
               let updated = MentionScanner.linkingFirstMention(of: target.title, in: text) else { return }
         try? Data(updated.utf8).write(to: note.fileURL, options: .atomic)
-        indexer.scanVault()
+        c.scan()
+        c.refreshDerived()
     }
 
     private func newNote() {
-        if let note = indexer.createNote() {
+        if let note = focused?.createNote() {
             selectedNoteID = note.id
         }
     }
 
     // MARK: - Daily notes & templates
 
-    /// Open today's daily note, creating it (with a date heading) if needed.
+    /// Open today's daily note in the focused collection, creating it if needed.
     private func openTodaysNote() {
         let name = TemplateExpander.dailyNoteName(for: .now, format: dailyDateFormat)
         let rel = dailyNoteFolder.isEmpty ? "\(name).md" : "\(dailyNoteFolder)/\(name).md"
-        if let note = indexer.note(atRelativePath: rel, creatingWith: "# \(name)\n\n") {
+        if let note = focused?.note(atRelativePath: rel, creatingWith: "# \(name)\n\n") {
             selectedTag = nil
             searchText = ""
             selectedNoteID = note.id
         }
     }
 
-    /// Notes that live under the configured templates folder.
+    /// Notes under the configured templates folder in the focused collection.
     private var templateNotes: [Note] {
-        guard !templatesFolder.isEmpty, let vault = indexer.selectedVaultURL else { return [] }
-        let base = vault.appendingPathComponent(templatesFolder).standardizedFileURL.path + "/"
-        return indexer.notes
+        guard !templatesFolder.isEmpty, let c = focused else { return [] }
+        let base = c.rootURL.appendingPathComponent(templatesFolder).standardizedFileURL.path + "/"
+        return c.notes
             .filter { $0.fileURL.standardizedFileURL.path.hasPrefix(base) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
@@ -800,17 +794,17 @@ struct MacContentView: View {
         editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
     }
 
-    private func delete(_ note: Note) {
+    private func delete(_ note: Note, in collection: Collection) {
         let wasSelected = selectedNoteID == note.id
-        indexer.deleteNote(note)
+        collection.deleteNote(note)
         if wasSelected {
             selectedNoteID = nil
         }
     }
 
-    /// Handle a clicked link. External URLs open in the default app; otherwise
-    /// the target is treated as a note title — navigate to the matching note,
-    /// or create it if it doesn't exist yet (create-on-miss).
+    /// Handle a clicked link within the selection's collection. External URLs
+    /// open in the default app; otherwise the target is a note title — navigate
+    /// to the matching note, or create it if it doesn't exist yet.
     private func openWikiLink(_ target: String) {
         let webSchemes: Set<String> = ["http", "https", "mailto", "file"]
         if let url = URL(string: target),
@@ -820,7 +814,8 @@ struct MacContentView: View {
             return
         }
 
-        // Split `Note#heading`: an empty base is a same-note `[[#heading]]` link.
+        guard let c = editorCollection else { return }
+
         let base: String
         let heading: String?
         if let hash = target.firstIndex(of: "#") {
@@ -835,20 +830,19 @@ struct MacContentView: View {
         let destination: Note?
         if base.isEmpty {
             destination = selectedNote
-        } else if let url = linkGraph.resolve(base),
-                  let note = indexer.notes.first(where: { $0.fileURL == url }) {
+        } else if let url = c.linkGraph.resolve(base),
+                  let note = c.notes.first(where: { $0.fileURL == url }) {
             destination = note
-        } else if let match = indexer.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame }) {
+        } else if let match = c.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame }) {
             destination = match
         } else {
-            destination = indexer.createNote(title: base)
+            destination = c.createNote(title: base)
         }
 
         guard let destination else { return }
         let switching = selectedNoteID != destination.id
         selectedNoteID = destination.id
 
-        // If the link targets a heading, scroll to it once the note is loaded.
         if let heading {
             Task {
                 await tabs.editor(for: destination)
@@ -858,7 +852,6 @@ struct MacContentView: View {
         }
     }
 
-    /// Ask the visible editor to scroll to (and briefly highlight) `title`.
     private func scrollToHeading(_ title: String) {
         NotificationCenter.default.post(name: .hnEditorFindQuery, object: nil, userInfo: ["query": title])
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {

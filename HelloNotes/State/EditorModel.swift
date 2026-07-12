@@ -83,7 +83,7 @@ final class EditorModel {
         await save()
     }
 
-    /// React to the vault changing on disk. If the open note's file changed
+    /// React to the collection changing on disk. If the open note's file changed
     /// externally and our buffer is clean, silently reload it. If the buffer
     /// has unsaved edits, raise a conflict for the user to resolve.
     func reconcileWithDisk() async {

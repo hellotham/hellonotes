@@ -10,19 +10,19 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The iOS / iPadOS shell. A three-column `NavigationSplitView` mirrors the
-/// macOS app: a navigation sidebar (vault + All Notes + `#tags` filter), the
+/// macOS app: a navigation sidebar (collection + All Notes + `#tags` filter), the
 /// note list, and the editor. On iPad landscape all three columns show at once
 /// (like macOS); on iPad portrait the sidebar tucks behind a toggle; on iPhone
-/// it collapses to a push stack. Shares `Note`, `WorkspaceIndexer`,
-/// `EditorModel`, and `VaultSearchModel` with macOS. MarkdownEngine is
+/// it collapses to a push stack. Shares `Note`, `Library`,
+/// `EditorModel`, and `CollectionSearchModel` with macOS. MarkdownEngine is
 /// macOS-only (AppKit/TextKit 2), so the mobile editor is a plain-text
 /// `TextEditor` backed by the same autosave logic.
 struct iOSContentView: View {
-    @Environment(WorkspaceIndexer.self) private var indexer
+    @Environment(Library.self) private var library
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var editor = EditorModel()
-    @State private var search = VaultSearchModel()
+    @State private var search = CollectionSearchModel()
     @State private var showImporter = false
     @State private var searchText = ""
     @State private var selectedNoteID: Note.ID?
@@ -38,8 +38,8 @@ struct iOSContentView: View {
         if let selectedTag {
             return search.notesTagged(selectedTag)
         }
-        guard !searchText.isEmpty else { return indexer.notes }
-        return indexer.notes.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+        guard !searchText.isEmpty else { return (library.focused?.notes ?? []) }
+        return (library.focused?.notes ?? []).filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
@@ -53,20 +53,20 @@ struct iOSContentView: View {
         .navigationSplitViewStyle(.balanced)
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder]) { result in
             if case let .success(url) = result {
-                indexer.setVault(url)
+                Task { await library.open(url: url) }
             }
         }
         .task {
-            if indexer.selectedVaultURL == nil {
-                indexer.restoreVault()
+            if library.isEmpty {
+                await library.restore()
             }
-            await search.refresh(from: indexer.notes)
+            await search.refresh(from: (library.focused?.notes ?? []))
         }
-        .onChange(of: indexer.notes) { _, notes in
+        .onChange(of: (library.focused?.notes ?? [])) { _, notes in
             Task { await search.refresh(from: notes) }
         }
         .onChange(of: selectedNoteID) { _, newID in
-            let note = indexer.notes.first { $0.id == newID }
+            let note = (library.focused?.notes ?? []).first { $0.id == newID }
             Task { await editor.open(note) }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -81,9 +81,9 @@ struct iOSContentView: View {
     @ViewBuilder
     private var sidebar: some View {
         List {
-            if indexer.selectedVaultURL == nil {
+            if library.isEmpty {
                 Section {
-                    Button("Select Vault Folder") { showImporter = true }
+                    Button("Open Collection") { showImporter = true }
                 }
             } else {
                 Section {
@@ -104,13 +104,13 @@ struct iOSContentView: View {
                 }
             }
         }
-        .navigationTitle(indexer.selectedVaultURL?.lastPathComponent ?? "HelloNotes")
+        .navigationTitle(library.focused?.name ?? "HelloNotes")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    if indexer.selectedVaultURL != nil {
+                    if !library.isEmpty {
                         Button {
-                            if let note = indexer.createNote() {
+                            if let note = library.focused?.createNote() {
                                 selectedNoteID = note.id
                             }
                         } label: {
@@ -120,7 +120,7 @@ struct iOSContentView: View {
                     Button {
                         showImporter = true
                     } label: {
-                        Label("Select Vault Folder", systemImage: "folder")
+                        Label("Open Collection", systemImage: "folder")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -149,13 +149,13 @@ struct iOSContentView: View {
     @ViewBuilder
     private var noteList: some View {
         Group {
-            if indexer.selectedVaultURL == nil {
+            if library.isEmpty {
                 ContentUnavailableView {
-                    Label("No Vault", systemImage: "folder")
+                    Label("No Collection", systemImage: "folder")
                 } description: {
                     Text("Choose a folder of Markdown files to begin.")
                 } actions: {
-                    Button("Select Vault Folder") { showImporter = true }
+                    Button("Open Collection") { showImporter = true }
                         .buttonStyle(.borderedProminent)
                 }
             } else {
@@ -171,7 +171,7 @@ struct iOSContentView: View {
                 }
                 .searchable(text: $searchText, prompt: "Search notes")
                 .overlay {
-                    if indexer.notes.isEmpty {
+                    if (library.focused?.notes ?? []).isEmpty {
                         ContentUnavailableView("No Notes", systemImage: "doc.text")
                     }
                 }

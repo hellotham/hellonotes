@@ -5,7 +5,7 @@
 //  Created by Chris Tham on 12/7/2026.
 //
 //  Routes the "intelligence" features — Summarize, Suggest Tags/Links, Expand,
-//  and Ask Vault — through the user's chosen intelligence provider. Apple
+//  and Ask Library — through the user's chosen intelligence provider. Apple
 //  Intelligence (the default) uses the on-device structured path in
 //  NoteIntelligence; every other provider runs a one-shot completion through the
 //  shared LLM layer and parses the result.
@@ -61,16 +61,16 @@ struct IntelligenceService {
             .map { "## \($0.title)\n\(String($0.text.prefix(perNote)))" }
             .joined(separator: "\n\n")
         return try await complete(
-            system: "You answer questions using ONLY the provided notes from the user's vault. Cite the note titles you used in brackets like [Title]. If the notes don't contain the answer, say you couldn't find it in the vault.",
-            user: "Notes from my vault:\n\n\(contextText)\n\nQuestion: \(question)")
+            system: "You answer questions using ONLY the provided notes from the user's library. Cite the note titles you used in brackets like [Title]. If the notes don't contain the answer, say you couldn't find it in the library.",
+            user: "Notes from my library:\n\n\(contextText)\n\nQuestion: \(question)")
     }
 
     func suggestTags(for noteText: String, existing: [String]) async throws -> [String] {
         if isApple { return try await NoteIntelligence.suggestTags(for: noteText, existing: existing) }
         let existingList = existing.isEmpty ? "none" : existing.joined(separator: ", ")
         let reply = try await complete(
-            system: "You suggest topical tags for personal notes. Prefer reusing the vault's existing tags when they fit. Reply with ONLY 3–6 short, lowercase, single-word tags separated by commas — no '#', no other text.",
-            user: "Existing vault tags: \(existingList)\n\nNote:\n\(clean(noteText))")
+            system: "You suggest topical tags for personal notes. Prefer reusing your existing tags when they fit. Reply with ONLY 3–6 short, lowercase, single-word tags separated by commas — no '#', no other text.",
+            user: "Existing tags: \(existingList)\n\nNote:\n\(clean(noteText))")
         return normalizeTags(reply)
     }
 

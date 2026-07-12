@@ -9,11 +9,11 @@ import Foundation
 import Observation
 import SwiftGitX
 
-/// Observable Git state + operations for the vault, backed by SwiftGitX
+/// Observable Git state + operations for the collection, backed by SwiftGitX
 /// (libgit2). Blocking libgit2 calls run off the main actor; observable state
 /// is published back on it.
 ///
-/// Safety by design: the vault is only turned into a repository on an explicit
+/// Safety by design: the collection is only turned into a repository on an explicit
 /// `initializeRepository()` call, and pushing to a remote is only ever a
 /// user-initiated action — nothing here pushes automatically.
 @MainActor
@@ -41,23 +41,23 @@ final class GitService {
     private(set) var lastError: String?
     private(set) var lastMessage: String?
 
-    /// The vault whose repository this service manages.
-    var vaultURL: URL?
+    /// The collection whose repository this service manages.
+    var rootURL: URL?
 
     private var autoCommitTask: Task<Void, Never>?
 
     // MARK: - Status
 
     func refreshStatus() async {
-        guard let url = vaultURL else { status = RepoStatus(); return }
+        guard let url = rootURL else { status = RepoStatus(); return }
         status = await Self.readStatus(at: url)
     }
 
     // MARK: - Operations
 
-    /// Turn the vault into a Git repository (explicit user action only).
+    /// Turn the collection into a Git repository (explicit user action only).
     func initializeRepository() async {
-        guard let url = vaultURL else { return }
+        guard let url = rootURL else { return }
         await run(success: "Initialized empty Git repository") {
             let repo = try Repository(at: url, createIfNotExists: true)
             Self.ensureCommitIdentity(repo)
@@ -66,7 +66,7 @@ final class GitService {
 
     /// Stage all changes and create a local commit.
     func commitAll(message: String) async {
-        guard let url = vaultURL else { return }
+        guard let url = rootURL else { return }
         await run(success: "Committed changes") {
             let repo = try Repository.open(at: url)
             Self.ensureCommitIdentity(repo)
@@ -80,7 +80,7 @@ final class GitService {
 
     /// Push the current branch to its remote (user-initiated only).
     func push() async {
-        guard let url = vaultURL else { return }
+        guard let url = rootURL else { return }
         await run(success: "Pushed to remote") {
             let repo = try Repository.open(at: url)
             try await repo.push()
@@ -89,7 +89,7 @@ final class GitService {
 
     /// Fetch remote refs (SwiftGitX has no merge yet, so this doesn't pull).
     func fetch() async {
-        guard let url = vaultURL else { return }
+        guard let url = rootURL else { return }
         await run(success: "Fetched from remote") {
             let repo = try Repository.open(at: url)
             try await repo.fetch()
@@ -108,12 +108,12 @@ final class GitService {
     }
 
     /// The commits that changed `fileURL` (its blob differs from the parent's),
-    /// newest first. Empty when the vault isn't a repo or the file is untracked.
+    /// newest first. Empty when the collection isn't a repo or the file is untracked.
     /// Walks at most `scan` commits so large histories stay responsive.
     func history(for fileURL: URL, scan: Int = 300) async -> [NoteRevision] {
-        guard let vaultURL, let relPath = Self.relativePath(of: fileURL, in: vaultURL) else { return [] }
+        guard let rootURL, let relPath = Self.relativePath(of: fileURL, in: rootURL) else { return [] }
         return await Task.detached(priority: .userInitiated) {
-            guard let repo = try? Repository.open(at: vaultURL),
+            guard let repo = try? Repository.open(at: rootURL),
                   let commits = try? repo.log() else { return [] }
             let components = relPath.split(separator: "/").map(String.init)
 
@@ -151,9 +151,9 @@ final class GitService {
     /// The UTF-8 contents of `fileURL` as of commit `revisionID`, or nil if it
     /// can't be resolved.
     func content(ofRevision revisionID: String, for fileURL: URL) async -> String? {
-        guard let vaultURL, let relPath = Self.relativePath(of: fileURL, in: vaultURL) else { return nil }
+        guard let rootURL, let relPath = Self.relativePath(of: fileURL, in: rootURL) else { return nil }
         return await Task.detached(priority: .userInitiated) { () -> String? in
-            guard let repo = try? Repository.open(at: vaultURL),
+            guard let repo = try? Repository.open(at: rootURL),
                   let oid = try? OID(hex: revisionID),
                   let commit: Commit = try? repo.show(id: oid),
                   let tree = try? commit.tree else { return nil }
@@ -176,11 +176,11 @@ final class GitService {
         return entryOID(at: Array(components.dropFirst()), in: subtree, repo: repo)
     }
 
-    /// `fileURL` expressed relative to the vault root, using forward slashes, or
-    /// nil if it isn't inside the vault.
-    private nonisolated static func relativePath(of fileURL: URL, in vaultURL: URL) -> String? {
+    /// `fileURL` expressed relative to the collection root, using forward slashes, or
+    /// nil if it isn't inside the collection.
+    private nonisolated static func relativePath(of fileURL: URL, in rootURL: URL) -> String? {
         let file = fileURL.standardizedFileURL.path
-        var base = vaultURL.standardizedFileURL.path
+        var base = rootURL.standardizedFileURL.path
         if !base.hasSuffix("/") { base += "/" }
         guard file.hasPrefix(base) else { return nil }
         return String(file.dropFirst(base.count))
@@ -243,7 +243,7 @@ final class GitService {
     /// supplied for an HTTPS URL, the token is embedded so push/fetch authenticate.
     func connectRemote(urlString: String, name: String = "origin",
                        account: GitAccount? = nil, token: String? = nil) async {
-        guard let vaultURL else { return }
+        guard let rootURL else { return }
         let trimmed = urlString.trimmingCharacters(in: .whitespaces)
         guard let baseURL = URL(string: trimmed), baseURL.scheme != nil else {
             lastError = "Enter a valid remote URL (https://…)."
@@ -256,7 +256,7 @@ final class GitService {
             return baseURL
         }()
         await run(success: "Connected remote “\(name)”") {
-            let repo = try Repository.open(at: vaultURL)
+            let repo = try Repository.open(at: rootURL)
             if let existing = try? repo.remote.get(named: name) {
                 try repo.remote.remove(existing)
             }
@@ -271,17 +271,17 @@ final class GitService {
 
     /// Rewrite an existing remote's URL to embed credentials from an account.
     func authenticateRemote(_ name: String, account: GitAccount, token: String) async {
-        guard let vaultURL else { return }
-        guard let repo = try? Repository.open(at: vaultURL),
+        guard let rootURL else { return }
+        guard let repo = try? Repository.open(at: rootURL),
               let remote = try? repo.remote.get(named: name) else { return }
         let base = GitRemoteURL.sanitized(remote.url)
         await connectRemote(urlString: base.absoluteString, name: name, account: account, token: token)
     }
 
     func removeRemote(_ name: String) async {
-        guard let vaultURL else { return }
+        guard let rootURL else { return }
         await run(success: "Removed remote “\(name)”") {
-            let repo = try Repository.open(at: vaultURL)
+            let repo = try Repository.open(at: rootURL)
             if let remote = try? repo.remote.get(named: name) {
                 try repo.remote.remove(remote)
             }
@@ -294,7 +294,7 @@ final class GitService {
     /// cloned folder's URL (nil on failure). For a private repo, pass the
     /// `account`/`token` so the token is embedded in the clone URL — libgit2 then
     /// stores it as `origin`, so later push/fetch stay authenticated. Independent
-    /// of any currently-open vault; the caller opens the result as a vault.
+    /// of any currently-open collection; the caller opens the result as a collection.
     func cloneRepository(from urlString: String, into parentDirectory: URL,
                          account: GitAccount? = nil, token: String? = nil) async -> URL? {
         let trimmed = urlString.trimmingCharacters(in: .whitespaces)

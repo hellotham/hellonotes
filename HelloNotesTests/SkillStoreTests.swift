@@ -20,9 +20,8 @@ struct SkillStoreTests {
 
     @Test
     func discoversAndParsesSkillFrontMatter() throws {
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = sampleVault()
-        indexer.scanVault()
+        let indexer = Collection(rootURL: sampleVault())
+        indexer.scan()
 
         let store = SkillStore()
         store.refresh(from: indexer.notes)

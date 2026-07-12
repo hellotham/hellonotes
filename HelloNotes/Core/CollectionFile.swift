@@ -1,10 +1,10 @@
 //
-//  VaultFile.swift
+//  CollectionFile.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  A non-Markdown file in the vault (a PDF, image, CSV, or anything else). These
+//  A non-Markdown file in the collection (a PDF, image, CSV, or anything else). These
 //  are surfaced alongside notes in the folder tree and open in a viewer rather
 //  than the Markdown editor.
 //
@@ -12,10 +12,10 @@
 import Foundation
 import UniformTypeIdentifiers
 
-enum VaultFileKind: Hashable, Sendable {
+enum CollectionFileKind: Hashable, Sendable {
     case pdf, image, csv, other
 
-    static func of(_ url: URL) -> VaultFileKind {
+    static func of(_ url: URL) -> CollectionFileKind {
         let ext = url.pathExtension.lowercased()
         if ext == "pdf" { return .pdf }
         if ext == "csv" || ext == "tsv" { return .csv }
@@ -38,17 +38,17 @@ enum VaultFileKind: Hashable, Sendable {
     }
 }
 
-struct VaultFile: Identifiable, Hashable, Sendable {
+struct CollectionFile: Identifiable, Hashable, Sendable {
     var id: URL { url }
     let url: URL
-    let kind: VaultFileKind
+    let kind: CollectionFileKind
     let lastModified: Date
 
     var name: String { url.lastPathComponent }
 
     init(url: URL, lastModified: Date) {
         self.url = url
-        self.kind = VaultFileKind.of(url)
+        self.kind = CollectionFileKind.of(url)
         self.lastModified = lastModified
     }
 }

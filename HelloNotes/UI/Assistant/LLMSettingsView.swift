@@ -48,7 +48,7 @@ struct LLMSettingsForm: View {
                 Picker("Intelligence provider", selection: $settings.intelligenceProvider) {
                     ForEach(ProviderKind.allCases) { Text($0.displayName).tag($0) }
                 }
-                Text("“Intelligence provider” powers Summarize, Suggest Tags/Links, Expand and Ask Vault. Defaults to on-device Apple Intelligence.")
+                Text("“Intelligence provider” powers Summarize, Suggest Tags/Links, Expand and Ask Library. Defaults to on-device Apple Intelligence.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Text("Temperature")

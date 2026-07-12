@@ -1,5 +1,5 @@
 //
-//  VaultEmbedProvider.swift
+//  CollectionEmbedProvider.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 11/7/2026.
@@ -15,9 +15,9 @@ import MarkdownEngine
 /// loading the file from disk relative to a known note.
 ///
 /// The engine caches embed images by reference + `fingerprint()`, so a `revision`
-/// bump (on any vault change) is what makes a stale transclusion re-render.
+/// bump (on any collection change) is what makes a stale transclusion re-render.
 /// Reads the target note lazily on `image(for:)` and caches by content.
-final class VaultEmbedProvider: EmbeddedImageProvider, @unchecked Sendable {
+final class CollectionEmbedProvider: EmbeddedImageProvider, @unchecked Sendable {
     private let lock = NSLock()
     private var notesByName: [String: URL] = [:]   // lowercased title → file URL
     private var revision = 0

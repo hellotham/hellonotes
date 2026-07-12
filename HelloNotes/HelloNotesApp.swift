@@ -9,7 +9,7 @@ import SwiftUI
 
 @main
 struct HelloNotesApp: App {
-    @State private var indexer = WorkspaceIndexer()
+    @State private var library = Library()
     /// Shared LLM configuration (providers, keys, intelligence provider), so
     /// every window — including standalone note windows — sees the same settings.
     @State private var llmSettings = LLMSettings()
@@ -18,11 +18,11 @@ struct HelloNotesApp: App {
         WindowGroup {
             #if os(macOS)
             MacContentView()
-                .environment(indexer)
+                .environment(library)
                 .environment(llmSettings)
             #elseif os(iOS)
             iOSContentView()
-                .environment(indexer)
+                .environment(library)
             #endif
         }
 
@@ -32,7 +32,7 @@ struct HelloNotesApp: App {
         WindowGroup(for: NoteRef.self) { $ref in
             if let ref {
                 NoteWindowView(fileURL: ref.url)
-                    .environment(indexer)
+                    .environment(library)
                     .environment(llmSettings)
             }
         }

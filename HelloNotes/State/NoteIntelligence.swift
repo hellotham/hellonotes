@@ -87,10 +87,10 @@ struct NoteIntelligence {
         if #available(macOS 26.0, *) {
             let existingList = existing.isEmpty ? "none" : existing.joined(separator: ", ")
             let session = LanguageModelSession(
-                instructions: "You suggest topical tags for personal notes. Prefer reusing the vault's existing tags when they fit."
+                instructions: "You suggest topical tags for personal notes. Prefer reusing your existing tags when they fit."
             )
             let prompt = """
-            Existing vault tags: \(existingList)
+            Existing tags: \(existingList)
 
             Note:
             \(clean(noteText))
@@ -115,19 +115,19 @@ struct NoteIntelligence {
         throw IntelligenceError.unavailable
     }
 
-    /// Answer a question grounded in the supplied vault notes, citing titles.
+    /// Answer a question grounded in the supplied collection notes, citing titles.
     static func answer(question: String, context: [(title: String, text: String)]) async throws -> String {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             let session = LanguageModelSession(
-                instructions: "You answer questions using ONLY the provided notes from the user's vault. Cite the note titles you used, in brackets like [Title]. If the notes don't contain the answer, say you couldn't find it in the vault."
+                instructions: "You answer questions using ONLY the provided notes from the user's library. Cite the note titles you used, in brackets like [Title]. If the notes don't contain the answer, say you couldn't find it in the library."
             )
             // Budget the context across notes so the whole prompt stays in-window.
             let perNote = max(400, maxInputChars / max(context.count, 1))
             let contextText = context
                 .map { "## \($0.title)\n\(String($0.text.prefix(perNote)))" }
                 .joined(separator: "\n\n")
-            let prompt = "Notes from my vault:\n\n\(contextText)\n\nQuestion: \(question)"
+            let prompt = "Notes from my library:\n\n\(contextText)\n\nQuestion: \(question)"
             let response = try await session.respond(to: prompt)
             return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
         }

@@ -5,7 +5,7 @@
 //  Created by Chris Tham on 12/7/2026.
 //
 //  Persists a chat as append-style JSONL (one message per line) under Application
-//  Support, keyed by the vault path — so a conversation survives relaunches.
+//  Support, keyed by the collection path — so a conversation survives relaunches.
 //  Simple and filesystem-based, matching the app's "files are the source of
 //  truth" philosophy.
 //
@@ -17,11 +17,11 @@ import CryptoKit
 final class ChatSessionStore {
     private let fileURL: URL
 
-    init(vaultURL: URL?) {
+    init(collectionURL: URL?) {
         let support = (try? FileManager.default.url(for: .applicationSupportDirectory,
                                                     in: .userDomainMask, appropriateFor: nil, create: true))
             ?? FileManager.default.temporaryDirectory
-        let key = vaultURL.map { Self.hash($0.standardizedFileURL.path) } ?? "no-vault"
+        let key = collectionURL.map { Self.hash($0.standardizedFileURL.path) } ?? "no-collection"
         let dir = support.appendingPathComponent("HelloNotes/chats/\(key)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("current.jsonl")

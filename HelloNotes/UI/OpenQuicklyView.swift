@@ -12,7 +12,7 @@ import SwiftUI
 /// fuzzy-matching its name. Type to filter, press Return to open the top hit,
 /// or click any row.
 struct OpenQuicklyView: View {
-    let search: VaultSearchModel
+    let search: CollectionSearchModel
     let onOpen: (Note) -> Void
 
     @Environment(\.dismiss) private var dismiss

@@ -10,7 +10,7 @@ import Foundation
 import CoreServices
 
 /// Watches a directory subtree with FSEvents and invokes `onChange` when the
-/// vault changes on disk (external edits, a `git pull`, Finder operations).
+/// collection changes on disk (external edits, a `git pull`, Finder operations).
 /// Events are coalesced by FSEvents' own latency window.
 ///
 /// `@unchecked Sendable`: the FSEvents callback fires on a background dispatch

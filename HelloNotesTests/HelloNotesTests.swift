@@ -10,6 +10,7 @@ import Foundation
 import AppKit
 @testable import HelloNotes
 
+@MainActor
 struct HelloNotesTests {
 
     // MARK: - Helpers
@@ -155,7 +156,7 @@ struct HelloNotesTests {
         #expect(editor.text == secondOnDisk)
     }
 
-    // MARK: - WorkspaceIndexer
+    // MARK: - Collection
 
     @Test
     func scanFindsMarkdownFilesOnly() throws {
@@ -165,9 +166,8 @@ struct HelloNotesTests {
         // A non-Markdown file dropped into the vault must be ignored.
         try write("not markdown", to: vault.appendingPathComponent("Notes.txt"))
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
 
         let titles = Set(indexer.notes.map(\.title))
         // Every sample note (including those in Projects/ and Templates/) is found…
@@ -181,9 +181,8 @@ struct HelloNotesTests {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
 
         let created = try #require(indexer.createNote(title: "Fresh"))
         #expect(created.title == "Fresh")
@@ -200,9 +199,8 @@ struct HelloNotesTests {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
 
         // "Welcome" already exists in the sample vault, so a new one is disambiguated.
         let first = try #require(indexer.createNote(title: "Welcome"))
@@ -276,9 +274,8 @@ struct HelloNotesTests {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
 
         let graph = LinkGraph()
         await graph.rebuild(from: indexer.notes)
@@ -306,18 +303,17 @@ struct HelloNotesTests {
         #expect(boundary > scattered)
     }
 
-    // MARK: - VaultSearchModel
+    // MARK: - CollectionSearchModel
 
     @Test @MainActor
     func fullTextSearchFindsBodyMatchesWithSnippet() async throws {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
 
-        let search = VaultSearchModel()
+        let search = CollectionSearchModel()
         await search.refresh(from: indexer.notes)
 
         // "local-first" appears only in Welcome's body.
@@ -331,11 +327,10 @@ struct HelloNotesTests {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
 
-        let search = VaultSearchModel()
+        let search = CollectionSearchModel()
         await search.refresh(from: indexer.notes)
 
         // The Welcome note and its "Getting Started" heading are both candidates.
@@ -352,11 +347,10 @@ struct HelloNotesTests {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
 
-        let search = VaultSearchModel()
+        let search = CollectionSearchModel()
         await search.refresh(from: indexer.notes)
 
         // The sample vault's inline hashtags: #intro (Ideas) and #todo (Ideas, Roadmap, daily note).
@@ -387,10 +381,9 @@ struct HelloNotesTests {
         try write("# B\n\n#project here", to: vault.appendingPathComponent("B.md"))
         try write("# C\n\n#personal", to: vault.appendingPathComponent("C.md"))
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
-        let search = VaultSearchModel()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
+        let search = CollectionSearchModel()
         await search.refresh(from: indexer.notes)
 
         // Selecting the parent matches the parent tag and any nested child.
@@ -416,9 +409,8 @@ struct HelloNotesTests {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
         let graph = LinkGraph()
         await graph.rebuild(from: indexer.notes)
 
@@ -509,7 +501,7 @@ struct HelloNotesTests {
         defer { try? FileManager.default.removeItem(at: vault) }
 
         let git = GitService()
-        git.vaultURL = vault
+        git.rootURL = vault
 
         await git.refreshStatus()
         #expect(git.status.isRepository == false)
@@ -531,7 +523,7 @@ struct HelloNotesTests {
         defer { try? FileManager.default.removeItem(at: vault) }
 
         let git = GitService()
-        git.vaultURL = vault
+        git.rootURL = vault
         await git.initializeRepository()
         await git.commitAll(message: "Import sample vault")   // baseline
 
@@ -660,18 +652,17 @@ struct HelloNotesTests {
         #expect(FileManager.default.fileExists(atPath: assetURL.path))
     }
 
-    // MARK: - VaultTree
+    // MARK: - CollectionTree
 
     @Test
     func buildsFolderTreeWithFoldersFirst() throws {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = vault
-        indexer.scanVault()
+        let indexer = Collection(rootURL: vault)
+        indexer.scan()
 
-        let tree = VaultTree.build(from: indexer.notes, vaultURL: vault, sort: .name)
+        let tree = CollectionTree.build(from: indexer.notes, rootURL: vault, sort: .name)
 
         // The sample vault's folders (Projects, Skills, Templates) sort before root-level notes.
         #expect(tree.prefix(3).map(\.name) == ["Projects", "Skills", "Templates"])

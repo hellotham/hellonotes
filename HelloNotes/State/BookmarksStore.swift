@@ -8,21 +8,21 @@
 import Foundation
 import Observation
 
-/// Per-vault bookmarks: notes the user has pinned for quick access. Stored as a
-/// list of vault-relative paths in `UserDefaults`, keyed by the vault's path, so
-/// each vault keeps its own set.
+/// Per-collection bookmarks: notes the user has pinned for quick access. Stored
+/// as a list of collection-relative paths in `UserDefaults`, keyed by the
+/// collection's path, so each collection keeps its own set.
 @MainActor
 @Observable
 final class BookmarksStore {
-    /// Bookmarked notes as vault-relative paths, in the order added.
+    /// Bookmarked notes as collection-relative paths, in the order added.
     private(set) var paths: [String] = []
 
-    private var vaultURL: URL?
+    private var rootURL: URL?
 
-    /// Point the store at a vault and load its saved bookmarks.
-    func load(vaultURL: URL?) {
-        self.vaultURL = vaultURL
-        guard let key = Self.key(for: vaultURL) else { paths = []; return }
+    /// Point the store at a collection and load its saved bookmarks.
+    func load(rootURL: URL?) {
+        self.rootURL = rootURL
+        guard let key = Self.key(for: rootURL) else { paths = []; return }
         paths = UserDefaults.standard.stringArray(forKey: key) ?? []
     }
 
@@ -55,20 +55,20 @@ final class BookmarksStore {
     // MARK: - Private
 
     private func relativePath(of note: Note) -> String? {
-        guard let vaultURL else { return nil }
+        guard let rootURL else { return nil }
         let file = note.fileURL.standardizedFileURL.path
-        var base = vaultURL.standardizedFileURL.path
+        var base = rootURL.standardizedFileURL.path
         if !base.hasSuffix("/") { base += "/" }
         guard file.hasPrefix(base) else { return nil }
         return String(file.dropFirst(base.count))
     }
 
     private func persist() {
-        guard let key = Self.key(for: vaultURL) else { return }
+        guard let key = Self.key(for: rootURL) else { return }
         UserDefaults.standard.set(paths, forKey: key)
     }
 
-    private static func key(for vaultURL: URL?) -> String? {
-        vaultURL.map { "bookmarks:" + $0.standardizedFileURL.path }
+    private static func key(for rootURL: URL?) -> String? {
+        rootURL.map { "bookmarks:" + $0.standardizedFileURL.path }
     }
 }

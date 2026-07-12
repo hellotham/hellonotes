@@ -40,7 +40,7 @@ final class LLMSettings {
     }
 
     /// The provider powering the "intelligence" features (Summarize, Suggest
-    /// Tags/Links, Expand, Ask Vault). Defaults to on-device Apple Intelligence.
+    /// Tags/Links, Expand, Ask Library). Defaults to on-device Apple Intelligence.
     var intelligenceProvider: ProviderKind {
         didSet { UserDefaults.standard.set(intelligenceProvider.rawValue, forKey: Keys.intelligence) }
     }

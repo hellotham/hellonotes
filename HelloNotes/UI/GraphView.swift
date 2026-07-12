@@ -21,7 +21,7 @@ struct GraphEdge: Hashable {
     let to: Int
 }
 
-/// A native force-directed graph of the vault's notes and `[[wiki-links]]`,
+/// A native force-directed graph of the collection's notes and `[[wiki-links]]`,
 /// drawn with `Canvas` (no WebView). Click a node to open that note.
 struct GraphView: View {
     let nodes: [GraphNode]

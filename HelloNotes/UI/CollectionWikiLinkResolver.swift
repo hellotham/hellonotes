@@ -1,5 +1,5 @@
 //
-//  VaultWikiLinkResolver.swift
+//  CollectionWikiLinkResolver.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 11/7/2026.
@@ -17,10 +17,10 @@ import MarkdownEngine
 /// `[[Name|id]]`. By resolving purely on title existence we keep the user's
 /// `[[Name]]` text byte-for-byte intact.
 ///
-/// The known-title set is updated from the main actor as the vault changes;
+/// The known-title set is updated from the main actor as the collection changes;
 /// `resolve`/`fingerprint` may be called off the main actor during styling, so
 /// access is lock-guarded.
-final class VaultWikiLinkResolver: WikiLinkResolver, @unchecked Sendable {
+final class CollectionWikiLinkResolver: WikiLinkResolver, @unchecked Sendable {
     private let lock = NSLock()
     private var titles: Set<String> = []
     private var revision = 0

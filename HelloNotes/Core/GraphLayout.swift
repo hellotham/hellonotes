@@ -9,8 +9,8 @@ import Foundation
 
 /// A deterministic force-directed layout (Fruchterman–Reingold) for the note
 /// graph. Deterministic — nodes start on a circle (no randomness) — so the same
-/// vault always lays out the same way. O(n² · iterations); fine for the target
-/// vault sizes, capped for larger ones by the caller.
+/// collection always lays out the same way. O(n² · iterations); fine for the target
+/// collection sizes, capped for larger ones by the caller.
 nonisolated enum GraphLayout {
     static func positions(
         count: Int,

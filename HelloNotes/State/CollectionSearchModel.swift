@@ -1,5 +1,5 @@
 //
-//  VaultSearchModel.swift
+//  CollectionSearchModel.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 11/7/2026.
@@ -27,12 +27,12 @@ struct QuickOpenItem: Identifiable, Hashable {
 }
 
 /// Caches note contents (and their headings) so the UI can run full-text
-/// search and fuzzy "Open Quickly" lookups over the whole vault without
+/// search and fuzzy "Open Quickly" lookups over the whole collection without
 /// re-reading the disk on every keystroke. The cache is refreshed off the
 /// main actor whenever the note set or a note's contents change.
 @MainActor
 @Observable
-final class VaultSearchModel {
+final class CollectionSearchModel {
     private struct Entry {
         let note: Note
         let text: String
@@ -60,13 +60,13 @@ final class VaultSearchModel {
         }
     }
 
-    /// All distinct hashtags across the vault, sorted case-insensitively.
+    /// All distinct hashtags across the collection, sorted case-insensitively.
     func allTags() -> [String] {
         let unique = Set(entries.flatMap(\.tags))
         return unique.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    /// The vault's hashtags as a hierarchical tree (`a/b` nests `b` under `a`).
+    /// The collection's hashtags as a hierarchical tree (`a/b` nests `b` under `a`).
     func tagTree() -> [TagNode] {
         TagTree.build(from: allTags())
     }

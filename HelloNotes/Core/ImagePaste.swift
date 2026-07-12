@@ -8,7 +8,7 @@
 #if os(macOS)
 import AppKit
 
-/// Saves images pasted into the editor as files in the vault, so notes stay
+/// Saves images pasted into the editor as files in the collection, so notes stay
 /// plain text that references real image files (never embedded blobs).
 enum ImagePaste {
     /// Save an image from `pasteboard` beside `noteURL`, returning a Markdown

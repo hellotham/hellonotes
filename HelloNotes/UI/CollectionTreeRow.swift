@@ -1,5 +1,5 @@
 //
-//  VaultTreeRow.swift
+//  CollectionTreeRow.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 11/7/2026.
@@ -11,8 +11,8 @@ import AppKit
 
 /// One row of the folder tree — recursively renders folders (as disclosure
 /// groups), notes, and attachment files (as selectable leaves tagged by URL).
-struct VaultTreeRow: View {
-    let node: VaultTreeNode
+struct CollectionTreeRow: View {
+    let node: CollectionTreeNode
     let onDelete: (Note) -> Void
     let onOpenInNewWindow: (Note) -> Void
     let isBookmarked: (Note) -> Bool
@@ -53,7 +53,7 @@ struct VaultTreeRow: View {
         } else {
             DisclosureGroup {
                 ForEach(node.children ?? []) { child in
-                    VaultTreeRow(node: child, onDelete: onDelete, onOpenInNewWindow: onOpenInNewWindow,
+                    CollectionTreeRow(node: child, onDelete: onDelete, onOpenInNewWindow: onOpenInNewWindow,
                                  isBookmarked: isBookmarked, onToggleBookmark: onToggleBookmark)
                 }
             } label: {
@@ -65,7 +65,7 @@ struct VaultTreeRow: View {
 
     /// An attachment file leaf (PDF, image, CSV, …). Selecting it opens the
     /// in-app viewer; the context menu offers external open / reveal.
-    private func fileRow(_ file: VaultFile) -> some View {
+    private func fileRow(_ file: CollectionFile) -> some View {
         Label(file.name, systemImage: file.kind.symbol)
             .font(.subheadline)
             .lineLimit(1)

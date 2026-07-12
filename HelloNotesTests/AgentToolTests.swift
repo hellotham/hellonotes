@@ -25,15 +25,14 @@ struct AgentToolTests {
             .appendingPathComponent("SampleVault")
         try FileManager.default.copyItem(at: sample, to: base)
 
-        let indexer = WorkspaceIndexer()
-        indexer.selectedVaultURL = base
-        indexer.scanVault()
-        let search = VaultSearchModel()
-        let git = GitService(); git.vaultURL = base
+        let indexer = Collection(rootURL: base)
+        indexer.scan()
+        let search = CollectionSearchModel()
+        let git = GitService(); git.rootURL = base
         let permissions = PermissionBroker()
         permissions.respond(approved: true, allowAll: true)   // arm auto-approve
 
-        return (ToolContext(indexer: indexer, search: search, git: git, permissions: permissions), base)
+        return (ToolContext(collection: indexer, search: search, git: git, permissions: permissions), base)
     }
 
     private func arg(_ pairs: [String: JSONValue]) -> JSONValue { .object(pairs) }
@@ -55,7 +54,7 @@ struct AgentToolTests {
         let read = try await ReadNoteTool().run(arg(["note": .string("AgentScratch")]), context: ctx)
         #expect(read.contains("secret-token here"))
 
-        let grep = try await GrepVaultTool().run(arg(["pattern": .string("secret-token")]), context: ctx)
+        let grep = try await GrepTool().run(arg(["pattern": .string("secret-token")]), context: ctx)
         #expect(grep.contains("AgentScratch"))
     }
 
@@ -107,7 +106,7 @@ struct AgentToolTests {
         defer { try? FileManager.default.removeItem(at: vault) }
         // Fresh broker that denies.
         let denying = PermissionBroker()
-        let denyingCtx = ToolContext(indexer: ctx.indexer, search: ctx.search, git: ctx.git, permissions: denying)
+        let denyingCtx = ToolContext(collection: ctx.collection, search: ctx.search, git: ctx.git, permissions: denying)
 
         // Run the tool and deny the prompt it raises.
         let task = Task { @MainActor in
@@ -120,6 +119,6 @@ struct AgentToolTests {
         denying.respond(approved: false)
 
         await #expect(throws: (any Error).self) { _ = try await task.value }
-        #expect(!ctx.indexer.notes.contains { $0.title == "ShouldNotExist" })
+        #expect(!ctx.collection.notes.contains { $0.title == "ShouldNotExist" })
     }
 }

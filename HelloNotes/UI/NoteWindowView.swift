@@ -10,23 +10,30 @@ import SwiftUI
 import AppKit
 
 /// A standalone editor window for a single note, opened via `openWindow`. It
-/// owns its own `EditorModel` (so edits autosave independently) and shares the
-/// vault index for wiki-link resolution; clicking a wiki-link opens the target
-/// in its own window too.
+/// owns its own `EditorModel` (so edits autosave independently) and resolves
+/// wiki-links within the note's own collection; clicking a wiki-link opens the
+/// target in its own window too.
 struct NoteWindowView: View {
     let fileURL: URL
 
-    @Environment(WorkspaceIndexer.self) private var indexer
+    @Environment(Library.self) private var library
     @Environment(\.openWindow) private var openWindow
 
     @State private var editor = EditorModel()
-    @State private var wikiResolver = VaultWikiLinkResolver()
-    @State private var embedProvider = VaultEmbedProvider()
+    @State private var wikiResolver = CollectionWikiLinkResolver()
+    @State private var embedProvider = CollectionEmbedProvider()
     @State private var git = GitService()
     @State private var didLoad = false
 
+    /// The collection this note belongs to (for isolated link resolution).
+    private var collection: Collection? {
+        library.collection(containing: fileURL)
+    }
+
+    private var notes: [Note] { collection?.notes ?? [] }
+
     private var note: Note? {
-        indexer.notes.first { $0.fileURL == fileURL }
+        notes.first { $0.fileURL == fileURL }
     }
 
     var body: some View {
@@ -38,7 +45,7 @@ struct NoteWindowView: View {
                     wikiResolver: wikiResolver,
                     embedProvider: embedProvider,
                     git: git,
-                    linkCandidates: indexer.notes.map(\.title),
+                    linkCandidates: notes.map(\.title),
                     onOpenWikiLink: openWikiLink,
                     onOpenNote: { openWindow(value: NoteRef($0.fileURL)) }
                 )
@@ -55,10 +62,10 @@ struct NoteWindowView: View {
         .task {
             guard !didLoad else { return }
             didLoad = true
-            wikiResolver.update(titles: indexer.notes.map(\.title))
-            embedProvider.update(notes: indexer.notes)
-            if let vault = indexer.selectedVaultURL {
-                git.vaultURL = vault
+            wikiResolver.update(titles: notes.map(\.title))
+            embedProvider.update(notes: notes)
+            if let root = collection?.rootURL {
+                git.rootURL = root
                 await git.refreshStatus()
             }
             if let note { await editor.open(note) }
@@ -82,7 +89,7 @@ struct NoteWindowView: View {
         let base = target.split(separator: "#", maxSplits: 1,
                                 omittingEmptySubsequences: false).first
             .map(String.init) ?? target
-        if let match = indexer.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame }) {
+        if let match = notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame }) {
             openWindow(value: NoteRef(match.fileURL))
         }
     }

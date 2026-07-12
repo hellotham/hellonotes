@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  The app's Preferences window (⌘,). Hosts vault-wide preferences that aren't
+//  The app's Preferences window (⌘,). Hosts library-wide preferences that aren't
 //  tied to the LLM or Git sheets — where pasted attachments go, and the daily-
 //  note / template folder conventions. All values are persisted via @AppStorage.
 //
@@ -84,7 +84,7 @@ struct GeneralSettingsView: View {
             }
 
             Section("Daily notes") {
-                TextField("Folder", text: $dailyNoteFolder, prompt: Text("Vault root"))
+                TextField("Folder", text: $dailyNoteFolder, prompt: Text("Collection root"))
                 TextField("Date format", text: $dailyDateFormat, prompt: Text("yyyy-MM-dd"))
             }
 

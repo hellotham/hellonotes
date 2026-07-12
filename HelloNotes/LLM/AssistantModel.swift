@@ -25,10 +25,10 @@ final class AssistantModel {
     private(set) var totalUsage = LLMUsage()
 
     /// When on (and the provider supports tools), the assistant can read and edit
-    /// the vault through tools. Off = plain chat.
+    /// the collection through tools. Off = plain chat.
     var agentMode = true
 
-    /// Vault tools + services. Set by the host view when a vault is open.
+    /// Collection tools + services. Set by the host view when a collection is open.
     var registry: ToolRegistry?
     var toolContext: ToolContext?
 
@@ -40,7 +40,7 @@ final class AssistantModel {
     /// Live permission prompts (for the approval UI) come from the broker.
     var permissions: PermissionBroker? { toolContext?.permissions }
 
-    /// Base persona; vault context and tool guidance are appended at send time.
+    /// Base persona; collection context and tool guidance are appended at send time.
     var basePrompt: String =
         "You are the HelloNotes assistant, embedded in a local Markdown notes app. " +
         "Be concise and helpful. Format answers in Markdown."
@@ -61,11 +61,11 @@ final class AssistantModel {
 
     private var systemPrompt: String {
         var prompt = basePrompt
-        if let ctx = toolContext, let vault = ctx.vaultURL {
-            prompt += "\n\nThe user's vault is “\(vault.lastPathComponent)” with \(ctx.notes.count) notes."
+        if let ctx = toolContext, let root = ctx.rootURL {
+            prompt += "\n\nThe focused collection is “\(root.lastPathComponent)” with \(ctx.notes.count) notes."
             if toolsActive {
                 prompt += " You can read and modify it using the provided tools. " +
-                    "Prefer search_notes/grep_vault/read_note to ground answers in the vault before responding. " +
+                    "Prefer search_notes/grep_collection/read_note to ground answers in the collection before responding. " +
                     "Use edit_note for small changes and write_note for full rewrites. " +
                     "Every file change is shown to the user for approval and committed to Git, so make focused, well-explained edits. " +
                     "Use web_search/web_fetch for external facts, and deep_research for questions needing thorough, multi-source investigation."

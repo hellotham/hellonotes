@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  Agent Skills (Anthropic's standard): a `SKILL.md` file anywhere in the vault
+//  Agent Skills (Anthropic's standard): a `SKILL.md` file anywhere in the collection
 //  with YAML front matter (name, description) plus a Markdown body. Progressive
 //  disclosure — only the name+description of each skill is injected into the
 //  system prompt; the body is loaded on demand via the `load_skill` tool.
@@ -26,7 +26,7 @@ struct Skill: Identifiable, Sendable, Equatable {
 final class SkillStore {
     private(set) var skills: [Skill] = []
 
-    /// Re-scan the vault's notes for `SKILL.md` files.
+    /// Re-scan the collection's notes for `SKILL.md` files.
     func refresh(from notes: [Note]) {
         skills = notes
             .filter { $0.fileURL.lastPathComponent.lowercased() == "skill.md" }

@@ -5,14 +5,14 @@
 //  Created by Chris Tham on 12/7/2026.
 //
 //  The uniform tool contract — {name, description, JSON-Schema parameters, run} —
-//  plus the execution context (vault services) and registry. Every capability the
-//  assistant has over the vault is a tool; the model decides when to call them.
+//  plus the execution context (collection services) and registry. Every capability the
+//  assistant has over the collection is a tool; the model decides when to call them.
 //
 
 import Foundation
 
 /// A capability the assistant can invoke. Runs on the main actor because it
-/// touches the vault's @Observable state.
+/// touches the collection's @Observable state.
 @MainActor
 protocol AgentTool: Sendable {
     var name: String { get }
@@ -30,18 +30,18 @@ extension AgentTool {
     var asLLMTool: LLMTool { LLMTool(name: name, description: description, parameters: parameters) }
 }
 
-/// Services a tool operates against.
+/// Services a tool operates against — the focused collection and its services.
 @MainActor
 struct ToolContext {
-    let indexer: WorkspaceIndexer
-    let search: VaultSearchModel
+    let collection: Collection
+    let search: CollectionSearchModel
     let git: GitService
     let permissions: PermissionBroker
     var settings: LLMSettings? = nil   // for tools that spawn sub-agents (deep research)
-    var skills: SkillStore? = nil      // vault SKILL.md files (load_skill)
+    var skills: SkillStore? = nil      // collection SKILL.md files (load_skill)
 
-    var vaultURL: URL? { indexer.selectedVaultURL }
-    var notes: [Note] { indexer.notes }
+    var rootURL: URL? { collection.rootURL }
+    var notes: [Note] { collection.notes }
 
     /// A note matched by exact title, filename, or relative path (case-insensitive).
     func note(matching query: String) -> Note? {
@@ -56,7 +56,7 @@ struct ToolContext {
     }
 
     func relativePath(_ note: Note) -> String {
-        guard let base = vaultURL?.standardizedFileURL.path else { return note.fileURL.lastPathComponent }
+        guard let base = rootURL?.standardizedFileURL.path else { return note.fileURL.lastPathComponent }
         let path = note.fileURL.standardizedFileURL.path
         guard path.hasPrefix(base) else { return note.fileURL.lastPathComponent }
         return String(path.dropFirst(base.count).drop(while: { $0 == "/" }))
@@ -66,14 +66,15 @@ struct ToolContext {
         (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? ""
     }
 
-    /// Re-index the vault after a mutation and refresh search + git status.
+    /// Re-index the collection after a mutation and refresh search + git status.
     func refreshAfterMutation() async {
-        indexer.scanVault()
-        await search.refresh(from: indexer.notes)
+        collection.scan()
+        collection.refreshDerived()
+        await search.refresh(from: collection.notes)
         await git.refreshStatus()
     }
 
-    /// Commit the change if the vault is a Git repo (per-edit safety net).
+    /// Commit the change if the collection is a Git repo (per-edit safety net).
     func commit(_ message: String) async {
         if git.status.isRepository { await git.commitAll(message: message) }
     }

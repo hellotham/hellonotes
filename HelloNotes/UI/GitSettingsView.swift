@@ -9,7 +9,7 @@
 import SwiftUI
 
 /// Manage the Git commit identity, connected hosting accounts (GitHub, GitLab,
-/// …), and this vault's remote.
+/// …), and this collection's remote.
 struct GitSettingsView: View {
     @Bindable var store: GitAccountsStore
     @Bindable var git: GitService
@@ -52,7 +52,7 @@ struct GitSettingsView: View {
         Section("Commit identity") {
             TextField("Name", text: $store.identityName, prompt: Text("Ada Lovelace"))
             TextField("Email", text: $store.identityEmail, prompt: Text("ada@example.com"))
-            Text("Used as the author of commits this app makes. Overrides your global git config for this vault.")
+            Text("Used as the author of commits this app makes. Overrides your global git config for this collection.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -112,7 +112,7 @@ struct GitSettingsView: View {
     // MARK: - Remote
 
     private var remoteSection: some View {
-        Section("This vault's remote") {
+        Section("This collection's remote") {
             ForEach(git.status.remotes) { remote in
                 HStack {
                     Image(systemName: remote.hasEmbeddedCredentials ? "lock.fill" : "link")
@@ -138,7 +138,7 @@ struct GitSettingsView: View {
             }
 
             if git.status.remotes.isEmpty {
-                Text("No remote yet. Add one to sync this vault to a hosting service.")
+                Text("No remote yet. Add one to sync this collection to a hosting service.")
                     .font(.caption).foregroundStyle(.secondary)
                 TextField("Remote URL", text: $remoteURL, prompt: Text("https://github.com/you/notes.git"))
                 if !store.accounts.isEmpty {

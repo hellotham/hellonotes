@@ -8,7 +8,7 @@
 import Foundation
 import Observation
 
-/// Builds and holds the vault's `[[wiki-link]]` graph: for any note, which
+/// Builds and holds the collection's `[[wiki-link]]` graph: for any note, which
 /// notes link *to* it (backlinks) and which it links *out* to. Link targets are
 /// resolved through note titles **and** their `aliases:`, so `[[alias]]` counts
 /// as a link to the aliased note. Rebuilt off the main actor when the note set
