@@ -36,6 +36,11 @@ struct HelloNotesApp: App {
                     .environment(llmSettings)
             }
         }
+
+        // Preferences window (⌘,).
+        Settings {
+            GeneralSettingsView()
+        }
         #endif
     }
 }

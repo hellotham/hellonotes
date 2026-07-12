@@ -11,19 +11,27 @@ import AppKit
 /// Saves images pasted into the editor as files in the vault, so notes stay
 /// plain text that references real image files (never embedded blobs).
 enum ImagePaste {
-    /// Save an image from `pasteboard` into the same folder as `noteURL`,
-    /// returning a Markdown image link relative to the note. Returns `nil` when
-    /// the pasteboard holds no image.
-    static func saveImage(from pasteboard: NSPasteboard, nextTo noteURL: URL, timestamp: Date) -> String? {
+    /// Save an image from `pasteboard` beside `noteURL`, returning a Markdown
+    /// image link relative to the note. `subfolder` is the folder to store the
+    /// image in (e.g. `"assets"`), created if needed; an empty string saves the
+    /// image in the same folder as the note. Returns `nil` when the pasteboard
+    /// holds no image.
+    static func saveImage(from pasteboard: NSPasteboard, nextTo noteURL: URL,
+                          subfolder: String, timestamp: Date) -> String? {
         guard let pngData = pngData(from: pasteboard) else { return nil }
 
-        let folder = noteURL.deletingLastPathComponent()
+        let folderName = subfolder.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        let noteFolder = noteURL.deletingLastPathComponent()
+        let targetDir = folderName.isEmpty
+            ? noteFolder
+            : noteFolder.appendingPathComponent(folderName, isDirectory: true)
+        try? FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
 
         let stamp = Int(timestamp.timeIntervalSince1970)
-        var candidate = folder.appendingPathComponent("Pasted-\(stamp).png")
+        var candidate = targetDir.appendingPathComponent("Pasted-\(stamp).png")
         var counter = 2
         while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent("Pasted-\(stamp)-\(counter).png")
+            candidate = targetDir.appendingPathComponent("Pasted-\(stamp)-\(counter).png")
             counter += 1
         }
 
@@ -32,7 +40,8 @@ enum ImagePaste {
         } catch {
             return nil
         }
-        return "![](\(candidate.lastPathComponent))"
+        let rel = folderName.isEmpty ? candidate.lastPathComponent : "\(folderName)/\(candidate.lastPathComponent)"
+        return "![](\(rel))"
     }
 
     /// Extract PNG data from the pasteboard, converting from TIFF (screenshots)

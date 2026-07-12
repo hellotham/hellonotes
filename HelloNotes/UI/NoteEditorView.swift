@@ -57,6 +57,10 @@ struct NoteEditorView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(LLMSettings.self) private var llmSettings
 
+    /// Folder (relative to the note) where pasted images are saved; empty means
+    /// the same folder as the note. Configured in Settings.
+    @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
+
     /// The intelligence service for the user's chosen provider.
     private var intelligence: IntelligenceService { IntelligenceService(settings: llmSettings) }
 
@@ -344,7 +348,8 @@ struct NoteEditorView: View {
     /// The alt text is filled in asynchronously from on-device vision.
     private func pasteImage(_ pasteboard: NSPasteboard) -> String? {
         guard let noteURL = editor.note?.fileURL else { return nil }
-        guard let markdown = ImagePaste.saveImage(from: pasteboard, nextTo: noteURL, timestamp: .now) else { return nil }
+        guard let markdown = ImagePaste.saveImage(from: pasteboard, nextTo: noteURL,
+                                                  subfolder: attachmentFolder, timestamp: .now) else { return nil }
 
         // markdown == "![](relative/path.png)" — resolve and describe it.
         if let rel = markdown.range(of: "](").map({ String(markdown[$0.upperBound...].dropLast()) }) {

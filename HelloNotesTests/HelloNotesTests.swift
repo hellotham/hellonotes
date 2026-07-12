@@ -620,12 +620,41 @@ struct HelloNotesTests {
         pasteboard.setData(png, forType: .png)
 
         let markdown = try #require(
-            ImagePaste.saveImage(from: pasteboard, nextTo: noteURL, timestamp: Date(timeIntervalSince1970: 1_000_000))
+            ImagePaste.saveImage(from: pasteboard, nextTo: noteURL, subfolder: "assets",
+                                 timestamp: Date(timeIntervalSince1970: 1_000_000))
         )
 
-        #expect(markdown.hasPrefix("![](Pasted-"))
+        #expect(markdown.hasPrefix("![](assets/Pasted-"))
         #expect(markdown.hasSuffix(".png)"))
-        // The referenced file exists in the same folder as the note.
+        // The referenced file exists in the `assets` subfolder next to the note.
+        let assetName = markdown.dropFirst("![](assets/".count).dropLast(")".count)
+        let assetURL = vault.appendingPathComponent("assets").appendingPathComponent(String(assetName))
+        #expect(FileManager.default.fileExists(atPath: assetURL.path))
+    }
+
+    @Test @MainActor
+    func pastedImageWithEmptySubfolderSavesNextToNote() throws {
+        let vault = try copiedSampleVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let noteURL = note("Welcome", in: vault)
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus(); NSColor.blue.setFill(); NSRect(x: 0, y: 0, width: 1, height: 1).fill(); image.unlockFocus()
+        let png = NSBitmapImageRep(data: image.tiffRepresentation!)!.representation(using: .png, properties: [:])!
+
+        let pasteboard = NSPasteboard(name: .init("HelloNotesTestPasteboardSameFolder"))
+        pasteboard.clearContents()
+        pasteboard.setData(png, forType: .png)
+
+        let markdown = try #require(
+            ImagePaste.saveImage(from: pasteboard, nextTo: noteURL, subfolder: "",
+                                 timestamp: Date(timeIntervalSince1970: 2_000_000))
+        )
+
+        // No subfolder in the link, and the file sits beside the note.
+        #expect(markdown.hasPrefix("![](Pasted-"))
+        #expect(!markdown.contains("/"))
         let assetName = markdown.dropFirst("![](".count).dropLast(")".count)
         let assetURL = noteURL.deletingLastPathComponent().appendingPathComponent(String(assetName))
         #expect(FileManager.default.fileExists(atPath: assetURL.path))
