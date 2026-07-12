@@ -23,7 +23,7 @@ enum LLMWireFormat: Sendable {
 }
 
 enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
-    case openai, anthropic, gemini, openrouter, groq, ollama, lmstudio, apple, mlx
+    case openai, anthropic, gemini, mistral, openrouter, groq, ollama, lmstudio, apple, mlx
     var id: String { rawValue }
 
     var displayName: String {
@@ -31,6 +31,7 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
         case .openai: return "OpenAI"
         case .anthropic: return "Anthropic (Claude)"
         case .gemini: return "Google Gemini"
+        case .mistral: return "Mistral"
         case .openrouter: return "OpenRouter"
         case .groq: return "Groq"
         case .ollama: return "Ollama (local)"
@@ -42,7 +43,7 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
 
     var wire: LLMWireFormat {
         switch self {
-        case .openai, .openrouter, .groq, .ollama, .lmstudio: return .openAICompatible
+        case .openai, .mistral, .openrouter, .groq, .ollama, .lmstudio: return .openAICompatible
         case .anthropic: return .anthropic
         case .gemini: return .gemini
         case .apple: return .foundationModels
@@ -54,6 +55,7 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
     var defaultBaseURL: String {
         switch self {
         case .openai: return "https://api.openai.com/v1"
+        case .mistral: return "https://api.mistral.ai/v1"
         case .openrouter: return "https://openrouter.ai/api/v1"
         case .groq: return "https://api.groq.com/openai/v1"
         case .ollama: return "http://localhost:11434/v1"
@@ -67,7 +69,7 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
     /// Whether the user must supply an API key (local servers / on-device don't).
     var requiresAPIKey: Bool {
         switch self {
-        case .openai, .anthropic, .gemini, .openrouter, .groq: return true
+        case .openai, .anthropic, .gemini, .mistral, .openrouter, .groq: return true
         case .ollama, .lmstudio, .apple, .mlx: return false
         }
     }
@@ -93,6 +95,7 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
         case .openai: return "cpu"
         case .anthropic: return "sparkle"
         case .gemini: return "diamond"
+        case .mistral: return "wind"
         case .openrouter: return "arrow.triangle.branch"
         case .groq: return "bolt"
         case .ollama: return "shippingbox"
@@ -107,6 +110,7 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
         case .openai: return URL(string: "https://platform.openai.com/api-keys")
         case .anthropic: return URL(string: "https://console.anthropic.com/settings/keys")
         case .gemini: return URL(string: "https://aistudio.google.com/apikey")
+        case .mistral: return URL(string: "https://console.mistral.ai/api-keys")
         case .openrouter: return URL(string: "https://openrouter.ai/keys")
         case .groq: return URL(string: "https://console.groq.com/keys")
         default: return nil
@@ -119,6 +123,7 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
         case .openai: return ["gpt-4o", "gpt-4o-mini", "o4-mini"]
         case .anthropic: return ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"]
         case .gemini: return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+        case .mistral: return ["mistral-large-latest", "mistral-small-latest", "open-mistral-nemo"]
         case .openrouter: return ["openai/gpt-4o", "anthropic/claude-sonnet-4.5", "google/gemini-2.5-flash"]
         case .groq: return ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]
         case .ollama: return ["llama3.2", "qwen2.5", "mistral"]

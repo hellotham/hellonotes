@@ -41,8 +41,9 @@ struct MacContentView: View {
     @State private var showGitSettings = false
     @State private var showClone = false
 
-    /// Multi-provider LLM assistant.
-    @State private var llmSettings = LLMSettings()
+    /// Multi-provider LLM assistant. Settings live at the app level so every
+    /// window shares them.
+    @Environment(LLMSettings.self) private var llmSettings
     @State private var assistant: AssistantModel?
     @State private var permissions = PermissionBroker()
     @State private var skills = SkillStore()
@@ -265,7 +266,8 @@ struct MacContentView: View {
             }
         }
         .sheet(isPresented: $showVaultChat) {
-            VaultChatView(notes: indexer.notes, search: search) { note in
+            VaultChatView(intelligence: IntelligenceService(settings: llmSettings),
+                          notes: indexer.notes, search: search) { note in
                 selectedTag = nil
                 searchText = ""
                 selectedNoteID = note.id

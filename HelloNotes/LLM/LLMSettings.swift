@@ -39,6 +39,12 @@ final class LLMSettings {
         didSet { UserDefaults.standard.set(activeProvider.rawValue, forKey: Keys.active) }
     }
 
+    /// The provider powering the "intelligence" features (Summarize, Suggest
+    /// Tags/Links, Expand, Ask Vault). Defaults to on-device Apple Intelligence.
+    var intelligenceProvider: ProviderKind {
+        didSet { UserDefaults.standard.set(intelligenceProvider.rawValue, forKey: Keys.intelligence) }
+    }
+
     var temperature: Double {
         didSet { UserDefaults.standard.set(temperature, forKey: Keys.temperature) }
     }
@@ -46,12 +52,15 @@ final class LLMSettings {
     private enum Keys {
         static let providers = "llmProviders"
         static let active = "llmActiveProvider"
+        static let intelligence = "llmIntelligenceProvider"
         static let temperature = "llmTemperature"
     }
 
     init() {
         activeProvider = UserDefaults.standard.string(forKey: Keys.active)
             .flatMap(ProviderKind.init(rawValue:)) ?? .openai
+        intelligenceProvider = UserDefaults.standard.string(forKey: Keys.intelligence)
+            .flatMap(ProviderKind.init(rawValue:)) ?? .apple
         temperature = UserDefaults.standard.object(forKey: Keys.temperature) as? Double ?? 0.7
 
         if let data = UserDefaults.standard.data(forKey: Keys.providers),

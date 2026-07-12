@@ -55,6 +55,10 @@ struct NoteEditorView: View {
     var onShowMindMap: () -> Void = { }
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(LLMSettings.self) private var llmSettings
+
+    /// The intelligence service for the user's chosen provider.
+    private var intelligence: IntelligenceService { IntelligenceService(settings: llmSettings) }
 
     @State private var showMermaid = false
     @State private var showSlides = false
@@ -312,6 +316,7 @@ struct NoteEditorView: View {
                 }
                 .sheet(isPresented: $showIntelligence) {
                     IntelligenceView(
+                        intelligence: intelligence,
                         noteText: editor.text,
                         existingTags: tagCandidates,
                         linkCandidates: linkCandidates,
@@ -607,8 +612,8 @@ struct NoteEditorView: View {
             if !mermaidSources.isEmpty {
                 barButton("Preview Mermaid diagrams", "chart.xyaxis.line") { showMermaid = true }
             }
-            if NoteIntelligence.isAvailable {
-                barButton("Summarize & suggest (on-device)", "sparkles") { showIntelligence = true }
+            if intelligence.isAvailable {
+                barButton("Summarize & suggest (\(intelligence.providerName))", "sparkles") { showIntelligence = true }
             }
             if git.status.isRepository {
                 barButton("Version history (Git)", "clock.arrow.circlepath") { showHistory = true }

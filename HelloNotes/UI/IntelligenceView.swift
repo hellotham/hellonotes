@@ -12,6 +12,7 @@ import SwiftUI
 /// suggest tags, suggest links. Results are shown for review and applied only
 /// when the user chooses.
 struct IntelligenceView: View {
+    let intelligence: IntelligenceService
     let noteText: String
     let existingTags: [String]
     let linkCandidates: [String]
@@ -34,6 +35,8 @@ struct IntelligenceView: View {
             HStack {
                 Label("Intelligence", systemImage: "sparkles")
                     .font(.headline)
+                Text("via \(intelligence.providerName)")
+                    .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.defaultAction)
@@ -43,7 +46,7 @@ struct IntelligenceView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if case .unavailable(let reason) = NoteIntelligence.availability {
+                    if case .unavailable(let reason) = intelligence.availability {
                         Label(reason, systemImage: "sparkles.slash")
                             .foregroundStyle(.secondary)
                             .font(.callout)
@@ -54,7 +57,7 @@ struct IntelligenceView: View {
                     if busy {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("Thinking on-device…").foregroundStyle(.secondary)
+                            Text("Thinking…").foregroundStyle(.secondary)
                         }
                     }
                     if let errorText {
@@ -75,16 +78,16 @@ struct IntelligenceView: View {
 
     private var actions: some View {
         HStack(spacing: 8) {
-            Button { run { summary = try await NoteIntelligence.summarize(noteText) } } label: {
+            Button { run { summary = try await intelligence.summarize(noteText) } } label: {
                 Label("Summarize", systemImage: "text.append")
             }
-            Button { run { tags = try await NoteIntelligence.suggestTags(for: noteText, existing: existingTags) } } label: {
+            Button { run { tags = try await intelligence.suggestTags(for: noteText, existing: existingTags) } } label: {
                 Label("Suggest Tags", systemImage: "number")
             }
-            Button { run { links = try await NoteIntelligence.suggestLinks(for: noteText, candidates: linkCandidates) } } label: {
+            Button { run { links = try await intelligence.suggestLinks(for: noteText, candidates: linkCandidates) } } label: {
                 Label("Suggest Links", systemImage: "link")
             }
-            Button { run { expanded = try await NoteIntelligence.expand(noteText) } } label: {
+            Button { run { expanded = try await intelligence.expand(noteText) } } label: {
                 Label("Expand", systemImage: "arrow.up.left.and.arrow.down.right")
             }
         }

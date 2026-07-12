@@ -13,6 +13,7 @@ import SwiftUI
 /// Retrieval is keyword-overlap over the search index (no embeddings) — simple,
 /// local, and good enough to point the model at the right notes.
 struct VaultChatView: View {
+    let intelligence: IntelligenceService
     let notes: [Note]
     let search: VaultSearchModel
     var onOpenNote: (Note) -> Void
@@ -50,7 +51,7 @@ struct VaultChatView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if case .unavailable(let reason) = NoteIntelligence.availability {
+                    if case .unavailable(let reason) = intelligence.availability {
                         Label(reason, systemImage: "sparkles.slash")
                             .foregroundStyle(.secondary).font(.callout)
                     }
@@ -100,7 +101,7 @@ struct VaultChatView: View {
                 if context.isEmpty {
                     answer = "I couldn't find any notes related to that."
                 } else {
-                    answer = try await NoteIntelligence.answer(question: q, context: context)
+                    answer = try await intelligence.answer(question: q, context: context)
                 }
             } catch {
                 errorText = "Couldn't answer that. \(error.localizedDescription)"
