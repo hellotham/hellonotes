@@ -24,11 +24,23 @@ final class AssistantModel {
     private(set) var errorText: String?
     private(set) var totalUsage = LLMUsage()
 
-    /// System prompt for the assistant (vault context is added in later phases).
-    var systemPrompt: String =
+    /// When on (and the provider supports tools), the assistant can read and edit
+    /// the vault through tools. Off = plain chat.
+    var agentMode = true
+
+    /// Vault tools + services. Set by the host view when a vault is open.
+    var registry: ToolRegistry?
+    var toolContext: ToolContext?
+
+    /// Live permission prompts (for the approval UI) come from the broker.
+    var permissions: PermissionBroker? { toolContext?.permissions }
+
+    /// Base persona; vault context and tool guidance are appended at send time.
+    var basePrompt: String =
         "You are the HelloNotes assistant, embedded in a local Markdown notes app. " +
         "Be concise and helpful. Format answers in Markdown."
 
+    private let maxToolIterations = 12
     private var currentTask: Task<Void, Never>?
 
     init(settings: LLMSettings) {
@@ -36,6 +48,25 @@ final class AssistantModel {
     }
 
     var activeProvider: ProviderKind { settings.activeProvider }
+
+    /// Whether tools are actually in play this turn.
+    private var toolsActive: Bool {
+        agentMode && settings.activeProvider.supportsTools && registry != nil && toolContext != nil
+    }
+
+    private var systemPrompt: String {
+        var prompt = basePrompt
+        if let ctx = toolContext, let vault = ctx.vaultURL {
+            prompt += "\n\nThe user's vault is “\(vault.lastPathComponent)” with \(ctx.notes.count) notes."
+            if toolsActive {
+                prompt += " You can read and modify it using the provided tools. " +
+                    "Prefer search_notes/grep_vault/read_note to ground answers in the vault before responding. " +
+                    "Use edit_note for small changes and write_note for full rewrites. " +
+                    "Every file change is shown to the user for approval and committed to Git, so make focused, well-explained edits."
+            }
+        }
+        return prompt
+    }
     var canSend: Bool {
         !isStreaming && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -69,8 +100,8 @@ final class AssistantModel {
         }
     }
 
-    /// One assistant turn: stream the model, folding deltas into a live message.
-    /// (Phase 3 adds: if the turn ends in tool calls, run them and loop.)
+    /// Run the conversation to completion: stream a turn, and if it ends in tool
+    /// calls, execute them, append the results, and continue — up to a cap.
     private func runTurn() async {
         let kind = settings.activeProvider
         let provider: LLMProvider
@@ -82,15 +113,38 @@ final class AssistantModel {
             return
         }
 
-        let context = LLMContext(systemPrompt: systemPrompt, messages: messages, tools: [])
         let options = LLMRequestOptions(temperature: settings.temperature)
+        let tools = toolsActive ? (registry?.llmTools ?? []) : []
 
-        // Live assistant message the deltas accumulate into.
+        for _ in 0..<maxToolIterations {
+            let context = LLMContext(systemPrompt: systemPrompt, messages: messages, tools: tools)
+            let outcome = await streamOne(provider: provider, model: model, context: context, options: options)
+
+            guard case .success(let stop, let calls) = outcome else { return }
+            guard stop == .toolCalls, !calls.isEmpty, toolsActive else { return }
+
+            // Execute each requested tool and append the results as a tool turn.
+            var results: [MessagePart] = []
+            for call in calls {
+                let result = await execute(call)
+                results.append(.toolResult(result))
+            }
+            messages.append(LLMMessage(role: .tool, parts: results))
+        }
+    }
+
+    private enum TurnOutcome { case success(StopReason, [ToolCall]); case aborted }
+
+    /// Stream a single assistant turn, folding deltas into a live message and
+    /// accumulating any tool calls.
+    private func streamOne(provider: LLMProvider, model: String, context: LLMContext, options: LLMRequestOptions) async -> TurnOutcome {
         var assistant = LLMMessage(role: .assistant, parts: [])
         messages.append(assistant)
         let index = messages.count - 1
-
         func flush() { if messages.indices.contains(index) { messages[index] = assistant } }
+
+        var callIndex: [String: Int] = [:]   // tool-call id → part index
+        var stop: StopReason = .stop
 
         do {
             for try await event in provider.stream(context, model: model, options: options) {
@@ -99,21 +153,43 @@ final class AssistantModel {
                     appendText(delta, to: &assistant); flush()
                 case .thinkingDelta(let delta):
                     appendThinking(delta, to: &assistant); flush()
+                case .toolCallStarted(let id, let name):
+                    assistant.parts.append(.toolCall(ToolCall(id: id, name: name, arguments: "")))
+                    callIndex[id] = assistant.parts.count - 1
+                    flush()
+                case .toolCallArgumentsDelta(let id, let fragment):
+                    if let i = callIndex[id], case .toolCall(var call) = assistant.parts[i] {
+                        call.arguments += fragment
+                        assistant.parts[i] = .toolCall(call)
+                        flush()
+                    }
+                case .toolCallCompleted:
+                    break
                 case .usage(let usage):
                     assistant.usage = usage; totalUsage = totalUsage + usage; flush()
-                case .toolCallStarted, .toolCallArgumentsDelta, .toolCallCompleted:
-                    break  // Phase 3: accumulate + execute tools
-                case .done:
-                    flush()
+                case .done(let reason):
+                    stop = reason; flush()
                 }
             }
         } catch is CancellationError {
-            // leave partial text as-is
+            return .aborted
         } catch {
             errorText = error.localizedDescription
-            if assistant.parts.isEmpty, messages.indices.contains(index) {
-                messages.remove(at: index)
-            }
+            if assistant.parts.isEmpty, messages.indices.contains(index) { messages.remove(at: index) }
+            return .aborted
+        }
+        return .success(stop, assistant.toolCalls)
+    }
+
+    private func execute(_ call: ToolCall) async -> ToolResult {
+        guard let registry, let ctx = toolContext, let tool = registry.tool(named: call.name) else {
+            return ToolResult(callID: call.id, output: "Unknown tool: \(call.name)", isError: true)
+        }
+        do {
+            let output = try await tool.run(call.parsedArguments, context: ctx)
+            return ToolResult(callID: call.id, output: output)
+        } catch {
+            return ToolResult(callID: call.id, output: error.localizedDescription, isError: true)
         }
     }
 

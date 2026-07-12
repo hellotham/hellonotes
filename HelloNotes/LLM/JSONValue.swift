@@ -92,7 +92,30 @@ enum JSONValue: Sendable, Equatable, Codable {
     // Accessors
     var stringValue: String? { if case .string(let s) = self { return s } else { return nil } }
     var objectValue: [String: JSONValue]? { if case .object(let o) = self { return o } else { return nil } }
+    var arrayValue: [JSONValue]? { if case .array(let a) = self { return a } else { return nil } }
+    var boolValue: Bool? {
+        switch self {
+        case .bool(let b): return b
+        case .string(let s): return ["true", "yes", "1"].contains(s.lowercased()) ? true : (["false", "no", "0"].contains(s.lowercased()) ? false : nil)
+        default: return nil
+        }
+    }
+    var intValue: Int? {
+        switch self {
+        case .int(let i): return i
+        case .double(let d): return Int(d)
+        case .string(let s): return Int(s)
+        default: return nil
+        }
+    }
     subscript(_ key: String) -> JSONValue? { objectValue?[key] }
+
+    /// The string at `key`, trimmed; nil if missing or empty.
+    func string(_ key: String) -> String? {
+        self[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+    }
+    func bool(_ key: String) -> Bool? { self[key]?.boolValue }
+    func int(_ key: String) -> Int? { self[key]?.intValue }
 
     // MARK: - Schema builders
 

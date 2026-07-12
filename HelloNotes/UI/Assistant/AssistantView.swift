@@ -29,6 +29,11 @@ struct AssistantView: View {
         }
         .frame(width: 620, height: 680)
         .onAppear { inputFocused = true }
+        .overlay {
+            if let broker = model.permissions, let prompt = broker.prompt {
+                EditApprovalView(prompt: prompt, broker: broker)
+            }
+        }
     }
 
     // MARK: - Header
@@ -37,6 +42,13 @@ struct AssistantView: View {
         HStack(spacing: 10) {
             Label("Assistant", systemImage: "sparkles").font(.headline)
             Spacer()
+            if model.registry != nil {
+                Toggle(isOn: $model.agentMode) {
+                    Image(systemName: model.agentMode ? "wrench.and.screwdriver.fill" : "bubble.left")
+                }
+                .toggleStyle(.button)
+                .help(model.agentMode ? "Agent mode: can read & edit the vault" : "Chat only")
+            }
             providerPicker
             Button {
                 model.clear()

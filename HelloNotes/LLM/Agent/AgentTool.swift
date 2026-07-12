@@ -1,0 +1,102 @@
+//
+//  AgentTool.swift
+//  HelloNotes
+//
+//  Created by Chris Tham on 12/7/2026.
+//
+//  The uniform tool contract — {name, description, JSON-Schema parameters, run} —
+//  plus the execution context (vault services) and registry. Every capability the
+//  assistant has over the vault is a tool; the model decides when to call them.
+//
+
+import Foundation
+
+/// A capability the assistant can invoke. Runs on the main actor because it
+/// touches the vault's @Observable state.
+@MainActor
+protocol AgentTool: Sendable {
+    var name: String { get }
+    var description: String { get }
+    /// JSON-Schema `object` describing the arguments.
+    var parameters: JSONValue { get }
+    /// Whether the tool changes files (gated by the permission broker).
+    var isMutating: Bool { get }
+
+    func run(_ arguments: JSONValue, context: ToolContext) async throws -> String
+}
+
+extension AgentTool {
+    var isMutating: Bool { false }
+    var asLLMTool: LLMTool { LLMTool(name: name, description: description, parameters: parameters) }
+}
+
+/// Services a tool operates against.
+@MainActor
+struct ToolContext {
+    let indexer: WorkspaceIndexer
+    let search: VaultSearchModel
+    let git: GitService
+    let permissions: PermissionBroker
+
+    var vaultURL: URL? { indexer.selectedVaultURL }
+    var notes: [Note] { indexer.notes }
+
+    /// A note matched by exact title, filename, or relative path (case-insensitive).
+    func note(matching query: String) -> Note? {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return nil }
+        if let n = notes.first(where: { $0.title.lowercased() == q }) { return n }
+        if let n = notes.first(where: { $0.fileURL.lastPathComponent.lowercased() == q }) { return n }
+        return notes.first(where: {
+            let rel = relativePath($0).lowercased()
+            return rel == q || rel.hasSuffix("/" + q)
+        })
+    }
+
+    func relativePath(_ note: Note) -> String {
+        guard let base = vaultURL?.standardizedFileURL.path else { return note.fileURL.lastPathComponent }
+        let path = note.fileURL.standardizedFileURL.path
+        guard path.hasPrefix(base) else { return note.fileURL.lastPathComponent }
+        return String(path.dropFirst(base.count).drop(while: { $0 == "/" }))
+    }
+
+    func readContents(of note: Note) -> String {
+        (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? ""
+    }
+
+    /// Re-index the vault after a mutation and refresh search + git status.
+    func refreshAfterMutation() async {
+        indexer.scanVault()
+        await search.refresh(from: indexer.notes)
+        await git.refreshStatus()
+    }
+
+    /// Commit the change if the vault is a Git repo (per-edit safety net).
+    func commit(_ message: String) async {
+        if git.status.isRepository { await git.commitAll(message: message) }
+    }
+}
+
+/// Errors a tool can raise; surfaced back to the model as an error tool result.
+enum ToolError: LocalizedError {
+    case badArguments(String)
+    case notFound(String)
+    case declined
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .badArguments(let m): return "Invalid arguments: \(m)"
+        case .notFound(let m): return "Not found: \(m)"
+        case .declined: return "The user declined this action."
+        case .failed(let m): return m
+        }
+    }
+}
+
+@MainActor
+struct ToolRegistry {
+    let tools: [AgentTool]
+    func tool(named name: String) -> AgentTool? { tools.first { $0.name == name } }
+    var llmTools: [LLMTool] { tools.map(\.asLLMTool) }
+}
