@@ -413,7 +413,9 @@ struct MacContentView: View {
                         } label: {
                             Label(note.title, systemImage: "bookmark.fill")
                                 .lineLimit(1)
-                                .foregroundStyle(selectedNoteID == note.id ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                                .foregroundStyle(selectedNoteID == note.id
+                                    ? AnyShapeStyle(appearance.accentText ?? Color.accentColor)
+                                    : AnyShapeStyle(.primary))
                         }
                         .buttonStyle(.plain)
                     }
@@ -436,7 +438,8 @@ struct MacContentView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(focused.search.tagTree()) { node in
-                                TagTreeRow(node: node, selectedTag: selectedTag) { tag in
+                                TagTreeRow(node: node, selectedTag: selectedTag,
+                                           selectedColor: appearance.accentText ?? .accentColor) { tag in
                                     selectedTag = tag
                                     searchText = ""
                                 }

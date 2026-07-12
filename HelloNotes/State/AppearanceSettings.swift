@@ -132,12 +132,42 @@ final class AppearanceSettings {
     var resolvedAccent: Color { accentColor ?? .accentColor }
 
     #if os(macOS)
-    /// The accent as a concrete (appearance-adaptive) NSColor for the editor —
-    /// falls back to the system accent for "multicolor".
+    /// The accent as a concrete (appearance-adaptive) NSColor — falls back to the
+    /// system accent for "multicolor". Used for control fills / decorations.
     var editorAccentNSColor: NSColor {
         if let base = baseAccent { return Self.adaptiveNSColor(base) }
         return .controlAccentColor
     }
+
+    /// The accent when used as *text* (links, selected labels): the adaptive
+    /// accent, further adjusted until it clears the WCAG AA 4.5:1 ratio against
+    /// the window background, so accent-coloured text stays legible in both
+    /// appearances.
+    var accentTextNSColor: NSColor {
+        guard let base = baseAccent else { return .controlAccentColor }
+        let solid = NSColor(base).usingColorSpace(.sRGB) ?? NSColor(base)
+        return NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let start = Self.contextAdjusted(solid, isDark: isDark)
+            let bg: NSColor = isDark ? NSColor(white: 0.12, alpha: 1) : NSColor(white: 0.98, alpha: 1)
+            return Self.readable(start, on: bg, towardDark: !isDark)
+        }
+    }
+
+    /// The label colour to place *on top of* an accent fill (black or white,
+    /// whichever contrasts better with the accent in the current appearance).
+    var onAccentNSColor: NSColor {
+        let base = baseAccent.map { NSColor($0).usingColorSpace(.sRGB) ?? NSColor($0) }
+        return NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let fill = base.map { Self.contextAdjusted($0, isDark: isDark) } ?? .controlAccentColor
+            return Self.contrast(.white, fill) >= Self.contrast(.black, fill) ? .white : .black
+        }
+    }
+
+    /// The accent as a legible text colour, or `nil` for "multicolor".
+    var accentText: Color? { baseAccent == nil ? nil : Color(nsColor: accentTextNSColor) }
+    var onAccent: Color { Color(nsColor: onAccentNSColor) }
 
     /// A dynamic NSColor that lightens `base` on dark backgrounds and deepens it
     /// slightly on light ones — the "adjusts depending on context" behaviour.
@@ -145,12 +175,40 @@ final class AppearanceSettings {
         let solid = NSColor(base).usingColorSpace(.sRGB) ?? NSColor(base)
         return NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            if isDark {
-                return solid.blended(withFraction: 0.24, of: .white) ?? solid
-            } else {
-                return solid.blended(withFraction: 0.08, of: .black) ?? solid
-            }
+            return contextAdjusted(solid, isDark: isDark)
         }
+    }
+
+    private static func contextAdjusted(_ solid: NSColor, isDark: Bool) -> NSColor {
+        isDark ? (solid.blended(withFraction: 0.24, of: .white) ?? solid)
+               : (solid.blended(withFraction: 0.08, of: .black) ?? solid)
+    }
+
+    // MARK: WCAG contrast helpers
+
+    static func luminance(_ color: NSColor) -> CGFloat {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        func lin(_ v: CGFloat) -> CGFloat { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(c.redComponent) + 0.7152 * lin(c.greenComponent) + 0.0722 * lin(c.blueComponent)
+    }
+
+    static func contrast(_ a: NSColor, _ b: NSColor) -> CGFloat {
+        let la = luminance(a), lb = luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+
+    /// Blend `color` toward black (or white) in steps until it meets `target`
+    /// contrast against `bg`.
+    static func readable(_ color: NSColor, on bg: NSColor, towardDark: Bool, target: CGFloat = 4.5) -> NSColor {
+        let solid = color.usingColorSpace(.sRGB) ?? color
+        let end: NSColor = towardDark ? .black : .white
+        var result = solid
+        var fraction: CGFloat = 0
+        while contrast(result, bg) < target && fraction < 1 {
+            fraction += 0.07
+            result = solid.blended(withFraction: fraction, of: end) ?? result
+        }
+        return result
     }
     #endif
 

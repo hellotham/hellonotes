@@ -715,12 +715,13 @@ struct NoteEditorView: View {
     private var configuration: MarkdownEditorConfiguration {
         var config = MarkdownEditorConfiguration.default
         // Tint the editor with the app accent (context-adaptive): links and
-        // `==highlight==` follow the chosen accent colour.
+        // `==highlight==` follow the chosen accent colour. Link *text* uses the
+        // contrast-adjusted accent so it stays legible (WCAG AA); the highlight
+        // is translucent so the body text keeps its own contrast.
         var theme = MarkdownEditorTheme.default
-        let accent = appearance.editorAccentNSColor
-        theme.link = accent
-        theme.incompleteLink = accent
-        theme.highlightColor = accent.withAlphaComponent(0.30)
+        theme.link = appearance.accentTextNSColor
+        theme.incompleteLink = appearance.accentTextNSColor
+        theme.highlightColor = appearance.editorAccentNSColor.withAlphaComponent(0.30)
         config.theme = theme
         config.services.syntaxHighlighter = Self.syntaxHighlighter
         config.services.latex = Self.latexRenderer

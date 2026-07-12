@@ -14,6 +14,8 @@ import SwiftUI
 struct TagTreeRow: View {
     let node: TagNode
     let selectedTag: String?
+    /// Contrast-safe accent colour for the selected tag's label.
+    var selectedColor: Color = .accentColor
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -22,7 +24,7 @@ struct TagTreeRow: View {
         } else {
             DisclosureGroup {
                 ForEach(node.children) { child in
-                    TagTreeRow(node: child, selectedTag: selectedTag, onSelect: onSelect)
+                    TagTreeRow(node: child, selectedTag: selectedTag, selectedColor: selectedColor, onSelect: onSelect)
                 }
             } label: {
                 tagButton
@@ -35,7 +37,7 @@ struct TagTreeRow: View {
             onSelect(node.fullPath)
         } label: {
             Label("#\(node.name)", systemImage: "number")
-                .foregroundStyle(selectedTag == node.fullPath ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                .foregroundStyle(selectedTag == node.fullPath ? AnyShapeStyle(selectedColor) : AnyShapeStyle(.primary))
                 .fontWeight(selectedTag == node.fullPath ? .semibold : .regular)
         }
         .buttonStyle(.plain)
