@@ -13,6 +13,8 @@ struct HelloNotesApp: App {
     /// Shared LLM configuration (providers, keys, intelligence provider), so
     /// every window — including standalone note windows — sees the same settings.
     @State private var llmSettings = LLMSettings()
+    /// App-wide theming (appearance, accent, text size), applied at every root.
+    @State private var appearance = AppearanceSettings()
 
     var body: some Scene {
         WindowGroup {
@@ -20,9 +22,13 @@ struct HelloNotesApp: App {
             MacContentView()
                 .environment(library)
                 .environment(llmSettings)
+                .environment(appearance)
+                .themedRoot(appearance)
             #elseif os(iOS)
             iOSContentView()
                 .environment(library)
+                .environment(appearance)
+                .themedRoot(appearance)
             #endif
         }
 
@@ -34,12 +40,15 @@ struct HelloNotesApp: App {
                 NoteWindowView(fileURL: ref.url)
                     .environment(library)
                     .environment(llmSettings)
+                    .environment(appearance)
+                    .themedRoot(appearance)
             }
         }
 
-        // Preferences window (⌘,): General + AI (LLM providers) tabs.
+        // Preferences window (⌘,): General, Appearance, and AI tabs.
         Settings {
-            PreferencesView(llmSettings: llmSettings)
+            PreferencesView(llmSettings: llmSettings, appearance: appearance)
+                .themedRoot(appearance)
         }
         #endif
     }

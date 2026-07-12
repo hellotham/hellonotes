@@ -56,6 +56,7 @@ struct NoteEditorView: View {
 
     @Environment(\.openWindow) private var openWindow
     @Environment(LLMSettings.self) private var llmSettings
+    @Environment(AppearanceSettings.self) private var appearance
 
     /// Folder (relative to the note) where pasted images are saved; empty means
     /// the same folder as the note. Configured in Settings.
@@ -266,6 +267,7 @@ struct NoteEditorView: View {
                         text: $editor.text,
                         pendingInlineReplacement: $pendingReplacement,
                         configuration: configuration,
+                        fontSize: appearance.editorFontSize,
                         documentId: editor.note?.fileURL.path ?? "default",
                         onPasteImage: pasteImage,
                         onSmartPaste: smartPaste,

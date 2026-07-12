@@ -18,11 +18,16 @@ struct PreferencesView: View {
     /// Shared LLM configuration, so the AI tab and the Assistant sheet edit the
     /// same providers, keys and defaults.
     var llmSettings: LLMSettings
+    /// App-wide theming (appearance, accent, text size).
+    var appearance: AppearanceSettings
 
     var body: some View {
         TabView {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gearshape") }
+
+            AppearanceSettingsView(settings: appearance)
+                .tabItem { Label("Appearance", systemImage: "paintpalette") }
 
             LLMSettingsForm(settings: llmSettings)
                 .tabItem { Label("AI", systemImage: "sparkles") }
