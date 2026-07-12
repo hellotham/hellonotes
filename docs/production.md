@@ -17,7 +17,7 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 | Category | Productivity (`public.app-category.productivity`) |
 | Version / build | `MARKETING_VERSION = 1.0`, `CURRENT_PROJECT_VERSION = 1` |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
-| Entitlements today | App Sandbox, User‑selected files (read/write) |
+| Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync) |
 | Min OS | **macOS 15.0** |
 | Website | <https://hellotham.github.io/hellonotes/> (Privacy · Support live) |
 
@@ -42,10 +42,10 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 
 ## 1 · Project hardening (pre‑flight) — do these before archiving
 
-> **✅ Already done in this repo:** §1a (min OS lowered to **macOS 15.0**),
-> §1c (Info.plist document types cleaned), §1d (`ITSAppUsesNonExemptEncryption`
-> added), plus the app icon and screenshots. **Still your call:** §1b (Git remote
-> sync), and §1e–§1h (signing check, version policy, dependency pin, final build).
+> **✅ Already done in this repo:** §1a (min OS → **macOS 15.0**), §1b (Git remote
+> sync entitlement), §1c (Info.plist cleaned), §1d (`ITSAppUsesNonExemptEncryption`),
+> plus the app icon and screenshots. **Left for you:** §1e–§1h (confirm signing,
+> version policy, optional dependency pin, and the final build).
 
 Work through each; several are genuine blockers or reviewer red flags.
 
@@ -55,21 +55,20 @@ Lowered to **`MACOSX_DEPLOYMENT_TARGET = 15.0`** so the app installs on macOS 15
 `#available(macOS 26.0, *)`, so it degrades gracefully on older systems. Raise or
 lower further via Xcode ▸ target ▸ **General** ▸ *Minimum Deployments* if you wish.
 
-### 1b. ⚠️ Git sync needs a network entitlement (or disable remote sync for v1)
-The sandbox entitlements today are App Sandbox + user‑selected files only — **no
-network**. In‑app **Git push/fetch to a remote will fail** in the sandboxed store
-build. Two options:
-
-- **Ship local Git only** (init / commit / history / restore all work offline) and
-  don’t advertise remote sync. Nothing to change.
-- **Enable remote sync:** target ▸ **Signing & Capabilities** ▸ **App Sandbox** ▸
-  tick **Outgoing Connections (Client)**. That adds:
-  ```xml
-  <key>com.apple.security.network.client</key>
-  <true/>
-  ```
-  (SSH‑agent/keychain credential access from a sandbox is still limited — HTTPS
-  remotes with a token are the realistic path.)
+### 1b. ✅ Git remote sync — enabled
+The app now ships an explicit entitlements file
+(`HelloNotes/HelloNotes.entitlements`, wired via `CODE_SIGN_ENTITLEMENTS`) granting
+**Outgoing Connections (Client)** alongside the sandbox and user‑selected‑files
+entitlements:
+```xml
+<key>com.apple.security.app-sandbox</key>            <true/>
+<key>com.apple.security.files.user-selected.read-write</key> <true/>
+<key>com.apple.security.network.client</key>          <true/>
+```
+Verified in the Release build (all three present, no conflicts). Git push/fetch to
+a remote can now reach the network. Note: SSH‑agent/keychain credential access from
+a sandbox is still limited — **HTTPS remotes with a personal access token** are the
+reliable path for end users.
 
 ### 1c. ✅ Info.plist document types — done
 The placeholder `com.example.*` UTIs were replaced with a proper Markdown
