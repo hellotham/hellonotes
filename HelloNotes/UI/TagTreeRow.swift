@@ -35,7 +35,7 @@ struct TagTreeRow: View {
             onSelect(node.fullPath)
         } label: {
             Label("#\(node.name)", systemImage: "number")
-                .foregroundStyle(selectedTag == node.fullPath ? Color.accentColor : Color.primary)
+                .foregroundStyle(selectedTag == node.fullPath ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 .fontWeight(selectedTag == node.fullPath ? .semibold : .regular)
         }
         .buttonStyle(.plain)

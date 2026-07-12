@@ -14,6 +14,7 @@ import AppKit
 /// panel act on the focused collection (the one owning the selected note).
 struct MacContentView: View {
     @Environment(Library.self) private var library
+    @Environment(AppearanceSettings.self) private var appearance
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
 
@@ -412,7 +413,7 @@ struct MacContentView: View {
                         } label: {
                             Label(note.title, systemImage: "bookmark.fill")
                                 .lineLimit(1)
-                                .foregroundStyle(selectedNoteID == note.id ? Color.accentColor : Color.primary)
+                                .foregroundStyle(selectedNoteID == note.id ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                         }
                         .buttonStyle(.plain)
                     }
@@ -644,7 +645,10 @@ struct MacContentView: View {
     // MARK: - Column 2: Note list (all collections)
 
     private var noteList: some View {
-        List(selection: $selectedNoteID) {
+        // Selection is drawn by the rows themselves (an accent-tinted background)
+        // rather than the system-blue List highlight, so it follows the app
+        // accent. Rows set `selectedNoteID` on tap.
+        List {
             if isSearching {
                 ForEach(searchGroups) { group in
                     Section(group.collection.name) {
@@ -659,6 +663,9 @@ struct MacContentView: View {
                         ForEach(tree(for: collection)) { node in
                             CollectionTreeRow(
                                 node: node,
+                                selection: selectedNoteID,
+                                accent: appearance.resolvedAccent,
+                                onSelect: { selectedNoteID = $0 },
                                 onDelete: { delete($0, in: collection) },
                                 onOpenInNewWindow: { openWindow(value: NoteRef($0.fileURL)) },
                                 isBookmarked: collection.bookmarks.isBookmarked,
@@ -772,7 +779,10 @@ struct MacContentView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .tag(row.note.id)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+        .onTapGesture { selectedNoteID = row.note.id }
+        .accentSelectionRow(isSelected: selectedNoteID == row.note.id, accent: appearance.resolvedAccent)
         .contextMenu {
             bookmarkButton(row.note, in: collection)
             Button {
