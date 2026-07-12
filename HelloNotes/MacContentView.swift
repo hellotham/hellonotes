@@ -39,6 +39,7 @@ struct MacContentView: View {
     /// Git commit identity + hosting-service accounts (GitHub, GitLab, …).
     @State private var gitAccounts = GitAccountsStore()
     @State private var showGitSettings = false
+    @State private var showClone = false
 
     /// Per-vault bookmarked notes.
     @State private var bookmarks = BookmarksStore()
@@ -234,6 +235,11 @@ struct MacContentView: View {
         .sheet(isPresented: $showGitSettings) {
             GitSettingsView(store: gitAccounts, git: git)
         }
+        .sheet(isPresented: $showClone) {
+            CloneRepositoryView(store: gitAccounts, git: git) { url in
+                indexer.setVault(url)
+            }
+        }
     }
 
     // MARK: - Column 1: Sidebar
@@ -247,6 +253,13 @@ struct MacContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+
+            Button {
+                showClone = true
+            } label: {
+                Label("Clone Repository", systemImage: "arrow.down.circle")
+            }
+            .help("Browse and clone a repository from a connected account")
 
             if let vaultURL = indexer.selectedVaultURL {
                 Text(vaultURL.lastPathComponent)

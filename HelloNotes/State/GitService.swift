@@ -287,6 +287,57 @@ final class GitService {
             }
         }
     }
+
+    // MARK: - Clone
+
+    /// Clone `urlString` into a new folder under `parentDirectory` and return the
+    /// cloned folder's URL (nil on failure). For a private repo, pass the
+    /// `account`/`token` so the token is embedded in the clone URL — libgit2 then
+    /// stores it as `origin`, so later push/fetch stay authenticated. Independent
+    /// of any currently-open vault; the caller opens the result as a vault.
+    func cloneRepository(from urlString: String, into parentDirectory: URL,
+                         account: GitAccount? = nil, token: String? = nil) async -> URL? {
+        let trimmed = urlString.trimmingCharacters(in: .whitespaces)
+        guard let baseURL = URL(string: trimmed), baseURL.scheme != nil else {
+            lastError = "Enter a valid repository URL (https://…)."
+            return nil
+        }
+
+        // Folder name = last path component minus a trailing ".git".
+        let leaf = baseURL.lastPathComponent
+        let folderName = leaf.hasSuffix(".git") ? String(leaf.dropLast(4)) : leaf
+        let destination = parentDirectory.appendingPathComponent(folderName.isEmpty ? "cloned-repo" : folderName)
+
+        // libgit2 requires the target to be absent or empty.
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: destination.path), !contents.isEmpty {
+            lastError = "“\(destination.lastPathComponent)” already exists and isn't empty."
+            return nil
+        }
+
+        let remoteURL: URL = {
+            if let account, let token,
+               let authed = GitRemoteURL.authenticated(baseURL, username: account.username, token: token) {
+                return authed
+            }
+            return baseURL
+        }()
+
+        isBusy = true
+        lastError = nil
+        defer { isBusy = false }
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                _ = try await Repository.clone(from: remoteURL, to: destination)
+            }.value
+            lastMessage = "Cloned “\(folderName)”"
+            return destination
+        } catch {
+            lastError = "Clone failed: \(error)"
+            // Best-effort cleanup of a partial checkout.
+            try? FileManager.default.removeItem(at: destination)
+            return nil
+        }
+    }
 }
 
 extension GitService {
