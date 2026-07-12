@@ -45,6 +45,7 @@ struct MacContentView: View {
     @State private var llmSettings = LLMSettings()
     @State private var assistant: AssistantModel?
     @State private var permissions = PermissionBroker()
+    @State private var skills = SkillStore()
     @State private var showAssistant = false
     @State private var showLLMSettings = false
 
@@ -172,7 +173,10 @@ struct MacContentView: View {
             if assistant == nil {
                 let model = AssistantModel(settings: llmSettings)
                 model.registry = ToolRegistry(tools: VaultTools.all())
-                model.toolContext = ToolContext(indexer: indexer, search: search, git: git, permissions: permissions)
+                model.toolContext = ToolContext(
+                    indexer: indexer, search: search, git: git, permissions: permissions,
+                    settings: llmSettings, skills: skills)
+                model.sessionStore = ChatSessionStore(vaultURL: indexer.selectedVaultURL)
                 assistant = model
             }
             // Reopen the last vault on first launch.
@@ -658,6 +662,7 @@ struct MacContentView: View {
         // adds aliases to the resolver so `[[alias]]` resolves too.
         wikiResolver.update(titles: notes.map(\.title))
         embedProvider.update(notes: notes)
+        skills.refresh(from: notes)
         Task {
             await linkGraph.rebuild(from: notes)
             await search.refresh(from: notes)

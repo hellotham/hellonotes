@@ -27,7 +27,7 @@ struct HelloNotesTests {
     /// notes in `Projects/` and `Templates/`, and its `README`).
     private static let sampleNoteTitles: Set<String> = [
         "2026-07-11", "Callouts", "Diagram", "Ideas", "MathNote", "README",
-        "RichTransclude", "Transclude", "Welcome", "Roadmap", "Daily",
+        "RichTransclude", "Transclude", "Welcome", "Roadmap", "Daily", "SKILL",
     ]
 
     /// Copy the repo's sample vault into a unique temp directory so tests read
@@ -644,9 +644,9 @@ struct HelloNotesTests {
 
         let tree = VaultTree.build(from: indexer.notes, vaultURL: vault, sort: .name)
 
-        // The sample vault's folders (Projects, Templates) sort before root-level notes.
-        #expect(tree.prefix(2).map(\.name) == ["Projects", "Templates"])
-        #expect(tree[0].isFolder && tree[1].isFolder)
+        // The sample vault's folders (Projects, Skills, Templates) sort before root-level notes.
+        #expect(tree.prefix(3).map(\.name) == ["Projects", "Skills", "Templates"])
+        #expect(tree[0].isFolder && tree[1].isFolder && tree[2].isFolder)
         // Root notes follow the folders.
         #expect(tree.contains { $0.note?.title == "Welcome" })
 

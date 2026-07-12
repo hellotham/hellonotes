@@ -13,12 +13,14 @@
 import Foundation
 
 enum VaultTools {
-    /// The default tool set for a vault.
+    /// The default tool set for a vault: retrieval, editing (gated), web
+    /// research, and skills.
     @MainActor
     static func all() -> [AgentTool] {
         [
             ListNotesTool(), ReadNoteTool(), SearchNotesTool(), GrepVaultTool(),
             CreateNoteTool(), EditNoteTool(), WriteNoteTool(), DeleteNoteTool(),
+            WebSearchTool(), WebFetchTool(), DeepResearchTool(), LoadSkillTool(),
         ]
     }
 }

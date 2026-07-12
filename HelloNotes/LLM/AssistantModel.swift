@@ -32,6 +32,11 @@ final class AssistantModel {
     var registry: ToolRegistry?
     var toolContext: ToolContext?
 
+    /// Persists the conversation across launches (set by the host view).
+    var sessionStore: ChatSessionStore? {
+        didSet { if messages.isEmpty { messages = sessionStore?.load() ?? [] } }
+    }
+
     /// Live permission prompts (for the approval UI) come from the broker.
     var permissions: PermissionBroker? { toolContext?.permissions }
 
@@ -62,7 +67,11 @@ final class AssistantModel {
                 prompt += " You can read and modify it using the provided tools. " +
                     "Prefer search_notes/grep_vault/read_note to ground answers in the vault before responding. " +
                     "Use edit_note for small changes and write_note for full rewrites. " +
-                    "Every file change is shown to the user for approval and committed to Git, so make focused, well-explained edits."
+                    "Every file change is shown to the user for approval and committed to Git, so make focused, well-explained edits. " +
+                    "Use web_search/web_fetch for external facts, and deep_research for questions needing thorough, multi-source investigation."
+                if let store = ctx.skills, !store.skills.isEmpty {
+                    prompt += "\n\nAvailable skills (call load_skill with the name to get full instructions):\n" + store.discoveryList
+                }
             }
         }
         return prompt
@@ -88,15 +97,18 @@ final class AssistantModel {
         messages.removeAll()
         errorText = nil
         totalUsage = LLMUsage()
+        sessionStore?.clear()
     }
 
     private func start() {
         errorText = nil
         isStreaming = true
+        sessionStore?.save(messages)
         currentTask = Task { [weak self] in
             guard let self else { return }
             await self.runTurn()
             self.isStreaming = false
+            self.sessionStore?.save(self.messages)
         }
     }
 

@@ -37,6 +37,8 @@ struct ToolContext {
     let search: VaultSearchModel
     let git: GitService
     let permissions: PermissionBroker
+    var settings: LLMSettings? = nil   // for tools that spawn sub-agents (deep research)
+    var skills: SkillStore? = nil      // vault SKILL.md files (load_skill)
 
     var vaultURL: URL? { indexer.selectedVaultURL }
     var notes: [Note] { indexer.notes }
