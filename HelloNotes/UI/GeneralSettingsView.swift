@@ -12,6 +12,25 @@
 #if os(macOS)
 import SwiftUI
 
+/// The Preferences window (⌘,): a tabbed container for all app settings. AI /
+/// LLM provider configuration also remains reachable from the Assistant window.
+struct PreferencesView: View {
+    /// Shared LLM configuration, so the AI tab and the Assistant sheet edit the
+    /// same providers, keys and defaults.
+    var llmSettings: LLMSettings
+
+    var body: some View {
+        TabView {
+            GeneralSettingsView()
+                .tabItem { Label("General", systemImage: "gearshape") }
+
+            LLMSettingsForm(settings: llmSettings)
+                .tabItem { Label("AI", systemImage: "sparkles") }
+        }
+        .frame(width: 560, height: 640)
+    }
+}
+
 struct GeneralSettingsView: View {
     /// Folder (relative to the note) where pasted images are saved. Empty means
     /// the same folder as the note.
@@ -74,8 +93,6 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440)
-        .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             let trimmed = attachmentFolder.trimmingCharacters(in: .whitespaces)
             if !trimmed.isEmpty { subfolderName = trimmed }

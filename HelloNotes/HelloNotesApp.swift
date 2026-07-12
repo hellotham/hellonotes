@@ -37,9 +37,9 @@ struct HelloNotesApp: App {
             }
         }
 
-        // Preferences window (⌘,).
+        // Preferences window (⌘,): General + AI (LLM providers) tabs.
         Settings {
-            GeneralSettingsView()
+            PreferencesView(llmSettings: llmSettings)
         }
         #endif
     }

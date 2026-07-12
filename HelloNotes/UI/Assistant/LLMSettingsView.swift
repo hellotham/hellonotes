@@ -11,6 +11,9 @@
 #if os(macOS)
 import SwiftUI
 
+/// The Assistant's own settings sheet (opened from the Assistant window). Wraps
+/// the shared `LLMSettingsForm` with a titled header and a Done button. The same
+/// form also appears as the "AI" tab of the Preferences window (⌘,).
 struct LLMSettingsView: View {
     @Bindable var settings: LLMSettings
     @Environment(\.dismiss) private var dismiss
@@ -25,31 +28,41 @@ struct LLMSettingsView: View {
             .padding()
             Divider()
 
-            Form {
-                Section("Defaults") {
-                    Picker("Chat provider", selection: $settings.activeProvider) {
-                        ForEach(ProviderKind.allCases) { Text($0.displayName).tag($0) }
-                    }
-                    Picker("Intelligence provider", selection: $settings.intelligenceProvider) {
-                        ForEach(ProviderKind.allCases) { Text($0.displayName).tag($0) }
-                    }
-                    Text("“Intelligence provider” powers Summarize, Suggest Tags/Links, Expand and Ask Vault. Defaults to on-device Apple Intelligence.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Text("Temperature")
-                        Slider(value: $settings.temperature, in: 0...1)
-                        Text(settings.temperature, format: .number.precision(.fractionLength(1)))
-                            .monospacedDigit().foregroundStyle(.secondary)
-                    }
-                }
-
-                ForEach(ProviderKind.allCases) { kind in
-                    ProviderSection(settings: settings, kind: kind)
-                }
-            }
-            .formStyle(.grouped)
+            LLMSettingsForm(settings: settings)
         }
         .frame(width: 560, height: 680)
+    }
+}
+
+/// The provider/key/defaults configuration form, shared by the Assistant sheet
+/// and the Preferences "AI" tab.
+struct LLMSettingsForm: View {
+    @Bindable var settings: LLMSettings
+
+    var body: some View {
+        Form {
+            Section("Defaults") {
+                Picker("Chat provider", selection: $settings.activeProvider) {
+                    ForEach(ProviderKind.allCases) { Text($0.displayName).tag($0) }
+                }
+                Picker("Intelligence provider", selection: $settings.intelligenceProvider) {
+                    ForEach(ProviderKind.allCases) { Text($0.displayName).tag($0) }
+                }
+                Text("“Intelligence provider” powers Summarize, Suggest Tags/Links, Expand and Ask Vault. Defaults to on-device Apple Intelligence.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Text("Temperature")
+                    Slider(value: $settings.temperature, in: 0...1)
+                    Text(settings.temperature, format: .number.precision(.fractionLength(1)))
+                        .monospacedDigit().foregroundStyle(.secondary)
+                }
+            }
+
+            ForEach(ProviderKind.allCases) { kind in
+                ProviderSection(settings: settings, kind: kind)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
