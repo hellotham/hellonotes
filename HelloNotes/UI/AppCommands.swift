@@ -78,6 +78,12 @@ struct HelloNotesCommands: Commands {
     }
 
     var body: some Commands {
+        // MARK: App — About shows the splash (it carries the version, build,
+        // and credits), staying up until clicked.
+        CommandGroup(replacing: .appInfo) {
+            Button("About HelloNotes") { SplashWindow.show(autoDismiss: false) }
+        }
+
         // MARK: File — creation and opening. ⌘N makes a note (the app's
         // primary object, the Mail convention); New Window moves to ⌥⌘N.
         CommandGroup(replacing: .newItem) {

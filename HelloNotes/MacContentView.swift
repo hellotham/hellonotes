@@ -18,6 +18,9 @@ struct MacContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
 
+    /// The launch splash shows once per process, from the first main window.
+    @MainActor private static var didShowSplash = false
+
     /// Open notes as tabs, each with its own debounced-autosave editor. Tabs may
     /// hold notes from any collection in the library.
     @State private var tabs = EditorTabs()
@@ -167,6 +170,10 @@ struct MacContentView: View {
         // and note list never collapse into vertical text wrapping.
         .frame(minWidth: 860, minHeight: 480)
         .task {
+            if !Self.didShowSplash {
+                Self.didShowSplash = true
+                SplashWindow.show(autoDismiss: true)
+            }
             library.onExternalChange = { @MainActor in
                 Task { await tabs.reconcileAll() }
                 revalidateSelection()

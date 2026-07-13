@@ -45,6 +45,9 @@ struct iOSContentView: View {
     /// filter sidebar.
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
 
+    /// Launch splash overlay; fades out after a beat (or on tap).
+    @State private var showSplash = true
+
     private var focused: Collection? { library.focused }
 
     /// Open picked folders, expanding any that are (or contain) Obsidian vaults
@@ -111,6 +114,17 @@ struct iOSContentView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 Task { await editor.flush() }
+            }
+        }
+        .overlay {
+            if showSplash {
+                SplashScreenView { withAnimation(.easeOut(duration: 0.5)) { showSplash = false } }
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .task {
+                        try? await Task.sleep(for: .seconds(2.8))
+                        withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
+                    }
             }
         }
     }
