@@ -710,3 +710,60 @@ struct HelloNotesTests {
         #expect(ObsidianVault.discoverVaults(in: work).map(\.lastPathComponent) == ["Work"])
     }
 }
+
+// MARK: - Layout relaxation (collision avoidance)
+
+struct LayoutRelaxationTests {
+
+    /// After relaxation, no two footprints (plus padding) may still overlap.
+    private func assertSeparated(_ centers: [CGPoint], _ sizes: [CGSize], padding: CGFloat) {
+        for i in 0..<centers.count {
+            for j in (i + 1)..<centers.count {
+                let dx = abs(centers[i].x - centers[j].x)
+                let dy = abs(centers[i].y - centers[j].y)
+                let needX = (sizes[i].width + sizes[j].width) / 2 + padding
+                let needY = (sizes[i].height + sizes[j].height) / 2 + padding
+                #expect(dx >= needX - 0.5 || dy >= needY - 0.5,
+                        "nodes \(i) and \(j) still overlap")
+            }
+        }
+    }
+
+    @Test func separatesOverlappingChips() {
+        // Three chips piled onto nearly the same point.
+        var centers = [CGPoint(x: 100, y: 100), CGPoint(x: 104, y: 100), CGPoint(x: 100, y: 103)]
+        let sizes = [CGSize(width: 80, height: 26), CGSize(width: 60, height: 24), CGSize(width: 120, height: 26)]
+        LayoutRelaxation.separate(centers: &centers, sizes: sizes, padding: 6)
+        assertSeparated(centers, sizes, padding: 6)
+    }
+
+    @Test func keepsFixedNodePinned() {
+        var centers = [CGPoint(x: 50, y: 50), CGPoint(x: 54, y: 50)]
+        let sizes = [CGSize(width: 40, height: 20), CGSize(width: 40, height: 20)]
+        LayoutRelaxation.separate(centers: &centers, sizes: sizes, padding: 4, fixed: [0])
+        #expect(centers[0] == CGPoint(x: 50, y: 50))
+        assertSeparated(centers, sizes, padding: 4)
+    }
+
+    @Test func rebaseContainsEveryFootprint() {
+        var centers = [CGPoint(x: -200, y: 40), CGPoint(x: 90, y: -75)]
+        let sizes = [CGSize(width: 100, height: 30), CGSize(width: 60, height: 20)]
+        let world = LayoutRelaxation.rebase(centers: &centers, sizes: sizes, margin: 50)
+        for (center, size) in zip(centers, sizes) {
+            #expect(center.x - size.width / 2 >= 50 - 0.5)
+            #expect(center.y - size.height / 2 >= 50 - 0.5)
+            #expect(center.x + size.width / 2 <= world.width - 50 + 0.5)
+            #expect(center.y + size.height / 2 <= world.height - 50 + 0.5)
+        }
+    }
+
+    @Test func deterministicAcrossRuns() {
+        func run() -> [CGPoint] {
+            var centers = (0..<8).map { CGPoint(x: 100 + Double($0), y: 100) }
+            let sizes = Array(repeating: CGSize(width: 50, height: 22), count: 8)
+            LayoutRelaxation.separate(centers: &centers, sizes: sizes, padding: 6)
+            return centers
+        }
+        #expect(run() == run())
+    }
+}

@@ -82,20 +82,31 @@ struct GraphView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var positions: [CGPoint] = []
+    /// World size, derived from the laid-out (and collision-relaxed) nodes.
+    @State private var contentSize = CGSize(width: 520, height: 520)
     @State private var zoom: CGFloat = 1
     @State private var gestureBaseZoom: CGFloat?
     @State private var viewportSize: CGSize = .zero
     @State private var didInitialFit = false
 
     private static let zoomRange: ClosedRange<CGFloat> = 0.4...3
-    /// Margin so node labels never clip at the world's edges.
-    private static let labelInset = CGSize(width: 64, height: 34)
 
-    /// The fixed "world" the graph is laid out in — sized by node count, not
-    /// the window, so nodes sit close together and pan/zoom does the rest.
-    private var contentSize: CGSize {
+    /// The base canvas the force layout runs in — sized by node count, not the
+    /// window, so nodes sit close together and pan/zoom does the rest.
+    private var layoutBaseSize: CGSize {
         let side = max(520, Double(nodes.count).squareRoot() * 170)
         return CGSize(width: side, height: side)
+    }
+
+    /// Each node's visual footprint — the orb plus the label beneath it —
+    /// used by the collision pass so neither orbs nor labels overlap.
+    private var nodeFootprints: [CGSize] {
+        let deg = degrees
+        return nodes.enumerated().map { i, node in
+            let diameter = radius(degree: deg[i]) * 2
+            let labelWidth = LayoutRelaxation.estimatedTextWidth(node.label, fontSize: 11, maxWidth: 220)
+            return CGSize(width: max(diameter, labelWidth), height: diameter + 22)
+        }
     }
 
     private var degrees: [Int] {
@@ -241,19 +252,25 @@ struct GraphView: View {
                    viewportSize.height / contentSize.height) * 0.96
     }
 
-    /// Lay out in world coordinates (independent of window size), inset so
-    /// labels never clip at the edges.
+    /// Lay out in world coordinates (independent of window size): the force
+    /// layout gives the structure, a collision pass separates any nodes whose
+    /// orbs or labels would overlap, and a rebase sizes the world so nothing
+    /// clips at the edges.
     private func relayout() {
-        guard !nodes.isEmpty else { positions = []; return }
-        let inset = Self.labelInset
-        let size = contentSize
-        let inner = CGSize(width: max(size.width - inset.width * 2, 100),
-                           height: max(size.height - inset.height * 2, 100))
-        positions = GraphLayout.positions(
+        guard !nodes.isEmpty else {
+            positions = []
+            contentSize = CGSize(width: 520, height: 520)
+            return
+        }
+        var centers = GraphLayout.positions(
             count: nodes.count,
             edges: edges.map { ($0.from, $0.to) },
-            size: inner
-        ).map { CGPoint(x: $0.x + inset.width, y: $0.y + inset.height) }
+            size: layoutBaseSize
+        )
+        let footprints = nodeFootprints
+        LayoutRelaxation.separate(centers: &centers, sizes: footprints, padding: 8, iterations: 80)
+        contentSize = LayoutRelaxation.rebase(centers: &centers, sizes: footprints, margin: 48)
+        positions = centers
     }
 
     /// Hit-test in view coordinates against each node's drawn radius.

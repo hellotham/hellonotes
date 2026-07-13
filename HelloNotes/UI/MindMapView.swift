@@ -71,8 +71,9 @@ struct MindMapView: View {
 
     private var scrollingMap: some View {
         let model = self.model
-        let contentSize = model.contentSize
-        let positions = model.positions()
+        let layout = model.layout()
+        let contentSize = layout.size
+        let positions = layout.positions
 
         return GeometryReader { viewport in
             ScrollView([.horizontal, .vertical]) {
@@ -139,10 +140,13 @@ struct MindMapView: View {
         return Button {
             rootURL = node.url   // re-centre on this note
         } label: {
-            Text(node.title)
+            // `fixedSize` makes the chip hug its text (a plain `maxWidth`
+            // frame would *expand* to it); long titles are pre-truncated so
+            // chips stay bounded — and match the collision-pass estimates.
+            Text(MindMapModel.displayTitle(node.title))
                 .font(.system(size: fontSize, weight: isRoot ? .semibold : .medium))
                 .lineLimit(1)
-                .frame(maxWidth: 220 * zoom)
+                .fixedSize()
                 .padding(.horizontal, (isRoot ? 13 : 10) * zoom)
                 .padding(.vertical, (isRoot ? 8 : 5.5) * zoom)
                 .background(
@@ -170,7 +174,7 @@ struct MindMapView: View {
     /// The zoom that fits the whole map in the current viewport.
     private func fitZoom() -> CGFloat {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return 1 }
-        let size = model.contentSize
+        let size = model.layout().size
         return min(viewportSize.width / size.width, viewportSize.height / size.height) * 0.96
     }
 }
@@ -193,15 +197,16 @@ struct MindMapModel {
     /// doesn't depend on the window size (pan/zoom handles overflow).
     static let ringStep: CGFloat = 150
 
+    /// The final node placement: positions in world coordinates plus the world
+    /// size that contains every chip.
+    struct Layout {
+        let positions: [URL: CGPoint]
+        let size: CGSize
+    }
+
     private(set) var nodes: [Node] = []
     private(set) var edges: [Edge] = []
     private var maxUsedDepth = 0
-
-    /// The world size the map occupies (all rings plus a label margin).
-    var contentSize: CGSize {
-        let r = Self.ringStep * CGFloat(max(1, maxUsedDepth)) + 140
-        return CGSize(width: r * 2, height: r * 2)
-    }
 
     init(rootURL: URL, notes: [Note], linkGraph: LinkGraph, maxDepth: Int) {
         let titleFor: (URL) -> String = { url in
@@ -281,23 +286,46 @@ struct MindMapModel {
         }
     }
 
-    /// World positions for each node (within `contentSize`).
-    func positions() -> [URL: CGPoint] {
-        let size = contentSize
-        let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        var result: [URL: CGPoint] = [:]
-        for node in nodes {
-            if node.depth == 0 {
-                result[node.url] = center
-            } else {
-                let r = Self.ringStep * CGFloat(node.depth)
-                result[node.url] = CGPoint(
-                    x: center.x + r * CGFloat(cos(node.angle)),
-                    y: center.y + r * CGFloat(sin(node.angle))
-                )
-            }
+    /// Lay the nodes out: radial rings by depth first, then a collision pass
+    /// that pushes overlapping chips apart (the root stays pinned), and a
+    /// final rebase so everything sits inside a positive-coordinate world.
+    func layout() -> Layout {
+        // Radial placement around the origin.
+        var centers: [CGPoint] = nodes.map { node in
+            guard node.depth > 0 else { return .zero }
+            let r = Self.ringStep * CGFloat(node.depth)
+            return CGPoint(x: r * CGFloat(cos(node.angle)),
+                           y: r * CGFloat(sin(node.angle)))
         }
-        return result
+        let sizes = nodes.map(Self.estimatedChipSize)
+        let rootIndex = nodes.firstIndex { $0.depth == 0 }
+
+        LayoutRelaxation.separate(
+            centers: &centers, sizes: sizes, padding: 10,
+            fixed: rootIndex.map { [$0] } ?? [], iterations: 100
+        )
+        let size = LayoutRelaxation.rebase(centers: &centers, sizes: sizes, margin: 60)
+
+        var positions: [URL: CGPoint] = [:]
+        for (node, center) in zip(nodes, centers) { positions[node.url] = center }
+        return Layout(positions: positions, size: size)
+    }
+
+    /// Chip text, truncated at the string level so chips stay bounded and the
+    /// collision estimates share the exact character count the view renders.
+    static func displayTitle(_ title: String) -> String {
+        title.count > 28 ? String(title.prefix(27)) + "…" : title
+    }
+
+    /// The approximate footprint of a node's chip (mirrors `nodeChip`'s font
+    /// and padding at zoom 1).
+    static func estimatedChipSize(_ node: Node) -> CGSize {
+        let fontSize: CGFloat = node.depth == 0 ? 15 : node.depth == 1 ? 13 : 11.5
+        let hPad: CGFloat = node.depth == 0 ? 13 : 10
+        let vPad: CGFloat = node.depth == 0 ? 8 : 5.5
+        let textWidth = LayoutRelaxation.estimatedTextWidth(
+            displayTitle(node.title), fontSize: fontSize, maxWidth: .greatestFiniteMagnitude)
+        return CGSize(width: textWidth + hPad * 2, height: fontSize * 1.25 + vPad * 2)
     }
 }
 #endif
