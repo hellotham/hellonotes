@@ -69,13 +69,15 @@ struct MindMapWindowView: View {
     let rootURL: URL
 
     @Environment(Library.self) private var library
+    @Environment(AppearanceSettings.self) private var appearance
 
     private var collection: Collection? { library.collection(containing: rootURL) }
 
     var body: some View {
         Group {
             if let c = collection {
-                MindMapView(rootURL: rootURL, notes: c.notes, linkGraph: c.linkGraph) { note in
+                MindMapView(rootURL: rootURL, notes: c.notes, linkGraph: c.linkGraph,
+                            accent: appearance.resolvedAccent) { note in
                     library.requestOpen(note.id)
                 }
             } else {

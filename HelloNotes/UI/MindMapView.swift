@@ -4,10 +4,11 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  A radial mind map of a note's outgoing links, built from the LinkGraph. The
-//  root note sits at the centre; the notes it links to fan out around it, and
-//  their links form a second ring. Tap a node to re-centre the map on it, or
-//  open the current root note in the editor.
+//  A radial mind map of a note's connections, built from the LinkGraph. The
+//  root note sits at the centre; each branch (a direct neighbour and its
+//  subtree) gets its own colour from the shared palette. The canvas scrolls
+//  and zooms. Click a node to re-centre the map on it; use the context menu
+//  (or the header button, for the root) to open a note in the editor.
 //
 
 #if os(macOS)
@@ -17,93 +18,164 @@ struct MindMapView: View {
     let notes: [Note]
     let linkGraph: LinkGraph
     var onOpen: (Note) -> Void
+    /// Root-chip colour — pass the app's resolved accent (`Color.accentColor`
+    /// only reflects the asset-catalog accent, not the app's theming system).
+    var accent: Color = .accentColor
 
     @State private var rootURL: URL
+    @State private var zoom: CGFloat = 1
+    @State private var gestureBaseZoom: CGFloat?
+    @State private var viewportSize: CGSize = .zero
     @Environment(\.dismiss) private var dismiss
 
     private let maxDepth = 2
+    private static let zoomRange: ClosedRange<CGFloat> = 0.4...3
 
-    init(rootURL: URL, notes: [Note], linkGraph: LinkGraph, onOpen: @escaping (Note) -> Void) {
+    init(rootURL: URL, notes: [Note], linkGraph: LinkGraph,
+         accent: Color = .accentColor, onOpen: @escaping (Note) -> Void) {
         self.notes = notes
         self.linkGraph = linkGraph
         self.onOpen = onOpen
+        self.accent = accent
         _rootURL = State(initialValue: rootURL)
+    }
+
+    private var model: MindMapModel {
+        MindMapModel(rootURL: rootURL, notes: notes, linkGraph: linkGraph, maxDepth: maxDepth)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            GeometryReader { geo in
-                let model = MindMapModel(rootURL: rootURL, notes: notes, linkGraph: linkGraph, maxDepth: maxDepth)
-                let positions = model.positions(in: geo.size)
-                ZStack {
-                    // Edges
-                    Canvas { ctx, _ in
-                        for edge in model.edges {
-                            guard let a = positions[edge.from], let b = positions[edge.to] else { continue }
-                            var path = Path()
-                            path.move(to: a)
-                            path.addLine(to: b)
-                            ctx.stroke(path, with: .color(.secondary.opacity(0.35)), lineWidth: 1)
-                        }
-                    }
-                    // Nodes
-                    ForEach(model.nodes) { node in
-                        if let p = positions[node.url] {
-                            nodeChip(node)
-                                .position(p)
-                        }
-                    }
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-            }
-            .background(.background)
+            scrollingMap
         }
-        .frame(width: 760, height: 640)
+        .frame(minWidth: 560, minHeight: 460)
     }
 
     private var header: some View {
         HStack {
             Label("Mind Map", systemImage: "brain").font(.headline)
             Spacer()
+            ZoomControls(zoom: $zoom, range: Self.zoomRange, fitZoom: fitZoom)
             if let root = notes.first(where: { $0.fileURL == rootURL }) {
                 Button {
                     onOpen(root); dismiss()
                 } label: { Label("Open “\(root.title)”", systemImage: "arrow.up.forward.square") }
             }
-            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
         }
         .padding()
     }
 
+    // MARK: - Map canvas
+
+    private var scrollingMap: some View {
+        let model = self.model
+        let contentSize = model.contentSize
+        let positions = model.positions()
+
+        return GeometryReader { viewport in
+            ScrollView([.horizontal, .vertical]) {
+                ZStack {
+                    edgeCanvas(model: model, positions: positions)
+                    ForEach(model.nodes) { node in
+                        if let p = positions[node.url] {
+                            nodeChip(node)
+                                .position(x: p.x * zoom, y: p.y * zoom)
+                        }
+                    }
+                }
+                .frame(width: contentSize.width * zoom, height: contentSize.height * zoom)
+                // Centre the map in the viewport while it's smaller.
+                .frame(minWidth: viewport.size.width, minHeight: viewport.size.height)
+            }
+            .background(.background)
+            .onChange(of: viewport.size, initial: true) { _, size in viewportSize = size }
+        }
+        .simultaneousGesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    let base = gestureBaseZoom ?? zoom
+                    gestureBaseZoom = base
+                    zoom = min(max(base * value.magnification, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
+                }
+                .onEnded { _ in gestureBaseZoom = nil }
+        )
+    }
+
+    private func edgeCanvas(model: MindMapModel, positions: [URL: CGPoint]) -> some View {
+        let colorOf = Dictionary(uniqueKeysWithValues: model.nodes.map { ($0.url, branchColor($0)) })
+        return Canvas { ctx, _ in
+            for edge in model.edges {
+                guard let a0 = positions[edge.from], let b0 = positions[edge.to] else { continue }
+                let a = CGPoint(x: a0.x * zoom, y: a0.y * zoom)
+                let b = CGPoint(x: b0.x * zoom, y: b0.y * zoom)
+                var path = Path()
+                path.move(to: a)
+                path.addLine(to: b)
+                let shading = GraphicsContext.Shading.linearGradient(
+                    Gradient(colors: [(colorOf[edge.from] ?? .secondary).opacity(0.55),
+                                      (colorOf[edge.to] ?? .secondary).opacity(0.55)]),
+                    startPoint: a, endPoint: b
+                )
+                ctx.stroke(path, with: shading, lineWidth: max(1, 1.4 * zoom))
+            }
+        }
+    }
+
+    // MARK: - Nodes
+
+    /// The hue a node draws from: its branch's palette colour (the root uses
+    /// the app accent).
+    private func branchColor(_ node: MindMapModel.Node) -> Color {
+        node.depth == 0 ? accent : NodePalette.color(node.branch)
+    }
+
     private func nodeChip(_ node: MindMapModel.Node) -> some View {
-        Button {
+        let color = branchColor(node)
+        let isRoot = node.depth == 0
+        let fontSize = (isRoot ? 15.0 : node.depth == 1 ? 13.0 : 11.5) * zoom
+
+        return Button {
             rootURL = node.url   // re-centre on this note
         } label: {
             Text(node.title)
-                .font(node.depth == 0 ? .headline : (node.depth == 1 ? .callout : .caption))
+                .font(.system(size: fontSize, weight: isRoot ? .semibold : .medium))
                 .lineLimit(1)
-                .padding(.horizontal, node.depth == 0 ? 12 : 9)
-                .padding(.vertical, node.depth == 0 ? 7 : 5)
-                .background(chipColor(node.depth), in: Capsule())
-                .overlay(Capsule().stroke(.white.opacity(0.15)))
-                .foregroundStyle(node.depth == 0 ? .white : .primary)
+                .frame(maxWidth: 220 * zoom)
+                .padding(.horizontal, (isRoot ? 13 : 10) * zoom)
+                .padding(.vertical, (isRoot ? 8 : 5.5) * zoom)
+                .background(
+                    node.depth <= 1 ? color : color.opacity(0.26),
+                    in: Capsule()
+                )
+                .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                .foregroundStyle(node.depth <= 1 ? .white : .primary)
+                .shadow(color: .black.opacity(0.25), radius: 2.5 * zoom, y: 1.5 * zoom)
         }
         .buttonStyle(.plain)
-        .help(node.depth == 0 ? "Root — click Open to edit" : "Click to re-centre on “\(node.title)”")
+        .contextMenu {
+            if let note = notes.first(where: { $0.fileURL == node.url }) {
+                Button("Open Note") { onOpen(note) }
+            }
+            if node.depth != 0 {
+                Button("Center Here") { rootURL = node.url }
+            }
+        }
+        .help(node.depth == 0
+              ? "The current root — right-click to open it"
+              : "Click to re-centre on “\(node.title)”; right-click to open")
     }
 
-    private func chipColor(_ depth: Int) -> Color {
-        switch depth {
-        case 0: return .accentColor
-        case 1: return .accentColor.opacity(0.22)
-        default: return .secondary.opacity(0.18)
-        }
+    /// The zoom that fits the whole map in the current viewport.
+    private func fitZoom() -> CGFloat {
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return 1 }
+        let size = model.contentSize
+        return min(viewportSize.width / size.width, viewportSize.height / size.height) * 0.96
     }
 }
 
-/// Builds the tree of outgoing links from a root and lays it out radially.
+/// Builds the tree of connections from a root and lays it out radially.
 struct MindMapModel {
     struct Node: Identifiable, Hashable {
         var id: URL { url }
@@ -111,12 +183,25 @@ struct MindMapModel {
         let title: String
         let depth: Int
         let angle: Double
+        /// Which depth-1 subtree the node belongs to (colours the branch);
+        /// -1 for the root itself.
+        let branch: Int
     }
     struct Edge: Hashable { let from: URL; let to: URL }
+
+    /// Distance between rings, in world points — fixed, so the map's density
+    /// doesn't depend on the window size (pan/zoom handles overflow).
+    static let ringStep: CGFloat = 150
 
     private(set) var nodes: [Node] = []
     private(set) var edges: [Edge] = []
     private var maxUsedDepth = 0
+
+    /// The world size the map occupies (all rings plus a label margin).
+    var contentSize: CGSize {
+        let r = Self.ringStep * CGFloat(max(1, maxUsedDepth)) + 140
+        return CGSize(width: r * 2, height: r * 2)
+    }
 
     init(rootURL: URL, notes: [Note], linkGraph: LinkGraph, maxDepth: Int) {
         let titleFor: (URL) -> String = { url in
@@ -164,27 +249,30 @@ struct MindMapModel {
         let tree = assemble(rootURL)
 
         // Assign each leaf an even slice of the circle; internal nodes average
-        // their children's angles.
+        // their children's angles. Each depth-1 subtree is one colour branch.
         let leafCount = max(1, countLeaves(tree))
         var nextLeaf = 0
         var built: [Node] = []
         var edgeList: [Edge] = []
         @discardableResult
-        func walk(_ node: Tmp, depth: Int) -> Double {
+        func walk(_ node: Tmp, depth: Int, branch: Int) -> Double {
             let angle: Double
             if node.children.isEmpty {
                 angle = (Double(nextLeaf) + 0.5) / Double(leafCount) * 2 * .pi
                 nextLeaf += 1
             } else {
-                let childAngles = node.children.map { walk($0, depth: depth + 1) }
+                let childAngles = node.children.enumerated().map { index, child in
+                    walk(child, depth: depth + 1, branch: depth == 0 ? index : branch)
+                }
                 angle = childAngles.reduce(0, +) / Double(childAngles.count)
             }
-            built.append(Node(url: node.url, title: titleFor(node.url), depth: depth, angle: angle))
+            built.append(Node(url: node.url, title: titleFor(node.url), depth: depth,
+                              angle: angle, branch: branch))
             for child in node.children { edgeList.append(Edge(from: node.url, to: child.url)) }
             maxUsedDepth = max(maxUsedDepth, depth)
             return angle
         }
-        walk(tree, depth: 0)
+        walk(tree, depth: 0, branch: -1)
         nodes = built
         edges = edgeList
 
@@ -193,16 +281,16 @@ struct MindMapModel {
         }
     }
 
-    /// Screen positions for each node given the canvas size.
-    func positions(in size: CGSize) -> [URL: CGPoint] {
+    /// World positions for each node (within `contentSize`).
+    func positions() -> [URL: CGPoint] {
+        let size = contentSize
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let step = (min(size.width, size.height) / 2 - 70) / CGFloat(max(1, maxUsedDepth))
         var result: [URL: CGPoint] = [:]
         for node in nodes {
             if node.depth == 0 {
                 result[node.url] = center
             } else {
-                let r = step * CGFloat(node.depth)
+                let r = Self.ringStep * CGFloat(node.depth)
                 result[node.url] = CGPoint(
                     x: center.x + r * CGFloat(cos(node.angle)),
                     y: center.y + r * CGFloat(sin(node.angle))

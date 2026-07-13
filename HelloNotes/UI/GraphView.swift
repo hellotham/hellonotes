@@ -21,14 +21,60 @@ struct GraphEdge: Hashable {
     let to: Int
 }
 
+/// The shared node palette for the graph and mind-map views — distinct,
+/// adaptive system hues that read well in light and dark.
+enum NodePalette {
+    static let colors: [Color] = [
+        .blue, .purple, .pink, .orange, .teal, .green,
+        .indigo, .red, .cyan, .mint, .yellow, .brown,
+    ]
+
+    static func color(_ index: Int) -> Color {
+        colors[((index % colors.count) + colors.count) % colors.count]
+    }
+}
+
+/// Shared zoom controls for the canvas views: −, live percentage, +, Fit.
+struct ZoomControls: View {
+    @Binding var zoom: CGFloat
+    let range: ClosedRange<CGFloat>
+    /// Zoom that would fit the whole content in the viewport.
+    let fitZoom: () -> CGFloat
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                zoom = max(range.lowerBound, zoom / 1.25)
+            } label: { Image(systemName: "minus.magnifyingglass") }
+                .help("Zoom out")
+                .accessibilityLabel("Zoom out")
+            Text("\(Int((zoom * 100).rounded()))%")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 40)
+            Button {
+                zoom = min(range.upperBound, zoom * 1.25)
+            } label: { Image(systemName: "plus.magnifyingglass") }
+                .help("Zoom in")
+                .accessibilityLabel("Zoom in")
+            Button("Fit") {
+                zoom = min(max(fitZoom(), range.lowerBound), range.upperBound)
+            }
+            .help("Fit the whole graph in the window")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
 /// A native force-directed graph of the collection's notes and `[[wiki-links]]`,
-/// drawn with `Canvas` (no WebView). Click a node to open that note.
+/// drawn with `Canvas` (no WebView). Nodes are coloured by folder, sized by
+/// connectivity; the canvas scrolls and zooms (pinch or the header controls).
+/// Click a node to open that note.
 struct GraphView: View {
     let nodes: [GraphNode]
     let edges: [GraphEdge]
     let onSelect: (URL) -> Void
-    /// Node colour — pass the app's resolved accent (`Color.accentColor` only
-    /// reflects the asset-catalog accent, not the app's theming system).
+    /// Fallback tint (used by the header); nodes take their colour per folder.
     var accent: Color = .accentColor
     /// When hosted in its own window there is no sheet to dismiss: hide the
     /// Done button and keep the graph open after a node is clicked.
@@ -36,10 +82,21 @@ struct GraphView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var positions: [CGPoint] = []
-    @State private var layoutSize: CGSize = .zero
+    @State private var zoom: CGFloat = 1
+    @State private var gestureBaseZoom: CGFloat?
+    @State private var viewportSize: CGSize = .zero
+    @State private var didInitialFit = false
 
-    /// Keeps node labels inside the canvas (labels draw centered under nodes).
-    private static let labelInset = CGSize(width: 56, height: 30)
+    private static let zoomRange: ClosedRange<CGFloat> = 0.4...3
+    /// Margin so node labels never clip at the world's edges.
+    private static let labelInset = CGSize(width: 64, height: 34)
+
+    /// The fixed "world" the graph is laid out in — sized by node count, not
+    /// the window, so nodes sit close together and pan/zoom does the rest.
+    private var contentSize: CGSize {
+        let side = max(520, Double(nodes.count).squareRoot() * 170)
+        return CGSize(width: side, height: side)
+    }
 
     private var degrees: [Int] {
         var d = Array(repeating: 0, count: nodes.count)
@@ -48,6 +105,18 @@ struct GraphView: View {
             if edge.to < d.count { d[edge.to] += 1 }
         }
         return d
+    }
+
+    /// A stable colour per containing folder, so related notes share a hue.
+    private var nodeColors: [Color] {
+        let folders = nodes.map { $0.url.deletingLastPathComponent().standardizedFileURL.path }
+        let unique = Array(Set(folders)).sorted()
+        let indexOf = Dictionary(uniqueKeysWithValues: unique.enumerated().map { ($1, $0) })
+        return folders.map { NodePalette.color(indexOf[$0] ?? 0) }
+    }
+
+    private func radius(degree: Int) -> CGFloat {
+        8 + min(CGFloat(degree) * 2.5, 16)
     }
 
     var body: some View {
@@ -59,6 +128,7 @@ struct GraphView: View {
                 Text("\(nodes.count) notes · \(edges.count) links")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                ZoomControls(zoom: $zoom, range: Self.zoomRange, fitZoom: fitZoom)
                 if !isWindowed {
                     Button("Done") { dismiss() }
                         .keyboardShortcut(.cancelAction)
@@ -66,61 +136,117 @@ struct GraphView: View {
             }
             .padding(12)
             Divider()
-            graphCanvas
+            scrollingCanvas
         }
-        .frame(minWidth: 640, minHeight: 480)
+        .frame(minWidth: 560, minHeight: 420)
+    }
+
+    // MARK: - Canvas
+
+    private var scrollingCanvas: some View {
+        GeometryReader { viewport in
+            ScrollView([.horizontal, .vertical]) {
+                graphCanvas
+                    .frame(width: contentSize.width * zoom, height: contentSize.height * zoom)
+                    // Centre the world in the viewport while it's smaller.
+                    .frame(minWidth: viewport.size.width, minHeight: viewport.size.height)
+            }
+            .background(.background)
+            .onChange(of: viewport.size, initial: true) { _, size in
+                viewportSize = size
+                // Open at "everything visible" once, then leave zoom alone.
+                if !didInitialFit, size.width > 0 {
+                    didInitialFit = true
+                    zoom = min(max(fitZoom(), Self.zoomRange.lowerBound), 1.2)
+                }
+            }
+        }
+        .task(id: nodes) { relayout() }
     }
 
     private var graphCanvas: some View {
-        GeometryReader { geo in
-            Canvas { context, size in
-                guard positions.count == nodes.count else { return }
-                // Edges.
-                for edge in edges where edge.from < positions.count && edge.to < positions.count {
-                    var path = Path()
-                    path.move(to: positions[edge.from])
-                    path.addLine(to: positions[edge.to])
-                    context.stroke(path, with: .color(.secondary.opacity(0.35)), lineWidth: 1)
-                }
-                // Nodes + labels.
-                let deg = degrees
-                for (i, point) in positions.enumerated() {
-                    let radius = 5 + min(CGFloat(deg[i]) * 1.5, 12)
-                    let rect = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
-                    context.fill(Circle().path(in: rect), with: .color(accent))
-                    context.draw(
-                        Text(nodes[i].label).font(.caption2).foregroundStyle(.primary),
-                        at: CGPoint(x: point.x, y: point.y + radius + 8)
-                    )
-                }
+        Canvas { context, _ in
+            guard positions.count == nodes.count else { return }
+            let colors = nodeColors
+            let deg = degrees
+
+            // Edges — a soft gradient between the endpoint colours.
+            for edge in edges where edge.from < positions.count && edge.to < positions.count {
+                let a = scaled(positions[edge.from])
+                let b = scaled(positions[edge.to])
+                var path = Path()
+                path.move(to: a)
+                path.addLine(to: b)
+                let shading = GraphicsContext.Shading.linearGradient(
+                    Gradient(colors: [colors[edge.from].opacity(0.55), colors[edge.to].opacity(0.55)]),
+                    startPoint: a, endPoint: b
+                )
+                context.stroke(path, with: shading, lineWidth: max(1, 1.3 * zoom))
             }
-            .background(.background)
-            .contentShape(.rect)
-            .gesture(
-                SpatialTapGesture().onEnded { value in
-                    if let i = nearestNode(to: value.location) {
-                        onSelect(nodes[i].url)
-                        if !isWindowed { dismiss() }
-                    }
-                }
-            )
-            // `.task(id:)` runs on first appearance *and* whenever the size or
-            // node set changes — unlike onAppear, it also covers a window that
-            // was instantiated hidden (size .zero) and materialised later.
-            .task(id: "\(geo.size.width)x\(geo.size.height)/\(nodes.count)") {
-                layout(in: geo.size)
+
+            // Nodes — folder-coloured orbs with a soft shadow, plus labels.
+            for (i, world) in positions.enumerated() {
+                let p = scaled(world)
+                let r = radius(degree: deg[i]) * zoom
+                let rect = CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
+                let circle = Circle().path(in: rect)
+
+                var shadowed = context
+                shadowed.addFilter(.shadow(color: .black.opacity(0.30), radius: 3 * zoom, y: 1.5 * zoom))
+                shadowed.fill(circle, with: .radialGradient(
+                    Gradient(colors: [.white.opacity(0.45), colors[i]]),
+                    center: CGPoint(x: p.x - r * 0.35, y: p.y - r * 0.4),
+                    startRadius: 0, endRadius: r * 1.5
+                ))
+                context.stroke(circle, with: .color(.white.opacity(0.45)), lineWidth: max(0.8, 0.9 * zoom))
+
+                context.draw(
+                    Text(nodes[i].label)
+                        .font(.system(size: 11 * zoom, weight: .medium))
+                        .foregroundStyle(.primary),
+                    at: CGPoint(x: p.x, y: p.y + r + 10 * zoom)
+                )
             }
         }
+        .contentShape(.rect)
+        .gesture(
+            SpatialTapGesture().onEnded { value in
+                if let i = nearestNode(to: value.location) {
+                    onSelect(nodes[i].url)
+                    if !isWindowed { dismiss() }
+                }
+            }
+        )
+        .simultaneousGesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    let base = gestureBaseZoom ?? zoom
+                    gestureBaseZoom = base
+                    zoom = min(max(base * value.magnification, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
+                }
+                .onEnded { _ in gestureBaseZoom = nil }
+        )
     }
 
-    private func layout(in size: CGSize) {
-        guard size.width > 0, size.height > 0, !nodes.isEmpty else { return }
-        // Recompute only when the node set or size meaningfully changed.
-        guard positions.count != nodes.count || size != layoutSize else { return }
-        layoutSize = size
-        // Lay out in a rect inset by the label margin, then shift back, so
-        // node labels never clip at the canvas edges.
+    // MARK: - Geometry
+
+    private func scaled(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: p.x * zoom, y: p.y * zoom)
+    }
+
+    /// The zoom that fits the whole world in the current viewport.
+    private func fitZoom() -> CGFloat {
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return 1 }
+        return min(viewportSize.width / contentSize.width,
+                   viewportSize.height / contentSize.height) * 0.96
+    }
+
+    /// Lay out in world coordinates (independent of window size), inset so
+    /// labels never clip at the edges.
+    private func relayout() {
+        guard !nodes.isEmpty else { positions = []; return }
         let inset = Self.labelInset
+        let size = contentSize
         let inner = CGSize(width: max(size.width - inset.width * 2, 100),
                            height: max(size.height - inset.height * 2, 100))
         positions = GraphLayout.positions(
@@ -130,11 +256,15 @@ struct GraphView: View {
         ).map { CGPoint(x: $0.x + inset.width, y: $0.y + inset.height) }
     }
 
+    /// Hit-test in view coordinates against each node's drawn radius.
     private func nearestNode(to point: CGPoint) -> Int? {
+        let deg = degrees
         var best: (index: Int, dist: CGFloat)?
-        for (i, p) in positions.enumerated() {
+        for (i, world) in positions.enumerated() {
+            let p = scaled(world)
+            let hitRadius = radius(degree: deg[i]) * zoom + 10
             let d = hypot(p.x - point.x, p.y - point.y)
-            if d < 16, best == nil || d < best!.dist { best = (i, d) }
+            if d < hitRadius, best == nil || d < best!.dist { best = (i, d) }
         }
         return best?.index
     }
