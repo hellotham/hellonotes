@@ -189,7 +189,14 @@ struct GraphView: View {
             }
         }
         .overlay(alignment: .bottomLeading) { canvasFooter }
-        .task(id: nodes) { relayout() }
+        .task(id: nodes) {
+            relayout()
+            // A new node set (scope or collection change) means a new world
+            // size — re-fit so the whole layout is visible again.
+            if didInitialFit, viewportSize.width > 0 {
+                zoom = min(max(fitZoom(), Self.zoomRange.lowerBound), 1.2)
+            }
+        }
     }
 
     /// Discoverability footer: a hint while nothing is focused; a direction
