@@ -1,7 +1,1012 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "" : {
 
+    },
+    "… showing the first %lld rows" : {
+
+    },
+    "·" : {
+
+    },
+    "“Auto” follows the system light/dark setting." : {
+
+    },
+    "“Intelligence provider” powers Summarize, Suggest Tags/Links, Expand and Ask Library. Defaults to on-device Apple Intelligence." : {
+
+    },
+    "#%@" : {
+
+    },
+    "%@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "%@ · %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$lld"
+          }
+        }
+      }
+    },
+    "%@ accent" : {
+
+    },
+    "%@(%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@(%2$@)"
+          }
+        }
+      }
+    },
+    "%@@%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@@%2$@"
+          }
+        }
+      }
+    },
+    "%@%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@%2$@"
+          }
+        }
+      }
+    },
+    "%lld" : {
+
+    },
+    "%lld / %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "%lld changed" : {
+
+    },
+    "%lld link%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld link%2$@"
+          }
+        }
+      }
+    },
+    "%lld note%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld note%2$@"
+          }
+        }
+      }
+    },
+    "%lld notes" : {
+
+    },
+    "%lld notes · %lld links" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld notes · %2$lld links"
+          }
+        }
+      }
+    },
+    "%lld tag%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld tag%2$@"
+          }
+        }
+      }
+    },
+    "%lld word%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld word%2$@"
+          }
+        }
+      }
+    },
+    "%lld. %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld. %2$@"
+          }
+        }
+      }
+    },
+    "%lld%%" : {
+
+    },
+    "•••••• (stored)" : {
+
+    },
+    "© %@ Hello Tham. All rights reserved." : {
+
+    },
+    "A" : {
+
+    },
+    "About HelloNotes" : {
+
+    },
+    "Accent Color" : {
+
+    },
+    "Account" : {
+
+    },
+    "Accounts" : {
+
+    },
+    "Ada Lovelace" : {
+
+    },
+    "ada@example.com" : {
+
+    },
+    "Add" : {
+
+    },
+    "Add %lld Link%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Add %1$lld Link%2$@"
+          }
+        }
+      }
+    },
+    "Add %lld Tag%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Add %1$lld Tag%2$@"
+          }
+        }
+      }
+    },
+    "Add a hosting account in Git Settings to create a remote." : {
+
+    },
+    "Add a provider…" : {
+
+    },
+    "Add an account" : {
+
+    },
+    "Add Bookmark" : {
+
+    },
+    "Add item" : {
+
+    },
+    "Add property…" : {
+
+    },
+    "Add Remote" : {
+
+    },
+    "Agent mode: can read & edit the collection" : {
+
+    },
+    "AI" : {
+
+    },
+    "All" : {
+
+    },
+    "All Notes" : {
+
+    },
+    "Allow all this session" : {
+
+    },
+    "API key" : {
+
+    },
+    "Appearance" : {
+
+    },
+    "Approve" : {
+
+    },
+    "Around “%@”" : {
+
+    },
+    "Around Focused Note" : {
+
+    },
+    "Ask" : {
+
+    },
+    "Ask a question about your notes…" : {
+
+    },
+    "Ask anything. Switch providers from the menu above. Your API keys stay in the Keychain." : {
+
+    },
+    "Ask Library" : {
+
+    },
+    "Ask Your Library" : {
+
+    },
+    "assets" : {
+
+    },
+    "Assistant" : {
+
+    },
+    "Assistant settings" : {
+
+    },
+    "Assistant Settings" : {
+
+    },
+    "Attachments" : {
+
+    },
+    "Authenticate" : {
+
+    },
+    "Authenticate with" : {
+
+    },
+    "Auto-approve every change for the rest of this chat" : {
+
+    },
+    "Auto-commit" : {
+
+    },
+    "Base URL" : {
+
+    },
+    "Blockquote" : {
+
+    },
+    "Bold" : {
+
+    },
+    "BOOKMARKS" : {
+
+    },
+    "Browse your repositories" : {
+
+    },
+    "Bulleted List" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Chat only" : {
+
+    },
+    "Chat provider" : {
+
+    },
+    "Chat with %@" : {
+
+    },
+    "Clean" : {
+
+    },
+    "Clear focus" : {
+
+    },
+    "Click a note to trace its links · double-click to open" : {
+
+    },
+    "Clone Repository" : {
+
+    },
+    "Clone…" : {
+
+    },
+    "Cloning…" : {
+
+    },
+    "Close" : {
+
+    },
+    "Close Tab" : {
+
+    },
+    "Collection root" : {
+
+    },
+    "Commit" : {
+
+    },
+    "Commit identity" : {
+
+    },
+    "Connect Remote" : {
+
+    },
+    "Copy" : {
+
+    },
+    "Copy Wiki Link" : {
+
+    },
+    "Couldn't read this file" : {
+
+    },
+    "Couldn't render this diagram" : {
+
+    },
+    "Create" : {
+
+    },
+    "Create a remote repository" : {
+
+    },
+    "Create a token" : {
+
+    },
+    "Created by Chris Tham" : {
+
+    },
+    "Creates the repository on the service and pushes the first commit." : {
+
+    },
+    "Custom color" : {
+
+    },
+    "Daily notes" : {
+
+    },
+    "Date format" : {
+
+    },
+    "Deepens the accent color and makes colored text easier to read." : {
+
+    },
+    "Defaults" : {
+
+    },
+    "Delete Library" : {
+
+    },
+    "Deny" : {
+
+    },
+    "Diagram %lld" : {
+
+    },
+    "Done" : {
+
+    },
+    "Duplicate" : {
+
+    },
+    "Email" : {
+
+    },
+    "Empty" : {
+
+    },
+    "Expand" : {
+
+    },
+    "Expanded Note" : {
+
+    },
+    "Export" : {
+
+    },
+    "Export as HTML…" : {
+
+    },
+    "Export as PDF…" : {
+
+    },
+    "Fetch" : {
+
+    },
+    "Filter" : {
+
+    },
+    "Filter repositories" : {
+
+    },
+    "Find" : {
+
+    },
+    "Fit" : {
+
+    },
+    "Fit the whole graph in the window" : {
+
+    },
+    "Folder" : {
+
+    },
+    "Format" : {
+
+    },
+    "General" : {
+
+    },
+    "Get a key" : {
+
+    },
+    "GIT" : {
+
+    },
+    "Git identity & accounts" : {
+
+    },
+    "Git Settings" : {
+
+    },
+    "github.com" : {
+
+    },
+    "Graph" : {
+
+    },
+    "Graph — %@" : {
+
+    },
+    "Graph View" : {
+
+    },
+    "Heading %lld" : {
+
+    },
+    "HELLO THAM" : {
+
+    },
+    "HelloNotes" : {
+
+    },
+    "HelloNotes Help" : {
+
+    },
+    "Highlight" : {
+
+    },
+    "Host" : {
+
+    },
+    "How many links away from the focused note to include" : {
+
+    },
+    "https://github.com/you/notes.git" : {
+
+    },
+    "Increase contrast" : {
+
+    },
+    "Initialize Repository" : {
+
+    },
+    "Inline Code" : {
+
+    },
+    "Insert a template into the current note" : {
+
+    },
+    "Insert as Callout" : {
+
+    },
+    "Insert Template" : {
+
+    },
+    "Intelligence" : {
+
+    },
+    "Intelligence provider" : {
+
+    },
+    "Italic" : {
+
+    },
+    "Keep Mine" : {
+
+    },
+    "Library name" : {
+
+    },
+    "Link" : {
+
+    },
+    "Link distance" : {
+
+    },
+    "Linked from" : {
+
+    },
+    "Links to" : {
+
+    },
+    "Loading…" : {
+
+    },
+    "Local" : {
+
+    },
+    "Location" : {
+
+    },
+    "Made with SwiftUI, MarkdownEngine & SwiftGitX" : {
+
+    },
+    "Mermaid Diagrams" : {
+
+    },
+    "Message…" : {
+
+    },
+    "Mind Map" : {
+
+    },
+    "Mind Map — %@" : {
+
+    },
+    "Model" : {
+
+    },
+    "Move to Trash" : {
+
+    },
+    "my-notes" : {
+
+    },
+    "Name" : {
+
+    },
+    "New chat" : {
+
+    },
+    "New Folder" : {
+
+    },
+    "New Note" : {
+
+    },
+    "New Repository" : {
+
+    },
+    "New Window" : {
+
+    },
+    "Next match (return)" : {
+
+    },
+    "No accounts connected. Paste a public repository URL below, or add an account in Git Settings to browse your private repositories." : {
+
+    },
+    "No accounts yet. Add one to push and pull over HTTPS." : {
+
+    },
+    "No Collections" : {
+
+    },
+    "No headings" : {
+
+    },
+    "No History" : {
+
+    },
+    "No Note Selected" : {
+
+    },
+    "No Notes to Graph" : {
+
+    },
+    "No remote yet. Add one to sync this collection to a hosting service." : {
+
+    },
+    "No repositories found for this account." : {
+
+    },
+    "No saved libraries yet." : {
+
+    },
+    "No slides" : {
+
+    },
+    "No templates in %@" : {
+
+    },
+    "None" : {
+
+    },
+    "None (public / SSH)" : {
+
+    },
+    "Not a Git repository" : {
+
+    },
+    "Note" : {
+
+    },
+    "Note Unavailable" : {
+
+    },
+    "Notes" : {
+
+    },
+    "Nothing opened yet. Use the actions above to open a collection, an Obsidian vault, or clone a repository." : {
+
+    },
+    "Numbered List" : {
+
+    },
+    "Open" : {
+
+    },
+    "Open “%@”" : {
+
+    },
+    "Open a collection with notes to see its link graph." : {
+
+    },
+    "Open a collection, an Obsidian vault, or a saved library to begin." : {
+
+    },
+    "Open in default app" : {
+
+    },
+    "Open in New Window" : {
+
+    },
+    "Open Note" : {
+
+    },
+    "Open note or heading…" : {
+
+    },
+    "Open Quickly" : {
+
+    },
+    "Open Quickly (⇧⌘O)" : {
+
+    },
+    "Open Quickly…" : {
+
+    },
+    "Open…" : {
+
+    },
+    "OUTLINE" : {
+
+    },
+    "Paste your API key" : {
+
+    },
+    "Pasted images" : {
+
+    },
+    "Pasted images are saved next to each note — e.g. `![](Pasted-….png)`." : {
+
+    },
+    "Pasted images go in “%@” beside each note — e.g. `![](%@/Pasted-….png)`. The folder is created on first paste." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Pasted images go in “%1$@” beside each note — e.g. `![](%2$@/Pasted-….png)`. The folder is created on first paste."
+          }
+        }
+      }
+    },
+    "Personal access token" : {
+
+    },
+    "Previous match (Shift-Return)" : {
+
+    },
+    "Private" : {
+
+    },
+    "Private repositories clone using the token of the matching connected account." : {
+
+    },
+    "PROPERTIES" : {
+
+    },
+    "Push" : {
+
+    },
+    "Reasoning" : {
+
+    },
+    "Recents, Obsidian vaults, libraries, clone, or a new repository" : {
+
+    },
+    "Reload" : {
+
+    },
+    "Remote" : {
+
+    },
+    "Remote URL" : {
+
+    },
+    "Remove" : {
+
+    },
+    "Remove Bookmark" : {
+
+    },
+    "Remove from Recents" : {
+
+    },
+    "Rename" : {
+
+    },
+    "Rename Note" : {
+
+    },
+    "Rename…" : {
+
+    },
+    "Replace" : {
+
+    },
+    "Replace all matches" : {
+
+    },
+    "Replace Note Body" : {
+
+    },
+    "Repository URL" : {
+
+    },
+    "Reset" : {
+
+    },
+    "Restore This Version" : {
+
+    },
+    "Reveal in Finder" : {
+
+    },
+    "Same folder as the note" : {
+
+    },
+    "Save" : {
+
+    },
+    "Save Account" : {
+
+    },
+    "Save Current Library…" : {
+
+    },
+    "Save failed" : {
+
+    },
+    "Save Key" : {
+
+    },
+    "Save Library" : {
+
+    },
+    "Save the %lld open collection%@ as a named library you can reopen later." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Save the %1$lld open collection%2$@ as a named library you can reopen later."
+          }
+        }
+      }
+    },
+    "Saved" : {
+
+    },
+    "Saving…" : {
+
+    },
+    "Scope" : {
+
+    },
+    "Search all collections" : {
+
+    },
+    "Searching your library and thinking…" : {
+
+    },
+    "Select a note from the list, or create a new one." : {
+
+    },
+    "Select a Version" : {
+
+    },
+    "Separate slides with a line containing only `---`." : {
+
+    },
+    "Service" : {
+
+    },
+    "Show in Note" : {
+
+    },
+    "Show the whole collection, or just the notes near the focused one" : {
+
+    },
+    "Slides — %@" : {
+
+    },
+    "Sort" : {
+
+    },
+    "Sort By" : {
+
+    },
+    "Sources" : {
+
+    },
+    "STATISTICS" : {
+
+    },
+    "Stop" : {
+
+    },
+    "Store in a subfolder" : {
+
+    },
+    "Strikethrough" : {
+
+    },
+    "Subfolder name" : {
+
+    },
+    "Suggest Links" : {
+
+    },
+    "Suggest Tags" : {
+
+    },
+    "Suggested Links" : {
+
+    },
+    "Suggested models" : {
+
+    },
+    "Suggested Tags" : {
+
+    },
+    "Summarize" : {
+
+    },
+    "Summary" : {
+
+    },
+    "Sync" : {
+
+    },
+    "TAGS" : {
+
+    },
+    "Temperature" : {
+
+    },
+    "Templates" : {
+
+    },
+    "Text Size" : {
+
+    },
+    "The quick brown fox jumps over the lazy dog." : {
+
+    },
+    "Theme" : {
+
+    },
+    "Thinking…" : {
+
+    },
+    "This collection's remote" : {
+
+    },
+    "This note changed on disk while you were editing." : {
+
+    },
+    "This note could not be opened." : {
+
+    },
+    "This note has no committed versions yet. Commit changes to build up a history." : {
+
+    },
+    "This note's collection is no longer open." : {
+
+    },
+    "Title" : {
+
+    },
+    "Today's Note" : {
+
+    },
+    "UNLINKED MENTIONS · %lld" : {
+
+    },
+    "URL" : {
+
+    },
+    "Used as the author of commits this app makes. Overrides your global git config for this collection." : {
+
+    },
+    "Username" : {
+
+    },
+    "Version History" : {
+
+    },
+    "via %@" : {
+
+    },
+    "View mode" : {
+
+    },
+    "View mode: Edit, Preview, Markdown source, or Split" : {
+
+    },
+    "Where every idea says hello." : {
+
+    },
+    "Whole Collection" : {
+
+    },
+    "Wiki links to this note across the collection are updated too." : {
+
+    },
+    "your-username" : {
+
+    },
+    "yyyy-MM-dd" : {
+
+    },
+    "Zoom in" : {
+
+    },
+    "Zoom out" : {
+
+    }
   },
   "version" : "1.0"
 }
