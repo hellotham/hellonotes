@@ -37,12 +37,11 @@ struct AnthropicProvider: LLMProvider {
                     var toolIndices = Set<Int>()
                     var usage = LLMUsage()
                     var stop: StopReason = .stop
-                    var currentEvent = ""
 
                     for try await line in bytes.lines {
-                        if line.hasPrefix("event:") {
-                            currentEvent = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
-                        } else if line.hasPrefix("data:") {
+                        // The `event:` lines are redundant with each chunk's own
+                        // `type` field, so only `data:` lines are parsed.
+                        if line.hasPrefix("data:") {
                             let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
                             guard let data = json.data(using: .utf8),
                                   let chunk = try? JSONDecoder().decode(Chunk.self, from: data) else { continue }
@@ -109,6 +108,7 @@ struct AnthropicProvider: LLMProvider {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 120
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue(Self.version, forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "content-type")

@@ -1,6 +1,8 @@
 # HelloNotes — Product Requirements Document
 
-> Working product name: **NoteLens** · Status: **v0.1 (shipped — MVP + fast-follow)** · Last updated: 2026-07-11 · Owner: Chris Tham
+> Product name: **HelloNotes** · Status: **v1.0 release candidate** · Last updated: 2026-07-13 · Owner: Chris Tham
+>
+> **Post-v0.1 addendum (2026-07-13):** since this PRD was written the app has shipped, beyond the v0.1 scope below: a **multi-collection Library** (several vaults open at once, launcher + recents), an **AI layer** (on-device Apple Intelligence *and optional user-configured cloud providers* — Anthropic, OpenAI-compatible, Gemini, MLX/Ollama/LM Studio local models — with an agentic Assistant, Ask-Library retrieval chat, skills, and web search/fetch tools), **editor view modes** (Edit / rendered Preview / Markdown source / Split), a **file viewer** for non-Markdown attachments (PDF/images/CSV), **Marp slides**, a **content-based Mind Map** plus a directional **Graph** view, **git hosting integration** (clone, create remote, HTTPS token auth), **Obsidian vault import**, app-wide **appearance theming**, and a launch **splash screen**. The "No WebViews" non-goal below now has two scoped exceptions: the optional rendered Preview/Split pane and the Marp slides preview use `WKWebView` (the *editor* remains fully native TextKit 2). Minimum macOS is now **15.0**.
 
 ---
 
@@ -44,7 +46,7 @@ No tool today combines: **(a)** genuinely native macOS performance and feel, **(
 
 ### Non-goals (explicitly out of scope)
 - No proprietary storage: **no CoreData, no SwiftData, no iCloud document store.**
-- No WebViews / Electron / embedded browser for rendering (Mermaid, math, and code all render natively).
+- No WebViews / Electron / embedded browser for *editing* (Mermaid, math, and code all render natively in the editor). *Post-v0.1 exception: the optional read-only rendered Preview/Split mode and the Marp slides preview use `WKWebView`; the editor itself stays native TextKit 2.*
 - No real-time collaboration or hosted backend.
 - No plugin runtime in the MVP (extensibility is a deliberate later question, à la Vellum's "pure editor" stance).
 - No proprietary sync service — sync is the user's own Git remote.
@@ -143,7 +145,7 @@ Three-column macOS layout:
 - **Adoption proxy:** an existing Obsidian vault opens and is fully browsable/editable with no migration step.
 
 ## 11. Constraints (from project rules)
-- Target: **macOS 14+ / Swift 5.10+ / Xcode 26**; multiplatform-ready.
+- Target: **macOS 15+ / Swift 5.10+ / Xcode 26**; multiplatform-ready.
 - State via the **`@Observable` macro only** (no `ObservableObject`/`StateObject`).
 - **No CoreData/SwiftData** — the file system is the source of truth.
 - Git via **SwiftGitX** (async/await).

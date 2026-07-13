@@ -4,7 +4,9 @@
 
 Milestone-based build sequence. Each milestone ends with a **green build** (`xcodebuild … build` → 0 errors) and, where noted, tests. Priorities map to the PRD (P0 = MVP).
 
-> **v0.1 = Milestones 0–9**, all ✅ done: foundation, editing MVP, knowledge graph & math, search & navigation, Git sync, native rendering, iOS/iPadOS shell, writing companions (Lettera-inspired), organization & navigation (Bear-inspired), and core knowledge-base features (Obsidian-inspired). Builds clean on macOS + iOS; **32 unit tests** pass. Deferred items and their rationale live in [unimplemented.md](unimplemented.md).
+> **v0.1 = Milestones 0–9**, all ✅ done: foundation, editing MVP, knowledge graph & math, search & navigation, Git sync, native rendering, iOS/iPadOS shell, writing companions (Lettera-inspired), organization & navigation (Bear-inspired), and core knowledge-base features (Obsidian-inspired). Builds clean on macOS + iOS; **52 unit tests** pass. Deferred items and their rationale live in [unimplemented.md](unimplemented.md).
+>
+> **Post-v0.1 (shipped without milestones, 2026-07-11 → 13):** multi-collection Library + launcher/recents; the full LLM/agent stack (five providers, assistant, Ask Library, skills, deep research, web tools, permission broker); editor view modes (Edit/Preview/Markdown/Split); file viewer for non-Markdown attachments; Marp slides; content-based Mind Map + directional scoped Graph; git hosting (clone/create-remote/HTTPS tokens); Obsidian import; appearance theming; menu-bar/usability + HIG passes; splash screen with build stamping. See the addendum in [architecture.md](architecture.md) for where these sit in the layering.
 
 ---
 

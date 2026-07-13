@@ -43,7 +43,7 @@ final class ChatSessionStore {
             guard let d = try? encoder.encode(message) else { return nil }
             return String(data: d, encoding: .utf8)
         }
-        try? lines.joined(separator: "\n").data(using: .utf8)?.write(to: fileURL)
+        try? lines.joined(separator: "\n").data(using: .utf8)?.write(to: fileURL, options: .atomic)
     }
 
     func clear() {

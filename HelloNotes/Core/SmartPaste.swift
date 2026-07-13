@@ -81,7 +81,7 @@ enum SmartPaste {
         // Walk paragraph by paragraph (paragraphs are separated by \n).
         var start = 0
         while start < ns.length {
-            var lineRange = ns.lineRange(for: NSRange(location: start, length: 0))
+            let lineRange = ns.lineRange(for: NSRange(location: start, length: 0))
             let paragraph = attr.attributedSubstring(from: lineRange)
             let text = inlineMarkdown(paragraph).trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -127,7 +127,7 @@ enum SmartPaste {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func isOrdered(_ list: NSTextList) -> Bool {
+    private nonisolated static func isOrdered(_ list: NSTextList) -> Bool {
         let f = list.markerFormat.rawValue.lowercased()
         return f.contains("decimal") || f.contains("%d") || f.contains("roman") || f.contains("alpha")
     }

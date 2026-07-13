@@ -165,7 +165,7 @@ final class Collection: Identifiable {
 
     private func startWatching(onExternalChange: @escaping @MainActor () -> Void) {
         let watcher = FileWatcher { [weak self] in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.scan()
                 self.refreshDerived()

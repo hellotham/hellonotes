@@ -62,9 +62,13 @@ The app now ships an explicit entitlements file
 entitlements:
 ```xml
 <key>com.apple.security.app-sandbox</key>            <true/>
+<key>com.apple.security.files.bookmarks.app-scope</key> <true/>
 <key>com.apple.security.files.user-selected.read-write</key> <true/>
 <key>com.apple.security.network.client</key>          <true/>
 ```
+(`files.bookmarks.app-scope` is required for the security-scoped bookmarks that
+remember collection folders across launches; `network.client` also covers the
+optional cloud AI providers and the assistant's web search/fetch tools.)
 Verified in the Release build (all three present, no conflicts). Git push/fetch to
 a remote can now reach the network. Note: SSH‑agent/keychain credential access from
 a sandbox is still limited — **HTTPS remotes with a personal access token** are the
@@ -121,6 +125,8 @@ are reproducible — but for long‑term safety consider tagging the fork and
 depending on the tag instead of a moving branch.
 
 ### 1h. Final local check
+A shared scheme (`HelloNotes.xcodeproj/xcshareddata/xcschemes/HelloNotes.xcscheme`)
+is committed, so these commands (and Appendix A / CI) work from a clean checkout: 
 ```bash
 xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'platform=macOS' -only-testing:HelloNotesTests test   # green
@@ -199,10 +205,12 @@ FIND ANYTHING
 • Full-text search and “Open Quickly” across notes and headings
 • Bookmarks, daily notes and templates
 
-ON-DEVICE INTELLIGENCE
-• Summarise a note, suggest tags and links, or expand a stub — powered by Apple Intelligence, entirely on your Mac
-• “Ask your vault”: answers grounded in your own notes, with citations
-Nothing is sent to a server.
+AI, ON YOUR TERMS
+• Summarise a note, suggest tags and links — powered by Apple Intelligence, entirely on your Mac
+• “Ask your library”: answers grounded in your own notes, with citations
+• An agentic Assistant that can search, read, and (with your approval) edit notes
+• Bring your own model: fully local (Apple, MLX, Ollama, LM Studio) or your own cloud API key (Anthropic, OpenAI-compatible, Gemini)
+On-device models send nothing off your Mac. Cloud providers are optional, off by default, and use your own key — note content goes only to the provider you configure.
 
 VERSION HISTORY WITH GIT
 • Built-in Git: initialise a repo, browse a note’s history and restore earlier versions
@@ -244,7 +252,7 @@ Initial release.
 - **Sign-in required:** No.
 - **Notes to reviewer** (paste):
   ```
-  HelloNotes is a local-first Markdown editor. On first launch, click "Select Vault Folder" and choose any folder of .md files (a demo "SampleVault" ships with the source repo). All data stays on-device in plain files; no account or network is required. The optional "Intelligence" features use Apple's on-device Foundation Models and only appear on hardware with Apple Intelligence enabled.
+  HelloNotes is a local-first Markdown editor. On first launch, click "Open…" and choose any folder of .md files (a demo "SampleVault" ships with the source repo). All notes stay on-device in plain files; no account or network is required for core functionality. The optional Intelligence features default to Apple's on-device Foundation Models (shown only on Apple Intelligence hardware); users may alternatively configure a cloud model provider with their own API key, in which case submitted content goes to that provider under the user's own account.
   ```
 - **Contact:** your name, phone, email.
 
@@ -255,8 +263,14 @@ Initial release.
 App Store Connect ▸ your app ▸ **App Privacy**.
 
 - **Data collection:** choose **“No, we do not collect data from this app.”**
-  HelloNotes stores everything locally; on-device AI sends nothing off-device; any
-  Git remote is a destination the *user* configures for their *own* data.
+  This remains accurate under Apple's definition (data "collected" = transmitted
+  off-device **to the developer or their partners**): HelloNotes has no backend,
+  no analytics, and no developer-operated endpoint. Everything the app sends
+  goes to **user-configured destinations under the user's own credentials** —
+  a Git remote, a cloud LLM provider the user enabled with their own API key,
+  or a web page the assistant fetches at the user's request. Disclose these
+  user-directed flows plainly in the privacy policy (Appendix C) and the app
+  description; do **not** claim "nothing is ever sent to a server."
 - **Privacy Policy URL** (required even when nothing is collected). ✅ **Live** — the
   landing site is deployed at <https://hellotham.github.io/hellonotes/> with working
   Privacy and Support pages. Paste:
@@ -419,9 +433,18 @@ echo "✓ Uploaded. Watch App Store Connect for the processed build."
 >
 > - **No account** is required or created.
 > - **No analytics or tracking** is performed.
-> - **On‑device intelligence:** optional summarise / suggest / “ask your vault”
->   features use Apple’s on‑device Foundation Models. Your note content is
->   processed locally and is not sent to us or any third party.
+> - **On‑device intelligence:** the default summarise / suggest / “ask your
+>   library” features use Apple’s on‑device Foundation Models or local models
+>   you run yourself (MLX, Ollama, LM Studio). Content processed this way never
+>   leaves your Mac.
+> - **Optional cloud AI:** you may connect a cloud model provider (such as
+>   Anthropic, an OpenAI‑compatible service, or Google Gemini) using **your own
+>   API key**. When you do, the notes and questions you submit to those features
+>   are sent to that provider under your account and their privacy terms.
+>   Cloud providers are off until you configure one, and your key is stored in
+>   the macOS Keychain. We never see, proxy, or store this traffic.
+> - **Assistant web tools:** if you ask the assistant to search or fetch a web
+>   page, the query/URL is sent to the search engine or site in question.
 > - **Version control:** if you choose to use the built‑in Git features and
 >   configure your own remote, your notes are sent only to the destination you
 >   configure, under your control. HelloNotes is not that destination.

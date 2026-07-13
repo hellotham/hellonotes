@@ -459,7 +459,7 @@ struct MindMapModel {
 
     /// Chip text, truncated at the string level so chips stay bounded and the
     /// collision estimates share the exact character count the view renders.
-    static func displayTitle(_ title: String) -> String {
+    nonisolated static func displayTitle(_ title: String) -> String {
         title.count > 32 ? String(title.prefix(31)) + "…" : title
     }
 
@@ -495,7 +495,7 @@ struct MindMapModel {
 
     /// The approximate footprint of a node's chip (mirrors `nodeChip`'s font
     /// and padding at zoom 1).
-    static func estimatedChipSize(_ node: Node) -> CGSize {
+    nonisolated static func estimatedChipSize(_ node: Node) -> CGSize {
         let fontSize: CGFloat = node.depth == 0 ? 15 : node.depth == 1 ? 13 : 11.5
         let hPad: CGFloat = node.depth == 0 ? 13 : 10
         let vPad: CGFloat = node.depth == 0 ? 8 : 5.5

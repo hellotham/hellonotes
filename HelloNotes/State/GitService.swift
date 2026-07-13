@@ -198,7 +198,22 @@ final class GitService {
 
     // MARK: - Private
 
+    /// The most recently enqueued operation; each new operation awaits it
+    /// first, so git operations are serialized FIFO and never overlap on the
+    /// repository (an auto-commit can't race a user-initiated push).
+    private var lastQueued: Task<Void, Never>?
+
     private func run(success: String, _ operation: @escaping @Sendable () async throws -> Void) async {
+        let previous = lastQueued
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.execute(success: success, operation)
+        }
+        lastQueued = task
+        await task.value
+    }
+
+    private func execute(success: String, _ operation: @escaping @Sendable () async throws -> Void) async {
         isBusy = true
         lastError = nil
         defer { isBusy = false }

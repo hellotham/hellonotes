@@ -144,6 +144,10 @@ struct MindMapWindowView: View {
     @Environment(Library.self) private var library
     @Environment(AppearanceSettings.self) private var appearance
 
+    /// The note's text, loaded off-main once per note — not in `body`, which
+    /// would synchronously re-read the file on every render.
+    @State private var text: String?
+
     private var collection: Collection? { library.collection(containing: rootURL) }
 
     private var rootTitle: String {
@@ -153,7 +157,7 @@ struct MindMapWindowView: View {
 
     var body: some View {
         Group {
-            if let c = collection, let text = try? String(contentsOf: rootURL, encoding: .utf8) {
+            if let c = collection, let text {
                 MindMapView(
                     rootTitle: rootTitle,
                     rootURL: rootURL,
@@ -167,6 +171,8 @@ struct MindMapWindowView: View {
                     onOpenNote: { library.requestOpen($0) },
                     onShowSection: { heading in showSection(heading) }
                 )
+            } else if collection != nil {
+                ProgressView()   // text still loading
             } else {
                 ContentUnavailableView("Note Unavailable", systemImage: "brain",
                                        description: Text("This note's collection is no longer open."))
@@ -174,6 +180,12 @@ struct MindMapWindowView: View {
         }
         .navigationTitle("Mind Map — \(rootTitle)")
         .frame(minWidth: 480, minHeight: 360)
+        .task(id: rootURL) {
+            let url = rootURL
+            text = await Task.detached(priority: .userInitiated) {
+                try? String(contentsOf: url, encoding: .utf8)
+            }.value
+        }
     }
 
     /// Open the mapped note in the main window and, when a section was

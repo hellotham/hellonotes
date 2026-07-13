@@ -12,7 +12,7 @@
 import Foundation
 import UniformTypeIdentifiers
 
-enum CollectionFileKind: Hashable, Sendable {
+nonisolated enum CollectionFileKind: Hashable, Sendable {
     case pdf, image, csv, other
 
     static func of(_ url: URL) -> CollectionFileKind {
@@ -38,7 +38,7 @@ enum CollectionFileKind: Hashable, Sendable {
     }
 }
 
-struct CollectionFile: Identifiable, Hashable, Sendable {
+nonisolated struct CollectionFile: Identifiable, Hashable, Sendable {
     var id: URL { url }
     let url: URL
     let kind: CollectionFileKind

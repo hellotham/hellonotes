@@ -172,7 +172,8 @@ final class GitAccountsStore {
 
 // MARK: - Authenticated remote URLs
 
-enum GitRemoteURL {
+/// `nonisolated` — pure URL string manipulation, called from detached git work.
+nonisolated enum GitRemoteURL {
     /// The bare `https://host/path` form with any embedded credentials stripped
     /// (for display and host matching).
     static func sanitized(_ url: URL) -> URL {
@@ -197,7 +198,7 @@ enum GitRemoteURL {
     }
 }
 
-extension String {
+nonisolated extension String {
     /// `nil` when the string is empty (after no trimming); handy for optionals.
     var nonEmpty: String? { isEmpty ? nil : self }
 }

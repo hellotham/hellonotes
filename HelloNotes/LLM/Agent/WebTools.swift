@@ -108,9 +108,18 @@ struct WebFetchTool: AgentTool {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Macintosh) HelloNotes", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 25
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // Stream with a byte cap so a huge (or hostile) page can't balloon
+        // memory — plain text needed for `maxChars` fits well within the cap.
+        let byteCap = 4 * 1024 * 1024
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ToolError.failed("Fetch failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
+        }
+        var data = Data()
+        data.reserveCapacity(min(byteCap, max(0, Int(exactly: http.expectedContentLength) ?? 0)))
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count >= byteCap { break }
         }
         let html = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
         let text = HTMLText.plain(html)

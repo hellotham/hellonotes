@@ -1,6 +1,12 @@
 # HelloNotes — Architecture & Technology Evaluation
 
-> Status: **v0.1 (shipped)** · Last updated: 2026-07-11 · Companion to [PRD.md](PRD.md) and [implementation-plan.md](implementation-plan.md)
+> Status: **v1.0 release candidate** · Last updated: 2026-07-13 · Companion to [PRD.md](PRD.md) and [implementation-plan.md](implementation-plan.md)
+>
+> **Post-v0.1 addendum (2026-07-13).** The shipped code has evolved past the names below:
+> - **Renames:** the single "vault" became a **collection** inside a multi-collection **Library**. `WorkspaceIndexer` → `State/Collection.swift` (+ `State/Library.swift`, `LibrariesStore`, `RecentsStore`); `VaultSearchModel` → `CollectionSearchModel`; `Core/VaultTree` → `Core/CollectionTree`; `UI/VaultTreeRow` → `UI/NoteOutlineList`; `VaultWikiLinkResolver` → `CollectionWikiLinkResolver`; `VaultEmbedProvider` → `CollectionEmbedProvider`. Note windows key on `NoteRef` (not `URL`), and a `MindMapRef` window group exists alongside.
+> - **New layer: `HelloNotes/LLM/`** — providers (Anthropic, Gemini, OpenAI-compatible, MLX, Apple Foundation Models) as `Sendable` Core-tier adapters, plus State-tier `@MainActor @Observable` models (`LLMSettings`, `AssistantModel`, `SkillStore`, `PermissionBroker`) and an agent runtime (tools, skills, deep research, permission broker). API keys live in the **Keychain** (`LLMKeychain`); chat transcripts persist as JSONL under Application Support (`ChatSessionStore`) — the only app data written outside the collection folders and UserDefaults.
+> - **WebView exceptions:** the guiding principle below ("zero WebViews") now excepts the optional rendered Preview/Split mode (`UI/MarkdownWebView.swift`) and Marp slides (`UI/SlidesView.swift`). The editor remains native TextKit 2; the file viewer uses QuickLook/PDFKit (native).
+> - **New dependencies** not in the table below: `OpenAI` (client used by the OpenAI-compatible provider), `mlx-swift` + `Tokenizers`/`Hub` (local models). Git operations are FIFO-serialized inside `GitService` (task chaining), not via a Swift `actor`.
 
 This document describes the software architecture of HelloNotes and evaluates the third-party Swift packages the app depends on. For each capability we consider the realistic alternatives, then give a recommendation. As of **v0.1**, all packages below are resolved **and linked**, and the 4-layer architecture is fully in place across macOS and iOS; this document reflects the shipped design.
 
@@ -61,7 +67,7 @@ HelloNotes uses a strict **4-layer architecture** so that the macOS app today an
 
 ## 5. Package evaluation
 
-The guiding principle from the project rules: **native Apple frameworks first, zero WebViews, async/await.** Below, each capability is evaluated against alternatives.
+The guiding principle from the project rules: **native Apple frameworks first, no WebViews in the editing path, async/await.** (See the addendum above for the two scoped WebView exceptions added post-v0.1: rendered Preview and Marp slides.) Below, each capability is evaluated against alternatives.
 
 ### 5.1 Markdown editor / live renderer  ⟶ **MarkdownEngine** ✅ (installed)
 The heart of the app: a live TextKit 2 editor that styles Markdown as you type.
