@@ -869,6 +869,16 @@
     "Show the whole collection, or just the notes near the focused one" : {
 
     },
+    "Showing the %lld most-connected notes · %lld more hidden" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Showing the %1$lld most-connected notes · %2$lld more hidden"
+          }
+        }
+      }
+    },
     "Slides — %@" : {
 
     },
