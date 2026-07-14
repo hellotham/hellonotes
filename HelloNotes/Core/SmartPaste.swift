@@ -53,10 +53,18 @@ enum SmartPaste {
 
     // MARK: - Rich text (HTML) → Markdown
 
+    /// Largest HTML clipboard we'll convert to Markdown. `NSAttributedString`'s
+    /// HTML importer is WebKit-backed, main-thread-only, and roughly linear in
+    /// size (~200 KB ≈ 0.5 s), so above this we keep the plain-text paste rather
+    /// than stall the editor. ~64 KB keeps the conversion under ~200 ms.
+    static let maxConvertibleHTMLBytes = 64_000
+
     /// Convert pasteboard HTML rich text to Markdown, or `nil` when the HTML has
-    /// no meaningful formatting (so the plain-text paste is preserved verbatim).
+    /// no meaningful formatting (so the plain-text paste is preserved verbatim)
+    /// or is too large to convert without stalling. Must run on the main actor.
     static func markdownFromHTML(_ pasteboard: NSPasteboard) -> String? {
         guard let html = pasteboard.string(forType: .html), hasFormatting(html),
+              html.utf8.count <= maxConvertibleHTMLBytes,
               let data = html.data(using: .utf8),
               let attributed = try? NSAttributedString(
                 data: data,

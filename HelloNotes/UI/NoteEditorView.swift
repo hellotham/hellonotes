@@ -455,6 +455,10 @@ struct NoteEditorView: View {
             }
             return markdown
         }
+
+        // Rich text → Markdown. The HTML importer is main-thread-only and O(size);
+        // `markdownFromHTML` caps the size it will convert, so a huge clipboard
+        // falls through to a plain-text paste instead of freezing the editor.
         return SmartPaste.markdownFromHTML(pasteboard)
     }
 
