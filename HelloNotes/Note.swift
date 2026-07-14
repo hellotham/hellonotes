@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 /// Identity is the file's URL: a note *is* its file, so the URL is stable
 /// across re-indexing (unlike a random `UUID`, which would break list
 /// selection every time the collection is rescanned).
-struct Note: Identifiable, Hashable {
+nonisolated struct Note: Identifiable, Hashable {
     var id: URL { fileURL }
     var title: String
     var fileURL: URL

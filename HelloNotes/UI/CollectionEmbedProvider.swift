@@ -46,15 +46,21 @@ final class CollectionEmbedProvider: EmbeddedImageProvider, @unchecked Sendable 
         lock.unlock()
         guard let url else { return nil }   // not a note → no transclusion
 
-        guard let markdown = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        // Key the cache on a cheap mtime `stat` (not a full read) so a cache hit
+        // costs no file read, while a changed target still re-renders. The
+        // engine invalidates its own cache on any collection change (`revision`),
+        // so without this every unrelated edit re-read every visible embed.
+        let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
         let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let sectioned = NoteTranscluder.section(heading, from: markdown)
+        let key = "\(isDark ? "d" : "l")\u{1}\(url.path)\u{1}\(heading ?? "")\u{1}\(mtime)"
 
-        let key = "\(isDark ? "d" : "l")\u{1}\(base)\u{1}\(heading ?? "")\u{1}\(sectioned.hashValue)"
         lock.lock()
         if let cached = cache[key] { lock.unlock(); return cached }
         lock.unlock()
 
+        guard let markdown = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let sectioned = NoteTranscluder.section(heading, from: markdown)
         let title = heading.map { "\(base) › \($0)" } ?? base
         guard let image = NoteTranscluder.image(markdown: sectioned, title: title, isDark: isDark) else { return nil }
 

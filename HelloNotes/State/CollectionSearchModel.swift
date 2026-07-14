@@ -49,6 +49,7 @@ final class CollectionSearchModel {
     private var cachedTags: [String] = []
     private var cachedTagTree: [TagNode] = []
     private var cachedLinkTargets: [String] = []
+    private var cachedItems: [QuickOpenItem] = []
 
     /// Reload the content cache from the current notes (reads files off-main).
     func refresh(from notes: [Note]) async {
@@ -77,6 +78,7 @@ final class CollectionSearchModel {
         cachedLinkTargets = entries
             .flatMap { [$0.note.title] + $0.aliases }
             .filter { seen.insert($0.lowercased()).inserted }
+        cachedItems = buildItems()
     }
 
     /// All distinct hashtags across the collection, sorted case-insensitively.
@@ -120,6 +122,27 @@ final class CollectionSearchModel {
         entries.first { $0.note.fileURL == note.fileURL }?.text
     }
 
+    /// The cached aliases of the note at `url` (before any pending save).
+    func aliases(of url: URL) -> [String] {
+        entries.first { $0.note.fileURL == url }?.aliases ?? []
+    }
+
+    /// Replace (or insert) the cached entry for `note` from its in-memory text —
+    /// no disk read. Used to keep the index fresh after a save without
+    /// re-reading the whole collection.
+    func updateNote(_ note: Note, text: String) {
+        let entry = Entry(note: note, text: text,
+                          headings: MarkdownParsing.headings(in: text),
+                          tags: MarkdownParsing.tags(in: text),
+                          aliases: MarkdownParsing.aliases(in: text))
+        if let i = entries.firstIndex(where: { $0.note.fileURL == note.fileURL }) {
+            entries[i] = entry
+        } else {
+            entries.append(entry)
+        }
+        rebuildAggregates()
+    }
+
     /// Heading titles of the note named `name` (matched by title or alias),
     /// for `[[Note#heading]]` autocomplete.
     func headings(forName name: String) -> [String] {
@@ -149,7 +172,7 @@ final class CollectionSearchModel {
 
     /// Fuzzy matches over note titles and their headings, best first.
     func quickOpenResults(query: String, limit: Int = 40) -> [QuickOpenItem] {
-        let items = allItems()
+        let items = cachedItems
         let q = query.trimmingCharacters(in: .whitespaces)
 
         guard !q.isEmpty else {
@@ -168,7 +191,9 @@ final class CollectionSearchModel {
 
     // MARK: - Private
 
-    private func allItems() -> [QuickOpenItem] {
+    /// The full candidate set (notes + aliases + headings), built once per
+    /// `refresh` and cached — it was rebuilt on every Open-Quickly keystroke.
+    private func buildItems() -> [QuickOpenItem] {
         entries.flatMap { entry -> [QuickOpenItem] in
             var items = [QuickOpenItem(
                 id: entry.note.fileURL.path,

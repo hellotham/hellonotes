@@ -17,11 +17,20 @@ struct OpenQuicklyView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var results: [QuickOpenItem] = []
+    @State private var queryTask: Task<Void, Never>?
     @State private var selection: QuickOpenItem.ID?
     @FocusState private var fieldFocused: Bool
 
-    private var results: [QuickOpenItem] {
-        search.quickOpenResults(query: query)
+    /// Recompute results, debounced so fast typing doesn't re-score the whole
+    /// candidate list on every keystroke.
+    private func scheduleQuery(_ q: String) {
+        queryTask?.cancel()
+        queryTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            results = search.quickOpenResults(query: q)
+        }
     }
 
     var body: some View {
@@ -44,7 +53,8 @@ struct OpenQuicklyView: View {
             .listStyle(.plain)
         }
         .frame(width: 540, height: 420)
-        .onAppear { fieldFocused = true }
+        .onAppear { fieldFocused = true; results = search.quickOpenResults(query: "") }
+        .onChange(of: query) { _, q in scheduleQuery(q) }
         .onChange(of: results) { _, newResults in
             // Keep a valid top selection as the query narrows.
             if selection == nil || !newResults.contains(where: { $0.id == selection }) {

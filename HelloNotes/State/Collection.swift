@@ -81,7 +81,7 @@ final class Collection: Identifiable {
     private var securityScoped = false
 
     /// The Uniform Type Identifier used to recognise Markdown files.
-    private static let markdownType: UTType =
+    nonisolated private static let markdownType: UTType =
         UTType("net.daringfireball.markdown")
         ?? UTType(filenameExtension: "md")
         ?? .plainText
@@ -95,8 +95,10 @@ final class Collection: Identifiable {
 
     // MARK: - Scanning
 
-    /// Scans `rootURL` for Markdown files and other attachments.
-    func scan() {
+    /// Enumerate `rootURL` into notes / attachments / folders. `nonisolated` and
+    /// pure so it can run on a background executor — a full directory walk of a
+    /// large collection is thousands of `stat` calls that shouldn't block the UI.
+    nonisolated static func enumerate(_ rootURL: URL) -> (notes: [Note], attachments: [CollectionFile], folders: [URL]) {
         let fileManager = FileManager.default
         let resourceKeys: [URLResourceKey] = [.contentModificationDateKey, .contentTypeKey, .isRegularFileKey, .isDirectoryKey]
 
@@ -105,11 +107,7 @@ final class Collection: Identifiable {
             includingPropertiesForKeys: resourceKeys,
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
-            notes = []
-            attachments = []
-            folders = []
-            revision &+= 1
-            return
+            return ([], [], [])
         }
 
         var discovered: [Note] = []
@@ -141,9 +139,32 @@ final class Collection: Identifiable {
             }
         }
 
-        notes = discovered.sorted { $0.lastModified > $1.lastModified }
-        attachments = discoveredFiles.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        folders = discoveredFolders
+        return (
+            discovered.sorted { $0.lastModified > $1.lastModified },
+            discoveredFiles.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+            discoveredFolders
+        )
+    }
+
+    /// Scan synchronously (used by the infrequent, user-initiated file
+    /// mutations that need the updated note immediately afterwards).
+    func scan() {
+        let result = Self.enumerate(rootURL)
+        notes = result.notes
+        attachments = result.attachments
+        folders = result.folders
+        revision &+= 1
+    }
+
+    /// Scan off the main actor, then apply the results — used for startup and
+    /// external-change reconciliation, where a main-thread directory walk of a
+    /// large collection would otherwise freeze the UI.
+    func scanOffMain() async {
+        let root = rootURL
+        let result = await Task.detached(priority: .userInitiated) { Self.enumerate(root) }.value
+        notes = result.notes
+        attachments = result.attachments
+        folders = result.folders
         revision &+= 1
     }
 
@@ -154,7 +175,7 @@ final class Collection: Identifiable {
     /// status, and start watching the folder for external changes.
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {
         securityScoped = rootURL.startAccessingSecurityScopedResource()
-        scan()
+        await scanOffMain()
         refreshDerived()
         await git.refreshStatus()
         startWatching(onExternalChange: onExternalChange)
@@ -184,7 +205,7 @@ final class Collection: Identifiable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard self.hasExternalChanges(in: paths) else { return }
-                self.scan()
+                await self.scanOffMain()
                 self.refreshDerived()
                 onExternalChange()
             }
@@ -214,17 +235,31 @@ final class Collection: Identifiable {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
-    /// Record that the editor just saved `url`, and schedule a debounced refresh
-    /// of the content-derived index (links, search, tags). No re-scan: saving a
-    /// note's contents doesn't change which notes exist, and the heavy index
-    /// work runs off the main actor — so typing never stalls on a vault re-read.
-    func noteDidSave(_ url: URL) {
+    /// Record that the editor just saved `url`, and refresh the content-derived
+    /// index (links, search, tags) from the in-memory `text` — no re-scan (the
+    /// note set is unchanged) and, in the common case, no vault re-read.
+    ///
+    /// When the note's title and aliases are unchanged, the link graph and
+    /// search entry are patched incrementally (O(1 note)). A title/alias change
+    /// can alter *other* notes' backlinks, so that falls back to a debounced
+    /// full rebuild for correctness.
+    func noteDidSave(_ url: URL, text: String) {
         recentSelfWrites[Self.normalize(url.path)] = Date()
-        deriveTask?.cancel()
-        deriveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled else { return }
-            self?.refreshDerived()
+        let title = url.deletingPathExtension().lastPathComponent
+
+        if let note = notes.first(where: { $0.fileURL == url }),
+           MarkdownParsing.aliases(in: text) == search.aliases(of: url) {
+            linkGraph.updateNote(url: url, title: title, text: text)
+            search.updateNote(note, text: text)
+            wikiResolver.update(titles: Array(linkGraph.resolution.keys))
+            embedProvider.update(notes: notes)   // bump so transclusions re-render
+        } else {
+            deriveTask?.cancel()
+            deriveTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(800))
+                guard !Task.isCancelled else { return }
+                self?.refreshDerived()
+            }
         }
     }
     #else

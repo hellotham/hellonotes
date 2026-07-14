@@ -61,6 +61,30 @@ final class LinkGraph {
         resolution = result.resolve
     }
 
+    /// Incrementally re-index a single note from its in-memory text — no disk
+    /// read, no whole-vault rebuild. Correct when the note's title and aliases
+    /// are unchanged (an alias/title change can alter *other* notes' backlinks,
+    /// so the caller must full-rebuild in that case).
+    func updateNote(url: URL, title: String, text: String) {
+        // Drop this note's previous outgoing contributions from the backlinks.
+        for target in outgoingByURL[url] ?? [] where !target.isEmpty {
+            if let dest = resolution[target.lowercased()] {
+                backlinksByURL[dest]?.remove(url)
+            }
+        }
+        // Its title/aliases still resolve to it (idempotent in the unchanged case).
+        resolution[title.lowercased()] = url
+        for alias in MarkdownParsing.aliases(in: text) { resolution[alias.lowercased()] = url }
+        // Recompute this note's outgoing targets and resolved backlinks.
+        let targets = MarkdownParsing.wikiLinkTargets(in: text)
+        outgoingByURL[url] = targets
+        for target in targets where !target.isEmpty {
+            if let dest = resolution[target.lowercased()] {
+                backlinksByURL[dest, default: []].insert(url)
+            }
+        }
+    }
+
     /// The notes that link to `note` (via its title or any alias), excluding
     /// self-references.
     func backlinks(for note: Note, in notes: [Note]) -> [Note] {
