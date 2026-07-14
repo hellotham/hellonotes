@@ -62,6 +62,15 @@ final class Collection: Identifiable {
     let embedProvider = CollectionEmbedProvider()
 
     private var fileWatcher: FileWatcher?
+
+    /// Standardised paths this collection wrote itself, with when — so the file
+    /// watcher can ignore the churn from our own autosaves (and their atomic
+    /// temp files) instead of re-scanning the whole collection on every save.
+    private var recentSelfWrites: [String: Date] = [:]
+
+    /// Debounced index refresh scheduled after an editor save (the note *set*
+    /// is unchanged, so no re-scan is needed — only the content-derived index).
+    private var deriveTask: Task<Void, Never>?
     #endif
 
     private var securityScoped = false
@@ -164,9 +173,10 @@ final class Collection: Identifiable {
     }
 
     private func startWatching(onExternalChange: @escaping @MainActor () -> Void) {
-        let watcher = FileWatcher { [weak self] in
+        let watcher = FileWatcher { [weak self] paths in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard self.hasExternalChanges(in: paths) else { return }
                 self.scan()
                 self.refreshDerived()
                 onExternalChange()
@@ -174,6 +184,41 @@ final class Collection: Identifiable {
         }
         watcher.start(url: rootURL)
         fileWatcher = watcher
+    }
+
+    /// Whether `paths` contains a change we didn't cause. Filters out our own
+    /// recent autosaves and hidden-file churn (atomic-write temp files, the
+    /// `.git` directory that auto-commit touches, `.DS_Store`), so the app's own
+    /// writes never trigger a full re-scan + re-index of the collection.
+    private func hasExternalChanges(in paths: [String]) -> Bool {
+        let now = Date()
+        recentSelfWrites = recentSelfWrites.filter { now.timeIntervalSince($0.value) < 5 }
+        return paths.contains { path in
+            if (path as NSString).lastPathComponent.hasPrefix(".") { return false }
+            if let wroteAt = recentSelfWrites[Self.normalize(path)],
+               now.timeIntervalSince(wroteAt) < 3 { return false }
+            return true
+        }
+    }
+
+    /// Normalise a path for comparison — resolves symlinks and the `/private`
+    /// prefix so FSEvents paths and our own write paths match.
+    private nonisolated static func normalize(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+    }
+
+    /// Record that the editor just saved `url`, and schedule a debounced refresh
+    /// of the content-derived index (links, search, tags). No re-scan: saving a
+    /// note's contents doesn't change which notes exist, and the heavy index
+    /// work runs off the main actor — so typing never stalls on a vault re-read.
+    func noteDidSave(_ url: URL) {
+        recentSelfWrites[Self.normalize(url.path)] = Date()
+        deriveTask?.cancel()
+        deriveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            self?.refreshDerived()
+        }
     }
     #else
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {

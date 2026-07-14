@@ -16,6 +16,10 @@ import Observation
 final class EditorTabs {
     private(set) var editors: [EditorModel] = []
 
+    /// Routed to whichever collection owns the saved note, so it can suppress
+    /// the file watcher for its own write and refresh its index incrementally.
+    var onNoteSaved: (@MainActor (URL) -> Void)?
+
     /// The notes currently open in tabs, in tab order.
     var openNotes: [Note] { editors.compactMap(\.note) }
 
@@ -30,6 +34,7 @@ final class EditorTabs {
             return existing
         }
         let model = EditorModel()
+        model.onSaved = { [weak self] url in self?.onNoteSaved?(url) }
         await model.open(note)
         editors.append(model)
         return model

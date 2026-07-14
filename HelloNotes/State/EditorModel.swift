@@ -32,6 +32,11 @@ final class EditorModel {
     /// the user must choose whether to keep their version or reload.
     private(set) var hasConflict = false
 
+    /// Called after each successful save with the note's URL, so the owning
+    /// collection can mark the write as its own (suppressing the file watcher)
+    /// and refresh its index without a full re-scan.
+    var onSaved: (@MainActor (URL) -> Void)?
+
     /// The external on-disk version captured when a conflict was detected.
     private var conflictDiskText: String?
 
@@ -65,7 +70,10 @@ final class EditorModel {
 
         let loaded: String
         if let url = note?.fileURL {
-            loaded = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            // Read off the main actor so opening a large note never stalls the UI.
+            loaded = await Task.detached(priority: .userInitiated) {
+                (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            }.value
         } else {
             loaded = ""
         }
@@ -142,6 +150,7 @@ final class EditorModel {
             isDirty = (text != lastSavedText)
             saveError = nil
             savedRevision += 1
+            onSaved?(url)
         } catch {
             saveError = error.localizedDescription
         }

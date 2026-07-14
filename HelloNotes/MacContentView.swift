@@ -178,6 +178,12 @@ struct MacContentView: View {
                 Task { await tabs.reconcileAll() }
                 revalidateSelection()
             }
+            // A note's autosave marks the write as the collection's own (so its
+            // file watcher ignores it) and refreshes that collection's index
+            // without a full re-scan — keeping typing off the vault-read path.
+            tabs.onNoteSaved = { @MainActor url in
+                library.collection(containing: url)?.noteDidSave(url)
+            }
             library.onOpened = { recents.record($0) }
             if library.isEmpty {
                 await library.restore()
