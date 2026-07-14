@@ -66,6 +66,9 @@ struct MacContentView: View {
     @State private var cachedRoots: [NoteOutlineItem] = []
     @State private var cachedSignature = ""
 
+    /// References panel data, computed off-main and keyed on `referencesKey`.
+    @State private var references = ReferencesData()
+
     @State private var showOpenQuickly = false
 
     /// Rename-note prompt state (set via the context menu or the Note menu).
@@ -165,33 +168,47 @@ struct MacContentView: View {
 
     // MARK: - Editor derived data (for the selection's collection)
 
-    private var backlinks: [Note] {
-        guard let selectedNote, let c = editorCollection else { return [] }
-        return c.linkGraph.backlinks(for: selectedNote, in: c.notes)
-    }
-
-    private var outgoingLinks: [Note] {
-        guard let selectedNote, let c = editorCollection else { return [] }
-        return c.linkGraph.outgoingLinks(for: selectedNote, in: c.notes)
-    }
-
     private var currentNoteNames: [String] {
         guard let selectedNote, let c = editorCollection else { return [] }
-        // Derive names from the *indexed* text, not the live editor buffer:
-        // reading `activeEditor.text` here would re-run the whole references
-        // panel (an O(N) unlinked-mention scan) on every keystroke. Aliases
-        // refresh with the search index shortly after a save instead.
+        // Derive names from the *indexed* text, not the live editor buffer.
         let text = c.search.text(of: selectedNote) ?? ""
         return [selectedNote.title] + MarkdownParsing.aliases(in: text)
     }
 
-    private var unlinkedMentions: [Note] {
-        guard let selectedNote, let c = editorCollection else { return [] }
-        return c.search.unlinkedMentions(
-            of: selectedNote,
-            names: currentNoteNames,
-            excluding: Set(backlinks.map(\.fileURL))
-        )
+    /// Backlinks / outgoing links / unlinked mentions for the references panel.
+    private struct ReferencesData: Equatable {
+        var backlinks: [Note] = []
+        var outgoingLinks: [Note] = []
+        var unlinkedMentions: [Note] = []
+    }
+
+    /// Changes when the selection or the collection's index changes — the key
+    /// for recomputing `references`.
+    private var referencesKey: String {
+        "\(selectedNoteID?.path ?? "")|\(editorCollection?.derivedRevision ?? 0)"
+    }
+
+    /// Recompute the references panel off the main thread. The unlinked-mention
+    /// scan is O(N notes); doing it in the view body made *selecting* a note (or
+    /// arrow-keying through the list) run that scan on the main actor each time.
+    private func computeReferences() async {
+        guard let note = selectedNote, let c = editorCollection else {
+            references = ReferencesData(); return
+        }
+        let back = c.linkGraph.backlinks(for: note, in: c.notes)
+        let out = c.linkGraph.outgoingLinks(for: note, in: c.notes)
+        let names = currentNoteNames
+        let corpus = c.search.mentionCorpus()
+        let excluded = Set(back.map(\.fileURL)).union([note.fileURL])
+        let mentions = await Task.detached(priority: .userInitiated) { () -> [Note] in
+            corpus.compactMap { candidate, text in
+                guard !excluded.contains(candidate.fileURL),
+                      MentionScanner.containsMention(of: names, in: text) else { return nil }
+                return candidate
+            }
+        }.value
+        guard !Task.isCancelled else { return }
+        references = ReferencesData(backlinks: back, outgoingLinks: out, unlinkedMentions: mentions)
     }
 
     var body: some View {
@@ -253,6 +270,9 @@ struct MacContentView: View {
         // Rebuild the (cached) note-list outline only when its structural inputs
         // change — not on every unrelated body re-eval (selection, git, accent).
         .onChange(of: outlineInputsKey, initial: true) { _, _ in rebuildOutline() }
+        // Recompute the references panel off-main when the selection or index
+        // changes — never inline in the body (would scan all notes on selection).
+        .task(id: referencesKey) { await computeReferences() }
         .onChange(of: tabs.totalSavedRevision) { _, _ in
             if let c = editorCollection {
                 Task { await c.git.refreshStatus() }
@@ -679,9 +699,9 @@ struct MacContentView: View {
             } else if let activeEditor, let c = editorCollection {
                 NoteEditorView(
                     editor: activeEditor,
-                    backlinks: backlinks,
-                    outgoingLinks: outgoingLinks,
-                    unlinkedMentions: unlinkedMentions,
+                    backlinks: references.backlinks,
+                    outgoingLinks: references.outgoingLinks,
+                    unlinkedMentions: references.unlinkedMentions,
                     wikiResolver: c.wikiResolver,
                     embedProvider: c.embedProvider,
                     git: c.git,

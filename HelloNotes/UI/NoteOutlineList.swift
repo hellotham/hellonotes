@@ -150,6 +150,7 @@ struct NoteOutlineList: NSViewRepresentable {
         var focusedCollectionID: Collection.ID?
 
         private var roots: [NoteOutlineItem] = []
+        private var itemsByURL: [URL: NoteOutlineItem] = [:]
         private var lastSignature: String?
         private var expandedIDs: Set<String> = []
         private var knownGroupIDs: Set<String> = []
@@ -175,6 +176,7 @@ struct NoteOutlineList: NSViewRepresentable {
             }
             lastSignature = signature
             self.roots = roots
+            itemsByURL = Self.indexByURL(roots)   // for O(1) selection lookup
             guard let outline = outlineView else { return }
             outline.reloadData()
             // Restore expansion by stable id.
@@ -197,7 +199,7 @@ struct NoteOutlineList: NSViewRepresentable {
 
         func applySelection(_ url: URL?) {
             guard let outline = outlineView else { return }
-            guard let url, let item = item(forURL: url, in: roots) else {
+            guard let url, let item = itemsByURL[url] else {
                 if url == nil { applyingSelection = true; outline.deselectAll(nil); applyingSelection = false }
                 return
             }
@@ -209,12 +211,18 @@ struct NoteOutlineList: NSViewRepresentable {
             applyingSelection = false
         }
 
-        private func item(forURL url: URL, in items: [NoteOutlineItem]) -> NoteOutlineItem? {
-            for node in items {
-                if node.url == url { return node }
-                if let found = item(forURL: url, in: node.children) { return found }
+        /// Flatten the tree into a URL→item map so selection lookup is O(1)
+        /// instead of a recursive O(N) walk on every SwiftUI update.
+        private static func indexByURL(_ items: [NoteOutlineItem]) -> [URL: NoteOutlineItem] {
+            var map: [URL: NoteOutlineItem] = [:]
+            func walk(_ items: [NoteOutlineItem]) {
+                for item in items {
+                    if let url = item.url { map[url] = item }
+                    walk(item.children)
+                }
             }
-            return nil
+            walk(items)
+            return map
         }
 
         // MARK: DataSource

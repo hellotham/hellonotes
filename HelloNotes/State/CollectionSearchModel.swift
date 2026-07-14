@@ -127,6 +127,12 @@ final class CollectionSearchModel {
         entries.first { $0.note.fileURL == url }?.aliases ?? []
     }
 
+    /// A `Sendable` snapshot of (note, text) for an off-main mention scan.
+    /// The text is copy-on-write, so this is a cheap reference copy.
+    func mentionCorpus() -> [(Note, String)] {
+        entries.map { ($0.note, $0.text) }
+    }
+
     /// Replace (or insert) the cached entry for `note` from its in-memory text —
     /// no disk read. Used to keep the index fresh after a save without
     /// re-reading the whole collection.

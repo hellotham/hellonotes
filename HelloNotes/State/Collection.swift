@@ -45,6 +45,11 @@ final class Collection: Identifiable {
     /// structure actually changes, instead of re-deriving it every render.
     private(set) var revision = 0
 
+    /// Bumped whenever the content-derived index (link graph, search) changes,
+    /// so views can recompute derived data (e.g. the references panel) only when
+    /// it actually changed rather than on every render.
+    private(set) var derivedRevision = 0
+
     // MARK: Per-collection subsystems (isolated to this collection)
 
     /// The collection's `[[wiki-link]]` / backlink index.
@@ -197,6 +202,7 @@ final class Collection: Identifiable {
             await linkGraph.rebuild(from: notes)
             await search.refresh(from: notes)
             wikiResolver.update(titles: Array(linkGraph.resolution.keys))
+            derivedRevision &+= 1
         }
     }
 
@@ -253,6 +259,7 @@ final class Collection: Identifiable {
             search.updateNote(note, text: text)
             wikiResolver.update(titles: Array(linkGraph.resolution.keys))
             embedProvider.update(notes: notes)   // bump so transclusions re-render
+            derivedRevision &+= 1
         } else {
             deriveTask?.cancel()
             deriveTask = Task { [weak self] in
