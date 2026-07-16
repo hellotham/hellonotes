@@ -61,6 +61,9 @@ struct MacContentView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var isSearchInFlight = false
 
+    /// System Spotlight-index query for matches inside attachments (PDFs etc.).
+    @State private var spotlight = SpotlightSearch()
+
     /// Cached note-list outline, rebuilt only when its inputs change (see
     /// `outlineInputsKey`) rather than re-derived (O(N log N)) every render.
     @State private var cachedRoots: [NoteOutlineItem] = []
@@ -122,9 +125,12 @@ struct MacContentView: View {
     // MARK: - Note list rows
 
     /// A collection paired with its full-text search hits (for grouped results).
+    /// `fileRows` are attachments (PDFs, documents, …) whose *content* matched,
+    /// found via the system Spotlight index rather than the app's own index.
     private struct SearchGroup: Identifiable {
         let collection: Collection
         let rows: [NoteRow]
+        var fileRows: [CollectionFile] = []
         var id: Collection.ID { collection.id }
     }
 
@@ -154,6 +160,22 @@ struct MacContentView: View {
             searchResultsRevision &+= 1
             isSearchInFlight = false
             rebuildOutline()   // reflect results immediately, independent of key timing
+
+            // Second wave: matches *inside attachments* (PDFs, documents, …) via
+            // the system Spotlight index — content macOS already indexed for us.
+            let hits = await spotlight.search(query, in: library.collections.map(\.rootURL))
+            guard !Task.isCancelled, !hits.isEmpty else { return }
+            let hitPaths = Set(hits.map { $0.standardizedFileURL.path })
+            var merged: [SearchGroup] = []
+            for collection in library.collections {
+                let files = collection.attachments.filter { hitPaths.contains($0.url.standardizedFileURL.path) }
+                let rows = searchResults.first { $0.id == collection.id }?.rows ?? []
+                guard !rows.isEmpty || !files.isEmpty else { continue }
+                merged.append(SearchGroup(collection: collection, rows: rows, fileRows: files))
+            }
+            searchResults = merged
+            searchResultsRevision &+= 1
+            rebuildOutline()
         }
     }
 
@@ -920,6 +942,8 @@ struct MacContentView: View {
                 NoteOutlineItem(id: group.collection.id, kind: .collection(group.collection),
                                 children: group.rows.map {
                     NoteOutlineItem(id: $0.note.fileURL.path, kind: .note($0.note, snippet: $0.snippet))
+                } + group.fileRows.map {
+                    NoteOutlineItem(id: $0.url.path, kind: .file($0))
                 })
             }
         } else if selectedTag != nil, let focused {
