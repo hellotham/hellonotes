@@ -150,6 +150,57 @@ import Testing
         #expect(document.text == text)
     }
 
+    // MARK: - Block embeds
+
+    private struct StubBlockRenderer: BlockRenderer {
+        let image: PlatformImage
+        func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage? {
+            if case .math = kind { return nil }
+            return image
+        }
+    }
+
+    @Test func standaloneImageEmbedCollapsesAndRenders() async throws {
+        let text = "# H\n\n![[pic.png]]\n\nafter"
+        let img = PlatformImage(size: CGSize(width: 100, height: 40))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: StubBlockRenderer(image: img))
+        )
+        // Move the caret away from the embed so it collapses.
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+
+        let embedLoc = (text as NSString).range(of: "![[").location
+        var collapsed = false
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            if document.storage.attribute(blockImageAttribute, at: embedLoc, effectiveRange: nil) != nil {
+                collapsed = true; break
+            }
+        }
+        #expect(collapsed)
+        // Source stays in storage, byte-for-byte.
+        #expect(document.text == text)
+
+        // Caret entering the embed reveals the source (image attribute cleared).
+        document.selectionDidChange(NSRange(location: embedLoc + 2, length: 0))
+        #expect(document.storage.attribute(blockImageAttribute, at: embedLoc, effectiveRange: nil) == nil)
+    }
+
+    @Test func nonStandaloneImageEmbedIsNotRendered() async throws {
+        // An embed with surrounding text on the same line is inline, not a block.
+        let text = "see ![[pic.png]] here"
+        let img = PlatformImage(size: CGSize(width: 100, height: 40))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: StubBlockRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+        try await Task.sleep(for: .milliseconds(120))
+        let embedLoc = (text as NSString).range(of: "![[").location
+        #expect(document.storage.attribute(blockImageAttribute, at: embedLoc, effectiveRange: nil) == nil)
+    }
+
     // MARK: - Latency at the p99-note scale
 
     @Test func hugeNotePipelineLatency() async {

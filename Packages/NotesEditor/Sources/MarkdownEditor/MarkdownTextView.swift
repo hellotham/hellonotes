@@ -129,6 +129,8 @@ public final class MarkdownTextView: NSTextView {
     }
 
     private(set) weak var document: EditorDocument?
+    /// Retains the layout delegate that vends image-drawing fragments.
+    private let blockLayoutDelegate = RenderedBlockLayoutDelegate()
 
     func bind(to document: EditorDocument) {
         self.document = document
@@ -136,11 +138,29 @@ public final class MarkdownTextView: NSTextView {
         if let contentStorage = textContentStorage {
             contentStorage.textStorage = document.storage
         }
+        // Custom fragments draw inline-rendered block embeds (images…).
+        textLayoutManager?.delegate = blockLayoutDelegate
         font = document.theme.body
         typingAttributes = [
             .font: document.theme.body,
             .foregroundColor: document.theme.text,
         ]
+        syncRenderMetrics()
+    }
+
+    /// Feed the document the current usable width + appearance for sizing
+    /// rendered block images.
+    func syncRenderMetrics() {
+        guard let document else { return }
+        let padding = (textContainer?.lineFragmentPadding ?? 0) * 2
+        let width = (textContainer?.size.width ?? bounds.width) - padding - textContainerInset.width * 2
+        if width > 0 { document.renderMaxWidth = min(width, 900) }
+        document.isDarkAppearance = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    public override func layout() {
+        super.layout()
+        syncRenderMetrics()
     }
 
     /// Pasteboard intents, injected by the host: return the Markdown to

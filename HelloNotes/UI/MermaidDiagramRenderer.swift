@@ -24,6 +24,18 @@ final class MermaidDiagramRenderer: MarkdownEngine.DiagramRenderer, @unchecked S
     // Keyed by source + appearance: the diagram's colors depend on light/dark.
     private var cache: [String: MarkdownEngine.DiagramRenderResult?] = [:]
 
+    /// Render a Mermaid diagram to an image for the *new* editor. Transparent
+    /// background; zinc theme by appearance. BeautifulMermaid renders into a
+    /// bottom-left-origin CoreGraphics context, so — like the fork path below
+    /// — the result is flipped vertically to read right-way-up when drawn.
+    /// Safe off the main thread (pure CoreGraphics rendering).
+    nonisolated static func standaloneImage(source: String, isDark: Bool) -> NSImage? {
+        let theme = (isDark ? DiagramTheme.zincDark : DiagramTheme.zincLight).withTransparent()
+        guard let image = (try? MermaidRenderer.renderImage(source: source, theme: theme)) ?? nil,
+              image.size.width > 0, image.size.height > 0 else { return nil }
+        return flippedVertically(image)
+    }
+
     func render(source: String, language: String, theme: MarkdownEditorTheme, isDarkMode: Bool) -> MarkdownEngine.DiagramRenderResult? {
         guard language.lowercased() == "mermaid" else { return nil }
 
@@ -60,7 +72,7 @@ final class MermaidDiagramRenderer: MarkdownEngine.DiagramRenderer, @unchecked S
     /// origin), so the resulting `NSImage` is upside down when shown top-left.
     /// Redraw it flipped so diagrams display right-way-up. (Mirrors the flip in
     /// `MermaidPreviewView`.)
-    private static func flippedVertically(_ image: NSImage) -> NSImage {
+    nonisolated private static func flippedVertically(_ image: NSImage) -> NSImage {
         let size = image.size
         guard size.width > 0, size.height > 0 else { return image }
         let flipped = NSImage(size: size)

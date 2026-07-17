@@ -31,6 +31,8 @@ struct NewEditorHost: View {
     var pasteMarkdown: (NSPasteboard) -> String? = { _ in nil }
     /// The provider-backed intelligence service ("Rewrite with AI…").
     var intelligence: IntelligenceService? = nil
+    /// Renders block embeds (`![[image]]`, Mermaid) inline. nil disables it.
+    var blockRenderer: BlockRenderAdapter? = nil
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -102,7 +104,8 @@ struct NewEditorHost: View {
             let titles = Set(linkCandidates.map { $0.lowercased() })
             let services = EditorServices(
                 wikiLinkExists: { title in titles.contains(title.lowercased()) },
-                codeHighlighter: CodeHighlighterAdapter(darkMode: colorScheme == .dark)
+                codeHighlighter: CodeHighlighterAdapter(darkMode: colorScheme == .dark),
+                blockRenderer: blockRenderer
             )
             let built = await EditorDocument.make(
                 text: editor.text,

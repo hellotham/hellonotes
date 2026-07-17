@@ -52,13 +52,17 @@ public struct EditorServices: Sendable {
     public var wikiLinkExists: (@Sendable (String) -> Bool)?
     /// Fenced-code-block syntax highlighting (async upgrade; optional).
     public var codeHighlighter: (any CodeHighlighting)?
+    /// Inline rendering of block embeds (images, Mermaid, math). Optional.
+    public var blockRenderer: (any BlockRenderer)?
 
     public init(
         wikiLinkExists: (@Sendable (String) -> Bool)? = nil,
-        codeHighlighter: (any CodeHighlighting)? = nil
+        codeHighlighter: (any CodeHighlighting)? = nil,
+        blockRenderer: (any BlockRenderer)? = nil
     ) {
         self.wikiLinkExists = wikiLinkExists
         self.codeHighlighter = codeHighlighter
+        self.blockRenderer = blockRenderer
     }
 }
 
@@ -480,6 +484,11 @@ public final class EditorDocument {
         if services.codeHighlighter != nil {
             for index in blockIndices { refreshHighlight(blockIndex: index) }
         }
+        #if canImport(AppKit)
+        if services.blockRenderer != nil {
+            for index in blockIndices { refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index)) }
+        }
+        #endif
     }
 
     // MARK: - Fenced-code syntax highlighting
@@ -562,6 +571,118 @@ public final class EditorDocument {
         storage.endEditing()
         isApplyingStyles = false
     }
+
+    // MARK: - Block embeds (inline-rendered images / diagrams / math)
+
+    #if canImport(AppKit)
+    /// Rendered image per (kind) content hash. Cached so a restyle re-applies
+    /// the collapse+image synchronously (no flash on caret enter/leave).
+    @ObservationIgnored private var blockImageCache: [Int: NSImage] = [:]
+    @ObservationIgnored private var blockRendersInFlight: Set<Int> = []
+
+    /// The renderable embed a block represents, or nil. A standalone image
+    /// embed is a paragraph whose entire content is one `![[…]]`.
+    private func blockEmbedKind(at blockIndex: Int) -> BlockEmbedKind? {
+        guard blockIndex >= 0, blockIndex < parse.blocks.count else { return nil }
+        let block = parse.blocks[blockIndex]
+        let ns: NSString = storage.mutableString
+        switch block.kind {
+        case .fencedCode(let info, let closed):
+            guard closed, info.split(separator: " ").first.map(String.init)?.lowercased() == "mermaid" else { return nil }
+            let bodyFirst = block.firstLine + 1
+            let bodyLast = block.firstLine + block.lineCount - 2
+            guard bodyFirst <= bodyLast else { return nil }
+            let start = parse.lines.lineRange(bodyFirst).location
+            let end = parse.lines.contentRange(bodyLast, in: ns)
+            return .mermaid(source: ns.substring(with: NSRange(location: start, length: end.location + end.length - start)))
+        case .mathBlock(let closed):
+            guard closed else { return nil }
+            let src = ns.substring(with: block.range)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "$\n "))
+            return src.isEmpty ? nil : .math(source: src)
+        case .paragraph:
+            // Exactly one `![[target]]` filling the paragraph's content.
+            var content = block.range
+            if content.length > 0, ns.character(at: content.location + content.length - 1) == 0x0A { content.length -= 1 }
+            let nodes = InlineParser.parse(ns, in: content)
+            guard nodes.count == 1, case .wikiLink(let target, true) = nodes[0].kind,
+                  nodes[0].range.location == content.location,
+                  nodes[0].range.length == content.length else { return nil }
+            return .image(target: target)
+        default:
+            return nil
+        }
+    }
+
+    private func refreshBlockEmbed(blockIndex: Int, revealed: Bool) {
+        guard let renderer = services.blockRenderer,
+              let kind = blockEmbedKind(at: blockIndex) else { return }
+        // Caret inside → show source, don't collapse (base restyle already
+        // cleared any prior collapse).
+        guard !revealed else { return }
+
+        let block = parse.blocks[blockIndex]
+        var content = block.range
+        let ns: NSString = storage.mutableString
+        if content.length > 0, content.location + content.length <= ns.length,
+           ns.character(at: content.location + content.length - 1) == 0x0A { content.length -= 1 }
+        guard content.length > 0, content.location + content.length <= ns.length else { return }
+
+        var hasher = Hasher()
+        hasher.combine(kind)
+        let key = hasher.finalize()
+
+        if let image = blockImageCache[key] {
+            collapse(range: content, to: image)
+            return
+        }
+        guard !blockRendersInFlight.contains(key) else { return }
+        blockRendersInFlight.insert(key)
+
+        let maxWidth = renderMaxWidth
+        let dark = isDarkAppearance
+        Task { [weak self] in
+            let image = await renderer.render(kind, maxWidth: maxWidth, darkMode: dark)
+            guard let self else { return }
+            self.blockRendersInFlight.remove(key)
+            guard let image else { return }
+            if self.blockImageCache.count > 64 { self.blockImageCache.removeAll() }
+            self.blockImageCache[key] = image
+            // Re-derive the block (text may have shifted) and re-apply if it's
+            // still the same kind and not currently revealed.
+            if let idx = self.parse.blockIndex(at: min(content.location, max(0, self.storage.length - 1))),
+               !self.revealedBlocks.contains(idx),
+               self.blockEmbedKind(at: idx) == kind {
+                self.refreshBlockEmbed(blockIndex: idx, revealed: false)
+            }
+        }
+    }
+
+    /// Collapse a block's source to near-zero height and reserve the image's
+    /// height below it (drawn by RenderedBlockFragment). Source stays in the
+    /// storage — concealed, not deleted.
+    private func collapse(range: NSRange, to image: NSImage) {
+        guard range.location + range.length <= storage.length else { return }
+        isApplyingStyles = true
+        storage.beginEditing()
+        // Collapse the source line(s).
+        storage.addAttribute(.font, value: theme.concealed, range: range)
+        storage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: range)
+        // Reserve the image band under the paragraph.
+        let para = NSMutableParagraphStyle()
+        para.paragraphSpacing = image.size.height + 2 * RenderedBlockFragment.imageGap
+        storage.addAttribute(.paragraphStyle, value: para, range: range)
+        // Mark the first char so the fragment knows to draw.
+        storage.addAttribute(blockImageAttribute, value: image, range: NSRange(location: range.location, length: 1))
+        storage.endEditing()
+        isApplyingStyles = false
+    }
+
+    /// The usable text width for sizing rendered images.
+    @ObservationIgnored public var renderMaxWidth: CGFloat = 640
+    /// Whether the host is in dark appearance (host updates on change).
+    @ObservationIgnored public var isDarkAppearance = false
+    #endif
 }
 
 // MARK: - Storage delegate bridge

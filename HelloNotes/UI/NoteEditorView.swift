@@ -114,6 +114,28 @@ struct NoteEditorView: View {
     }
     @State private var docStats = DocStats()
 
+    /// The new editor's inline block-embed renderer. Resolves `![[file]]`
+    /// image embeds relative to the note (sibling, then the attachments
+    /// subfolder), and renders ```mermaid fences via the app's Mermaid
+    /// renderer. Rebuilt per note; nil when no note is open.
+    private var blockRenderAdapter: BlockRenderAdapter? {
+        guard let noteDir = editor.note?.fileURL.deletingLastPathComponent() else { return nil }
+        let subfolder = attachmentFolder.trimmingCharacters(in: .whitespaces)
+        return BlockRenderAdapter(
+            resolve: { target in
+                let name = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
+                let candidates = [
+                    noteDir.appendingPathComponent(name),
+                    subfolder.isEmpty ? nil : noteDir.appendingPathComponent(subfolder).appendingPathComponent(name),
+                ].compactMap { $0 }
+                return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+            },
+            renderMermaid: { source, isDark in
+                MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark)
+            }
+        )
+    }
+
     private nonisolated static func computeStats(for text: String) -> DocStats {
         DocStats(
             wordCount: FrontMatter.body(of: text)
@@ -407,7 +429,8 @@ struct NoteEditorView: View {
                 pasteMarkdown: { pasteboard in
                     pasteImage(pasteboard) ?? smartPaste(pasteboard)
                 },
-                intelligence: intelligence
+                intelligence: intelligence,
+                blockRenderer: blockRenderAdapter
             )
         } else {
             NativeTextViewWrapper(
