@@ -21,7 +21,8 @@ public extension GFMRenderer {
     /// A complete HTML page rendering `markdown` exactly as GitHub would.
     /// `baseURL` (the note's folder) lets relative image `src`s resolve.
     static func page(_ markdown: String) -> String {
-        let body = html(markdown)
+        // GitHub-mode: hard line breaks, matching api.github.com/markdown.
+        let body = html(markdown, hardBreaks: true)
         return """
         <!DOCTYPE html>
         <html>

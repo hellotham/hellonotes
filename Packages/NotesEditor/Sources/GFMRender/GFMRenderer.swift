@@ -25,11 +25,17 @@ public enum GFMRenderer {
     /// `unsafe` mirrors GitHub's rendering of raw HTML: the GFM spec corpus is
     /// generated with raw HTML passed through (then tag-filtered), so spec
     /// conformance needs it on.
-    public static func html(_ markdown: String, unsafe: Bool = true) -> String {
+    ///
+    /// `hardBreaks` renders every soft line break as `<br>`. The `POST
+    /// /markdown` API does this (comment-style breaks), so the *preview* uses
+    /// it to match GitHub; the *spec* corpus does not, so conformance leaves
+    /// it off.
+    public static func html(_ markdown: String, unsafe: Bool = true, hardBreaks: Bool = false) -> String {
         cmark_gfm_core_extensions_ensure_registered()
 
         var options = CMARK_OPT_DEFAULT
         if unsafe { options |= CMARK_OPT_UNSAFE }
+        if hardBreaks { options |= CMARK_OPT_HARDBREAKS }
 
         guard let parser = cmark_parser_new(options) else { return "" }
         defer { cmark_parser_free(parser) }

@@ -1,0 +1,135 @@
+<h1>GFM Compatibility Test</h1>
+<h2>Headings</h2>
+<h1>H1 heading</h1>
+<h2>H2 heading</h2>
+<h3>H3 heading</h3>
+<h4>H4 heading</h4>
+<h5>H5 heading</h5>
+<h6>H6 heading</h6>
+<h1>Setext H1</h1>
+<h2>Setext H2</h2>
+<h2>Inline emphasis</h2>
+<p>Normal, <strong>bold</strong>, <em>italic</em>, <em><strong>bold italic</strong></em>, <code class="notranslate">inline code</code>, <del>strikethrough</del>.</p>
+<p>Nested: <strong>bold with <em>italic</em> inside</strong>, and <em>italic with <code class="notranslate">code</code></em>.</p>
+<p>Escapes: *not italic*, `not code`, # not heading.</p>
+<h2>Blockquotes</h2>
+<blockquote>
+<p>A single-line blockquote.</p>
+</blockquote>
+<blockquote>
+<p>A multi-line blockquote<br>
+that continues here.</p>
+<p>With a second paragraph.</p>
+</blockquote>
+<blockquote>
+<p>Nested:</p>
+<blockquote>
+<p>inner quote</p>
+<blockquote>
+<p>deeper</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<h2>Lists</h2>
+<p>Unordered:</p>
+<ul>
+<li>First item</li>
+<li>Second item
+<ul>
+<li>Nested item</li>
+<li>Another nested
+<ul>
+<li>Deeper</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Third item</li>
+</ul>
+<p>Ordered:</p>
+<ol>
+<li>One</li>
+<li>Two
+<ol>
+<li>Two-a</li>
+<li>Two-b</li>
+</ol>
+</li>
+<li>Three</li>
+</ol>
+<p>Loose list:</p>
+<ul>
+<li>
+<p>Item with</p>
+<p>a second paragraph.</p>
+</li>
+<li>
+<p>Another item.</p>
+</li>
+</ul>
+<p>Task list:</p>
+<ul class="contains-task-list">
+<li class="task-list-item"><input type="checkbox" id="" disabled="" class="task-list-item-checkbox" aria-label="Incomplete task"> Unchecked task</li>
+<li class="task-list-item"><input type="checkbox" id="" disabled="" class="task-list-item-checkbox" aria-label="Completed task" checked=""> Checked task</li>
+<li class="task-list-item"><input type="checkbox" id="" disabled="" class="task-list-item-checkbox" aria-label="Incomplete task"> Task with <strong>bold</strong> and <code class="notranslate">code</code></li>
+</ul>
+<h2>Code</h2>
+<p>Inline <code class="notranslate">code</code> and <code class="notranslate">let x = 1</code>.</p>
+<div class="highlight highlight-source-swift"><pre class="notranslate"><span class="pl-en">func</span> greet<span class="pl-kos">(</span>name<span class="pl-kos">:</span> <span class="pl-smi">String</span><span class="pl-kos">)</span> <span class="pl-c1">-&gt;</span> <span class="pl-smi">String</span> <span class="pl-kos">{</span>
+    <span class="pl-k">return</span> <span class="pl-s">"</span><span class="pl-s">Hello, </span><span class="pl-kos">\(</span>name<span class="pl-kos">)</span><span class="pl-s">!</span><span class="pl-s">"</span>
+<span class="pl-kos">}</span></pre></div>
+<div class="highlight highlight-source-python"><pre class="notranslate"><span class="pl-k">def</span> <span class="pl-en">add</span>(<span class="pl-s1">a</span>, <span class="pl-s1">b</span>):
+    <span class="pl-k">return</span> <span class="pl-s1">a</span> <span class="pl-c1">+</span> <span class="pl-s1">b</span>  <span class="pl-c"># comment</span></pre></div>
+<pre class="notranslate"><code class="notranslate">Indented code block
+stays monospace.
+</code></pre>
+<h2>Tables</h2>
+<markdown-accessiblity-table><table role="table">
+<thead>
+<tr>
+<th align="left">Left</th>
+<th align="center">Center</th>
+<th align="right">Right</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left">a</td>
+<td align="center">b</td>
+<td align="right">c</td>
+</tr>
+<tr>
+<td align="left">long cell</td>
+<td align="center">x</td>
+<td align="right">100</td>
+</tr>
+<tr>
+<td align="left"><strong>bold</strong></td>
+<td align="center"><code class="notranslate">code</code></td>
+<td align="right"><del>strike</del></td>
+</tr>
+</tbody>
+</table></markdown-accessiblity-table>
+<h2>Links and images</h2>
+<p>Inline <a href="https://example.com" rel="nofollow">link</a>, reference <a href="https://reference.example.com" rel="nofollow">link</a>, autolink <a href="https://github.com">https://github.com</a>.</p>
+<p>Bare URL <a href="https://www.github.com">https://www.github.com</a> and email <a href="mailto:user@example.com">user@example.com</a>.</p>
+<h2>Thematic breaks</h2>
+<p>Above.</p>
+<hr>
+<p>Below.</p>
+<h2>Hard line break</h2>
+<p>Line one with two trailing spaces<br>
+Line two after a hard break.</p>
+<h2>Combined</h2>
+<ol>
+<li>A list item with a table? No — with <code class="notranslate">code</code>, <strong>bold</strong>, and a <a href="https://x.com" rel="nofollow">link</a>.</li>
+<li>
+<blockquote>
+<p>A quote inside a list.</p>
+</blockquote>
+</li>
+<li>Item with a nested fence:
+<div class="highlight highlight-source-js"><pre class="notranslate"><span class="pl-smi">console</span><span class="pl-kos">.</span><span class="pl-en">log</span><span class="pl-kos">(</span><span class="pl-s">"nested"</span><span class="pl-kos">)</span><span class="pl-kos">;</span></pre></div>
+</li>
+</ol>
+<p>End of test.</p>

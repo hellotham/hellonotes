@@ -59,7 +59,11 @@ let package = Package(
         .testTarget(
             name: "GFMRenderTests",
             dependencies: ["GFMRender"],
-            resources: [.copy("spec.txt")],
+            resources: [
+                .copy("spec.txt"),
+                .copy("github-parity-input.md"),
+                .copy("github-parity-expected.html"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
