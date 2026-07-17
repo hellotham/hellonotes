@@ -24,24 +24,46 @@ struct NewEditorHost: View {
     var accent: NSColor
     var isEditable: Bool = true
     var onOpenWikiLink: (String) -> Void
+    /// Completions for the `[[link` / `#tag` the caret is in (the host's
+    /// ranking over the collection's titles, headings, and tags).
+    var completions: (EditorCompletionKind, String) -> [WikiCompletion] = { _, _ in [] }
+    /// Pasteboard → Markdown intents (image-to-attachment, HTML-to-md).
+    var pasteMarkdown: (NSPasteboard) -> String? = { _ in nil }
 
     @State private var document: EditorDocument?
+    @State private var proxy = EditorProxy()
     @State private var syncTask: Task<Void, Never>?
+
+    // Autocomplete popup state, reported by the editor per caret move.
+    @State private var inlineContext: EditorDocument.InlineContext?
+    @State private var caretRect: CGRect = .zero
 
     var body: some View {
         Group {
             if let document {
                 MarkdownEditorView(document: document)
                     .editable(isEditable)
+                    .commandBus(documentId: editor.note?.fileURL.path ?? "default")
+                    .proxy(proxy)
                     .onLinkTap { tap in
                         switch tap {
                         case .wiki(let target): onOpenWikiLink(target)
                         case .url(let url): NSWorkspace.shared.open(url)
                         }
                     }
+                    .onPasteMarkdown { pasteboard in pasteMarkdown(pasteboard) }
+                    .onInlineContext { context, rect in
+                        if inlineContext != context { inlineContext = context }
+                        caretRect = rect
+                    }
+                    .overlay(alignment: .topLeading) {
+                        let matches = activeCompletions
+                        if !matches.isEmpty {
+                            WikiLinkCompletionList(matches: matches, onSelect: accept)
+                                .offset(x: max(4, caretRect.minX), y: caretRect.maxY + 2)
+                        }
+                    }
             } else {
-                // Off-main parse+style of a large note; near-instant for
-                // typical ones.
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -95,5 +117,32 @@ struct NewEditorHost: View {
             editor.text = document.text
         }
     }
+
+    // MARK: - Autocomplete
+
+    private var activeCompletions: [WikiCompletion] {
+        guard isEditable, let context = inlineContext else { return [] }
+        switch context.kind {
+        case .wikiLink: return completions(.wikiLink, context.query)
+        case .tag: return completions(.tag, context.query)
+        }
+    }
+
+    private func accept(_ completion: WikiCompletion) {
+        guard let context = inlineContext else { return }
+        let replacement: String
+        switch context.kind {
+        case .wikiLink: replacement = "[[\(completion.insert)]]"
+        case .tag: replacement = "#\(completion.insert) "
+        }
+        proxy.replace(range: context.range, with: replacement)
+        inlineContext = nil
+    }
+}
+
+/// The completion domains the host can be asked for.
+enum EditorCompletionKind {
+    case wikiLink
+    case tag
 }
 #endif

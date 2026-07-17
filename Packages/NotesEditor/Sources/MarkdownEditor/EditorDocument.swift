@@ -73,6 +73,17 @@ public final class EditorDocument {
     public let theme: EditorTheme
     public let undoManager = UndoManager()
 
+    /// The editor's current selection, mirrored from the view on every
+    /// change — so AI actions and commands can read it without a view
+    /// reference.
+    public private(set) var selectedRange = NSRange(location: 0, length: 0)
+
+    /// Substring access without snapshotting the whole document.
+    public func text(in range: NSRange) -> String {
+        guard range.location >= 0, range.location + range.length <= storage.length else { return "" }
+        return storage.mutableString.substring(with: range)
+    }
+
     // MARK: - Internals
 
     let storage = NSTextStorage()
@@ -259,15 +270,48 @@ public final class EditorDocument {
             styledBlocks = Array(repeating: true, count: parse.blocks.count)
         }
 
-        let stillRevealed = damaged.union(revealedBlocks)
-        restyle(blockIndices: damaged, revealed: stillRevealed)
-        if !hadPendingStyling {
-            for i in damaged where styledBlocks.indices.contains(i) { styledBlocks[i] = true }
+        if externalSessionDepth > 0 {
+            // A Writing Tools / AI session owns the presentation right now;
+            // remember the damage and restyle when it ends.
+            externalSessionDamage.formUnion(damaged)
+        } else {
+            let stillRevealed = damaged.union(revealedBlocks)
+            restyle(blockIndices: damaged, revealed: stillRevealed)
+            if !hadPendingStyling {
+                for i in damaged where styledBlocks.indices.contains(i) { styledBlocks[i] = true }
+            }
         }
         lastEditMetrics.restyleMS = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
 
         revision &+= 1
         onEdit?(edit)
+    }
+
+    // MARK: - External text sessions (Writing Tools, AI rewrites)
+
+    /// While an external session rewrites text (Apple Intelligence Writing
+    /// Tools, an AI action), the parse stays live per edit — correctness —
+    /// but restyling pauses so our attributes never fight the session's own
+    /// decorations (proofreading underlines, animations). Damaged blocks
+    /// are collected and restyled once when the session ends.
+    @ObservationIgnored private var externalSessionDepth = 0
+    @ObservationIgnored private var externalSessionDamage = Set<Int>()
+
+    public func beginExternalTextSession() {
+        externalSessionDepth += 1
+    }
+
+    public func endExternalTextSession() {
+        externalSessionDepth = max(0, externalSessionDepth - 1)
+        guard externalSessionDepth == 0, !externalSessionDamage.isEmpty else { return }
+        // Indices may have shifted across the session's edits; restyle a
+        // generous window around what was touched.
+        let lo = max(0, (externalSessionDamage.min() ?? 0) - 2)
+        let hi = min(parse.blocks.count - 1, (externalSessionDamage.max() ?? 0) + 2)
+        externalSessionDamage = []
+        if lo <= hi {
+            restyle(blockIndices: Set(lo...hi), revealed: revealedBlocks)
+        }
     }
 
     // MARK: - Caret-driven syntax reveal
@@ -276,6 +320,8 @@ public final class EditorDocument {
     /// state flips get restyled (usually 0–2 blocks — O(paragraph), the
     /// property the old engine never had).
     public func selectionDidChange(_ selection: NSRange) {
+        selectedRange = selection
+        guard externalSessionDepth == 0 else { return }
         var newRevealed = Set<Int>()
         if let lo = parse.blockIndex(at: selection.location) {
             newRevealed.insert(lo)
@@ -293,6 +339,94 @@ public final class EditorDocument {
     }
 
     // MARK: - Queries
+
+    /// What the caret is inside, for the autocomplete popup: an (open or
+    /// closed) `[[wiki link]]` or a `#tag` being typed.
+    public struct InlineContext: Equatable {
+        public enum Kind: Equatable { case wikiLink, tag }
+        public var kind: Kind
+        /// The whole construct, markers included — what acceptance replaces.
+        public var range: NSRange
+        /// The text typed so far, markers stripped.
+        public var query: String
+    }
+
+    /// Inline context at `location`, or nil in plain text. Scans only the
+    /// caret's line — O(line) on every caret move.
+    public func inlineContext(at location: Int) -> InlineContext? {
+        let ns: NSString = storage.mutableString
+        guard location >= 0, location <= ns.length else { return nil }
+        guard let blockIdx = parse.blockIndex(at: location) else { return nil }
+        guard parse.blocks[blockIdx].hasInlineContent else { return nil }
+        let line = ns.lineRange(for: NSRange(location: min(location, max(0, ns.length - 1)), length: 0))
+        var lineEnd = line.location + line.length
+        if lineEnd > line.location, ns.character(at: lineEnd - 1) == 0x0A { lineEnd -= 1 }
+
+        // Walk back for an unmatched "[[" before the caret (no "]]" or
+        // newline between it and the caret).
+        var i = location - 1
+        while i > line.location {
+            let c = ns.character(at: i)
+            let prev = ns.character(at: i - 1)
+            if c == 0x5D && prev == 0x5D { break }               // "]]" — closed before caret
+            if c == 0x5B && prev == 0x5B {
+                let openStart = i - 1
+                // A closing "]]" between the caret and line end, if any.
+                var close: Int? = nil
+                var j = location
+                while j + 1 < lineEnd {
+                    if ns.character(at: j) == 0x5D, ns.character(at: j + 1) == 0x5D { close = j; break }
+                    j += 1
+                }
+                let contentEnd = close ?? location
+                let end = close.map { $0 + 2 } ?? location
+                let query = ns.substring(with: NSRange(location: i + 1, length: max(0, contentEnd - (i + 1))))
+                return InlineContext(kind: .wikiLink,
+                                     range: NSRange(location: openStart, length: end - openStart),
+                                     query: query)
+            }
+            i -= 1
+        }
+
+        // A "#tag" run containing the caret.
+        var start = location
+        while start > line.location {
+            let c = ns.character(at: start - 1)
+            let isTagChar = (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)
+                || c == 0x5F || c == 0x2F || c == 0x2D || c > 0x7F
+            if isTagChar { start -= 1; continue }
+            if c == 0x23 { // '#'
+                let boundaryOK = start - 1 == line.location || {
+                    let b = ns.character(at: start - 2)
+                    return !((b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || b == 0x5F || b > 0x7F)
+                }()
+                if boundaryOK, location > start - 1 + 1 {
+                    let query = ns.substring(with: NSRange(location: start, length: location - start))
+                    return InlineContext(kind: .tag,
+                                         range: NSRange(location: start - 1, length: location - (start - 1)),
+                                         query: query)
+                }
+            }
+            break
+        }
+        return nil
+    }
+
+    /// Case-insensitive matches of `query` (find bar, scroll-to-heading).
+    public func findMatches(of query: String) -> [NSRange] {
+        guard !query.isEmpty else { return [] }
+        let ns: NSString = storage.mutableString
+        var result: [NSRange] = []
+        var searchStart = 0
+        while searchStart < ns.length {
+            let r = ns.range(of: query, options: [.caseInsensitive],
+                             range: NSRange(location: searchStart, length: ns.length - searchStart))
+            guard r.location != NSNotFound else { break }
+            result.append(r)
+            searchStart = r.location + max(1, r.length)
+        }
+        return result
+    }
 
     /// Document headings (outline, scroll targets).
     public func headings() -> [(level: Int, title: String, range: NSRange)] {

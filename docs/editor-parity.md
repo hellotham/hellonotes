@@ -17,12 +17,16 @@ Updated 2026-07-17 (M1).
 | Undo/redo per document | ✓ | stock NSUndoManager against raw storage |
 | Caret autoscroll while typing | ✓ | standard NSTextView behavior, nothing fights it |
 | Large-note performance | ✓✓ | the rewrite's reason to exist; see numbers in editor-rewrite.md |
-| Find (⌘F) | ⚠ | native NSTextView find bar works *inside the editor*, but the app's FindReplaceBar (and its bus) isn't wired to the new engine yet |
-| `[[wiki]]` / `#tag` autocomplete popup | ✗ | M2 — needs inline-context reporting + caret rect |
-| Format menu commands (bold/italic/…, headings, lists) | ✗ | M2 — document command API |
-| Image paste → attachment, smart paste (HTML→md) | ✗ | M2 — paste intents |
-| Code-block syntax highlighting (async upgrade) | ✗ | M2 |
-| Scroll-to-heading (outline, `[[Note#h]]`, search hits) | ✗ | M2 — `reliablyScroll(to:)` exists, needs app wiring |
+| Find (⌘F) | ✓ | app FindReplaceBar bus wired (query/step/replace/replace-all/clear); native NSTextView find bar also available |
+| `[[wiki]]` / `#tag` autocomplete popup | ✓ | live-verified: popup at caret, fuzzy ranking, acceptance replaces the open token |
+| Format menu commands (bold/italic/…, headings, lists, quote) | ✓ | live-verified ⌘B; all commands undoable via the typing path |
+| Image paste → attachment, smart paste (HTML→md) | ✓ | host paste intents; non-intent pastes forced to plain text |
+| Scroll-to-heading (outline, `[[Note#h]]`, search hits) | ✓ | find-bus queries drive TK2-safe ensureLayout + segment-frame scroll |
+| **Writing Tools (Apple Intelligence)** | ✓ | `.complete` behavior, results constrained to `.plainText` so rewrites can't corrupt Markdown; styling pauses during sessions, one catch-up restyle at end |
+| **System inline predictions** | ✓ | `inlinePredictionType = .yes` |
+| **AI edit seam** | ✓ | `EditorProxy.replace/performAITransform` — undoable programmatic edits through the typing path; ready for provider-driven rewrite UI |
+| Provider-driven AI UI (rewrite selection with prompt, ghost completion) | ✗ | next — app-side UI on the EditorProxy seam + app's IntelligenceService |
+| Code-block syntax highlighting (async upgrade) | ✗ | M2.5 |
 | Rendered embeds: `![[image]]`, block LaTeX, Mermaid, transclusion cards | ✗ | M3 — fragment drawing |
 | Inline LaTeX rendered as image | ✗ | M3+; styled source meanwhile |
 | Callout collapse, front-matter fold | ✗ | M3 |

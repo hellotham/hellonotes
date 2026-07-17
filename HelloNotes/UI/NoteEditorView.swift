@@ -210,8 +210,12 @@ struct NoteEditorView: View {
         guard inlineSelection?.kind == .tag,
               let raw = inlineSelection?.selection.placeholder else { return [] }
         // The engine's placeholder includes the leading `#`; match on the rest.
-        let partial = raw.hasPrefix("#") ? String(raw.dropFirst()) : raw
+        return tagCompletions(partial: raw.hasPrefix("#") ? String(raw.dropFirst()) : raw)
+    }
 
+    /// Rank existing tags against a partially-typed tag (shared by both
+    /// editor engines' autocomplete).
+    private func tagCompletions(partial: String) -> [WikiCompletion] {
         let ranked: [String]
         if partial.isEmpty {
             ranked = Array(tagCandidates.prefix(8))
@@ -387,7 +391,22 @@ struct NoteEditorView: View {
                 linkCandidates: linkCandidates,
                 fontSize: appearance.editorFontSize,
                 accent: appearance.editorAccentNSColor,
-                onOpenWikiLink: onOpenWikiLink
+                onOpenWikiLink: onOpenWikiLink,
+                completions: { kind, query in
+                    switch kind {
+                    case .wikiLink:
+                        if let hash = query.firstIndex(of: "#") {
+                            return headingCompletions(notePart: String(query[..<hash]),
+                                                      query: String(query[query.index(after: hash)...]))
+                        }
+                        return noteCompletions(query: query.trimmingCharacters(in: .whitespaces))
+                    case .tag:
+                        return tagCompletions(partial: query)
+                    }
+                },
+                pasteMarkdown: { pasteboard in
+                    pasteImage(pasteboard) ?? smartPaste(pasteboard)
+                }
             )
         } else {
             NativeTextViewWrapper(

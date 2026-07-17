@@ -153,6 +153,27 @@ document.scroll(to: .heading("Setup"))    // outline, [[Note#h]], search
 `EditorDocument` instead of a `String`; dirty tracking comes from edit
 events, not O(n) string compares.
 
+### AI-native by design
+
+The editor treats AI as a first-class text producer, not a bolt-on:
+
+- **Apple Intelligence Writing Tools** come free with the native TextKit 2
+  view: `writingToolsBehavior = .complete` (inline proofread/rewrite/
+  summarize), `allowedWritingToolsResultOptions = [.plainText]` so a
+  rewrite can never return rich text and corrupt Markdown syntax.
+- **System inline predictions** (`inlinePredictionType = .yes`).
+- **External-session protocol**: any AI mutation (Writing Tools or a
+  provider) runs inside `beginExternalTextSession()` …
+  `endExternalTextSession()` — parsing stays live per edit (correctness),
+  restyling pauses so our attributes never fight session decorations, and
+  one catch-up restyle runs at the end.
+- **`EditorProxy`** is the app's AI surface: `replace(range:with:)`
+  (undoable, through the same path typing takes), `performAITransform`,
+  plus `document.selectedRange` / `text(in:)` for context extraction.
+  Rewrite-selection-with-prompt, selectable task transforms, and
+  provider-driven ghost completion all build on this seam with the app's
+  existing multi-provider IntelligenceService.
+
 ### Modes, undo, autoscroll
 
 - **Preview** = the same editor, `isEditable: false`, reveal permanently off
