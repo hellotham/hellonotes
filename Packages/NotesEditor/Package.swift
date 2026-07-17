@@ -31,7 +31,7 @@ let package = Package(
         ),
         .target(
             name: "MarkdownEditor",
-            dependencies: ["MarkdownCore"],
+            dependencies: ["MarkdownCore", "GFMRender"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .defaultIsolation(MainActor.self),
@@ -43,6 +43,7 @@ let package = Package(
                 .product(name: "cmark-gfm", package: "swift-cmark"),
                 .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
             ],
+            resources: [.copy("github-markdown.css")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

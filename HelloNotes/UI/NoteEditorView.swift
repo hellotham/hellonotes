@@ -7,6 +7,7 @@
 
 #if os(macOS)
 import SwiftUI
+import MarkdownEditor
 
 /// The editor column: hosts HelloNotes' TextKit 2 editor (Packages/NotesEditor)
 /// for the open note — live styling, code highlighting, math/diagram/image
@@ -376,11 +377,21 @@ struct NoteEditorView: View {
     /// it will look, with `[[wiki-links]]` still clickable.
     @ViewBuilder
     private var previewModeContent: some View {
-        editorHost(isEditable: false)
+        githubPreview
         if hasReferences {
             Divider()
             referencesPanel
         }
+    }
+
+    /// GitHub-identical rendered preview: the note (front matter stripped, the
+    /// app's wiki-links/embeds/callouts bridged to HTML) is rendered through
+    /// cmark-gfm — GitHub's own engine — and shown with GitHub's stylesheet.
+    private var githubPreview: some View {
+        GFMPreview(
+            markdown: GitHubMarkdown.prepare(editor.text),
+            baseURL: editor.note?.fileURL.deletingLastPathComponent()
+        )
     }
 
     /// The raw Markdown source in a plain monospaced editor, bound straight to
@@ -401,12 +412,12 @@ struct NoteEditorView: View {
             if geo.size.width >= geo.size.height {
                 HSplitView {
                     sourceEditor.frame(minWidth: 180)
-                    editorHost(isEditable: false).frame(minWidth: 180)
+                    githubPreview.frame(minWidth: 180)
                 }
             } else {
                 VSplitView {
                     sourceEditor.frame(minHeight: 120)
-                    editorHost(isEditable: false).frame(minHeight: 120)
+                    githubPreview.frame(minHeight: 120)
                 }
             }
         }
