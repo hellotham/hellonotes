@@ -135,6 +135,17 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         PlatformDraw.image(cg, in: rect, context: context)
     }
 
+    /// Draw only the chrome (no text, no block-embed image) at `point`. Used by
+    /// the iOS overlay renderer, since `UITextView` doesn't invoke a custom
+    /// fragment's `draw(at:in:)` the way `NSTextView` does.
+    nonisolated func drawChromeOnly(at point: CGPoint, in context: CGContext) {
+        drawCalloutBands(at: point, in: context)
+        drawTaskCheckboxes(at: point, in: context)
+        drawListBullets(at: point, in: context)
+        drawHeadingRule(at: point, in: context)
+        drawInlineImages(at: point, in: context)
+    }
+
     // MARK: - Task checkboxes
 
     /// Draw a checkbox glyph over every concealed `[ ]`/`[x]` box on top of

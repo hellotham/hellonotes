@@ -19,7 +19,14 @@ public final class MarkdownUITextView: UITextView {
 
     private(set) weak var document: EditorDocument?
     /// Retains the layout delegate that vends chrome-drawing fragments.
-    private let blockLayoutDelegate = RenderedBlockLayoutDelegate()
+    /// `lazy`, not a stored default: `init(usingTextLayoutManager:)` is an
+    /// inherited convenience initializer that skips the subclass's stored-
+    /// property synthesis, leaving plain defaults null (a weak-assign into a
+    /// null `chromeOverlay` faults at 0x8). Lazy init runs on first access.
+    private lazy var blockLayoutDelegate = RenderedBlockLayoutDelegate()
+    /// Draws the fragment chrome (bullets, callout bands, checkboxes, gutter
+    /// bars, heading rules) — UITextView doesn't invoke custom fragments' draw.
+    private lazy var chromeOverlay = ChromeOverlayView()
     var onLinkTap: ((EditorLinkTap) -> Void)?
 
     public static func make(document: EditorDocument) -> MarkdownUITextView {
@@ -45,7 +52,21 @@ public final class MarkdownUITextView: UITextView {
         let tap = UITapGestureRecognizer(target: tv, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
         tv.addGestureRecognizer(tap)
+
+        // Overlay that paints the fragment chrome over the text (scrolls with
+        // the content as a subview of the scroll view).
+        tv.chromeOverlay.textView = tv
+        tv.chromeOverlay.isUserInteractionEnabled = false
+        tv.chromeOverlay.backgroundColor = .clear
+        tv.chromeOverlay.contentMode = .redraw
+        tv.addSubview(tv.chromeOverlay)
         return tv
+    }
+
+    /// Redraw the chrome overlay (after edits, selection/reveal changes, layout).
+    func refreshChrome() {
+        chromeOverlay.frame = CGRect(origin: .zero, size: contentSize)
+        chromeOverlay.setNeedsDisplay()
     }
 
     private func bind(to document: EditorDocument) {
@@ -78,6 +99,7 @@ public final class MarkdownUITextView: UITextView {
     public override func layoutSubviews() {
         super.layoutSubviews()
         syncRenderMetrics()
+        refreshChrome()
     }
 
     /// Ask the document to style what's on screen (± a margin), so fast
@@ -106,6 +128,29 @@ public final class MarkdownUITextView: UITextView {
         } else if let link = storage.attribute(.link, at: index, effectiveRange: nil) {
             if let url = link as? URL { onLinkTap?(.url(url)) }
             else if let s = link as? String, let url = URL(string: s) { onLinkTap?(.url(url)) }
+        }
+    }
+}
+
+/// Transparent subview that paints the fragment chrome over the text. It sits
+/// in the scroll view's content, so it scrolls with the text; it enumerates the
+/// laid-out `RenderedBlockFragment`s and calls their chrome-only draw.
+final class ChromeOverlayView: UIView {
+    weak var textView: MarkdownUITextView?
+
+    override func draw(_ rect: CGRect) {
+        guard let tv = textView, let tlm = tv.textLayoutManager,
+              let context = UIGraphicsGetCurrentContext() else { return }
+        let inset = tv.textContainerInset
+        // No `.ensuresLayout` — layout is already done when we draw; forcing it
+        // here re-enters layout during drawing and crashes.
+        tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: []) { fragment in
+            if let chrome = fragment as? RenderedBlockFragment {
+                let origin = CGPoint(x: inset.left + fragment.layoutFragmentFrame.origin.x,
+                                     y: inset.top + fragment.layoutFragmentFrame.origin.y)
+                chrome.drawChromeOnly(at: origin, in: context)
+            }
+            return true
         }
     }
 }
@@ -151,6 +196,12 @@ public struct MarkdownEditorView: UIViewRepresentable {
 
         public func textViewDidChangeSelection(_ textView: UITextView) {
             document.selectionDidChange(textView.selectedRange)
+            // Reveal flips which markers conceal / which chrome shows.
+            (textView as? MarkdownUITextView)?.refreshChrome()
+        }
+
+        public func textViewDidChange(_ textView: UITextView) {
+            (textView as? MarkdownUITextView)?.refreshChrome()
         }
 
         public func scrollViewDidScroll(_ scrollView: UIScrollView) {

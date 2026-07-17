@@ -49,10 +49,14 @@ final class iOSEditorSnapshotTests: XCTestCase {
         window.makeKeyAndVisible()
 
         doc.styleEverythingNow()
-        // Let TextKit 2 lay out + draw the fragment chrome.
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        // Let TextKit 2 lay out and the chrome overlay draw on the run loop
+        // (layoutSubviews → refreshChrome → the overlay's setNeedsDisplay).
+        tv.setNeedsLayout()
         tv.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(2.0))
 
+        // Render the already-drawn layer tree (text + overlay). drawHierarchy
+        // re-enters TextKit during capture; layer.render just composites layers.
         let renderer = UIGraphicsImageRenderer(bounds: bounds)
         let image = renderer.image { ctx in
             tv.layer.render(in: ctx.cgContext)
