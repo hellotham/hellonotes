@@ -43,7 +43,6 @@ struct GeneralSettingsView: View {
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
     @AppStorage("dailyDateFormat") private var dailyDateFormat = "yyyy-MM-dd"
     @AppStorage("templatesFolder") private var templatesFolder = "Templates"
-    @AppStorage("useNewEditorBeta") private var useNewEditor = false
 
     /// Remembers the last subfolder name so toggling to "same folder" and back
     /// restores it instead of clearing the field.
@@ -96,13 +95,6 @@ struct GeneralSettingsView: View {
 
             Section("Templates") {
                 TextField("Folder", text: $templatesFolder, prompt: Text("Templates"))
-            }
-
-            Section("Editor") {
-                Toggle("New editor engine (beta)", isOn: $useNewEditor)
-                Text("HelloNotes' own editing engine — dramatically faster on large notes. Still reaching feature parity: autocomplete, inline rendering (math, Mermaid, images) and the find bar aren't wired up yet. The stable engine remains the default.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

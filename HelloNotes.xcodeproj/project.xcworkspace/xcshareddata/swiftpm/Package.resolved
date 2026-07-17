@@ -1,5 +1,5 @@
 {
-  "originHash" : "b74d4a86f51583764a93168ae9ad25653c45aaec1bec95657b5ca5a86fc1cd8a",
+  "originHash" : "426efb49ae7cc12755752941c2bff826493ce138c4c6c9fcaeec9c18091f3c11",
   "pins" : [
     {
       "identity" : "beautiful-mermaid-swift",
@@ -116,15 +116,6 @@
       "state" : {
         "revision" : "3c6f9523da3a1ec2fd829673e472d95b8097a3b8",
         "version" : "0.8.0"
-      }
-    },
-    {
-      "identity" : "swift-markdown-engine",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ChristineTham/swift-markdown-engine.git",
-      "state" : {
-        "branch" : "hellonotes-patches",
-        "revision" : "58c7df3ea352e2fddfe483c3ba80e7134f279f90"
       }
     },
     {

@@ -65,9 +65,6 @@ final class Collection: Identifiable {
     let bookmarks = BookmarksStore()
 
     #if os(macOS)
-    /// Tells the editor which wiki-link targets exist (drives clickability).
-    let wikiResolver = CollectionWikiLinkResolver()
-
     /// Renders `![[Note]]` transclusions to inline images.
     let embedProvider = CollectionEmbedProvider()
 
@@ -206,7 +203,6 @@ final class Collection: Identifiable {
     ///
     /// `force` ignores the cache and re-parses everything (the Rescan command).
     func refreshDerived(force: Bool = false) {
-        wikiResolver.update(titles: notes.map(\.title))
         embedProvider.update(notes: notes)
         let noteList = notes
         let root = rootURL
@@ -235,7 +231,6 @@ final class Collection: Identifiable {
 
             linkGraph.load(pairs: pairs)
             search.load(pairs: pairs)
-            wikiResolver.update(titles: Array(linkGraph.resolution.keys))
             derivedRevision &+= 1
         }
     }
@@ -301,7 +296,6 @@ final class Collection: Identifiable {
            MarkdownParsing.aliases(in: text) == search.aliases(of: url) {
             linkGraph.updateNote(url: url, title: title, text: text)
             search.updateNote(note, text: text)
-            wikiResolver.update(titles: Array(linkGraph.resolution.keys))
             embedProvider.update(notes: notes)   // bump so transclusions re-render
             derivedRevision &+= 1
         } else {

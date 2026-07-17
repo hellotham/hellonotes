@@ -7,23 +7,21 @@
 
 #if os(macOS)
 import AppKit
-import MarkdownEngine
 
-/// Supplies images for `![[…]]` embeds. Note references (`![[Note]]` /
-/// `![[Note#heading]]`) are transcluded: the target note's Markdown is rendered
-/// to an image via ``NoteTranscluder``. Image-file references fall back to
-/// loading the file from disk relative to a known note.
+/// Renders `![[Note]]` / `![[Note#heading]]` transclusions to images. The
+/// target note's Markdown is rendered to a titled card via ``NoteTranscluder``;
+/// non-note targets (image files) return nil (the editor loads those directly).
 ///
-/// The engine caches embed images by reference + `fingerprint()`, so a `revision`
-/// bump (on any collection change) is what makes a stale transclusion re-render.
-/// Reads the target note lazily on `image(for:)` and caches by content.
-final class CollectionEmbedProvider: EmbeddedImageProvider, @unchecked Sendable {
+/// Reads the target note lazily on `image(forName:)` and caches by content
+/// (keyed on a cheap mtime `stat` + appearance) so repeat renders are free.
+final class CollectionEmbedProvider: @unchecked Sendable {
     private let lock = NSLock()
     private var notesByName: [String: URL] = [:]   // lowercased title → file URL
     private var revision = 0
     private var cache: [String: NSImage] = [:]
 
-    /// Refresh the name→URL map and invalidate the engine's embed cache.
+    /// Refresh the name→URL map and invalidate cached cards. A `revision` bump
+    /// (on any collection change) is what makes a stale transclusion re-render.
     func update(notes: [Note]) {
         lock.lock(); defer { lock.unlock() }
         notesByName = Dictionary(
@@ -33,23 +31,18 @@ final class CollectionEmbedProvider: EmbeddedImageProvider, @unchecked Sendable 
         revision += 1
     }
 
-    func fingerprint() -> AnyHashable {
-        lock.lock(); defer { lock.unlock() }
-        return AnyHashable(revision)
-    }
-
-    func image(for reference: EmbeddedImageRequest) -> NSImage? {
-        let (base, heading) = splitHeading(reference.name)
+    /// A rendered transclusion card for an `![[Note]]` target, or nil when the
+    /// target isn't a note in this collection. Main-actor (NoteTranscluder
+    /// uses `lockFocus`).
+    @MainActor
+    func image(forName name: String) -> NSImage? {
+        let (base, heading) = splitHeading(name)
 
         lock.lock()
         let url = notesByName[base.lowercased()]
         lock.unlock()
         guard let url else { return nil }   // not a note → no transclusion
 
-        // Key the cache on a cheap mtime `stat` (not a full read) so a cache hit
-        // costs no file read, while a changed target still re-renders. The
-        // engine invalidates its own cache on any collection change (`revision`),
-        // so without this every unrelated edit re-read every visible embed.
         let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
             .contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
         let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua

@@ -461,7 +461,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
 
             // Find bar + scroll-to-heading (both arrive as find queries).
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorFindQuery"),
+                forName: Notification.Name("hn.editor.findQuery"),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let query = note.userInfo?["query"] as? String ?? ""
@@ -473,12 +473,12 @@ public struct MarkdownEditorView: NSViewRepresentable {
                     if let index { self.findIndex = index }
                     let count = textView.showMatch(of: query, index: self.findIndex)
                     NotificationCenter.default.post(
-                        name: Notification.Name("hnEditorFindResults"),
+                        name: Notification.Name("hn.editor.findResults"),
                         object: nil, userInfo: ["count": count])
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorReplaceCurrent"),
+                forName: Notification.Name("hn.editor.replaceCurrent"),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let replacement = note.userInfo?["replacement"] as? String
@@ -491,7 +491,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorReplaceAll"),
+                forName: Notification.Name("hn.editor.replaceAll"),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let replacement = note.userInfo?["replacement"] as? String
@@ -506,7 +506,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorClearHighlights"),
+                forName: Notification.Name("hn.editor.clearHighlights"),
                 object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {

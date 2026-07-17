@@ -20,7 +20,6 @@ struct NoteWindowView: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var editor = EditorModel()
-    @State private var wikiResolver = CollectionWikiLinkResolver()
     @State private var embedProvider = CollectionEmbedProvider()
     @State private var git = GitService()
     @State private var didLoad = false
@@ -42,7 +41,6 @@ struct NoteWindowView: View {
                 NoteEditorView(
                     editor: editor,
                     backlinks: [],
-                    wikiResolver: wikiResolver,
                     embedProvider: embedProvider,
                     git: git,
                     linkCandidates: notes.map(\.title),
@@ -63,7 +61,6 @@ struct NoteWindowView: View {
         .task {
             guard !didLoad else { return }
             didLoad = true
-            wikiResolver.update(titles: notes.map(\.title))
             embedProvider.update(notes: notes)
             if let root = collection?.rootURL {
                 git.rootURL = root

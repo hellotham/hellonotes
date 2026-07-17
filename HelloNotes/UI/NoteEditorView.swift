@@ -7,13 +7,11 @@
 
 #if os(macOS)
 import SwiftUI
-import MarkdownEngine
-import MarkdownEngineCodeBlocks
-import MarkdownEngineLatex
 
-/// The editor column: hosts MarkdownEngine's live TextKit 2 text view for the
-/// open note (with code highlighting and LaTeX), routes wiki-link clicks, and
-/// shows a backlinks panel beneath the editor.
+/// The editor column: hosts HelloNotes' TextKit 2 editor (Packages/NotesEditor)
+/// for the open note — live styling, code highlighting, math/diagram/image
+/// embeds, autocomplete — routes wiki-link clicks, and shows a references
+/// panel beneath the editor.
 struct NoteEditorView: View {
     @Bindable var editor: EditorModel
 
@@ -25,9 +23,6 @@ struct NoteEditorView: View {
 
     /// Notes that mention the open note by name but don't link it.
     var unlinkedMentions: [Note] = []
-
-    /// Resolves which `[[wiki-link]]` targets exist (drives link clickability).
-    var wikiResolver: CollectionWikiLinkResolver
 
     /// Renders `![[Note]]` transclusions to inline images.
     var embedProvider: CollectionEmbedProvider
@@ -74,10 +69,6 @@ struct NoteEditorView: View {
     /// The intelligence service for the user's chosen provider.
     private var intelligence: IntelligenceService { IntelligenceService(settings: llmSettings) }
 
-    /// Opt-in to the in-repo editor engine while it reaches parity with the
-    /// forked one (Settings → General → Editor; docs/editor-rewrite.md).
-    @AppStorage("useNewEditorBeta") private var useNewEditor = false
-
     @State private var showMermaid = false
     @State private var showSlides = false
     @State private var showOutline = false
@@ -87,11 +78,6 @@ struct NoteEditorView: View {
     // Editable front-matter properties, seeded per note.
     @State private var properties: [Property] = []
     @State private var showProperties = false
-
-    // Wiki-link autocomplete state, driven by the engine's inline-selection bus.
-    @State private var inlineSelection: InlineSelectionState?
-    @State private var caretRect: CGRect = .zero
-    @State private var pendingReplacement: InlineReplacementRequest?
 
     // Find & replace bar state. The engine owns the search/replace; this view
     // just posts queries and reflects the match count it posts back.
@@ -138,9 +124,9 @@ struct NoteEditorView: View {
                 await MainActor.run { NoteTranscluder.blockLatexImage(source: source, isDark: isDark) }
             },
             renderTransclusion: { target, _ in
-                // The app's embed provider already renders `![[Note]]` to a
-                // titled card (main-actor: it uses lockFocus).
-                await MainActor.run { embed.image(for: EmbeddedImageRequest(name: target)) }
+                // The app's embed provider renders `![[Note]]` to a titled
+                // card (main-actor: it uses lockFocus).
+                await MainActor.run { embed.image(forName: target) }
             }
         )
     }
@@ -164,25 +150,6 @@ struct NoteEditorView: View {
     /// the sheet is presented, never during ordinary body evaluation).
     private var mermaidSources: [String] {
         MarkdownParsing.mermaidBlocks(in: editor.text)
-    }
-
-    /// Suggestions for the active `[[wiki-link]]` the caret is in. Before a `#`
-    /// these are note titles/aliases; after a `#` they are headings of the named
-    /// note (or this note, for `[[#heading]]`). Empty when not in a wiki-link.
-    private var wikiMatches: [WikiCompletion] {
-        guard inlineSelection?.kind == .wikiLink,
-              let raw = inlineSelection?.selection.placeholder else { return [] }
-        // The engine's placeholder spans the whole token, brackets included
-        // (e.g. "[[Id]]"); match against just the inner text.
-        var inner = raw
-        if inner.hasPrefix("[[") { inner.removeFirst(2) }
-        if inner.hasSuffix("]]") { inner.removeLast(2) }
-
-        if let hash = inner.firstIndex(of: "#") {
-            return headingCompletions(notePart: String(inner[..<hash]),
-                                      query: String(inner[inner.index(after: hash)...]))
-        }
-        return noteCompletions(query: inner.trimmingCharacters(in: .whitespaces))
     }
 
     private func noteCompletions(query: String) -> [WikiCompletion] {
@@ -226,26 +193,8 @@ struct NoteEditorView: View {
         }
     }
 
-    /// Completions for whichever inline token the caret is in — `[[wiki-links]]`
-    /// or `#tags`. Drives the shared completion popup.
-    private var activeCompletions: [WikiCompletion] {
-        switch inlineSelection?.kind {
-        case .wikiLink: return wikiMatches
-        case .tag: return tagMatches
-        default: return []
-        }
-    }
-
-    /// Existing-tag suggestions for the `#tag` the caret is typing.
-    private var tagMatches: [WikiCompletion] {
-        guard inlineSelection?.kind == .tag,
-              let raw = inlineSelection?.selection.placeholder else { return [] }
-        // The engine's placeholder includes the leading `#`; match on the rest.
-        return tagCompletions(partial: raw.hasPrefix("#") ? String(raw.dropFirst()) : raw)
-    }
-
-    /// Rank existing tags against a partially-typed tag (shared by both
-    /// editor engines' autocomplete).
+    /// Rank existing tags against a partially-typed tag (for the editor's
+    /// `#tag` autocomplete).
     private func tagCompletions(partial: String) -> [WikiCompletion] {
         let ranked: [String]
         if partial.isEmpty {
@@ -262,44 +211,6 @@ struct NoteEditorView: View {
             return []
         }
         return ranked.map { WikiCompletion(label: "#\($0)", insert: $0, isHeading: false) }
-    }
-
-    /// Commit whichever completion kind is active.
-    private func acceptCompletion(_ completion: WikiCompletion) {
-        if inlineSelection?.kind == .tag {
-            acceptTagCompletion(completion)
-        } else {
-            acceptWikiCompletion(completion)
-        }
-    }
-
-    /// Commit a wiki-link autocomplete choice through the engine's inline
-    /// replacement bus, which rewrites the `[[…]]` token and restores the caret.
-    private func acceptWikiCompletion(_ completion: WikiCompletion) {
-        guard let selection = inlineSelection?.selection,
-              let documentId = editor.note?.fileURL.path else { return }
-        pendingReplacement = InlineReplacementRequest(
-            documentId: documentId,
-            selection: selection,
-            storageFragment: "[[\(completion.insert)]]",
-            isImageEmbedMode: false
-        )
-        inlineSelection = nil
-    }
-
-    /// Commit a `#tag` completion: replace the partial tag with the full tag and
-    /// a trailing space (literal mode — no `[[…]]` wrapping).
-    private func acceptTagCompletion(_ completion: WikiCompletion) {
-        guard let selection = inlineSelection?.selection,
-              let documentId = editor.note?.fileURL.path else { return }
-        pendingReplacement = InlineReplacementRequest(
-            documentId: documentId,
-            selection: selection,
-            storageFragment: "#\(completion.insert) ",
-            isImageEmbedMode: false,
-            isLiteralMode: true
-        )
-        inlineSelection = nil
     }
 
     var body: some View {
@@ -414,65 +325,7 @@ struct NoteEditorView: View {
             Divider()
         }
 
-        if useNewEditor {
-            // The in-repo engine (docs/editor-rewrite.md), opt-in while it
-            // works toward parity with the fork.
-            NewEditorHost(
-                editor: editor,
-                linkCandidates: linkCandidates,
-                fontSize: appearance.editorFontSize,
-                accent: appearance.editorAccentNSColor,
-                onOpenWikiLink: onOpenWikiLink,
-                completions: { kind, query in
-                    switch kind {
-                    case .wikiLink:
-                        if let hash = query.firstIndex(of: "#") {
-                            return headingCompletions(notePart: String(query[..<hash]),
-                                                      query: String(query[query.index(after: hash)...]))
-                        }
-                        return noteCompletions(query: query.trimmingCharacters(in: .whitespaces))
-                    case .tag:
-                        return tagCompletions(partial: query)
-                    }
-                },
-                pasteMarkdown: { pasteboard in
-                    pasteImage(pasteboard) ?? smartPaste(pasteboard)
-                },
-                intelligence: intelligence,
-                blockRenderer: blockRenderAdapter
-            )
-        } else {
-            NativeTextViewWrapper(
-                text: $editor.text,
-                pendingInlineReplacement: $pendingReplacement,
-                configuration: configuration,
-                fontSize: appearance.editorFontSize,
-                documentId: editor.note?.fileURL.path ?? "default",
-                onPasteImage: pasteImage,
-                onSmartPaste: smartPaste,
-                onLinkClick: onOpenWikiLink,
-                onCaretRectChange: { caretRect = $0 },
-                onInlineSelectionChange: { newValue in
-                    // The engine reports nil on every caret move through plain
-                    // text. InlineSelectionState isn't Equatable, so writing nil
-                    // over nil would still re-evaluate this whole view once per
-                    // caret move — skip the no-op writes.
-                    if inlineSelection != nil || newValue != nil {
-                        inlineSelection = newValue
-                    }
-                }
-            )
-            .overlay(alignment: .topLeading) {
-                let matches = activeCompletions
-                if !matches.isEmpty {
-                    WikiLinkCompletionList(matches: matches, onSelect: acceptCompletion)
-                        .offset(
-                            x: max(4, caretRect.minX),
-                            y: caretRect.maxY + 2
-                        )
-                }
-            }
-        }
+        editorHost(isEditable: true)
 
         if hasReferences {
             Divider()
@@ -480,29 +333,45 @@ struct NoteEditorView: View {
         }
     }
 
-    /// Read-only rendering: the same MarkdownEngine view with no caret, so the
-    /// note reads as it will look, with `[[wiki-links]]` still clickable.
+    /// The HelloNotes TextKit 2 editor. `isEditable: false` gives the read-only
+    /// Preview mode (no caret, so syntax stays fully rendered).
+    private func editorHost(isEditable: Bool) -> some View {
+        NewEditorHost(
+            editor: editor,
+            linkCandidates: linkCandidates,
+            fontSize: appearance.editorFontSize,
+            accent: appearance.editorAccentNSColor,
+            isEditable: isEditable,
+            onOpenWikiLink: onOpenWikiLink,
+            completions: { kind, query in
+                switch kind {
+                case .wikiLink:
+                    if let hash = query.firstIndex(of: "#") {
+                        return headingCompletions(notePart: String(query[..<hash]),
+                                                  query: String(query[query.index(after: hash)...]))
+                    }
+                    return noteCompletions(query: query.trimmingCharacters(in: .whitespaces))
+                case .tag:
+                    return tagCompletions(partial: query)
+                }
+            },
+            pasteMarkdown: { pasteboard in
+                pasteImage(pasteboard) ?? smartPaste(pasteboard)
+            },
+            intelligence: intelligence,
+            blockRenderer: blockRenderAdapter
+        )
+    }
+
+    /// Read-only rendering: the same editor with no caret, so the note reads as
+    /// it will look, with `[[wiki-links]]` still clickable.
     @ViewBuilder
     private var previewModeContent: some View {
-        previewEngine
+        editorHost(isEditable: false)
         if hasReferences {
             Divider()
             referencesPanel
         }
-    }
-
-    /// A non-editable MarkdownEngine render of the current note. Uses a distinct
-    /// `documentId` so it never disturbs the editable document's undo stack, and
-    /// a read-only binding so it can never write back.
-    private var previewEngine: some View {
-        NativeTextViewWrapper(
-            text: Binding(get: { editor.text }, set: { _ in }),
-            configuration: configuration,
-            fontSize: appearance.editorFontSize,
-            documentId: (editor.note?.fileURL.path ?? "default") + "#preview",
-            isEditable: false,
-            onLinkClick: onOpenWikiLink
-        )
     }
 
     /// The raw Markdown source in a plain monospaced editor, bound straight to
@@ -523,12 +392,12 @@ struct NoteEditorView: View {
             if geo.size.width >= geo.size.height {
                 HSplitView {
                     sourceEditor.frame(minWidth: 180)
-                    previewEngine.frame(minWidth: 180)
+                    editorHost(isEditable: false).frame(minWidth: 180)
                 }
             } else {
                 VSplitView {
                     sourceEditor.frame(minHeight: 120)
-                    previewEngine.frame(minHeight: 120)
+                    editorHost(isEditable: false).frame(minHeight: 120)
                 }
             }
         }
@@ -912,53 +781,6 @@ struct NoteEditorView: View {
         .buttonStyle(.borderless)
         .help(help)
         .accessibilityLabel(help)
-    }
-
-
-    // Bridges are stateless and expensive-ish to build, so share one instance.
-    private static let syntaxHighlighter = HighlighterSwiftBridge()
-    private static let latexRenderer = SwiftMathBridge()
-    // Shared so its source→image cache is reused across notes.
-    private static let diagramRenderer = MermaidDiagramRenderer()
-
-    /// Editor configuration wiring in the HighlighterSwift (code) and SwiftMath
-    /// (LaTeX) bridges plus the collection wiki-link resolver, so fenced code blocks
-    /// are syntax-highlighted, `$…$` / `$$…$$` math renders natively, and
-    /// `[[wiki-links]]` to existing notes are clickable.
-    private var configuration: MarkdownEditorConfiguration {
-        var config = MarkdownEditorConfiguration.default
-        // Tint the editor with the app accent (context-adaptive): links and
-        // `==highlight==` follow the chosen accent colour. Link *text* uses the
-        // contrast-adjusted accent so it stays legible (WCAG AA); the highlight
-        // is translucent so the body text keeps its own contrast.
-        var theme = MarkdownEditorTheme.default
-        theme.link = appearance.accentTextNSColor
-        theme.incompleteLink = appearance.accentTextNSColor
-        theme.highlightColor = appearance.editorAccentNSColor.withAlphaComponent(0.30)
-        config.theme = theme
-        config.services.syntaxHighlighter = Self.syntaxHighlighter
-        config.services.latex = Self.latexRenderer
-        config.services.diagrams = Self.diagramRenderer
-        config.services.wikiLinks = wikiResolver
-        config.services.images = embedProvider
-        config.services.bus.findQuery = .hnEditorFindQuery
-        config.services.bus.findClearHighlights = .hnEditorClearHighlights
-        config.services.bus.findResults = .hnEditorFindResults
-        config.services.bus.replaceCurrent = .hnEditorReplaceCurrent
-        config.services.bus.replaceAll = .hnEditorReplaceAll
-        // Format-menu commands, scoped per document so they reach only this
-        // editor (see `Notification.Name.hnFormat`).
-        let docId = editor.note?.fileURL.path ?? "default"
-        config.services.bus.applyBoldRequest = .hnFormat("bold", documentId: docId)
-        config.services.bus.applyItalicRequest = .hnFormat("italic", documentId: docId)
-        config.services.bus.applyStrikethroughRequest = .hnFormat("strikethrough", documentId: docId)
-        config.services.bus.applyHighlightRequest = .hnFormat("highlight", documentId: docId)
-        config.services.bus.applyInlineCodeRequest = .hnFormat("inlineCode", documentId: docId)
-        config.services.bus.applyBlockquoteRequest = .hnFormat("blockquote", documentId: docId)
-        config.services.bus.applyUnorderedListRequest = .hnFormat("unorderedList", documentId: docId)
-        config.services.bus.applyOrderedListRequest = .hnFormat("orderedList", documentId: docId)
-        config.services.bus.applyHeadingRequest = .hnFormat("heading", documentId: docId)
-        return config
     }
 }
 

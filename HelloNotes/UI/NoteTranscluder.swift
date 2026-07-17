@@ -7,8 +7,6 @@
 
 #if os(macOS)
 import AppKit
-import MarkdownEngine
-import MarkdownEngineLatex
 import BeautifulMermaid
 
 /// Renders a note's Markdown to an image for inline transclusion (`![[Note]]`).
@@ -16,17 +14,14 @@ import BeautifulMermaid
 /// code, plus rendered LaTeX (`$…$` / `$$…$$`) and Mermaid diagrams — drawn as
 /// a titled "card" with a left accent bar so a transclusion reads as embedded
 /// content.
+@MainActor
 enum NoteTranscluder {
     private static let contentWidth: CGFloat = 560
     private static let padding: CGFloat = 14
     private static let barWidth: CGFloat = 3
     private static var textContentWidth: CGFloat { contentWidth - padding * 2 - barWidth }
 
-    private static let latex = SwiftMathBridge()
-
     /// Render a `$$ … $$` display-math block to an image for the new editor.
-    /// Main-actor only (SwiftMath uses `lockFocus`).
-    @MainActor
     static func blockLatexImage(source: String, isDark: Bool) -> NSImage? {
         latexImage(source, fontSize: 20, isDark: isDark)
     }
@@ -203,12 +198,10 @@ enum NoteTranscluder {
 
     // MARK: - Embedded images (LaTeX / Mermaid)
 
+    @MainActor
     private static func latexImage(_ source: String, fontSize: CGFloat, isDark: Bool) -> NSImage? {
-        var theme = MarkdownEditorTheme.default
         let color: NSColor = isDark ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.1, alpha: 1)
-        theme.latexLightModeText = color
-        theme.latexDarkModeText = color
-        return latex.render(latex: source, fontSize: fontSize, theme: theme)?.image
+        return MathImageRenderer.image(latex: source, fontSize: fontSize, color: color)
     }
 
     private static func mermaidImage(_ source: String, isDark: Bool) -> NSImage? {

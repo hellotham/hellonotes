@@ -1,7 +1,7 @@
 # HelloNotes Editor — greenfield architecture
 
-*Written 2026-07-17. Status: design approved, implementation in progress.*
-*Replaces the `swift-markdown-engine` fork with an in-repo, PRD-native engine.*
+*Written 2026-07-17. Status: **shipped** — the in-repo engine is now the only
+editor and the `swift-markdown-engine` fork has been removed (M4 complete).*
 
 ## Why a rewrite
 
@@ -200,21 +200,24 @@ The editor treats AI as a first-class text producer, not a bolt-on:
 
 ## Rollout
 
-1. **M0** — package scaffold; `MarkdownCore` block+inline parser, style
-   spec, unit + perf tests. *(this session)*
-2. **M1** — macOS editor view: styled open, incremental typing, caret
-   reveal, autoscroll, link taps; wired into `NoteEditorView` behind a
-   Settings toggle (old engine remains the default fallback). Live-verify
-   scroll/caret on the 1.3 MB p99 note.
-3. **M2** — parity core: autocomplete contexts, find/replace,
-   format commands, image paste, code highlight upgrade, quote/code chrome.
-4. **M3** — embeds: block math, Mermaid, image embeds, transclusion cards;
-   callouts; front-matter fold; task toggles; footnotes; tables v1.
-5. **M4** — flip default; remove the fork dependency; delete the toggle.
-   Parity gaps tracked in `docs/editor-parity.md` from M1 onward.
-6. **M5** — iOS `UITextView(usingTextLayoutManager:)` sibling — the PRD's
-   deferred "richer iOS editor" becomes real on the shared kernel.
+1. ✅ **M0** — package scaffold; `MarkdownCore` block+inline parser, style
+   spec, unit + perf tests.
+2. ✅ **M1** — macOS editor view: styled open, incremental typing, caret
+   reveal, autoscroll, link taps; wired behind a Settings toggle. Verified
+   on the 3.8 MB note (open 48 ms, keystroke ~6 ms).
+3. ✅ **M2** — parity core + AI: autocomplete, find/replace, format
+   commands, image/HTML paste, code highlight, Writing Tools, inline
+   predictions, AI rewrite-selection.
+4. ✅ **M3** — embeds (image, Mermaid, block math, transclusion cards),
+   clickable task checkboxes, callouts.
+5. ✅ **M4** — flipped default; **fork removed**; toggle deleted. LaTeX
+   ported off the fork's `SwiftMathBridge` to an in-app `MathImageRenderer`
+   (direct SwiftMath); Mermaid/transclusion/embed providers decoupled from
+   the fork's service protocols. macOS + iOS build; 52 app + 64 package
+   tests green; live-verified on the vault.
+6. **M5** *(future)* — iOS `UITextView(usingTextLayoutManager:)` sibling on
+   the shared kernel.
 
-Fork stays referenced (unused) until M4 so every intermediate build ships a
-working editor. Nothing in the app writes engine-specific state, so the
-toggle is risk-free.
+**Deferred polish** (not blockers; tracked in `docs/editor-parity.md`):
+inline `$…$` LaTeX rendered as images, callout collapse/fold, front-matter
+fold, footnotes, tables v1.

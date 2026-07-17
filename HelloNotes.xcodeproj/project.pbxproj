@@ -13,10 +13,8 @@
 		8768A2593001B75700346ACB /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 8768A2583001B75100346ACB /* README.md */; };
 		87ED170000000000000000A1 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B1 /* MarkdownCore */; };
 		87ED170000000000000000A3 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 87ED170000000000000000B3 /* Highlighter */; };
+		87ED170000000000000000A5 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 87ED170000000000000000B5 /* SwiftMath */; };
 		87ED170000000000000000A2 /* MarkdownEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B2 /* MarkdownEditor */; };
-		8768A2E23001C10000346ACB /* MarkdownEngine in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 8768A2E03001C10000346ACB /* MarkdownEngine */; };
-		8768A2E33001C10000346ACB /* MarkdownEngineCodeBlocks in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 8768A2E13001C10000346ACB /* MarkdownEngineCodeBlocks */; };
-		8768A2E63001C10000346ACB /* MarkdownEngineLatex in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 8768A2E43001C10000346ACB /* MarkdownEngineLatex */; };
 		8768A2E73001C10000346ACB /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 8768A2E53001C10000346ACB /* Markdown */; };
 		87B9A8DB3004E31B0026D3ED /* OpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B1 /* OpenAI */; };
 		87B9A8DC3004E31B0026D3ED /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B3 /* MLXLLM */; };
@@ -97,13 +95,11 @@
 				8768A2523001B49B00346ACB /* BeautifulMermaid in Frameworks */,
 				8768A2543001B49B00346ACB /* MermaidPlayground in Frameworks */,
 				8768A2573001B5FE00346ACB /* SwiftGitX in Frameworks */,
-				8768A2E23001C10000346ACB /* MarkdownEngine in Frameworks */,
-				8768A2E33001C10000346ACB /* MarkdownEngineCodeBlocks in Frameworks */,
-				8768A2E63001C10000346ACB /* MarkdownEngineLatex in Frameworks */,
 				8768A2E73001C10000346ACB /* Markdown in Frameworks */,
 				87ED170000000000000000A1 /* MarkdownCore in Frameworks */,
 				87ED170000000000000000A2 /* MarkdownEditor in Frameworks */,
 				87ED170000000000000000A3 /* Highlighter in Frameworks */,
+				87ED170000000000000000A5 /* SwiftMath in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -171,13 +167,11 @@
 				8768A2513001B49B00346ACB /* BeautifulMermaid */,
 				8768A2533001B49B00346ACB /* MermaidPlayground */,
 				8768A2563001B5FE00346ACB /* SwiftGitX */,
-				8768A2E03001C10000346ACB /* MarkdownEngine */,
-				8768A2E13001C10000346ACB /* MarkdownEngineCodeBlocks */,
-				8768A2E43001C10000346ACB /* MarkdownEngineLatex */,
 				8768A2E53001C10000346ACB /* Markdown */,
 				87ED170000000000000000B1 /* MarkdownCore */,
 				87ED170000000000000000B2 /* MarkdownEditor */,
 				87ED170000000000000000B3 /* Highlighter */,
+				87ED170000000000000000B5 /* SwiftMath */,
 				CAFE000000000000000000B1 /* OpenAI */,
 				CAFE000000000000000000B3 /* MLXLLM */,
 				CAFE000000000000000000B4 /* MLXLMCommon */,
@@ -271,7 +265,6 @@
 			packageReferences = (
 				87ED170000000000000000C1 /* XCLocalSwiftPackageReference "Packages/NotesEditor" */,
 				8768A24E3001B3D300346ACB /* XCRemoteSwiftPackageReference "swift-markdown" */,
-				8768A24F3001B47000346ACB /* XCRemoteSwiftPackageReference "swift-markdown-engine" */,
 				8768A2503001B49B00346ACB /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */,
 				8768A2553001B5FE00346ACB /* XCRemoteSwiftPackageReference "SwiftGitX" */,
 				CAFE000000000000000000A1 /* XCRemoteSwiftPackageReference "OpenAI" */,
@@ -279,6 +272,7 @@
 				CAFE000000000000000000A4 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 				87B9AAA43004F6B80026D3ED /* XCRemoteSwiftPackageReference "elk-swift" */,
 				87ED170000000000000000C2 /* XCRemoteSwiftPackageReference "HighlighterSwift" */,
+				87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8759E1E13001AF2E008F8C92 /* Products */;
@@ -757,20 +751,20 @@
 				minimumVersion = 3.1.0;
 			};
 		};
+		87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.7.0;
+			};
+		};
 		8768A24E3001B3D300346ACB /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/swiftlang/swift-markdown.git";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.8.0;
-			};
-		};
-		8768A24F3001B47000346ACB /* XCRemoteSwiftPackageReference "swift-markdown-engine" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ChristineTham/swift-markdown-engine.git";
-			requirement = {
-				branch = "hellonotes-patches";
-				kind = branch;
 			};
 		};
 		8768A2503001B49B00346ACB /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */ = {
@@ -854,20 +848,10 @@
 			package = 87ED170000000000000000C1 /* XCLocalSwiftPackageReference "Packages/NotesEditor" */;
 			productName = MarkdownEditor;
 		};
-		8768A2E03001C10000346ACB /* MarkdownEngine */ = {
+		87ED170000000000000000B5 /* SwiftMath */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 8768A24F3001B47000346ACB /* XCRemoteSwiftPackageReference "swift-markdown-engine" */;
-			productName = MarkdownEngine;
-		};
-		8768A2E13001C10000346ACB /* MarkdownEngineCodeBlocks */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 8768A24F3001B47000346ACB /* XCRemoteSwiftPackageReference "swift-markdown-engine" */;
-			productName = MarkdownEngineCodeBlocks;
-		};
-		8768A2E43001C10000346ACB /* MarkdownEngineLatex */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 8768A24F3001B47000346ACB /* XCRemoteSwiftPackageReference "swift-markdown-engine" */;
-			productName = MarkdownEngineLatex;
+			package = 87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 		8768A2E53001C10000346ACB /* Markdown */ = {
 			isa = XCSwiftPackageProductDependency;

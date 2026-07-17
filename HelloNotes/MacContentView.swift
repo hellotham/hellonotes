@@ -791,7 +791,6 @@ struct MacContentView: View {
                     backlinks: references.backlinks,
                     outgoingLinks: references.outgoingLinks,
                     unlinkedMentions: references.unlinkedMentions,
-                    wikiResolver: c.wikiResolver,
                     embedProvider: c.embedProvider,
                     git: c.git,
                     linkCandidates: c.search.linkTargets(),
