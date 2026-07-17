@@ -497,6 +497,9 @@ public final class EditorDocument {
             for index in blockIndices { refreshHighlight(blockIndex: index) }
         }
         #if canImport(AppKit)
+        for index in blockIndices {
+            refreshFrontMatterFold(blockIndex: index, revealed: revealed.contains(index))
+        }
         if services.blockRenderer != nil {
             for index in blockIndices {
                 refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index))
@@ -692,6 +695,31 @@ public final class EditorDocument {
         storage.addAttribute(.paragraphStyle, value: para, range: range)
         // Mark the first char so the fragment knows to draw.
         storage.addAttribute(blockImageAttribute, value: image, range: NSRange(location: range.location, length: 1))
+        storage.endEditing()
+        isApplyingStyles = false
+    }
+
+    // MARK: - Front-matter fold
+
+    /// Fold a front-matter block: conceal the raw YAML (near-zero height) so
+    /// the editor body starts at the first real content — the app's dedicated
+    /// Properties panel is the front-matter editing surface. The source stays
+    /// byte-pure in storage; caret entry (e.g. arrowing up into it) reveals
+    /// the raw YAML for direct editing.
+    private func refreshFrontMatterFold(blockIndex: Int, revealed: Bool) {
+        guard blockIndex >= 0, blockIndex < parse.blocks.count else { return }
+        let block = parse.blocks[blockIndex]
+        guard case .frontMatter = block.kind, !revealed else { return }
+        var content = block.range
+        let ns: NSString = storage.mutableString
+        if content.length > 0, content.location + content.length <= ns.length,
+           ns.character(at: content.location + content.length - 1) == 0x0A { content.length -= 1 }
+        guard content.length > 0, content.location + content.length <= ns.length else { return }
+
+        isApplyingStyles = true
+        storage.beginEditing()
+        storage.addAttribute(.font, value: theme.concealed, range: content)
+        storage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: content)
         storage.endEditing()
         isApplyingStyles = false
     }

@@ -182,6 +182,28 @@ import AppKit
     }
     #endif
 
+    #if canImport(AppKit)
+    /// Front matter folds (raw YAML concealed to near-zero height) when the
+    /// caret is elsewhere, and reveals for direct editing when the caret is
+    /// inside. Source stays byte-pure throughout.
+    @Test func frontMatterFoldsWhenCaretAway() {
+        let text = "---\ntitle: Hello\ntags: a, b\ndraft: true\n---\n\n# Body\n\ntext"
+        let document = EditorDocument(text: text)
+        let ns = document.storage
+        let yamlLoc = (text as NSString).range(of: "title:").location
+
+        // Caret in the body → front matter folded (concealed).
+        document.selectionDidChange(NSRange(location: (text as NSString).range(of: "text").location, length: 0))
+        #expect((ns.attribute(.font, at: yamlLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect(ns.attribute(.foregroundColor, at: yamlLoc, effectiveRange: nil) as? PlatformColor == .clear)
+
+        // Caret inside front matter → revealed (real font, not concealed).
+        document.selectionDidChange(NSRange(location: yamlLoc, length: 0))
+        #expect((ns.attribute(.font, at: yamlLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != 0.1)
+        #expect(document.text == text)
+    }
+    #endif
+
     // MARK: - Code highlighting
 
     private struct MockHighlighter: CodeHighlighting {
