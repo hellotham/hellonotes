@@ -27,7 +27,10 @@ actor CodeHighlighterAdapter: CodeHighlighting {
     ///   document (and this adapter) when the appearance flips.
     init(darkMode: Bool) {
         let h = Highlighter()
-        h?.setTheme(darkMode ? "atom-one-dark" : "atom-one-light")
+        // Match the Preview, which highlights with highlight.js's GitHub theme
+        // (hljs-github.css / hljs-github-dark.css) — so a code block's colours
+        // are identical whether you're editing or previewing.
+        h?.setTheme(darkMode ? "github-dark" : "github")
         highlighter = h
         cache.countLimit = 256
     }
