@@ -64,20 +64,21 @@ final class Collection: Identifiable {
     /// Bookmarked notes within this collection.
     let bookmarks = BookmarksStore()
 
+    /// The last file-operation failure, for the shell to surface as an alert.
+    /// A user-initiated create/rename/duplicate/delete/move that fails on disk
+    /// (permissions, name collision, sandbox) sets this instead of silently
+    /// no-op'ing. Cleared when the shell presents it. (Cross-platform — the note
+    /// operations that set it exist on both macOS and iOS.)
+    var lastError: String?
+
+    /// Record a user-facing file-operation failure.
+    private func report(_ message: String) { lastError = message }
+
     #if os(macOS)
     /// Renders `![[Note]]` transclusions to inline images.
     let embedProvider = CollectionEmbedProvider()
 
     private var fileWatcher: FileWatcher?
-
-    /// The last file-operation failure, for the shell to surface as an alert.
-    /// A user-initiated create/rename/duplicate/delete/move that fails on disk
-    /// (permissions, name collision, sandbox) sets this instead of silently
-    /// no-op'ing. Cleared when the shell presents it.
-    var lastError: String?
-
-    /// Record a user-facing file-operation failure.
-    private func report(_ message: String) { lastError = message }
 
     /// Standardised paths this collection wrote itself, with when — so the file
     /// watcher can ignore the churn from our own autosaves (and their atomic
