@@ -31,6 +31,9 @@ struct PreferencesView: View {
 
             LLMSettingsForm(settings: llmSettings)
                 .tabItem { Label("AI", systemImage: "sparkles") }
+
+            AcknowledgementsView()
+                .tabItem { Label("Acknowledgements", systemImage: "heart") }
         }
         .frame(width: 560, height: 640)
     }

@@ -24,13 +24,10 @@
 
 ## 0 · Release blockers & App-Store packaging
 
-- 🔴 **No privacy manifest** — there is no `PrivacyInfo.xcprivacy`. Apple requires it and will flag submission. Must declare the required-reason APIs the app actually uses: **UserDefaults** (`CA92.1`, in 8 State/LLM files) and **file-timestamp** (`C617.1`, in `Collection`/`CollectionIndexCache`/`BlockRenderAdapter`/`CollectionEmbedProvider`), plus the fact that it makes network calls to user-configured LLM endpoints.
-- 🟠 **Live API keys in the working-tree `.env`** — `/.env` holds 6 real keys (Gemini, Mistral, OpenAI, OpenRouter, Ollama, Groq). It is **gitignored and was never committed** (verified across all history), so it's not a repo leak — but the keys are live and exposed to any tooling in the tree. **Rotate all six and remove the file** before any CI/distribution.
-- 🟠 **Latent `.md` UTI-association bug** — `Info.plist` `CFBundleDocumentTypes` references `net.daringfireball.markdown`, but there is **no `UTImportedTypeDeclarations`** (confirmed absent). That UTI is community-defined; without an imported-type declaration (conforming to `public.plain-text`, tagging `.md`/`.markdown`) the OS won't bind `.md` files and "Open With" fails silently. **Import, never export** the type (exporting can hijack the system default handler).
-- 🟠 **Release binary is unoptimized** — the Release config leaves `SWIFT_OPTIMIZATION_LEVEL` unset, so it resolves to `-Onone` (verified via `-showBuildSettings`). It compiles wholemodule but does not optimize. Set `-O` on the Release configuration.
-- 🟠 **No third-party license/acknowledgements surface** — 18 bundled SPM packages (libgit2 is GPLv2-with-linking-exception; several MIT/BSD carry attribution requirements). Add an in-app "Acknowledgements" screen.
-- 🟡 **No macOS 26 layered app icon** — the classic 16→1024 PNG ladder is complete; there is no Icon Composer `.icon` layered asset for the 26 look. Legacy icon still ships fine.
-- 🟡 **Confirm the fidelity snapshot test ships** — `HelloNotesTests/EditorFidelitySnapshotTests.swift` is tracked and compiles (the `HelloNotesTests` target is a synchronized file group, so files aren't listed individually in the project — it *does* run). Just confirm that's intended.
+*Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): privacy manifest, `.md` UTI import, optimized Release build, and the in-app acknowledgements screen.*
+
+- 🟠 **Rotate & remove the working-tree `.env`** *(user action — cannot be automated)* — `/.env` holds 6 live keys (Gemini, Mistral, OpenAI, OpenRouter, Ollama, Groq). It is **gitignored and was never committed** (verified across all history), so it is not a repo leak, but the keys are live. **Rotate all six and delete the file** before any CI/distribution. Left here because only the account owner can rotate them.
+- 🟡 **No macOS 26 layered app icon** — the classic 16→1024 PNG ladder is complete; there is no Icon Composer `.icon` layered asset for the 26 look (needs artwork). Legacy icon still ships fine.
 
 ---
 
