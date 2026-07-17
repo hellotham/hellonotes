@@ -6,6 +6,23 @@ extension coverage and the remaining deferred polish.*
 
 Updated 2026-07-17 (post-M4).
 
+## GitHub-identical Preview (`GFMRender`)
+
+Preview mode renders through **cmark-gfm — GitHub's own engine** (Apple's
+`swift-cmark`, gfm branch, 5 GFM extensions) into HTML shown in a WKWebView
+styled with **github-markdown-css** + **highlight.js** (GitHub themes). This
+is provably identical to GitHub, not an approximation:
+
+- `GFMRenderTests.fullSpecConformance` runs the GFM spec's own corpus
+  (`spec.txt`): **648/648** (638 exact + 10 documented tagfilter / extended-
+  autolink overrides GitHub also applies).
+- `GFMRenderTests.identicalToGitHubMarkdownAPI` asserts byte-identity to a
+  captured `api.github.com/markdown` response (normalising only GitHub's
+  display post-processing).
+
+The live TextKit editor below stays the **editing** surface (byte-faithful
+source, caret-driven concealment); the tables below describe *its* coverage.
+
 ## GitHub Flavored Markdown
 
 | GFM feature | Status | Notes |
