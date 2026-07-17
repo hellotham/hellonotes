@@ -86,16 +86,17 @@
 
 ## 6 · Editor gaps
 
-- 🍎 **Rich iOS editor** — the live TextKit 2 editor is wired **macOS-only** (`NewEditorHost`); iOS uses a plain-text `TextEditor`. This is no longer an engine wall — the `MarkdownEditor` target already has a `UITextView(usingTextLayoutManager:)` path — so it's shell-wiring (tracked as editor-M5).
-- 🟡 **Live transclusion** — `![[Note]]` embeds render as a static image card; nested callouts and live selection inside a transclusion aren't supported.
-- 🟡 **Emoji shortcodes & raw HTML entities** — `:smile:` / `&amp;copy;` render as literal text (as in raw GitHub *source*), not the display-time glyphs; a small table-driven pass would cover the common cases.
+- 🍎 **Rich iOS editor — the `editor-M5` milestone (intentionally deferred; does not block the macOS 1.0 release).** The live editor is macOS-only (`NewEditorHost` → `MarkdownEditorView`, an `NSViewRepresentable`); iOS uses a plain-text `TextEditor`. This is **net-new feature work, not a wire-up**: `MarkdownEditor` has no UIKit editor yet (`MarkdownTextView` is an `NSTextView`; the "UITextView sibling" is a planned milestone per the source). `MarkdownCore` and the `PlatformColor`/`PlatformFont` abstraction are shared, but `BlockRendering` (the custom `NSTextLayoutFragment` drawing for code chrome, callout/quote bars, embeds) is AppKit (`NSBezierPath` etc.) and needs a UIKit port, plus a `UITextView(usingTextLayoutManager:)` subclass, a `UIViewRepresentable` host, and touch selection/keyboard handling — all requiring on-device iOS verification. Scoped as its own milestone rather than shipped untested.
+- 🟡 **Live transclusion** — `![[Note]]` embeds render as a static image card; nested callouts and live selection inside a transclusion aren't supported (needs nested live-layout embeds — a large fragment-composition effort).
+- 🟡 **Emoji shortcodes** — `:smile:` renders as literal text. This matches raw GitHub *source*; github.com substitutes the glyph only at display time (cmark-gfm, which the Preview uses, doesn't). Low value; would need a bundled ~1,800-entry shortcode table. (Named HTML entities like `&amp;copy;` already decode correctly in the Preview via cmark-gfm.)
 
 ---
 
 ## 7 · iOS / iPadOS parity
 
-- 🍎 **Live editor** (see §6) and the **macOS-only surfaces** — FSEvents watching, Open Quickly, tags tree, the Git UI, image paste, Mermaid preview, document statistics, outline, HTML/PDF export, multi-tab, version history, wiki-link autocomplete, open-in-new-window, Graph/Mind Map/Slides, file viewer, and the whole AI stack. The shared `Core`/`State` layers can back iOS UIs later.
-- 🟡 **iPad multitasking / Stage Manager** for the split layout is unverified.
+- 🍎 **Live editor** — the `editor-M5` milestone (see §6).
+- 🍎 **macOS-only surfaces** — FSEvents watching, Open Quickly, tags tree, the Git UI, image paste, Mermaid preview, document statistics, outline, HTML/PDF export, multi-tab, version history, wiki-link autocomplete, open-in-new-window, Graph/Mind Map/Slides, file viewer, and the whole AI stack. The shared `Core`/`State` layers can back iOS UIs later. iOS ships as a browse / GFM-preview / plain-text-edit companion by design.
+- 🟡 **iPad multitasking / Stage Manager** for the split layout is unverified (needs a device).
 
 ---
 
@@ -139,8 +140,20 @@
 
 ---
 
-## Suggested go/no-go order
+## Status
 
-1. **Must fix before submission (§0):** privacy manifest; rotate + remove `.env`; UTI import; Release `-O`; acknowledgements screen.
-2. **Fix before ship or as an immediate patch:** the §1 data-safety cluster (atomic assistant writes + editor-buffer reconciliation, flush-on-quit, transactional rename, surface file-op/export errors, serialize git reads) and the §2 security cluster (web_fetch SSRF, scoped "Allow all", PAT-in-config); the §3 perf hotspots A/B/C (off-main aggregate rebuild, bound the two embed caches).
-3. **Fast-follow:** §4 usability (folder-delete confirm, ⌘P, AI-not-configured), §5 accessibility (rotor, Canvas VoiceOver, editor audit), then the §6–§12 backlog by appetite.
+**§0–§5 are substantially resolved** in the production-hardening pass — see
+[implemented.md §6](implemented.md#6--production-release-hardening) for the full list
+(privacy manifest, UTI import, Release `-O`, acknowledgements; flush-on-quit, atomic
+assistant writes, surfaced file/export errors, serialized git reads; web SSRF guard,
+scoped "Allow all", bounded buffers; debounced aggregate rebuild, bounded caches,
+bounded transcript; ⌘P Print, folder-delete confirm, AI-not-configured state; Graph
+VoiceOver, labelled git state).
+
+**Remaining before submission:** the one item only the owner can do — **rotate + remove
+the working-tree `.env`** (§0).
+
+**Remaining, non-blocking:** the residual 🟡 items under each section above, and the
+feature backlog — **§6/§7 the iOS live-editor milestone (`editor-M5`)**, §8 git pull/merge
+(upstream), §9 HIG polish, §10 localization, §11 tech-debt tidy-ups, §12 test coverage.
+None block the macOS 1.0 release.
