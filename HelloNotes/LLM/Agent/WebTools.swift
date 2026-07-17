@@ -31,13 +31,19 @@ struct WebSearchTool: AgentTool {
         comps.queryItems = [URLQueryItem(name: "q", value: query)]
         guard let url = comps.url else { throw ToolError.failed("Bad search URL.") }
 
+        try WebGuard.validate(url)
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Macintosh) HelloNotes", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 20
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // Stream with a byte cap so a hostile/huge response can't balloon memory.
+        let session = WebGuard.session(timeout: 20)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ToolError.failed("Search failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
         }
+        var data = Data()
+        let cap = 4 * 1024 * 1024
+        for try await byte in bytes { data.append(byte); if data.count >= cap { break } }
         let html = String(data: data, encoding: .utf8) ?? ""
         let results = Self.parseResults(html, limit: limit)
         guard !results.isEmpty else { return "No results for “\(query)”." }
@@ -104,6 +110,9 @@ struct WebFetchTool: AgentTool {
         guard let urlString = arguments.string("url"), let url = URL(string: urlString), url.scheme?.hasPrefix("http") == true else {
             throw ToolError.badArguments("A valid http(s) `url` is required.")
         }
+        // SSRF guard: block loopback/private/link-local hosts (and redirects to
+        // them) so injected content can't reach internal services or metadata.
+        try WebGuard.validate(url)
         let maxChars = arguments.int("max_chars") ?? 6000
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Macintosh) HelloNotes", forHTTPHeaderField: "User-Agent")
@@ -111,7 +120,8 @@ struct WebFetchTool: AgentTool {
         // Stream with a byte cap so a huge (or hostile) page can't balloon
         // memory — plain text needed for `maxChars` fits well within the cap.
         let byteCap = 4 * 1024 * 1024
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let session = WebGuard.session(timeout: 25)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ToolError.failed("Fetch failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
         }

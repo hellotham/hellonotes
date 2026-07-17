@@ -98,6 +98,10 @@ final class AssistantModel {
         errorText = nil
         totalUsage = LLMUsage()
         sessionStore?.clear()
+        // A blanket "Allow all" grant must not carry across conversations —
+        // reset it when the chat is cleared so injected content in a new thread
+        // can't drive mutating tools without a fresh approval.
+        permissions?.reset()
     }
 
     private func start() {

@@ -29,7 +29,7 @@ struct AnthropicProvider: LLMProvider {
                     }
                     guard (200...299).contains(http.statusCode) else {
                         var body = ""
-                        for try await line in bytes.lines { body += line }
+                        for try await line in bytes.lines { body += line; if body.count > 16_384 { break } }
                         throw LLMError.provider("Anthropic HTTP \(http.statusCode): \(Self.extractError(body))")
                     }
 
