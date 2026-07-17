@@ -5,9 +5,8 @@
 //  Created by Chris Tham on 17/7/2026.
 //
 //  Renders LaTeX (`$…$` / `$$…$$`) to an NSImage via SwiftMath (Latin Modern
-//  math font, no WebView). This is HelloNotes' own bridge — it replaces the
-//  MarkdownEngine fork's SwiftMathBridge so the fork can be removed.
-//  Main-actor only (SwiftMath lays out an NSView).
+//  math font, no WebView). This is HelloNotes' own math bridge, built directly
+//  on SwiftMath. Main-actor only (SwiftMath lays out an NSView).
 //
 
 #if os(macOS)

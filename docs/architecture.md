@@ -69,17 +69,24 @@ HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps
 
 The guiding principle from the project rules: **native Apple frameworks first, no WebViews in the editing path, async/await.** Two scoped `WKWebView` exceptions exist in v1.0 — the Marp slides preview (`UI/SlidesView.swift`) and the iOS read-only Preview (`UI/MarkdownWebView.swift`; MarkdownEngine is AppKit-only). The macOS Preview mode is the native engine in read-only mode. Below, each capability is evaluated against alternatives.
 
-### 5.1 Markdown editor / live renderer  ⟶ **MarkdownEngine** ✅ (installed)
+### 5.1 Markdown editor / live renderer  ⟶ **`Packages/NotesEditor`** ✅ (shipped)
 The heart of the app: a live TextKit 2 editor that styles Markdown as you type.
+
+> **Note (M4):** this section originally evaluated and adopted the
+> `swift-markdown-engine` fork. That fork unblocked the editor through M3 and was
+> then **replaced by the in-repo `Packages/NotesEditor` rewrite and removed** at
+> M4. Mentions of "MarkdownEngine" below are the historical evaluation; the
+> shipped editor is `Packages/NotesEditor` — see [editor-rewrite.md](editor-rewrite.md).
 
 | Option | Notes | Verdict |
 |---|---|---|
-| **`swift-markdown-engine` (MarkdownEngine)** | Native **TextKit 2** `NSTextView` bridged to SwiftUI via `NativeTextViewWrapper`; live inline styling, tables, task lists, code-block buttons, **wiki-link** hooks (`isWikiLinkActive`, `onLinkClick`), image-paste hook, scroll-away header, per-document undo. Ships optional bridges for code highlighting and LaTeX. | **Recommended.** Purpose-built for exactly this app; matches the "native, live, TextKit 2" mandate. |
+| **`Packages/NotesEditor`** (in-repo) | Native **TextKit 2** `NSTextView`/`UITextView`; live inline styling, tables, task lists, callouts, wiki-link/embed hooks, caret-driven concealment, per-document undo, plus a cmark-gfm Preview. | **Adopted (v1.0).** Greenfield rewrite; owns the full editor + GFM parity in-repo. |
+| `swift-markdown-engine` (MarkdownEngine) fork | Native TextKit 2 editor consumed as a package; first unblocked the editor with host patches. | Superseded — used through M3, **removed at M4** in favour of `Packages/NotesEditor`. |
 | MarkdownUI | Excellent **read-only** renderer (SwiftUI). No editing. | Rejected — preview-only. |
 | Down / Ink / cmark wrappers | Parse/convert to HTML or attributed string; no live editor. | Rejected — not an editor. |
 | Hand-rolled TextKit 2 editor | Full control, but months of work to reach parity (inline styling, undo, tables, code blocks). | Rejected for MVP; MarkdownEngine already solves it. |
 
-**Status (v1.0):** `MarkdownEngine`, `MarkdownEngineCodeBlocks`, and `MarkdownEngineLatex` are linked to the macOS target (with a `platformFilters = (macos)` filter so the iOS target — where MarkdownEngine is unavailable — still builds). The editor also uses the engine's inline-token bus for `[[wiki-link]]` autocomplete (`onInlineSelectionChange` / `pendingInlineReplacement`).
+**Status (v1.0):** the editor is the in-repo `Packages/NotesEditor` package (`MarkdownCore` + `MarkdownEditor` + `GFMRender`), linked to both the macOS and iOS targets; `[[wiki-link]]` autocomplete is driven by its inline-context bus (`onInlineContext` / `EditorProxy`). *(The `MarkdownEngine*` fork products this section once described were removed at M4.)*
 
 ### 5.2 Markdown AST parsing (links, headings, tags)  ⟶ **swift-markdown** ✅ (installed)
 Used by the Core layer for structural parsing that the editor doesn't give us — extracting `[[wiki-links]]`, headings (for "Open Quickly"), and `#tags`.
@@ -137,22 +144,19 @@ A single `LLMProvider` protocol (streaming chat + tool calls) with five `Sendabl
 
 | Package | Capability | Status | Linked to app target? |
 |---|---|---|---|
-| swift-markdown-engine (`MarkdownEngine`) | Live TextKit 2 editor | Resolved | **Yes (macOS only)** |
-| ↳ `MarkdownEngineCodeBlocks` | Code highlighting bridge | Resolved | **Yes (macOS only)** |
-| ↳ `MarkdownEngineLatex` | Math bridge | Resolved | **Yes (macOS only)** |
+| `Packages/NotesEditor` (`MarkdownCore`, `MarkdownEditor`, `GFMRender`) | In-repo live TextKit 2 editor + cmark-gfm parity | Resolved | **Yes** |
+| swift-cmark (`gfm` branch) | GFM rendering (Preview) + spec/AST parity | Resolved | **Yes** (via GFMRender) |
 | swift-markdown | GFM AST parsing + HTML export | Resolved | **Yes** |
 | SwiftGitX | Git async engine | Resolved | **Yes** |
 | beautiful-mermaid-swift (`BeautifulMermaid`, `MermaidPlayground`) | Native Mermaid | Resolved | **Yes** |
 | OpenAI | OpenAI-compatible provider transport | Resolved | **Yes** |
 | mlx-swift (`MLXLLM`, `MLXLMCommon`) | Local LLM inference (Apple silicon) | Resolved | **Yes** |
 | swift-transformers (`Tokenizers`, `Hub`) | Tokenizers + model downloads for MLX | Resolved | **Yes** |
-| HighlighterSwift | Highlighting (via bridge) | Resolved (transitive) | Via bridge |
-| SwiftMath | Math (via bridge) | Resolved (transitive) | Via bridge |
+| HighlighterSwift | Code-block highlighting (`CodeHighlighterAdapter`) | Resolved | **Yes** (direct) |
+| SwiftMath | Math rendering (`MathImageRenderer`) | Resolved | **Yes** (direct) |
 | elk-swift, swift-cmark, libgit2, swift-collections | Transitive deps | Resolved | Transitive |
 
-> **Platform note:** MarkdownEngine is macOS-only (AppKit/TextKit 2), so its three products carry a `platformFilters = (macos)` build-file filter; the iOS target links everything else and uses a plain-text editor with a WKWebView preview. This keeps a single multiplatform target building for both OSes.
->
-> **Fork:** MarkdownEngine is consumed from our fork [`ChristineTham/swift-markdown-engine`](https://github.com/ChristineTham/swift-markdown-engine) (branch `hellonotes-patches`, based on upstream `0.8.0`; `Package.resolved` pins the exact commit). The fork adds scroll-to-range, inline diagram rendering, find & replace, tag tokens, and callout/comment/front-matter styling — each also opened as an upstream PR. Rationale and per-fix detail: [markdown-engine-strategy.md](markdown-engine-strategy.md).
+> **Editor:** the live editor is the in-repo `Packages/NotesEditor` package — `MarkdownCore` (incremental block/inline parser + style spec), `MarkdownEditor` (TextKit 2 `NSTextView`/`UITextView`), and `GFMRender` (cmark-gfm for GitHub-identical Preview + spec/API parity). It builds for both macOS and iOS. The earlier `ChristineTham/swift-markdown-engine` fork that first unblocked the editor was **removed at M4** once this greenfield rewrite reached parity; see [editor-rewrite.md](editor-rewrite.md). Historical rationale for the fork: [markdown-engine-strategy.md](markdown-engine-strategy.md).
 
 ## 7. Module map (target code, v1.0)
 

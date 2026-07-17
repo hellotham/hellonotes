@@ -11,7 +11,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [docs/architecture.md](docs/architecture.md) | 4-layer architecture + evaluation of every Swift package (alternatives & recommendations) |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestone-by-milestone build sequence (0–13) |
 | [docs/unimplemented.md](docs/unimplemented.md) | Deferred / not-yet-built items, with reasons and what would unblock each |
-| [docs/markdown-engine-strategy.md](docs/markdown-engine-strategy.md) | How the MarkdownEngine fork unblocked the editor (scroll, diagrams, callouts, find/replace…) |
+| [docs/markdown-engine-strategy.md](docs/markdown-engine-strategy.md) | *(Historical)* How the MarkdownEngine fork first unblocked the editor, before the in-repo `Packages/NotesEditor` rewrite superseded it (M4) |
 | [docs/production.md](docs/production.md) | Step-by-step runbook to ship the app to the Mac App Store (copy-paste field values included) |
 
 ## ✨ Features (v1.0)

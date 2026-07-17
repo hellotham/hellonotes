@@ -156,4 +156,4 @@ Three-column macOS layout:
 3. **Wiki-link create-on-miss:** ✅ *Resolved (v0.1)* — new linked notes are created in the vault root. (Configurable location is a possible later refinement.)
 4. **Extensibility:** *Open* — still holding Vellum's "pure editor" line; no plugin surface in v1.0. (AI "skills" — Markdown instruction notes in the collection — cover part of this space without a plugin runtime.)
 5. **iOS timing:** ✅ *Largely resolved* — Core/State are platform-agnostic and shared; iOS ships as a browse/preview/plain-text-edit companion. A rich iOS editor remains future work (see [unimplemented.md](unimplemented.md)).
-6. **Heading navigation & embeds:** ✅ *Resolved (v1.0, via the MarkdownEngine fork)* — scroll-to-heading works everywhere (outline, `[[Note#heading]]`, search) and `![[transclusion]]` renders inline cards; see [markdown-engine-strategy.md](markdown-engine-strategy.md).
+6. **Heading navigation & embeds:** ✅ *Resolved (v1.0, in the `Packages/NotesEditor` editor)* — scroll-to-heading works everywhere (outline, `[[Note#heading]]`, search) and `![[transclusion]]` renders inline cards; see [editor-rewrite.md](editor-rewrite.md).

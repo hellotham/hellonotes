@@ -118,11 +118,12 @@ Nothing else to do — Xcode makes the cert/profile on first archive.
   `CURRENT_PROJECT_VERSION` (`1 → 2 → …`) for re‑uploads of the same version;
   bump `MARKETING_VERSION` (`1.0 → 1.1`) for a new public version.
 
-### 1g. (Optional) Pin the engine dependency
-The app depends on the fork branch `ChristineTham/swift-markdown-engine @
-hellonotes-patches`. `Package.resolved` pins the exact commit, so release builds
-are reproducible — but for long‑term safety consider tagging the fork and
-depending on the tag instead of a moving branch.
+### 1g. Editor dependency
+The editor is the in-repo **`Packages/NotesEditor`** package (MarkdownCore +
+MarkdownEditor + GFMRender); GFM rendering/parity is provided by Apple's
+`swift-cmark` (`gfm` branch), pinned in `Package.resolved` for reproducible
+release builds. The former `ChristineTham/swift-markdown-engine` fork was
+removed at M4 and is no longer a dependency.
 
 ### 1h. Final local check
 A shared scheme (`HelloNotes.xcodeproj/xcshareddata/xcschemes/HelloNotes.xcscheme`)

@@ -2,11 +2,19 @@
 
 > Research + recommendation · 2026-07-11 · Companion to [unimplemented.md](unimplemented.md)
 
-## Progress
+> **⚠️ Superseded (M4, 2026-07-17).** This document is retained as historical
+> record only. HelloNotes no longer depends on the `swift-markdown-engine` fork —
+> the editor was rewritten as the in-repo `Packages/NotesEditor` (TextKit 2), and
+> the fork was removed from the codebase. The fork's patches remain published at
+> [`ChristineTham/swift-markdown-engine`](https://github.com/ChristineTham/swift-markdown-engine)
+> (branch `hellonotes-patches`) and were opened as upstream PRs. See
+> [editor-rewrite.md](editor-rewrite.md) for the current design.
 
-- **Fork is live:** [`ChristineTham/swift-markdown-engine`](https://github.com/ChristineTham/swift-markdown-engine)
+## Progress (historical)
+
+- **Fork (removed at M4):** [`ChristineTham/swift-markdown-engine`](https://github.com/ChristineTham/swift-markdown-engine)
   (a GitHub fork of `nodes-app/swift-markdown-engine`), branch **`hellonotes-patches`**
-  based on the `0.8.0` tag. HelloNotes depends on it by URL + branch.
+  based on the `0.8.0` tag. HelloNotes formerly depended on it by URL + branch.
 - **Fix #1 landed — scroll-to-location.** The `handleFindQuery` default scroll now
   uses the TextKit 2 fragment path universally (7-line change). Outline **jump-to-heading
   now scrolls** (verified live). `[[Note#heading]]` **link clicks** now navigate *and*
