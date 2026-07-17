@@ -49,7 +49,10 @@ final class EditorFidelitySnapshotTests: XCTestCase {
 
     """
 
-    private func renderEditor(dark: Bool) async throws -> NSImage {
+    /// Synchronous (main-thread) so `RunLoop.current` IS the main run loop —
+    /// the async block-embed / syntax-highlight Tasks post their results back
+    /// onto the main actor, so we must pump the main run loop to see them.
+    private func renderEditor(dark: Bool) throws -> NSImage {
         let services = EditorServices(
             wikiLinkExists: { _ in false },
             codeHighlighter: CodeHighlighterAdapter(darkMode: dark),
@@ -62,7 +65,7 @@ final class EditorFidelitySnapshotTests: XCTestCase {
                 }
             )
         )
-        let document = await EditorDocument.make(
+        let document = EditorDocument(
             text: Self.sample,
             theme: EditorTheme(fontSize: 15),
             services: services
@@ -85,12 +88,28 @@ final class EditorFidelitySnapshotTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView?.addSubview(scrollView)
+        // The editor draws no background of its own (the host provides it); for
+        // the snapshot, paint the GitHub canvas so dark-mode's light text is
+        // legible and the cached rep is opaque.
+        let canvas = dark ? NSColor(srgbRed: 0x0d/255, green: 0x11/255, blue: 0x17/255, alpha: 1) : .white
+        textView.drawsBackground = true
+        textView.backgroundColor = canvas
         window.layoutIfNeeded()
+
+        // Drive appearance-dependent rendering directly — the offscreen view's
+        // effectiveAppearance doesn't reliably propagate before the async table
+        // embed renders, which would otherwise render it in the wrong appearance.
+        document.isDarkAppearance = dark
+        document.renderMaxWidth = width - 40
 
         // Style every block, force full-document layout (so the highlighter and
         // table renderer are kicked off for every block, not just the initial
         // viewport), then pump the run loop so those async renders post back and
         // invalidate layout. Re-force layout each cycle to pick up the results.
+        // Caret at end of document → every embed/heading block is caret-away,
+        // so tables collapse to their image and inline markers conceal.
+        let docLen = textView.textStorage?.length ?? 0
+        textView.setSelectedRange(NSRange(location: docLen, length: 0))
         document.styleEverythingNow()
         func forceLayout() {
             if let tlm = textView.textLayoutManager {
@@ -106,21 +125,30 @@ final class EditorFidelitySnapshotTests: XCTestCase {
         }
         textView.display()
 
-        // Snapshot the text view's full drawn content. The editor draws no
-        // background of its own (the host/window provides it), so paint the
-        // GitHub canvas colour first — otherwise dark-mode's light text lands
-        // on transparent and washes out.
+        // Assert the async embeds actually composed into the live editor (not
+        // just render in isolation): the table source collapsed to its image,
+        // and the code block carries GitHub's keyword colour.
+        let s = Self.sample as NSString
+        let store = try XCTUnwrap(textView.textStorage)
+        let tableFont = store.attribute(.font, at: s.range(of: "| Feature").location, effectiveRange: nil) as? NSFont
+        XCTAssertEqual(tableFont?.pointSize ?? -1, 0.1, accuracy: 0.001,
+                       "table source should collapse (be replaced by the rendered grid image)")
+        let kw = try XCTUnwrap((store.attribute(.foregroundColor, at: s.range(of: "struct Point").location,
+                                                effectiveRange: nil) as? NSColor)?.usingColorSpace(.sRGB),
+                               "code keyword should be coloured")
+        let wantKw = dark ? (r: 1.0, g: 0.48, b: 0.45) : (r: 0.84, g: 0.23, b: 0.29)
+        XCTAssertEqual(kw.redComponent,   wantKw.r, accuracy: 0.03, "\(dark ? "dark" : "light") keyword red (GitHub palette)")
+        XCTAssertEqual(kw.greenComponent, wantKw.g, accuracy: 0.03, "\(dark ? "dark" : "light") keyword green")
+        XCTAssertEqual(kw.blueComponent,  wantKw.b, accuracy: 0.03, "\(dark ? "dark" : "light") keyword blue")
+
+        // Snapshot the text view's full drawn content (opaque canvas baked in).
         let bounds = NSRect(x: 0, y: 0, width: width, height: height)
         guard let rep = textView.bitmapImageRepForCachingDisplay(in: bounds) else {
             throw XCTSkip("no bitmap rep")
         }
         textView.cacheDisplay(in: bounds, to: rep)
         let image = NSImage(size: bounds.size)
-        image.lockFocus()
-        (dark ? NSColor(srgbRed: 0x0d/255, green: 0x11/255, blue: 0x17/255, alpha: 1) : .white).setFill()
-        NSRect(origin: .zero, size: bounds.size).fill()
-        rep.draw(in: bounds)
-        image.unlockFocus()
+        image.addRepresentation(rep)
 
         window.contentView = nil
         return image
@@ -204,9 +232,9 @@ final class EditorFidelitySnapshotTests: XCTestCase {
     /// proven directly by `testTableImageRendersZebraGrid` /
     /// `testCodeHighlightUsesGitHubPalette` instead. The *light* composite is
     /// the one to eye for heading/inline/list/blockquote fidelity.
-    func testRenderEditorLightAndDark() async throws {
+    func testRenderEditorLightAndDark() throws {
         for dark in [false, true] {
-            let image = try await renderEditor(dark: dark)
+            let image = try renderEditor(dark: dark)
             XCTAssertGreaterThan(image.size.width, 100)
             XCTAssertGreaterThan(image.size.height, 100)
             try writePNG(image, "editor-\(dark ? "dark" : "light").png", dir: snapshotDir)
