@@ -24,6 +24,13 @@ enum NoteTranscluder {
 
     private static let latex = SwiftMathBridge()
 
+    /// Render a `$$ … $$` display-math block to an image for the new editor.
+    /// Main-actor only (SwiftMath uses `lockFocus`).
+    @MainActor
+    static func blockLatexImage(source: String, isDark: Bool) -> NSImage? {
+        latexImage(source, fontSize: 20, isDark: isDark)
+    }
+
     static func image(markdown: String, title: String, isDark: Bool) -> NSImage? {
         let body = attributedBody(from: markdown, isDark: isDark)
         guard body.length > 0 else { return nil }

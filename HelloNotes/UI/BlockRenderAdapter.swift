@@ -19,35 +19,44 @@ actor BlockRenderAdapter: BlockRenderer {
     /// Resolve an embed target (`![[name]]`) to a file URL, or nil. Sendable
     /// so it can be captured across the actor boundary.
     private let resolve: @Sendable (String) -> URL?
-    /// Render a Mermaid diagram to an image (reuses the app's renderer).
+    /// Render a Mermaid diagram to an image (off-main safe).
     private let renderMermaid: @Sendable (String, Bool) -> NSImage?
+    /// Render a `$$…$$` block to an image (hops to the main actor inside).
+    private let renderMath: @Sendable (String, Bool) async -> NSImage?
+    /// Render a `![[Note]]` transclusion card (hops to the main actor inside).
+    private let renderTransclusion: @Sendable (String, Bool) async -> NSImage?
 
     private var cache: [String: NSImage] = [:]
 
     init(
         resolve: @escaping @Sendable (String) -> URL?,
-        renderMermaid: @escaping @Sendable (String, Bool) -> NSImage? = { _, _ in nil }
+        renderMermaid: @escaping @Sendable (String, Bool) -> NSImage? = { _, _ in nil },
+        renderMath: @escaping @Sendable (String, Bool) async -> NSImage? = { _, _ in nil },
+        renderTransclusion: @escaping @Sendable (String, Bool) async -> NSImage? = { _, _ in nil }
     ) {
         self.resolve = resolve
         self.renderMermaid = renderMermaid
+        self.renderMath = renderMath
+        self.renderTransclusion = renderTransclusion
     }
 
     func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> NSImage? {
         switch kind {
         case .image(let target):
-            return imageEmbed(target: target, maxWidth: maxWidth)
+            // An image *file* → load + scale here (off-main). Otherwise the
+            // target is a note → render a transclusion card on the main actor.
+            if let url = resolve(target), Self.imageExtensions.contains(url.pathExtension.lowercased()) {
+                return imageEmbed(url: url, maxWidth: maxWidth)
+            }
+            return scaled(await renderTransclusion(target, darkMode), maxWidth: maxWidth)
         case .mermaid(let source):
             return scaled(renderMermaid(source, darkMode), maxWidth: maxWidth)
-        case .math:
-            return nil   // M3c — needs a math renderer dependency
+        case .math(let source):
+            return scaled(await renderMath(source, darkMode), maxWidth: maxWidth)
         }
     }
 
-    private func imageEmbed(target: String, maxWidth: CGFloat) -> NSImage? {
-        // Only real image files (note transclusion embeds are handled by the
-        // old-engine path and aren't rendered inline yet).
-        guard let url = resolve(target),
-              Self.imageExtensions.contains(url.pathExtension.lowercased()) else { return nil }
+    private func imageEmbed(url: URL, maxWidth: CGFloat) -> NSImage? {
         let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
             .contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
         let key = "\(url.path)\u{1}\(mtime)\u{1}\(Int(maxWidth))"

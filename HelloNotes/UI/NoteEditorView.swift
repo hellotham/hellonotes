@@ -121,6 +121,7 @@ struct NoteEditorView: View {
     private var blockRenderAdapter: BlockRenderAdapter? {
         guard let noteDir = editor.note?.fileURL.deletingLastPathComponent() else { return nil }
         let subfolder = attachmentFolder.trimmingCharacters(in: .whitespaces)
+        let embed = embedProvider
         return BlockRenderAdapter(
             resolve: { target in
                 let name = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
@@ -132,6 +133,14 @@ struct NoteEditorView: View {
             },
             renderMermaid: { source, isDark in
                 MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark)
+            },
+            renderMath: { source, isDark in
+                await MainActor.run { NoteTranscluder.blockLatexImage(source: source, isDark: isDark) }
+            },
+            renderTransclusion: { target, _ in
+                // The app's embed provider already renders `![[Note]]` to a
+                // titled card (main-actor: it uses lockFocus).
+                await MainActor.run { embed.image(for: EmbeddedImageRequest(name: target)) }
             }
         )
     }
