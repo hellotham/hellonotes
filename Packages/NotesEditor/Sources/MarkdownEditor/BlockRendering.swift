@@ -39,6 +39,12 @@ public enum BlockEmbedKind: Sendable, Equatable, Hashable {
 /// the source visible (unknown target, render failure, unsupported kind).
 public protocol BlockRenderer: Sendable {
     func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage?
+    /// Render an inline `$…$` math span at (roughly) `fontSize`. Optional.
+    func renderInlineMath(_ latex: String, fontSize: CGFloat, darkMode: Bool) async -> PlatformImage?
+}
+
+public extension BlockRenderer {
+    func renderInlineMath(_ latex: String, fontSize: CGFloat, darkMode: Bool) async -> PlatformImage? { nil }
 }
 
 /// Custom attribute carrying the rendered image for a collapsed block. The
@@ -56,6 +62,11 @@ nonisolated public let calloutTintAttribute = NSAttributedString.Key("hn.callout
 /// Custom attribute (String SF Symbol name) on a callout's header line —
 /// the fragment paints the icon in the gutter beside the title.
 nonisolated public let calloutIconAttribute = NSAttributedString.Key("hn.calloutIcon")
+
+/// Custom attribute (PlatformImage) on the first char of a concealed inline
+/// `$…$` math span — the fragment draws it at the baseline. The span's source
+/// is made invisible and its width reserved (via `.kern`) to match the image.
+nonisolated public let inlineImageAttribute = NSAttributedString.Key("hn.inlineImage")
 
 #if canImport(AppKit)
 /// An `NSTextLayoutFragment` that draws a collapsed block's rendered image in
@@ -98,6 +109,7 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         drawCalloutBands(at: point, in: context)   // behind the text
         super.draw(at: point, in: context)   // concealed source (invisible)
         drawTaskCheckboxes(at: point, in: context)
+        drawInlineImages(at: point, in: context)
 
         guard let (image, bandTop) = blockImage() else { return }
         NSGraphicsContext.saveGraphicsState()
@@ -202,6 +214,41 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
             .applying(.init(hierarchicalColor: tint))
         return NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(config)
+    }
+
+    // MARK: - Inline images (inline `$…$` math)
+
+    /// Draw each inline-math image at the baseline of its (invisible,
+    /// width-reserved) source span.
+    private nonisolated func drawInlineImages(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentRange, range.length > 0 else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+
+        ts.enumerateAttribute(inlineImageAttribute, in: range, options: []) { value, attrRange, _ in
+            guard let image = value as? NSImage,
+                  let line = lineFragment(forDocumentCharAt: attrRange.location),
+                  let pos = charPosition(forDocumentCharAt: attrRange.location, point: point) else { return }
+            // Center on the line fragment's vertical middle (the concealed
+            // source char is near-zero-height, so use the line, not its font).
+            let tb = line.typographicBounds
+            let lineMidY = point.y + tb.origin.y + tb.height / 2
+            let rect = CGRect(x: pos.x, y: lineMidY - image.size.height / 2,
+                              width: image.size.width, height: image.size.height)
+            image.draw(in: rect)
+        }
+    }
+
+    private nonisolated func lineFragment(forDocumentCharAt docIndex: Int) -> NSTextLineFragment? {
+        guard let fragRange = fragmentRange else { return nil }
+        let local = docIndex - fragRange.location
+        guard local >= 0 else { return nil }
+        for line in textLineFragments {
+            let lr = line.characterRange
+            if local >= lr.location && local < lr.location + lr.length { return line }
+        }
+        return nil
     }
 
     /// Draw position (x, baselineY) for the character at document offset

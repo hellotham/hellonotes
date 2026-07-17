@@ -486,7 +486,10 @@ public final class EditorDocument {
         }
         #if canImport(AppKit)
         if services.blockRenderer != nil {
-            for index in blockIndices { refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index)) }
+            for index in blockIndices {
+                refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index))
+                refreshInlineMath(blockIndex: index, revealed: revealed.contains(index))
+            }
         }
         #endif
     }
@@ -685,6 +688,79 @@ public final class EditorDocument {
     @ObservationIgnored public var renderMaxWidth: CGFloat = 640
     /// Whether the host is in dark appearance (host updates on change).
     @ObservationIgnored public var isDarkAppearance = false
+
+    // MARK: - Inline math (`$…$` rendered as baseline images)
+
+    @ObservationIgnored private var inlineMathCache: [Int: NSImage] = [:]
+    @ObservationIgnored private var inlineMathInFlight: Set<Int> = []
+
+    /// Render each inline `$…$` span in a block to an image drawn at its
+    /// baseline, concealing the source and reserving its width — unless the
+    /// caret is in the block (then the source shows for editing).
+    private func refreshInlineMath(blockIndex: Int, revealed: Bool) {
+        guard let renderer = services.blockRenderer, !revealed,
+              blockIndex >= 0, blockIndex < parse.blocks.count else { return }
+        let block = parse.blocks[blockIndex]
+        guard block.hasInlineContent else { return }
+        let ns: NSString = storage.mutableString
+        let fontSize = theme.body.pointSize
+        let dark = isDarkAppearance
+
+        for span in StyleSpec.contentSpans(for: block, text: ns, lines: parse.lines) {
+            for node in InlineParser.parse(ns, in: span) where isInlineMath(node.kind) {
+                guard node.contentRange.length > 0,
+                      node.range.location + node.range.length <= ns.length else { continue }
+                let source = ns.substring(with: node.contentRange)
+                var hasher = Hasher(); hasher.combine(source); hasher.combine(Int(fontSize)); hasher.combine(dark)
+                let key = hasher.finalize()
+
+                if let image = inlineMathCache[key] {
+                    applyInlineMath(range: node.range, image: image)
+                    continue
+                }
+                guard !inlineMathInFlight.contains(key) else { continue }
+                inlineMathInFlight.insert(key)
+                let rangeLoc = node.range.location
+                Task { [weak self] in
+                    let image = await renderer.renderInlineMath(source, fontSize: fontSize, darkMode: dark)
+                    guard let self else { return }
+                    self.inlineMathInFlight.remove(key)
+                    guard let image else { return }
+                    if self.inlineMathCache.count > 256 { self.inlineMathCache.removeAll() }
+                    self.inlineMathCache[key] = image
+                    // Re-derive the span (text may have shifted) and re-apply
+                    // if the block is still unrevealed inline content.
+                    if let idx = self.parse.blockIndex(at: min(rangeLoc, max(0, self.storage.length - 1))),
+                       !self.revealedBlocks.contains(idx) {
+                        self.refreshInlineMath(blockIndex: idx, revealed: false)
+                    }
+                }
+            }
+        }
+    }
+
+    private func isInlineMath(_ kind: InlineKind) -> Bool {
+        if case .math = kind { return true }
+        return false
+    }
+
+    /// Collapse the `$…$` source to near-zero width (concealed font + clear
+    /// color) and reserve exactly the image's width via kern on the last char,
+    /// so the invisible span occupies precisely `image.width`. Mark the first
+    /// char so the fragment draws the image there.
+    private func applyInlineMath(range: NSRange, image: NSImage) {
+        guard range.length > 0, range.location + range.length <= storage.length else { return }
+        isApplyingStyles = true
+        storage.beginEditing()
+        storage.addAttributes([.font: theme.concealed, .foregroundColor: PlatformColor.clear], range: range)
+        storage.addAttribute(inlineImageAttribute, value: image, range: NSRange(location: range.location, length: 1))
+        // Collapsed source ≈ 0 width; kern on the last char reserves the image
+        // width plus a hair of breathing room.
+        storage.addAttribute(.kern, value: image.size.width + 2,
+                             range: NSRange(location: range.location + range.length - 1, length: 1))
+        storage.endEditing()
+        isApplyingStyles = false
+    }
     #endif
 }
 

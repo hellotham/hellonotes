@@ -130,6 +130,12 @@ struct NoteEditorView: View {
             },
             renderTable: { source, maxWidth, isDark in
                 await MainActor.run { TableImageRenderer.image(source: source, maxWidth: maxWidth, isDark: isDark) }
+            },
+            renderInlineMath: { latex, fontSize, isDark in
+                await MainActor.run {
+                    let color: NSColor = isDark ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.1, alpha: 1)
+                    return MathImageRenderer.image(latex: latex, fontSize: fontSize, color: color)
+                }
             }
         )
     }

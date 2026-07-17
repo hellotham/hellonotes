@@ -27,6 +27,8 @@ actor BlockRenderAdapter: BlockRenderer {
     private let renderTransclusion: @Sendable (String, Bool) async -> NSImage?
     /// Render a GFM table to an aligned grid (hops to the main actor inside).
     private let renderTable: @Sendable (String, CGFloat, Bool) async -> NSImage?
+    /// Render an inline `$…$` math span (hops to the main actor inside).
+    private let renderInlineMathFn: @Sendable (String, CGFloat, Bool) async -> NSImage?
 
     private var cache: [String: NSImage] = [:]
 
@@ -35,13 +37,19 @@ actor BlockRenderAdapter: BlockRenderer {
         renderMermaid: @escaping @Sendable (String, Bool) -> NSImage? = { _, _ in nil },
         renderMath: @escaping @Sendable (String, Bool) async -> NSImage? = { _, _ in nil },
         renderTransclusion: @escaping @Sendable (String, Bool) async -> NSImage? = { _, _ in nil },
-        renderTable: @escaping @Sendable (String, CGFloat, Bool) async -> NSImage? = { _, _, _ in nil }
+        renderTable: @escaping @Sendable (String, CGFloat, Bool) async -> NSImage? = { _, _, _ in nil },
+        renderInlineMath: @escaping @Sendable (String, CGFloat, Bool) async -> NSImage? = { _, _, _ in nil }
     ) {
         self.resolve = resolve
         self.renderMermaid = renderMermaid
         self.renderMath = renderMath
         self.renderTransclusion = renderTransclusion
         self.renderTable = renderTable
+        self.renderInlineMathFn = renderInlineMath
+    }
+
+    func renderInlineMath(_ latex: String, fontSize: CGFloat, darkMode: Bool) async -> NSImage? {
+        await renderInlineMathFn(latex, fontSize, darkMode)
     }
 
     func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> NSImage? {
