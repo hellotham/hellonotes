@@ -600,6 +600,9 @@ public final class EditorDocument {
             let src = ns.substring(with: block.range)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "$\n "))
             return src.isEmpty ? nil : .math(source: src)
+        case .table:
+            let src = ns.substring(with: block.range).trimmingCharacters(in: .whitespacesAndNewlines)
+            return src.isEmpty ? nil : .table(source: src)
         case .paragraph:
             // Exactly one `![[target]]` filling the paragraph's content.
             var content = block.range

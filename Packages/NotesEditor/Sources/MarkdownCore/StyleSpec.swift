@@ -267,7 +267,9 @@ public enum StyleSpec {
                 _ = url
             case .autolink:
                 contentRole = .url
-                markerConcealment = .never
+                // `<url>` angle brackets conceal when the caret is elsewhere;
+                // bare URLs have no markers, so nothing to conceal.
+                markerConcealment = .whenInactive
             case .tag(let name):
                 contentRole = .tag(name: name)
                 markerConcealment = .never   // the # stays visible

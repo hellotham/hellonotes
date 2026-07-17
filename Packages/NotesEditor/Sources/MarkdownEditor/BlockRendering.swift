@@ -30,6 +30,8 @@ public enum BlockEmbedKind: Sendable, Equatable, Hashable {
     case mermaid(source: String)
     /// A `$$ … $$` display-math block.
     case math(source: String)
+    /// A GFM pipe table (full block source, including the delimiter row).
+    case table(source: String)
 }
 
 /// Renders block embeds to images sized to fit `maxWidth` (points, the text

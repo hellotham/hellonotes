@@ -125,6 +125,15 @@ import Testing
         #expect(node("see https://a.io.", .autolink(url: "https://a.io")) != nil)
     }
 
+    @Test func wwwAutolinkGetsHTTPSURL() {
+        // GFM extended autolink: `www.` links to https:// but displays as-is.
+        let n = node("visit www.github.com today", .autolink(url: "https://www.github.com"))
+        #expect(n != nil)
+        #expect(n?.contentRange == NSRange(location: 6, length: 14))   // "www.github.com"
+        // Not a link mid-word.
+        #expect(parse("xwww.github.com").isEmpty)
+    }
+
     // MARK: - Tags & footnotes
 
     @Test func tags() {

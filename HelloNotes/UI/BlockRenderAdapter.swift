@@ -25,6 +25,8 @@ actor BlockRenderAdapter: BlockRenderer {
     private let renderMath: @Sendable (String, Bool) async -> NSImage?
     /// Render a `![[Note]]` transclusion card (hops to the main actor inside).
     private let renderTransclusion: @Sendable (String, Bool) async -> NSImage?
+    /// Render a GFM table to an aligned grid (hops to the main actor inside).
+    private let renderTable: @Sendable (String, CGFloat, Bool) async -> NSImage?
 
     private var cache: [String: NSImage] = [:]
 
@@ -32,12 +34,14 @@ actor BlockRenderAdapter: BlockRenderer {
         resolve: @escaping @Sendable (String) -> URL?,
         renderMermaid: @escaping @Sendable (String, Bool) -> NSImage? = { _, _ in nil },
         renderMath: @escaping @Sendable (String, Bool) async -> NSImage? = { _, _ in nil },
-        renderTransclusion: @escaping @Sendable (String, Bool) async -> NSImage? = { _, _ in nil }
+        renderTransclusion: @escaping @Sendable (String, Bool) async -> NSImage? = { _, _ in nil },
+        renderTable: @escaping @Sendable (String, CGFloat, Bool) async -> NSImage? = { _, _, _ in nil }
     ) {
         self.resolve = resolve
         self.renderMermaid = renderMermaid
         self.renderMath = renderMath
         self.renderTransclusion = renderTransclusion
+        self.renderTable = renderTable
     }
 
     func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> NSImage? {
@@ -53,6 +57,9 @@ actor BlockRenderAdapter: BlockRenderer {
             return scaled(renderMermaid(source, darkMode), maxWidth: maxWidth)
         case .math(let source):
             return scaled(await renderMath(source, darkMode), maxWidth: maxWidth)
+        case .table(let source):
+            // The renderer sizes to maxWidth itself (no post-scale needed).
+            return await renderTable(source, maxWidth, darkMode)
         }
     }
 

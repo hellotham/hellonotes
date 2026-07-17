@@ -127,6 +127,9 @@ struct NoteEditorView: View {
                 // The app's embed provider renders `![[Note]]` to a titled
                 // card (main-actor: it uses lockFocus).
                 await MainActor.run { embed.image(forName: target) }
+            },
+            renderTable: { source, maxWidth, isDark in
+                await MainActor.run { TableImageRenderer.image(source: source, maxWidth: maxWidth, isDark: isDark) }
             }
         )
     }

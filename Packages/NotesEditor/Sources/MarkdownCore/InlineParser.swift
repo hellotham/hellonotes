@@ -148,14 +148,19 @@ public enum InlineParser {
                     i += 1
                 }
 
-            case 0x68: // h — bare http(s):// URL
-                if isURLStart(b, at: i, count: n), i == 0 || !isWordish(b[i - 1]) {
+            case 0x68, 0x77: // h — bare http(s):// URL; w — bare www. URL (GFM)
+                let isHTTP = isURLStart(b, at: i, count: n)
+                let isWWW = !isHTTP && isWWWStart(b, at: i, count: n)
+                if (isHTTP || isWWW), i == 0 || !isWordish(b[i - 1]) {
                     var j = i
                     while j < n, !isURLTerminator(b[j]) { j += 1 }
                     // Trim trailing punctuation that reads as prose.
                     while j > i, b[j-1] == 0x2E || b[j-1] == 0x2C || b[j-1] == 0x29 || b[j-1] == 0x3B { j -= 1 }
+                    // A `www.` autolink links to https:// but displays as-is.
+                    let display = str(i, j)
+                    let url = isWWW ? "https://\(display)" : display
                     let r = NSRange(location: abs(i), length: j - i)
-                    nodes.append(InlineNode(kind: .autolink(url: str(i, j)), range: r, contentRange: r, markerRanges: []))
+                    nodes.append(InlineNode(kind: .autolink(url: url), range: r, contentRange: r, markerRanges: []))
                     i = j
                 } else {
                     i += 1
@@ -366,6 +371,14 @@ public enum InlineParser {
         var j = i + 4
         if j < count, b[j] == 0x73 { j += 1 }  // s
         guard j + 3 <= count, b[j] == 0x3A, b[j+1] == 0x2F, b[j+2] == 0x2F else { return false }
+        return true
+    }
+
+    private static func isWWWStart(_ b: [unichar], at i: Int, count: Int) -> Bool {
+        // "www." followed by at least one more char (GFM extended autolink).
+        let www: [unichar] = [0x77, 0x77, 0x77, 0x2E]
+        guard i + 5 <= count else { return false }
+        for (k, u) in www.enumerated() where b[i + k] != u { return false }
         return true
     }
 
