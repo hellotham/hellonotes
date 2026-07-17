@@ -5,6 +5,7 @@
 //  Created by Chris Tham on 12/7/2026.
 //
 
+#if os(macOS)
 import Testing
 import AppKit
 @testable import HelloNotes
@@ -71,3 +72,5 @@ struct SmartPasteTests {
         #expect(md.contains("- two"))
     }
 }
+
+#endif

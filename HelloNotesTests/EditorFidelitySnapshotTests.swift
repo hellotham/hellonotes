@@ -10,6 +10,7 @@
 //  inspected by eye and archived as an artifact.
 //
 
+#if os(macOS)
 import XCTest
 import AppKit
 import MarkdownEditor
@@ -241,3 +242,5 @@ final class EditorFidelitySnapshotTests: XCTestCase {
         }
     }
 }
+
+#endif

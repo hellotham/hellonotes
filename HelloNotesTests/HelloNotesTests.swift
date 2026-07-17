@@ -7,7 +7,9 @@
 
 import Testing
 import Foundation
+#if canImport(AppKit)
 import AppKit
+#endif
 @testable import HelloNotes
 
 @MainActor
@@ -593,6 +595,7 @@ struct HelloNotesTests {
 
     // MARK: - Image paste
 
+    #if os(macOS)
     @Test @MainActor
     func pastedImageIsSavedAndLinked() throws {
         let vault = try copiedSampleVault()
@@ -652,6 +655,7 @@ struct HelloNotesTests {
         let assetURL = noteURL.deletingLastPathComponent().appendingPathComponent(String(assetName))
         #expect(FileManager.default.fileExists(atPath: assetURL.path))
     }
+    #endif
 
     // MARK: - CollectionTree
 
@@ -771,6 +775,7 @@ struct LayoutRelaxationTests {
 
 // MARK: - Mind map model (idea tree from Markdown)
 
+#if os(macOS)   // MindMapModel/View is macOS-only
 @MainActor
 struct MindMapModelTests {
 
@@ -860,3 +865,4 @@ struct MindMapModelTests {
         #expect(model.nodes.filter { $0.kind == .bullet }.count == MindMapModel.maxBulletsPerSection)
     }
 }
+#endif

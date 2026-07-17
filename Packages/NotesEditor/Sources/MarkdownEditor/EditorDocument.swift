@@ -614,6 +614,12 @@ public final class EditorDocument {
 
     // MARK: - Block embeds (inline-rendered images / diagrams / math)
 
+    /// The usable text width for sizing rendered images (host updates on layout).
+    /// Cross-platform: the iOS view reads/writes it too.
+    @ObservationIgnored public var renderMaxWidth: CGFloat = 640
+    /// Whether the host is in dark appearance (host updates on change).
+    @ObservationIgnored public var isDarkAppearance = false
+
     #if canImport(AppKit)
     /// Rendered image per (kind) content hash. Cached so a restyle re-applies
     /// the collapse+image synchronously (no flash on caret enter/leave).
@@ -818,11 +824,6 @@ public final class EditorDocument {
             return off + delta                                // after → shift
         })
     }
-
-    /// The usable text width for sizing rendered images.
-    @ObservationIgnored public var renderMaxWidth: CGFloat = 640
-    /// Whether the host is in dark appearance (host updates on change).
-    @ObservationIgnored public var isDarkAppearance = false
 
     // MARK: - Inline math (`$…$` rendered as baseline images)
 

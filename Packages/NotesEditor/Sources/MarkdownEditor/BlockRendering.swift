@@ -81,11 +81,12 @@ nonisolated public let headingRuleAttribute = NSAttributedString.Key("hn.heading
 /// is made invisible and its width reserved (via `.kern`) to match the image.
 nonisolated public let inlineImageAttribute = NSAttributedString.Key("hn.inlineImage")
 
-#if canImport(AppKit)
 /// An `NSTextLayoutFragment` that draws a collapsed block's rendered image in
-/// the vertical band its paragraph reserves via `paragraphSpacing`. Only
-/// active for fragments whose text carries `blockImageAttribute`; everything
-/// else falls through to the default fragment behavior.
+/// the vertical band its paragraph reserves via `paragraphSpacing`, plus the
+/// editor's chrome (bullets, callout bands, heading rules, checkboxes). Only
+/// active for fragments whose text carries the relevant attributes; everything
+/// else falls through to the default fragment behavior. Cross-platform: all
+/// drawing is CoreGraphics (TextKit 2 + `NSTextLayoutFragment` exist on iOS 15+).
 nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
 
     /// Gap (points) between the concealed source line and the image, and
@@ -106,10 +107,10 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
 
     /// The image (if any) this fragment must draw, plus the y offset of the
     /// top of the reserved band relative to the fragment's draw origin.
-    private func blockImage() -> (image: NSImage, bandTop: CGFloat)? {
+    private func blockImage() -> (image: PlatformImage, bandTop: CGFloat)? {
         guard let ts = textStorage, let range = fragmentRange, range.length > 0,
               range.location < ts.length,
-              let image = ts.attribute(blockImageAttribute, at: range.location, effectiveRange: nil) as? NSImage
+              let image = ts.attribute(blockImageAttribute, at: range.location, effectiveRange: nil) as? PlatformImage
         else { return nil }
         // The concealed source line sits at the fragment top; the image band
         // begins just below it. The first line fragment's height is that
@@ -126,16 +127,12 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         drawHeadingRule(at: point, in: context)
         drawInlineImages(at: point, in: context)
 
-        guard let (image, bandTop) = blockImage() else { return }
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-
+        guard let (image, bandTop) = blockImage(), let cg = PlatformDraw.cgImage(image) else { return }
         let leftInset = point.x - layoutFragmentFrame.origin.x
             + (textLayoutManager?.textContainer?.lineFragmentPadding ?? 0)
         let rect = CGRect(x: leftInset, y: point.y + bandTop,
                           width: image.size.width, height: image.size.height)
-        image.draw(in: rect)
+        PlatformDraw.image(cg, in: rect, context: context)
     }
 
     // MARK: - Task checkboxes
@@ -145,23 +142,17 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
     /// unchanged and the box sits exactly where the source is.
     private nonisolated func drawTaskCheckboxes(at point: CGPoint, in context: CGContext) {
         guard let ts = textStorage, let range = fragmentRange, range.length > 0 else { return }
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-
         ts.enumerateAttribute(taskCheckboxAttribute, in: range, options: []) { value, attrRange, _ in
             guard let checked = value as? Bool,
                   let pos = charPosition(forDocumentCharAt: attrRange.location, point: point) else { return }
             let font = (ts.attribute(.font, at: attrRange.location, effectiveRange: nil) as? PlatformFont)
-                ?? .systemFont(ofSize: NSFont.systemFontSize)
+                ?? .systemFont(ofSize: PlatformFont.systemFontSize)
             let side = max(10, (font.ascender - font.descender) * 0.95)
             let box = CGRect(x: pos.x, y: pos.baselineY - font.ascender + (font.ascender - font.descender - side) / 2,
                              width: side, height: side)
             let symbol = checked ? "checkmark.square.fill" : "square"
-            let config = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)
-            if let img = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(config) {
-                img.draw(in: box)
+            if let cg = PlatformDraw.symbol(symbol, pointSize: side, color: .editorLabel) {
+                PlatformDraw.image(cg, in: box, context: context)
             }
         }
     }
@@ -173,15 +164,11 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
               range.location < ts.length,
               ts.attribute(headingRuleAttribute, at: range.location, effectiveRange: nil) != nil,
               let lastLine = textLineFragments.last else { return }
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
         let tb = lastLine.typographicBounds
         let width = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
         let leftEdge = point.x - layoutFragmentFrame.origin.x
         let y = point.y + tb.origin.y + tb.height + 7
-        NSColor.separatorColor.setFill()
-        NSBezierPath(rect: CGRect(x: leftEdge, y: y, width: width, height: 1)).fill()
+        PlatformDraw.fill(CGRect(x: leftEdge, y: y, width: width, height: 1), .editorSeparator, in: context)
     }
 
     // MARK: - List bullets
@@ -190,10 +177,6 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
     /// disc, hollow ring, or filled square by nesting depth (GitHub-style).
     private nonisolated func drawListBullets(at point: CGPoint, in context: CGContext) {
         guard let ts = textStorage, let range = fragmentRange, range.length > 0 else { return }
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-
         ts.enumerateAttribute(listBulletAttribute, in: range, options: []) { value, attrRange, _ in
             guard let depth = value as? Int,
                   let line = lineFragment(forDocumentCharAt: attrRange.location),
@@ -203,17 +186,13 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
             let cx = pos.x + 1
             let cy = point.y + tb.origin.y + tb.height / 2
             let rect = CGRect(x: cx, y: cy - side / 2, width: side, height: side)
-            NSColor.labelColor.setFill()
-            NSColor.labelColor.setStroke()
             switch depth % 3 {
             case 1:                                   // hollow ring
-                let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.4, dy: 0.4))
-                ring.lineWidth = 1
-                ring.stroke()
+                PlatformDraw.strokeEllipse(rect.insetBy(dx: 0.4, dy: 0.4), .editorLabel, lineWidth: 1, in: context)
             case 2:                                   // filled square
-                NSBezierPath(rect: rect.insetBy(dx: 0.4, dy: 0.4)).fill()
+                PlatformDraw.fill(rect.insetBy(dx: 0.4, dy: 0.4), .editorLabel, in: context)
             default:                                  // filled disc
-                NSBezierPath(ovalIn: rect).fill()
+                PlatformDraw.fillEllipse(rect, .editorLabel, in: context)
             }
         }
     }
@@ -248,53 +227,43 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         guard let ts = textStorage, let range = fragmentRange, range.length > 0 else { return }
         let containerWidth = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
         let barWidth: CGFloat = 3
-
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-
         let leftEdge = point.x - layoutFragmentFrame.origin.x
         for line in textLineFragments {
             let docStart = range.location + line.characterRange.location
             guard docStart < ts.length,
-                  let tint = ts.attribute(calloutTintAttribute, at: docStart, effectiveRange: nil) as? NSColor
+                  let tint = ts.attribute(calloutTintAttribute, at: docStart, effectiveRange: nil) as? PlatformColor
             else { continue }
             let tb = line.typographicBounds
             let band = CGRect(x: leftEdge, y: point.y + tb.origin.y, width: containerWidth, height: tb.height)
             // Plain blockquotes: one gutter bar per `>` nesting level, no fill.
             // Callouts: a tinted band + a single accent bar.
             if let depth = ts.attribute(blockquotePlainAttribute, at: docStart, effectiveRange: nil) as? Int {
-                tint.withAlphaComponent(0.55).setFill()
                 for level in 0..<max(1, depth) {
                     let x = leftEdge + CGFloat(level) * RenderedBlockFragment.quoteBarStep
-                    NSBezierPath(rect: CGRect(x: x, y: band.minY, width: barWidth, height: tb.height)).fill()
+                    PlatformDraw.fill(CGRect(x: x, y: band.minY, width: barWidth, height: tb.height),
+                                      tint.withAlphaComponent(0.55), in: context)
                 }
             } else {
-                tint.withAlphaComponent(0.10).setFill()
-                NSBezierPath(rect: band).fill()
-                tint.withAlphaComponent(0.85).setFill()
-                NSBezierPath(rect: CGRect(x: leftEdge, y: band.minY, width: barWidth, height: tb.height)).fill()
+                PlatformDraw.fill(band, tint.withAlphaComponent(0.10), in: context)
+                PlatformDraw.fill(CGRect(x: leftEdge, y: band.minY, width: barWidth, height: tb.height),
+                                  tint.withAlphaComponent(0.85), in: context)
             }
 
             if let symbol = ts.attribute(calloutIconAttribute, at: docStart, effectiveRange: nil) as? String,
-               let icon = calloutIcon(symbol, tint: tint) {
+               let icon = PlatformDraw.symbol(symbol, pointSize: 12, color: tint) {
                 let side: CGFloat = 13
                 let rect = CGRect(x: leftEdge + barWidth + 4,
                                   y: band.minY + (tb.height - side) / 2, width: side, height: side)
-                icon.draw(in: rect)
+                PlatformDraw.image(icon, in: rect, context: context)
             }
 
             // Foldable callout: a right-aligned disclosure chevron.
-            if let folded = ts.attribute(calloutFoldAttribute, at: docStart, effectiveRange: nil) as? Bool {
+            if let folded = ts.attribute(calloutFoldAttribute, at: docStart, effectiveRange: nil) as? Bool,
+               let chevron = PlatformDraw.symbol(folded ? "chevron.right" : "chevron.down", pointSize: 11, color: tint) {
                 let side: CGFloat = 11
                 let rect = CGRect(x: band.maxX - Self.calloutChevronInset,
                                   y: band.minY + (tb.height - side) / 2, width: side, height: side)
-                let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-                    .applying(.init(hierarchicalColor: tint))
-                NSImage(systemSymbolName: folded ? "chevron.right" : "chevron.down",
-                        accessibilityDescription: nil)?
-                    .withSymbolConfiguration(config)?
-                    .draw(in: rect)
+                PlatformDraw.image(chevron, in: rect, context: context)
             }
         }
     }
@@ -305,25 +274,14 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
     /// `StyleApplier.quoteBarStep`).
     static let quoteBarStep: CGFloat = 12
 
-    private nonisolated func calloutIcon(_ symbol: String, tint: NSColor) -> NSImage? {
-        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-            .applying(.init(hierarchicalColor: tint))
-        return NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(config)
-    }
-
     // MARK: - Inline images (inline `$…$` math)
 
     /// Draw each inline-math image at the baseline of its (invisible,
     /// width-reserved) source span.
     private nonisolated func drawInlineImages(at point: CGPoint, in context: CGContext) {
         guard let ts = textStorage, let range = fragmentRange, range.length > 0 else { return }
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-
         ts.enumerateAttribute(inlineImageAttribute, in: range, options: []) { value, attrRange, _ in
-            guard let image = value as? NSImage,
+            guard let image = value as? PlatformImage, let cg = PlatformDraw.cgImage(image),
                   let line = lineFragment(forDocumentCharAt: attrRange.location),
                   let pos = charPosition(forDocumentCharAt: attrRange.location, point: point) else { return }
             // Center on the line fragment's vertical middle (the concealed
@@ -332,7 +290,7 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
             let lineMidY = point.y + tb.origin.y + tb.height / 2
             let rect = CGRect(x: pos.x, y: lineMidY - image.size.height / 2,
                               width: image.size.width, height: image.size.height)
-            image.draw(in: rect)
+            PlatformDraw.image(cg, in: rect, context: context)
         }
     }
 
@@ -376,4 +334,3 @@ final class RenderedBlockLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
         RenderedBlockFragment(textElement: textElement, range: textElement.elementRange)
     }
 }
-#endif

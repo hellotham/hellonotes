@@ -45,5 +45,5 @@ enum EditorMode: String, CaseIterable, Identifiable {
     static let macCases: [EditorMode] = [.edit, .preview, .markdown, .split]
 
     /// The cases offered on iOS — no live WYSIWYG editor there.
-    static let iOSCases: [EditorMode] = [.preview, .markdown, .split]
+    static let iOSCases: [EditorMode] = [.edit, .preview, .markdown, .split]
 }

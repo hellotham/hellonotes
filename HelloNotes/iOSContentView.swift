@@ -25,10 +25,9 @@ struct iOSContentView: View {
 
     /// How the editor presents the note. iOS has no live WYSIWYG editor, so it
     /// starts in read-only Preview and offers Preview / Markdown / Split.
-    @AppStorage("iosEditorViewMode") private var storedMode = EditorMode.preview.rawValue
+    @AppStorage("iosEditorViewMode") private var storedMode = EditorMode.edit.rawValue
     private var mode: EditorMode {
-        let m = EditorMode(rawValue: storedMode) ?? .preview
-        return m == .edit ? .preview : m   // `edit` isn't available on iOS
+        EditorMode(rawValue: storedMode) ?? .edit
     }
     private var modeBinding: Binding<EditorMode> {
         Binding(get: { mode }, set: { storedMode = $0.rawValue })
@@ -292,6 +291,8 @@ struct iOSContentView: View {
         if let note = editor.note {
             Group {
                 switch mode {
+                case .edit:
+                    liveEditor(note)
                 case .markdown:
                     sourceEditor
                 case .split:
@@ -314,6 +315,27 @@ struct iOSContentView: View {
                 description: Text("Choose a note from the list, or create a new one.")
             )
         }
+    }
+
+    /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,
+    /// list bullets, callouts, heading rules, checkboxes).
+    private func liveEditor(_ note: Note) -> some View {
+        iOSLiveEditor(
+            editor: editor,
+            note: note,
+            fontSize: appearance.editorFontSize,
+            onOpenWikiLink: { openWikiLink($0) }
+        )
+    }
+
+    /// Resolve a `[[wiki-link]]` tap to a note in the focused collection and
+    /// select it (create-on-miss is a macOS-only nicety for now).
+    private func openWikiLink(_ target: String) {
+        let base = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
+        guard let c = focused,
+              let match = c.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame })
+        else { return }
+        selectedNoteID = match.id
     }
 
     /// Raw Markdown source editor, bound straight to the note buffer.

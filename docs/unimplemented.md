@@ -86,16 +86,19 @@
 
 ## 6 · Editor gaps
 
-- 🍎 **Rich iOS editor — the `editor-M5` milestone (intentionally deferred; does not block the macOS 1.0 release).** The live editor is macOS-only (`NewEditorHost` → `MarkdownEditorView`, an `NSViewRepresentable`); iOS uses a plain-text `TextEditor`. This is **net-new feature work, not a wire-up**: `MarkdownEditor` has no UIKit editor yet (`MarkdownTextView` is an `NSTextView`; the "UITextView sibling" is a planned milestone per the source). `MarkdownCore` and the `PlatformColor`/`PlatformFont` abstraction are shared, but `BlockRendering` (the custom `NSTextLayoutFragment` drawing for code chrome, callout/quote bars, embeds) is AppKit (`NSBezierPath` etc.) and needs a UIKit port, plus a `UITextView(usingTextLayoutManager:)` subclass, a `UIViewRepresentable` host, and touch selection/keyboard handling — all requiring on-device iOS verification. Scoped as its own milestone rather than shipped untested.
-- 🟡 **Live transclusion** — `![[Note]]` embeds render as a static image card; nested callouts and live selection inside a transclusion aren't supported (needs nested live-layout embeds — a large fragment-composition effort).
-- 🟡 **Emoji shortcodes** — `:smile:` renders as literal text. This matches raw GitHub *source*; github.com substitutes the glyph only at display time (cmark-gfm, which the Preview uses, doesn't). Low value; would need a bundled ~1,800-entry shortcode table. (Named HTML entities like `&amp;copy;` already decode correctly in the Preview via cmark-gfm.)
+*The **iOS live editor** (`editor-M5`) is now **shipped** — see [implemented.md §6](implemented.md#6--production-release-hardening). iOS has a live TextKit 2 editor with inline styling + caret-driven concealment; the `BlockRendering` chrome was ported to cross-platform CoreGraphics with no macOS regression.*
+
+- 🍎 **iOS fragment chrome** — on iOS the custom-fragment *chrome* (unordered-list bullet glyphs, callout tint band/bar/icon, blockquote gutter bar, task checkboxes, heading bottom-rule) doesn't paint: `UITextView` — unlike `NSTextView` — doesn't invoke a custom `NSTextLayoutFragment.draw`. The shared inline styling + concealment work; the block chrome needs an **overlay-view renderer** on iOS (draw the chrome in a transparent `UIView` layered over the text view, driven by the same attributes) — the only substantive remaining iOS-editor item.
+- 🟡 **iOS editor services** — code-syntax colours and block embeds (table/math/mermaid/transclusion images) aren't wired on iOS yet (the app-side renderers are AppKit `NSImage`/`lockFocus`); iOS code blocks show plain monospace and embeds show source. Needs UIKit renderers.
+- 🟡 **Live transclusion** — `![[Note]]` embeds render as a static image card (macOS); nested callouts and live selection inside a transclusion aren't supported (needs nested live-layout embeds).
+- 🟡 **Emoji shortcodes** — `:smile:` renders as literal text (matches raw GitHub *source*; github.com substitutes the glyph only at display time, which cmark-gfm/the Preview doesn't). Low value.
 
 ---
 
 ## 7 · iOS / iPadOS parity
 
-- 🍎 **Live editor** — the `editor-M5` milestone (see §6).
-- 🍎 **macOS-only surfaces** — FSEvents watching, Open Quickly, tags tree, the Git UI, image paste, Mermaid preview, document statistics, outline, HTML/PDF export, multi-tab, version history, wiki-link autocomplete, open-in-new-window, Graph/Mind Map/Slides, file viewer, and the whole AI stack. The shared `Core`/`State` layers can back iOS UIs later. iOS ships as a browse / GFM-preview / plain-text-edit companion by design.
+- ✅ **Live editor** — shipped (`editor-M5`, see §6); the fragment-chrome overlay is the one remaining editor item (above).
+- 🍎 **macOS-only surfaces** — Open Quickly, tags tree, the Git UI, image paste, Mermaid preview, document statistics, outline, HTML/PDF export, multi-tab, version history, wiki-link autocomplete, open-in-new-window, Graph/Mind Map/Slides, file viewer, and the whole AI stack. The shared `Core`/`State` layers can back iOS UIs later.
 - 🟡 **iPad multitasking / Stage Manager** for the split layout is unverified (needs a device).
 
 ---

@@ -9,16 +9,18 @@
 //  fights it. (The UITextView sibling lands in M5 on the same document.)
 //
 
-#if canImport(AppKit)
-import AppKit
-import SwiftUI
-import MarkdownCore
+import Foundation
 
-/// What the user tapped, resolved for the host app.
+/// What the user tapped, resolved for the host app. (Cross-platform.)
 public enum EditorLinkTap {
     case wiki(target: String)
     case url(URL)
 }
+
+#if canImport(AppKit)
+import AppKit
+import SwiftUI
+import MarkdownCore
 
 /// The host's handle on a live editor: programmatic edits (undoable, via
 /// the same path typing takes), formatting commands, and navigation. This
