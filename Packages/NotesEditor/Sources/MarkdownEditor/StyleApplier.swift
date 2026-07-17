@@ -49,6 +49,20 @@ nonisolated enum StyleApplier {
             for run in runs {
                 apply(run, to: target, theme: theme, revealed: isRevealed, resolveWiki: resolveWiki)
             }
+            // Overlay spec-accurate GFM inline styling from cmark-gfm — the same
+            // engine the Preview renders with — so emphasis/links/code match the
+            // spec exactly. Additive (cmark only emits runs for GFM constructs),
+            // so the Obsidian extensions styled above are untouched. Skip code /
+            // math blocks (their content isn't inline Markdown).
+            if text.length < gfmOverlayMaxLength, overlayGFM(block.kind) {
+                let sub = text.substring(with: block.range) as NSString
+                for run in GFMLiveStyle.runs(sub) {
+                    let shifted = StyleRun(
+                        range: NSRange(location: block.range.location + run.range.location, length: run.range.length),
+                        role: run.role, concealment: run.concealment)
+                    apply(shifted, to: target, theme: theme, revealed: isRevealed, resolveWiki: resolveWiki)
+                }
+            }
             // Plain-blockquote gutter bars are per-line (nesting depth); only
             // when concealed — editing reveals the raw `>` at natural indent.
             if !isRevealed {
@@ -56,6 +70,21 @@ nonisolated enum StyleApplier {
             }
         }
         target.endEditing()
+    }
+
+    /// Whether to overlay cmark GFM inline styling on this block. Code and math
+    /// blocks are literal content (no inline Markdown); fenced code also carries
+    /// syntax-highlight colours we must not disturb.
+    /// Above this document length the per-block cmark overlay is skipped to keep
+    /// keystrokes sub-frame — the fast StyleSpec path handles pathological
+    /// multi-MB notes (well beyond any hand-written note).
+    static let gfmOverlayMaxLength = 200_000
+
+    private static func overlayGFM(_ kind: BlockKind) -> Bool {
+        switch kind {
+        case .fencedCode, .mathBlock, .frontMatter, .thematicBreak, .blank: false
+        default: true
+        }
     }
 
     /// Reset a block to its base look (clears stale attributes from previous

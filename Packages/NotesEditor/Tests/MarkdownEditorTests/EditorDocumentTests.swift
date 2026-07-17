@@ -336,6 +336,30 @@ import AppKit
     }
     #endif
 
+    #if canImport(AppKit)
+    @Test func gfmLiveStyleRunsFromCmark() {
+        let text = "# Heading\n\nA **bold**, *it*, `code`, [link](https://x.com).\n" as NSString
+        let runs = GFMLiveStyle.runs(text)
+        func run(_ role: String, contains needle: String) -> Bool {
+            runs.contains { r in
+                let s = text.substring(with: r.range)
+                return "\(r.role)".hasPrefix(role) && s == needle
+            }
+        }
+        // Heading: `# ` concealed marker, "Heading" is heading text.
+        #expect(run("headingText", contains: "Heading"))
+        #expect(runs.contains { text.substring(with: $0.range) == "# " && "\($0.role)" == "marker" && $0.concealment == .whenInactive })
+        // Emphasis delimiters + content.
+        #expect(run("strong", contains: "bold"))
+        #expect(run("emphasis", contains: "it"))
+        #expect(run("inlineCode", contains: "code"))
+        // Link label coloured, `[` and `](url)` concealed.
+        #expect(run("linkText", contains: "link"))
+        #expect(runs.contains { text.substring(with: $0.range) == "[" && "\($0.role)" == "marker" })
+        #expect(runs.contains { text.substring(with: $0.range).hasPrefix("](") && "\($0.role)" == "marker" })
+    }
+    #endif
+
     // MARK: - Code highlighting
 
     private struct MockHighlighter: CodeHighlighting {
