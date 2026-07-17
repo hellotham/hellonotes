@@ -43,6 +43,11 @@ public protocol BlockRenderer: Sendable {
 /// fragment draws it in the band reserved by the paragraph's `paragraphSpacing`.
 nonisolated let blockImageAttribute = NSAttributedString.Key("hn.blockImage")
 
+/// Custom attribute (Bool = checked) marking a task-list `[ ]`/`[x]` box.
+/// The fragment draws a checkbox glyph over the (concealed) brackets; the
+/// text view toggles it on click.
+nonisolated public let taskCheckboxAttribute = NSAttributedString.Key("hn.taskCheckbox")
+
 #if canImport(AppKit)
 /// An `NSTextLayoutFragment` that draws a collapsed block's rendered image in
 /// the vertical band its paragraph reserves via `paragraphSpacing`. Only
@@ -91,8 +96,9 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
 
     override nonisolated func draw(at point: CGPoint, in context: CGContext) {
         super.draw(at: point, in: context)   // concealed source (invisible)
-        guard let (image, bandTop) = blockImage() else { return }
+        drawTaskCheckboxes(at: point, in: context)
 
+        guard let (image, bandTop) = blockImage() else { return }
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
@@ -102,6 +108,51 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         let rect = CGRect(x: leftInset, y: point.y + bandTop,
                           width: image.size.width, height: image.size.height)
         image.draw(in: rect)
+    }
+
+    // MARK: - Task checkboxes
+
+    /// Draw a checkbox glyph over every concealed `[ ]`/`[x]` box on top of
+    /// the (invisible) bracket characters, so the width and layout are
+    /// unchanged and the box sits exactly where the source is.
+    private nonisolated func drawTaskCheckboxes(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentRange, range.length > 0 else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+
+        ts.enumerateAttribute(taskCheckboxAttribute, in: range, options: []) { value, attrRange, _ in
+            guard let checked = value as? Bool,
+                  let pos = charPosition(forDocumentCharAt: attrRange.location, point: point) else { return }
+            let font = (ts.attribute(.font, at: attrRange.location, effectiveRange: nil) as? PlatformFont)
+                ?? .systemFont(ofSize: NSFont.systemFontSize)
+            let side = max(10, (font.ascender - font.descender) * 0.95)
+            let box = CGRect(x: pos.x, y: pos.baselineY - font.ascender + (font.ascender - font.descender - side) / 2,
+                             width: side, height: side)
+            let symbol = checked ? "checkmark.square.fill" : "square"
+            let config = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)
+            if let img = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(config) {
+                img.draw(in: box)
+            }
+        }
+    }
+
+    /// Draw position (x, baselineY) for the character at document offset
+    /// `docIndex`, within this fragment.
+    private nonisolated func charPosition(forDocumentCharAt docIndex: Int, point: CGPoint) -> (x: CGFloat, baselineY: CGFloat)? {
+        guard let fragRange = fragmentRange else { return nil }
+        let local = docIndex - fragRange.location
+        guard local >= 0 else { return nil }
+        for line in textLineFragments {
+            let lr = line.characterRange
+            if local >= lr.location && local < lr.location + lr.length {
+                let charPos = line.locationForCharacter(at: local)
+                let tb = line.typographicBounds
+                return (x: point.x + tb.origin.x + charPos.x, baselineY: point.y + tb.origin.y + charPos.y)
+            }
+        }
+        return nil
     }
 }
 

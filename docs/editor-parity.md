@@ -30,8 +30,8 @@ Updated 2026-07-17 (M1).
 | Code-block syntax highlighting | ✓ | live-verified. HighlighterSwift (kept after a doc-cited survey: Apple ships no multi-language highlighter through the 26 SDKs; hljs wrappers beat tree-sitter for cached one-shot snippets — see editor-rewrite.md). Behind our own `CodeHighlighting` protocol: engine-swappable, colors-only overlay (metrics stay ours), synchronous re-apply from a per-document cache so caret reveals never flash. Now a *direct* SPM dependency (survives fork removal at M4) |
 | Rendered embeds: `![[image]]`, Mermaid, block LaTeX (`$$…$$`), `![[Note]]` transclusion cards | ✓ | live-verified (image, Mermaid, LaTeX; transclusion rides the same proven path via the app's embed provider). Fragment-drawn: source concealed + collapsed when caret is outside, revealed for editing when inside; sized to the column, drawn in a paragraph-spacing band; storage stays byte-pure. Engine-swappable `BlockRenderer` + per-content-hash cache (sync re-apply, no flash). Image files off-main; Mermaid/LaTeX/transclusion via the app's renderers (LaTeX + transclusion hop to the main actor for `lockFocus`) |
 | Inline LaTeX rendered as image | ✗ | later; styled source meanwhile |
-| Callout collapse, front-matter fold | ✗ | M3 |
-| Task checkbox click-toggle | ✗ | M3 |
+| Task checkbox click-toggle | ✓ | live-verified. Real checkbox glyphs drawn over the concealed `[ ]`/`[x]`; a click toggles the state (undoable, through the typing path) without moving the caret; both directions persist to disk |
+| Callout collapse, front-matter fold | ✗ | later polish |
 | Table grid chrome / wide-table scrolling | ✗ | M3; aligned text + dimmed pipes meanwhile |
 | Writing Tools config, Continuity Camera routing | ✗ | arrives with native-roadmap Phase A, on the new engine |
 | Preview mode on new engine | ✗ | M4 — same view, `editable(false)`; old engine renders Preview until then |

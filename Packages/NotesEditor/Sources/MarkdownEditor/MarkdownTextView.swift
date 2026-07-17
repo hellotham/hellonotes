@@ -209,6 +209,41 @@ public final class MarkdownTextView: NSTextView {
         }
     }
 
+    public override func mouseDown(with event: NSEvent) {
+        // A click on a rendered task checkbox toggles `[ ]` ↔ `[x]` instead
+        // of moving the caret.
+        if toggleTaskCheckbox(at: event) { return }
+        super.mouseDown(with: event)
+    }
+
+    /// If the click landed on a concealed task box, toggle it (undoably) and
+    /// return true. The box is 3 chars (`[ ]`); we accept a click anywhere in
+    /// that range plus the glyph's small overhang.
+    private func toggleTaskCheckbox(at event: NSEvent) -> Bool {
+        guard isEditable, let storage = textStorage else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        let index = characterIndexForInsertion(at: point)
+        // Check the clicked index and the three before it (the click may land
+        // just after the box; the attribute spans the 3-char `[ ]`).
+        for probe in stride(from: min(index, storage.length - 1), through: max(0, index - 3), by: -1) {
+            guard probe < storage.length else { continue }
+            var effective = NSRange(location: 0, length: 0)
+            if let checked = storage.attribute(taskCheckboxAttribute, at: probe, effectiveRange: &effective) as? Bool {
+                let ns = storage.string as NSString
+                // The state char is the middle of `[ ]` / `[x]`.
+                let stateIndex = effective.location + 1
+                guard stateIndex < ns.length else { return false }
+                let replacement = checked ? " " : "x"
+                let stateRange = NSRange(location: stateIndex, length: 1)
+                performEdit(replacing: stateRange, with: replacement)
+                // Keep the caret off the line so it stays rendered.
+                setSelectedRange(NSRange(location: effective.location, length: 0))
+                return true
+            }
+        }
+        return false
+    }
+
     public override func paste(_ sender: Any?) {
         if let onPasteMarkdown, let markdown = onPasteMarkdown(NSPasteboard.general) {
             performEdit(replacing: selectedRange(), with: markdown)

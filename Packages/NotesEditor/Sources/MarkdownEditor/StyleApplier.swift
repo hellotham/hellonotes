@@ -174,9 +174,13 @@ nonisolated enum StyleApplier {
             target.addAttributes([.foregroundColor: theme.accent], range: range)
 
         case .taskMarker(let checked):
+            // Conceal the `[ ]`/`[x]` characters (keep the mono width so the
+            // layout is stable) and mark them so the fragment draws a real
+            // checkbox glyph in their place — clickable to toggle.
             target.addAttributes([
                 .font: theme.mono,
-                .foregroundColor: checked ? theme.accent : theme.markerColor,
+                .foregroundColor: PlatformColor.clear,
+                taskCheckboxAttribute: checked,
             ], range: range)
 
         case .thematicBreak:
