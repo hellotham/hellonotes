@@ -75,12 +75,12 @@
 
 ## 5 · Accessibility
 
-- 🟠 **No editor headings rotor** — zero `accessibilityRotor` in the codebase; long notes have no VoiceOver heading navigation (headings are already extracted, so this is cheap).
-- 🟠 **Graph & Mind Map are opaque to VoiceOver** — nodes/edges are drawn into a `Canvas` and aren't accessibility elements (`GraphView.swift:234`, `MindMapView`); only the chrome buttons are labelled. A blind user gets an empty rectangle.
-- 🟠 **Custom TextKit-2 editor a11y is unverified** — concealed/replaced ranges may misreport to VoiceOver; needs an on-device VoiceOver audit of the editor.
-- 🟡 **Colour-only signalling** — the git dirty-state dot in the outline is orange-vs-grey with no label/shape (`NoteOutlineList.swift:377`).
-- 🟡 **Canvas labels scale by zoom, not Dynamic Type** (`GraphView.swift:331`, `MindMapView.swift:158`); the rest of the UI respects Dynamic Type.
-- 🟡 **Reduce Motion isn't queried** — low exposure (graph/mind-map are precomputed, not live-simulated).
+*Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): Graph is now VoiceOver-navigable (`accessibilityChildren`); git dirty-state dot is labelled (not colour-only). (Mind Map nodes were already real `Text`/`Button` views, so already navigable.)*
+
+- 🟠 **No editor headings rotor** — zero `accessibilityRotor`; long notes have no VoiceOver heading navigation. The editor is an `NSTextView` (`NSViewRepresentable`), so this needs AppKit-level accessibility (custom `accessibilityCustomRotors` on the text view exposing heading ranges), not a SwiftUI rotor. Headings are already extracted, so the data is there.
+- 🟠 **Custom TextKit-2 editor a11y needs an on-device VoiceOver audit** — concealed/replaced ranges (near-zero-size marker fonts, drawn block embeds) may misreport to VoiceOver. `NSTextView` is natively accessible, but the concealment layer needs verification on a real device with VoiceOver.
+- 🟡 **Canvas labels scale by zoom, not Dynamic Type** (`GraphView`, `MindMapView`); the rest of the UI respects Dynamic Type.
+- 🟡 **Reduce Motion isn't queried** — low exposure (graph/mind-map layouts are precomputed, not live-simulated).
 
 ---
 

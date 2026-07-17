@@ -376,6 +376,10 @@ struct NoteOutlineList: NSViewRepresentable {
                 dot.wantsLayer = true
                 dot.layer?.backgroundColor = (collection.git.status.isClean ? NSColor.tertiaryLabelColor : NSColor.systemOrange).cgColor
                 dot.layer?.cornerRadius = 3
+                // The colour alone signals git state; label it for VoiceOver.
+                dot.setAccessibilityElement(true)
+                dot.setAccessibilityRole(.image)
+                dot.setAccessibilityLabel(collection.git.status.isClean ? "No uncommitted changes" : "Uncommitted changes")
                 dot.translatesAutoresizingMaskIntoConstraints = false
                 dot.widthAnchor.constraint(equalToConstant: 6).isActive = true
                 dot.heightAnchor.constraint(equalToConstant: 6).isActive = true

@@ -335,6 +335,18 @@ struct GraphView: View {
             }
         }
         .contentShape(.rect)
+        // The graph is drawn into a Canvas, so expose a VoiceOver-navigable list
+        // of the notes (otherwise it's an opaque rectangle). Activating a node
+        // opens its note.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Note graph")
+        .accessibilityValue("\(nodes.count) notes")
+        .accessibilityChildren {
+            ForEach(Array(nodes.enumerated()), id: \.element.id) { index, node in
+                Button(node.label) { onSelect(node.url) }
+                    .accessibilityHint("\(degrees.indices.contains(index) ? degrees[index] : 0) links. Activate to open.")
+            }
+        }
         .gesture(
             ExclusiveGesture(
                 SpatialTapGesture(count: 2),
