@@ -15,6 +15,10 @@ struct HelloNotesApp: App {
     @State private var llmSettings = LLMSettings()
     /// App-wide theming (appearance, accent, text size), applied at every root.
     @State private var appearance = AppearanceSettings()
+    #if os(macOS)
+    /// Drains pending editor autosaves on ⌘Q before the process exits.
+    @NSApplicationDelegateAdaptor(TerminationGuard.self) private var terminationGuard
+    #endif
 
     var body: some Scene {
         WindowGroup(id: "main") {

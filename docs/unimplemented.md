@@ -31,16 +31,13 @@
 
 ---
 
-## 1 · Data safety & correctness *(highest non-release risk)*
+## 1 · Data safety & correctness
 
-- 🟠 **Assistant note writes are non-atomic and bypass the open editor buffer** — `EditNoteTool`/`WriteNoteTool` write with a plain (non-`.atomic`) `Data.write` (`CollectionTools.swift:206,242`) straight to disk, not registered as a self-write, and not reconciled with an `EditorModel` that may hold newer unsaved edits for the same note. Outcome is timing-dependent: a conflict, or the editor's next autosave silently overwrites the assistant's change (or vice-versa). **Fix:** atomic writes + route through the same save/self-write path as the editor.
-- 🟠 **No synchronous flush on quit** — flush is a fire-and-forget `Task { await tabs.flushAll() }` on `scenePhase` change (`MacContentView.swift:351`, `iOSContentView.swift:114`); there is no `applicationWillTerminate` synchronous drain, so up to one debounce interval (~600 ms) of edits can be lost on a fast ⌘Q.
-- 🟠 **`rewriteWikiLinks` (rename) is not transactional** — `renameNote` moves the file, then rewrites links across every other note in a loop where each write is `try?`-swallowed (`Collection.swift:412-434`, `:431`); a mid-batch failure (or a regex-compile early-return after the file already moved) leaves some notes rewritten and others with dangling `[[oldTitle]]` links, with no error and no recovery pass.
-- 🟠 **All local file operations fail silently** — `createNote`/`renameNote`/`duplicateNote`/`deleteNote`/`createFolder`/`moveItem` return `nil` or swallow via `try?` (`Collection.swift:348–510`) and their UI callers do nothing on failure. Rename-to-existing-name, a permissions error, or a name-collision race just no-ops with no message. `EditorModel.swift:166` (`saveError = …`) is the correct pattern to copy. Also `MacContentView.linkMention` (`:1063`) and the front-matter/property writes swallow errors.
-- 🟠 **Export fails invisibly** — `EditorExport.save()` writes with `try?` and `pdfData` returns `nil` on a render failure (`EditorExport.swift:35,40`); a failed HTML/PDF export dismisses the panel identically to success.
-- 🟠 **GitService status/history reads aren't serialized against writes** — the FIFO `run()` queue covers init/commit/push/fetch, but `refreshStatus()`/`history()`/`content()` each open their own `Repository` handle outside the queue (`GitService.swift:51,113,153`), and `refreshStatus` is called on a debounce from the UI *and* after every queued op — so a status walk can run concurrently with a queued index write (inconsistent reads / index-lock contention). `createRepository`/`cloneRepository` also bypass the queue (`:333,395`).
-- 🟡 **`reconcileWithDisk` reads on the main actor** — synchronous `String(contentsOf:)` (`EditorModel.swift:110`), unlike `open` which reads off-main; a large externally-changed note briefly stalls the UI.
-- 🟡 **`set(try? encode(...))` can wipe config** — `LLMSettings.swift:113` (provider configs), `GitCredentials.swift:169` (git accounts), `ChatSessionStore.swift:46,50` (chat log): if the encode throws, `nil`/nothing is written, silently clearing stored state.
+*Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): flush-on-quit handshake; atomic assistant writes; surfaced file-operation failures (create/rename/duplicate/delete/folder/move) + partial-rename link-rewrite reporting; export-error alerts; off-main reconcile read; no-config-wipe persist; serialized git status/history/content reads.*
+
+- 🟡 **Assistant edit vs. open editor buffer** — the assistant's writes are now atomic, but if the same note is open in the editor with unsaved edits, the change still races the editor's autosave/reconcile (the write goes to disk, not through the open `EditorModel`). Reconciliation raises a conflict in the common case, but a narrow window remains. **Fix:** route assistant writes through the open buffer when the note is being edited.
+- 🟡 **`createRepository`/`cloneRepository` bypass the git FIFO queue** — they set `isBusy` directly (`GitService.swift`) rather than routing through `run()`. Safe today because they target new directories, but they can still race a concurrent `refreshStatus`. Route them through the queue for consistency.
+- 🟡 **`ChatSessionStore` write is `try?`** (`ChatSessionStore.swift:46,50`) — a failed transcript write/removeItem is silent; low stakes (chat history, load is resilient) but worth surfacing.
 
 ---
 

@@ -70,6 +70,15 @@ final class Collection: Identifiable {
 
     private var fileWatcher: FileWatcher?
 
+    /// The last file-operation failure, for the shell to surface as an alert.
+    /// A user-initiated create/rename/duplicate/delete/move that fails on disk
+    /// (permissions, name collision, sandbox) sets this instead of silently
+    /// no-op'ing. Cleared when the shell presents it.
+    var lastError: String?
+
+    /// Record a user-facing file-operation failure.
+    private func report(_ message: String) { lastError = message }
+
     /// Standardised paths this collection wrote itself, with when — so the file
     /// watcher can ignore the churn from our own autosaves (and their atomic
     /// temp files) instead of re-scanning the whole collection on every save.
@@ -348,6 +357,7 @@ final class Collection: Identifiable {
         do {
             try Data().write(to: candidate, options: .withoutOverwriting)
         } catch {
+            report("Couldn't create the note: \(error.localizedDescription)")
             return nil
         }
 
@@ -370,10 +380,14 @@ final class Collection: Identifiable {
 
         let destination = note.fileURL.deletingLastPathComponent()
             .appendingPathComponent("\(title).md")
-        guard !FileManager.default.fileExists(atPath: destination.path) else { return nil }
+        guard !FileManager.default.fileExists(atPath: destination.path) else {
+            report("A note named “\(title)” already exists in this folder.")
+            return nil
+        }
         do {
             try FileManager.default.moveItem(at: note.fileURL, to: destination)
         } catch {
+            report("Couldn't rename the note: \(error.localizedDescription)")
             return nil
         }
 
@@ -398,6 +412,7 @@ final class Collection: Identifiable {
         do {
             try FileManager.default.copyItem(at: note.fileURL, to: candidate)
         } catch {
+            report("Couldn't duplicate the note: \(error.localizedDescription)")
             return nil
         }
         await scanOffMain()
@@ -414,13 +429,16 @@ final class Collection: Identifiable {
         // `notes` is pre-rescan, so the renamed note still lists its old URL.
         let urls = notes.map { $0.fileURL == oldURL ? newURL : $0.fileURL }
         // Read + rewrite every note off the main actor — it's O(N) file I/O.
-        await Task.detached(priority: .userInitiated) {
+        // Collect the notes we couldn't rewrite so the shell can tell the user
+        // exactly which links may now be stale, rather than failing silently.
+        let failures: [String] = await Task.detached(priority: .userInitiated) {
             let escaped = NSRegularExpression.escapedPattern(for: oldTitle)
             guard let regex = try? NSRegularExpression(
                 pattern: #"(\[\[)\s*"# + escaped + #"\s*(?=[#|\]])"#,
                 options: [.caseInsensitive]
-            ) else { return }
+            ) else { return [] }
             let template = "$1" + NSRegularExpression.escapedTemplate(for: newTitle)
+            var failed: [String] = []
             for url in urls {
                 guard let text = try? String(contentsOf: url, encoding: .utf8),
                       text.contains("[[") else { continue }
@@ -428,9 +446,20 @@ final class Collection: Identifiable {
                 guard regex.firstMatch(in: text, options: [], range: range) != nil else { continue }
                 let updated = regex.stringByReplacingMatches(in: text, options: [], range: range,
                                                              withTemplate: template)
-                try? Data(updated.utf8).write(to: url, options: .atomic)
+                do {
+                    try Data(updated.utf8).write(to: url, options: .atomic)
+                } catch {
+                    failed.append(url.lastPathComponent)
+                }
             }
+            return failed
         }.value
+
+        if !failures.isEmpty {
+            let list = failures.prefix(5).joined(separator: ", ")
+            let more = failures.count > 5 ? " and \(failures.count - 5) more" : ""
+            report("Renamed the note, but couldn't update links in \(failures.count) note\(failures.count == 1 ? "" : "s") (\(list)\(more)). Those links may now be broken.")
+        }
     }
 
     /// Return the note at `relativePath`, creating the file (and any intermediate
@@ -445,6 +474,7 @@ final class Collection: Identifiable {
             do {
                 try Data(content().utf8).write(to: url, options: .withoutOverwriting)
             } catch {
+                report("Couldn't create “\(relativePath)”: \(error.localizedDescription)")
                 return nil
             }
             await scanOffMain()
@@ -455,7 +485,11 @@ final class Collection: Identifiable {
 
     /// Move a note to the Trash (never a hard delete) and re-index.
     func deleteNote(_ note: Note) async {
-        try? FileManager.default.trashItem(at: note.fileURL, resultingItemURL: nil)
+        do {
+            try FileManager.default.trashItem(at: note.fileURL, resultingItemURL: nil)
+        } catch {
+            report("Couldn't move “\(note.title)” to the Trash: \(error.localizedDescription)")
+        }
         await scanOffMain()
         refreshDerived()
     }
@@ -478,6 +512,7 @@ final class Collection: Identifiable {
         do {
             try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: false)
         } catch {
+            report("Couldn't create the folder: \(error.localizedDescription)")
             return nil
         }
         await scanOffMain()
@@ -487,7 +522,11 @@ final class Collection: Identifiable {
 
     /// Move a folder (and its contents) to the Trash and re-index.
     func deleteFolder(at url: URL) async {
-        try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        } catch {
+            report("Couldn't move the folder to the Trash: \(error.localizedDescription)")
+        }
         await scanOffMain()
         refreshDerived()
     }
@@ -497,11 +536,15 @@ final class Collection: Identifiable {
     /// a same-named item already exists there.
     func moveItem(at itemURL: URL, into folder: URL) async -> URL? {
         let destination = folder.appendingPathComponent(itemURL.lastPathComponent)
-        guard destination.standardizedFileURL != itemURL.standardizedFileURL,
-              !FileManager.default.fileExists(atPath: destination.path) else { return nil }
+        guard destination.standardizedFileURL != itemURL.standardizedFileURL else { return nil }
+        guard !FileManager.default.fileExists(atPath: destination.path) else {
+            report("“\(itemURL.lastPathComponent)” already exists in that folder.")
+            return nil
+        }
         do {
             try FileManager.default.moveItem(at: itemURL, to: destination)
         } catch {
+            report("Couldn't move “\(itemURL.lastPathComponent)”: \(error.localizedDescription)")
             return nil
         }
         await scanOffMain()

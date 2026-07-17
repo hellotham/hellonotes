@@ -27,12 +27,27 @@ enum EditorExport {
     // MARK: - Private
 
     private static func save(data: Data?, suggestedName: String, type: UTType) {
-        guard let data else { return }
+        guard let data else {
+            presentError("HelloNotes couldn't generate the \(type == .pdf ? "PDF" : "document") to export.")
+            return
+        }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = suggestedName
         panel.allowedContentTypes = [type]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? data.write(to: url)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            presentError("HelloNotes couldn't write “\(url.lastPathComponent)”: \(error.localizedDescription)")
+        }
+    }
+
+    private static func presentError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Export failed"
+        alert.informativeText = message
+        alert.runModal()
     }
 
     /// Render the HTML to a single-page PDF via an offscreen `NSTextView`

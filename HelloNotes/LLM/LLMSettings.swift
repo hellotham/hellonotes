@@ -110,6 +110,9 @@ final class LLMSettings {
 
     private func persist() {
         let all = ProviderKind.allCases.map { config(for: $0) }
-        UserDefaults.standard.set(try? JSONEncoder().encode(all), forKey: Keys.providers)
+        // Only overwrite the stored blob if encoding succeeds — never write nil,
+        // which would silently wipe every saved provider config.
+        guard let data = try? JSONEncoder().encode(all) else { return }
+        UserDefaults.standard.set(data, forKey: Keys.providers)
     }
 }

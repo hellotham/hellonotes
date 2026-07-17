@@ -203,7 +203,7 @@ struct EditNoteTool: AgentTool {
         )
         guard ok else { throw ToolError.declined }
 
-        do { try Data(after.utf8).write(to: note.fileURL) }
+        do { try Data(after.utf8).write(to: note.fileURL, options: .atomic) }
         catch { throw ToolError.failed("Couldn't write the note: \(error.localizedDescription)") }
         await context.refreshAfterMutation()
         await context.commit("assistant: edit \(rel)")
@@ -239,7 +239,7 @@ struct WriteNoteTool: AgentTool {
         )
         guard ok else { throw ToolError.declined }
 
-        do { try Data(content.utf8).write(to: note.fileURL) }
+        do { try Data(content.utf8).write(to: note.fileURL, options: .atomic) }
         catch { throw ToolError.failed("Couldn't write the note: \(error.localizedDescription)") }
         await context.refreshAfterMutation()
         await context.commit("assistant: rewrite \(rel)")

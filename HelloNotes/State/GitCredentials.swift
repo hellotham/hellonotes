@@ -166,7 +166,9 @@ final class GitAccountsStore {
     }
 
     private func persist() {
-        UserDefaults.standard.set(try? JSONEncoder().encode(accounts), forKey: Keys.accounts)
+        // Never write nil on an encode failure — that would wipe saved accounts.
+        guard let data = try? JSONEncoder().encode(accounts) else { return }
+        UserDefaults.standard.set(data, forKey: Keys.accounts)
     }
 }
 

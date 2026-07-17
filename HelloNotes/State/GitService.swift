@@ -50,7 +50,7 @@ final class GitService {
 
     func refreshStatus() async {
         guard let url = rootURL else { status = RepoStatus(); return }
-        status = await Self.readStatus(at: url)
+        status = await serializedRead { await Self.readStatus(at: url) }
     }
 
     // MARK: - Operations
@@ -112,7 +112,7 @@ final class GitService {
     /// Walks at most `scan` commits so large histories stay responsive.
     func history(for fileURL: URL, scan: Int = 300) async -> [NoteRevision] {
         guard let rootURL, let relPath = Self.relativePath(of: fileURL, in: rootURL) else { return [] }
-        return await Task.detached(priority: .userInitiated) {
+        return await serializedRead {
             guard let repo = try? Repository.open(at: rootURL),
                   let commits = try? repo.log() else { return [] }
             let components = relPath.split(separator: "/").map(String.init)
@@ -145,14 +145,14 @@ final class GitService {
                 }
             }
             return revisions
-        }.value
+        }
     }
 
     /// The UTF-8 contents of `fileURL` as of commit `revisionID`, or nil if it
     /// can't be resolved.
     func content(ofRevision revisionID: String, for fileURL: URL) async -> String? {
         guard let rootURL, let relPath = Self.relativePath(of: fileURL, in: rootURL) else { return nil }
-        return await Task.detached(priority: .userInitiated) { () -> String? in
+        return await serializedRead { () -> String? in
             guard let repo = try? Repository.open(at: rootURL),
                   let oid = try? OID(hex: revisionID),
                   let commit: Commit = try? repo.show(id: oid),
@@ -161,7 +161,7 @@ final class GitService {
             guard let blobOID = Self.entryOID(at: components, in: tree, repo: repo),
                   let blob: Blob = try? repo.show(id: blobOID) else { return nil }
             return String(data: blob.content, encoding: .utf8)
-        }.value
+        }
     }
 
     /// The blob OID at a slash-separated path within `tree`, walking subtrees.
@@ -211,6 +211,20 @@ final class GitService {
         }
         lastQueued = task
         await task.value
+    }
+
+    /// Run a read-only repository access (status/history/blob) through the same
+    /// FIFO chain as writes, so a status/history walk never opens a second
+    /// libgit2 handle concurrently with an in-flight commit's index write.
+    private func serializedRead<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T {
+        let previous = lastQueued
+        let task = Task { () -> T in
+            await previous?.value
+            return await Task.detached(priority: .userInitiated) { await work() }.value
+        }
+        // Subsequent operations wait for this read to finish (mutual exclusion).
+        lastQueued = Task { _ = await task.value }
+        return await task.value
     }
 
     private func execute(success: String, _ operation: @escaping @Sendable () async throws -> Void) async {

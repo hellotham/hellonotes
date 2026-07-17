@@ -107,8 +107,12 @@ final class EditorModel {
     /// externally and our buffer is clean, silently reload it. If the buffer
     /// has unsaved edits, raise a conflict for the user to resolve.
     func reconcileWithDisk() async {
-        guard let url = note?.fileURL,
-              let disk = try? String(contentsOf: url, encoding: .utf8) else { return }
+        guard let url = note?.fileURL else { return }
+        // Read off the main actor — an externally-changed large note shouldn't
+        // stall the UI during reconciliation.
+        guard let disk = await Task.detached(priority: .userInitiated, operation: {
+            try? String(contentsOf: url, encoding: .utf8)
+        }).value else { return }
 
         // Matches what we last wrote (includes our own saves) → nothing to do.
         guard disk != lastSavedText else {

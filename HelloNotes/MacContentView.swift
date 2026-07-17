@@ -353,6 +353,13 @@ struct MacContentView: View {
                 Task { await tabs.flushAll() }
             }
         }
+        .onAppear {
+            // On ⌘Q, drain this window's pending autosaves before exit
+            // (terminateLater handshake) so no debounced edit is lost.
+            TerminationGuard.current?.register(tabs) { [tabs] in await tabs.flushAll() }
+        }
+        .onDisappear { TerminationGuard.current?.unregister(tabs) }
+        .modifier(FileOperationErrorAlert(collection: focused))
         .sheet(isPresented: $showOpenQuickly) {
             if let c = focused {
                 OpenQuicklyView(search: c.search) { selectedNoteID = $0.id }
@@ -1172,5 +1179,23 @@ private struct NoteRow: Identifiable {
     let note: Note
     let snippet: String?
     var id: Note.ID { note.id }
+}
+
+/// Presents `Collection.lastError` (a failed file operation) as an alert and
+/// clears it on dismiss. Extracted from the shell body to keep it type-checkable.
+private struct FileOperationErrorAlert: ViewModifier {
+    var collection: Collection?
+    func body(content: Content) -> some View {
+        content.alert(
+            "Couldn't complete that",
+            isPresented: Binding(
+                get: { collection?.lastError != nil },
+                set: { if !$0 { collection?.lastError = nil } }
+            ),
+            presenting: collection?.lastError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { Text($0) }
+    }
 }
 #endif
