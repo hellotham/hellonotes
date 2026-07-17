@@ -103,25 +103,23 @@ nonisolated public enum GFMLiveStyle {
     private static func emitLink(_ node: GFMNode, text: NSString, into runs: inout [StyleRun]) {
         let r = node.range
         let end = r.location + r.length
-        let isImage = node.kind == "image"
-        // Opening `[` (or `![`).
+        // Opening `[` (link) or `![` (image).
+        let isImage = end > r.location && text.character(at: r.location) == 0x21 /* ! */
         let openLen = isImage ? 2 : 1
-        // Find the closing `]( … )` — scan from the end for the last ')'.
-        // The label spans from after '[' to the matching ']'; simplest robust
-        // approach: locate "](" inside the range.
-        let inner = text.substring(with: r) as NSString
-        let destMarker = inner.range(of: "](")
-        guard destMarker.location != NSNotFound,
-              r.length >= openLen, text.character(at: end - 1) == 0x29 /* ) */ else {
-            append(&runs, r.location, r.length, isImage ? .marker : .linkText); return
+        guard r.length > openLen else {
+            append(&runs, r.location, r.length, .linkText); return
         }
         let labelStart = r.location + openLen
-        let labelEnd = r.location + destMarker.location            // index of ']'
-        append(&runs, r.location, openLen, .marker, .whenInactive)  // '[' / '!['
-        if labelEnd > labelStart {
-            append(&runs, labelStart, labelEnd - labelStart, isImage ? .linkText : .linkText)
+        // The label's closing `]` — first unescaped `]` after the opener. Then
+        // whatever follows (`(url)`, `[ref]`, or nothing) is the concealed tail.
+        var j = labelStart
+        while j < end, text.character(at: j) != 0x5D /* ] */ { j += 1 }
+        guard j < end else {
+            append(&runs, r.location, r.length, .linkText); return
         }
-        append(&runs, labelEnd, end - labelEnd, .marker, .whenInactive)  // ']( url )'
+        append(&runs, r.location, openLen, .marker, .whenInactive)      // '[' / '!['
+        append(&runs, labelStart, j - labelStart, .linkText)           // label
+        append(&runs, j, end - j, .marker, .whenInactive)              // ']…' tail
     }
 
     private static func emitCodeBlock(_ r: NSRange, info: String, text: NSString,

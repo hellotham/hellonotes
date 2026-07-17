@@ -124,6 +124,16 @@ nonisolated enum StyleApplier {
             para.headIndent = bullet + 15
             target.addAttribute(.paragraphStyle, value: para, range: block.range)
         }
+
+        // h1/h2 get GitHub's bottom rule: reserve space below and mark the
+        // block so the fragment draws a full-width divider.
+        if case .heading(let level, _) = block.kind, level <= 2 {
+            let para = NSMutableParagraphStyle()
+            para.paragraphSpacing = 14
+            target.addAttribute(.paragraphStyle, value: para, range: block.range)
+            target.addAttribute(headingRuleAttribute, value: level,
+                                range: NSRange(location: block.range.location, length: min(1, block.range.length)))
+        }
     }
 
     /// Per-line gutter bars for a plain (non-callout) blockquote — one bar per

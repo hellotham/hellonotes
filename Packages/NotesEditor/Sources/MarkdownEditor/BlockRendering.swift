@@ -72,6 +72,9 @@ nonisolated public let listBulletAttribute = NSAttributedString.Key("hn.listBull
 /// Marks a plain (non-callout) blockquote line so the fragment draws only a
 /// gutter bar — no tint fill, no icon.
 nonisolated public let blockquotePlainAttribute = NSAttributedString.Key("hn.blockquotePlain")
+/// Custom attribute (Int level) on an h1/h2 heading line — the fragment draws a
+/// full-width bottom rule below it, matching GitHub's heading borders.
+nonisolated public let headingRuleAttribute = NSAttributedString.Key("hn.headingRule")
 
 /// Custom attribute (PlatformImage) on the first char of a concealed inline
 /// `$…$` math span — the fragment draws it at the baseline. The span's source
@@ -120,6 +123,7 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         super.draw(at: point, in: context)   // concealed source (invisible)
         drawTaskCheckboxes(at: point, in: context)
         drawListBullets(at: point, in: context)
+        drawHeadingRule(at: point, in: context)
         drawInlineImages(at: point, in: context)
 
         guard let (image, bandTop) = blockImage() else { return }
@@ -160,6 +164,24 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
                 img.draw(in: box)
             }
         }
+    }
+
+    // MARK: - Heading rule (h1/h2 bottom border, GitHub-style)
+
+    private nonisolated func drawHeadingRule(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentRange, range.length > 0,
+              range.location < ts.length,
+              ts.attribute(headingRuleAttribute, at: range.location, effectiveRange: nil) != nil,
+              let lastLine = textLineFragments.last else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        let tb = lastLine.typographicBounds
+        let width = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+        let leftEdge = point.x - layoutFragmentFrame.origin.x
+        let y = point.y + tb.origin.y + tb.height + 7
+        NSColor.separatorColor.setFill()
+        NSBezierPath(rect: CGRect(x: leftEdge, y: y, width: width, height: 1)).fill()
     }
 
     // MARK: - List bullets

@@ -58,7 +58,8 @@ let package = Package(
         ),
         .testTarget(
             name: "MarkdownEditorTests",
-            dependencies: ["MarkdownEditor"],
+            dependencies: ["MarkdownEditor", "GFMRender"],
+            resources: [.copy("spec.txt")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
