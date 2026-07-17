@@ -15,8 +15,9 @@ Updated 2026-07-17 (post-M4).
 | Strikethrough `~~` | ✓ | GFM |
 | Inline code, fenced code | ✓ | + ~190-language syntax highlighting |
 | Blockquotes | ✓ | |
-| Lists (ordered, unordered, nested) | ✓ | |
-| Task lists `- [ ]`/`- [x]` | ✓ | GFM; rendered as clickable checkboxes |
+| Lists (ordered, unordered, nested) | ✓ | unordered markers drawn as GitHub bullets — filled disc / hollow ring / filled square by depth (marker concealed, revealed when editing); ordered keep their numbers |
+| Blockquotes `>` | ✓ | GitHub-style neutral gutter bar, `>` concealed, gray text (callouts add a tinted band + icon) |
+| Task lists `- [ ]`/`- [x]` | ✓ | GFM; clickable checkboxes, the `-` marker concealed so only the box shows |
 | **Tables** `\| … \|` | ✓ | GFM; rendered as an aligned grid (per-column `:--`/`:-:`/`--:` alignment, header band, grid lines), caret-in reveals source |
 | Links `[text](url)`, images `![alt](url)` | ✓ | |
 | Autolinks `<url>`, bare `http(s)://`, bare `www.` | ✓ | GFM extended autolinks; `<>` brackets conceal |
