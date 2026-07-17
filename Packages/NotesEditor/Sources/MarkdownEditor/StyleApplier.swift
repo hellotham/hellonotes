@@ -81,9 +81,13 @@ nonisolated enum StyleApplier {
     static let gfmOverlayMaxLength = 200_000
 
     private static func overlayGFM(_ kind: BlockKind) -> Bool {
+        // Only paragraphs and headings: their text has no structural leading
+        // indent, so cmark reading the block in isolation can't misread it (a
+        // `    - x` list item read alone looks like indented code). List /
+        // blockquote inline is handled by StyleSpec, which has block context.
         switch kind {
-        case .fencedCode, .indentedCode, .mathBlock, .frontMatter, .thematicBreak, .blank: false
-        default: true
+        case .paragraph, .heading: true
+        default: false
         }
     }
 
