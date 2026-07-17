@@ -274,7 +274,9 @@ public final class EditorDocument {
         guard !isApplyingStyles else { return }
         let oldRange = NSRange(location: editedRange.location, length: editedRange.length - delta)
         let edit = TextEdit(range: oldRange, replacementLength: editedRange.length)
+        #if canImport(AppKit)
         remapFoldedCallouts(oldRange: oldRange, delta: delta)
+        #endif
 
         var t0 = DispatchTime.now()
         let hadPendingStyling = styledBlocks.contains(false)
