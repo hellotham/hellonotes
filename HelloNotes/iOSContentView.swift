@@ -323,6 +323,7 @@ struct iOSContentView: View {
         iOSLiveEditor(
             editor: editor,
             note: note,
+            collection: focused,
             fontSize: appearance.editorFontSize,
             onOpenWikiLink: { openWikiLink($0) }
         )

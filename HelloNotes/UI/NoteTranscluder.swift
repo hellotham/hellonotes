@@ -5,15 +5,21 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
-import AppKit
+import CoreGraphics
 import BeautifulMermaid
+import MarkdownEditor
+
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Renders a note's Markdown to an image for inline transclusion (`![[Note]]`).
 /// A lightweight preview renderer — headings, lists, blockquotes, emphasis,
 /// code, plus rendered LaTeX (`$…$` / `$$…$$`) and Mermaid diagrams — drawn as
 /// a titled "card" with a left accent bar so a transclusion reads as embedded
-/// content.
+/// content. Cross-platform via `PlatformImageKit` (top-left, y-down).
 @MainActor
 enum NoteTranscluder {
     private static let contentWidth: CGFloat = 560
@@ -22,20 +28,19 @@ enum NoteTranscluder {
     private static var textContentWidth: CGFloat { contentWidth - padding * 2 - barWidth }
 
     /// Render a `$$ … $$` display-math block to an image for the new editor.
-    static func blockLatexImage(source: String, isDark: Bool) -> NSImage? {
+    static func blockLatexImage(source: String, isDark: Bool) -> PlatformImage? {
         latexImage(source, fontSize: 20, isDark: isDark)
     }
 
-    static func image(markdown: String, title: String, isDark: Bool) -> NSImage? {
+    static func image(markdown: String, title: String, isDark: Bool) -> PlatformImage? {
         let body = attributedBody(from: markdown, isDark: isDark)
         guard body.length > 0 else { return nil }
 
-        let textColor: NSColor = isDark ? .white : .black
         let header = NSMutableAttributedString(
             string: title + "\n",
             attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: NSColor.secondaryLabelColor
+                .font: PlatformFont.appSystem(11, weight: .semibold),
+                .foregroundColor: PlatformColor.appSecondaryLabel
             ]
         )
         let composed = NSMutableAttributedString()
@@ -44,31 +49,30 @@ enum NoteTranscluder {
 
         let textWidth = contentWidth - padding * 2 - barWidth
         let bounds = composed.boundingRect(
-            with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
+            with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
         )
         let height = ceil(bounds.height) + padding * 2
-        let size = NSSize(width: contentWidth, height: height)
+        let size = CGSize(width: contentWidth, height: height)
 
-        let image = NSImage(size: size)
-        image.lockFocus()
-        defer { image.unlockFocus() }
+        return PlatformImageKit.image(size: size) { ctx in
+            // Card background + left accent bar.
+            let cardColor: PlatformColor = isDark
+                ? PlatformColor.white.withAlphaComponent(0.05)
+                : PlatformColor.black.withAlphaComponent(0.03)
+            ctx.setFillColor(cardColor.cgColor)
+            ctx.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size), cornerWidth: 6, cornerHeight: 6, transform: nil))
+            ctx.fillPath()
+            ctx.setFillColor(PlatformColor.systemBlue.withAlphaComponent(0.7).cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: barWidth, height: height))
 
-        // Card background + left accent bar.
-        let cardColor: NSColor = isDark
-            ? NSColor.white.withAlphaComponent(0.05)
-            : NSColor.black.withAlphaComponent(0.03)
-        cardColor.setFill()
-        NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 6, yRadius: 6).fill()
-        NSColor.systemBlue.withAlphaComponent(0.7).setFill()
-        NSBezierPath(rect: NSRect(x: 0, y: 0, width: barWidth, height: height)).fill()
-
-        _ = textColor
-        composed.draw(
-            with: NSRect(x: padding + barWidth, y: padding, width: textWidth, height: ceil(bounds.height)),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        return image
+            composed.draw(
+                with: CGRect(x: padding + barWidth, y: padding, width: textWidth, height: ceil(bounds.height)),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+        }
     }
 
     /// Extract the section under `heading` (down to the next heading of the same
@@ -101,10 +105,10 @@ enum NoteTranscluder {
 
     private static func attributedBody(from markdown: String, isDark: Bool) -> NSAttributedString {
         let text = FrontMatter.body(of: markdown)   // skip the note's own front matter
-        let base = NSFont.systemFont(ofSize: 13)
-        let textColor: NSColor = isDark ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.1, alpha: 1)
-        let muted = NSColor.secondaryLabelColor
-        let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let base = PlatformFont.appSystem(13)
+        let textColor: PlatformColor = isDark ? PlatformColor(white: 0.9, alpha: 1) : PlatformColor(white: 0.1, alpha: 1)
+        let muted = PlatformColor.appSecondaryLabel
+        let mono = PlatformFont.appMonospaced(12)
 
         let out = NSMutableAttributedString()
         let lines = text.components(separatedBy: "\n")
@@ -116,13 +120,13 @@ enum NoteTranscluder {
             // Fenced block: ```mermaid renders a diagram, others stay as code.
             if trimmed.hasPrefix("```") {
                 let lang = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased()
-                var body: [String] = []
+                var bodyLines: [String] = []
                 i += 1
                 while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                    body.append(lines[i]); i += 1
+                    bodyLines.append(lines[i]); i += 1
                 }
                 i += 1   // skip closing fence
-                let source = body.joined(separator: "\n")
+                let source = bodyLines.joined(separator: "\n")
                 if lang == "mermaid", let img = mermaidImage(source, isDark: isDark) {
                     out.append(imageAttachment(img, maxWidth: textContentWidth))
                     out.append(NSAttributedString(string: "\n"))
@@ -134,13 +138,13 @@ enum NoteTranscluder {
 
             // Block LaTeX `$$ … $$`.
             if trimmed == "$$" {
-                var body: [String] = []
+                var bodyLines: [String] = []
                 i += 1
                 while i < lines.count, lines[i].trimmingCharacters(in: .whitespaces) != "$$" {
-                    body.append(lines[i]); i += 1
+                    bodyLines.append(lines[i]); i += 1
                 }
                 i += 1
-                if let img = latexImage(body.joined(separator: "\n"), fontSize: 16, isDark: isDark) {
+                if let img = latexImage(bodyLines.joined(separator: "\n"), fontSize: 16, isDark: isDark) {
                     out.append(imageAttachment(img, maxWidth: textContentWidth))
                     out.append(NSAttributedString(string: "\n"))
                 }
@@ -149,7 +153,7 @@ enum NoteTranscluder {
 
             if let (level, title) = headingParts(line) {
                 let sizes: [CGFloat] = [20, 18, 16, 15, 14, 13]
-                let font = NSFont.systemFont(ofSize: sizes[min(level - 1, 5)], weight: .bold)
+                let font = PlatformFont.appSystem(sizes[min(level - 1, 5)], weight: .bold)
                 out.append(inline(title + "\n", font: font, color: textColor, isDark: isDark))
             } else if let m = line.range(of: #"^\s*[-*+]\s+"#, options: .regularExpression) {
                 out.append(inline("•  " + String(line[m.upperBound...]) + "\n", font: base, color: textColor, isDark: isDark))
@@ -164,13 +168,13 @@ enum NoteTranscluder {
     }
 
     /// Apply `**bold**`, `*italic*` traits and render inline `$latex$`.
-    private static func inline(_ s: String, font: NSFont, color: NSColor, isDark: Bool, plain: Bool = false) -> NSAttributedString {
+    private static func inline(_ s: String, font: PlatformFont, color: PlatformColor, isDark: Bool, plain: Bool = false) -> NSAttributedString {
         let result = NSMutableAttributedString(string: s, attributes: [.font: font, .foregroundColor: color])
         guard !plain else { return result }
         // Inline LaTeX first (before emphasis, so `$…$` content isn't mangled).
         applyInlineLatex(to: result, fontSize: font.pointSize, isDark: isDark)
-        applyTrait(#"\*\*(.+?)\*\*"#, to: result, base: font) { boldFont($0) }
-        applyTrait(#"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#, to: result, base: font) { italicFont($0) }
+        applyTrait(#"\*\*(.+?)\*\*"#, to: result, base: font) { $0.boldVariant }
+        applyTrait(#"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#, to: result, base: font) { $0.italicVariant }
         return result
     }
 
@@ -185,7 +189,7 @@ enum NoteTranscluder {
         }
     }
 
-    private static func applyTrait(_ pattern: String, to str: NSMutableAttributedString, base: NSFont, transform: (NSFont) -> NSFont) {
+    private static func applyTrait(_ pattern: String, to str: NSMutableAttributedString, base: PlatformFont, transform: (PlatformFont) -> PlatformFont) {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
         let full = str.string
         let matches = regex.matches(in: full, range: NSRange(full.startIndex..., in: full)).reversed()
@@ -198,51 +202,30 @@ enum NoteTranscluder {
 
     // MARK: - Embedded images (LaTeX / Mermaid)
 
-    @MainActor
-    private static func latexImage(_ source: String, fontSize: CGFloat, isDark: Bool) -> NSImage? {
-        let color: NSColor = isDark ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.1, alpha: 1)
+    private static func latexImage(_ source: String, fontSize: CGFloat, isDark: Bool) -> PlatformImage? {
+        let color: PlatformColor = isDark ? PlatformColor(white: 0.9, alpha: 1) : PlatformColor(white: 0.1, alpha: 1)
         return MathImageRenderer.image(latex: source, fontSize: fontSize, color: color)
     }
 
-    private static func mermaidImage(_ source: String, isDark: Bool) -> NSImage? {
-        let diagramTheme = (isDark ? DiagramTheme.zincDark : DiagramTheme.zincLight).withTransparent()
-        guard let rendered = (try? MermaidRenderer.renderImage(source: source, theme: diagramTheme)) ?? nil,
-              rendered.size.width > 0, rendered.size.height > 0 else { return nil }
-        // BeautifulMermaid draws bottom-left origin; flip to display upright.
-        let size = rendered.size
-        let flipped = NSImage(size: size)
-        flipped.lockFocus()
-        let t = NSAffineTransform()
-        t.translateX(by: 0, yBy: size.height); t.scaleX(by: 1, yBy: -1); t.concat()
-        rendered.draw(at: .zero, from: NSRect(origin: .zero, size: size), operation: .copy, fraction: 1)
-        flipped.unlockFocus()
-        return flipped
+    private static func mermaidImage(_ source: String, isDark: Bool) -> PlatformImage? {
+        MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark)
     }
 
     /// A standalone (block) image line scaled to fit `maxWidth`.
-    private static func imageAttachment(_ image: NSImage, maxWidth: CGFloat) -> NSAttributedString {
+    private static func imageAttachment(_ image: PlatformImage, maxWidth: CGFloat) -> NSAttributedString {
         attachmentString(image, maxWidth: maxWidth)
     }
 
-    private static func attachmentString(_ image: NSImage, maxWidth: CGFloat) -> NSAttributedString {
+    private static func attachmentString(_ image: PlatformImage, maxWidth: CGFloat) -> NSAttributedString {
         let attachment = NSTextAttachment()
         attachment.image = image
         var size = image.size
         if size.width > maxWidth {
             let scale = maxWidth / size.width
-            size = NSSize(width: maxWidth, height: size.height * scale)
+            size = CGSize(width: maxWidth, height: size.height * scale)
         }
         attachment.bounds = CGRect(origin: .zero, size: size)
         return NSAttributedString(attachment: attachment)
-    }
-
-    private static func boldFont(_ f: NSFont) -> NSFont {
-        let d = f.fontDescriptor.symbolicTraits.union(.bold)
-        return NSFont(descriptor: f.fontDescriptor.withSymbolicTraits(d), size: f.pointSize) ?? f
-    }
-    private static func italicFont(_ f: NSFont) -> NSFont {
-        let d = f.fontDescriptor.symbolicTraits.union(.italic)
-        return NSFont(descriptor: f.fontDescriptor.withSymbolicTraits(d), size: f.pointSize) ?? f
     }
 
     private static func headingParts(_ line: String) -> (level: Int, title: String)? {
@@ -252,4 +235,3 @@ enum NoteTranscluder {
         return (hashes, title)
     }
 }
-#endif

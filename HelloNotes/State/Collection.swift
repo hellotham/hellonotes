@@ -74,10 +74,11 @@ final class Collection: Identifiable {
     /// Record a user-facing file-operation failure.
     private func report(_ message: String) { lastError = message }
 
-    #if os(macOS)
-    /// Renders `![[Note]]` transclusions to inline images.
+    /// Renders `![[Note]]` transclusions to inline images (cross-platform: the
+    /// live editor's block-embed renderer uses it on both macOS and iOS).
     let embedProvider = CollectionEmbedProvider()
 
+    #if os(macOS)
     private var fileWatcher: FileWatcher?
 
     /// Standardised paths this collection wrote itself, with when — so the file
@@ -326,6 +327,7 @@ final class Collection: Identifiable {
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {
         securityScoped = rootURL.startAccessingSecurityScopedResource()
         scan()
+        embedProvider.update(notes: notes)   // resolve `![[Note]]` transclusions
         Task { await search.refresh(from: notes) }
     }
 
@@ -334,6 +336,7 @@ final class Collection: Identifiable {
     }
 
     func refreshDerived() {
+        embedProvider.update(notes: notes)
         Task { await search.refresh(from: notes) }
     }
     #endif

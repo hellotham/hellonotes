@@ -8,11 +8,18 @@
 //  block-embed renderer. Reuses the same "render a block to an image, drawn
 //  in place of its concealed source" path as math / Mermaid / images, so a
 //  table reads as a real grid and reveals its Markdown source when the caret
-//  enters it. Main-actor (uses AppKit text measurement + lockFocus).
+//  enters it. Main-actor (uses text measurement + a drawing context).
+//  Cross-platform via `PlatformImageKit` (top-left, y-down).
 //
 
-#if os(macOS)
+import CoreGraphics
+import MarkdownEditor
+
+#if canImport(AppKit)
 import AppKit
+#else
+import UIKit
+#endif
 
 @MainActor
 enum TableImageRenderer {
@@ -21,7 +28,7 @@ enum TableImageRenderer {
     private static let cellPadX: CGFloat = 13
     private static let cellPadY: CGFloat = 6
 
-    static func image(source: String, maxWidth: CGFloat, fontSize: CGFloat = 15, isDark: Bool) -> NSImage? {
+    static func image(source: String, maxWidth: CGFloat, fontSize: CGFloat = 15, isDark: Bool) -> PlatformImage? {
         let lines = source.components(separatedBy: "\n").filter { $0.contains("|") }
         guard lines.count >= 2 else { return nil }
 
@@ -39,14 +46,14 @@ enum TableImageRenderer {
         //   zebra --bgColor-muted    #f6f8fa / #151b23  (tr:nth-child(2n))
         // GitHub has no header background band — the header is just semibold and
         // sits on the default (canvas) row like every odd row.
-        let text: NSColor = isDark ? .hexColor(0xf0f6fc) : .hexColor(0x1f2328)
-        let grid: NSColor = isDark ? .hexColor(0x3d444d) : .hexColor(0xd1d9e0)
-        let zebraBG: NSColor = isDark ? .hexColor(0x151b23) : .hexColor(0xf6f8fa)
-        let body = NSFont.systemFont(ofSize: fontSize)
-        let bold = NSFont.boldSystemFont(ofSize: fontSize)
+        let text: PlatformColor = isDark ? .hexColor(0xf0f6fc) : .hexColor(0x1f2328)
+        let grid: PlatformColor = isDark ? .hexColor(0x3d444d) : .hexColor(0xd1d9e0)
+        let zebraBG: PlatformColor = isDark ? .hexColor(0x151b23) : .hexColor(0xf6f8fa)
+        let body = PlatformFont.appSystem(fontSize)
+        let bold = PlatformFont.appSystem(fontSize, weight: .bold)
 
         // Measure natural column widths, then scale down to fit maxWidth.
-        func attr(_ s: String, _ f: NSFont) -> NSAttributedString {
+        func attr(_ s: String, _ f: PlatformFont) -> NSAttributedString {
             NSAttributedString(string: s, attributes: [.font: f, .foregroundColor: text])
         }
         var colW = [CGFloat](repeating: 0, count: columns)
@@ -66,60 +73,55 @@ enum TableImageRenderer {
         if totalW > maxWidth { scale = maxWidth / totalW; colW = colW.map { $0 * scale }; totalW *= scale }
         let totalH = rowH.reduce(0, +)
 
-        let image = NSImage(size: NSSize(width: ceil(totalW), height: ceil(totalH)))
-        image.lockFocus()
-        defer { image.unlockFocus() }
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return image }
-
-        // Zebra striping: GitHub fills `tr:nth-child(2n)` with --bgColor-muted.
-        // Counting the header as child 1, the striped rows are the 2nd, 4th…
-        // children — i.e. odd indices in `bodyRows` ([header, data1, data2…]).
-        // Odd rows (header, data2, …) keep the default canvas background, which
-        // here is left transparent so the grid sits on the editor's own canvas.
-        zebraBG.setFill()
-        var stripeY = totalH
-        for (r, _) in bodyRows.enumerated() {
-            stripeY -= rowH[r]
-            if r % 2 == 1 {
-                NSBezierPath(rect: NSRect(x: 0, y: stripeY, width: totalW, height: rowH[r])).fill()
-            }
-        }
-
-        // Cell text.
-        var y = totalH
-        for (r, row) in bodyRows.enumerated() {
-            y -= rowH[r]
-            var x: CGFloat = 0
-            for c in 0..<columns {
-                let s = c < row.count ? row[c] : ""
-                let a = attr(s, r == 0 ? bold : body)
-                let sz = a.size()
-                let colWidth = colW[c]
-                let align = c < aligns.count ? aligns[c] : .left
-                let tx: CGFloat
-                switch align {
-                case .left:   tx = x + cellPadX
-                case .right:  tx = x + colWidth - cellPadX - sz.width * scale
-                case .center: tx = x + (colWidth - sz.width * scale) / 2
+        return PlatformImageKit.image(size: CGSize(width: ceil(totalW), height: ceil(totalH))) { ctx in
+            // Zebra striping: GitHub fills `tr:nth-child(2n)` with --bgColor-muted.
+            // Counting the header as child 1, the striped rows are the 2nd, 4th…
+            // children — i.e. odd indices in `bodyRows` ([header, data1, data2…]).
+            // Odd rows keep the default canvas background (left transparent so the
+            // grid sits on the editor's own canvas).
+            ctx.setFillColor(zebraBG.cgColor)
+            var stripeY: CGFloat = 0
+            for (r, _) in bodyRows.enumerated() {
+                if r % 2 == 1 {
+                    ctx.fill(CGRect(x: 0, y: stripeY, width: totalW, height: rowH[r]))
                 }
-                let ty = y + (rowH[r] - sz.height) / 2
-                a.draw(in: NSRect(x: tx, y: ty, width: max(1, colWidth - cellPadX), height: sz.height))
-                x += colWidth
+                stripeY += rowH[r]
             }
+
+            // Cell text (top-left origin, y grows downward).
+            var y: CGFloat = 0
+            for (r, row) in bodyRows.enumerated() {
+                var x: CGFloat = 0
+                for c in 0..<columns {
+                    let s = c < row.count ? row[c] : ""
+                    let a = attr(s, r == 0 ? bold : body)
+                    let sz = a.size()
+                    let colWidth = colW[c]
+                    let align = c < aligns.count ? aligns[c] : .left
+                    let tx: CGFloat
+                    switch align {
+                    case .left:   tx = x + cellPadX
+                    case .right:  tx = x + colWidth - cellPadX - sz.width * scale
+                    case .center: tx = x + (colWidth - sz.width * scale) / 2
+                    }
+                    let ty = y + (rowH[r] - sz.height) / 2
+                    a.draw(in: CGRect(x: tx, y: ty, width: max(1, colWidth - cellPadX), height: sz.height))
+                    x += colWidth
+                }
+                y += rowH[r]
+            }
+
+            // Grid lines.
+            ctx.setStrokeColor(grid.cgColor)
+            ctx.setLineWidth(1)
+            var gx: CGFloat = 0.5
+            ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: totalH))
+            for w in colW { gx += w; ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: totalH)) }
+            var gy: CGFloat = 0.5
+            ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: totalW, y: gy))
+            for h in rowH { gy += h; ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: totalW, y: gy)) }
+            ctx.strokePath()
         }
-
-        // Grid lines.
-        ctx.setStrokeColor(grid.cgColor)
-        ctx.setLineWidth(1)
-        var gx: CGFloat = 0.5
-        ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: totalH))
-        for w in colW { gx += w; ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: totalH)) }
-        var gy: CGFloat = 0.5
-        ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: totalW, y: gy))
-        for h in rowH.reversed() { gy += h; ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: totalW, y: gy)) }
-        ctx.strokePath()
-
-        return image
     }
 
     /// Split a table line into trimmed cell strings (dropping the outer pipes).
@@ -139,14 +141,3 @@ enum TableImageRenderer {
         return .left
     }
 }
-
-private extension NSColor {
-    /// An opaque sRGB colour from a 0xRRGGBB literal (for GitHub's exact
-    /// hex palette). sRGB so it matches the WKWebView Preview's colour space.
-    static func hexColor(_ rgb: Int) -> NSColor {
-        NSColor(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255,
-                green: CGFloat((rgb >> 8) & 0xFF) / 255,
-                blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
-    }
-}
-#endif

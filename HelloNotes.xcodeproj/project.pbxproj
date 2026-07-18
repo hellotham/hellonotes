@@ -11,10 +11,6 @@
 		8768A2543001B49B00346ACB /* MermaidPlayground in Frameworks */ = {isa = PBXBuildFile; productRef = 8768A2533001B49B00346ACB /* MermaidPlayground */; };
 		8768A2573001B5FE00346ACB /* SwiftGitX in Frameworks */ = {isa = PBXBuildFile; productRef = 8768A2563001B5FE00346ACB /* SwiftGitX */; };
 		8768A2593001B75700346ACB /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 8768A2583001B75100346ACB /* README.md */; };
-		87ED170000000000000000A1 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B1 /* MarkdownCore */; };
-		87ED170000000000000000A3 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 87ED170000000000000000B3 /* Highlighter */; };
-		87ED170000000000000000A5 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 87ED170000000000000000B5 /* SwiftMath */; };
-		87ED170000000000000000A2 /* MarkdownEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B2 /* MarkdownEditor */; };
 		8768A2E73001C10000346ACB /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 8768A2E53001C10000346ACB /* Markdown */; };
 		87B9A8DB3004E31B0026D3ED /* OpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B1 /* OpenAI */; };
 		87B9A8DC3004E31B0026D3ED /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B3 /* MLXLLM */; };
@@ -22,6 +18,10 @@
 		87B9A8DE3004E31B0026D3ED /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B5 /* Tokenizers */; };
 		87B9A8DF3004E31B0026D3ED /* Hub in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B6 /* Hub */; };
 		87B9AAA63004F6B80026D3ED /* ElkSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 87B9AAA53004F6B80026D3ED /* ElkSwift */; };
+		87ED170000000000000000A1 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B1 /* MarkdownCore */; };
+		87ED170000000000000000A2 /* MarkdownEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B2 /* MarkdownEditor */; };
+		87ED170000000000000000A3 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B3 /* Highlighter */; };
+		87ED170000000000000000A5 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B5 /* SwiftMath */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -744,22 +744,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		87ED170000000000000000C2 /* XCRemoteSwiftPackageReference "HighlighterSwift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/smittytone/HighlighterSwift.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 3.1.0;
-			};
-		};
-		87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mgriebling/SwiftMath";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.7.0;
-			};
-		};
 		8768A24E3001B3D300346ACB /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/swiftlang/swift-markdown.git";
@@ -790,6 +774,22 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 1.0.2;
+			};
+		};
+		87ED170000000000000000C2 /* XCRemoteSwiftPackageReference "HighlighterSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/smittytone/HighlighterSwift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.1.0;
+			};
+		};
+		87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.7.0;
 			};
 		};
 		CAFE000000000000000000A1 /* XCRemoteSwiftPackageReference "OpenAI" */ = {
@@ -834,26 +834,6 @@
 			package = 8768A2553001B5FE00346ACB /* XCRemoteSwiftPackageReference "SwiftGitX" */;
 			productName = SwiftGitX;
 		};
-		87ED170000000000000000B1 /* MarkdownCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 87ED170000000000000000C1 /* XCLocalSwiftPackageReference "Packages/NotesEditor" */;
-			productName = MarkdownCore;
-		};
-		87ED170000000000000000B3 /* Highlighter */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 87ED170000000000000000C2 /* XCRemoteSwiftPackageReference "HighlighterSwift" */;
-			productName = Highlighter;
-		};
-		87ED170000000000000000B2 /* MarkdownEditor */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 87ED170000000000000000C1 /* XCLocalSwiftPackageReference "Packages/NotesEditor" */;
-			productName = MarkdownEditor;
-		};
-		87ED170000000000000000B5 /* SwiftMath */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */;
-			productName = SwiftMath;
-		};
 		8768A2E53001C10000346ACB /* Markdown */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 8768A24E3001B3D300346ACB /* XCRemoteSwiftPackageReference "swift-markdown" */;
@@ -863,6 +843,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 87B9AAA43004F6B80026D3ED /* XCRemoteSwiftPackageReference "elk-swift" */;
 			productName = ElkSwift;
+		};
+		87ED170000000000000000B1 /* MarkdownCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 87ED170000000000000000C1 /* XCLocalSwiftPackageReference "Packages/NotesEditor" */;
+			productName = MarkdownCore;
+		};
+		87ED170000000000000000B2 /* MarkdownEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 87ED170000000000000000C1 /* XCLocalSwiftPackageReference "Packages/NotesEditor" */;
+			productName = MarkdownEditor;
+		};
+		87ED170000000000000000B3 /* Highlighter */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 87ED170000000000000000C2 /* XCRemoteSwiftPackageReference "HighlighterSwift" */;
+			productName = Highlighter;
+		};
+		87ED170000000000000000B5 /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 		CAFE000000000000000000B1 /* OpenAI */ = {
 			isa = XCSwiftPackageProductDependency;

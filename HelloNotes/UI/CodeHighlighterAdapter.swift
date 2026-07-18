@@ -13,10 +13,15 @@
 //  result, so theme/font/metrics stay the editor's own.
 //
 
-#if os(macOS)
-import AppKit
+import Foundation
 import Highlighter
 import MarkdownEditor
+
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 actor CodeHighlighterAdapter: CodeHighlighting {
     private let highlighter: Highlighter?
@@ -49,4 +54,3 @@ actor CodeHighlighterAdapter: CodeHighlighting {
         return styled
     }
 }
-#endif

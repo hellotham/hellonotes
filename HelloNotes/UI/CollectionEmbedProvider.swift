@@ -5,20 +5,21 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
-import AppKit
+import Foundation
+import MarkdownEditor   // PlatformImage
 
 /// Renders `![[Note]]` / `![[Note#heading]]` transclusions to images. The
 /// target note's Markdown is rendered to a titled card via ``NoteTranscluder``;
 /// non-note targets (image files) return nil (the editor loads those directly).
 ///
-/// Reads the target note lazily on `image(forName:)` and caches by content
-/// (keyed on a cheap mtime `stat` + appearance) so repeat renders are free.
+/// Reads the target note lazily on `image(forName:isDark:)` and caches by
+/// content (keyed on a cheap mtime `stat` + appearance) so repeat renders are
+/// free. Cross-platform.
 final class CollectionEmbedProvider: @unchecked Sendable {
     private let lock = NSLock()
     private var notesByName: [String: URL] = [:]   // lowercased title → file URL
     private var revision = 0
-    private var cache: [String: NSImage] = [:]
+    private var cache: [String: PlatformImage] = [:]
 
     /// Refresh the name→URL map and invalidate cached cards. A `revision` bump
     /// (on any collection change) is what makes a stale transclusion re-render.
@@ -33,9 +34,9 @@ final class CollectionEmbedProvider: @unchecked Sendable {
 
     /// A rendered transclusion card for an `![[Note]]` target, or nil when the
     /// target isn't a note in this collection. Main-actor (NoteTranscluder
-    /// uses `lockFocus`).
+    /// draws with the platform graphics context).
     @MainActor
-    func image(forName name: String) -> NSImage? {
+    func image(forName name: String, isDark: Bool) -> PlatformImage? {
         let (base, heading) = splitHeading(name)
 
         lock.lock()
@@ -45,7 +46,6 @@ final class CollectionEmbedProvider: @unchecked Sendable {
 
         let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
             .contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let key = "\(isDark ? "d" : "l")\u{1}\(url.path)\u{1}\(heading ?? "")\u{1}\(mtime)"
 
         lock.lock()
@@ -73,4 +73,3 @@ final class CollectionEmbedProvider: @unchecked Sendable {
         return (base, heading.isEmpty ? nil : heading)
     }
 }
-#endif
