@@ -26,6 +26,7 @@ struct HelloNotesApp: App {
         let lib = Library()
         _library = State(initialValue: lib)
         _router = State(initialValue: NavigationRouter(library: lib))
+        HelloNotesTips.configure()
     }
 
     var body: some Scene {

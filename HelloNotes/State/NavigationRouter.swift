@@ -9,6 +9,8 @@
 //  content view observes to update its selection (which lives in view `@State`).
 //
 
+import AppIntents
+import CoreSpotlight
 import Foundation
 import Observation
 
@@ -148,5 +150,14 @@ final class NavigationRouter {
         library.collections.flatMap { coll in
             coll.notes.map { (coll.rootURL.lastPathComponent, coll.relativePath(of: $0), $0.title) }
         }
+    }
+
+    /// Donate the open notes to system Spotlight (findable in ⌘Space with a deep
+    /// link back). Re-donated when the note set changes.
+    func donateNotesToSpotlight() async {
+        let entities = openNotesForIntents().prefix(500).map {
+            NoteEntity(collectionName: $0.collectionName, relativePath: $0.relativePath, title: $0.title)
+        }
+        try? await CSSearchableIndex.default().indexAppEntities(Array(entities))
     }
 }

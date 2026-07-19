@@ -57,15 +57,14 @@ Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra ca
    navigation intents `openAppWhenRun`. *(All in the main app target; when widgets land
    they'll need `NoteEntity` moved to a shared framework target — see Phase D.)*
    Remaining polish: adopt `supportedModes` (26+) for explicit foreground/background.
-2. **IndexedEntity Spotlight donation** — *remaining.* Conform `NoteEntity` to
-   `IndexedEntity` (macOS 15+) and donate from the index-cache refresh path so every note
-   is findable in system Spotlight with a deep link back. In-app, no new target; deferred
-   only for session scope. The entity + deep-link (`NoteEntity.deepLink`) already exist.
-3. **MenuBarExtra quick capture** ✅ **(done)** — shipped `QuickCaptureView` in a
-   `MenuBarExtra(.window)` that appends to today's daily note via `NavigationRouter`.
-   Runs in-app (no sandbox/bookmark issues). **Global hotkey remaining**:
-   `RegisterEventHotKey` (Carbon) to summon capture from anywhere — no entitlement needed
-   for a hotkey that activates our own app; deferred (needs runtime verification).
+2. **IndexedEntity Spotlight donation** ✅ **(done)** — `NoteEntity` conforms to
+   `IndexedEntity` (with a `CSSearchableItemAttributeSet`); `NavigationRouter.donateNotesToSpotlight()`
+   re-donates via `CSSearchableIndex.indexAppEntities` on every note-set change. Notes are
+   findable in system Spotlight with a `hellonotes://` deep link back.
+3. **MenuBarExtra quick capture** ✅ **(done)** — `QuickCaptureView` in a
+   `MenuBarExtra(.window)`. **Global hotkey** ✅ **(done)** — `GlobalHotKey` (Carbon
+   `RegisterEventHotKey`, ⌥⌘N) activates the app and starts a fresh note; registered in
+   `TerminationGuard`. (Runtime verification on a device still recommended.)
 
 ## Phase C — Platform polish (M effort)
 
@@ -76,9 +75,10 @@ Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra ca
   ship relying on it.
 - **Icon Composer layered icon** — macOS/iOS 26 layered app icon (specular/dark/tinted
   variants) from the existing artwork.
-- **TipKit** — 3–5 tips max (wiki-link autocomplete, transclusion, graph view,
-  Open Quickly, Rescan). Use event/parameter rules so tips appear in context, not as a
-  launch tour.
+- **TipKit** ✅ **(done)** — `Tips.swift` defines Open-Quickly / wiki-link / transclusion /
+  graph / rescan tips; `HelloNotesTips.configure()` runs at launch; the Graph tip is
+  attached via `.popoverTip`. Attach the remaining tips to their controls as desired
+  (one `.popoverTip(_:)` line each).
 - **iCloud KV store** — `NSUbiquitousKeyValueStore` for preferences sync (editor mode,
   recent collections). One entitlement, no CloudKit schema. 1 MB/1024-key limits are
   fine for prefs; never put note content in it.
@@ -94,13 +94,19 @@ Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra ca
   `Tool` so Ask Library can answer grounded questions offline. Works today on
   Apple-silicon + Apple Intelligence enabled; keep the existing cloud providers as the
   quality tier.
-- **WidgetKit** — daily-note / recent-notes widgets. Widgets **cannot resolve
-  security-scoped bookmarks** to user-chosen folders: requires an app group container
-  with a snapshot (JSON of recent/daily note metadata) written by the app on index
-  refresh. Deep-link via the URL scheme.
-- **Quick Look extensions** — preview + thumbnail extensions so `.md` files render in
-  Finder space-bar preview and get real thumbnails. Reuse the HTML preview renderer;
-  extension is sandboxed but QL hands it the file directly (no bookmark issue).
+- **WidgetKit** ✅ **(done)** — recent-notes widget (`HelloNotesWidgets`, small/medium/large).
+  The app writes a JSON snapshot (`WidgetSnapshot`) to the App Group container on every
+  note change (`Library.writeWidgetSnapshot` + `WidgetCenter.reloadAllTimelines`); the
+  widget reads it (`WidgetSnapshot.load`) — solving the bookmark problem — and each row
+  deep-links via `.widgetURL(hellonotes://…)`. *(Runtime verify: run the app once so the
+  snapshot exists, then add the widget.)*
+- **Quick Look extensions** ✅ **(done)** — Preview (`QLPreviewingController`) + Thumbnail
+  (`QLThumbnailProvider`) on macOS **and** iOS, each with a self-contained native Markdown
+  render (headings/bullets/code; thumbnail draws a note "card"). `QLSupportedContentTypes`
+  set to the Markdown UTIs. *(Can later swap the lightweight renderer for `GFMRender` full
+  fidelity by linking that SPM product to the QL targets.)* **Per-platform embed fix
+  applied**: `platformFilters` on the app's Embed phase so macOS embeds only macOS
+  extensions and iOS only iOS ones.
 
 ## Skip / defer (decided, with reasons)
 

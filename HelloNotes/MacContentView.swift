@@ -8,6 +8,7 @@
 #if os(macOS)
 import SwiftUI
 import AppKit
+import TipKit
 
 /// The macOS three-column navigation shell: sidebar, note list, and editor.
 /// The note list shows every open collection in the library; the editor and Git
@@ -347,6 +348,7 @@ struct MacContentView: View {
             tabs.prune(keeping: Set(notes.map(\.id)))
             revalidateSelection()
             library.writeWidgetSnapshot()   // refresh the recent-notes widget
+            Task { await router.donateNotesToSpotlight() }   // system Spotlight
         }
         .onChange(of: searchText) { _, q in scheduleSearch(q) }
         .onChange(of: router.pendingSearch) { _, query in
@@ -650,6 +652,7 @@ struct MacContentView: View {
                     Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 .disabled(focused.notes.isEmpty)
+                .popoverTip(GraphTip())
 
                 Button { openWindow(id: "askLibrary") } label: {
                     Label("Ask Library", systemImage: "sparkles.rectangle.stack")

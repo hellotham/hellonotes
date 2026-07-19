@@ -24,6 +24,8 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
 
     /// Backs the "New Note from Selection" Services-menu item.
     private let servicesProvider = ServicesProvider()
+    /// ⌥⌘N global quick-capture hotkey (retained for the app's lifetime).
+    private var globalHotKey: GlobalHotKey?
 
     override init() {
         super.init()
@@ -33,6 +35,7 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.servicesProvider = servicesProvider
         NSUpdateDynamicServices()
+        globalHotKey = GlobalHotKey.makeDefault()
     }
 
     /// Register (or replace) a flush hook for `owner`. Call from a window shell

@@ -10,6 +10,7 @@
 //
 
 import AppIntents
+import CoreSpotlight
 import Foundation
 
 // MARK: - Entity
@@ -60,6 +61,18 @@ struct NoteEntityQuery: EntityQuery {
     @MainActor
     func suggestedEntities() async throws -> [NoteEntity] {
         Array(NoteEntity.allInOpenLibrary().prefix(50))
+    }
+}
+
+/// System-Spotlight donation: every note becomes findable in ⌘Space / Spotlight
+/// with a deep link back (macOS 15+ / iOS 18+).
+extension NoteEntity: IndexedEntity {
+    var attributeSet: CSSearchableItemAttributeSet {
+        let attributes = CSSearchableItemAttributeSet(contentType: .plainText)
+        attributes.title = title
+        attributes.displayName = title
+        attributes.contentDescription = collectionName
+        return attributes
     }
 }
 
