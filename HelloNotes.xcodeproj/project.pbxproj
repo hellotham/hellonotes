@@ -18,6 +18,18 @@
 		87B9A8DE3004E31B0026D3ED /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B5 /* Tokenizers */; };
 		87B9A8DF3004E31B0026D3ED /* Hub in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B6 /* Hub */; };
 		87B9AAA63004F6B80026D3ED /* ElkSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 87B9AAA53004F6B80026D3ED /* ElkSwift */; };
+		87E4E451300C957700F6586B /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E437300C94DD00F6586B /* WidgetKit.framework */; };
+		87E4E452300C957700F6586B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E439300C94DD00F6586B /* SwiftUI.framework */; };
+		87E4E45D300C957800F6586B /* HelloNotesWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E450300C957700F6586B /* HelloNotesWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		87E4E468300C9E7400F6586B /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E467300C9E7400F6586B /* Quartz.framework */; platformFilters = (macos, ); };
+		87E4E474300C9E7400F6586B /* HelloNotesPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E466300C9E7400F6586B /* HelloNotesPreview.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		87E4E47F300C9F9E00F6586B /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E47E300C9F9E00F6586B /* QuickLook.framework */; };
+		87E4E48B300C9F9E00F6586B /* HelloNotesPreview-iOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E47D300C9F9E00F6586B /* HelloNotesPreview-iOS.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		87E4E496300C9FEF00F6586B /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E495300C9FEF00F6586B /* QuickLookThumbnailing.framework */; };
+		87E4E497300C9FEF00F6586B /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E467300C9E7400F6586B /* Quartz.framework */; platformFilters = (macos, ); };
+		87E4E49E300C9FEF00F6586B /* HelloNotesThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E494300C9FEF00F6586B /* HelloNotesThumbnail.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		87E4E4A8300CA03B00F6586B /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E495300C9FEF00F6586B /* QuickLookThumbnailing.framework */; };
+		87E4E4AF300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E4A7300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		87ED170000000000000000A1 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B1 /* MarkdownCore */; };
 		87ED170000000000000000A2 /* MarkdownEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B2 /* MarkdownEditor */; };
 		87ED170000000000000000A3 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B3 /* Highlighter */; };
@@ -39,7 +51,60 @@
 			remoteGlobalIDString = 8759E1DF3001AF2E008F8C92;
 			remoteInfo = HelloNotes;
 		};
+		87E4E45B300C957800F6586B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8759E1D83001AF2E008F8C92 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 87E4E44F300C957700F6586B;
+			remoteInfo = HelloNotesWidgetsExtension;
+		};
+		87E4E472300C9E7400F6586B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8759E1D83001AF2E008F8C92 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 87E4E465300C9E7400F6586B;
+			remoteInfo = HelloNotesPreview;
+		};
+		87E4E489300C9F9E00F6586B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8759E1D83001AF2E008F8C92 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 87E4E47C300C9F9E00F6586B;
+			remoteInfo = "HelloNotesPreview-iOS";
+		};
+		87E4E49C300C9FEF00F6586B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8759E1D83001AF2E008F8C92 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 87E4E493300C9FEF00F6586B;
+			remoteInfo = HelloNotesThumbnail;
+		};
+		87E4E4AD300CA03B00F6586B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8759E1D83001AF2E008F8C92 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 87E4E4A6300CA03B00F6586B;
+			remoteInfo = "HelloNotesThumbnail-iOS";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		87E4E446300C94DE00F6586B /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				87E4E4AF300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex in Embed Foundation Extensions */,
+				87E4E474300C9E7400F6586B /* HelloNotesPreview.appex in Embed Foundation Extensions */,
+				87E4E48B300C9F9E00F6586B /* HelloNotesPreview-iOS.appex in Embed Foundation Extensions */,
+				87E4E49E300C9FEF00F6586B /* HelloNotesThumbnail.appex in Embed Foundation Extensions */,
+				87E4E45D300C957800F6586B /* HelloNotesWidgetsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		8759E1E03001AF2E008F8C92 /* HelloNotes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HelloNotes.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -48,6 +113,17 @@
 		8768A2583001B75100346ACB /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		8768A25A3001B77400346ACB /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
 		8768A25C3001B78500346ACB /* HelloNotes-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "HelloNotes-Bridging-Header.h"; sourceTree = "<group>"; };
+		87E4E437300C94DD00F6586B /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		87E4E439300C94DD00F6586B /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		87E4E44B300C950700F6586B /* HelloNotesWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HelloNotesWidgetsExtension.entitlements; sourceTree = "<group>"; };
+		87E4E450300C957700F6586B /* HelloNotesWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HelloNotesWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		87E4E466300C9E7400F6586B /* HelloNotesPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HelloNotesPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		87E4E467300C9E7400F6586B /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
+		87E4E47D300C9F9E00F6586B /* HelloNotesPreview-iOS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "HelloNotesPreview-iOS.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		87E4E47E300C9F9E00F6586B /* QuickLook.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLook.framework; path = System/Library/Frameworks/QuickLook.framework; sourceTree = SDKROOT; };
+		87E4E494300C9FEF00F6586B /* HelloNotesThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HelloNotesThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		87E4E495300C9FEF00F6586B /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
+		87E4E4A7300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "HelloNotesThumbnail-iOS.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -57,6 +133,41 @@
 				Info.plist,
 			);
 			target = 8759E1DF3001AF2E008F8C92 /* HelloNotes */;
+		};
+		87E4E461300C957800F6586B /* Exceptions for "HelloNotesWidgets" folder in "HelloNotesWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 87E4E44F300C957700F6586B /* HelloNotesWidgetsExtension */;
+		};
+		87E4E478300C9E7400F6586B /* Exceptions for "HelloNotesPreview" folder in "HelloNotesPreview" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 87E4E465300C9E7400F6586B /* HelloNotesPreview */;
+		};
+		87E4E48F300C9F9E00F6586B /* Exceptions for "HelloNotesPreview-iOS" folder in "HelloNotesPreview-iOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 87E4E47C300C9F9E00F6586B /* HelloNotesPreview-iOS */;
+		};
+		87E4E4A2300C9FEF00F6586B /* Exceptions for "HelloNotesThumbnail" folder in "HelloNotesThumbnail" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 87E4E493300C9FEF00F6586B /* HelloNotesThumbnail */;
+		};
+		87E4E4B3300CA03B00F6586B /* Exceptions for "HelloNotesThumbnail-iOS" folder in "HelloNotesThumbnail-iOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 87E4E4A6300CA03B00F6586B /* HelloNotesThumbnail-iOS */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -77,6 +188,51 @@
 		8759E1FD3001AF30008F8C92 /* HelloNotesUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = HelloNotesUITests;
+			sourceTree = "<group>";
+		};
+		87E4E43B300C94DD00F6586B /* HelloNotesWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = HelloNotesWidgets;
+			sourceTree = "<group>";
+		};
+		87E4E453300C957700F6586B /* HelloNotesWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				87E4E461300C957800F6586B /* Exceptions for "HelloNotesWidgets" folder in "HelloNotesWidgetsExtension" target */,
+			);
+			path = HelloNotesWidgets;
+			sourceTree = "<group>";
+		};
+		87E4E469300C9E7400F6586B /* HelloNotesPreview */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				87E4E478300C9E7400F6586B /* Exceptions for "HelloNotesPreview" folder in "HelloNotesPreview" target */,
+			);
+			path = HelloNotesPreview;
+			sourceTree = "<group>";
+		};
+		87E4E480300C9F9E00F6586B /* HelloNotesPreview-iOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				87E4E48F300C9F9E00F6586B /* Exceptions for "HelloNotesPreview-iOS" folder in "HelloNotesPreview-iOS" target */,
+			);
+			path = "HelloNotesPreview-iOS";
+			sourceTree = "<group>";
+		};
+		87E4E498300C9FEF00F6586B /* HelloNotesThumbnail */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				87E4E4A2300C9FEF00F6586B /* Exceptions for "HelloNotesThumbnail" folder in "HelloNotesThumbnail" target */,
+			);
+			path = HelloNotesThumbnail;
+			sourceTree = "<group>";
+		};
+		87E4E4A9300CA03B00F6586B /* HelloNotesThumbnail-iOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				87E4E4B3300CA03B00F6586B /* Exceptions for "HelloNotesThumbnail-iOS" folder in "HelloNotesThumbnail-iOS" target */,
+			);
+			path = "HelloNotesThumbnail-iOS";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -117,17 +273,67 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		87E4E44D300C957700F6586B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				87E4E452300C957700F6586B /* SwiftUI.framework in Frameworks */,
+				87E4E451300C957700F6586B /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E463300C9E7400F6586B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				87E4E468300C9E7400F6586B /* Quartz.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E47A300C9F9E00F6586B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				87E4E47F300C9F9E00F6586B /* QuickLook.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E491300C9FEF00F6586B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				87E4E496300C9FEF00F6586B /* QuickLookThumbnailing.framework in Frameworks */,
+				87E4E497300C9FEF00F6586B /* Quartz.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E4A4300CA03B00F6586B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				87E4E4A8300CA03B00F6586B /* QuickLookThumbnailing.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		8759E1D73001AF2E008F8C92 = {
 			isa = PBXGroup;
 			children = (
+				87E4E44B300C950700F6586B /* HelloNotesWidgetsExtension.entitlements */,
 				8768A25A3001B77400346ACB /* CLAUDE.md */,
 				8768A2583001B75100346ACB /* README.md */,
 				8759E1E23001AF2E008F8C92 /* HelloNotes */,
 				8759E1F33001AF30008F8C92 /* HelloNotesTests */,
 				8759E1FD3001AF30008F8C92 /* HelloNotesUITests */,
+				87E4E43B300C94DD00F6586B /* HelloNotesWidgets */,
+				87E4E453300C957700F6586B /* HelloNotesWidgets */,
+				87E4E469300C9E7400F6586B /* HelloNotesPreview */,
+				87E4E480300C9F9E00F6586B /* HelloNotesPreview-iOS */,
+				87E4E498300C9FEF00F6586B /* HelloNotesThumbnail */,
+				87E4E4A9300CA03B00F6586B /* HelloNotesThumbnail-iOS */,
+				87E4E436300C94DD00F6586B /* Frameworks */,
 				8759E1E13001AF2E008F8C92 /* Products */,
 				8768A25C3001B78500346ACB /* HelloNotes-Bridging-Header.h */,
 			);
@@ -139,8 +345,25 @@
 				8759E1E03001AF2E008F8C92 /* HelloNotes.app */,
 				8759E1F03001AF30008F8C92 /* HelloNotesTests.xctest */,
 				8759E1FA3001AF30008F8C92 /* HelloNotesUITests.xctest */,
+				87E4E450300C957700F6586B /* HelloNotesWidgetsExtension.appex */,
+				87E4E466300C9E7400F6586B /* HelloNotesPreview.appex */,
+				87E4E47D300C9F9E00F6586B /* HelloNotesPreview-iOS.appex */,
+				87E4E494300C9FEF00F6586B /* HelloNotesThumbnail.appex */,
+				87E4E4A7300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		87E4E436300C94DD00F6586B /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				87E4E437300C94DD00F6586B /* WidgetKit.framework */,
+				87E4E439300C94DD00F6586B /* SwiftUI.framework */,
+				87E4E467300C9E7400F6586B /* Quartz.framework */,
+				87E4E47E300C9F9E00F6586B /* QuickLook.framework */,
+				87E4E495300C9FEF00F6586B /* QuickLookThumbnailing.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -154,10 +377,16 @@
 				8759E1DD3001AF2E008F8C92 /* Frameworks */,
 				8759E1DE3001AF2E008F8C92 /* Resources */,
 				AB5713A22607130000BEEF01 /* Stamp Build Info */,
+				87E4E446300C94DE00F6586B /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				87E4E45C300C957800F6586B /* PBXTargetDependency */,
+				87E4E473300C9E7400F6586B /* PBXTargetDependency */,
+				87E4E48A300C9F9E00F6586B /* PBXTargetDependency */,
+				87E4E49D300C9FEF00F6586B /* PBXTargetDependency */,
+				87E4E4AE300CA03B00F6586B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				8759E1E23001AF2E008F8C92 /* HelloNotes */,
@@ -229,6 +458,116 @@
 			productReference = 8759E1FA3001AF30008F8C92 /* HelloNotesUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		87E4E44F300C957700F6586B /* HelloNotesWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 87E4E45E300C957800F6586B /* Build configuration list for PBXNativeTarget "HelloNotesWidgetsExtension" */;
+			buildPhases = (
+				87E4E44C300C957700F6586B /* Sources */,
+				87E4E44D300C957700F6586B /* Frameworks */,
+				87E4E44E300C957700F6586B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				87E4E453300C957700F6586B /* HelloNotesWidgets */,
+			);
+			name = HelloNotesWidgetsExtension;
+			packageProductDependencies = (
+			);
+			productName = HelloNotesWidgetsExtension;
+			productReference = 87E4E450300C957700F6586B /* HelloNotesWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		87E4E465300C9E7400F6586B /* HelloNotesPreview */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 87E4E475300C9E7400F6586B /* Build configuration list for PBXNativeTarget "HelloNotesPreview" */;
+			buildPhases = (
+				87E4E462300C9E7400F6586B /* Sources */,
+				87E4E463300C9E7400F6586B /* Frameworks */,
+				87E4E464300C9E7400F6586B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				87E4E469300C9E7400F6586B /* HelloNotesPreview */,
+			);
+			name = HelloNotesPreview;
+			packageProductDependencies = (
+			);
+			productName = HelloNotesPreview;
+			productReference = 87E4E466300C9E7400F6586B /* HelloNotesPreview.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		87E4E47C300C9F9E00F6586B /* HelloNotesPreview-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 87E4E48C300C9F9E00F6586B /* Build configuration list for PBXNativeTarget "HelloNotesPreview-iOS" */;
+			buildPhases = (
+				87E4E479300C9F9E00F6586B /* Sources */,
+				87E4E47A300C9F9E00F6586B /* Frameworks */,
+				87E4E47B300C9F9E00F6586B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				87E4E480300C9F9E00F6586B /* HelloNotesPreview-iOS */,
+			);
+			name = "HelloNotesPreview-iOS";
+			packageProductDependencies = (
+			);
+			productName = "HelloNotesPreview-iOS";
+			productReference = 87E4E47D300C9F9E00F6586B /* HelloNotesPreview-iOS.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		87E4E493300C9FEF00F6586B /* HelloNotesThumbnail */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 87E4E49F300C9FEF00F6586B /* Build configuration list for PBXNativeTarget "HelloNotesThumbnail" */;
+			buildPhases = (
+				87E4E490300C9FEF00F6586B /* Sources */,
+				87E4E491300C9FEF00F6586B /* Frameworks */,
+				87E4E492300C9FEF00F6586B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				87E4E498300C9FEF00F6586B /* HelloNotesThumbnail */,
+			);
+			name = HelloNotesThumbnail;
+			packageProductDependencies = (
+			);
+			productName = HelloNotesThumbnail;
+			productReference = 87E4E494300C9FEF00F6586B /* HelloNotesThumbnail.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		87E4E4A6300CA03B00F6586B /* HelloNotesThumbnail-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 87E4E4B0300CA03B00F6586B /* Build configuration list for PBXNativeTarget "HelloNotesThumbnail-iOS" */;
+			buildPhases = (
+				87E4E4A3300CA03B00F6586B /* Sources */,
+				87E4E4A4300CA03B00F6586B /* Frameworks */,
+				87E4E4A5300CA03B00F6586B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				87E4E4A9300CA03B00F6586B /* HelloNotesThumbnail-iOS */,
+			);
+			name = "HelloNotesThumbnail-iOS";
+			packageProductDependencies = (
+			);
+			productName = "HelloNotesThumbnail-iOS";
+			productReference = 87E4E4A7300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -250,6 +589,21 @@
 					8759E1F93001AF30008F8C92 = {
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 8759E1DF3001AF2E008F8C92;
+					};
+					87E4E44F300C957700F6586B = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					87E4E465300C9E7400F6586B = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					87E4E47C300C9F9E00F6586B = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					87E4E493300C9FEF00F6586B = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					87E4E4A6300CA03B00F6586B = {
+						CreatedOnToolsVersion = 26.6;
 					};
 				};
 			};
@@ -282,6 +636,11 @@
 				8759E1DF3001AF2E008F8C92 /* HelloNotes */,
 				8759E1EF3001AF30008F8C92 /* HelloNotesTests */,
 				8759E1F93001AF30008F8C92 /* HelloNotesUITests */,
+				87E4E44F300C957700F6586B /* HelloNotesWidgetsExtension */,
+				87E4E465300C9E7400F6586B /* HelloNotesPreview */,
+				87E4E47C300C9F9E00F6586B /* HelloNotesPreview-iOS */,
+				87E4E493300C9FEF00F6586B /* HelloNotesThumbnail */,
+				87E4E4A6300CA03B00F6586B /* HelloNotesThumbnail-iOS */,
 			);
 		};
 /* End PBXProject section */
@@ -303,6 +662,41 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		8759E1F83001AF30008F8C92 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E44E300C957700F6586B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E464300C9E7400F6586B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E47B300C9F9E00F6586B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E492300C9FEF00F6586B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E4A5300CA03B00F6586B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -355,6 +749,41 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		87E4E44C300C957700F6586B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E462300C9E7400F6586B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E479300C9F9E00F6586B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E490300C9FEF00F6586B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87E4E4A3300CA03B00F6586B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -367,6 +796,31 @@
 			isa = PBXTargetDependency;
 			target = 8759E1DF3001AF2E008F8C92 /* HelloNotes */;
 			targetProxy = 8759E1FB3001AF30008F8C92 /* PBXContainerItemProxy */;
+		};
+		87E4E45C300C957800F6586B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 87E4E44F300C957700F6586B /* HelloNotesWidgetsExtension */;
+			targetProxy = 87E4E45B300C957800F6586B /* PBXContainerItemProxy */;
+		};
+		87E4E473300C9E7400F6586B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 87E4E465300C9E7400F6586B /* HelloNotesPreview */;
+			targetProxy = 87E4E472300C9E7400F6586B /* PBXContainerItemProxy */;
+		};
+		87E4E48A300C9F9E00F6586B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 87E4E47C300C9F9E00F6586B /* HelloNotesPreview-iOS */;
+			targetProxy = 87E4E489300C9F9E00F6586B /* PBXContainerItemProxy */;
+		};
+		87E4E49D300C9FEF00F6586B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 87E4E493300C9FEF00F6586B /* HelloNotesThumbnail */;
+			targetProxy = 87E4E49C300C9FEF00F6586B /* PBXContainerItemProxy */;
+		};
+		87E4E4AE300CA03B00F6586B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 87E4E4A6300CA03B00F6586B /* HelloNotesThumbnail-iOS */;
+			targetProxy = 87E4E4AD300CA03B00F6586B /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -695,6 +1149,354 @@
 			};
 			name = Release;
 		};
+		87E4E45F300C957800F6586B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = HelloNotesWidgetsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HelloNotesWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HelloNotesWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hellotham.HelloNotes.HelloNotesWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Debug;
+		};
+		87E4E460300C957800F6586B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = HelloNotesWidgetsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HelloNotesWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HelloNotesWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hellotham.HelloNotes.HelloNotesWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Release;
+		};
+		87E4E476300C9E7400F6586B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HelloNotesPreview/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HelloNotesPreview;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hellotham.HelloNotes.HelloNotesPreview;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		87E4E477300C9E7400F6586B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HelloNotesPreview/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HelloNotesPreview;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hellotham.HelloNotes.HelloNotesPreview;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		87E4E48D300C9F9E00F6586B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "HelloNotesPreview-iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "HelloNotesPreview-iOS";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hellotham.HelloNotes.HelloNotesPreview-iOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		87E4E48E300C9F9E00F6586B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "HelloNotesPreview-iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "HelloNotesPreview-iOS";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hellotham.HelloNotes.HelloNotesPreview-iOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		87E4E4A0300C9FEF00F6586B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HelloNotesThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HelloNotesThumbnail;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hellotham.HelloNotes.HelloNotesThumbnail;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		87E4E4A1300C9FEF00F6586B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HelloNotesThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HelloNotesThumbnail;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hellotham.HelloNotes.HelloNotesThumbnail;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		87E4E4B1300CA03B00F6586B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "HelloNotesThumbnail-iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "HelloNotesThumbnail-iOS";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hellotham.HelloNotes.HelloNotesThumbnail-iOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		87E4E4B2300CA03B00F6586B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RPL5R637DS;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "HelloNotesThumbnail-iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "HelloNotesThumbnail-iOS";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hellotham.HelloNotes.HelloNotesThumbnail-iOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -730,6 +1532,51 @@
 			buildConfigurations = (
 				8759E20C3001AF30008F8C92 /* Debug */,
 				8759E20D3001AF30008F8C92 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		87E4E45E300C957800F6586B /* Build configuration list for PBXNativeTarget "HelloNotesWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				87E4E45F300C957800F6586B /* Debug */,
+				87E4E460300C957800F6586B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		87E4E475300C9E7400F6586B /* Build configuration list for PBXNativeTarget "HelloNotesPreview" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				87E4E476300C9E7400F6586B /* Debug */,
+				87E4E477300C9E7400F6586B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		87E4E48C300C9F9E00F6586B /* Build configuration list for PBXNativeTarget "HelloNotesPreview-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				87E4E48D300C9F9E00F6586B /* Debug */,
+				87E4E48E300C9F9E00F6586B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		87E4E49F300C9FEF00F6586B /* Build configuration list for PBXNativeTarget "HelloNotesThumbnail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				87E4E4A0300C9FEF00F6586B /* Debug */,
+				87E4E4A1300C9FEF00F6586B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		87E4E4B0300CA03B00F6586B /* Build configuration list for PBXNativeTarget "HelloNotesThumbnail-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				87E4E4B1300CA03B00F6586B /* Debug */,
+				87E4E4B2300CA03B00F6586B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
