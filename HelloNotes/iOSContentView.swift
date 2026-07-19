@@ -34,6 +34,12 @@ struct iOSContentView: View {
     @State private var editor = EditorModel()
     @State private var showImporter = false
     @State private var showSettings = false
+    @State private var showWelcome = false
+    /// Onboarding is queued during launch but only presented once the splash
+    /// overlay has faded, so it doesn't pop up over the splash.
+    @State private var pendingWelcome = false
+    /// First-run onboarding, shown once on a brand-new install.
+    @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @State private var searchText = ""
     @State private var selectedNoteID: Note.ID?
     @State private var selectedTag: String?
@@ -99,9 +105,24 @@ struct iOSContentView: View {
         .sheet(isPresented: $showSettings) {
             iOSSettingsView(settings: appearance)
         }
+        .sheet(isPresented: $showWelcome, onDismiss: { hasSeenWelcome = true }) {
+            WelcomeView(
+                onOpenCollection: { showWelcome = false; showImporter = true },
+                onOpenObsidian: { showWelcome = false; showImporter = true },
+                onDismiss: { showWelcome = false }
+            )
+        }
         .task {
             if library.isEmpty {
                 await library.restore()
+                if library.isEmpty && !hasSeenWelcome { pendingWelcome = true }
+            }
+        }
+        .onChange(of: showSplash) { _, visible in
+            // Present onboarding only after the launch splash has faded.
+            if !visible && pendingWelcome {
+                pendingWelcome = false
+                showWelcome = true
             }
         }
         .onChange(of: library.focusedID) { _, _ in

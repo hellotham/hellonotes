@@ -39,6 +39,10 @@ struct MacContentView: View {
     @State private var libraries = LibrariesStore()
     @State private var showLauncher = false
     @State private var showNewRepo = false
+    @State private var showWelcome = false
+    /// First-run onboarding is shown once; afterwards an empty launch offers the
+    /// launcher instead.
+    @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
 
     /// Shared LLM configuration (the Assistant and Ask Library windows own
     /// their models; the editor's intelligence features read this directly).
@@ -311,8 +315,11 @@ struct MacContentView: View {
             library.onOpened = { recents.record($0) }
             if library.isEmpty {
                 await library.restore()
-                // First run with nothing to restore: offer the launcher.
-                if library.isEmpty { showLauncher = true }
+                // First run with nothing to restore: onboard a brand-new user,
+                // otherwise (welcome already seen) go straight to the launcher.
+                if library.isEmpty {
+                    if hasSeenWelcome { showLauncher = true } else { showWelcome = true }
+                }
             }
             // Reopen the last-focused collection + note (if still present).
             if !restoredCollectionID.isEmpty,
@@ -406,6 +413,13 @@ struct MacContentView: View {
             CloneRepositoryView(store: gitAccounts, git: focused?.git ?? GitService()) { url in
                 Task { await library.open(url: url) }
             }
+        }
+        .sheet(isPresented: $showWelcome, onDismiss: { hasSeenWelcome = true }) {
+            WelcomeView(
+                onOpenCollection: { showWelcome = false; library.requestOpenCollections() },
+                onOpenObsidian: { showWelcome = false; openObsidianVault() },
+                onDismiss: { showWelcome = false }
+            )
         }
         .sheet(isPresented: $showLauncher) {
             LauncherView(
