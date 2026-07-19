@@ -27,6 +27,7 @@ struct HelloNotesApp: App {
         _library = State(initialValue: lib)
         _router = State(initialValue: NavigationRouter(library: lib))
         HelloNotesTips.configure()
+        CloudPrefs.shared.start()   // mirror preference keys via iCloud KV
     }
 
     var body: some Scene {

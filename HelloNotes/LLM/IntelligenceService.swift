@@ -81,7 +81,16 @@ struct IntelligenceService {
     }
 
     func suggestTags(for noteText: String, existing: [String]) async throws -> [String] {
-        if isApple { return try await NoteIntelligence.suggestTags(for: noteText, existing: existing) }
+        if isApple {
+            // Prefer guided (@Generable) structured output on the on-device model:
+            // it returns clean tags directly, with no fragile reply-parsing.
+            #if canImport(FoundationModels)
+            if #available(macOS 26.0, iOS 26.0, *), FoundationModelsIntelligence.isAvailable {
+                return try await FoundationModelsIntelligence.suggest(for: noteText).tags
+            }
+            #endif
+            return try await NoteIntelligence.suggestTags(for: noteText, existing: existing)
+        }
         let existingList = existing.isEmpty ? "none" : existing.joined(separator: ", ")
         let reply = try await complete(
             system: "You suggest topical tags for personal notes. Prefer reusing your existing tags when they fit. Reply with ONLY 3–6 short, lowercase, single-word tags separated by commas — no '#', no other text.",

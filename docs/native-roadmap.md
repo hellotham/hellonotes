@@ -79,9 +79,12 @@ Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra ca
   graph / rescan tips; `HelloNotesTips.configure()` runs at launch; the Graph tip is
   attached via `.popoverTip`. Attach the remaining tips to their controls as desired
   (one `.popoverTip(_:)` line each).
-- **iCloud KV store** — `NSUbiquitousKeyValueStore` for preferences sync (editor mode,
-  recent collections). One entitlement, no CloudKit schema. 1 MB/1024-key limits are
-  fine for prefs; never put note content in it.
+- **iCloud KV store** ✅ **(code done — enable the capability in Xcode)** — `CloudPrefs`
+  mirrors a small allow-list of preference keys via `NSUbiquitousKeyValueStore` (pull on
+  launch + external change, push on local change, loop-guarded); started in `HelloNotesApp`.
+  Entitlement `com.apple.developer.ubiquity-kvstore-identifier` added. **Action needed:** in
+  Xcode add the **iCloud → Key-value storage** capability to the app target (the signed
+  build fails on provisioning until then; code compiles clean). Never stores note content.
 
 ## Phase D — Bigger bets (M each)
 
@@ -89,11 +92,13 @@ Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra ca
   matches our floor exactly; no legacy `SFSpeechRecognizer` fallback needed).
   `SpeechAnalyzer` + `SpeechTranscriber` streaming into a new note / daily note.
   Models download on demand via `AssetInventory`.
-- **Foundation Models upgrade** — on-device LLM (macOS 26): `@Generable` guided
-  generation for structured outputs (note titles, tag suggestions) and a vault-search
-  `Tool` so Ask Library can answer grounded questions offline. Works today on
-  Apple-silicon + Apple Intelligence enabled; keep the existing cloud providers as the
-  quality tier.
+- **Foundation Models upgrade** ✅ **(code done; runtime needs Apple Intelligence hardware)** —
+  `FoundationModelsIntelligence` (macOS/iOS 26, `canImport`+`@available` gated so the macOS 15
+  floor still builds): `@Generable NoteSuggestion` (title + tags) via guided generation —
+  now the tag-suggestion path on the on-device model, replacing reply-parsing — plus a
+  `VaultSearchTool: Tool` and `answer(question:search:)` for grounded offline Ask-Library
+  Q&A (ready; wire into `LibraryChatView`'s offline branch). Cloud providers stay the
+  quality tier. Runtime verification needs Apple-silicon + Apple Intelligence enabled.
 - **WidgetKit** ✅ **(done)** — recent-notes widget (`HelloNotesWidgets`, small/medium/large).
   The app writes a JSON snapshot (`WidgetSnapshot`) to the App Group container on every
   note change (`Library.writeWidgetSnapshot` + `WidgetCenter.reloadAllTimelines`); the
