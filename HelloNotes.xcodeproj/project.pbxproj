@@ -581,6 +581,11 @@
 					8759E1DF3001AF2E008F8C92 = {
 						CreatedOnToolsVersion = 26.6;
 						LastSwiftMigration = 2660;
+						SystemCapabilities = {
+							com.apple.iCloud = {
+								enabled = 1;
+							};
+						};
 					};
 					8759E1EF3001AF30008F8C92 = {
 						CreatedOnToolsVersion = 26.6;

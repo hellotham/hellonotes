@@ -82,12 +82,13 @@ Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra ca
   graph / rescan tips; `HelloNotesTips.configure()` runs at launch; the Graph tip is
   attached via `.popoverTip`. Attach the remaining tips to their controls as desired
   (one `.popoverTip(_:)` line each).
-- **iCloud KV store** ✅ **(code done — enable the capability in Xcode)** — `CloudPrefs`
-  mirrors a small allow-list of preference keys via `NSUbiquitousKeyValueStore` (pull on
-  launch + external change, push on local change, loop-guarded); started in `HelloNotesApp`.
-  Entitlement `com.apple.developer.ubiquity-kvstore-identifier` added. **Action needed:** in
-  Xcode add the **iCloud → Key-value storage** capability to the app target (the signed
-  build fails on provisioning until then; code compiles clean). Never stores note content.
+- **iCloud KV store** ✅ **(done — signed build passes)** — `CloudPrefs` mirrors a small
+  allow-list of preference keys via `NSUbiquitousKeyValueStore` (pull on launch + external
+  change, push on local change, loop-guarded); started in `HelloNotesApp`. Entitlement
+  `com.apple.developer.ubiquity-kvstore-identifier` added, and the iCloud capability declared
+  in the target's `SystemCapabilities` so automatic signing provisions it — the **signed build
+  succeeds on both platforms** (`-allowProvisioningUpdates`), no manual Xcode step. Never
+  stores note content.
 
 ## Phase D — Bigger bets (M each)
 
