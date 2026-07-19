@@ -455,7 +455,21 @@ A full review against Apple's HIG, then the fixes applied (both platforms build 
 - **iOS custom accent color**: added the `ColorPicker` the macOS Appearance tab already had,
   so iOS is no longer limited to the ten preset swatches.
 
+### First-run onboarding
+- **`WelcomeView`** — a one-time welcome sheet shared verbatim by macOS and iOS. A brand-new
+  install (empty library, nothing to restore) now meets a branded sheet — wordmark, tagline,
+  four capability highlights (local files, GitHub-identical preview, links/graph, on-device
+  intelligence) and a primary **Open a Collection** action — instead of a bare launcher or
+  blank pane. Gated by `@AppStorage("hasSeenWelcome")`; afterwards an empty launch falls back
+  to the launcher. macOS presents it as a sheet on first empty launch; iOS queues it during
+  launch and presents it only after the splash overlay fades. Verified live on a cold launch.
+
 ### Consciously not changed
 - **Note deletion stays immediate** (no confirmation): a delete is a recoverable move to
   Trash, matching Apple Notes. Folder deletion keeps its confirmation because it bulk-trashes
   many notes — the asymmetry is intentional, not an inconsistency to "fix."
+- **Editor Dynamic Type**: the note editor deliberately uses its own text-scale control
+  (Appearance ▸ Text size) rather than system Dynamic Type — the iOS settings footer says so
+  explicitly, and honoring both at once would fight the TextKit chrome layout. Left by design.
+- **Sidebar `List(.sidebar)` restyle / custom tab-bar affordances**: visual redesigns that
+  need on-device judgement, not blind code edits — deferred.
