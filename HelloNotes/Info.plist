@@ -18,6 +18,10 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>HelloNotes transcribes your voice into a note, on-device.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>HelloNotes transcribes speech into notes on-device.</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

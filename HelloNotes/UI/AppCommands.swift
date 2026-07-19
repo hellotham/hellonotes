@@ -174,6 +174,14 @@ struct HelloNotesCommands: Commands {
             Button("Move to Trash") { actions?.note?.moveToTrash() }
                 .keyboardShortcut(.delete)
                 .disabled(actions?.note == nil)
+
+            Divider()
+
+            Button(DictationController.shared.isRecording ? "Stop Dictation" : "Dictate to Daily Note…") {
+                DictationController.shared.toggle()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .option])
+            .disabled(!DictationController.shared.isSupported)
         }
 
         // MARK: Format — Markdown styling for the live editor.
