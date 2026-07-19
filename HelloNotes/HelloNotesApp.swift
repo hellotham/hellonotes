@@ -9,7 +9,9 @@ import SwiftUI
 
 @main
 struct HelloNotesApp: App {
-    @State private var library = Library()
+    @State private var library: Library
+    /// Deep-link / App-Intents / Services navigation entry point.
+    @State private var router: NavigationRouter
     /// Shared LLM configuration (providers, keys, intelligence provider), so
     /// every window — including standalone note windows — sees the same settings.
     @State private var llmSettings = LLMSettings()
@@ -20,22 +22,32 @@ struct HelloNotesApp: App {
     @NSApplicationDelegateAdaptor(TerminationGuard.self) private var terminationGuard
     #endif
 
+    init() {
+        let lib = Library()
+        _library = State(initialValue: lib)
+        _router = State(initialValue: NavigationRouter(library: lib))
+    }
+
     var body: some Scene {
         WindowGroup(id: "main") {
             #if os(macOS)
             MacContentView()
                 .environment(library)
+                .environment(router)
                 .environment(llmSettings)
                 .environment(appearance)
                 .themedRoot(appearance)
+                .onOpenURL { router.handle($0) }
             #else
             // iOS, iPadOS, and visionOS (all configured platforms) share the
             // UIKit-backed content view — without this, a visionOS build would
             // render an empty WindowGroup body.
             iOSContentView()
                 .environment(library)
+                .environment(router)
                 .environment(appearance)
                 .themedRoot(appearance)
+                .onOpenURL { router.handle($0) }
             #endif
         }
         #if os(macOS)

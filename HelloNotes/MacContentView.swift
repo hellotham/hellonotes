@@ -14,6 +14,7 @@ import AppKit
 /// panel act on the focused collection (the one owning the selected note).
 struct MacContentView: View {
     @Environment(Library.self) private var library
+    @Environment(NavigationRouter.self) private var router
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
@@ -332,6 +333,12 @@ struct MacContentView: View {
             revalidateSelection()
         }
         .onChange(of: searchText) { _, q in scheduleSearch(q) }
+        .onChange(of: router.pendingSearch) { _, query in
+            guard let query else { return }
+            selectedTag = nil
+            searchText = query
+            router.pendingSearch = nil
+        }
         // Rebuild the (cached) note-list outline only when its structural inputs
         // change — not on every unrelated body re-eval (selection, git, accent).
         .onChange(of: outlineInputsKey, initial: true) { _, _ in rebuildOutline() }

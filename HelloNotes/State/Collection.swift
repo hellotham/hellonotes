@@ -351,6 +351,19 @@ final class Collection: Identifiable {
     /// from `title`, disambiguated if it already exists. `directory` defaults to
     /// the collection root; pass a subfolder URL to create the note there.
     @discardableResult
+    /// The note's path relative to the collection root (for deep links / display).
+    func relativePath(of note: Note) -> String {
+        let base = rootURL.standardizedFileURL.path
+        let path = note.fileURL.standardizedFileURL.path
+        guard path.hasPrefix(base) else { return note.fileURL.lastPathComponent }
+        return String(path.dropFirst(base.count).drop(while: { $0 == "/" }))
+    }
+
+    /// The note matching `title` (case-insensitive), or nil.
+    func note(titled title: String) -> Note? {
+        notes.first { $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame }
+    }
+
     func createNote(title: String = "Untitled", in directory: URL? = nil) async -> Note? {
         let fileManager = FileManager.default
         let base = title.isEmpty ? "Untitled" : title
@@ -506,6 +519,19 @@ final class Collection: Identifiable {
             refreshDerived()
         }
         return notes.first { $0.fileURL.standardizedFileURL == url.standardizedFileURL }
+    }
+
+    /// Append `text` to a note's file on disk (quick-capture / daily-note intents).
+    func append(_ text: String, to note: Note) async {
+        guard let existing = try? String(contentsOf: note.fileURL, encoding: .utf8) else { return }
+        let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
+        do { try Data((existing + separator + text).utf8).write(to: note.fileURL, options: .atomic) }
+        catch { report("Couldn't append to “\(note.title)”: \(error.localizedDescription)"); return }
+        #if os(macOS)
+        recentSelfWrites[Self.normalize(note.fileURL.path)] = Date()
+        #endif
+        await scanOffMain()
+        refreshDerived()
     }
 
     /// Move a note to the Trash (never a hard delete) and re-index.
