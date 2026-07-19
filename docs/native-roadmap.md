@@ -74,10 +74,12 @@ Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra ca
   auditing custom `.background(.bar)`/toolbar fills and `ToolbarSpacer` grouping against the
   new material — needs to be *seen* on real macOS 26; blind chrome changes risk regressions
   I can't verify headlessly.
-- **Icon Composer layered icon** — *owner-only (needs artwork).* A layered `.icon`
-  (foreground/background/specular + dark/tinted variants) requires design source art, not
-  something generatable from the existing flat PNG ladder. Create it in Icon Composer from
-  the artwork; the legacy icon ships fine until then.
+- **Icon Composer layered icon** ✅ **(done — built into the app)** — `HelloNotes/AppIcon.icon`
+  is a valid Icon Composer asset built from the existing 1024 artwork; `actool` compiles it as
+  the app icon (`AppIcon_Assets/Color-*` renditions in `Assets.car`, `CFBundleIconName = AppIcon`)
+  and the signed build passes. It's currently a single base layer — open `AppIcon.icon` in Icon
+  Composer to add specular/foreground/background depth + hand-tuned dark/tinted variants when
+  desired (a design refinement, not a blocker).
 - **TipKit** ✅ **(done)** — `Tips.swift` defines Open-Quickly / wiki-link / transclusion /
   graph / rescan tips; `HelloNotesTips.configure()` runs at launch; the Graph tip is
   attached via `.popoverTip`. Attach the remaining tips to their controls as desired
