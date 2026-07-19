@@ -33,7 +33,7 @@ struct AppearanceSettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Accent Color") {
+            Section("Accent color") {
                 HStack(spacing: 10) {
                     ForEach(swatchAccents) { accent in
                         swatch(accent)
@@ -43,7 +43,7 @@ struct AppearanceSettingsView: View {
                 .padding(.vertical, 2)
             }
 
-            Section("Text Size") {
+            Section("Text size") {
                 HStack(spacing: 12) {
                     Text("A").font(.footnote).foregroundStyle(.secondary)
                     Slider(value: $settings.textScale,

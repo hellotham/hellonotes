@@ -286,6 +286,19 @@ struct iOSContentView: View {
         }
         .navigationTitle(selectedTag.map { "#\($0)" } ?? (focused?.name ?? "Notes"))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !library.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        guard let c = focused else { return }
+                        Task { if let note = await c.createNote() { selectedNoteID = note.id } }
+                    } label: {
+                        Label("New Note", systemImage: "square.and.pencil")
+                    }
+                    .disabled(focused == nil)
+                }
+            }
+        }
     }
 
     // MARK: - Column 3: Editor

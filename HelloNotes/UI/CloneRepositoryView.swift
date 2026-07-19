@@ -140,7 +140,8 @@ struct CloneRepositoryView: View {
                 ProgressView().controlSize(.small)
                 Text("Cloning…").foregroundStyle(.secondary)
             } else if let error = git.lastError {
-                Label(error, systemImage: "xmark.octagon").font(.caption).foregroundStyle(.red).lineLimit(2)
+                Label(error, systemImage: "xmark.octagon").font(.caption).foregroundStyle(.red)
+                    .lineLimit(4).textSelection(.enabled).help(error)
             }
             Spacer()
             Button {

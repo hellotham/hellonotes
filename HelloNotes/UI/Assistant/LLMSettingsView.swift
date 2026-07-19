@@ -51,11 +51,13 @@ struct LLMSettingsForm: View {
                 Text("“Intelligence provider” powers Summarize, Suggest Tags/Links, Expand and Ask Library. Defaults to on-device Apple Intelligence.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
-                    Text("Temperature")
+                    Text("Creativity")
                     Slider(value: $settings.temperature, in: 0...1)
                     Text(settings.temperature, format: .number.precision(.fractionLength(1)))
                         .monospacedDigit().foregroundStyle(.secondary)
                 }
+                Text("Lower is more focused and predictable; higher is more varied and creative.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             ForEach(ProviderKind.allCases) { kind in

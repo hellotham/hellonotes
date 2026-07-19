@@ -62,7 +62,39 @@ public final class MarkdownUITextView: UITextView {
         tv.chromeOverlay.backgroundColor = .clear
         tv.chromeOverlay.contentMode = .redraw
         tv.addSubview(tv.chromeOverlay)
+
+        tv.installHeadingRotor()
         return tv
+    }
+
+    /// A standard VoiceOver "Headings" rotor so a long note can be navigated by
+    /// heading, matching the macOS editor. Backed by the document's already-
+    /// extracted headings; `.heading` is the system rotor VoiceOver users reach
+    /// for. Heading ranges are mapped to `UITextRange`s so selecting a rotor
+    /// item moves VoiceOver focus (and the caret) to that heading.
+    private func installHeadingRotor() {
+        let rotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
+            guard let self, let headings = self.document?.headings(), !headings.isEmpty else { return nil }
+            let forward = predicate.searchDirection == .next
+            let currentLocation: Int? = predicate.currentItem.targetRange.map {
+                self.offset(from: self.beginningOfDocument, to: $0.start)
+            }
+            let target: (level: Int, title: String, range: NSRange)?
+            if let location = currentLocation {
+                target = forward
+                    ? headings.first { $0.range.location > location }
+                    : headings.last { $0.range.location < location }
+            } else {
+                target = forward ? headings.first : headings.last
+            }
+            guard let heading = target,
+                  let start = self.position(from: self.beginningOfDocument, offset: heading.range.location),
+                  let end = self.position(from: start, offset: heading.range.length),
+                  let textRange = self.textRange(from: start, to: end)
+            else { return nil }
+            return UIAccessibilityCustomRotorItemResult(targetElement: self, targetRange: textRange)
+        }
+        accessibilityCustomRotors = [rotor]
     }
 
     /// Redraw the chrome overlay (after edits, selection/reveal changes, layout).

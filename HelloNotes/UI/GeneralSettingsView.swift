@@ -94,6 +94,9 @@ struct GeneralSettingsView: View {
             Section("Daily notes") {
                 TextField("Folder", text: $dailyNoteFolder, prompt: Text("Collection root"))
                 TextField("Date format", text: $dailyDateFormat, prompt: Text("yyyy-MM-dd"))
+                Text("Uses date tokens — yyyy (year), MM (month), dd (day). Today would be “\(TemplateExpander.dailyNoteName(for: .now, format: dailyDateFormat))”.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Templates") {

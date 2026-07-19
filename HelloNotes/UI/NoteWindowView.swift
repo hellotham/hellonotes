@@ -58,6 +58,9 @@ struct NoteWindowView: View {
         }
         .frame(minWidth: 480, minHeight: 400)
         .navigationTitle(note?.title ?? fileURL.deletingPathExtension().lastPathComponent)
+        // File-backed window: restore the title-bar proxy icon (⌘-click title for
+        // the path, drag to move/attach the file) without adopting a document scene.
+        .navigationDocument(fileURL)
         .task {
             guard !didLoad else { return }
             didLoad = true

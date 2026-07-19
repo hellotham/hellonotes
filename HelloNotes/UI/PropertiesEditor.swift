@@ -20,8 +20,8 @@ struct PropertiesEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("PROPERTIES")
-                .font(.caption2)
+            Text("Properties")
+                .font(.caption)
                 .foregroundStyle(.secondary)
 
             ForEach($properties) { $property in
@@ -65,6 +65,7 @@ struct PropertiesEditor: View {
                 set: { property.wrappedValue.bool = $0; onChange() }
             ))
             .labelsHidden()
+            .accessibilityLabel(property.wrappedValue.key)
             Spacer(minLength: 0)
 
         case .list:
@@ -77,6 +78,7 @@ struct PropertiesEditor: View {
             ))
             .textFieldStyle(.roundedBorder)
             .onSubmit(onChange)
+            .accessibilityLabel(property.wrappedValue.key)
         }
     }
 
@@ -94,6 +96,7 @@ struct PropertiesEditor: View {
                     ))
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(onChange)
+                    .accessibilityLabel("\(property.wrappedValue.key) item \(index + 1)")
                     Button {
                         guard index < property.wrappedValue.items.count else { return }
                         property.wrappedValue.items.remove(at: index)

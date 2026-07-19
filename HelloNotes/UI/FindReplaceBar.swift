@@ -74,8 +74,7 @@ struct FindReplaceBar: View {
 
                 Button("Replace", action: onReplace)
                     .disabled(matchCount == 0)
-                Button("All", action: onReplaceAll)
-                    .help("Replace all matches")
+                Button("Replace All", action: onReplaceAll)
                     .disabled(matchCount == 0)
             }
         }

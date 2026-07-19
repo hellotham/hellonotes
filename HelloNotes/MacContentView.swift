@@ -798,7 +798,9 @@ struct MacContentView: View {
                     Text(error)
                         .font(.caption2)
                         .foregroundStyle(.red)
-                        .lineLimit(2)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                        .help(error)
                 } else if let message = git.lastMessage {
                     Text(message)
                         .font(.caption2)
@@ -1024,6 +1026,17 @@ struct MacContentView: View {
                 }
             } else if isSearching && searchResults.isEmpty && !isSearchInFlight {
                 ContentUnavailableView.search(text: searchText)
+            } else if !isSearching && selectedTag == nil
+                        && library.collections.allSatisfy({ $0.notes.isEmpty }) {
+                ContentUnavailableView {
+                    Label("No Notes", systemImage: "square.and.pencil")
+                } description: {
+                    Text("This collection is empty. Create your first note to get started.")
+                } actions: {
+                    Button("New Note") { newNote() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(focused == nil)
+                }
             }
         }
     }

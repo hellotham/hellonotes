@@ -41,12 +41,16 @@ struct iOSSettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
-                Section("Accent Color") {
+                Section("Accent color") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 44))], spacing: 6) {
                         ForEach(swatchAccents) { accent in
                             swatch(accent)
                         }
                     }
+                    ColorPicker(selection: $settings.customAccent, supportsOpacity: false) {
+                        Label("Custom color", systemImage: "eyedropper")
+                    }
+                    .onChange(of: settings.customAccent) { _, _ in settings.accent = .custom }
                 }
 
                 Section {
@@ -56,10 +60,10 @@ struct iOSSettingsView: View {
                                in: AppearanceSettings.minScale...AppearanceSettings.maxScale)
                         Text("A").font(.title2).foregroundStyle(.secondary)
                     }
-                    Button("Reset to Default") { settings.textScale = 1.0 }
+                    Button("Reset") { settings.textScale = 1.0 }
                         .disabled(abs(settings.textScale - 1.0) < 0.001)
                 } header: {
-                    Text("Text Size")
+                    Text("Text size")
                 } footer: {
                     Text("Scales the note editor and preview. Everything else follows the system text size in Settings > Display & Brightness.")
                 }
@@ -70,7 +74,7 @@ struct iOSSettingsView: View {
                         .textInputAutocapitalization(.never)
                 }
 
-                Section("Daily Notes") {
+                Section("Daily notes") {
                     TextField("Folder", text: $dailyNoteFolder, prompt: Text("Collection root"))
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)

@@ -238,6 +238,9 @@ struct NoteEditorView: View {
                     if editor.hasConflict {
                         conflictBanner
                     }
+                    if editor.saveError != nil {
+                        saveErrorBanner
+                    }
 
                     switch mode {
                     case .edit:     editModeContent
@@ -270,6 +273,13 @@ struct NoteEditorView: View {
                 }
                 .onChange(of: editor.note?.fileURL) { _, _ in
                     if showFindBar { closeFindBar() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .hnEditorToggleFind)) { _ in
+                    // Edit ▸ Find (⌘F): Find works in the live editor, so switch
+                    // to Edit mode first if needed, then toggle the bar.
+                    guard editor.note != nil else { return }
+                    if mode != .edit { storedMode = EditorMode.edit.rawValue }
+                    toggleFindBar()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .hnEditorFindResults)) { note in
                     let count = note.userInfo?["count"] as? Int ?? 0
@@ -622,6 +632,35 @@ struct NoteEditorView: View {
         .background(.orange.opacity(0.15))
     }
 
+    // MARK: - Save-error banner
+
+    /// A persistent, readable banner for a failed write. Unlike the tiny
+    /// hover-only status label, this stays visible, shows the actual error
+    /// (selectable, so it can be copied), and offers a one-tap Retry. A banner
+    /// rather than a modal alert deliberately — a failing autosave retries on
+    /// its own, and a re-appearing alert would spam the user.
+    private var saveErrorBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("This note couldn’t be saved.")
+                    .font(.callout.weight(.medium))
+                if let error = editor.saveError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer()
+            Button("Retry") { Task { await editor.save() } }
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(8)
+        .background(.red.opacity(0.15))
+    }
+
     // MARK: - References (outgoing / backlinks / unlinked mentions)
 
     private var hasReferences: Bool {
@@ -736,7 +775,6 @@ struct NoteEditorView: View {
 
             // Actions (right) — dynamic per context
             barButton("Find & replace (⌘F)", "magnifyingglass", action: toggleFindBar)
-                .keyboardShortcut("f", modifiers: .command)
                 .disabled(mode != .edit)
             barButton("Edit front-matter properties", "list.bullet.rectangle") { showProperties = true }
             barButton("Outline & statistics", "list.bullet.indent") { showOutline = true }

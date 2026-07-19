@@ -38,9 +38,10 @@ final class GlobalHotKey {
         if let handlerRef { RemoveEventHandler(handlerRef) }
     }
 
-    /// ⌥⌘N → activate the app and start a fresh note.
+    /// ⌃⌥⌘N → activate the app and start a fresh note. Uses three modifiers so it
+    /// doesn't shadow the app's own ⌥⌘N (File ▸ New Window) or a system shortcut.
     static func makeDefault() -> GlobalHotKey {
-        GlobalHotKey(keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(optionKey | cmdKey)) {
+        GlobalHotKey(keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(controlKey | optionKey | cmdKey)) {
             NSApp.activate(ignoringOtherApps: true)
             Task { await NavigationRouter.shared?.createNote(collectionNamed: nil, title: nil) }
         }

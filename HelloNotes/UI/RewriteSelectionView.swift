@@ -51,7 +51,7 @@ struct RewriteSelectionView: View {
                 Text(intelligence.providerName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button("Done") { cancelAndDismiss() }
+                Button("Close") { cancelAndDismiss() }   // Replace/Insert are the commits; this just dismisses
                     .keyboardShortcut(.cancelAction)
             }
             .padding()

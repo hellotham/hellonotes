@@ -9,6 +9,8 @@
 import SwiftUI
 
 extension Notification.Name {
+    /// Menu → editor: toggle the Find & Replace bar (the Edit ▸ Find command).
+    static let hnEditorToggleFind = Notification.Name("hn.editor.toggleFind")
     /// Host → engine: scroll to (and briefly highlight) the first match of a
     /// query in the editor's displayed text. Used for table-of-contents jumps.
     static let hnEditorFindQuery = Notification.Name("hn.editor.findQuery")

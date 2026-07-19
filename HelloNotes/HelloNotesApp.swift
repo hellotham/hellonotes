@@ -53,6 +53,7 @@ struct HelloNotesApp: App {
             #endif
         }
         #if os(macOS)
+        .defaultSize(width: 1100, height: 720)   // roomy first launch (not the 860pt min floor)
         .commands { HelloNotesCommands() }
         #endif
 

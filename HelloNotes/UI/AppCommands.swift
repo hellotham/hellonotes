@@ -147,40 +147,48 @@ struct HelloNotesCommands: Commands {
                 .disabled(actions?.note == nil)
         }
 
+        // Find (⌘F) belongs in the Edit menu (HIG), not only on the editor toolbar.
+        CommandGroup(after: .textEditing) {
+            Button("Find…") { NotificationCenter.default.post(name: .hnEditorToggleFind, object: nil) }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(actions?.note == nil)
+        }
+
         // MARK: Note — everything that acts on the selected note.
         CommandMenu("Note") {
             Button("Rename…") { actions?.note?.rename() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(actions?.note == nil)
             Button("Duplicate") { actions?.note?.duplicate() }
+                .keyboardShortcut("d")   // ⌘D = Duplicate (Finder convention)
                 .disabled(actions?.note == nil)
             Button((actions?.note?.isBookmarked ?? false) ? "Remove Bookmark" : "Add Bookmark") {
                 actions?.note?.toggleBookmark()
             }
-            .keyboardShortcut("d")
+            .keyboardShortcut("d", modifiers: [.command, .shift])   // ⇧⌘D (⌘D is Duplicate)
             .disabled(actions?.note == nil)
 
             Divider()
 
             Button("Copy Wiki Link") { actions?.note?.copyWikiLink() }
                 .disabled(actions?.note == nil)
-            Button("Reveal in Finder") { actions?.note?.revealInFinder() }
-                .disabled(actions?.note == nil)
             Button("Open in New Window") { actions?.note?.openInNewWindow() }
+                .disabled(actions?.note == nil)
+            Button("Reveal in Finder") { actions?.note?.revealInFinder() }
                 .disabled(actions?.note == nil)
 
             Divider()
 
             Button("Move to Trash") { actions?.note?.moveToTrash() }
-                .keyboardShortcut(.delete)
+                .keyboardShortcut(.delete, modifiers: .command)   // ⌘⌫ (destructive needs a modifier)
                 .disabled(actions?.note == nil)
 
             Divider()
 
-            Button(DictationController.shared.isRecording ? "Stop Dictation" : "Dictate to Daily Note…") {
+            Button(DictationController.shared.isRecording ? "Stop Dictation" : "Dictate to Daily Note") {
                 DictationController.shared.toggle()
             }
-            .keyboardShortcut("d", modifiers: [.command, .option])
+            .keyboardShortcut("d", modifiers: [.command, .control])   // ⌃⌘D (⌥⌘D is the system Dock shortcut)
             .disabled(!DictationController.shared.isSupported)
         }
 

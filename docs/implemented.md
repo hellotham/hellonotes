@@ -407,3 +407,55 @@ snapshot suites pass). Ranked roughly by severity.
   resolve a single account for auth), so the "collision" is not a bug.
 - **Bookmark `isStale`**: the primary stores (`Library`/`LibrariesStore`) already re-mint
   bookmark data on every persist, so stale bookmarks self-heal there.
+
+## 10 · Human Interface Guidelines usability pass (2026-07-20)
+
+A full review against Apple's HIG, then the fixes applied (both platforms build clean).
+
+### Keyboard shortcuts & menus
+- **Shortcut collisions resolved**: the global hotkey moved to **⌃⌥⌘N** (was ⌥⌘N, which
+  shadowed File▸New Window). Duplicate is now **⌘D**, Bookmark **⇧⌘D**, Move to Trash
+  **⌘⌫**, Dictate to Daily Note **⌃⌘D**. Editor **Find** is a real Edit-menu command
+  (**⌘F**) posting `.hnEditorToggleFind` (which also switches to Edit mode first), instead
+  of a shortcut buried on a toolbar button that did nothing when the toolbar was hidden.
+- **Ellipsis conventions**: "Dictate…" → "Dictate to Daily Note" (it starts immediately,
+  no follow-up dialog). Note-action ordering regrouped by relatedness.
+
+### Navigation & windows
+- Main window gets a sensible **`.defaultSize`** (1100×720). Single-note windows expose a
+  **`.navigationDocument(fileURL)`** proxy icon (drag/right-click the title to reveal the
+  file), matching document-app expectations.
+
+### Feedback & error surfacing
+- **Silent save failures** now raise a persistent, readable **save-error banner** in the
+  editor (selectable error text + Retry), replacing a hover-only status glyph. A banner,
+  not a modal — a failing autosave retries on its own, so an alert would spam.
+- **Git errors** (sidebar status + Clone sheet) are now **selectable, copyable**, and show
+  up to 4 lines with the full text on hover, instead of a 2-line truncation you couldn't
+  read or copy.
+- **Empty-collection state**: when the open library has no notes, the note list shows a
+  "No Notes" `ContentUnavailableView` with a **New Note** action instead of a blank pane.
+
+### Accessibility
+- **VoiceOver Headings rotor on iOS** (`UIAccessibilityCustomRotor(systemType: .heading)`
+  in `MarkdownUITextView`), mirroring the existing macOS rotor — long notes are navigable
+  by heading.
+- **Reduce Motion**: the splash-screen animation pauses (`TimelineView(.animation(paused:))`)
+  when the system setting is on.
+- **Labels added**: slide-deck chevrons / position ("Slide X of Y"), Properties toggles &
+  fields, iOS accent swatches. Hover-only affordances gained accessible equivalents.
+
+### Controls & terminology
+- **Sentence-case section headers** across Settings ("Accent color", "Text size", "Daily
+  notes"). "PROPERTIES" → "Properties".
+- Clearer labels: **"Replace All"** (was "All"), **"Reset"** (was "Reset to Default"),
+  sheet **"Close"** (was "Done" where nothing was being confirmed). **"Temperature"** →
+  **"Creativity"** with a plain-language caption; the daily-note date-format field gained a
+  worked-example caption ("Today would be …").
+- **iOS custom accent color**: added the `ColorPicker` the macOS Appearance tab already had,
+  so iOS is no longer limited to the ten preset swatches.
+
+### Consciously not changed
+- **Note deletion stays immediate** (no confirmation): a delete is a recoverable move to
+  Trash, matching Apple Notes. Folder deletion keeps its confirmation because it bulk-trashes
+  many notes — the asymmetry is intentional, not an inconsistency to "fix."

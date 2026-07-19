@@ -68,15 +68,18 @@ struct SlidesView: View {
             Button { step(-1) } label: { Image(systemName: "chevron.left") }
                 .keyboardShortcut(.leftArrow, modifiers: [])
                 .disabled(index <= 0)
+                .accessibilityLabel("Previous slide")
             Menu("\(min(index, max(0, slides.count - 1)) + 1) / \(max(slides.count, 1))") {
                 ForEach(Array(slides.enumerated()), id: \.offset) { i, slide in
                     Button("\(i + 1). \(slideTitle(slide))") { index = i }
                 }
             }
             .fixedSize()
+            .accessibilityLabel("Slide \(min(index, max(0, slides.count - 1)) + 1) of \(max(slides.count, 1))")
             Button { step(1) } label: { Image(systemName: "chevron.right") }
                 .keyboardShortcut(.rightArrow, modifiers: [])
                 .disabled(index >= slides.count - 1)
+                .accessibilityLabel("Next slide")
             Spacer()
         }
         .font(.callout)
