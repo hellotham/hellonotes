@@ -62,17 +62,21 @@ struct WelcomeView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
                     ForEach(highlights) { highlight in
                         row(highlight)
                     }
                 }
-                .padding(24)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 18)
             }
             Divider()
             actions
         }
-        .frame(idealWidth: 460, idealHeight: 560)
+        // A firm min height so the macOS sheet is tall enough to show all four
+        // highlights without scrolling (a bare idealHeight collapses to the
+        // ScrollView's minimal ideal). iOS sheets ignore this and use detents.
+        .frame(minWidth: 440, idealWidth: 460, minHeight: 600, idealHeight: 620)
     }
 
     // MARK: Header
@@ -93,7 +97,7 @@ struct WelcomeView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 32)
+        .padding(.top, 28)
         .padding(.bottom, 8)
         .padding(.horizontal, 24)
     }
