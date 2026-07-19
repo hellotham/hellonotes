@@ -30,7 +30,10 @@ nonisolated enum DocumentAnalyzer {
             .filter { token in token.contains { $0.isLetter || $0.isNumber } }
             .count
         let characters = text.count
+        // Normalise CRLF first: a Windows-authored note separates paragraphs
+        // with "\r\n\r\n", which "\n\n" would never match (whole doc → 1 para).
         let paragraphs = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
             .components(separatedBy: "\n\n")
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .count

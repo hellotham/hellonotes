@@ -139,7 +139,12 @@ struct NoteHistoryView: View {
 
     private func loadPreview(for id: GitService.NoteRevision.ID) async {
         isLoadingPreview = true
-        preview = await git.content(ofRevision: id, for: fileURL) ?? ""
+        let content = await git.content(ofRevision: id, for: fileURL) ?? ""
+        // Drop a stale result: the user may have selected a different revision
+        // while this (possibly slow) git read was in flight. Applying it would
+        // show — and let "Restore" write — the wrong revision's content.
+        guard selected == id else { return }
+        preview = content
         isLoadingPreview = false
     }
 }

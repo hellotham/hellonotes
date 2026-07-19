@@ -100,6 +100,7 @@ struct NoteEditorView: View {
         var isMarp = false
     }
     @State private var docStats = DocStats()
+    @State private var didInitialStats = false
 
     /// The new editor's inline block-embed renderer. Resolves `![[file]]`
     /// image embeds relative to the note (sibling, then the attachments
@@ -119,7 +120,8 @@ struct NoteEditorView: View {
                 return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
             },
             renderMermaid: { source, isDark in
-                MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark)
+                // Main-actor: the macOS upright flip uses AppKit image drawing.
+                await MainActor.run { MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark) }
             },
             renderMath: { source, isDark in
                 await MainActor.run { NoteTranscluder.blockLatexImage(source: source, isDark: isDark) }
@@ -254,14 +256,17 @@ struct NoteEditorView: View {
                 }
                 .task(id: editor.text) {
                     // Debounce so key-repeat typing doesn't queue a full-text
-                    // scan per keystroke; compute off-main so even a
-                    // megabyte note never blocks the caret.
-                    if docStats != DocStats() {
+                    // scan per keystroke; compute off-main so even a megabyte
+                    // note never blocks the caret. Gate on whether we've computed
+                    // once (not on the stats value) so typing into an empty note
+                    // — whose stats stay at the default — still debounces.
+                    if didInitialStats {
                         try? await Task.sleep(for: .milliseconds(150))
                         guard !Task.isCancelled else { return }
                     }
                     let text = editor.text
                     docStats = await Task.detached { Self.computeStats(for: text) }.value
+                    didInitialStats = true
                 }
                 .onChange(of: editor.note?.fileURL) { _, _ in
                     if showFindBar { closeFindBar() }

@@ -32,7 +32,7 @@ nonisolated enum FuzzyMatch {
         for (index, character) in haystack.enumerated() {
             if n < needle.count, character == needle[n] {
                 total += 1
-                if lastMatchIndex == index - 1 { total += 3 }   // consecutive run
+                if lastMatchIndex >= 0, lastMatchIndex == index - 1 { total += 3 }   // consecutive run
                 if prevWasSeparator { total += 5 }              // start of a word
                 lastMatchIndex = index
                 n += 1

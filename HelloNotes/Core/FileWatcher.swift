@@ -20,6 +20,9 @@ import CoreServices
 final class FileWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
     private let onChange: @Sendable ([String]) -> Void
+    /// A dedicated serial queue for the stream's callbacks, so `stop()` can
+    /// drain any in-flight callback (see `stop()`).
+    private let queue = DispatchQueue(label: "com.hellonotes.filewatcher", qos: .utility)
 
     init(onChange: @escaping @Sendable ([String]) -> Void) {
         self.onChange = onChange
@@ -61,17 +64,26 @@ final class FileWatcher: @unchecked Sendable {
         ) else { return }
 
         self.stream = stream
-        FSEventStreamSetDispatchQueue(stream, DispatchQueue.global(qos: .utility))
+        FSEventStreamSetDispatchQueue(stream, queue)
         FSEventStreamStart(stream)
     }
 
     /// Stop watching and release the stream.
+    ///
+    /// The context passes `self` unretained, so a callback that FSEvents had
+    /// already dispatched before `invalidate` would otherwise be free to run
+    /// `onChange` (via `takeUnretainedValue()`) after `self` is deallocated —
+    /// a use-after-free. Because callbacks run on our own serial `queue`, a
+    /// synchronous barrier after `invalidate` waits for any in-flight callback
+    /// to finish before we return (and, when called from `deinit`, before the
+    /// object's memory is reclaimed).
     func stop() {
         guard let stream else { return }
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
         self.stream = nil
+        queue.sync { }
     }
 
     deinit { stop() }

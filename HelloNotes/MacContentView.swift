@@ -363,7 +363,7 @@ struct MacContentView: View {
         .onDisappear { TerminationGuard.current?.unregister(tabs) }
         .modifier(FileOperationErrorAlert(collection: focused))
         .modifier(FolderDeleteConfirmation(folder: $pendingFolderDelete) { folder in
-            if let c = library.collections.first(where: { folder.path.hasPrefix($0.id) }) {
+            if let c = library.collections.first(where: { folder.path == $0.id || folder.path.hasPrefix($0.id + "/") }) {
                 Task { await c.deleteFolder(at: folder) }
             }
         })
@@ -920,7 +920,7 @@ struct MacContentView: View {
             },
             onNewNote: { collection, folderID in
                 // A folder id is the folder's absolute path (collection id + relative path).
-                if let folderID, let c = library.collections.first(where: { folderID.hasPrefix($0.id) }) {
+                if let folderID, let c = library.collections.first(where: { folderID == $0.id || folderID.hasPrefix($0.id + "/") }) {
                     Task {
                         if let note = await c.createNote(in: URL(fileURLWithPath: folderID, isDirectory: true)) {
                             selectedNoteID = note.id
@@ -931,7 +931,7 @@ struct MacContentView: View {
                 }
             },
             onNewFolder: { collection, folderID in
-                if let folderID, let c = library.collections.first(where: { folderID.hasPrefix($0.id) }) {
+                if let folderID, let c = library.collections.first(where: { folderID == $0.id || folderID.hasPrefix($0.id + "/") }) {
                     newFolderParent = URL(fileURLWithPath: folderID, isDirectory: true)
                     newFolderCollection = c
                 } else if let c = collection ?? focused {

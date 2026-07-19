@@ -52,11 +52,25 @@ final class BookmarksStore {
         return paths.compactMap { byRel[$0] }
     }
 
+    /// Keep a pin after the note is renamed or moved: rewrite its stored relative
+    /// path so the bookmark doesn't silently dangle (bookmarks key on path).
+    func updatePath(from oldURL: URL, to newURL: URL) {
+        guard let oldRel = relativePath(ofURL: oldURL),
+              let newRel = relativePath(ofURL: newURL),
+              let index = paths.firstIndex(of: oldRel) else { return }
+        paths[index] = newRel
+        persist()
+    }
+
     // MARK: - Private
 
     private func relativePath(of note: Note) -> String? {
+        relativePath(ofURL: note.fileURL)
+    }
+
+    private func relativePath(ofURL url: URL) -> String? {
         guard let rootURL else { return nil }
-        let file = note.fileURL.standardizedFileURL.path
+        let file = url.standardizedFileURL.path
         var base = rootURL.standardizedFileURL.path
         if !base.hasSuffix("/") { base += "/" }
         guard file.hasPrefix(base) else { return nil }

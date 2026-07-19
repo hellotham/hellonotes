@@ -94,3 +94,18 @@ extension PlatformColor {
         #endif
     }
 }
+
+extension NSTextLayoutManager {
+    /// Invalidate TextKit 2 layout for a character range. Attribute-only styling
+    /// (e.g. concealment shrinking a marker run's font) does not trigger a
+    /// re-layout on its own, so a freshly-styled span keeps its old width until
+    /// some later edit re-lays it out — this forces it. Shared by the macOS and
+    /// iOS text views' progressive-styling paths.
+    func invalidateLayout(charactersIn range: NSRange) {
+        guard let cm = textContentManager,
+              let start = cm.location(cm.documentRange.location, offsetBy: range.location),
+              let end = cm.location(start, offsetBy: range.length),
+              let textRange = NSTextRange(location: start, end: end) else { return }
+        invalidateLayout(for: textRange)
+    }
+}

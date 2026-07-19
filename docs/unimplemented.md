@@ -15,8 +15,9 @@
 > is node-capped; FSEvents is coalesced with self-write filtering; autosave/search/git are
 > debounced; the editor's own image caches are bounded; git ops are FIFO-serialized; every
 > **mutating** AI tool routes through an approval broker with a diff preview and `delete_note`
-> is a Trash move; API keys/tokens are Keychain-only (WhenUnlocked, non-syncable) and never
-> logged; entitlements/sandbox/hardened-runtime/signing/versioning are correctly configured.
+> is a Trash move; API keys/tokens are Keychain-only (`WhenUnlockedThisDeviceOnly`, non-syncable,
+> excluded from backups) and never logged; entitlements/sandbox/hardened-runtime/signing/versioning
+> are correctly configured.
 > The code is clean — zero TODO/FIXME/HACK markers, no `fatalError`/`as!`, no debug prints, no
 > committed secrets, no dead fork code.
 
@@ -34,9 +35,9 @@
 ## 1 · Data safety & correctness
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): flush-on-quit handshake; atomic assistant writes; surfaced file-operation failures (create/rename/duplicate/delete/folder/move) + partial-rename link-rewrite reporting; export-error alerts; off-main reconcile read; no-config-wipe persist; serialized git status/history/content reads.*
+*Resolved and moved to [implemented.md §7](implemented.md#7--post-review-fix-pass-2026-07-19): `createRepository`/`cloneRepository` routed through the git FIFO queue; serialized `EditorModel` writes (no stale-on-quit race).*
 
 - 🟡 **Assistant edit vs. open editor buffer** — the assistant's writes are now atomic, but if the same note is open in the editor with unsaved edits, the change still races the editor's autosave/reconcile (the write goes to disk, not through the open `EditorModel`). Reconciliation raises a conflict in the common case, but a narrow window remains. **Fix:** route assistant writes through the open buffer when the note is being edited.
-- 🟡 **`createRepository`/`cloneRepository` bypass the git FIFO queue** — they set `isBusy` directly (`GitService.swift`) rather than routing through `run()`. Safe today because they target new directories, but they can still race a concurrent `refreshStatus`. Route them through the queue for consistency.
 - 🟡 **`ChatSessionStore` write is `try?`** (`ChatSessionStore.swift:46,50`) — a failed transcript write/removeItem is silent; low stakes (chat history, load is resilient) but worth surfacing.
 
 ---
@@ -44,10 +45,11 @@
 ## 2 · Security & privacy *(AI / networking)*
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): `web_fetch`/`web_search` SSRF protection + redirect re-validation; scoped "Allow all" (resets per conversation); bounded `web_search` + SSE error buffers.*
+*Resolved and moved to [implemented.md §7](implemented.md#7--post-review-fix-pass-2026-07-19): `create_note` path-traversal containment; "Allow all" never auto-approves deletions; write-tool symlink containment; NAT64 in the SSRF classifier; Keychain secrets → `…ThisDeviceOnly`; credential-scrubbed git error strings.*
 
-- ⬆️ **Git PATs are written in plaintext to `.git/config`** — `GitRemoteURL.authenticated` embeds `user:token@host` into the remote URL (`GitCredentials.swift`), which libgit2 persists on disk; if the collection lives in Dropbox/iCloud the token leaves the Keychain. **Root cause:** SwiftGitX exposes no credential callback, so the token can't be supplied per-operation. **Unblock:** a SwiftGitX credential-callback API (then stop embedding the token in the URL).
-- 🟡 **Structural prompt-injection exposure remains** — tool outputs and note content still re-enter the model context with no provenance separation. It's now materially reduced (SSRF guard blocks internal exfiltration; mutating tools are broker-gated and "Allow all" no longer persists across conversations), but a fully robust design would tag untrusted content and constrain what it can trigger.
-- 🟡 **Keychain items aren't `ThisDeviceOnly`** — so they're included in encrypted device backups. Acceptable for BYO keys/PATs, but make it a conscious decision.
+- ⬆️ **Git PATs are written in plaintext to `.git/config`** — `GitRemoteURL.authenticated` embeds `user:token@host` into the remote URL (`GitCredentials.swift`), which libgit2 persists on disk; if the collection lives in Dropbox/iCloud the token leaves the Keychain. **Root cause:** SwiftGitX exposes no credential callback, so the token can't be supplied per-operation. **Unblock:** a SwiftGitX credential-callback API (then stop embedding the token in the URL). *(Error strings that would echo the URL are now credential-scrubbed — §7 — but the persisted config value remains.)*
+- 🟠 **SSRF guard isn't pinned to the fetched IP (DNS rebinding / TOCTOU)** — `WebGuard.validate` resolves the host with `getaddrinfo` and classifies the addresses, but `URLSession.bytes(for:)` performs a **second, independent** resolution for the connection. An attacker-controlled short-TTL domain can return a public A record during `validate()` and `169.254.169.254`/`127.0.0.1` during the fetch. Redirects are re-validated but share the gap. **Root cause:** URLSession offers no per-request IP pinning. **Unblock:** resolve once and connect to the pinned IP via a custom `URLProtocol`/Network.framework (a `URLSessionTaskMetrics.remoteAddress` check fires too late for a streamed body). Static private hosts and encoded-IP forms are already blocked.
+- 🟡 **Structural prompt-injection exposure remains** — tool outputs and note content still re-enter the model context with no provenance separation. It's now materially reduced (SSRF guard blocks internal exfiltration; mutating tools are broker-gated, "Allow all" no longer persists across conversations and never auto-approves deletions), but a fully robust design would tag untrusted content and constrain what it can trigger.
 
 ---
 
@@ -88,7 +90,7 @@
 
 *The **iOS live editor** (`editor-M5`) is now **shipped**, including the fragment chrome — see [implemented.md §6](implemented.md#6--production-release-hardening). iOS has a live TextKit 2 editor with inline styling, caret-driven concealment, and the full block chrome (bullets, checkboxes, callouts, gutter bars, heading rules) via an overlay renderer; the `BlockRendering` chrome was ported to cross-platform CoreGraphics with no macOS regression.*
 
-- 🟡 **iOS editor services** — code-syntax colours and block embeds (table/math/mermaid/transclusion images) aren't wired on iOS yet (the app-side renderers are AppKit `NSImage`/`lockFocus`); iOS code blocks show plain monospace and embeds show source. Needs UIKit renderers.
+- 🟡 **iOS block embeds / inline math aren't consumed** — the renderers (`PlatformImageKit`/`MathImageRenderer`/`TableImageRenderer`/Mermaid/transclusion) are now cross-platform and `iOSLiveEditor` wires a `BlockRenderAdapter` (§7), and code-syntax colours **do** render on iOS — but `EditorDocument`'s collapse + `RenderedBlockFragment` image path is still `#if canImport(AppKit)`, so the adapter is never invoked on iOS and embeds/`$…$` math show their Markdown source. **Fix:** port the block-image collapse to the iOS `ChromeOverlayView` (which today draws only fragment chrome, not block images).
 - 🟡 **Live transclusion** — `![[Note]]` embeds render as a static image card (macOS); nested callouts and live selection inside a transclusion aren't supported (needs nested live-layout embeds).
 - 🟡 **Emoji shortcodes** — `:smile:` renders as literal text (matches raw GitHub *source*; github.com substitutes the glyph only at display time, which cmark-gfm/the Preview doesn't). Low value.
 
@@ -127,9 +129,10 @@
 
 ## 11 · Tech debt & cleanups
 
+- 🟠 **Incremental parse doesn't converge for prose** (`Packages/NotesEditor/Sources/MarkdownCore/BlockParser.swift`) — convergence only fires at `open == .none` (`isAtBoundary`), which prose (paragraphs, blanks, lists, quotes, tables) never leaves standing between lines, so an edit near the top of a long non-heading note re-parses to EOF: O(document) per keystroke. Correctness holds (fuzz tests pass); only the "cost proportional to the edit" guarantee is defeated. **Fix** needs the convergence check to compare the full builder state (not just `.none`) with its own fuzz re-verification — deferred from the review-fix passes as too risky for a blind `--fix`. (Related, same file: the `.blank` merge branch is dead — `closeOpen` nulls `open` before the `if case .blank` test — and the thematic-break / setext / front-matter-fence classifiers don't tolerate a trailing `\r`, so CRLF files mis-parse those constructs.)
 - 🟡 **Inconsistent regex construction** — `try! NSRegularExpression` on constant patterns in `MarkdownParsing.swift:38,44,123` vs `try?` for the same pattern class in `MindMapView.swift:429`; pick one (a shared precompiled-regex helper).
 - 🟡 **Fragile force-unwrap idioms on constants** — `URL(string:)!` (`AppCommands.swift:236`), `stack.last!` on an unenforced invariant (`MindMapView.swift:319`); safe today, brittle.
-- 🟡 **Undocumented unsafe-concurrency conformances** — `nonisolated(unsafe) var busTokens` (`MarkdownTextView.swift:450`) and `@unchecked Sendable` on `CollectionEmbedProvider` (`:17`) rely on invariants with no justification comment (unlike `FileWatcher`/`SpotlightSearch`, which document theirs).
+- ✅ **Undocumented unsafe-concurrency conformances** — *resolved (§7):* `CollectionEmbedProvider`'s `@unchecked Sendable` now carries a lock-invariant justification, and the editor's `nonisolated(unsafe)` observer tokens (`busTokens`, `boundsObserver`) are documented; `MarkdownTextView`'s bounds observer is now removed in `deinit`.
 - 🟡 **Duplicated magic-timing** — the 1.2 s highlight-clear `asyncAfter` is copy-pasted in two paths (`MacContentView.swift:1164`, `NoteEditorView.swift:598`); if they drift, toolbar vs outline "clear highlight" diverges. (Same root as the §1 timing-based scroll-to-heading hand-off — replace both with an editor-ready signal.)
 - 🟡 **English-only inline copy** — see §10 (also a maintainability cost).
 
@@ -159,3 +162,7 @@ the working-tree `.env`** (§0).
 feature backlog — **§6/§7 the iOS live-editor milestone (`editor-M5`)**, §8 git pull/merge
 (upstream), §9 HIG polish, §10 localization, §11 tech-debt tidy-ups, §12 test coverage.
 None block the macOS 1.0 release.
+
+A post-review fix pass (2026-07-19) resolved the blocker and most should-fix items from
+a full-codebase review — see [implemented.md §7](implemented.md#7--post-review-fix-pass-2026-07-19).
+The items it landed are struck from the sections above; what it left open is tracked below.

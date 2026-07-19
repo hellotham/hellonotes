@@ -28,7 +28,10 @@ struct HelloNotesApp: App {
                 .environment(llmSettings)
                 .environment(appearance)
                 .themedRoot(appearance)
-            #elseif os(iOS)
+            #else
+            // iOS, iPadOS, and visionOS (all configured platforms) share the
+            // UIKit-backed content view — without this, a visionOS build would
+            // render an empty WindowGroup body.
             iOSContentView()
                 .environment(library)
                 .environment(appearance)

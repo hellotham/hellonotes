@@ -31,7 +31,9 @@ enum LLMKeychain {
         guard !trimmed.isEmpty else { return true }
         var query = baseQuery(provider)
         query[kSecValueData as String] = Data(trimmed.utf8)
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+        // `ThisDeviceOnly`: BYO API keys are long-lived secrets — keep them out
+        // of encrypted device backups / restore onto another device.
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
     }
 

@@ -94,7 +94,9 @@ enum GitKeychain {
         deleteToken(forHost: host)
         var query = baseQuery(host: host)
         query[kSecValueData as String] = Data(token.utf8)
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+        // `ThisDeviceOnly`: a Git PAT is a long-lived secret — keep it out of
+        // encrypted device backups / restore onto another device.
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
     }
 

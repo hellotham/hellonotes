@@ -129,7 +129,17 @@ struct IntelligenceService {
         let byLower = Dictionary(candidates.map { ($0.lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
         var seen = Set<String>()
         return reply.split(separator: "\n")
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*0123456789. \t")) }
+            .map { line -> String in
+                // Strip only a LEADING list marker ("1. ", "- ", "* "). A both-
+                // ends character trim would mangle titles that begin or end with
+                // a digit/dot ("2026 Goals" → "Goals", "1984" → ""), silently
+                // dropping the link suggestion.
+                let t = line.trimmingCharacters(in: .whitespaces)
+                if let m = t.range(of: #"^([-*+]|\d+[.)])\s+"#, options: .regularExpression) {
+                    return String(t[m.upperBound...])
+                }
+                return t
+            }
             .compactMap { byLower[$0.lowercased()] }
             .filter { seen.insert($0).inserted }
     }

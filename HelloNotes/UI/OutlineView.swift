@@ -28,11 +28,13 @@ struct OutlineView: View {
     let text: String
     var onSelectHeading: (DocumentHeading) -> Void = { _ in }
 
-    private var stats: DocumentStatistics { DocumentAnalyzer.analyze(text) }
-    private var headings: [DocumentHeading] { MarkdownParsing.headings(in: text) }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // Compute once per render: these were computed properties referenced
+        // several times in `body`, so each render re-ran analyze()/headings()
+        // over the whole note 4× / 2×.
+        let stats = DocumentAnalyzer.analyze(text)
+        let headings = MarkdownParsing.headings(in: text)
+        return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("STATISTICS")
                     .font(.caption2)

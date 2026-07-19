@@ -305,6 +305,10 @@ final class Collection: Identifiable {
 
         if let note = notes.first(where: { $0.fileURL == url }),
            MarkdownParsing.aliases(in: text) == search.aliases(of: url) {
+            // Cancel any in-flight debounced rebuild: it reads cache-first from a
+            // pre-save mtime, so if it lands after this in-place patch it would
+            // revert the just-saved note's links/tags in the index.
+            deriveTask?.cancel()
             linkGraph.updateNote(url: url, title: title, text: text)
             search.updateNote(note, text: text)
             embedProvider.update(notes: notes)   // bump so transclusions re-render
@@ -384,7 +388,12 @@ final class Collection: Identifiable {
 
         let destination = note.fileURL.deletingLastPathComponent()
             .appendingPathComponent("\(title).md")
-        guard !FileManager.default.fileExists(atPath: destination.path) else {
+        // A case-only rename ("todo" → "Todo") resolves to the *same* file on the
+        // case-insensitive default volume, so `fileExists` sees the note itself —
+        // allow it through rather than reporting a spurious "already exists".
+        let sameFile = destination.standardizedFileURL.path.lowercased()
+            == note.fileURL.standardizedFileURL.path.lowercased()
+        guard sameFile || !FileManager.default.fileExists(atPath: destination.path) else {
             report("A note named “\(title)” already exists in this folder.")
             return nil
         }
@@ -395,6 +404,7 @@ final class Collection: Identifiable {
             return nil
         }
 
+        bookmarks.updatePath(from: note.fileURL, to: destination)   // keep the pin
         await rewriteWikiLinks(from: note.title, to: title, renamed: note.fileURL, movedTo: destination)
         await scanOffMain()
         refreshDerived()
@@ -435,13 +445,14 @@ final class Collection: Identifiable {
         // Read + rewrite every note off the main actor — it's O(N) file I/O.
         // Collect the notes we couldn't rewrite so the shell can tell the user
         // exactly which links may now be stale, rather than failing silently.
-        let failures: [String] = await Task.detached(priority: .userInitiated) {
+        let outcome: (written: [URL], failed: [String]) = await Task.detached(priority: .userInitiated) {
             let escaped = NSRegularExpression.escapedPattern(for: oldTitle)
             guard let regex = try? NSRegularExpression(
                 pattern: #"(\[\[)\s*"# + escaped + #"\s*(?=[#|\]])"#,
                 options: [.caseInsensitive]
-            ) else { return [] }
+            ) else { return ([], []) }
             let template = "$1" + NSRegularExpression.escapedTemplate(for: newTitle)
+            var written: [URL] = []
             var failed: [String] = []
             for url in urls {
                 guard let text = try? String(contentsOf: url, encoding: .utf8),
@@ -452,13 +463,23 @@ final class Collection: Identifiable {
                                                              withTemplate: template)
                 do {
                     try Data(updated.utf8).write(to: url, options: .atomic)
+                    written.append(url)
                 } catch {
                     failed.append(url.lastPathComponent)
                 }
             }
-            return failed
+            return (written, failed)
         }.value
 
+        // Register these writes as our own so the file watcher doesn't re-scan
+        // them as external changes (a spurious reconcile + double re-index).
+        // The watcher + self-write filtering are macOS-only.
+        #if os(macOS)
+        let now = Date()
+        for url in outcome.written { recentSelfWrites[Self.normalize(url.path)] = now }
+        #endif
+
+        let failures = outcome.failed
         if !failures.isEmpty {
             let list = failures.prefix(5).joined(separator: ", ")
             let more = failures.count > 5 ? " and \(failures.count - 5) more" : ""
@@ -551,6 +572,7 @@ final class Collection: Identifiable {
             report("Couldn't move “\(itemURL.lastPathComponent)”: \(error.localizedDescription)")
             return nil
         }
+        bookmarks.updatePath(from: itemURL, to: destination)   // keep the pin
         await scanOffMain()
         refreshDerived()
         return destination

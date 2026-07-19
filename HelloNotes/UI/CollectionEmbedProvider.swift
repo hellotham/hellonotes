@@ -15,21 +15,25 @@ import MarkdownEditor   // PlatformImage
 /// Reads the target note lazily on `image(forName:isDark:)` and caches by
 /// content (keyed on a cheap mtime `stat` + appearance) so repeat renders are
 /// free. Cross-platform.
+///
+/// `@unchecked Sendable`: every stored property (`notesByName`, `cache`) is
+/// guarded by `lock`; `update(notes:)` may be called from any thread, while
+/// `image(forName:)` is `@MainActor`. The lock makes the shared state safe to
+/// touch across those isolation domains.
 final class CollectionEmbedProvider: @unchecked Sendable {
     private let lock = NSLock()
     private var notesByName: [String: URL] = [:]   // lowercased title → file URL
-    private var revision = 0
     private var cache: [String: PlatformImage] = [:]
 
-    /// Refresh the name→URL map and invalidate cached cards. A `revision` bump
-    /// (on any collection change) is what makes a stale transclusion re-render.
+    /// Refresh the name→URL map. Cached cards are keyed by the target's path +
+    /// mtime + appearance, so an edited transclusion re-renders on its own once
+    /// its file's mtime advances — no explicit invalidation needed here.
     func update(notes: [Note]) {
         lock.lock(); defer { lock.unlock() }
         notesByName = Dictionary(
             notes.map { ($0.title.lowercased(), $0.fileURL) },
             uniquingKeysWith: { first, _ in first }
         )
-        revision += 1
     }
 
     /// A rendered transclusion card for an `![[Note]]` target, or nil when the

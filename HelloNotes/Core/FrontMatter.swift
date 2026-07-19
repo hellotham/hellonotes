@@ -44,7 +44,8 @@ nonisolated enum FrontMatter {
                 var items: [String] = []
                 var j = index + 1
                 while j < lines.count, isListItem(lines[j]) {
-                    items.append(scalar(String(lines[j].trimmingCharacters(in: .whitespaces).dropFirst())))
+                    let item = scalar(String(lines[j].trimmingCharacters(in: .whitespaces).dropFirst()))
+                    if !item.isEmpty { items.append(item) }   // skip bare `-` (empty item)
                     j += 1
                 }
                 if items.isEmpty {

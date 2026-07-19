@@ -5,9 +5,12 @@
 //  Hosts the shared TextKit 2 live editor (Packages/NotesEditor) on iOS,
 //  mirroring the macOS NewEditorHost: it builds an EditorDocument from the
 //  note buffer, feeds the model back on edit (for autosave), and rebuilds when
-//  the note / font / appearance changes. Block embeds (images, Mermaid, math,
-//  tables, `![[Note]]` transclusions) and code-syntax colours are wired via the
-//  same cross-platform adapters the macOS host uses.
+//  the note / font / appearance changes. Code-syntax colours are wired via the
+//  cross-platform CodeHighlighterAdapter. The block-embed renderer is wired
+//  too, but EditorDocument only *consumes* it on macOS for now (the collapse +
+//  RenderedBlockFragment image path is `#if canImport(AppKit)`); on iOS block
+//  embeds still show their Markdown source until that path is ported to the
+//  overlay renderer. See docs/unimplemented.md §6.
 //
 
 #if os(iOS)
@@ -90,7 +93,7 @@ struct iOSLiveEditor: View {
                 return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
             },
             renderMermaid: { source, isDark in
-                MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark)
+                await MainActor.run { MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark) }
             },
             renderMath: { source, isDark in
                 await MainActor.run { NoteTranscluder.blockLatexImage(source: source, isDark: isDark) }

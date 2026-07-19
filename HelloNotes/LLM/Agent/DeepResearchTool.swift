@@ -42,7 +42,10 @@ struct DeepResearchTool: AgentTool {
             provider: provider, model: model, tools: [], context: context,
             systemPrompt: "You plan web research. Break the user's question into \(depth) focused, non-overlapping sub-questions. Reply with each sub-question on its own line and nothing else.",
             maxIterations: 1)
-        let plan = (try? await planner.run(question)) ?? ""
+        let plan: String
+        do { plan = try await planner.run(question) }
+        catch is CancellationError { throw CancellationError() }
+        catch { plan = "" }   // planning failed → fall back to the single-question path
         var subQuestions = plan.split(separator: "\n")
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*0123456789. \t")) }
             .filter { !$0.isEmpty }
@@ -52,11 +55,17 @@ struct DeepResearchTool: AgentTool {
         // 2. Research each sub-question with its own web-research sub-agent.
         var findings: [String] = []
         for sub in subQuestions {
+            try Task.checkCancellation()   // abort promptly instead of churning
             let researcher = AgentRunner(
                 provider: provider, model: model, tools: researchTools, context: context,
                 systemPrompt: "You are a web researcher. Use web_search to find sources, then web_fetch to read the most promising ones. Return a concise, factual summary of what you found, including the source URLs you used.",
                 maxIterations: 6)
-            let report = (try? await researcher.run(sub)) ?? "(no findings)"
+            let report: String
+            do { report = try await researcher.run(sub) }
+            catch is CancellationError { throw CancellationError() }
+            // Surface the failure in the notes (don't swallow it into a confident
+            // "(no findings)") so synthesis can flag the gap instead of inventing.
+            catch { report = "(research failed: \(error.localizedDescription))" }
             findings.append("### \(sub)\n\(report)")
         }
 

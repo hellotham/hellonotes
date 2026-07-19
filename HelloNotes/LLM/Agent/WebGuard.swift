@@ -100,7 +100,11 @@ enum WebGuard {
         if b[0] == 0xfe && (b[1] & 0xc0) == 0x80 { return true }          // fe80::/10 link-local
         if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xff && b[11] == 0xff {
             let v4 = (UInt32(b[12]) << 24) | (UInt32(b[13]) << 16) | (UInt32(b[14]) << 8) | UInt32(b[15])
-            return isPrivateIPv4(v4)                                       // IPv4-mapped
+            return isPrivateIPv4(v4)                                       // IPv4-mapped ::ffff:0:0/96
+        }
+        if b[0] == 0x00, b[1] == 0x64, b[2] == 0xff, b[3] == 0x9b, b[4..<12].allSatisfy({ $0 == 0 }) {
+            let v4 = (UInt32(b[12]) << 24) | (UInt32(b[13]) << 16) | (UInt32(b[14]) << 8) | UInt32(b[15])
+            return isPrivateIPv4(v4)                                       // NAT64 64:ff9b::/96
         }
         return false
     }

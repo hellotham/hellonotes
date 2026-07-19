@@ -42,7 +42,10 @@ actor CodeHighlighterAdapter: CodeHighlighting {
 
     func highlight(_ code: String, language: String) async -> NSAttributedString? {
         guard let highlighter, !language.isEmpty, !unsupportedLanguages.contains(language) else { return nil }
-        let key = "\(language)|\(code.hashValue)" as NSString
+        // Key on language + length + hash rather than the full snippet: including
+        // the length makes a collision require same-length AND same-hash (≈never),
+        // without duplicating a large code block into the NSCache key.
+        let key = "\(language)\u{1}\(code.count)\u{1}\(code.hashValue)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
         guard let styled = highlighter.highlight(code, as: language) else {
             // Unknown language: remember, so repeated fences don't re-enter

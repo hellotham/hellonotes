@@ -67,13 +67,14 @@ enum TableImageRenderer {
                 rowH[r] = max(rowH[r], ceil(size.height) + cellPadY * 2)
             }
         }
-        var totalW = colW.reduce(0, +)
+        let totalW = colW.reduce(0, +)
         guard totalW > 0 else { return nil }
-        var scale: CGFloat = 1
-        if totalW > maxWidth { scale = maxWidth / totalW; colW = colW.map { $0 * scale }; totalW *= scale }
         let totalH = rowH.reduce(0, +)
 
-        return PlatformImageKit.image(size: CGSize(width: ceil(totalW), height: ceil(totalH))) { ctx in
+        // Render the grid at its NATURAL width, then scale the whole bitmap to
+        // fit `maxWidth` below. Scaling the column widths but not the font would
+        // wrap/clip cell text and mis-position right/centre-aligned cells.
+        let natural = PlatformImageKit.image(size: CGSize(width: ceil(totalW), height: ceil(totalH))) { ctx in
             // Zebra striping: GitHub fills `tr:nth-child(2n)` with --bgColor-muted.
             // Counting the header as child 1, the striped rows are the 2nd, 4th…
             // children — i.e. odd indices in `bodyRows` ([header, data1, data2…]).
@@ -101,8 +102,8 @@ enum TableImageRenderer {
                     let tx: CGFloat
                     switch align {
                     case .left:   tx = x + cellPadX
-                    case .right:  tx = x + colWidth - cellPadX - sz.width * scale
-                    case .center: tx = x + (colWidth - sz.width * scale) / 2
+                    case .right:  tx = x + colWidth - cellPadX - sz.width
+                    case .center: tx = x + (colWidth - sz.width) / 2
                     }
                     let ty = y + (rowH[r] - sz.height) / 2
                     a.draw(in: CGRect(x: tx, y: ty, width: max(1, colWidth - cellPadX), height: sz.height))
@@ -122,6 +123,10 @@ enum TableImageRenderer {
             for h in rowH { gy += h; ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: totalW, y: gy)) }
             ctx.strokePath()
         }
+        guard let natural else { return nil }
+        // Fit to the available width; `scaled` never upscales, so narrow tables
+        // keep their natural size.
+        return PlatformImageKit.scaled(natural, maxWidth: maxWidth)
     }
 
     /// Split a table line into trimmed cell strings (dropping the outer pipes).

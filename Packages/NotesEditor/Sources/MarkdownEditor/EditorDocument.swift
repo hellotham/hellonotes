@@ -171,6 +171,12 @@ public final class EditorDocument {
         isApplyingStyles = false
         styledBlocks = Array(repeating: false, count: parse.blocks.count)
         revealedBlocks = []
+        // Invalidate the whole-document GFM-run cache BEFORE styling the new
+        // text: `revision` isn't bumped until the end of this method, so an
+        // unreset cache (stamped equal by a prior caret move) would make
+        // `currentGFMRuns` apply the OLD document's inline runs to the new
+        // storage — bold/link/code at the wrong offsets on the styled prefix.
+        gfmRunsCacheRevision = -1
         ensureStyled(charactersIn: NSRange(location: 0, length: min(Self.initialStyledPrefix, storage.length)))
         scheduleBackgroundStyling()
         undoManager.removeAllActions()
@@ -632,6 +638,12 @@ public final class EditorDocument {
         guard blockIndex >= 0, blockIndex < parse.blocks.count else { return nil }
         let block = parse.blocks[blockIndex]
         let ns: NSString = storage.mutableString
+        // A transient parse/storage mismatch (e.g. an async render completion
+        // re-deriving after an edit) could otherwise make `substring(with:)` /
+        // `character(at:)` below go out of range — a crash, not a silent skip,
+        // unlike the guarded sibling refresh methods.
+        guard block.range.location >= 0,
+              block.range.location + block.range.length <= ns.length else { return nil }
         switch block.kind {
         case .fencedCode(let info, let closed):
             guard closed, info.split(separator: " ").first.map(String.init)?.lowercased() == "mermaid" else { return nil }

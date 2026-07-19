@@ -76,7 +76,8 @@ struct RewriteSelectionView: View {
 
                     // Canned tasks.
                     FlowLayoutish(items: Self.tasks.map(\.label)) { label in
-                        run(Self.tasks.first { $0.label == label }!.instruction)
+                        guard let task = Self.tasks.first(where: { $0.label == label }) else { return }
+                        run(task.instruction)
                     }
                     .disabled(busy || !intelligence.isAvailable)
 

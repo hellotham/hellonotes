@@ -15,16 +15,14 @@ import UniformTypeIdentifiers
 /// editor. On iPad landscape all three columns show at once (like macOS); on
 /// iPad portrait the sidebar tucks behind a toggle; on iPhone it collapses to a
 /// push stack. Shares `Note`, `Library`, `Collection`, `EditorModel`, and
-/// `CollectionSearchModel` with macOS. the live editor is macOS-only
-/// (AppKit/TextKit 2), so the mobile editor is a plain-text `TextEditor` backed
-/// by the same autosave logic.
+/// `CollectionSearchModel` with macOS. The live TextKit 2 editor now runs on
+/// iOS too (`iOSLiveEditor`), sharing the NotesEditor package with macOS.
 struct iOSContentView: View {
     @Environment(Library.self) private var library
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(\.scenePhase) private var scenePhase
 
-    /// How the editor presents the note. iOS has no live WYSIWYG editor, so it
-    /// starts in read-only Preview and offers Preview / Markdown / Split.
+    /// How the editor presents the note (live Markdown / Preview / Split).
     @AppStorage("iosEditorViewMode") private var storedMode = EditorMode.edit.rawValue
     private var mode: EditorMode {
         EditorMode(rawValue: storedMode) ?? .edit
@@ -55,12 +53,18 @@ struct iOSContentView: View {
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             let vaults = ObsidianVault.discoverVaults(in: url)
-            if scoped { url.stopAccessingSecurityScopedResource() }
             if vaults.isEmpty {
                 await library.open(url: url)
             } else {
+                // Hold the picked folder's security scope while opening each
+                // child vault. A discovered child URL is not itself picker- or
+                // bookmark-scoped, so `Collection.activate`'s own
+                // startAccessingSecurityScopedResource() returns false; without
+                // the parent scope held, the vault would open (and bookmark)
+                // as an empty collection.
                 for vault in vaults { await library.open(url: vault) }
             }
+            if scoped { url.stopAccessingSecurityScopedResource() }
         }
     }
 

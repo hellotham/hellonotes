@@ -30,11 +30,16 @@ struct FoundationModelsProvider: LLMProvider {
                         var previous = ""
                         for try await snapshot in session.streamResponse(to: prompt) {
                             let full = snapshot.content
-                            if full.count > previous.count {
-                                let delta = String(full[full.index(full.startIndex, offsetBy: previous.count)...])
+                            // streamResponse yields CUMULATIVE snapshots that can
+                            // revise earlier text, not just append. Diff from the
+                            // common prefix so a same-length revision still emits
+                            // (and a shrink can't slice at an out-of-range offset).
+                            let common = full.commonPrefix(with: previous)
+                            if full.count > common.count {
+                                let delta = String(full[full.index(full.startIndex, offsetBy: common.count)...])
                                 continuation.yield(.textDelta(delta))
-                                previous = full
                             }
+                            previous = full
                         }
                         continuation.yield(.done(.stop))
                         continuation.finish()

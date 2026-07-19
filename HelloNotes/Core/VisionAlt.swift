@@ -34,41 +34,60 @@ enum VisionAlt {
 
     private static func classify(_ image: CGImage) async -> [String]? {
         await withCheckedContinuation { continuation in
+            let once = OnceResumer(continuation)
             let request = VNClassifyImageRequest { request, _ in
                 let labels = (request.results as? [VNClassificationObservation] ?? [])
                     .filter { $0.confidence > 0.3 }
                     .sorted { $0.confidence > $1.confidence }
                     .prefix(3)
                     .map { $0.identifier.replacingOccurrences(of: "_", with: " ") }
-                continuation.resume(returning: Array(labels))
+                once.resume(Array(labels))
             }
-            perform(request, on: image, continuation: continuation, empty: [])
+            perform(request, on: image, once: once, empty: [])
         }
     }
 
     private static func recognizedText(_ image: CGImage) async -> String? {
         await withCheckedContinuation { continuation in
+            let once = OnceResumer(continuation)
             let request = VNRecognizeTextRequest { request, _ in
                 let lines = (request.results as? [VNRecognizedTextObservation] ?? [])
                     .compactMap { $0.topCandidates(1).first?.string }
                 let joined = lines.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-                continuation.resume(returning: joined.isEmpty ? nil : joined)
+                once.resume(joined.isEmpty ? nil : joined)
             }
             request.recognitionLevel = .fast
             request.usesLanguageCorrection = true
-            perform(request, on: image, continuation: continuation, empty: nil)
+            perform(request, on: image, once: once, empty: nil)
         }
     }
 
-    /// Run a Vision request off the main thread, resuming `continuation` with
-    /// `empty` if it throws before its completion handler fires.
+    /// Run a Vision request off the main thread, resuming with `empty` if it
+    /// throws. `handler.perform` invokes the request's completion handler (which
+    /// also resumes) even on failure, so both paths funnel through `OnceResumer`
+    /// — resuming a `CheckedContinuation` twice is a runtime crash.
     private static func perform<T>(_ request: VNRequest, on image: CGImage,
-                                   continuation: CheckedContinuation<T, Never>, empty: T) {
+                                   once: OnceResumer<T>, empty: T) {
         DispatchQueue.global(qos: .userInitiated).async {
             let handler = VNImageRequestHandler(cgImage: image, options: [:])
             do { try handler.perform([request]) }
-            catch { continuation.resume(returning: empty) }
+            catch { once.resume(empty) }
         }
+    }
+}
+
+/// Resumes a `CheckedContinuation` at most once (Vision's completion handler and
+/// a thrown `perform` can otherwise both resume it).
+private final class OnceResumer<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    private let continuation: CheckedContinuation<T, Never>
+    init(_ continuation: CheckedContinuation<T, Never>) { self.continuation = continuation }
+    func resume(_ value: T) {
+        lock.lock(); defer { lock.unlock() }
+        guard !done else { return }
+        done = true
+        continuation.resume(returning: value)
     }
 }
 #endif

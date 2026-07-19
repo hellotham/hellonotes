@@ -47,6 +47,9 @@ final class AssistantModel {
 
     private let maxToolIterations = 12
     private var currentTask: Task<Void, Never>?
+    /// Set while `clear()` tears down the conversation, so the cancelled turn's
+    /// completion doesn't re-save (and resurrect) the file `clear()` just removed.
+    private var isClearing = false
 
     init(settings: LLMSettings) {
         self.settings = settings
@@ -93,7 +96,9 @@ final class AssistantModel {
     }
 
     func clear() {
+        isClearing = true
         stop()
+        isStreaming = false
         messages.removeAll()
         errorText = nil
         totalUsage = LLMUsage()
@@ -105,6 +110,7 @@ final class AssistantModel {
     }
 
     private func start() {
+        isClearing = false
         errorText = nil
         isStreaming = true
         sessionStore?.save(messages)
@@ -112,7 +118,9 @@ final class AssistantModel {
             guard let self else { return }
             await self.runTurn()
             self.isStreaming = false
-            self.sessionStore?.save(self.messages)
+            // Don't persist if the conversation was cleared mid-turn — that would
+            // re-create the file clear() just removed.
+            if !self.isClearing { self.sessionStore?.save(self.messages) }
         }
     }
 
@@ -146,6 +154,13 @@ final class AssistantModel {
                 results.append(.toolResult(result))
             }
             messages.append(LLMMessage(role: .tool, parts: results))
+        }
+        // Reached the iteration cap while the model was still calling tools. Do a
+        // final turn WITHOUT tools so the user gets an answer instead of a blank
+        // bubble (the loop only exits here when every iteration returned toolCalls).
+        if toolsActive {
+            let context = LLMContext(systemPrompt: systemPrompt, messages: messages, tools: [])
+            _ = await streamOne(provider: provider, model: model, context: context, options: options)
         }
     }
 
@@ -188,6 +203,9 @@ final class AssistantModel {
                 }
             }
         } catch is CancellationError {
+            // Drop the empty placeholder so a stop before the first delta doesn't
+            // leave (and persist) a blank assistant bubble.
+            if assistant.parts.isEmpty, messages.indices.contains(index) { messages.remove(at: index) }
             return .aborted
         } catch {
             errorText = error.localizedDescription

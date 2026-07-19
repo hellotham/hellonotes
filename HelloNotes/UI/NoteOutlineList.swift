@@ -289,7 +289,7 @@ struct NoteOutlineList: NSViewRepresentable {
 
         /// The collection id owning `node` (folder ids are prefixed with it).
         private func rootID(containing node: NoteOutlineItem) -> String? {
-            roots.first { node.id.hasPrefix($0.id) }?.id
+            roots.first { node.id == $0.id || node.id.hasPrefix($0.id + "/") }?.id
         }
 
         // MARK: Delegate — rows & cells

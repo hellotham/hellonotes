@@ -137,9 +137,23 @@ struct CreateNoteTool: AgentTool {
         }
         let safe = title.replacingOccurrences(of: "/", with: "-")
         var dir = root
-        if let folder = arguments.string("folder") { dir = root.appendingPathComponent(folder) }
+        if let folder = arguments.string("folder"), !folder.isEmpty {
+            dir = root.appendingPathComponent(folder)
+        }
+        // Containment — enforced independently of the permission broker (so it
+        // holds even under "Allow all"). `appendingPathComponent` does NOT
+        // resolve `..`, and a lexical `standardizedFileURL` check would miss a
+        // symlinked `folder`, so route the target directory through the shared
+        // `isWithinRoot` (which resolves symlinks) — matching edit/write/delete.
+        guard context.isWithinRoot(dir) else {
+            throw ToolError.failed("The note must be created inside the collection.")
+        }
         let url = dir.appendingPathComponent(safe + ".md")
-        let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
+        let rootBase = root.standardizedFileURL.path
+        let stdTarget = url.standardizedFileURL.path
+        let rel = stdTarget.hasPrefix(rootBase + "/")
+            ? String(stdTarget.dropFirst(rootBase.count + 1))
+            : safe + ".md"
 
         let ok = await context.permissions.confirm(
             title: "Create note",
@@ -179,6 +193,12 @@ struct EditNoteTool: AgentTool {
     func run(_ arguments: JSONValue, context: ToolContext) async throws -> String {
         guard let query = arguments.string("note") else { throw ToolError.badArguments("`note` is required.") }
         guard let note = context.note(matching: query) else { throw ToolError.notFound("No note matching “\(query)”.") }
+        // Containment BEFORE reading — `readContents` follows symlinks, so a note
+        // that symlinks outside the vault would otherwise disclose the external
+        // file's contents in the approval diff even though the write is rejected.
+        guard context.isWithinRoot(note.fileURL) else {
+            throw ToolError.failed("That note resolves outside the collection.")
+        }
         guard let oldString = arguments["old_string"]?.stringValue, !oldString.isEmpty,
               let newString = arguments["new_string"]?.stringValue else {
             throw ToolError.badArguments("`old_string` and `new_string` are required.")
@@ -228,6 +248,11 @@ struct WriteNoteTool: AgentTool {
     func run(_ arguments: JSONValue, context: ToolContext) async throws -> String {
         guard let query = arguments.string("note") else { throw ToolError.badArguments("`note` is required.") }
         guard let note = context.note(matching: query) else { throw ToolError.notFound("No note matching “\(query)”.") }
+        // Containment BEFORE reading (see edit_note) — don't disclose a
+        // symlink-escape note's contents in the approval diff.
+        guard context.isWithinRoot(note.fileURL) else {
+            throw ToolError.failed("That note resolves outside the collection.")
+        }
         guard let content = arguments["content"]?.stringValue else { throw ToolError.badArguments("`content` is required.") }
         let before = context.readContents(of: note)
         let rel = context.relativePath(note)
@@ -261,6 +286,12 @@ struct DeleteNoteTool: AgentTool {
     func run(_ arguments: JSONValue, context: ToolContext) async throws -> String {
         guard let query = arguments.string("note") else { throw ToolError.badArguments("`note` is required.") }
         guard let note = context.note(matching: query) else { throw ToolError.notFound("No note matching “\(query)”.") }
+        // Containment BEFORE reading (see edit_note) — the delete tools were
+        // missing this guard; don't disclose a symlink-escape note's contents in
+        // the confirmation diff, and don't trash a link resolving outside the vault.
+        guard context.isWithinRoot(note.fileURL) else {
+            throw ToolError.failed("That note resolves outside the collection.")
+        }
         let rel = context.relativePath(note)
         let before = context.readContents(of: note)
 

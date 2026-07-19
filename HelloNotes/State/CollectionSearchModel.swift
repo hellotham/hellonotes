@@ -240,7 +240,12 @@ final class CollectionSearchModel {
         let q = query.trimmingCharacters(in: .whitespaces)
 
         guard !q.isEmpty else {
-            return Array(items.filter { $0.kind == .note }.prefix(limit))
+            // Each alias is its own `.note` item (for query matching), so the
+            // unfiltered browse list must dedup by the underlying note — otherwise
+            // a note with N aliases appears N+1 times.
+            var seen = Set<String>()
+            let notes = items.filter { $0.kind == .note && seen.insert($0.note.fileURL.path).inserted }
+            return Array(notes.prefix(limit))
         }
 
         let scored = items.compactMap { item -> QuickOpenItem? in

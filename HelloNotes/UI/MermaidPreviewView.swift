@@ -45,10 +45,12 @@ struct MermaidPreviewView: View {
 private struct DiagramCell: View {
     let index: Int
     let source: String
+    @State private var image: NSImage?
+    @State private var didRender = false
 
-    private var image: NSImage? {
+    private static func makeImage(_ source: String) -> NSImage? {
         guard let rendered = (try? MermaidRenderer.renderImage(source: source)) ?? nil else { return nil }
-        return Self.flippedVertically(rendered)
+        return flippedVertically(rendered)
     }
 
     /// BeautifulMermaid renders into a Core Graphics context (bottom-left
@@ -80,7 +82,7 @@ private struct DiagramCell: View {
                     .scaledToFit()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.background)
-            } else {
+            } else if didRender {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Couldn't render this diagram", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -91,7 +93,15 @@ private struct DiagramCell: View {
                 }
                 .padding(8)
                 .background(.quaternary.opacity(0.4))
+            } else {
+                ProgressView().frame(maxWidth: .infinity, alignment: .center).padding()
             }
+        }
+        // Render once (not on every body eval / scroll). Still main-actor
+        // (MermaidRenderer + lockFocus are main-only), but no longer repeated.
+        .task(id: source) {
+            image = Self.makeImage(source)
+            didRender = true
         }
     }
 }

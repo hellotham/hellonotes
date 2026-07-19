@@ -35,8 +35,36 @@ enum GitHubMarkdown {
         return out.joined(separator: "\n")
     }
 
-    /// `![[embed]]` → `![](embed)`, `[[target|alias]]` → `[alias](target)`.
+    /// Rewrite wiki constructs on a line, but leave inline code spans (`` `…` ``)
+    /// verbatim — documentation of the wiki syntax like `` `[[Note]]` `` must
+    /// render literally (as it does on GitHub), not as a link.
     private static func rewriteWikiConstructs(_ line: String) -> String {
+        guard line.contains("`") else { return rewriteWikiLinks(line) }
+        var out = ""
+        var idx = line.startIndex
+        while idx < line.endIndex {
+            if line[idx] == "`" {
+                let open = idx
+                var run = 0
+                while idx < line.endIndex, line[idx] == "`" { run += 1; idx = line.index(after: idx) }
+                let ticks = String(repeating: "`", count: run)
+                if let close = line.range(of: ticks, range: idx..<line.endIndex) {
+                    out += String(line[open..<close.upperBound])   // code span, verbatim
+                    idx = close.upperBound
+                } else {
+                    out += ticks                                    // unterminated → literal
+                }
+            } else {
+                let segStart = idx
+                while idx < line.endIndex, line[idx] != "`" { idx = line.index(after: idx) }
+                out += rewriteWikiLinks(String(line[segStart..<idx]))
+            }
+        }
+        return out
+    }
+
+    /// `![[embed]]` → `![](embed)`, `[[target|alias]]` → `[alias](target)`.
+    private static func rewriteWikiLinks(_ line: String) -> String {
         var s = line
         s = s.replacing(embedRegex) { match in
             "![](" + encode(String(match.1)) + ")"

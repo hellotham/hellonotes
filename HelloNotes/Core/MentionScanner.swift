@@ -62,10 +62,17 @@ nonisolated enum MentionScanner {
         return regex
     }
 
-    /// True when the match is immediately preceded by `[[` (i.e. it's already the
-    /// display text of a wiki-link — `[[Name]]`, `[[Name|x]]`, `[[Name#h]]`).
+    /// True when the match falls inside an existing `[[wiki-link]]` — not only
+    /// when it's immediately preceded by `[[`, but also when it's embedded in a
+    /// multi-word target or alias (`[[My Note]]`, `[[Foo|Bar]]`, `[[Note#h]]`).
+    /// Checking only the two preceding characters would let `linkingFirstMention`
+    /// rewrite `Note` inside `[[My Note]]` into `[[My [[Note]]]]`, corrupting the
+    /// file. We're inside a link when the nearest `[[` before the match has no
+    /// closing `]]` between it and the match.
     private static func isInsideWikiLink(_ range: NSRange, in ns: NSString) -> Bool {
         guard range.location >= 2 else { return false }
-        return ns.substring(with: NSRange(location: range.location - 2, length: 2)) == "[["
+        let prefix = ns.substring(to: range.location)
+        guard let open = prefix.range(of: "[[", options: .backwards) else { return false }
+        return prefix[open.upperBound...].range(of: "]]") == nil
     }
 }

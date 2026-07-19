@@ -35,6 +35,10 @@ struct MindMapView: View {
     @State private var gestureBaseZoom: CGFloat?
     @State private var viewportSize: CGSize = .zero
     @State private var didInitialFit = false
+    /// Cached layout (the O(N²) collision relaxation). `text` is constant for the
+    /// view, so this is computed once instead of on every body eval / zoom frame
+    /// (and again in `fitZoom`).
+    @State private var cachedLayout: MindMapModel.Layout?
     @Environment(\.dismiss) private var dismiss
 
     private static let zoomRange: ClosedRange<CGFloat> = 0.4...3
@@ -68,7 +72,7 @@ struct MindMapView: View {
 
     private var scrollingMap: some View {
         let model = self.model
-        let layout = model.layout()
+        let layout = cachedLayout ?? model.layout()
         let contentSize = layout.size
         let positions = layout.positions
 
@@ -105,6 +109,7 @@ struct MindMapView: View {
                 }
                 .onEnded { _ in gestureBaseZoom = nil }
         )
+        .task(id: text) { cachedLayout = model.layout() }
     }
 
     private func edgeCanvas(model: MindMapModel, positions: [String: CGPoint]) -> some View {
@@ -221,7 +226,7 @@ struct MindMapView: View {
     /// The zoom that fits the whole map in the current viewport.
     private func fitZoom() -> CGFloat {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return 1 }
-        let size = model.layout().size
+        let size = (cachedLayout ?? model.layout()).size
         return min(viewportSize.width / size.width, viewportSize.height / size.height) * 0.96
     }
 }

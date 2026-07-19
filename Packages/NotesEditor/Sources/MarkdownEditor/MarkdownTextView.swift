@@ -108,7 +108,10 @@ public final class MarkdownTextView: NSTextView {
         // Progressive styling: as content scrolls into view, make sure its
         // blocks are styled (idempotent; free once the initial pass ends).
         scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
+        // Store the token so the view's `deinit` can remove it — otherwise
+        // NotificationCenter retains the registration (and its block) for the
+        // process lifetime, leaking one live observer per editor view created.
+        textView.boundsObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
             object: scrollView.contentView, queue: .main
         ) { [weak textView] _ in
@@ -117,6 +120,14 @@ public final class MarkdownTextView: NSTextView {
             }
         }
         return (scrollView, textView)
+    }
+
+    /// The scroll-view bounds-change observer registered in `scrollableEditor`.
+    /// Assigned once on the main thread; `deinit` only reads it to remove.
+    nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
+
+    deinit {
+        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
     }
 
     /// Ask the document to style what's on screen (± a margin), so fast
@@ -132,18 +143,7 @@ public final class MarkdownTextView: NSTextView {
         guard let styled = document.ensureStyled(charactersIn: range) else { return }
         // Concealment shrinks a run's font; force TextKit 2 to re-lay-out the
         // freshly-styled span so collapsed markers don't keep their old width.
-        invalidateLayout(charactersIn: styled)
-    }
-
-    /// Invalidate TextKit 2 layout for a character range (attribute-only
-    /// styling doesn't trigger this on its own).
-    private func invalidateLayout(charactersIn range: NSRange) {
-        guard let tlm = textLayoutManager,
-              let cm = tlm.textContentManager,
-              let start = cm.location(cm.documentRange.location, offsetBy: range.location),
-              let end = cm.location(start, offsetBy: range.length),
-              let textRange = NSTextRange(location: start, end: end) else { return }
-        tlm.invalidateLayout(for: textRange)
+        textLayoutManager?.invalidateLayout(charactersIn: styled)
     }
 
     private(set) weak var document: EditorDocument?
@@ -258,7 +258,7 @@ public final class MarkdownTextView: NSTextView {
         let line = ns.lineRange(for: NSRange(location: min(index, max(0, ns.length - 1)), length: 0))
         guard document.isFoldableCalloutHeader(atCharacter: line.location) else { return false }
         guard let blockRange = document.toggleCalloutFold(atHeaderOffset: line.location) else { return false }
-        invalidateLayout(charactersIn: blockRange)
+        textLayoutManager?.invalidateLayout(charactersIn: blockRange)
         // The chevron only shows when the callout isn't revealed, so the caret
         // is already elsewhere — leave the selection untouched.
         return true
@@ -269,6 +269,9 @@ public final class MarkdownTextView: NSTextView {
     /// that range plus the glyph's small overhang.
     private func toggleTaskCheckbox(at event: NSEvent) -> Bool {
         guard isEditable, let storage = textStorage else { return false }
+        // The selection before this click (we intercept before super.mouseDown,
+        // so this is where the caret was, not the checkbox we're clicking).
+        let priorSelection = selectedRange()
         let point = convert(event.locationInWindow, from: nil)
         let index = characterIndexForInsertion(at: point)
         // Check the clicked index and the three before it (the click may land
@@ -284,8 +287,12 @@ public final class MarkdownTextView: NSTextView {
                 let replacement = checked ? " " : "x"
                 let stateRange = NSRange(location: stateIndex, length: 1)
                 performEdit(replacing: stateRange, with: replacement)
-                // Keep the caret off the line so it stays rendered.
-                setSelectedRange(NSRange(location: effective.location, length: 0))
+                // Restore the pre-click selection. The toggle is a 1-for-1 char
+                // replacement (no length change), so offsets are unchanged — and
+                // this keeps the caret OUT of the toggled block, so the checkbox
+                // stays rendered instead of revealing its raw `- [x]` source
+                // (which `effective.location`, inside the block, would trigger).
+                setSelectedRange(priorSelection)
                 return true
             }
         }
@@ -298,6 +305,24 @@ public final class MarkdownTextView: NSTextView {
             return
         }
         pasteAsPlainText(sender)   // never import rich text into Markdown
+    }
+
+    /// Copy only the plain-text Markdown source. This is a rich-text view (our
+    /// styling lives in the storage), so the default copy would also write an
+    /// RTF flavor carrying the concealed 0.1pt / clear-color marker runs —
+    /// pasting that into Mail/Pages yields invisible, un-round-trippable text.
+    public override func copy(_ sender: Any?) {
+        let selected = (string as NSString).substring(with: selectedRange())
+        guard !selected.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(selected, forType: .string)
+    }
+
+    public override func cut(_ sender: Any?) {
+        guard selectedRange().length > 0 else { return }
+        copy(sender)
+        deleteBackward(sender)
     }
 
     func reportInlineContext() {

@@ -65,6 +65,9 @@ final class EditorModel {
     private var lastSavedText = ""
     private var isReplacingText = false
     private var saveTask: Task<Void, Never>?
+    /// The most recent write, so a new save chains after it instead of racing
+    /// it at the filesystem (see `save()`).
+    private var writeInFlight: Task<Void, Never>?
 
     private static let debounce: Duration = .milliseconds(600)
 
@@ -149,7 +152,34 @@ final class EditorModel {
     }
 
     /// Persist the buffer if it diverges from disk. Safe to call repeatedly.
+    ///
+    /// Writes are *serialized*: a new save waits for any in-flight write to
+    /// finish before starting its own. `cancel()` cannot stop a `save()` that
+    /// is already past its guard and awaiting the detached write, so without
+    /// this chaining two atomic writes could race — and atomic rename ordering
+    /// is unspecified, so an older write could land last and persist stale
+    /// text. That window matters most on `flush()` at app termination, where
+    /// there is no later save to converge the buffer back to disk.
     func save() async {
+        guard note?.fileURL != nil else { return }
+        // Fast path: nothing to persist → don't allocate a Task or touch the
+        // write chain. (performSave re-checks after the await, so a change that
+        // lands while a prior write is in flight is still caught.)
+        guard text != lastSavedText else { return }
+        let previous = writeInFlight
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.performSave()
+        }
+        writeInFlight = task
+        await task.value
+    }
+
+    /// The actual snapshot-and-write step, run serially by `save()`. Because it
+    /// only runs after the previous write completes, it reads the *current*
+    /// `text` (and the already-advanced `lastSavedText`), so the final on-disk
+    /// state always matches the latest buffer.
+    private func performSave() async {
         guard let url = note?.fileURL else { return }
         let snapshot = text
         guard snapshot != lastSavedText else { return }

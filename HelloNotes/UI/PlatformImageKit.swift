@@ -76,20 +76,34 @@ enum PlatformImageKit {
         #endif
     }
 
-    /// Downscale `image` to fit `maxWidth` (never upscales). Draws upright with
-    /// the platform-native image draw (not the flipped `image(size:)` context).
+    /// Downscale `image` to fit `maxWidth` (never upscales).
+    ///
+    /// Off-main-safe: the macOS path draws through a bitmap `CGContext` (thread-
+    /// safe), NOT `NSImage.lockFocus` (main-thread-only). This matters because
+    /// `BlockRenderAdapter` (a background `actor`) calls this off the main thread
+    /// to scale rendered Mermaid/math/transclusion/image embeds.
     static func scaled(_ image: PlatformImage, maxWidth: CGFloat) -> PlatformImage {
         let natural = image.size
         guard natural.width > 0, natural.width > maxWidth else { return image }
         let ratio = maxWidth / natural.width
         let size = CGSize(width: maxWidth, height: natural.height * ratio)
         #if canImport(AppKit)
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
+        // Preserve the source's pixel density so a retina render stays crisp.
+        let density = max(1, CGFloat(cg.width) / natural.width)
+        let pxW = max(1, Int((size.width * density).rounded()))
+        let pxH = max(1, Int((size.height * density).rounded()))
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: pxW, height: pxH, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: cs,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: pxW, height: pxH))
+        guard let scaledCG = ctx.makeImage() else { return image }
+        let rep = NSBitmapImageRep(cgImage: scaledCG)
+        rep.size = size
         let out = NSImage(size: size)
-        out.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: size),
-                   from: NSRect(origin: .zero, size: natural),
-                   operation: .copy, fraction: 1)
-        out.unlockFocus()
+        out.addRepresentation(rep)
         return out
         #else
         let format = UIGraphicsImageRendererFormat.preferred()

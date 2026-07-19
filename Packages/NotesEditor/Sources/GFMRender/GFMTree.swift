@@ -57,7 +57,15 @@ public extension GFMRenderer {
             if ev == CMARK_EVENT_DONE { break }
             guard let node = cmark_iter_get_node(iter) else { continue }
             let type = cmark_node_get_type(node)
-            if ev == CMARK_EVENT_EXIT { depth -= 1; continue }
+            if ev == CMARK_EVENT_EXIT {
+                // Symmetric with the ENTER increment below: only a node that
+                // incremented (has children) decrements. Previously EXIT always
+                // decremented, so an empty container (a blank table cell
+                // `| a | |`, an empty list item / blockquote) drove `depth`
+                // negative for every node after it, mis-styling nesting depth.
+                if cmark_node_first_child(node) != nil { depth -= 1 }
+                continue
+            }
             // ENTER
             defer { if cmark_node_first_child(node) != nil { depth += 1 } }
             guard type != CMARK_NODE_DOCUMENT else { continue }

@@ -233,3 +233,177 @@ The live TextKit 2 editor now runs on **iOS**, not just macOS — iOS is no long
 - **Fragment chrome via overlay.** `UITextView` — unlike `NSTextView` — doesn't invoke a custom `NSTextLayoutFragment.draw`, so the block chrome (unordered-list bullet glyphs, callout tint band/bar/icon, blockquote gutter bar, task checkboxes, heading bottom-rule) wouldn't paint. A transparent `ChromeOverlayView` subview enumerates the laid-out `RenderedBlockFragment`s and calls a chrome-only draw entry point (`drawChromeOnly(at:in:)` — the same callout/checkbox/bullet/rule/inline-image passes as macOS, minus `super.draw`/block image since `UITextView` draws the text). Refreshed on layout / edit / selection change. `blockLayoutDelegate` + `chromeOverlay` are `lazy`: `init(usingTextLayoutManager:)` is an inherited convenience initializer that skips the subclass's stored-property synthesis, so plain defaults were left null (a weak-assign into the null overlay faulted `EXC_BAD_ACCESS` at 0x8).
 - **Verified on the simulator** (`iOSEditorSnapshotTests`, captured via `layer.render` — `drawHierarchy` re-enters TextKit during the render pass): live inline styling (bold, italic, inline-code with background, strikethrough, coloured links), caret-driven **concealment** of markers, heading sizes + bottom rules, dimmed blockquotes with gutter bars, callout tint band/bar/icon with coloured title/body, filled/hollow list bullets, coloured ordered-list numbers, and empty/checked task checkboxes all render correctly on iOS — matching the macOS chrome.
 - **Remaining iOS gap (documented in [unimplemented.md §6](unimplemented.md)):** app-side services — code-syntax colours and block embeds (table/math/mermaid/transclusion images) — aren't wired on iOS yet (the renderers are AppKit `NSImage`/`lockFocus`).
+
+---
+
+## 7 · Post-review fix pass (2026-07-19)
+
+A full-codebase review (cross-platform editor-services port, TextKit 2 editor,
+concurrency/isolation, LLM-agent security, entitlements) produced the fixes below. All
+landed together; **macOS + iOS builds are green, the 83-test editor package suite and the
+app unit tests pass.** Items are struck from [unimplemented.md](unimplemented.md) as they
+land here; what the pass deliberately left open stays in that register (see the end).
+
+### Security (agent / networking / secrets)
+- **`create_note` path traversal (the one blocker).** The `folder` argument was passed
+  straight into `appendingPathComponent` (which does not resolve `..`), so an injected
+  tool-call — `create_note(folder: "../../../Library/LaunchAgents", …)` — could write a
+  `.md` file outside the collection root. Now the resolved target is containment-checked
+  (`standardizedFileURL` must carry the root prefix) **before any write, independently of
+  the permission broker**, so it holds even under "Allow all" (`CollectionTools.swift`).
+- **"Allow all" no longer auto-approves deletions.** `PermissionBroker.confirm` still
+  auto-approves ordinary edits under a blanket grant but always requires an explicit click
+  for a deletion (`diff.isDeletion`) — the highest-consequence mutation, and the one most
+  worth gating against injected tool-calls.
+- **Write-tool symlink containment.** `edit_note`/`write_note` reject a note whose file
+  resolves (via `resolvingSymlinksInPath`) outside the collection root (`ToolContext.isWithinRoot`),
+  defending against a pre-planted symlink the directory enumerator would otherwise follow.
+- **NAT64 in the SSRF classifier.** `WebGuard` now classifies the `64:ff9b::/96`
+  well-known prefix (embedded IPv4), alongside the existing loopback/private/link-local/
+  ULA/IPv4-mapped/CGNAT coverage.
+- **Keychain secrets are `…WhenUnlockedThisDeviceOnly`.** Both BYO API keys
+  (`LLMKeychain`) and the Git PAT (`GitCredentials`) moved off `…WhenUnlocked`, so they're
+  excluded from encrypted device backups / can't restore onto another device.
+- **Git errors are credential-scrubbed.** libgit2 error strings echo the remote URL, which
+  for HTTPS auth carries the PAT; `GitService.scrubCredentials` strips any `user:token@`
+  before the string reaches `lastError` (push/create/clone), matching the existing
+  sanitisation on the status/display path.
+
+### Concurrency / isolation
+- **Mermaid block render off the main actor.** `BlockRenderAdapter.renderMermaid` was the
+  only block renderer that didn't hop to the main actor, yet on macOS it ran `NSImage.lockFocus`
+  (the upright flip) on the actor's background executor — unsafe AppKit drawing. It now
+  `await MainActor.run`s like its sibling renderers.
+- **Serialized editor writes.** `EditorModel.save` chained a new write behind any in-flight
+  one (a `writeInFlight` task), so two atomic writes can't race at the filesystem — closing
+  the stale-text-on-quit window where an older debounced write could land after the flush.
+- **`GitService` queue hygiene.** `createRepository`/`cloneRepository` route through the
+  FIFO queue (a value-returning `runReturning`) instead of setting `isBusy` directly, so a
+  bypass op can no longer clear the busy flag (or clobber `lastError`) mid-way through a
+  user push; `authenticateRemote` reads the remote URL through the serialized read queue
+  (off-main) instead of opening the repo synchronously on the main actor.
+- **`FileWatcher` teardown.** The FSEvents callback ran on a shared queue with an unretained
+  `self`; `stop()` now uses a dedicated serial queue and drains it (`queue.sync {}`) after
+  `invalidate`, so a callback already dispatched can't run `onChange` after the object is
+  freed.
+- **macOS editor observer leak.** The `boundsDidChangeNotification` observer registered per
+  editor was never removed; its token is now stored and removed in `deinit`.
+
+### Cross-platform / editor
+- **iOS storage stays byte-pure Markdown.** `MarkdownUITextView` overrides `paste` to insert
+  plain text only (never a rich-text attachment) and disables autocorrect/autocapitalization,
+  matching the macOS view — so neither a paste nor a substitution can inject foreign
+  attributes into the shared `EditorDocument` storage.
+- **iOS chrome overlay is O(visible), not O(document).** `ChromeOverlayView` clips its
+  fragment walk to the dirty rect and `refreshChrome` invalidates only the visible slice,
+  instead of repainting the whole document on every keystroke/selection change.
+- **iOS large-note open doesn't block.** `makeUIView` only styles the whole document up
+  front for notes ≤ 200 KB; larger notes rely on the document's synchronous prefix + idle
+  background pass, and `ensureVisibleRangeStyled` now invalidates layout for the styled span
+  (mirroring macOS) so first-seen concealed markers lay out at their true width.
+- **macOS copy is plain-text only.** The rich-text view's default ⌘C also wrote an RTF flavor
+  carrying the concealed 0.1 pt / clear-colour marker runs (invisible, un-round-trippable in
+  Mail/Pages); `copy`/`cut` are overridden to put only the Markdown source on the pasteboard.
+- **Checkbox toggle keeps the box rendered.** Toggling a task checkbox restored the caret to
+  the block's `[`, which revealed the block back to raw `- [x]`. It now restores the
+  pre-click selection (the toggle is a 1-for-1 char swap, so offsets are unchanged).
+- **Wide tables render un-clipped.** `TableImageRenderer` renders the grid at its natural
+  width and scales the whole bitmap to fit, instead of shrinking column widths but not the
+  font (which clipped cells and mis-positioned right/centre-aligned text).
+- **visionOS renders the app.** The `WindowGroup` body was `#if os(macOS) … #elseif os(iOS)`,
+  so a visionOS build (a configured platform) fell through to `EmptyView`. It now falls back
+  to the iOS content view for any non-macOS platform. *(visionOS compile unverified locally —
+  the visionOS SDK isn't installed on this machine.)*
+
+### Tidy-ups
+- Removed the dead `revision` counter in `CollectionEmbedProvider` (written, never read; the
+  cache is mtime-keyed) and documented its `@unchecked Sendable`; the code-highlight cache
+  keys on the full snippet (not `hashValue`) so two snippets can't collide; corrected the
+  stale "iOS is plain-text-only / block embeds are wired on iOS" comments.
+
+### Deliberately left open (in [unimplemented.md](unimplemented.md), not patched)
+- **SSRF DNS-rebinding (§2).** `WebGuard.validate` resolves + classifies the host, but
+  `URLSession` re-resolves independently for the connection, so the check isn't pinned to the
+  fetched IP — an attacker controlling DNS with a short TTL can pass validation then connect
+  to an internal address. A correct fix needs socket-level pinning (custom `URLProtocol` /
+  Network.framework); a `URLSession` metrics check fires too late for the streamed body to be
+  reliable, so no fragile partial mitigation was shipped.
+- **Git PAT in `.git/config` (§2)** remains upstream-blocked on a SwiftGitX credential
+  callback; **iOS block-embed / inline-math consumption (§6)** still needs the collapse +
+  fragment-image path ported to the iOS overlay (the renderers and adapter are now
+  cross-platform and wired, but `EditorDocument` only consumes them under `#if canImport(AppKit)`).
+
+---
+
+## 9 · Whole-codebase review — fix passes (2026-07-19)
+
+Two max-effort reviews (10 finder angles each) swept the recently-landed changeset and
+then the **entire codebase**. Fixes below are all landed and verified (macOS + iOS builds
+green; package 83/83; app AgentTool/SmartPaste/SkillStore + EditorFidelity + iOS-editor
+snapshot suites pass). Ranked roughly by severity.
+
+### Crashes
+- **VisionAlt** could resume its `CheckedContinuation` twice (Vision's completion handler
+  *and* a thrown `perform`) — funneled through a lock-guarded `OnceResumer`.
+- **PropertiesEditor** list-property bindings crashed on removing a non-last item
+  (stale enumerated index) — bounds-guarded; "Add item" now persists (`onChange`).
+- **GraphView** click hit-test indexed `nodes`/`degrees` by stale `positions` during an
+  off-main relayout — added the count guard the draw path already had.
+- **EditorDocument.blockEmbedKind** read `character(at:)`/`substring(with:)` without the
+  `<= storage.length` guard its siblings use — added it.
+
+### Data loss / corruption / integrity
+- **MentionScanner** only checked for a preceding `[[`, so "Link mention" nested a link
+  inside an existing one (`[[My Note]]` → `[[My [[Note]]]]`) — now detects an open `[[`.
+- **NoteWindowView** (standalone note window) never registered a termination flush hook,
+  losing the last edit on ⌘Q — registered with `TerminationGuard`.
+- **NoteHistoryView** applied an out-of-order git preview, letting "Restore" write the
+  wrong revision — guarded on the current selection.
+- **Collection.noteDidSave** incremental branch didn't cancel an in-flight rebuild, which
+  could revert a just-saved index update — cancels `deriveTask`.
+- **Bookmarks** survived rename/move (paths updated); **rename/move wiki-rewrites** now
+  register as self-writes (no spurious external-change reconcile); **case-only rename**
+  ("todo"→"Todo") no longer blocked with a spurious "already exists".
+
+### Correctness
+- **GFMTree** depth counter drove negative on empty containers (blank table cells, empty
+  list items), mis-styling nesting — made the EXIT decrement symmetric with the increment.
+- **EditorDocument.replaceText** applied the old document's cached GFM inline runs to the
+  new storage on external reload — resets the cache before styling.
+- `[[#heading]]` produced a spurious graph link; **GitHubMarkdown** rewrote wiki-links
+  inside inline code spans; **IntelligenceService.matchTitles** trimmed digits from both
+  ends (dropping "2026 Goals"); FrontMatter kept empty list items; DocumentStatistics
+  mis-counted CRLF paragraphs; FuzzyMatch awarded a spurious first-char run bonus; the
+  sibling-collection path-prefix false-match (Notes vs NotesArchive) at 4 sites.
+
+### LLM / agent
+- **OpenAI-compatible** token usage was dropped (early-return before the trailing
+  usage-only chunk) — reads to stream end. **AssistantModel/AgentRunner**: a turn that
+  hit the tool-iteration cap left a blank answer — a final tool-less turn now summarizes;
+  a cancelled turn no longer leaves an empty persisted bubble; `clear()` no longer lets a
+  cancelled turn resurrect the cleared transcript. **ChatSessionStore** writes are
+  serialized. **DeepResearch** surfaces sub-agent failures (instead of laundering them
+  into a confident empty answer) and aborts promptly on cancellation.
+  **FoundationModels** no longer advertises tool support it can't honor (agent mode falls
+  back to chat), and its streaming diff handles snapshot revisions (common-prefix, not
+  append-only). **MLX** shares one in-flight model load instead of racing two multi-GB
+  downloads. **EditorTabs** dedups concurrent opens of the same note (no duplicate tabs).
+
+### UI / perf
+- **CloneRepositoryView**: account-switch race (stale repo list) and a leaked
+  security-scoped resource on clone failure. **SplashScreen** "About" no longer
+  auto-dismisses if opened during the launch splash. **RewriteSelectionView** force-unwrap
+  → guard. **OutlineView** computed stats/headings once (was 4×/2× per render);
+  **MermaidPreview** renders each diagram once into `@State`; **MindMapView** memoizes its
+  O(N²) layout; the document-stats debounce now covers zero-word notes.
+
+### Deliberately left open (reported, not blindly patched)
+- **BlockParser incremental convergence** only fires at `open == .none`, so editing long
+  *prose* re-parses to EOF (O(document)/keystroke). Real perf regression, but the fix is
+  deep in correctness-critical convergence logic — needs its own change + fuzz
+  re-verification, not a `--fix` edit. (Related: blank-run merge dead branch; CRLF in the
+  block classifiers — same risk profile.)
+- **One-account-per-host** Git credential model is by design (`account(forHost:)` must
+  resolve a single account for auth), so the "collision" is not a bug.
+- **Bookmark `isStale`**: the primary stores (`Library`/`LibrariesStore`) already re-mint
+  bookmark data on every persist, so stale bookmarks self-heal there.

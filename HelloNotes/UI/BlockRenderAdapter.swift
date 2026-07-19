@@ -6,9 +6,11 @@
 //
 //  The new editor's BlockRenderer: turns block embeds into images drawn
 //  inline — `![[image-file]]` embeds, Mermaid, block/inline math, GFM tables,
-//  and `![[Note]]` transclusion cards. An actor confines the (main-thread-only)
-//  image loading/scaling and caches by resolved URL + size, so a restyle never
-//  re-reads or re-scales. Cross-platform (`PlatformImage` via `PlatformImageKit`).
+//  and `![[Note]]` transclusion cards. A background `actor` runs the image
+//  loading + scaling off-main (scaling is off-main-safe via `PlatformImageKit`'s
+//  CGContext path) and caches by resolved URL + size, so a restyle never
+//  re-reads or re-scales. Image *creation* for the AppKit/UIKit renderers hops
+//  to the main actor inside each closure. Cross-platform via `PlatformImageKit`.
 //
 
 import Foundation
@@ -25,8 +27,9 @@ actor BlockRenderAdapter: BlockRenderer {
     /// Resolve an embed target (`![[name]]`) to a file URL, or nil. Sendable
     /// so it can be captured across the actor boundary.
     private let resolve: @Sendable (String) -> URL?
-    /// Render a Mermaid diagram to an image (off-main safe).
-    private let renderMermaid: @Sendable (String, Bool) -> PlatformImage?
+    /// Render a Mermaid diagram to an image (hops to the main actor inside —
+    /// the macOS flip uses AppKit image drawing, which is main-thread-only).
+    private let renderMermaid: @Sendable (String, Bool) async -> PlatformImage?
     /// Render a `$$…$$` block to an image (hops to the main actor inside).
     private let renderMath: @Sendable (String, Bool) async -> PlatformImage?
     /// Render a `![[Note]]` transclusion card (hops to the main actor inside).
@@ -40,7 +43,7 @@ actor BlockRenderAdapter: BlockRenderer {
 
     init(
         resolve: @escaping @Sendable (String) -> URL?,
-        renderMermaid: @escaping @Sendable (String, Bool) -> PlatformImage? = { _, _ in nil },
+        renderMermaid: @escaping @Sendable (String, Bool) async -> PlatformImage? = { _, _ in nil },
         renderMath: @escaping @Sendable (String, Bool) async -> PlatformImage? = { _, _ in nil },
         renderTransclusion: @escaping @Sendable (String, Bool) async -> PlatformImage? = { _, _ in nil },
         renderTable: @escaping @Sendable (String, CGFloat, Bool) async -> PlatformImage? = { _, _, _ in nil },
@@ -68,7 +71,7 @@ actor BlockRenderAdapter: BlockRenderer {
             }
             return scaled(await renderTransclusion(target, darkMode), maxWidth: maxWidth)
         case .mermaid(let source):
-            return scaled(renderMermaid(source, darkMode), maxWidth: maxWidth)
+            return scaled(await renderMermaid(source, darkMode), maxWidth: maxWidth)
         case .math(let source):
             return scaled(await renderMath(source, darkMode), maxWidth: maxWidth)
         case .table(let source):

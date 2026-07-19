@@ -16,6 +16,12 @@ import Observation
 final class EditorTabs {
     private(set) var editors: [EditorModel] = []
 
+    /// In-flight opens keyed by note id, so two near-simultaneous requests for
+    /// the same note (double-click, or a programmatic open racing a selection)
+    /// share one editor instead of each passing the pre-`await` existence check
+    /// and appending a duplicate tab.
+    private var openTasks: [Note.ID: Task<EditorModel, Never>] = [:]
+
     /// Routed to whichever collection owns the saved note, so it can suppress
     /// the file watcher for its own write and refresh its index incrementally.
     var onNoteSaved: (@MainActor (URL, String) -> Void)?
@@ -33,11 +39,21 @@ final class EditorTabs {
         if let existing = editors.first(where: { $0.note?.id == note.id }) {
             return existing
         }
-        let model = EditorModel()
-        model.onSaved = { [weak self] url, text in self?.onNoteSaved?(url, text) }
-        await model.open(note)
-        editors.append(model)
-        return model
+        if let inFlight = openTasks[note.id] {
+            return await inFlight.value
+        }
+        let task = Task { [weak self] () -> EditorModel in
+            let model = EditorModel()
+            model.onSaved = { [weak self] url, text in self?.onNoteSaved?(url, text) }
+            await model.open(note)
+            if let self {
+                self.editors.append(model)
+                self.openTasks[note.id] = nil
+            }
+            return model
+        }
+        openTasks[note.id] = task
+        return await task.value
     }
 
     func editor(withID id: Note.ID?) -> EditorModel? {

@@ -240,11 +240,29 @@ final class GitService {
         } catch let error as GitServiceError {
             lastMessage = error.localizedDescription
         } catch {
-            lastError = "\(error)"
+            lastError = Self.scrubCredentials("\(error)")
             lastMessage = nil
         }
 
         await refreshStatus()
+    }
+
+    /// FIFO-serialized, value-returning runner for the create/clone paths
+    /// (which target a fresh directory and return its URL). Chains on the same
+    /// `lastQueued` as `run()`/`serializedRead()` and owns `isBusy`, so a
+    /// bypass op can no longer clear `isBusy` (or clobber `lastError`) while a
+    /// user-initiated push/commit is still in flight.
+    private func runReturning<T: Sendable>(_ body: @escaping @MainActor () async -> T) async -> T {
+        let previous = lastQueued
+        let task = Task { @MainActor [self] () -> T in
+            await previous?.value
+            isBusy = true
+            lastError = nil
+            defer { isBusy = false }
+            return await body()
+        }
+        lastQueued = Task { _ = await task.value }
+        return await task.value
     }
 
     private static func readStatus(at url: URL) async -> RepoStatus {
@@ -301,9 +319,16 @@ final class GitService {
     /// Rewrite an existing remote's URL to embed credentials from an account.
     func authenticateRemote(_ name: String, account: GitAccount, token: String) async {
         guard let rootURL else { return }
-        guard let repo = try? Repository.open(at: rootURL),
-              let remote = try? repo.remote.get(named: name) else { return }
-        let base = GitRemoteURL.sanitized(remote.url)
+        // Read the current remote URL through the FIFO read queue (off-main,
+        // and never opening a second libgit2 handle concurrently with an
+        // in-flight write), rather than opening the repo synchronously on the
+        // main actor.
+        let base: URL? = await serializedRead {
+            guard let repo = try? Repository.open(at: rootURL),
+                  let remote = try? repo.remote.get(named: name) else { return nil }
+            return GitRemoteURL.sanitized(remote.url)
+        }
+        guard let base else { return }
         await connectRemote(urlString: base.absoluteString, name: name, account: account, token: token)
     }
 
@@ -344,31 +369,30 @@ final class GitService {
             return remoteURL
         }()
 
-        isBusy = true
-        lastError = nil
-        defer { isBusy = false }
-        do {
-            try await Task.detached(priority: .userInitiated) {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                let readme = directory.appendingPathComponent("README.md")
-                try Data("# \(safeName)\n".utf8).write(to: readme)
+        return await runReturning {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    let readme = directory.appendingPathComponent("README.md")
+                    try Data("# \(safeName)\n".utf8).write(to: readme)
 
-                let repo = try Repository(at: directory, createIfNotExists: true)
-                Self.ensureCommitIdentity(repo)
-                try repo.add(path: "README.md")
-                _ = try repo.commit(message: "Initial commit")
+                    let repo = try Repository(at: directory, createIfNotExists: true)
+                    Self.ensureCommitIdentity(repo)
+                    try repo.add(path: "README.md")
+                    _ = try repo.commit(message: "Initial commit")
 
-                if let pushURL {
-                    try repo.remote.add(named: "origin", at: pushURL)
-                    try await repo.push()
-                }
-            }.value
-            lastMessage = remoteURL == nil ? "Created “\(safeName)”" : "Created and pushed “\(safeName)”"
-            return directory
-        } catch {
-            lastError = "Couldn't create the repository: \(error)"
-            try? FileManager.default.removeItem(at: directory)
-            return nil
+                    if let pushURL {
+                        try repo.remote.add(named: "origin", at: pushURL)
+                        try await repo.push()
+                    }
+                }.value
+                self.lastMessage = remoteURL == nil ? "Created “\(safeName)”" : "Created and pushed “\(safeName)”"
+                return directory
+            } catch {
+                self.lastError = Self.scrubCredentials("Couldn't create the repository: \(error)")
+                try? FileManager.default.removeItem(at: directory)
+                return nil
+            }
         }
     }
 
@@ -406,25 +430,37 @@ final class GitService {
             return baseURL
         }()
 
-        isBusy = true
-        lastError = nil
-        defer { isBusy = false }
-        do {
-            try await Task.detached(priority: .userInitiated) {
-                _ = try await Repository.clone(from: remoteURL, to: destination)
-            }.value
-            lastMessage = "Cloned “\(folderName)”"
-            return destination
-        } catch {
-            lastError = "Clone failed: \(error)"
-            // Best-effort cleanup of a partial checkout.
-            try? FileManager.default.removeItem(at: destination)
-            return nil
+        return await runReturning {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    _ = try await Repository.clone(from: remoteURL, to: destination)
+                }.value
+                self.lastMessage = "Cloned “\(folderName)”"
+                return destination
+            } catch {
+                self.lastError = Self.scrubCredentials("Clone failed: \(error)")
+                // Best-effort cleanup of a partial checkout.
+                try? FileManager.default.removeItem(at: destination)
+                return nil
+            }
         }
     }
 }
 
 extension GitService {
+    /// Strip embedded `user:token@` credentials from any URL in a string before
+    /// it is shown in the UI (or logged). libgit2 error messages routinely echo
+    /// the remote URL, which for HTTPS auth carries the Personal Access Token.
+    nonisolated static func scrubCredentials(_ text: String) -> String {
+        // Match `//user[:password]@` in a URL authority. The password is optional
+        // (covers `//<token>@host`) and may contain `/` (covers basic-auth
+        // passwords) — it just can't cross the terminating `@` or whitespace.
+        // Anchored to `//`, so a bare `host/path@x` (no authority creds) is safe.
+        guard let regex = try? NSRegularExpression(pattern: "//[^/@\\s]+(?::[^@\\s]*)?@") else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "//")
+    }
+
     /// Ensure the repository has a commit identity. `git_commit_create_from_stage`
     /// (used by SwiftGitX's `commit`) needs a default signature from config; a
     /// GUI-launched app doesn't always resolve the global `~/.gitconfig`, so we

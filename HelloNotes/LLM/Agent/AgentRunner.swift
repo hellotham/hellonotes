@@ -66,6 +66,15 @@ struct AgentRunner {
             }
             messages.append(LLMMessage(role: .tool, parts: results))
         }
+        // Reached the iteration cap while still calling tools — do one final turn
+        // WITHOUT tools so we return a real answer instead of the empty tool-call
+        // turn's text (an empty sub-agent report otherwise poisons synthesis).
+        let finalCtx = LLMContext(systemPrompt: systemPrompt, messages: messages, tools: [])
+        var finalMsg = LLMMessage(role: .assistant, parts: [])
+        for try await event in provider.stream(finalCtx, model: model, options: options) {
+            if case .textDelta(let d) = event { appendText(d, to: &finalMsg) }
+        }
+        if !finalMsg.text.isEmpty { return finalMsg.text }
         return messages.last(where: { $0.role == .assistant })?.text ?? ""
     }
 

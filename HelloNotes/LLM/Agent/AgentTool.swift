@@ -62,6 +62,16 @@ struct ToolContext {
         return String(path.dropFirst(base.count).drop(while: { $0 == "/" }))
     }
 
+    /// True when `url`, after resolving symlinks, stays inside the collection
+    /// root. Defends the mutating tools against a note whose file is a symlink
+    /// pointing out of the vault (the directory enumerator follows symlinks).
+    func isWithinRoot(_ url: URL) -> Bool {
+        guard let root = rootURL else { return true }   // no scoped root: nothing to enforce
+        let base = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let target = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return target == base || target.hasPrefix(base + "/")
+    }
+
     func readContents(of note: Note) -> String {
         (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? ""
     }

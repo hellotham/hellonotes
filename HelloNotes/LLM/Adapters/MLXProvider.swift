@@ -20,17 +20,26 @@ import MLXLMCommon
 actor MLXModelStore {
     static let shared = MLXModelStore()
     private var containers: [String: ModelContainer] = [:]
+    private var loadTasks: [String: Task<ModelContainer, Error>] = [:]
     private(set) var loadingModel: String?
     private(set) var progress: Double = 0
 
     func container(for id: String) async throws -> ModelContainer {
         if let existing = containers[id] { return existing }
+        // Share one in-flight load: two turns requesting the same not-yet-cached
+        // model would otherwise both pass the nil check and each trigger a full
+        // multi-GB download (and fight over loadingModel/progress).
+        if let task = loadTasks[id] { return try await task.value }
+        let task = Task { [weak self] () -> ModelContainer in
+            try await loadModelContainer(id: id) { p in
+                Task { await self?.setProgress(p.fractionCompleted) }
+            }
+        }
+        loadTasks[id] = task
         loadingModel = id
         progress = 0
-        defer { loadingModel = nil }
-        let container = try await loadModelContainer(id: id) { [weak self] p in
-            Task { await self?.setProgress(p.fractionCompleted) }
-        }
+        defer { loadTasks[id] = nil; loadingModel = nil }
+        let container = try await task.value
         containers[id] = container
         return container
     }

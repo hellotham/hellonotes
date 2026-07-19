@@ -216,6 +216,10 @@ enum SplashWindow {
 
     static func show(autoDismiss: Bool) {
         if let window {
+            // Reusing the window (e.g. About opened during the launch splash's
+            // 3.5s linger): a non-auto-dismiss caller must cancel the pending
+            // launch dismissal, or About would close itself after the timer.
+            if !autoDismiss { dismissTask?.cancel(); dismissTask = nil }
             window.makeKeyAndOrderFront(nil)
             return
         }

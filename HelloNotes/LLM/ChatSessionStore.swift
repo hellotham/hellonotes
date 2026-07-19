@@ -42,12 +42,19 @@ final class ChatSessionStore {
     /// without limit. The in-memory session keeps the full history for the run.
     private static let persistedTailLimit = 1000
 
+    /// The most recent write, so each save chains after it instead of racing.
+    private var writeTask: Task<Void, Never>?
+
     func save(_ messages: [LLMMessage]) {
         let capped = Array(messages.suffix(Self.persistedTailLimit))
         let url = fileURL
+        let previous = writeTask
         // Encode + write off the main actor — the transcript is re-serialized
-        // every turn, and tool outputs make it large.
-        Task.detached(priority: .utility) {
+        // every turn, and tool outputs make it large. Chain on the previous write
+        // so two saves in one turn (pre-turn + completion) can't land out of
+        // order and persist a stale transcript.
+        writeTask = Task.detached(priority: .utility) {
+            await previous?.value
             let encoder = JSONEncoder()
             let lines = capped.compactMap { message -> String? in
                 guard let d = try? encoder.encode(message) else { return nil }
@@ -58,6 +65,8 @@ final class ChatSessionStore {
     }
 
     func clear() {
+        writeTask?.cancel()
+        writeTask = nil
         try? FileManager.default.removeItem(at: fileURL)
     }
 

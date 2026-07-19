@@ -36,9 +36,12 @@ final class PermissionBroker {
 
     private var continuation: CheckedContinuation<Bool, Never>?
 
-    /// Suspend until the user decides. Auto-approves once "Allow all" is chosen.
+    /// Suspend until the user decides. Auto-approves once "Allow all" is chosen
+    /// — except deletions, which always require an explicit click: losing a note
+    /// (even to the Trash) is high-consequence enough to confirm every time,
+    /// including when an injected tool-call drives it under a broad grant.
     func confirm(title: String, detail: String, diff: EditDiff? = nil) async -> Bool {
-        if allowAllThisSession { return true }
+        if allowAllThisSession, diff?.isDeletion != true { return true }
         // If a prompt is somehow already pending, deny the new one to avoid deadlock.
         if continuation != nil { return false }
         return await withCheckedContinuation { cont in

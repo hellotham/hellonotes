@@ -433,6 +433,12 @@ struct GraphView: View {
     /// Hit-test in view coordinates against each node's drawn radius.
     private func nearestNode(to point: CGPoint) -> Int? {
         let deg = degrees
+        // `positions` is recomputed off-main via `.task(id: nodes)`; during the
+        // window between a node-set change and the layout landing, `positions`
+        // still holds the old array while `nodes`/`degrees` are new. Guard the
+        // count (as the draw path does) so `deg[i]`/`nodes[i]` can't go out of
+        // range on a click mid-relayout.
+        guard positions.count == nodes.count, deg.count == nodes.count else { return nil }
         var best: (index: Int, dist: CGFloat)?
         for (i, world) in positions.enumerated() {
             let p = scaled(world)

@@ -56,6 +56,7 @@ struct OpenAICompatibleProvider: LLMProvider {
                     var toolNames: [Int: (id: String, name: String)] = [:]  // stream index → call
                     var sawToolCalls = false
                     var usage: LLMUsage?
+                    var pendingStop: StopReason?
 
                     for try await result in client.chatsStream(query: query) {
                         if let u = result.usage {
@@ -84,21 +85,21 @@ struct OpenAICompatibleProvider: LLMProvider {
                             }
                         }
 
-                        if let reason = choice.finishReason {
+                        if let reason = choice.finishReason, pendingStop == nil {
                             for (_, entry) in toolNames.sorted(by: { $0.key < $1.key }) {
                                 continuation.yield(.toolCallCompleted(id: entry.id))
                             }
-                            if let usage { continuation.yield(.usage(usage)) }
-                            let stop: StopReason = (reason == .toolCalls || sawToolCalls) ? .toolCalls
+                            pendingStop = (reason == .toolCalls || sawToolCalls) ? .toolCalls
                                 : (reason == .length ? .length : .stop)
-                            continuation.yield(.done(stop))
-                            continuation.finish()
-                            return
+                            // Don't finish here: with streamOptions.includeUsage set,
+                            // servers send token usage in a SEPARATE trailing chunk
+                            // (empty choices) AFTER the finish-reason chunk. Keep
+                            // reading to the stream's end so `.usage` isn't dropped.
                         }
                     }
-                    // Stream ended without an explicit finish reason.
+                    // Stream ended.
                     if let usage { continuation.yield(.usage(usage)) }
-                    continuation.yield(.done(sawToolCalls ? .toolCalls : .stop))
+                    continuation.yield(.done(pendingStop ?? (sawToolCalls ? .toolCalls : .stop)))
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.yield(.done(.cancelled))

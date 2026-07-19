@@ -39,8 +39,10 @@ public final class MarkdownUITextView: UITextView {
         tv.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         tv.textContainer.lineFragmentPadding = 5
         // Markdown is source text: typographic substitutions corrupt syntax.
-        tv.autocorrectionType = .default
-        tv.autocapitalizationType = .sentences
+        // Autocorrect/autocapitalization can rewrite source (e.g. inside code
+        // spans or link targets), so disable them, matching the macOS view.
+        tv.autocorrectionType = .no
+        tv.autocapitalizationType = .none
         tv.smartDashesType = .no
         tv.smartQuotesType = .no
         tv.smartInsertDeleteType = .no
@@ -64,9 +66,24 @@ public final class MarkdownUITextView: UITextView {
     }
 
     /// Redraw the chrome overlay (after edits, selection/reveal changes, layout).
+    /// Only the visible slice is invalidated — the overlay spans the whole
+    /// content size, so a full `setNeedsDisplay()` would repaint (and re-walk)
+    /// the entire document on every keystroke.
     func refreshChrome() {
         chromeOverlay.frame = CGRect(origin: .zero, size: contentSize)
-        chromeOverlay.setNeedsDisplay()
+        let visible = CGRect(origin: contentOffset, size: bounds.size)
+        chromeOverlay.setNeedsDisplay(visible)
+    }
+
+    /// The pasteboard is imported as plain text only: the document storage is
+    /// byte-pure Markdown source, so rich text / attachments would corrupt the
+    /// parser's view of it. Mirrors the macOS view's `pasteAsPlainText`.
+    public override func paste(_ sender: Any?) {
+        if let string = UIPasteboard.general.string {
+            insertText(string)
+        }
+        // No plain-text representation (e.g. an image-only pasteboard): drop it
+        // rather than let UITextView insert a foreign attachment into storage.
     }
 
     private func bind(to document: EditorDocument) {
@@ -112,7 +129,10 @@ public final class MarkdownUITextView: UITextView {
         let end = contentManager.offset(from: contentManager.documentRange.location, to: viewport.endLocation)
         let margin = 8_000
         let range = NSRange(location: max(0, start - margin), length: (end - start) + 2 * margin)
-        _ = document.ensureStyled(charactersIn: range)
+        guard let styled = document.ensureStyled(charactersIn: range) else { return }
+        // Concealment shrinks a run's font; force TextKit 2 to re-lay-out the
+        // freshly-styled span so collapsed markers don't keep their old width.
+        textLayoutManager?.invalidateLayout(charactersIn: styled)
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -144,11 +164,17 @@ final class ChromeOverlayView: UIView {
         let inset = tv.textContainerInset
         // No `.ensuresLayout` — layout is already done when we draw; forcing it
         // here re-enters layout during drawing and crashes.
+        // Only draw fragments intersecting the dirty rect, and stop once we're
+        // past it (fragments enumerate top-to-bottom). This trims drawing to the
+        // visible slice; the enumeration itself still skips over fragments above
+        // the rect, so the walk is O(offset-to-viewport + visible), not O(document).
         tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: []) { fragment in
-            if let chrome = fragment as? RenderedBlockFragment {
-                let origin = CGPoint(x: inset.left + fragment.layoutFragmentFrame.origin.x,
-                                     y: inset.top + fragment.layoutFragmentFrame.origin.y)
-                chrome.drawChromeOnly(at: origin, in: context)
+            let frame = fragment.layoutFragmentFrame
+            let top = inset.top + frame.origin.y
+            if top > rect.maxY { return false }   // below the dirty rect; done
+            if let chrome = fragment as? RenderedBlockFragment,
+               top + frame.height >= rect.minY {   // intersects vertically
+                chrome.drawChromeOnly(at: CGPoint(x: inset.left + frame.origin.x, y: top), in: context)
             }
             return true
         }
@@ -177,9 +203,14 @@ public struct MarkdownEditorView: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         tv.delegate = context.coordinator
-        // Style the whole document once up front (edits then restyle
-        // incrementally via the shared storage delegate).
-        document.styleEverythingNow()
+        // Small/medium notes: style the whole document once up front (proven
+        // path). Large notes: rely on the document's synchronous prefix styling
+        // (done in init) plus its idle background pass, so opening never blocks
+        // the main thread on the entire document. The visible range is styled
+        // (and its layout invalidated) via `ensureVisibleRangeStyled` on scroll.
+        if document.storage.length <= 200_000 {
+            document.styleEverythingNow()
+        }
         return tv
     }
 

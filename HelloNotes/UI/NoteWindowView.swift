@@ -61,6 +61,11 @@ struct NoteWindowView: View {
         .task {
             guard !didLoad else { return }
             didLoad = true
+            // Drain this window's autosave on ⌘Q too — the app-termination
+            // handshake only awaits registered hooks, so without this the note
+            // window's un-awaited onDisappear flush is cut short and the last
+            // edit is lost. (The main window registers its tabs the same way.)
+            TerminationGuard.current?.register(editor) { await editor.flush() }
             embedProvider.update(notes: notes)
             if let root = collection?.rootURL {
                 git.rootURL = root
@@ -69,6 +74,7 @@ struct NoteWindowView: View {
             if let note { await editor.open(note) }
         }
         .onDisappear {
+            TerminationGuard.current?.unregister(editor)
             Task { await editor.flush() }
         }
     }

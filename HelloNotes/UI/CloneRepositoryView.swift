@@ -164,13 +164,20 @@ struct CloneRepositoryView: View {
             return
         }
         isLoading = true
+        let requestedHost = selectedHost
         Task {
-            defer { isLoading = false }
+            // Guard against an account-switch race: two rapid switches leave two
+            // in-flight loads, and a slow earlier one could overwrite `repos` for
+            // the account no longer selected. Drop results for a stale host.
             do {
                 let result = try await GitHostAPI.repositories(for: account, token: token)
+                guard requestedHost == selectedHost else { return }
                 repos = result.sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+                isLoading = false
             } catch {
+                guard requestedHost == selectedHost else { return }
                 loadError = (error as? GitHostAPI.APIError)?.errorDescription ?? error.localizedDescription
+                isLoading = false
             }
         }
     }
@@ -186,10 +193,11 @@ struct CloneRepositoryView: View {
 
         Task {
             let started = parent.startAccessingSecurityScopedResource()
-            defer { if started { /* kept open by open(url:) for the app's lifetime */ } }
             if let cloned = await git.cloneRepository(from: urlString, into: parent, account: account, token: token) {
-                onCloned(cloned)
+                onCloned(cloned)   // hands the URL onward; scope kept for the app's lifetime
                 dismiss()
+            } else if started {
+                parent.stopAccessingSecurityScopedResource()   // balance the scope on failure/cancel
             }
         }
     }

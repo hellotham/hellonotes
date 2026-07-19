@@ -84,13 +84,18 @@ struct PropertiesEditor: View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(property.wrappedValue.items.enumerated()), id: \.offset) { index, _ in
                 HStack(spacing: 4) {
+                    // Bounds-guard the index: removing a non-last item leaves
+                    // surviving rows whose captured `index` is momentarily stale,
+                    // and SwiftUI can evaluate their `get` before re-diffing — an
+                    // unguarded `items[index]` would trap with Index out of range.
                     TextField("", text: Binding(
-                        get: { property.wrappedValue.items[index] },
-                        set: { property.wrappedValue.items[index] = $0 }
+                        get: { index < property.wrappedValue.items.count ? property.wrappedValue.items[index] : "" },
+                        set: { if index < property.wrappedValue.items.count { property.wrappedValue.items[index] = $0 } }
                     ))
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(onChange)
                     Button {
+                        guard index < property.wrappedValue.items.count else { return }
                         property.wrappedValue.items.remove(at: index)
                         onChange()
                     } label: {
@@ -102,6 +107,7 @@ struct PropertiesEditor: View {
             }
             Button {
                 property.wrappedValue.items.append("")
+                onChange()
             } label: {
                 Label("Add item", systemImage: "plus")
             }

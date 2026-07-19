@@ -51,7 +51,10 @@ nonisolated enum MarkdownParsing {
     static func wikiLinkTargets(in text: String) -> [String] {
         matches(of: wikiLinkRegex, in: text, group: 1)
             .map { target in
-                let withoutHeading = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
+                // `omittingEmptySubsequences: false` so an intra-document link
+                // like `[[#Overview]]` splits to ["", "Overview"] and yields an
+                // empty target (dropped below) — not a spurious link to "Overview".
+                let withoutHeading = target.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? target
                 return withoutHeading.trimmingCharacters(in: .whitespaces)
             }
             .filter { !$0.isEmpty }

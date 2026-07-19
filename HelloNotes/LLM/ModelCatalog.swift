@@ -169,6 +169,9 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
-    /// Whether this provider supports native tool calling (MLX does not).
-    var supportsTools: Bool { wire != .mlx }
+    /// Whether this provider supports native tool calling. The on-device paths
+    /// (MLX, and FoundationModels — whose native tools need compile-time types,
+    /// not our dynamic registry) are chat-only, so agent mode falls back to plain
+    /// chat for them rather than offering tools it can't actually call.
+    var supportsTools: Bool { wire != .mlx && wire != .foundationModels }
 }
