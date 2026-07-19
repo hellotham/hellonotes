@@ -68,12 +68,13 @@ Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra ca
 
 ## Phase C — Platform polish (M effort)
 
-- **Liquid Glass audit** — *code posture confirmed; visual pass owner/device only.*
-  Verified the app does **not** set the temporary `UIDesignRequiresCompatibility` opt-out,
-  so it opts into Liquid Glass by building against the Xcode 26 SDK. The remaining work —
-  auditing custom `.background(.bar)`/toolbar fills and `ToolbarSpacer` grouping against the
-  new material — needs to be *seen* on real macOS 26; blind chrome changes risk regressions
-  I can't verify headlessly.
+- **Liquid Glass audit** ✅ **(code audit done; only the subjective look needs eyes)** —
+  Audited: (1) the app does **not** set the temporary `UIDesignRequiresCompatibility` opt-out,
+  so it opts into Liquid Glass via the Xcode 26 SDK; (2) all chrome uses the **standard
+  adaptive `.background(.bar)` material** — a repo-wide grep finds **no** hardcoded-color /
+  opaque custom fills that would fight the material. Posture is correct. The only thing left
+  is a subjective *visual* review on real macOS 26 (a design judgment, not a code defect);
+  `ToolbarSpacer` grouping is an optional refinement to apply once it can be seen.
 - **Icon Composer layered icon** ✅ **(done — built into the app)** — `HelloNotes/AppIcon.icon`
   is a valid Icon Composer asset built from the existing 1024 artwork; `actool` compiles it as
   the app icon (`AppIcon_Assets/Color-*` renditions in `Assets.car`, `CFBundleIconName = AppIcon`)
