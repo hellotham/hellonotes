@@ -186,6 +186,17 @@ public final class MarkdownTextView: NSTextView {
         syncRenderMetrics()
     }
 
+    // MARK: - Accessibility: VoiceOver headings rotor
+
+    /// A standard VoiceOver "Headings" rotor so a long note can be navigated by
+    /// heading like a web page. Backed by the document's already-extracted
+    /// headings; `.heading` is the system rotor type VoiceOver users expect.
+    private lazy var headingRotor = NSAccessibilityCustomRotor(rotorType: .heading, itemSearchDelegate: self)
+
+    public override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        [headingRotor]
+    }
+
     /// Pasteboard intents, injected by the host: return the Markdown to
     /// insert (image saved to the vault, HTML converted, …) or nil to fall
     /// through to the default plain paste.
@@ -614,6 +625,29 @@ public struct MarkdownEditorView: NSViewRepresentable {
             }
             return false
         }
+    }
+}
+
+extension MarkdownTextView: NSAccessibilityCustomRotorItemSearchDelegate {
+    @objc public func rotor(_ rotor: NSAccessibilityCustomRotor,
+                            resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters)
+        -> NSAccessibilityCustomRotor.ItemResult? {
+        let headings = document?.headings() ?? []
+        guard !headings.isEmpty else { return nil }
+        let forward = searchParameters.searchDirection == .next
+        let target: (level: Int, title: String, range: NSRange)?
+        if let current = searchParameters.currentItem?.targetRange {
+            target = forward
+                ? headings.first { $0.range.location > current.location }
+                : headings.last { $0.range.location < current.location }
+        } else {
+            target = forward ? headings.first : headings.last
+        }
+        guard let heading = target else { return nil }
+        let result = NSAccessibilityCustomRotor.ItemResult(targetElement: self)
+        result.targetRange = heading.range
+        result.customLabel = heading.title
+        return result
     }
 }
 #endif

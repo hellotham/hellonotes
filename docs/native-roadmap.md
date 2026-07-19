@@ -16,6 +16,19 @@ system inline predictions are already wired** (see Phase A).
 "Writing Tools config" quick win below is **done**; the rest of this roadmap is unchanged
 — it targets system integration the app still lacks.
 
+**Update (2026-07-19, roadmap implementation pass):** Phase A is essentially complete and
+**Phase B's strategic core landed** — all build green on macOS + iOS with the full test
+suite passing. Shipped: **URL scheme + router** (`Core/URLRouter.swift`, `State/NavigationRouter.swift`,
+`onOpenURL`), **state restoration** (`@SceneStorage` for collection + note),
+**Services menu** ("New Note from Selection" → `ServicesProvider` + `NSServices`),
+**VoiceOver headings rotor** (`MarkdownTextView` `.heading` rotor over `EditorDocument.headings()`),
+**App Intents core** (`NoteEntity` + `CreateNote`/`AppendToDailyNote`/`OpenNote`/`SearchNotes`
+intents + `AppShortcutsProvider`, all with complete `parameterSummary`), and **MenuBarExtra
+quick capture** (append to the daily note without switching apps). Everything routes through
+`NavigationRouter`, so widgets/Spotlight/intents share one navigation path. **Remaining**
+(status below): IndexedEntity Spotlight donation, global hotkey, and Phases C/D — several of
+which need new Xcode targets, entitlements, artwork, or on-device hardware (called out inline).
+
 ---
 
 ## Phase A — Quick wins (~1 sprint, all in-app, mostly S effort)
@@ -25,38 +38,34 @@ system inline predictions are already wired** (see Phase A).
 | **Writing Tools config** ✅ **(done)** | `NSTextView.writingToolsBehavior = .complete`; `allowedWritingToolsResultOptions = [.plainText]` | macOS 15.1 | **Shipped** in the editor rewrite (`MarkdownTextView.swift`), alongside `inlinePredictionType = .default`. `.plainText` is used so rewrites can't return rich text and corrupt Markdown; restyling pauses during an external text session. |
 | **Continuity Camera routing** | `NSTextView` context menu already offers "Insert from iPhone → Scan Documents" | works today | Only work needed: route the incoming image through the existing paste-to-attachment path (save to collection's attachments folder + insert `![[…]]`) instead of embedding rich text. |
 | **Print (⌘P)** | Render note into an off-screen `NSTextView`/`NSPrintOperation` | any | PDF "export via print panel" falls out for free. Wire to `CommandGroup(replacing: .printItem)`. |
-| **Services menu** | `NSServices` Info.plist entry + `NSApp.servicesProvider`: "New HelloNotes Note from Selection" | any | Cheap system-wide capture on Mac; covers most of what a share extension would give us (see Skip list). |
-| **UTI import fix (latent bug)** | `UTImportedTypeDeclarations` for `net.daringfireball.markdown`, conforming to `public.utf8-plain-text` | any | Info.plist currently *references* the UTI but never imports the declaration — on a Mac where no other app declares it, `.md` files won't bind to the type. **Import, never export** (exporting would claim ownership and can hijack the system default handler). |
-| **URL scheme + router** | `CFBundleURLTypes` → `hellonotes://note?collection=…&path=…`, `onOpenURL` router in the app | any | De-risks Phase B: Spotlight donation, widgets, and intents all deep-link through this. Percent-encode paths; resolve via the existing wiki-link resolver for title-based links. |
-| **State restoration** | `@SceneStorage` for selected collection / note / editor mode / sidebar state | any | Reopen exactly where you left off — a core "native citizen" behavior. Store stable identifiers (relative paths), not URLs. |
-| **Accessibility: headings rotor** | `.accessibilityRotor` exposing document headings (we already extract them) | any | VoiceOver users navigate a note by heading like a web page. Cheap because `fastHeadings(in:)` already exists. |
+| **Services menu** ✅ **(done)** | `NSServices` Info.plist entry + `NSApp.servicesProvider`: "New HelloNotes Note from Selection" | any | Shipped: `ServicesProvider.newNoteFromSelection` creates a note from the selection via `NavigationRouter.captureNote`, registered in `TerminationGuard.applicationDidFinishLaunching`. |
+| **UTI import fix (latent bug)** ✅ **(done)** | `UTImportedTypeDeclarations` for `net.daringfireball.markdown` | any | Shipped in the production-hardening pass (Info.plist `UTImportedTypeDeclarations`, imported not exported). |
+| **URL scheme + router** ✅ **(done)** | `CFBundleURLTypes` → `hellonotes://note?collection=…&path=…`, `onOpenURL` router | any | Shipped: `URLRouter` (parse) + `NavigationRouter` (resolve against the open library) + `onOpenURL` on both platforms. Grammar covers note (path/title), collection, search, new, daily. Everything in Phase B deep-links through it. |
+| **State restoration** ✅ **(done)** | `@SceneStorage` for selected collection / note | any | Shipped: `restoredCollectionID` + `restoredNotePath` (stable path identifiers) restore the focused collection + note on launch. |
+| **Accessibility: headings rotor** ✅ **(done)** | `NSAccessibilityCustomRotor(rotorType: .heading, …)` over `EditorDocument.headings()` | any | Shipped: `MarkdownTextView` exposes the standard VoiceOver Headings rotor; on-device VoiceOver audit still recommended (per unimplemented.md §5). |
 
 ## Phase B — System presence (M effort)
 
 Order matters: **App Intents core → IndexedEntity donation → MenuBarExtra capture.**
 
-1. **App Intents core** — the keystone. One framework feeds four surfaces on our OS
-   targets: Shortcuts/Siri, **macOS 26 Spotlight actions** (run "New Note" /
-   "Append to Daily Note" from ⌘Space with inline parameters), system-Spotlight
-   donation, and Apple Intelligence (indexed entities/intents become available to it
-   automatically).
-   - Model `NoteEntity: AppEntity` (id = collection + relative path; display
-     representation = title + snippet) in a target shared with future widgets.
-   - Four intents: `CreateNoteIntent`, `AppendToDailyNoteIntent`, `OpenNoteIntent`,
-     `SearchNotesIntent`; an `AppShortcutsProvider` with natural phrases.
-   - macOS 26 Spotlight actions require a **complete `parameterSummary`** on each
-     intent (incomplete summaries silently don't appear in ⌘Space). Adopt
-     `supportedModes` (26+) for foreground/background behavior.
-2. **IndexedEntity Spotlight donation** — conform `NoteEntity` to `IndexedEntity`
-   (macOS 15+): every note becomes findable in ⌘Space with a deep link back
-   (via the Phase A URL router). Nearly free once the entity exists. Re-donate from
-   the existing index-cache refresh path (we know exactly which notes changed).
-3. **MenuBarExtra quick capture + global hotkey** — flagged in research as the single
-   highest-daily-value Mac feature. `MenuBarExtra(.window)` with a small capture field
-   appending to the daily note. Runs in-app: no sandbox/bookmark issues. Global hotkey
-   via `NSEvent.addGlobalMonitorForEvents` (or KeyboardShortcuts-style
-   `RegisterEventHotKey`) — needs no special entitlement for a hotkey that activates
-   our own app.
+1. **App Intents core** ✅ **(done)** — the keystone. Shipped `NoteEntity: AppEntity`
+   (id = collection name + relative path; display = title + collection) with a
+   `NoteEntityQuery`, four intents (`CreateNoteIntent`, `AppendToDailyNoteIntent`,
+   `OpenNoteIntent`, `SearchNotesIntent`), and `HelloNotesShortcuts: AppShortcutsProvider`
+   with natural phrases. Each intent has a **complete `parameterSummary`** (needed for
+   macOS 26 ⌘Space actions). Intents run on the main actor via `NavigationRouter.shared`;
+   navigation intents `openAppWhenRun`. *(All in the main app target; when widgets land
+   they'll need `NoteEntity` moved to a shared framework target — see Phase D.)*
+   Remaining polish: adopt `supportedModes` (26+) for explicit foreground/background.
+2. **IndexedEntity Spotlight donation** — *remaining.* Conform `NoteEntity` to
+   `IndexedEntity` (macOS 15+) and donate from the index-cache refresh path so every note
+   is findable in system Spotlight with a deep link back. In-app, no new target; deferred
+   only for session scope. The entity + deep-link (`NoteEntity.deepLink`) already exist.
+3. **MenuBarExtra quick capture** ✅ **(done)** — shipped `QuickCaptureView` in a
+   `MenuBarExtra(.window)` that appends to today's daily note via `NavigationRouter`.
+   Runs in-app (no sandbox/bookmark issues). **Global hotkey remaining**:
+   `RegisterEventHotKey` (Carbon) to summon capture from anywhere — no entitlement needed
+   for a hotkey that activates our own app; deferred (needs runtime verification).
 
 ## Phase C — Platform polish (M effort)
 

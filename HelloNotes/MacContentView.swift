@@ -53,6 +53,10 @@ struct MacContentView: View {
 
     /// Selected note identity (its file URL — stable across re-indexing).
     @State private var selectedNoteID: Note.ID?
+    /// Reopen where you left off: the focused collection + selected note persist
+    /// across relaunches as stable path identifiers (not URLs).
+    @SceneStorage("restoredCollectionID") private var restoredCollectionID = ""
+    @SceneStorage("restoredNotePath") private var restoredNotePath = ""
 
     /// Full-text query for the note list (searches across every collection).
     @State private var searchText = ""
@@ -309,14 +313,25 @@ struct MacContentView: View {
                 // First run with nothing to restore: offer the launcher.
                 if library.isEmpty { showLauncher = true }
             }
+            // Reopen the last-focused collection + note (if still present).
+            if !restoredCollectionID.isEmpty,
+               library.collections.contains(where: { $0.id == restoredCollectionID }) {
+                library.focusedID = restoredCollectionID
+            }
+            if !restoredNotePath.isEmpty {
+                let url = URL(fileURLWithPath: restoredNotePath)
+                if library.allNotes.contains(where: { $0.id == url }) { selectedNoteID = url }
+            }
         }
         .onChange(of: selectedNoteID) { _, newID in
+            restoredNotePath = newID?.path ?? ""
             if let note = library.allNotes.first(where: { $0.id == newID }) {
                 library.focusCollection(containing: note.fileURL)
                 Task { await tabs.editor(for: note) }
             }
         }
-        .onChange(of: library.focusedID) { _, _ in
+        .onChange(of: library.focusedID) { _, newID in
+            restoredCollectionID = newID ?? ""
             selectedTag = nil
         }
         .onChange(of: library.pendingOpenNoteID) { _, id in

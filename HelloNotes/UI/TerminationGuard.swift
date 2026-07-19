@@ -22,9 +22,17 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
     /// Flush closures keyed by their owning object (e.g. each window's tabs).
     private var flushHooks: [ObjectIdentifier: () async -> Void] = [:]
 
+    /// Backs the "New Note from Selection" Services-menu item.
+    private let servicesProvider = ServicesProvider()
+
     override init() {
         super.init()
         Self.current = self
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.servicesProvider = servicesProvider
+        NSUpdateDynamicServices()
     }
 
     /// Register (or replace) a flush hook for `owner`. Call from a window shell

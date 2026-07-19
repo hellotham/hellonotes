@@ -110,6 +110,14 @@ struct HelloNotesApp: App {
             PreferencesView(llmSettings: llmSettings, appearance: appearance)
                 .themedRoot(appearance)
         }
+
+        // Menu-bar quick capture: jot a line into today's daily note without
+        // switching to the app (Phase B — highest daily-value Mac feature).
+        MenuBarExtra("HelloNotes", systemImage: "note.text") {
+            QuickCaptureView(router: router)
+                .themedRoot(appearance)
+        }
+        .menuBarExtraStyle(.window)
         #endif
     }
 }

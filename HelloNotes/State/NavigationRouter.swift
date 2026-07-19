@@ -93,6 +93,20 @@ final class NavigationRouter {
         return true
     }
 
+    /// Create a note from captured text (Services menu / share): the title is the
+    /// first line, the body is the full text. Focuses + opens the new note.
+    @discardableResult
+    func captureNote(text: String, collectionNamed name: String? = nil) async -> Bool {
+        guard let coll = targetCollection(named: name) else { return false }
+        let firstLine = text.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? "Captured Note"
+        let title = String(firstLine.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let note = await coll.createNote(title: title.isEmpty ? "Captured Note" : title) else { return false }
+        await coll.append(text, to: note)
+        library.focusedID = coll.id
+        library.requestOpen(note.fileURL)
+        return true
+    }
+
     @discardableResult
     func createNote(collectionNamed name: String?, title: String?) async -> Bool {
         guard let coll = targetCollection(named: name) else { return false }
