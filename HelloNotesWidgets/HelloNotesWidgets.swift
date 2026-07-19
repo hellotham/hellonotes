@@ -2,85 +2,84 @@
 //  HelloNotesWidgets.swift
 //  HelloNotesWidgets
 //
-//  Created by Chris Tham on 19/7/2026.
+//  Recent-notes widget. Reads the App Group snapshot the app writes on each
+//  note change; each row deep-links to its note via the `hellonotes://` scheme.
 //
 
 import WidgetKit
 import SwiftUI
 
-struct Provider: TimelineProvider {
-    func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(date: Date(), emoji: "😀")
-    }
-
-    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
-        let entry = SimpleEntry(date: Date(), emoji: "😀")
-        completion(entry)
-    }
-
-    func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> ()) {
-        var entries: [SimpleEntry] = []
-
-        // Generate a timeline consisting of five entries an hour apart, starting from the current date.
-        let currentDate = Date()
-        for hourOffset in 0 ..< 5 {
-            let entryDate = Calendar.current.date(byAdding: .hour, value: hourOffset, to: currentDate)!
-            let entry = SimpleEntry(date: entryDate, emoji: "😀")
-            entries.append(entry)
-        }
-
-        let timeline = Timeline(entries: entries, policy: .atEnd)
-        completion(timeline)
-    }
-
-//    func relevances() async -> WidgetRelevances<Void> {
-//        // Generate a list containing the contexts this widget is relevant in.
-//    }
-}
-
-struct SimpleEntry: TimelineEntry {
+struct RecentsEntry: TimelineEntry {
     let date: Date
-    let emoji: String
+    let snapshot: WidgetSnapshot
 }
 
-struct HelloNotesWidgetsEntryView : View {
+struct Provider: TimelineProvider {
+    func placeholder(in context: Context) -> RecentsEntry {
+        RecentsEntry(date: .now, snapshot: .empty)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (RecentsEntry) -> Void) {
+        completion(RecentsEntry(date: .now, snapshot: WidgetSnapshot.load()))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<RecentsEntry>) -> Void) {
+        // The app calls WidgetCenter.reloadAllTimelines() on change, so the
+        // hourly refresh is only a safety net.
+        let entry = RecentsEntry(date: .now, snapshot: WidgetSnapshot.load())
+        completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(3600))))
+    }
+}
+
+struct HelloNotesWidgetsEntryView: View {
+    @Environment(\.widgetFamily) private var family
     var entry: Provider.Entry
 
-    var body: some View {
-        VStack {
-            HStack {
-                Text("Time:")
-                Text(entry.date, style: .time)
-            }
-
-            Text("Emoji:")
-            Text(entry.emoji)
+    private var rowCount: Int {
+        switch family {
+        case .systemSmall: 3
+        case .systemMedium: 4
+        default: 8
         }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: family == .systemSmall ? 4 : 6) {
+            Label("Recent Notes", systemImage: "note.text")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if entry.snapshot.recents.isEmpty {
+                Spacer()
+                Text("Open a collection in HelloNotes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            } else {
+                ForEach(entry.snapshot.recents.prefix(rowCount)) { item in
+                    Link(destination: item.deepLink) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc.text").font(.caption2).foregroundStyle(.tint)
+                            Text(item.title).font(.footnote).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .containerBackground(.fill.tertiary, for: .widget)
     }
 }
 
 struct HelloNotesWidgets: Widget {
-    let kind: String = "HelloNotesWidgets"
+    let kind = "HelloNotesRecents"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: Provider()) { entry in
-            if #available(macOS 14.0, iOS 17.0, *) {
-                HelloNotesWidgetsEntryView(entry: entry)
-                    .containerBackground(.fill.tertiary, for: .widget)
-            } else {
-                HelloNotesWidgetsEntryView(entry: entry)
-                    .padding()
-                    .background()
-            }
+            HelloNotesWidgetsEntryView(entry: entry)
         }
-        .configurationDisplayName("My Widget")
-        .description("This is an example widget.")
+        .configurationDisplayName("Recent Notes")
+        .description("Your most recently edited HelloNotes notes.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
-}
-
-#Preview(as: .systemSmall) {
-    HelloNotesWidgets()
-} timeline: {
-    SimpleEntry(date: .now, emoji: "😀")
-    SimpleEntry(date: .now, emoji: "🤩")
 }

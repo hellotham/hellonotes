@@ -346,6 +346,7 @@ struct MacContentView: View {
         .onChange(of: library.allNotes) { _, notes in
             tabs.prune(keeping: Set(notes.map(\.id)))
             revalidateSelection()
+            library.writeWidgetSnapshot()   // refresh the recent-notes widget
         }
         .onChange(of: searchText) { _, q in scheduleSearch(q) }
         .onChange(of: router.pendingSearch) { _, query in

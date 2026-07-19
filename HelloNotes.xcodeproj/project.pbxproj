@@ -24,12 +24,12 @@
 		87E4E468300C9E7400F6586B /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E467300C9E7400F6586B /* Quartz.framework */; platformFilters = (macos, ); };
 		87E4E474300C9E7400F6586B /* HelloNotesPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E466300C9E7400F6586B /* HelloNotesPreview.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		87E4E47F300C9F9E00F6586B /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E47E300C9F9E00F6586B /* QuickLook.framework */; };
-		87E4E48B300C9F9E00F6586B /* HelloNotesPreview-iOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E47D300C9F9E00F6586B /* HelloNotesPreview-iOS.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		87E4E48B300C9F9E00F6586B /* HelloNotesPreview-iOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E47D300C9F9E00F6586B /* HelloNotesPreview-iOS.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		87E4E496300C9FEF00F6586B /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E495300C9FEF00F6586B /* QuickLookThumbnailing.framework */; };
 		87E4E497300C9FEF00F6586B /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E467300C9E7400F6586B /* Quartz.framework */; platformFilters = (macos, ); };
 		87E4E49E300C9FEF00F6586B /* HelloNotesThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E494300C9FEF00F6586B /* HelloNotesThumbnail.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		87E4E4A8300CA03B00F6586B /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E495300C9FEF00F6586B /* QuickLookThumbnailing.framework */; };
-		87E4E4AF300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E4A7300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		87E4E4AF300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 87E4E4A7300CA03B00F6586B /* HelloNotesThumbnail-iOS.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		87ED170000000000000000A1 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B1 /* MarkdownCore */; };
 		87ED170000000000000000A2 /* MarkdownEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B2 /* MarkdownEditor */; };
 		87ED170000000000000000A3 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = 87ED170000000000000000B3 /* Highlighter */; };
