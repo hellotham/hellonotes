@@ -461,6 +461,16 @@ A full review against Apple's HIG, then the fixes applied (both platforms build 
 - **iOS custom accent color**: added the `ColorPicker` the macOS Appearance tab already had,
   so iOS is no longer limited to the ten preset swatches.
 
+### Native sidebar styling
+- **macOS sidebar** was a hand-built `VStack` of buttons; restructured into a `List(.sidebar)`
+  — collection actions, **Bookmarks**, and **Tags** as proper `Section`s with native headers —
+  keeping the prominent **Open…** action and the **Git** panel as chrome above/below the list.
+  Verified live: renders as a native source list, action rows work (created + trashed a scratch
+  note to confirm).
+- **iOS sidebar** now uses `.listStyle(.sidebar)` for the standard inset/grouped source-list
+  look. Verified on the iPad simulator — the **Collections** section header and inset rows show
+  the native sidebar treatment.
+
 ### First-run onboarding
 - **`WelcomeView`** — a one-time welcome sheet shared verbatim by macOS and iOS. A brand-new
   install (empty library, nothing to restore) now meets a branded sheet — wordmark, tagline,
@@ -477,5 +487,3 @@ A full review against Apple's HIG, then the fixes applied (both platforms build 
 - **Editor Dynamic Type**: the note editor deliberately uses its own text-scale control
   (Appearance ▸ Text size) rather than system Dynamic Type — the iOS settings footer says so
   explicitly, and honoring both at once would fight the TextKit chrome layout. Left by design.
-- **Sidebar `List(.sidebar)` restyle / custom tab-bar affordances**: visual redesigns that
-  need on-device judgement, not blind code edits — deferred.
