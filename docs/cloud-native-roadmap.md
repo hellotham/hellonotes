@@ -4,7 +4,7 @@
 a whole vault to a local folder. Covers Box, Dropbox, OneDrive (personal + business),
 Google Drive, and iCloud Drive.*
 
-Status: **planning / backlog** (nothing here is implemented yet). Written 2026-07-20.
+Status: **Phase 0 shipped & live-verified** (2026-07-20); Phases 1–4 are backlog. Written 2026-07-20.
 
 ---
 
@@ -21,11 +21,13 @@ Status: **planning / backlog** (nothing here is implemented yet). Written 2026-0
 - **Our architecture already fits option 1.** "The local file system directory is the
   absolute source of truth" (CLAUDE.md) is *exactly* what File Provider gives us —
   `~/Library/CloudStorage/…` is a real local path. No CoreData rethink needed.
-- **But we are not cloud-safe today.** The app uses `NSFileCoordinator` **nowhere**; every
-  read is `String(contentsOf:)` and every write is `.write(to:.atomic)`. Reading a
-  *dataless* File-Provider file without coordination fails with **`EDEADLK` (errno 35)** —
-  the documented failure mode. And the search index + backlink graph read **every** note
-  body eagerly, which would **force-download the entire vault** on first open.
+- **Phase 0 (coordinated I/O) is now done.** Previously the app used `NSFileCoordinator`
+  **nowhere** — every read was `String(contentsOf:)`, every write `.write(to:.atomic)` —
+  so reading a *dataless* File-Provider file would fail with **`EDEADLK` (errno 35)**. All
+  vault reads/writes now go through `Core/FileIO.swift` (coordinated), verified live on a
+  real iCloud/File-Provider vault. **Still open:** the search index + backlink graph read
+  **every** note body eagerly, which would **force-download the entire vault** on first open
+  — that's Phase 1.
 - **Recommendation:** ship option 1 in phases (it also hardens iCloud Drive, which
   is already File-Provider-backed). Treat option 2 as a later, *selective* add — at most one
   provider (e.g. Dropbox) — only if "requires the provider's app installed" proves too
@@ -122,26 +124,28 @@ requirement is a real adoption blocker.
 
 ## 4. Phased plan for this codebase (Strategy A)
 
-### Phase 0 — Coordinated I/O foundation *(mandatory; also fixes iCloud)*
-Single most important change. Route **all** note content reads and writes through
-`NSFileCoordinator`, and treat dataless files as first-class.
+### Phase 0 — Coordinated I/O foundation ✅ **shipped** *(commit: coordinated I/O for vault reads/writes)*
+The single most important change. All **vault** note reads/writes now route through
+`NSFileCoordinator`, so dataless files materialize on read instead of failing with `EDEADLK`;
+for local files it's a no-op.
 
-- Add a small `FileAccess` helper:
-  - `read(_ url) -> String` via `NSFileCoordinator.coordinate(readingItemAt:options:[])`
-    (the coordinated read materializes on demand; fixes `EDEADLK`).
-  - `write(_ text, to url)` via `coordinate(writingItemAt:options:.forReplacing)` (keeps the
-    atomic-rename semantics we rely on, but coordinated so uploads are triggered correctly).
-  - `isDataless(_ url) -> Bool` and `downloadingStatus(_ url)` from `URLResourceValues`
-    (`.ubiquitousItemDownloadingStatusKey`, `.isUbiquitousItemKey`).
-- Replace the raw calls (grep found ~30): `EditorModel` open/save
-  (`State/EditorModel.swift:89,117,193`), `Collection` reads/writes
-  (`State/Collection.swift:230,471,478,513,526,528`), rename rewrite
-  (`MacContentView.swift:1132`), template expand, `LinkGraph`, `CollectionSearchModel`,
-  `LibraryChatView`, `AgentTool`/`CollectionTools`, `FileViewerView`,
-  `CollectionEmbedProvider`, `GFMPage`.
-- Interaction with `EditorModel`'s existing serialized-write chain and conflict banner: keep
-  them; the coordinator wraps the actual disk touch. Coordinated writes also make our
-  file-watcher "own-write" suppression more reliable.
+- Added `Core/FileIO.swift`: `readData` / `readString` (coordinated read, materializes on
+  demand), `write` (coordinated atomic replace), `create` (coordinated `withoutOverwriting`).
+- Migrated every vault read/write: `EditorModel` open/reconcile/save, `Collection`
+  (index refresh, create, rename-link rewrite, daily-note create, append),
+  `CollectionSearchModel` + `LinkGraph` (indexing), `MacContentView` (mentions, link-mention,
+  template insert), `LibraryChatView`, `FileViewerView`, `CollectionEmbedProvider`,
+  `AuxiliaryWindows`, `AgentTool`, `CollectionTools`, `ImagePaste`, `EditorExport`.
+  App-private files (index cache, chat transcripts, widget snapshot) intentionally keep
+  direct writes — they never live in a cloud folder. (`GFMPage` reads a *bundle* resource,
+  also left as-is.)
+- Hardening: `writeWidgetSnapshot()`'s file write moved off the main actor — a synchronous
+  main-thread write hangs the whole UI when a volume stalls (the exact cloud failure mode).
+- **Verified live on a real iCloud/File-Provider vault** (2,019 notes): open + read a note
+  (body + backlinks/mentions), create a note, autosave (bytes confirmed on disk), delete —
+  no hangs, no `EDEADLK`.
+- *Not yet done here (moved to Phase 1):* `isDataless` / download-status helpers on
+  `URLResourceValues`. Phase 0 makes I/O *correct*; Phase 1 makes indexing *download-aware*.
 
 ### Phase 1 — Dataless-aware indexing & open *(don't download the whole vault)*
 Today `CollectionSearchModel.refresh` and `LinkGraph.rebuild` read **every** note body →
