@@ -187,6 +187,7 @@ struct iOSContentView: View {
                 }
             }
         }
+        .listStyle(.sidebar)   // native inset/grouped source-list appearance (esp. iPad)
         .navigationTitle("Library")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

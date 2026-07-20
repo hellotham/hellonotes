@@ -636,7 +636,8 @@ struct MacContentView: View {
     // MARK: - Column 1: Sidebar
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 0) {
+            // Primary action stays a prominent button above the source list.
             Button {
                 showLauncher = true
             } label: {
@@ -646,75 +647,72 @@ struct MacContentView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .help("Recents, Obsidian vaults, libraries, clone, or a new repository")
+            .padding([.horizontal, .top], 10)
+            .padding(.bottom, 6)
 
-            if let focused {
-                Text(focused.name)
-                    .font(.headline)
-                Text("\(focused.notes.count) notes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Button { newNote() } label: {
-                    Label("New Note", systemImage: "square.and.pencil")
-                }
-
-                Button { openTodaysNote() } label: {
-                    Label("Today's Note", systemImage: "calendar")
-                }
-
-                Button { openWindow(id: "graph") } label: {
-                    Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
-                }
-                .disabled(focused.notes.isEmpty)
-                .popoverTip(GraphTip())
-
-                Button { openWindow(id: "askLibrary") } label: {
-                    Label("Ask Library", systemImage: "sparkles.rectangle.stack")
-                }
-                .disabled(library.allNotes.isEmpty)
-
-                Button { openWindow(id: "assistant") } label: {
-                    Label("Assistant", systemImage: "sparkles")
-                }
-
-                let bookmarked = focused.bookmarks.bookmarkedNotes(from: focused.notes)
-                if !bookmarked.isEmpty {
-                    Divider()
-                    Text("BOOKMARKS")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    ForEach(bookmarked) { note in
-                        Button {
-                            selectedTag = nil
-                            searchText = ""
-                            selectedNoteID = note.id
-                        } label: {
-                            Label(note.title, systemImage: "bookmark.fill")
-                                .lineLimit(1)
-                                .foregroundStyle(selectedNoteID == note.id
-                                    ? AnyShapeStyle(appearance.accentText ?? Color.accentColor)
-                                    : AnyShapeStyle(.primary))
+            // The navigational content as a native macOS source list.
+            List {
+                if let focused {
+                    Section {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(focused.name).font(.headline)
+                            Text("\(focused.notes.count) notes")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
                     }
-                }
 
-                let tags = focused.search.allTags()
-                if !tags.isEmpty {
-                    Divider()
-
-                    Button { selectedTag = nil } label: {
-                        Label("All Notes", systemImage: "tray.full")
-                            .fontWeight(selectedTag == nil ? .semibold : .regular)
+                    Section {
+                        Button { newNote() } label: {
+                            Label("New Note", systemImage: "square.and.pencil")
+                        }
+                        Button { openTodaysNote() } label: {
+                            Label("Today's Note", systemImage: "calendar")
+                        }
+                        Button { openWindow(id: "graph") } label: {
+                            Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
+                        }
+                        .disabled(focused.notes.isEmpty)
+                        .popoverTip(GraphTip())
+                        Button { openWindow(id: "askLibrary") } label: {
+                            Label("Ask Library", systemImage: "sparkles.rectangle.stack")
+                        }
+                        .disabled(library.allNotes.isEmpty)
+                        Button { openWindow(id: "assistant") } label: {
+                            Label("Assistant", systemImage: "sparkles")
+                        }
                     }
                     .buttonStyle(.plain)
 
-                    Text("TAGS")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    let bookmarked = focused.bookmarks.bookmarkedNotes(from: focused.notes)
+                    if !bookmarked.isEmpty {
+                        Section("Bookmarks") {
+                            ForEach(bookmarked) { note in
+                                Button {
+                                    selectedTag = nil
+                                    searchText = ""
+                                    selectedNoteID = note.id
+                                } label: {
+                                    Label(note.title, systemImage: "bookmark.fill")
+                                        .lineLimit(1)
+                                        .foregroundStyle(selectedNoteID == note.id
+                                            ? AnyShapeStyle(appearance.accentText ?? Color.accentColor)
+                                            : AnyShapeStyle(.primary))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
 
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 4) {
+                    let tags = focused.search.allTags()
+                    if !tags.isEmpty {
+                        Section("Tags") {
+                            Button { selectedTag = nil } label: {
+                                Label("All Notes", systemImage: "tray.full")
+                                    .fontWeight(selectedTag == nil ? .semibold : .regular)
+                            }
+                            .buttonStyle(.plain)
+
                             ForEach(focused.search.tagTree()) { node in
                                 TagTreeRow(node: node, selectedTag: selectedTag,
                                            selectedColor: appearance.accentText ?? .accentColor) { tag in
@@ -726,14 +724,16 @@ struct MacContentView: View {
                     }
                 }
             }
-
-            Spacer()
+            .listStyle(.sidebar)
 
             if focused != nil {
-                gitSection
+                VStack(alignment: .leading, spacing: 8) {
+                    gitSection
+                }
+                .padding([.horizontal, .bottom], 10)
+                .padding(.top, 6)
             }
         }
-        .padding()
         .navigationTitle("HelloNotes")
         .navigationSplitViewColumnWidth(min: 200, ideal: 220)
     }
