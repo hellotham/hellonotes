@@ -435,6 +435,12 @@ A full review against Apple's HIG, then the fixes applied (both platforms build 
   read or copy.
 - **Empty-collection state**: when the open library has no notes, the note list shows a
   "No Notes" `ContentUnavailableView` with a **New Note** action instead of a blank pane.
+- **Cancelable clone**: a clone can run for minutes, so the Clone sheet now shows a **Stop**
+  button while busy. `GitService.cloneRepository` runs on a retained cancellable handle and
+  forwards cancellation into the detached libgit2 clone (`withTaskCancellationHandler` →
+  `inner.cancel()`); SwiftGitX's transfer-progress callback then aborts the fetch and the op
+  reports "Clone cancelled." and cleans up the partial checkout. Scoped to clone (the
+  dominant long op); push/fetch stay on the shared short-lived runner.
 
 ### Accessibility
 - **VoiceOver Headings rotor on iOS** (`UIAccessibilityCustomRotor(systemType: .heading)`
