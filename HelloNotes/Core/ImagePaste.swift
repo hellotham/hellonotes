@@ -36,7 +36,7 @@ enum ImagePaste {
         }
 
         do {
-            try pngData.write(to: candidate)
+            try FileIO.create(pngData, at: candidate)
         } catch {
             return nil
         }

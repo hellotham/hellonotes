@@ -217,7 +217,7 @@ struct MindMapWindowView: View {
         .task(id: rootURL) {
             let url = rootURL
             text = await Task.detached(priority: .userInitiated) {
-                try? String(contentsOf: url, encoding: .utf8)
+                try? FileIO.readString(at: url)
             }.value
         }
     }

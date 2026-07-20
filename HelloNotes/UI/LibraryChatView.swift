@@ -103,7 +103,7 @@ struct LibraryChatView: View {
             let context = await Task.detached(priority: .userInitiated) {
                 retrieved.map { note in
                     (title: note.title,
-                     text: (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? "")
+                     text: (try? FileIO.readString(at: note.fileURL)) ?? "")
                 }
             }.value
             do {
@@ -147,7 +147,7 @@ struct LibraryChatView: View {
         let candidates = notes
         let scored = await Task.detached(priority: .userInitiated) { () -> [(Note, Int)] in
             candidates.compactMap { note in
-                guard let text = (try? String(contentsOf: note.fileURL, encoding: .utf8))?.lowercased()
+                guard let text = (try? FileIO.readString(at: note.fileURL))?.lowercased()
                 else { return nil }
                 let score = keywords.reduce(0) { acc, kw in
                     acc + max(0, text.components(separatedBy: kw).count - 1)

@@ -227,7 +227,7 @@ final class Collection: Identifiable {
                     let rel = CollectionIndexCache.relativePath(of: note.fileURL, in: root)
                     if let record = cached[rel], record.matches(note) {
                         pairs.append((note, record))
-                    } else if let text = try? String(contentsOf: note.fileURL, encoding: .utf8) {
+                    } else if let text = try? FileIO.readString(at: note.fileURL) {
                         pairs.append((note, CollectionIndexCache.record(for: note, relativeTo: root, text: text)))
                         reparsed += 1
                     }
@@ -376,7 +376,7 @@ final class Collection: Identifiable {
         }
 
         do {
-            try Data().write(to: candidate, options: .withoutOverwriting)
+            try FileIO.create(Data(), at: candidate)
         } catch {
             report("Couldn't create the note: \(error.localizedDescription)")
             return nil
@@ -468,14 +468,14 @@ final class Collection: Identifiable {
             var written: [URL] = []
             var failed: [String] = []
             for url in urls {
-                guard let text = try? String(contentsOf: url, encoding: .utf8),
+                guard let text = try? FileIO.readString(at: url),
                       text.contains("[[") else { continue }
                 let range = NSRange(text.startIndex..., in: text)
                 guard regex.firstMatch(in: text, options: [], range: range) != nil else { continue }
                 let updated = regex.stringByReplacingMatches(in: text, options: [], range: range,
                                                              withTemplate: template)
                 do {
-                    try Data(updated.utf8).write(to: url, options: .atomic)
+                    try FileIO.write(Data(updated.utf8), to: url)
                     written.append(url)
                 } catch {
                     failed.append(url.lastPathComponent)
@@ -510,7 +510,7 @@ final class Collection: Identifiable {
         if !fileManager.fileExists(atPath: url.path) {
             try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             do {
-                try Data(content().utf8).write(to: url, options: .withoutOverwriting)
+                try FileIO.create(Data(content().utf8), at: url)
             } catch {
                 report("Couldn't create “\(relativePath)”: \(error.localizedDescription)")
                 return nil
@@ -523,9 +523,9 @@ final class Collection: Identifiable {
 
     /// Append `text` to a note's file on disk (quick-capture / daily-note intents).
     func append(_ text: String, to note: Note) async {
-        guard let existing = try? String(contentsOf: note.fileURL, encoding: .utf8) else { return }
+        guard let existing = try? FileIO.readString(at: note.fileURL) else { return }
         let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
-        do { try Data((existing + separator + text).utf8).write(to: note.fileURL, options: .atomic) }
+        do { try FileIO.write(Data((existing + separator + text).utf8), to: note.fileURL) }
         catch { report("Couldn't append to “\(note.title)”: \(error.localizedDescription)"); return }
         #if os(macOS)
         recentSelfWrites[Self.normalize(note.fileURL.path)] = Date()

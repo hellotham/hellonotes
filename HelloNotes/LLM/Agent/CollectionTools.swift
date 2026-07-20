@@ -164,7 +164,7 @@ struct CreateNoteTool: AgentTool {
 
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            try Data(content.utf8).write(to: url, options: .withoutOverwriting)
+            try FileIO.create(Data(content.utf8), at: url)
         } catch {
             throw ToolError.failed("Couldn't create the note: \(error.localizedDescription)")
         }
@@ -223,7 +223,7 @@ struct EditNoteTool: AgentTool {
         )
         guard ok else { throw ToolError.declined }
 
-        do { try Data(after.utf8).write(to: note.fileURL, options: .atomic) }
+        do { try FileIO.write(Data(after.utf8), to: note.fileURL) }
         catch { throw ToolError.failed("Couldn't write the note: \(error.localizedDescription)") }
         await context.refreshAfterMutation()
         await context.commit("assistant: edit \(rel)")
@@ -264,7 +264,7 @@ struct WriteNoteTool: AgentTool {
         )
         guard ok else { throw ToolError.declined }
 
-        do { try Data(content.utf8).write(to: note.fileURL, options: .atomic) }
+        do { try FileIO.write(Data(content.utf8), to: note.fileURL) }
         catch { throw ToolError.failed("Couldn't write the note: \(error.localizedDescription)") }
         await context.refreshAfterMutation()
         await context.commit("assistant: rewrite \(rel)")

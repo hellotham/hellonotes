@@ -277,7 +277,7 @@ struct MacContentView: View {
 
         let mentions = await Task.detached(priority: .userInitiated) { () -> [Note] in
             candidates.compactMap { candidate in
-                guard let text = try? String(contentsOf: candidate.fileURL, encoding: .utf8),
+                guard let text = try? FileIO.readString(at: candidate.fileURL),
                       MentionScanner.containsMention(of: names, in: text) else { return nil }
                 return candidate
             }
@@ -1129,9 +1129,9 @@ struct MacContentView: View {
     /// into a `[[link]]`, writing the change to disk and re-indexing.
     private func linkMention(_ note: Note) {
         guard let target = selectedNote, let c = editorCollection,
-              let text = try? String(contentsOf: note.fileURL, encoding: .utf8),
+              let text = try? FileIO.readString(at: note.fileURL),
               let updated = MentionScanner.linkingFirstMention(of: target.title, in: text) else { return }
-        try? Data(updated.utf8).write(to: note.fileURL, options: .atomic)
+        try? FileIO.write(Data(updated.utf8), to: note.fileURL)
         // The note set is unchanged (only one note's content), so no re-scan:
         // patch the index incrementally and suppress the watcher for our write.
         c.noteDidSave(note.fileURL, text: updated)
@@ -1170,7 +1170,7 @@ struct MacContentView: View {
     /// Append a template's expanded contents to the active note.
     private func insertTemplate(_ template: Note) {
         guard let editor = activeEditor,
-              let raw = try? String(contentsOf: template.fileURL, encoding: .utf8) else { return }
+              let raw = try? FileIO.readString(at: template.fileURL) else { return }
         let expanded = TemplateExpander.expand(raw, title: editor.note?.title ?? "", date: .now)
         editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
     }

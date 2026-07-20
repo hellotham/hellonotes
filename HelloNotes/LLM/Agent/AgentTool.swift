@@ -73,7 +73,7 @@ struct ToolContext {
     }
 
     func readContents(of note: Note) -> String {
-        (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? ""
+        (try? FileIO.readString(at: note.fileURL)) ?? ""
     }
 
     /// Re-index the collection after a mutation and refresh search + git status.

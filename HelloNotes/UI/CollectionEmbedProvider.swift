@@ -56,7 +56,7 @@ final class CollectionEmbedProvider: @unchecked Sendable {
         if let cached = cache[key] { lock.unlock(); return cached }
         lock.unlock()
 
-        guard let markdown = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        guard let markdown = try? FileIO.readString(at: url) else { return nil }
         let sectioned = NoteTranscluder.section(heading, from: markdown)
         let title = heading.map { "\(base) › \($0)" } ?? base
         guard let image = NoteTranscluder.image(markdown: sectioned, title: title, isDark: isDark) else { return nil }

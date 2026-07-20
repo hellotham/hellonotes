@@ -44,7 +44,7 @@ final class SkillStore {
     }
 
     private static func parse(_ url: URL) -> Skill? {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        guard let text = try? FileIO.readString(at: url) else { return nil }
         var name = url.deletingLastPathComponent().lastPathComponent
         var description = ""
         var body = text

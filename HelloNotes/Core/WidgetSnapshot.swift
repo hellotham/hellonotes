@@ -61,9 +61,15 @@ extension Library {
                                       focusedCollection: focused?.rootURL.lastPathComponent,
                                       generatedAt: Date())
         guard let url = AppGroup.snapshotURL, let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: url, options: .atomic)
-        #if canImport(WidgetKit)
-        WidgetCenter.shared.reloadAllTimelines()
-        #endif
+        // Write off the main actor. A synchronous file write can block when the
+        // target volume stalls (a wedged container, a slow network mount) — on
+        // the main thread that would hang the whole UI. Encoding above is cheap
+        // main-actor metadata; only the blocking write moves off.
+        Task.detached(priority: .utility) {
+            try? data.write(to: url, options: .atomic)
+            #if canImport(WidgetKit)
+            WidgetCenter.shared.reloadAllTimelines()
+            #endif
+        }
     }
 }

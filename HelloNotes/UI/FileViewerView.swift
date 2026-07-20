@@ -138,7 +138,7 @@ private struct CSVTableView: View {
 
     private func load() {
         rows = []; truncated = false; error = nil
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+        guard let text = try? FileIO.readString(at: url) else {
             error = "The file isn't valid UTF-8 text."
             return
         }

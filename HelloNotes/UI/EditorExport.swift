@@ -63,7 +63,7 @@ enum EditorExport {
         panel.allowedContentTypes = [type]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try data.write(to: url, options: .atomic)
+            try FileIO.write(data, to: url)   // coordinated: the export target may be a cloud folder
         } catch {
             presentError("HelloNotes couldn't write “\(url.lastPathComponent)”: \(error.localizedDescription)")
         }

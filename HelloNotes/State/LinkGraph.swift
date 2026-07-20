@@ -39,7 +39,7 @@ final class LinkGraph {
                     guard let shared = sharedTexts[url] else { continue }
                     text = shared
                 } else {
-                    guard let read = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                    guard let read = try? FileIO.readString(at: url) else { continue }
                     text = read
                 }
                 loaded.append((url, text))

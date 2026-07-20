@@ -86,7 +86,7 @@ final class EditorModel {
         if let url = note?.fileURL {
             // Read off the main actor so opening a large note never stalls the UI.
             loaded = await Task.detached(priority: .userInitiated) {
-                (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+                (try? FileIO.readString(at: url)) ?? ""
             }.value
         } else {
             loaded = ""
@@ -114,7 +114,7 @@ final class EditorModel {
         // Read off the main actor — an externally-changed large note shouldn't
         // stall the UI during reconciliation.
         guard let disk = await Task.detached(priority: .userInitiated, operation: {
-            try? String(contentsOf: url, encoding: .utf8)
+            try? FileIO.readString(at: url)
         }).value else { return }
 
         // Matches what we last wrote (includes our own saves) → nothing to do.
@@ -190,7 +190,7 @@ final class EditorModel {
             // leave a truncated note on disk. Offloaded so large notes don't
             // stall the main actor.
             try await Task.detached(priority: .utility) {
-                try data.write(to: url, options: .atomic)
+                try FileIO.write(data, to: url)
             }.value
             lastSavedText = snapshot
             isDirty = (text != lastSavedText)
