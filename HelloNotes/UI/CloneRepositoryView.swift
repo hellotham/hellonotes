@@ -144,13 +144,19 @@ struct CloneRepositoryView: View {
                     .lineLimit(4).textSelection(.enabled).help(error)
             }
             Spacer()
-            Button {
-                clone()
-            } label: {
-                Label("Clone…", systemImage: "arrow.down.circle")
+            if git.isBusy {
+                // A real cancel: libgit2 aborts the transfer at its next progress
+                // tick (SwiftGitX's callback honours Task.isCancelled).
+                Button("Stop", role: .cancel) { git.cancelClone() }
+            } else {
+                Button {
+                    clone()
+                } label: {
+                    Label("Clone…", systemImage: "arrow.down.circle")
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(repoURL.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .keyboardShortcut(.defaultAction)
-            .disabled(repoURL.trimmingCharacters(in: .whitespaces).isEmpty || git.isBusy)
         }
         .padding()
     }

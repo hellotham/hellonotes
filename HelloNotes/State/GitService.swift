@@ -203,6 +203,11 @@ final class GitService {
     /// repository (an auto-commit can't race a user-initiated push).
     private var lastQueued: Task<Void, Never>?
 
+    /// The in-flight clone, retained so the UI can cancel it. Cancelling the
+    /// handle forwards into the detached libgit2 clone (whose transfer-progress
+    /// callback checks `Task.isCancelled` and aborts the transfer).
+    private var cloneHandle: Task<URL?, Never>?
+
     private func run(success: String, _ operation: @escaping @Sendable () async throws -> Void) async {
         let previous = lastQueued
         let task = Task { [weak self] in
@@ -430,20 +435,60 @@ final class GitService {
             return baseURL
         }()
 
-        return await runReturning {
-            do {
-                try await Task.detached(priority: .userInitiated) {
+        // A dedicated cancellable runner (rather than `runReturning`): the clone
+        // can take minutes, so the UI needs to abort it. We chain on `lastQueued`
+        // exactly like the shared runner to preserve FIFO serialization, but keep
+        // a handle so `cancelClone()` can cancel this operation specifically.
+        let previous = lastQueued
+        let handle = Task { @MainActor [self] () -> URL? in
+            await previous?.value
+            isBusy = true
+            lastError = nil
+            defer { isBusy = false }
+
+            // libgit2's clone blocks its thread, so it runs detached (off the
+            // cooperative pool). A plain detached task wouldn't inherit this
+            // task's cancellation, so forward it: cancelling `handle` fires the
+            // cancellation handler, which cancels `inner`; SwiftGitX's transfer-
+            // progress callback then sees `Task.isCancelled` and stops the fetch.
+            let inner = Task.detached(priority: .userInitiated) { () -> Result<Void, Error> in
+                do {
                     _ = try await Repository.clone(from: remoteURL, to: destination)
-                }.value
-                self.lastMessage = "Cloned “\(folderName)”"
+                    return .success(())
+                } catch {
+                    return .failure(error)
+                }
+            }
+            let result = await withTaskCancellationHandler {
+                await inner.value
+            } onCancel: {
+                inner.cancel()
+            }
+
+            switch result {
+            case .success:
+                lastMessage = "Cloned “\(folderName)”"
                 return destination
-            } catch {
-                self.lastError = Self.scrubCredentials("Clone failed: \(error)")
+            case .failure(let error):
+                if Task.isCancelled {
+                    lastError = "Clone cancelled."
+                } else {
+                    lastError = Self.scrubCredentials("Clone failed: \(error)")
+                }
                 // Best-effort cleanup of a partial checkout.
                 try? FileManager.default.removeItem(at: destination)
                 return nil
             }
         }
+        cloneHandle = handle
+        lastQueued = Task { _ = await handle.value }
+        return await handle.value
+    }
+
+    /// Cancel an in-flight clone. libgit2 stops at its next transfer-progress
+    /// tick; `cloneRepository` then returns nil with a "Clone cancelled." status.
+    func cancelClone() {
+        cloneHandle?.cancel()
     }
 }
 
