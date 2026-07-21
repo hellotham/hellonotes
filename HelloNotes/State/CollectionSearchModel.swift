@@ -63,7 +63,10 @@ final class CollectionSearchModel {
 
         let loaded = await Task.detached(priority: .utility) { () -> [(URL, [DocumentHeading], [String], [String])] in
             urls.compactMap { url in
-                guard let text = try? FileIO.readString(at: url) else { return nil }
+                // Skip online-only files so metadata indexing never downloads a
+                // whole cloud vault; they're indexed once materialized (opened).
+                guard FileIO.isMaterialized(at: url),
+                      let text = try? FileIO.readString(at: url) else { return nil }
                 let parsed = CollectionIndexCache.parse(text)
                 return (url, parsed.headings, parsed.tags, parsed.aliases)
             }
@@ -212,7 +215,11 @@ final class CollectionSearchModel {
         let found = await Task.detached(priority: .userInitiated) { () -> [(URL, String)] in
             var hits: [(URL, String)] = []
             for url in urls {
-                guard let text = try? FileIO.readString(at: url),
+                // Full-text search reads bodies; skip online-only files so a
+                // query never silently downloads the vault. Title/tag/alias
+                // search (metadata) still covers them.
+                guard FileIO.isMaterialized(at: url),
+                      let text = try? FileIO.readString(at: url),
                       let snippet = Self.snippet(of: text, matching: q) else { continue }
                 hits.append((url, snippet))
                 if hits.count >= limit { break }

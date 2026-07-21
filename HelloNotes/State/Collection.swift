@@ -227,10 +227,16 @@ final class Collection: Identifiable {
                     let rel = CollectionIndexCache.relativePath(of: note.fileURL, in: root)
                     if let record = cached[rel], record.matches(note) {
                         pairs.append((note, record))
-                    } else if let text = try? FileIO.readString(at: note.fileURL) {
+                    } else if FileIO.isMaterialized(at: note.fileURL),
+                              let text = try? FileIO.readString(at: note.fileURL) {
                         pairs.append((note, CollectionIndexCache.record(for: note, relativeTo: root, text: text)))
                         reparsed += 1
                     }
+                    // An online-only note that isn't cached is skipped rather
+                    // than downloaded: it still appears in the list (title from
+                    // its filename), and is indexed when it's opened (which
+                    // materializes it) or edited. This keeps first-open of a
+                    // cloud vault from pulling every note local.
                 }
                 // Persist when anything was re-parsed or notes were removed.
                 if reparsed > 0 || pairs.count != cached.count {

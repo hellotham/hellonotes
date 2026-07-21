@@ -62,6 +62,32 @@ enum FileIO {
         return string
     }
 
+    // MARK: - Materialization state
+
+    /// Whether the file's *content* is available locally right now — so reading
+    /// it won't trigger a cloud download.
+    ///
+    /// Returns `true` for ordinary local files and for cloud (File Provider)
+    /// files whose bytes are already downloaded. Returns `false` only when the
+    /// item is explicitly online-only (`.notDownloaded`). When the status can't
+    /// be determined (not a ubiquitous item, or a provider that doesn't report
+    /// it) we return `true` — being conservative here means we never *hide* a
+    /// file we could have read; the cost is that such providers fall back to the
+    /// pre-Phase-1 read-everything behaviour.
+    ///
+    /// The eager indexers use this to skip online-only notes rather than pull an
+    /// entire cloud vault local on first open. Reading resource values is cheap
+    /// metadata access and does not itself materialize the file.
+    static func isMaterialized(at url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [
+            .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
+        ]),
+            values.isUbiquitousItem == true,
+            let status = values.ubiquitousItemDownloadingStatus
+        else { return true }   // not a cloud item, or status unknown → treat as available
+        return status != .notDownloaded
+    }
+
     // MARK: - Writes
 
     /// Coordinated atomic *replace*. On a cloud folder this hands the new bytes

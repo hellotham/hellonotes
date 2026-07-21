@@ -61,3 +61,46 @@ struct WidgetSnapshotTests {
         #expect(decoded.focusedCollection == "V")
     }
 }
+
+/// Cloud-native I/O (Phases 0–1). The dataless/online-only path needs a real
+/// File Provider volume and can't be unit-tested, but the coordinated read/write
+/// round-trip and the critical "local files are always available" invariant are.
+struct FileIOTests {
+    private func tempURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("hn-fileio-\(UUID().uuidString).md")
+    }
+
+    @Test func coordinatedWriteThenReadRoundTrips() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileIO.write("# Hello\n\nBody with unicode: café ☕️", to: url)
+        #expect(try FileIO.readString(at: url) == "# Hello\n\nBody with unicode: café ☕️")
+    }
+
+    @Test func createRefusesToOverwrite() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileIO.create(Data("first".utf8), at: url)
+        #expect(throws: (any Error).self) { try FileIO.create(Data("second".utf8), at: url) }
+        #expect(try FileIO.readString(at: url) == "first")   // unchanged
+    }
+
+    @Test func writeReplacesExistingContent() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileIO.write("old", to: url)
+        try FileIO.write("new", to: url)
+        #expect(try FileIO.readString(at: url) == "new")
+    }
+
+    /// The no-regression invariant that Phase 1's indexing guards depend on: an
+    /// ordinary local file is never treated as online-only, so it is always
+    /// indexed (never skipped as if it were an un-downloaded cloud file).
+    @Test func localFileIsAlwaysMaterialized() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileIO.write("local", to: url)
+        #expect(FileIO.isMaterialized(at: url) == true)
+    }
+}

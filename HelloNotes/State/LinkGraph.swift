@@ -39,7 +39,9 @@ final class LinkGraph {
                     guard let shared = sharedTexts[url] else { continue }
                     text = shared
                 } else {
-                    guard let read = try? FileIO.readString(at: url) else { continue }
+                    // Skip online-only files rather than download the vault.
+                    guard FileIO.isMaterialized(at: url),
+                          let read = try? FileIO.readString(at: url) else { continue }
                     text = read
                 }
                 loaded.append((url, text))
