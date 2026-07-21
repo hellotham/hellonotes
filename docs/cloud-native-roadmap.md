@@ -4,7 +4,8 @@
 a whole vault to a local folder. Covers Box, Dropbox, OneDrive (personal + business),
 Google Drive, and iCloud Drive.*
 
-Status: **Phase 0 shipped & live-verified** (2026-07-20); Phases 1–4 are backlog. Written 2026-07-20.
+Status: **Phases 0–1 shipped** (coordinated I/O + dataless-aware indexing, 2026-07-20/21);
+Phases 2–4 are backlog. Written 2026-07-20.
 
 ---
 
@@ -25,9 +26,12 @@ Status: **Phase 0 shipped & live-verified** (2026-07-20); Phases 1–4 are backl
   **nowhere** — every read was `String(contentsOf:)`, every write `.write(to:.atomic)` —
   so reading a *dataless* File-Provider file would fail with **`EDEADLK` (errno 35)**. All
   vault reads/writes now go through `Core/FileIO.swift` (coordinated), verified live on a
-  real iCloud/File-Provider vault. **Still open:** the search index + backlink graph read
-  **every** note body eagerly, which would **force-download the entire vault** on first open
-  — that's Phase 1.
+  real iCloud/File-Provider vault.
+- **Phase 1 (dataless-aware indexing) is also done.** The eager indexers used to read
+  **every** note body, which would force-download the whole vault on first open; they now
+  skip online-only files via `FileIO.isMaterialized` (indexing them lazily once opened).
+  What's left is **UX** — Phase 2's cloud badges, download/keep-offline controls, and
+  materialize-on-open progress.
 - **Recommendation:** ship option 1 in phases (it also hardens iCloud Drive, which
   is already File-Provider-backed). Treat option 2 as a later, *selective* add — at most one
   provider (e.g. Dropbox) — only if "requires the provider's app installed" proves too
@@ -147,24 +151,32 @@ for local files it's a no-op.
 - *Not yet done here (moved to Phase 1):* `isDataless` / download-status helpers on
   `URLResourceValues`. Phase 0 makes I/O *correct*; Phase 1 makes indexing *download-aware*.
 
-### Phase 1 — Dataless-aware indexing & open *(don't download the whole vault)*
-Today `CollectionSearchModel.refresh` and `LinkGraph.rebuild` read **every** note body →
-on a cloud vault that means "download everything." Make indexing on-demand-friendly:
+### Phase 1 — Dataless-aware indexing ✅ **core shipped** *(commit: dataless-aware indexing)*
+The eager indexers used to read **every** note body → on a cloud vault that downloads the
+whole thing on first open. Fixed:
 
-- **Enumerate metadata only** (name/size/date/`isDirectory`/download-status resource keys) —
-  never read content just to list notes. The note list, titles, folder tree already work
-  from filenames; keep it that way.
-- **Index only what's local.** When building the tag/alias/heading index and backlink graph,
-  **skip non-materialized files** and rely on the persisted `CollectionIndexCache` for the
-  rest; index a file's body the first time it's materialized (on open), then cache it. Never
-  bulk-materialize to build an index.
-- **Content search** (`spotlight` wave + `contentResults`) inherently needs bodies. On a
-  cloud vault, restrict full-text search to **downloaded** files by default and offer an
-  explicit "search online files (downloads them)" action — with a clear count of what would
-  download. Title/alias/tag search stays instant (metadata only).
-- **Materialize on open, with progress.** Opening a dataless note shows a small "Downloading
-  from <provider>…" state (reuse the save-error/conflict banner pattern) driven by the
-  coordinator's `Progress`.
+- ✅ **`FileIO.isMaterialized(at:)`** — true for local + already-downloaded files, false only
+  for explicitly online-only (`.notDownloaded`) items; conservative (true) on unknown status.
+  Cheap metadata read, no download.
+- ✅ **Index only what's local.** `Collection.refreshDerived` (the primary offender — its
+  cold-cache scan read every uncached body), `CollectionSearchModel.refresh` (iOS path) and
+  `LinkGraph.rebuild` now **skip online-only, uncached notes**. They still appear in the list
+  (title from filename) and are indexed once materialized (opened) or on the next refresh
+  after download. The persisted `CollectionIndexCache` covers previously-indexed notes even
+  after eviction.
+- ✅ **Content search restricted to downloaded files** — full-text search skips online-only
+  files so a query never silently downloads the vault; title/tag/alias (metadata) search
+  still covers everything.
+- ✅ **Enumerate metadata only** — already the case (note list / titles / tree come from
+  filenames), preserved.
+- ✅ **Tests** (`FileIOTests`): coordinated round-trip, create-refuses-overwrite,
+  write-replaces, and `localFileIsAlwaysMaterialized()` (the no-skip-local invariant). 4/4.
+- ✅ **Verified:** no regression on the real vault (2,019 notes / 1,140 tags index fully);
+  `isMaterialized` reads real iCloud status correctly (`.current` → true) on a live file.
+
+**Deferred to Phase 2 (UX):** the explicit *"search online files (downloads them)"* action;
+materialize-on-open **progress UI** (the download itself already works via Phase 0's
+coordinated read — only the progress indicator is missing).
 
 ### Phase 2 — First-class "Open cloud folder" UX
 - **macOS:** the existing folder picker already reaches `~/Library/CloudStorage/…`; add a
