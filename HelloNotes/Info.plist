@@ -18,6 +18,8 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>DropboxAppKey</key>
+	<string>$(DROPBOX_APP_KEY)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>HelloNotes transcribes your voice into a note, on-device.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
