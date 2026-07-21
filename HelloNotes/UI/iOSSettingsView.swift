@@ -22,6 +22,11 @@ struct iOSSettingsView: View {
     @AppStorage("dailyDateFormat") private var dailyDateFormat = "yyyy-MM-dd"
     @AppStorage("templatesFolder") private var templatesFolder = "Templates"
 
+    @State private var showDropbox = false
+    #if DEBUG
+    @State private var showCloudDemo = false
+    #endif
+
     private let swatchAccents: [AppearanceSettings.Accent] =
         [.multicolor, .lavender, .blue, .purple, .pink, .red, .orange, .yellow, .green, .graphite]
 
@@ -88,6 +93,17 @@ struct iOSSettingsView: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 }
+
+                Section {
+                    Button("Connect Dropbox…") { showDropbox = true }
+                    #if DEBUG
+                    Button("Cloud Demo (Mock)…") { showCloudDemo = true }
+                    #endif
+                } header: {
+                    Text("Cloud (direct API)")
+                } footer: {
+                    Text("Browse and edit notes straight over a provider's API, without a sync folder. Dropbox needs an app key in Info.plist (DropboxAppKey).")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -96,6 +112,14 @@ struct iOSSettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .sheet(isPresented: $showDropbox) {
+                NavigationStack { RemoteBrowserView(store: DropboxStore()) }
+            }
+            #if DEBUG
+            .sheet(isPresented: $showCloudDemo) {
+                NavigationStack { RemoteBrowserView(store: MockRemoteStore()) }
+            }
+            #endif
         }
     }
 

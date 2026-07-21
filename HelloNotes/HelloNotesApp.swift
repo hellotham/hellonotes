@@ -98,6 +98,24 @@ struct HelloNotesApp: App {
         }
         .defaultSize(width: 560, height: 680)
 
+        // Direct-API cloud browser (Phase 4): connect a provider over REST and
+        // edit notes without a sync folder. Uses DropboxStore (needs an app key
+        // in Info.plist); a DEBUG-only demo window drives the same UI with an
+        // in-memory MockRemoteStore.
+        Window("Cloud Notes (Direct)", id: "remoteBrowser") {
+            RemoteBrowserView(store: DropboxStore())
+                .themedRoot(appearance)
+        }
+        .defaultSize(width: 480, height: 580)
+
+        #if DEBUG
+        Window("Cloud Demo", id: "remoteBrowserDemo") {
+            RemoteBrowserView(store: MockRemoteStore())
+                .themedRoot(appearance)
+        }
+        .defaultSize(width: 480, height: 580)
+        #endif
+
         WindowGroup(for: MindMapRef.self) { $ref in
             if let ref {
                 MindMapWindowView(rootURL: ref.url)

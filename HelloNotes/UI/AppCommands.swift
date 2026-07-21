@@ -138,6 +138,11 @@ struct HelloNotesCommands: Commands {
                 .disabled(actions?.note == nil)
             Button("Export as PDF…") { actions?.note?.exportPDF() }
                 .disabled(actions?.note == nil)
+            Divider()
+            Button("Connect Dropbox…") { openWindow(id: "remoteBrowser") }
+            #if DEBUG
+            Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
+            #endif
         }
 
         // MARK: File — Print (⌘P), the standard menu item a notes app must have.

@@ -107,4 +107,68 @@ struct DropboxStoreTests {
         #expect(body.contains("code=CODE"))
         #expect(body.contains("code_verifier=VER"))
     }
+
+    @Test func refreshTokenRequestIsFormEncoded() {
+        let r = DropboxStore.refreshTokenRequest(refreshToken: "RT", appKey: "KEY")
+        #expect(r.url?.absoluteString == "https://api.dropboxapi.com/oauth2/token")
+        let body = String(data: r.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("grant_type=refresh_token"))
+        #expect(body.contains("refresh_token=RT"))
+        #expect(body.contains("client_id=KEY"))
+    }
+}
+
+/// End-to-end coverage of the direct-API browse/open/edit/save flow against an
+/// in-memory store — the same protocol DropboxStore implements. Proves the UI
+/// model's wiring without a live provider.
+@MainActor
+struct RemoteBrowserModelTests {
+
+    @Test func connectListsRoot() async {
+        let model = RemoteBrowserModel(store: MockRemoteStore())
+        #expect(model.isAuthenticated == false)
+        await model.connect()
+        #expect(model.isAuthenticated)
+        #expect(model.entries.contains { $0.name == "Welcome.md" && !$0.isDirectory })
+        #expect(model.entries.contains { $0.name == "Notes" && $0.isDirectory })
+    }
+
+    @Test func navigateOpenEditSavePersists() async throws {
+        let model = RemoteBrowserModel(store: MockRemoteStore())
+        await model.connect()
+
+        // Into the "Notes" folder.
+        let notes = try #require(model.entries.first { $0.name == "Notes" })
+        await model.open(notes)
+        #expect(model.path == "/Notes")
+        #expect(model.canGoUp)
+
+        // Open a note, edit, save.
+        let idea = try #require(model.entries.first { $0.name == "Idea.md" })
+        await model.open(idea)
+        #expect(model.openPath == "/Notes/Idea.md")
+        #expect(model.openText.contains("Idea"))
+        model.openText = "# Edited\n\nnew body"
+        await model.save()
+        #expect(model.didSave)
+        #expect(model.error == nil)
+
+        // Re-open → the edit persisted through the store.
+        model.closeNote()
+        #expect(model.openPath == nil)
+        await model.open(idea)
+        #expect(model.openText == "# Edited\n\nnew body")
+
+        // Back up to root.
+        await model.goUp()
+        #expect(model.path == "")
+        #expect(!model.canGoUp)
+    }
+
+    @Test func listBeforeAuthSurfacesError() async {
+        let model = RemoteBrowserModel(store: MockRemoteStore())
+        await model.load("")   // not connected yet
+        #expect(model.entries.isEmpty)
+        #expect(model.error != nil)
+    }
 }

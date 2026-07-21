@@ -32,6 +32,7 @@ import UIKit
 final class DropboxStore: NSObject, RemoteStore {
     let providerName = "Dropbox"
     private static let tokenAccount = "dropbox"
+    private static let refreshAccount = "dropbox-refresh"
 
     /// The Dropbox app key, from Info.plist. Empty until the user configures one.
     private var appKey: String {
@@ -53,26 +54,55 @@ final class DropboxStore: NSObject, RemoteStore {
         return token
     }
 
-    func signOut() { RemoteTokenStore.setToken(nil, for: Self.tokenAccount) }
+    func signOut() {
+        RemoteTokenStore.setToken(nil, for: Self.tokenAccount)
+        RemoteTokenStore.setToken(nil, for: Self.refreshAccount)
+    }
 
     // MARK: - CRUD
 
     func list(path: String) async throws -> [RemoteEntry] {
-        let request = Self.listFolderRequest(path: path, token: try requireToken())
-        let data = try await send(request)
+        let data = try await sendAuthed { Self.listFolderRequest(path: path, token: $0) }
         return try Self.parseListFolder(data)
     }
 
     func read(path: String) async throws -> Data {
-        try await send(Self.downloadRequest(path: path, token: try requireToken()))
+        try await sendAuthed { Self.downloadRequest(path: path, token: $0) }
     }
 
     func write(_ data: Data, to path: String) async throws {
-        _ = try await send(Self.uploadRequest(path: path, token: try requireToken(), data: data))
+        _ = try await sendAuthed { Self.uploadRequest(path: path, token: $0, data: data) }
     }
 
     func delete(path: String) async throws {
-        _ = try await send(Self.deleteRequest(path: path, token: try requireToken()))
+        _ = try await sendAuthed { Self.deleteRequest(path: path, token: $0) }
+    }
+
+    /// Send an authenticated request; on a 401 (expired access token) refresh
+    /// once with the stored refresh token and retry, so sessions survive the
+    /// ~4-hour access-token lifetime without re-prompting the user.
+    private func sendAuthed(_ make: (String) -> URLRequest) async throws -> Data {
+        let token = try requireToken()
+        do {
+            return try await send(make(token))
+        } catch RemoteStoreError.http(401, _) {
+            let refreshed = try await refreshAccessToken()
+            return try await send(make(refreshed))
+        }
+    }
+
+    /// Exchange the stored refresh token for a fresh access token.
+    private func refreshAccessToken() async throws -> String {
+        guard let refresh = RemoteTokenStore.token(for: Self.refreshAccount) else {
+            throw RemoteStoreError.notAuthenticated
+        }
+        let data = try await send(Self.refreshTokenRequest(refreshToken: refresh, appKey: appKey))
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let access = json["access_token"] as? String else {
+            throw RemoteStoreError.decoding("token refresh")
+        }
+        RemoteTokenStore.setToken(access, for: Self.tokenAccount)
+        return access
     }
 
     /// Run a request, mapping non-2xx to `RemoteStoreError.http`.
@@ -230,6 +260,20 @@ final class DropboxStore: NSObject, RemoteStore {
         return r
     }
 
+    static func refreshTokenRequest(refreshToken: String, appKey: String) -> URLRequest {
+        var r = URLRequest(url: URL(string: "https://api.dropboxapi.com/oauth2/token")!)
+        r.httpMethod = "POST"
+        r.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        var body = URLComponents()
+        body.queryItems = [
+            .init(name: "grant_type", value: "refresh_token"),
+            .init(name: "refresh_token", value: refreshToken),
+            .init(name: "client_id", value: appKey),
+        ]
+        r.httpBody = body.percentEncodedQuery?.data(using: .utf8)
+        return r
+    }
+
     @MainActor
     func authenticate() async throws {
         let key = appKey
@@ -253,6 +297,11 @@ final class DropboxStore: NSObject, RemoteStore {
             throw RemoteStoreError.decoding("token exchange")
         }
         RemoteTokenStore.setToken(access, for: Self.tokenAccount)
+        // `token_access_type=offline` returns a refresh token too — persist it so
+        // the session survives the access token's ~4h expiry.
+        if let refresh = json["refresh_token"] as? String {
+            RemoteTokenStore.setToken(refresh, for: Self.refreshAccount)
+        }
         #else
         throw RemoteStoreError.notConfigured("Web authentication isn't available on this platform.")
         #endif
