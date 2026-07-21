@@ -4,10 +4,11 @@
 a whole vault to a local folder. Covers Box, Dropbox, OneDrive (personal + business),
 Google Drive, and iCloud Drive.*
 
-Status: **Phases 0–3 shipped**, **Phase 4 foundation shipped** (2026-07-20/21). The
-File-Provider path (0–3) is complete and covers Box, Dropbox, OneDrive, Google Drive & iCloud;
-Phase 4 (direct Dropbox API) has a tested client, gated on a user Dropbox-app registration +
-collection wiring. Written 2026-07-20.
+Status: **All phases shipped** (2026-07-20/21). The File-Provider path (0–3) is complete and
+covers Box, Dropbox, OneDrive, Google Drive & iCloud. Phase 4 (direct Dropbox API) is wired
+into a working "Connect Dropbox" browse/edit/save UI and live-verified against a mock store;
+the only remaining step is a user Dropbox-app registration (the App key), which I can't create.
+Written 2026-07-20.
 
 ---
 
@@ -207,20 +208,30 @@ coordinated read — only the progress indicator is missing).
   the trigger so a pre-existing enabled flag never fires on a cloud folder. Manual Git actions
   stay available for users who keep the folder downloaded. Uses `CloudProvider.name(for:)`.
 
-### Phase 4 — Direct-API pilot (Dropbox) ✅ **foundation shipped** *(commit: direct-API pilot)*
+### Phase 4 — Direct-API pilot (Dropbox) ✅ **wired & live-verified** *(commits: direct-API pilot; Phase 4 wired end-to-end)*
 The optional, isolated pilot — reach a cloud account directly over REST, no client installed.
+Now a working feature, not just a library.
 - ✅ **`RemoteStore`** protocol (list / read / write / delete + auth), `RemoteEntry`,
   `RemoteStoreError`, `RemoteTokenStore` (Keychain).
 - ✅ **`DropboxStore`** over the Dropbox API v2 using plain **URLSession — no SwiftyDropbox
   dependency** (nothing added to the project graph; avoids the project-regen corruption risk).
   list_folder / download / upload / delete_v2, PKCE OAuth via `ASWebAuthenticationSession`,
-  token exchange. Pure request builders + parsing are static and **unit-tested**
-  (`DropboxStoreTests`, 8 tests).
-- **Externally gated (the user's steps, not code):**
-  1. Register a Dropbox app and put its **App key** in Info.plist (`DropboxAppKey`) + register
-     the redirect `hellonotes://dropbox-auth`. (I can't create a Dropbox developer app.)
-  2. Wire a `RemoteStore` into the filesystem-based `Collection` model — a larger, separate
-     refactor. Until then `DropboxStore` is a tested, self-contained client ready to adopt.
+  token exchange, **and refresh tokens** (persists past the ~4h access-token expiry).
+- ✅ **`RemoteBrowserView` / `RemoteBrowserModel`** — sign in, browse folders, open/edit/save a
+  note over the API. Reachable from macOS **File ▸ Connect Dropbox…** (window) and iOS
+  **Settings ▸ Cloud (direct API)** (sheet). Works against any `RemoteStore`.
+- ✅ **`MockRemoteStore`** drives the same UI for a DEBUG "Cloud Demo" entry + tests.
+- ✅ **Tested** (12 tests): request/parse/PKCE/refresh + the full connect → navigate → open →
+  edit → save-persists round-trip. **Live-verified** (macOS, mock store): the whole loop, incl.
+  persistence after close/reopen. (Live testing also caught + fixed a real `@Observable`
+  auth-state bug that would have broken the real Dropbox flow.)
+- **The one remaining user step** (genuinely external — I can't create a Dropbox developer
+  account): register a Dropbox app, put its **App key** in Info.plist (`DropboxAppKey`), and add
+  the redirect `hellonotes://dropbox-auth`. With that key, the identical, verified flow runs
+  against real Dropbox.
+- *Optional future:* promote a `RemoteStore` to a first-class **collection** in the sidebar
+  (a larger refactor of the filesystem-based `Collection`). Not needed for the pilot — the
+  browser already delivers direct-API editing.
 
 ---
 
