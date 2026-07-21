@@ -234,9 +234,13 @@ Now a working feature, not just a library.
   list_folder/download request shapes are accepted by the live Dropbox service.
 - **To use it in-app**, run a **signed** build from Xcode — `ASWebAuthenticationSession`
   needs a valid signature to present the sign-in sheet (the unsigned CLI dev build doesn't).
-- *Optional future:* promote a `RemoteStore` to a first-class **collection** in the sidebar
-  (a larger refactor of the filesystem-based `Collection`). Not needed for the pilot — the
-  browser already delivers direct-API editing.
+- ✅ **Promoted to a first-class sidebar collection** (beyond the original pilot). `RemoteMirror`
+  mirrors a `RemoteStore` folder into a local cache that's opened as a normal `Collection`
+  (reusing scan/index/editor/`FileIO` unchanged); `Collection.noteDidSave` uploads edits back.
+  "Open as Collection" in the browser adds it to the sidebar with a "<provider> (direct)" badge
+  (Git hidden). **Verified live** (macOS, mock store): open → sync (3 notes) → browse → edit in
+  the normal editor → upload, confirmed by re-reading the note from the store. Tested
+  (`RemoteMirrorTests`). iOS presents the browser; sidebar promotion is macOS for now.
 
 ---
 
