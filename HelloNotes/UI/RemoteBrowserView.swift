@@ -117,9 +117,15 @@ final class RemoteBrowserModel {
 
 struct RemoteBrowserView: View {
     @State private var model: RemoteBrowserModel
+    /// When set, the browser offers "Open as Collection", handing back the
+    /// (store, current remote path, display name) so the host can mirror it into
+    /// a first-class sidebar collection.
+    private let onOpenAsCollection: ((RemoteStore, String, String) -> Void)?
 
-    init(store: RemoteStore) {
+    init(store: RemoteStore,
+         onOpenAsCollection: ((RemoteStore, String, String) -> Void)? = nil) {
         _model = State(initialValue: RemoteBrowserModel(store: store))
+        self.onOpenAsCollection = onOpenAsCollection
     }
 
     var body: some View {
@@ -184,6 +190,16 @@ struct RemoteBrowserView: View {
                     .truncationMode(.head)
                 Spacer()
                 if model.isLoading { ProgressView().controlSize(.small) }
+                if let onOpenAsCollection {
+                    Button("Open as Collection") {
+                        let name = model.path.isEmpty
+                            ? model.providerName
+                            : String(model.path.split(separator: "/").last ?? Substring(model.providerName))
+                        onOpenAsCollection(model.store, model.path, name)
+                    }
+                    .font(.caption)
+                    .help("Add this folder to the sidebar; edits sync back to \(model.providerName).")
+                }
                 Button("Sign Out") { model.signOut() }
                     .font(.caption)
             }

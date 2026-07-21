@@ -27,8 +27,15 @@ final class Collection: Identifiable {
     /// The folder this collection indexes.
     let rootURL: URL
 
-    /// The collection's display name (its folder name).
-    var name: String { rootURL.lastPathComponent }
+    /// Non-nil when this collection is a cloud account reached over a provider's
+    /// API (Phase 4): `rootURL` is then a local *mirror* of the remote folder,
+    /// and saved edits are uploaded back through the mirror. `nil` = an ordinary
+    /// local/File-Provider folder.
+    var remote: RemoteMirror?
+    var isRemote: Bool { remote != nil }
+
+    /// The collection's display name (the remote folder name, or its folder name).
+    var name: String { remote?.displayName ?? rootURL.lastPathComponent }
 
     /// The Markdown notes discovered inside the collection.
     var notes: [Note] = []
@@ -311,6 +318,16 @@ final class Collection: Identifiable {
     func noteDidSave(_ url: URL, text: String) {
         recentSelfWrites[Self.normalize(url.path)] = Date()
         let title = url.deletingPathExtension().lastPathComponent
+
+        // A cloud (RemoteStore) collection: push the saved note back to the
+        // provider. The local mirror already holds the edit, so a failed upload
+        // is surfaced but never loses data.
+        if let remote {
+            Task {
+                do { try await remote.upload(localURL: url) }
+                catch { report("Couldn't upload “\(title)” to \(remote.store.providerName): \(error.localizedDescription)") }
+            }
+        }
 
         if let note = notes.first(where: { $0.fileURL == url }),
            MarkdownParsing.aliases(in: text) == search.aliases(of: url) {

@@ -135,6 +135,35 @@ final class Library {
         for url in urls { await open(url: url) }
     }
 
+    /// Open a cloud account (a `RemoteStore` folder) as a first-class collection:
+    /// mirror it into a local cache, then open that cache with the normal
+    /// machinery. Saved edits upload back through `Collection.remote`. Not
+    /// persisted for restore — a remote collection is re-opened via its provider,
+    /// not a local bookmark whose cache could be stale.
+    @discardableResult
+    func openRemote(store: RemoteStore, remoteRoot: String, displayName: String) async throws -> Collection {
+        let mirror = RemoteMirror(
+            store: store,
+            cacheRoot: RemoteMirror.cacheDirectory(provider: store.providerName,
+                                                   folder: remoteRoot.isEmpty ? displayName : remoteRoot),
+            remoteRoot: remoteRoot,
+            displayName: displayName)
+        try await mirror.syncDown()
+
+        let id = mirror.cacheRoot.standardizedFileURL.path
+        if let existing = collections.first(where: { $0.id == id }) {
+            existing.remote = mirror
+            focusedID = existing.id
+            return existing
+        }
+        let collection = Collection(rootURL: mirror.cacheRoot)
+        collection.remote = mirror
+        collections.append(collection)
+        focusedID = collection.id
+        await collection.activate(onExternalChange: { [weak self] in self?.onExternalChange() })
+        return collection
+    }
+
     /// Close a collection: stop watching it, drop it, and update persistence.
     func close(_ collection: Collection) {
         collection.deactivate()

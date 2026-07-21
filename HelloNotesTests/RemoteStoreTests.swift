@@ -172,3 +172,44 @@ struct RemoteBrowserModelTests {
         #expect(model.error != nil)
     }
 }
+
+/// The mirror that promotes a RemoteStore to a first-class collection: it must
+/// pull the remote tree into a local cache and push edits back.
+@MainActor
+struct RemoteMirrorTests {
+
+    @Test func syncDownThenUploadRoundTrips() async throws {
+        let store = MockRemoteStore(preAuthenticated: true)
+        let cache = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hn-mirror-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cache) }
+
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncDown()
+
+        // The remote tree landed in the local cache (incl. the nested folder).
+        let welcome = cache.appendingPathComponent("Welcome.md")
+        let idea = cache.appendingPathComponent("Notes/Idea.md")
+        #expect(FileManager.default.fileExists(atPath: welcome.path))
+        #expect(FileManager.default.fileExists(atPath: idea.path))
+
+        // Path mapping round-trips.
+        #expect(mirror.remotePath(forLocalURL: idea) == "/Notes/Idea.md")
+        #expect(mirror.localURL(forRemotePath: "/Notes/Idea.md").standardizedFileURL == idea.standardizedFileURL)
+
+        // Edit the cached copy, upload, and confirm the store now serves the edit.
+        try FileIO.write("# Changed in the mirror", to: idea)
+        try await mirror.upload(localURL: idea)
+        let readBack = try await store.read(path: "/Notes/Idea.md")
+        #expect(String(decoding: readBack, as: UTF8.self) == "# Changed in the mirror")
+    }
+
+    @Test func remoteRootIsStrippedInMapping() {
+        let store = MockRemoteStore()
+        let cache = URL(fileURLWithPath: "/tmp/cacheRoot")
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "/Vault", displayName: "Vault")
+        // A remote path under the mirrored subfolder maps to a cache-relative path.
+        #expect(mirror.localURL(forRemotePath: "/Vault/Sub/Note.md").path == "/tmp/cacheRoot/Sub/Note.md")
+        #expect(mirror.remotePath(forLocalURL: cache.appendingPathComponent("Sub/Note.md")) == "/Vault/Sub/Note.md")
+    }
+}

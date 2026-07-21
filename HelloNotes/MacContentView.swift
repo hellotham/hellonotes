@@ -664,7 +664,12 @@ struct MacContentView: View {
                             Text("\(focused.notes.count) notes")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            if let provider = CloudProvider.name(for: focused.rootURL) {
+                            if let remote = focused.remote {
+                                Label("\(remote.store.providerName) (direct)", systemImage: "network")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .help("A direct \(remote.store.providerName) collection over the provider's API. Edits sync back automatically.")
+                            } else if let provider = CloudProvider.name(for: focused.rootURL) {
                                 Label(provider, systemImage: CloudProvider.symbol)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
@@ -737,7 +742,9 @@ struct MacContentView: View {
             }
             .listStyle(.sidebar)
 
-            if focused != nil {
+            // Git is meaningless for a direct-API (remote) collection — its
+            // rootURL is a local mirror cache, not the user's repo.
+            if focused != nil && focused?.isRemote != true {
                 VStack(alignment: .leading, spacing: 8) {
                     gitSection
                 }
