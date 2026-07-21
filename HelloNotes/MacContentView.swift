@@ -372,7 +372,12 @@ struct MacContentView: View {
         .task(id: referencesKey) { await computeReferences() }
         .onChange(of: tabs.totalSavedRevision) { _, _ in
             guard let c = editorCollection else { return }
-            if autoCommit { c.git.scheduleAutoCommit(message: autoCommitMessage) }
+            // Never auto-commit a cloud-backed collection: libgit2 would churn
+            // the object store against online-only files. (The toggle is also
+            // disabled there, but honour a pre-existing enabled flag too.)
+            if autoCommit, CloudProvider.name(for: c.rootURL) == nil {
+                c.git.scheduleAutoCommit(message: autoCommitMessage)
+            }
             // Debounce the status refresh — it fires on every autosave, so a
             // burst of edits shouldn't spawn a git status walk per keystroke.
             gitStatusTask?.cancel()
@@ -764,6 +769,18 @@ struct MacContentView: View {
                 .accessibilityLabel("Git identity & accounts")
             }
 
+            // Git-on-cloud guardrail: libgit2 reads the whole object store, so a
+            // repo whose objects are online-only thrashes (and coordinated access
+            // isn't wired through libgit2). Warn, and keep auto-commit off in a
+            // cloud folder.
+            if let root = focused?.rootURL, let provider = CloudProvider.name(for: root) {
+                Label("In \(provider). Git works best when the folder is fully downloaded — online-only files can slow or break operations.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if !git.status.isRepository {
                 Text("Not a Git repository")
                     .font(.caption)
@@ -810,9 +827,17 @@ struct MacContentView: View {
                     }
                 }
 
+                let cloudBacked = focused.map { CloudProvider.name(for: $0.rootURL) != nil } ?? false
                 Toggle("Auto-commit", isOn: $autoCommit)
                     .font(.caption)
                     .toggleStyle(.checkbox)
+                    .disabled(cloudBacked)
+                if cloudBacked {
+                    Text("Auto-commit is off in cloud folders — commit manually once files are downloaded.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if let error = git.lastError {
                     Text(error)
