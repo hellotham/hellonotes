@@ -241,6 +241,9 @@ struct NoteEditorView: View {
                     if editor.saveError != nil {
                         saveErrorBanner
                     }
+                    if editor.isDownloading {
+                        downloadingBanner
+                    }
 
                     switch mode {
                     case .edit:     editModeContent
@@ -630,6 +633,22 @@ struct NoteEditorView: View {
         }
         .padding(8)
         .background(.orange.opacity(0.15))
+    }
+
+    // MARK: - Downloading banner
+
+    /// Shown while an online-only note's bytes are being materialized from the
+    /// cloud on open, so the editor doesn't just read as blank during a slow
+    /// download.
+    private var downloadingBanner: some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text("Downloading from the cloud…")
+                .font(.callout)
+            Spacer()
+        }
+        .padding(8)
+        .background(.blue.opacity(0.12))
     }
 
     // MARK: - Save-error banner

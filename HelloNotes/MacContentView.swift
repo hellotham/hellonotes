@@ -659,6 +659,12 @@ struct MacContentView: View {
                             Text("\(focused.notes.count) notes")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if let provider = CloudProvider.name(for: focused.rootURL) {
+                                Label(provider, systemImage: CloudProvider.symbol)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .help("This collection is stored in \(provider). Online-only notes download on demand.")
+                            }
                         }
                     }
 
@@ -891,6 +897,13 @@ struct MacContentView: View {
                 if tagCount > 0 {
                     Divider().frame(height: 11)
                     Text("\(tagCount) tag\(tagCount == 1 ? "" : "s")").foregroundStyle(.secondary)
+                }
+                let onlineOnly = focused.notes.lazy.filter(\.isOnlineOnly).count
+                if onlineOnly > 0 {
+                    Divider().frame(height: 11)
+                    Label("\(onlineOnly) online-only", systemImage: "icloud.and.arrow.down")
+                        .foregroundStyle(.secondary)
+                        .help("\(onlineOnly) note\(onlineOnly == 1 ? " is" : "s are") in the cloud but not downloaded. They appear in the list but aren't indexed until opened or downloaded.")
                 }
             }
 

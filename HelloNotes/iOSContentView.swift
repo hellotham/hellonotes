@@ -290,13 +290,31 @@ struct iOSContentView: View {
             } else {
                 List(displayedNotes, selection: $selectedNoteID) { note in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(note.title)
-                            .font(.headline)
+                        HStack(spacing: 5) {
+                            Text(note.title)
+                                .font(.headline)
+                            if note.isOnlineOnly {
+                                Image(systemName: "icloud.and.arrow.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                    .accessibilityLabel("Online only — not downloaded")
+                            }
+                        }
                         Text(note.lastModified, format: .dateTime.year().month().day().hour().minute())
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .tag(note.id)
+                    .swipeActions(edge: .leading) {
+                        if note.isOnlineOnly {
+                            Button {
+                                try? FileIO.download(at: note.fileURL)
+                            } label: {
+                                Label("Download", systemImage: "arrow.down.circle")
+                            }
+                            .tint(.blue)
+                        }
+                    }
                 }
                 .searchable(text: $searchText, prompt: "Search \(focused?.name ?? "notes")")
                 .overlay {

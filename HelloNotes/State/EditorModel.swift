@@ -24,6 +24,11 @@ final class EditorModel {
     /// The most recent save failure, surfaced to the UI (nil when healthy).
     private(set) var saveError: String?
 
+    /// True while opening an online-only (cloud) note whose bytes are still
+    /// being materialized. Drives a "Downloading…" state so the editor doesn't
+    /// just show blank while a slow download runs.
+    private(set) var isDownloading = false
+
     /// Increments after every successful write. Observers (e.g. the link graph)
     /// use it to know a note's contents changed on disk.
     private(set) var savedRevision = 0
@@ -84,10 +89,14 @@ final class EditorModel {
 
         let loaded: String
         if let url = note?.fileURL {
+            // An online-only note materializes on this coordinated read, which
+            // may take a moment over the network — surface a downloading state.
+            isDownloading = note?.isOnlineOnly ?? false
             // Read off the main actor so opening a large note never stalls the UI.
             loaded = await Task.detached(priority: .userInitiated) {
                 (try? FileIO.readString(at: url)) ?? ""
             }.value
+            isDownloading = false
         } else {
             loaded = ""
         }

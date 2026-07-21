@@ -113,7 +113,7 @@ final class Collection: Identifiable {
     /// large collection is thousands of `stat` calls that shouldn't block the UI.
     nonisolated static func enumerate(_ rootURL: URL) -> (notes: [Note], attachments: [CollectionFile], folders: [URL]) {
         let fileManager = FileManager.default
-        let resourceKeys: [URLResourceKey] = [.contentModificationDateKey, .contentTypeKey, .isRegularFileKey, .isDirectoryKey, .fileSizeKey]
+        let resourceKeys: [URLResourceKey] = [.contentModificationDateKey, .contentTypeKey, .isRegularFileKey, .isDirectoryKey, .fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
 
         guard let enumerator = fileManager.enumerator(
             at: rootURL,
@@ -142,11 +142,14 @@ final class Collection: Identifiable {
                 || UTType(filenameExtension: fileURL.pathExtension)?.conforms(to: Self.markdownType) == true
 
             if isMarkdown {
+                let onlineOnly = resourceValues.isUbiquitousItem == true
+                    && resourceValues.ubiquitousItemDownloadingStatus == .notDownloaded
                 discovered.append(Note(
                     title: fileURL.deletingPathExtension().lastPathComponent,
                     fileURL: fileURL,
                     lastModified: modified,
-                    fileSize: resourceValues.fileSize ?? 0
+                    fileSize: resourceValues.fileSize ?? 0,
+                    isOnlineOnly: onlineOnly
                 ))
             } else {
                 discoveredFiles.append(CollectionFile(url: fileURL, lastModified: modified))

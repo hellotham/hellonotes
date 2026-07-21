@@ -123,4 +123,20 @@ enum FileIO {
         if let coordinatorError { throw coordinatorError }
         if let writeError { throw writeError }
     }
+
+    // MARK: - Download / eviction (cloud items)
+
+    /// Ask the system to download an online-only file in the background
+    /// (materialize it). Returns without waiting; the collection's scan / file
+    /// watcher reflects the new state once the download completes.
+    static func download(at url: URL) throws {
+        try FileManager.default.startDownloadingUbiquitousItem(at: url)
+    }
+
+    /// Ask the system to free an item's local copy back to online-only. This is
+    /// **best-effort**: for a File Provider domain we don't own, the provider has
+    /// the final say and may keep or re-download the file.
+    static func evict(at url: URL) throws {
+        try FileManager.default.evictUbiquitousItem(at: url)
+    }
 }

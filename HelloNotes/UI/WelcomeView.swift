@@ -46,7 +46,7 @@ struct WelcomeView: View {
     private let highlights: [Highlight] = [
         Highlight(symbol: "folder",
                   title: "Your files, your folders",
-                  detail: "Plain Markdown on disk is the source of truth — no database, no lock-in."),
+                  detail: "Plain Markdown on disk — local or a cloud folder (iCloud, Dropbox, Google Drive, OneDrive, Box). No database, no lock-in."),
         Highlight(symbol: "eye",
                   title: "GitHub-identical preview",
                   detail: "Tables, task lists, math, and Mermaid render exactly as they do on GitHub."),

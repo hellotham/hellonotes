@@ -402,10 +402,26 @@ struct NoteOutlineList: NSViewRepresentable {
         private func noteCell(_ note: Note, snippet: String?) -> NSView {
             let container = NSTableCellView()
             let title = label(note.title, font: .systemFont(ofSize: 13 * parent.fontScale, weight: .semibold), color: .labelColor)
+            // Title row: title, plus a cloud badge when the note is online-only
+            // (in a cloud folder but not downloaded locally).
+            let titleRow: NSView
+            if note.isOnlineOnly {
+                let cloud = symbolIcon("icloud.and.arrow.down")
+                cloud.contentTintColor = .tertiaryLabelColor
+                cloud.setContentHuggingPriority(.required, for: .horizontal)
+                cloud.setAccessibilityLabel("Online only — not downloaded")
+                let row = NSStackView(views: [title, cloud])
+                row.orientation = .horizontal
+                row.spacing = 4
+                row.alignment = .firstBaseline
+                titleRow = row
+            } else {
+                titleRow = title
+            }
             let subtitleText = snippet ?? Self.dateFormatter.string(from: note.lastModified)
             let subtitle = label(subtitleText, font: .systemFont(ofSize: 11 * parent.fontScale), color: .secondaryLabelColor)
             subtitle.lineBreakMode = .byTruncatingTail
-            let stack = NSStackView(views: [title, subtitle])
+            let stack = NSStackView(views: [titleRow, subtitle])
             stack.orientation = .vertical
             stack.alignment = .leading
             stack.spacing = 1
@@ -483,6 +499,17 @@ struct NoteOutlineList: NSViewRepresentable {
                 addItem(menu, "Open in New Window") { self.parent.onOpenInNewWindow(note) }
                 addItem(menu, "Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([note.fileURL])
+                }
+                // Cloud (File Provider) download controls, only for notes that
+                // live in a cloud folder.
+                let isCloud = (try? note.fileURL.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
+                if isCloud || note.isOnlineOnly {
+                    menu.addItem(.separator())
+                    if note.isOnlineOnly {
+                        addItem(menu, "Download") { try? FileIO.download(at: note.fileURL) }
+                    } else {
+                        addItem(menu, "Remove Download") { try? FileIO.evict(at: note.fileURL) }
+                    }
                 }
                 menu.addItem(.separator())
                 addItem(menu, "Move to Trash") { self.parent.onDelete(note) }
