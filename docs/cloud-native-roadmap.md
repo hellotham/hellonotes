@@ -4,10 +4,10 @@
 a whole vault to a local folder. Covers Box, Dropbox, OneDrive (personal + business),
 Google Drive, and iCloud Drive.*
 
-Status: **All phases shipped** (2026-07-20/21). The File-Provider path (0–3) is complete and
+Status: **All phases complete** (2026-07-20/21). The File-Provider path (0–3) is done and
 covers Box, Dropbox, OneDrive, Google Drive & iCloud. Phase 4 (direct Dropbox API) is wired
-into a working "Connect Dropbox" browse/edit/save UI and live-verified against a mock store;
-the only remaining step is a user Dropbox-app registration (the App key), which I can't create.
+into a working "Connect Dropbox" browse/edit/save UI and **proven end-to-end against a real
+Dropbox account** — real OAuth sign-in → real token → real `list_folder` of the account's root.
 Written 2026-07-20.
 
 ---
@@ -225,10 +225,15 @@ Now a working feature, not just a library.
   edit → save-persists round-trip. **Live-verified** (macOS, mock store): the whole loop, incl.
   persistence after close/reopen. (Live testing also caught + fixed a real `@Observable`
   auth-state bug that would have broken the real Dropbox flow.)
-- **The one remaining user step** (genuinely external — I can't create a Dropbox developer
-  account): register a Dropbox app, put its **App key** in Info.plist (`DropboxAppKey`), and add
-  the redirect `hellonotes://dropbox-auth`. With that key, the identical, verified flow runs
-  against real Dropbox.
+- ✅ **Proven end-to-end against REAL Dropbox** (2026-07-21). With the app key in Info.plist:
+  the account owner signed in and authorized; `DropboxStore`'s exact PKCE token exchange
+  returned a real access **and refresh** token; and its `list_folder` request returned the
+  account's real root folders/files. (The owner performed the interactive sign-in; the
+  mechanical code→token exchange + API call ran `DropboxStore`'s real logic. No token was
+  persisted.) Also confirmed earlier: the `/oauth2/authorize` URL and the
+  list_folder/download request shapes are accepted by the live Dropbox service.
+- **To use it in-app**, run a **signed** build from Xcode — `ASWebAuthenticationSession`
+  needs a valid signature to present the sign-in sheet (the unsigned CLI dev build doesn't).
 - *Optional future:* promote a `RemoteStore` to a first-class **collection** in the sidebar
   (a larger refactor of the filesystem-based `Collection`). Not needed for the pilot — the
   browser already delivers direct-API editing.
