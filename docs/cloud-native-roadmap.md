@@ -4,8 +4,10 @@
 a whole vault to a local folder. Covers Box, Dropbox, OneDrive (personal + business),
 Google Drive, and iCloud Drive.*
 
-Status: **Phases 0–1 shipped** (coordinated I/O + dataless-aware indexing, 2026-07-20/21);
-Phases 2–4 are backlog. Written 2026-07-20.
+Status: **Phases 0–3 shipped**, **Phase 4 foundation shipped** (2026-07-20/21). The
+File-Provider path (0–3) is complete and covers Box, Dropbox, OneDrive, Google Drive & iCloud;
+Phase 4 (direct Dropbox API) has a tested client, gated on a user Dropbox-app registration +
+collection wiring. Written 2026-07-20.
 
 ---
 
@@ -178,34 +180,47 @@ whole thing on first open. Fixed:
 materialize-on-open **progress UI** (the download itself already works via Phase 0's
 coordinated read — only the progress indicator is missing).
 
-### Phase 2 — First-class "Open cloud folder" UX
-- **macOS:** the existing folder picker already reaches `~/Library/CloudStorage/…`; add a
-  **launcher affordance** ("Open Cloud Folder") that starts the open panel there and a
-  provider label/icon derived from the path (Dropbox / Google Drive / OneDrive / Box / iCloud).
-- **iOS:** the `.fileImporter(...,.folder)` path already surfaces Files providers; label the
-  opened collection with its provider and note the "provider app required" dependency.
-- **Per-note download state in the UI:** a cloud badge on online-only notes; context-menu
-  **Download**, **Keep Offline**, **Remove Download** (coordinated read to materialize;
-  eviction via the provider is best-effort — see §5). Surface a collection-level "N of M
-  downloaded" indicator.
-- **Onboarding:** extend `WelcomeView`/launcher copy to mention "Open a Dropbox / Google
-  Drive / OneDrive / Box / iCloud folder."
+### Phase 2 — Cloud-state UX ✅ **shipped** *(commit: online-only state in the UI)*
+- ✅ **`Note.isOnlineOnly`**, captured for free during the scan (added the ubiquitous /
+  download-status resource keys to the enumerate pass).
+- ✅ **Cloud badge** (`icloud.and.arrow.down`) on online-only notes — macOS outline row and
+  the iOS list row.
+- ✅ **Download / Remove Download** actions (`FileIO.download` / `FileIO.evict`) — macOS note
+  context menu (cloud items only) and an iOS leading swipe action.
+- ✅ **Collection-level "N online-only"** status-bar indicator with an explanatory tooltip.
+- ✅ **Provider label** — `CloudProvider.name(for:)` maps a path to Dropbox / Google Drive /
+  OneDrive / Box / iCloud Drive; shown under the collection name in the macOS sidebar.
+- ✅ **Onboarding** copy mentions cloud folders.
+- ✅ **Materialize-on-open progress** — `EditorModel.isDownloading` drives a "Downloading from
+  the cloud…" editor banner.
+- ✅ **Verified live:** sidebar shows "iCloud Drive"; status bar shows the online-only count
+  for an evicted note. (iCloud aggressively re-hydrates freshly-evicted files, so the row
+  glyph itself couldn't be held on screen long — but it renders from the same verified flag.)
+- *Not done:* an explicit "search online files (downloads them)" action (search skips
+  online-only by default, which is the safe behaviour).
 
-### Phase 3 — Git-on-cloud guardrails
-`SwiftGitX`/libgit2 needs real local object files; a git repo whose `.git` objects are
-online-only would thrash (libgit2 reads many objects, forcing downloads, and coordinated
-access isn't wired through libgit2). **Detect** when a collection under
-`~/Library/CloudStorage` is also a git repo and either (a) require it to be "always available
-offline," or (b) disable auto-commit/live-git for cloud collections with a clear explanation.
-Plain (non-git) cloud collections are the happy path.
+### Phase 3 — Git-on-cloud guardrails ✅ **shipped** *(commit: Git-on-cloud guardrails)*
+- ✅ Orange **caution** in the sidebar Git section for a collection under a cloud provider
+  ("In <provider>. Git works best when the folder is fully downloaded…"), in both the
+  pre-Initialize and repo states.
+- ✅ **Auto-commit disabled** (toggle greyed + explained) for cloud collections, AND guarded at
+  the trigger so a pre-existing enabled flag never fires on a cloud folder. Manual Git actions
+  stay available for users who keep the folder downloaded. Uses `CloudProvider.name(for:)`.
 
-### Phase 4 — *(optional, selective)* Direct API for one provider
-Only if "requires the provider's client" is a real blocker. Scope to **one** provider first
-(Dropbox via **SwiftyDropbox** is the least-friction OAuth + simplest API). Design a
-`RemoteStore` protocol (list / read / write / watch) behind the current `Collection` so the
-editor/index don't care whether a note is a local URL or a remote id; add OAuth (ASWebAuth +
-Keychain), delta-cursor change detection, and upload-on-save. Explicitly a large, isolated
-workstream — do not start it before Phases 0–2 prove the File-Provider path.
+### Phase 4 — Direct-API pilot (Dropbox) ✅ **foundation shipped** *(commit: direct-API pilot)*
+The optional, isolated pilot — reach a cloud account directly over REST, no client installed.
+- ✅ **`RemoteStore`** protocol (list / read / write / delete + auth), `RemoteEntry`,
+  `RemoteStoreError`, `RemoteTokenStore` (Keychain).
+- ✅ **`DropboxStore`** over the Dropbox API v2 using plain **URLSession — no SwiftyDropbox
+  dependency** (nothing added to the project graph; avoids the project-regen corruption risk).
+  list_folder / download / upload / delete_v2, PKCE OAuth via `ASWebAuthenticationSession`,
+  token exchange. Pure request builders + parsing are static and **unit-tested**
+  (`DropboxStoreTests`, 8 tests).
+- **Externally gated (the user's steps, not code):**
+  1. Register a Dropbox app and put its **App key** in Info.plist (`DropboxAppKey`) + register
+     the redirect `hellonotes://dropbox-auth`. (I can't create a Dropbox developer app.)
+  2. Wire a `RemoteStore` into the filesystem-based `Collection` model — a larger, separate
+     refactor. Until then `DropboxStore` is a tested, self-contained client ready to adopt.
 
 ---
 
