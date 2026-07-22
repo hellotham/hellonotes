@@ -173,6 +173,106 @@ struct RemoteBrowserModelTests {
     }
 }
 
+/// Pure-logic coverage for the Box provider. Box's API is folder/file-ID based;
+/// these tests pin the path conventions, request shapes (incl. the multipart
+/// upload and the client-secret token exchange), and response parsing.
+struct BoxStoreTests {
+
+    @Test func normalizesPathsAndParents() {
+        #expect(BoxStore.normalizedPath("") == "")
+        #expect(BoxStore.normalizedPath("/") == "")
+        #expect(BoxStore.normalizedPath("Notes/Idea.md") == "/Notes/Idea.md")
+        #expect(BoxStore.normalizedPath("/Notes/") == "/Notes")
+        #expect(BoxStore.parentPath(of: "/Notes/Idea.md") == "/Notes")
+        #expect(BoxStore.parentPath(of: "/Idea.md") == "")
+        #expect(BoxStore.parentPath(of: "") == "")
+    }
+
+    @Test func authorizeURLHasRequiredParams() throws {
+        let url = BoxStore.authorizeURL(clientID: "CID", redirectURI: "hellonotes://box-auth", state: "S1")
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        func value(_ n: String) -> String? { items.first { $0.name == n }?.value }
+        #expect(url.host == "account.box.com")
+        #expect(url.path == "/api/oauth2/authorize")
+        #expect(value("client_id") == "CID")
+        #expect(value("response_type") == "code")
+        #expect(value("redirect_uri") == "hellonotes://box-auth")
+        #expect(value("state") == "S1")
+    }
+
+    @Test func tokenExchangeUsesClientSecret() {
+        let r = BoxStore.tokenExchangeRequest(code: "C", clientID: "ID", clientSecret: "SEC")
+        #expect(r.url?.absoluteString == "https://api.box.com/oauth2/token")
+        #expect(r.httpMethod == "POST")
+        let body = String(data: r.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("grant_type=authorization_code"))
+        #expect(body.contains("code=C"))
+        #expect(body.contains("client_secret=SEC"))
+    }
+
+    @Test func refreshRequestCarriesRefreshGrant() {
+        let r = BoxStore.refreshRequest(refreshToken: "RT", clientID: "ID", clientSecret: "SEC")
+        let body = String(data: r.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("grant_type=refresh_token"))
+        #expect(body.contains("refresh_token=RT"))
+        #expect(body.contains("client_secret=SEC"))
+    }
+
+    @Test func listItemsRequestIsWellFormed() {
+        let r = BoxStore.listItemsRequest(folderID: "42", token: "T")
+        let s = r.url?.absoluteString ?? ""
+        #expect(s.hasPrefix("https://api.box.com/2.0/folders/42/items"))
+        #expect(s.contains("fields=id,type,name,size,modified_at"))
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+    }
+
+    @Test func parsesFolderItemsSkippingWebLinks() throws {
+        let fixture = """
+        {"total_count":3,"entries":[
+          {"type":"file","id":"111","name":"Idea.md","size":42,"modified_at":"2026-07-21T10:00:00-07:00"},
+          {"type":"folder","id":"222","name":"Sub"},
+          {"type":"web_link","id":"333","name":"Link"}
+        ]}
+        """
+        let items = try BoxStore.parseItems(Data(fixture.utf8), parentPath: "/Notes")
+        #expect(items.count == 2)   // web_link skipped
+        #expect(items[0].entry.path == "/Notes/Idea.md")
+        #expect(items[0].id == "111")
+        #expect(items[0].entry.isDirectory == false)
+        #expect(items[0].entry.size == 42)
+        #expect(items[0].entry.modified != nil)
+        #expect(items[1].entry.isDirectory == true)
+        #expect(items[1].id == "222")
+    }
+
+    @Test func uploadNewRequestIsMultipartWithAttributes() {
+        let r = BoxStore.uploadNewRequest(name: "x.md", parentID: "0", data: Data("hi".utf8),
+                                          token: "T", boundary: "BND")
+        #expect(r.url?.absoluteString == "https://upload.box.com/api/2.0/files/content")
+        #expect(r.value(forHTTPHeaderField: "Content-Type") == "multipart/form-data; boundary=BND")
+        let body = String(data: r.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("name=\"attributes\""))
+        #expect(body.contains("\"parent\":{\"id\":\"0\"}"))
+        #expect(body.contains("name=\"file\"; filename=\"x.md\""))
+        #expect(body.contains("hi"))
+        #expect(body.hasSuffix("--BND--\r\n"))
+    }
+
+    @Test func uploadUpdateTargetsFileID() {
+        let r = BoxStore.uploadUpdateRequest(fileID: "999", filename: "x.md", data: Data("v2".utf8),
+                                             token: "T", boundary: "BND")
+        #expect(r.url?.absoluteString == "https://upload.box.com/api/2.0/files/999/content")
+        let body = String(data: r.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(!body.contains("name=\"attributes\""))   // update needs no attributes part
+        #expect(body.contains("v2"))
+    }
+
+    @Test func parsesUploadedFileID() {
+        let fixture = #"{"total_count":1,"entries":[{"type":"file","id":"555","name":"x.md"}]}"#
+        #expect(BoxStore.parseUploadedFileID(Data(fixture.utf8)) == "555")
+    }
+}
+
 /// The mirror that promotes a RemoteStore to a first-class collection: it must
 /// pull the remote tree into a local cache and push edits back.
 @MainActor

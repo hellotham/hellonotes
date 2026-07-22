@@ -110,6 +110,14 @@ struct HelloNotesApp: App {
         }
         .defaultSize(width: 480, height: 580)
 
+        Window("Box (Direct)", id: "remoteBrowserBox") {
+            RemoteBrowserView(store: BoxStore(), onOpenAsCollection: { store, path, name in
+                Task { try? await library.openRemote(store: store, remoteRoot: path, displayName: name) }
+            })
+            .themedRoot(appearance)
+        }
+        .defaultSize(width: 480, height: 580)
+
         #if DEBUG
         Window("Cloud Demo", id: "remoteBrowserDemo") {
             RemoteBrowserView(store: MockRemoteStore(), onOpenAsCollection: { store, path, name in

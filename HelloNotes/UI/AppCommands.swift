@@ -140,6 +140,7 @@ struct HelloNotesCommands: Commands {
                 .disabled(actions?.note == nil)
             Divider()
             Button("Connect Dropbox…") { openWindow(id: "remoteBrowser") }
+            Button("Connect Box…") { openWindow(id: "remoteBrowserBox") }
             #if DEBUG
             Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
             #endif

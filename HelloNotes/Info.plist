@@ -20,6 +20,10 @@
 	<false/>
 	<key>DropboxAppKey</key>
 	<string>$(DROPBOX_APP_KEY)</string>
+	<key>BoxClientID</key>
+	<string>$(BOX_CLIENT_ID)</string>
+	<key>BoxClientSecret</key>
+	<string>$(BOX_CLIENT_SECRET)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>HelloNotes transcribes your voice into a note, on-device.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

@@ -23,6 +23,7 @@ struct iOSSettingsView: View {
     @AppStorage("templatesFolder") private var templatesFolder = "Templates"
 
     @State private var showDropbox = false
+    @State private var showBox = false
     #if DEBUG
     @State private var showCloudDemo = false
     #endif
@@ -96,6 +97,7 @@ struct iOSSettingsView: View {
 
                 Section {
                     Button("Connect Dropbox…") { showDropbox = true }
+                    Button("Connect Box…") { showBox = true }
                     #if DEBUG
                     Button("Cloud Demo (Mock)…") { showCloudDemo = true }
                     #endif
@@ -114,6 +116,9 @@ struct iOSSettingsView: View {
             }
             .sheet(isPresented: $showDropbox) {
                 NavigationStack { RemoteBrowserView(store: DropboxStore()) }
+            }
+            .sheet(isPresented: $showBox) {
+                NavigationStack { RemoteBrowserView(store: BoxStore()) }
             }
             #if DEBUG
             .sheet(isPresented: $showCloudDemo) {
