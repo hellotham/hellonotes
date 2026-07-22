@@ -234,6 +234,15 @@ Now a working feature, not just a library.
   list_folder/download request shapes are accepted by the live Dropbox service.
 - **To use it in-app**, run a **signed** build from Xcode — `ASWebAuthenticationSession`
   needs a valid signature to present the sign-in sheet (the unsigned CLI dev build doesn't).
+- ✅ **Second provider: Box** (`BoxStore`, Box API 2.0 over URLSession — no SDK). Same
+  browser/mirror/collection machinery. Box differences absorbed: OAuth needs the client
+  *secret* (no PKCE public-client mode; `BoxClientID`/`BoxClientSecret` in Info.plist),
+  refresh tokens are single-use (rotated on every refresh), and the API is folder/file-**ID**
+  based — bridged behind the path-based `RemoteStore` with cached path→ID resolution.
+  9 unit tests; verified against **real Box**: authorize (registered client id +
+  `hellonotes://box-auth` custom-scheme redirect) proceeds to sign-in; `folders/0/items` and
+  `files/{id}/content` shapes return clean `401 invalid_token`. Entry points: macOS
+  **File ▸ Connect Box…**, iOS Settings ▸ Cloud (direct API).
 - ✅ **Promoted to a first-class sidebar collection** (beyond the original pilot). `RemoteMirror`
   mirrors a `RemoteStore` folder into a local cache that's opened as a normal `Collection`
   (reusing scan/index/editor/`FileIO` unchanged); `Collection.noteDidSave` uploads edits back.
