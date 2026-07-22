@@ -21,3 +21,6 @@ dist/
 
 # Environment files (LLM API keys, etc.)
 .env
+
+# Per-developer API credentials (copy Config/Secrets.example.xcconfig)
+Config/Secrets.xcconfig

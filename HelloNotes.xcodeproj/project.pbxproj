@@ -111,6 +111,7 @@
 		8759E1F03001AF30008F8C92 /* HelloNotesTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HelloNotesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8759E1FA3001AF30008F8C92 /* HelloNotesUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HelloNotesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8768A2583001B75100346ACB /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		87C0F16A30D0AA0000000001 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Secrets.xcconfig; path = Config/Secrets.xcconfig; sourceTree = "<group>"; };
 		8768A25A3001B77400346ACB /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
 		8768A25C3001B78500346ACB /* HelloNotes-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "HelloNotes-Bridging-Header.h"; sourceTree = "<group>"; };
 		87E4E437300C94DD00F6586B /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
@@ -324,6 +325,7 @@
 				87E4E44B300C950700F6586B /* HelloNotesWidgetsExtension.entitlements */,
 				8768A25A3001B77400346ACB /* CLAUDE.md */,
 				8768A2583001B75100346ACB /* README.md */,
+				87C0F16A30D0AA0000000001 /* Secrets.xcconfig */,
 				8759E1E23001AF2E008F8C92 /* HelloNotes */,
 				8759E1F33001AF30008F8C92 /* HelloNotesTests */,
 				8759E1FD3001AF30008F8C92 /* HelloNotesUITests */,
@@ -832,6 +834,7 @@
 /* Begin XCBuildConfiguration section */
 		8759E2043001AF30008F8C92 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 87C0F16A30D0AA0000000001 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -885,6 +888,7 @@
 		};
 		8759E2053001AF30008F8C92 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 87C0F16A30D0AA0000000001 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
