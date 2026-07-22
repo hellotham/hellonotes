@@ -141,6 +141,7 @@ struct HelloNotesCommands: Commands {
             Divider()
             Button("Connect Dropbox…") { openWindow(id: "remoteBrowser") }
             Button("Connect Box…") { openWindow(id: "remoteBrowserBox") }
+            Button("Connect Google Drive…") { openWindow(id: "remoteBrowserGDrive") }
             #if DEBUG
             Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
             #endif

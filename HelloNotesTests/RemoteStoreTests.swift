@@ -273,6 +273,93 @@ struct BoxStoreTests {
     }
 }
 
+/// Pure-logic coverage for the Google Drive provider: reversed-client-id
+/// redirect derivation, PKCE authorize/token shapes, the `q` listing query,
+/// Drive's string-typed sizes, native-Doc skipping, and both upload shapes.
+struct GoogleDriveStoreTests {
+
+    private let cid = "123456789012-abc123.apps.googleusercontent.com"
+
+    @Test func derivesReversedRedirectFromClientID() {
+        #expect(GoogleDriveStore.redirectScheme(clientID: cid) == "com.googleusercontent.apps.123456789012-abc123")
+        #expect(GoogleDriveStore.redirectURI(clientID: cid) == "com.googleusercontent.apps.123456789012-abc123:/oauth2redirect")
+    }
+
+    @Test func authorizeURLHasPKCEAndDriveScope() throws {
+        let url = GoogleDriveStore.authorizeURL(clientID: cid, challenge: "CHAL", state: "S1")
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        func value(_ n: String) -> String? { items.first { $0.name == n }?.value }
+        #expect(url.host == "accounts.google.com")
+        #expect(value("client_id") == cid)
+        #expect(value("response_type") == "code")
+        #expect(value("scope") == "https://www.googleapis.com/auth/drive")
+        #expect(value("code_challenge") == "CHAL")
+        #expect(value("code_challenge_method") == "S256")
+        #expect(value("redirect_uri") == GoogleDriveStore.redirectURI(clientID: cid))
+        #expect(value("state") == "S1")
+    }
+
+    @Test func tokenExchangeIsPKCEWithoutSecret() {
+        let r = GoogleDriveStore.tokenExchangeRequest(code: "C", verifier: "V", clientID: cid)
+        #expect(r.url?.absoluteString == "https://oauth2.googleapis.com/token")
+        let body = String(data: r.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("grant_type=authorization_code"))
+        #expect(body.contains("code_verifier=V"))
+        #expect(!body.contains("client_secret"))
+    }
+
+    @Test func listRequestQueriesParentAndSkipsTrash() {
+        let r = GoogleDriveStore.listRequest(folderID: "root", token: "T")
+        let s = r.url?.absoluteString ?? ""
+        #expect(s.hasPrefix("https://www.googleapis.com/drive/v3/files"))
+        #expect(s.contains("in%20parents") || s.contains("in+parents"))
+        #expect(s.contains("trashed"))
+        #expect(s.contains("fields=files(id,name,mimeType,size,modifiedTime)")
+            || s.contains("fields=files%28id,name,mimeType,size,modifiedTime%29"))
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+    }
+
+    @Test func parsesFileListWithStringSizesAndSkipsNativeDocs() throws {
+        let fixture = """
+        {"files":[
+          {"id":"F1","name":"Idea.md","mimeType":"text/markdown","size":"42","modifiedTime":"2026-07-21T10:00:00.123Z"},
+          {"id":"D1","name":"Sub","mimeType":"application/vnd.google-apps.folder"},
+          {"id":"G1","name":"A Google Doc","mimeType":"application/vnd.google-apps.document"}
+        ]}
+        """
+        let items = try GoogleDriveStore.parseFileList(Data(fixture.utf8), parentPath: "/Notes")
+        #expect(items.count == 2)                       // native Doc skipped
+        #expect(items[0].entry.path == "/Notes/Idea.md")
+        #expect(items[0].entry.size == 42)              // string "42" → 42
+        #expect(items[0].entry.modified != nil)
+        #expect(items[0].id == "F1")
+        #expect(items[1].entry.isDirectory == true)
+    }
+
+    @Test func createRequestIsMultipartRelated() {
+        let r = GoogleDriveStore.createRequest(name: "x.md", parentID: "root",
+                                               data: Data("hi".utf8), token: "T", boundary: "BND")
+        #expect(r.url?.absoluteString.hasPrefix("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart") == true)
+        #expect(r.value(forHTTPHeaderField: "Content-Type") == "multipart/related; boundary=BND")
+        let body = String(data: r.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("\"name\":\"x.md\""))
+        #expect(body.contains("\"parents\":[\"root\"]"))
+        #expect(body.contains("hi"))
+        #expect(body.hasSuffix("--BND--\r\n"))
+    }
+
+    @Test func updateRequestPatchesMedia() {
+        let r = GoogleDriveStore.updateRequest(fileID: "F9", data: Data("v2".utf8), token: "T")
+        #expect(r.httpMethod == "PATCH")
+        #expect(r.url?.absoluteString == "https://www.googleapis.com/upload/drive/v3/files/F9?uploadType=media")
+        #expect(r.httpBody == Data("v2".utf8))
+    }
+
+    @Test func parsesCreatedFileID() {
+        #expect(GoogleDriveStore.parseFileID(Data(#"{"id":"NEW1"}"#.utf8)) == "NEW1")
+    }
+}
+
 /// The mirror that promotes a RemoteStore to a first-class collection: it must
 /// pull the remote tree into a local cache and push edits back.
 @MainActor
