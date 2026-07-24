@@ -243,6 +243,21 @@ Now a working feature, not just a library.
   `hellonotes://box-auth` custom-scheme redirect) proceeds to sign-in; `folders/0/items` and
   `files/{id}/content` shapes return clean `401 invalid_token`. Entry points: macOS
   **File ▸ Connect Box…**, iOS Settings ▸ Cloud (direct API).
+- ✅ **Third provider: Google Drive** (`GoogleDriveStore`, Drive API v3). PKCE public client
+  (no secret; redirect derived from the reversed client id — nothing to configure), ID-based
+  bridging like Box (root `root`, folder mimeType, `q='<id>' in parents` listings). Absorbs
+  string-typed sizes and skips native Google Docs. 8 tests; verified against real Google
+  (authorize with the registered iOS client id proceeds to sign-in; list/download shapes 401).
+- ✅ **Fourth provider: OneDrive — personal + business** (`OneDriveStore`, Microsoft Graph
+  v1.0). Graph is **path-addressable** (`/me/drive/root:/path:`), so it's path-based like
+  Dropbox — no ID resolution. PKCE public client (no secret), custom-scheme redirect, and a
+  single `common`-authority registration serves **both** personal and work/school accounts.
+  Simple-PUT uploads. 6 tests; verified against real Graph (root/children and
+  `root:/{path}:/content` return clean 401). Entry points: macOS **File ▸ Connect OneDrive…**,
+  iOS Settings ▸ Cloud (direct API).
+- **Credentials** for all direct-API providers live in a git-ignored
+  `Config/Secrets.xcconfig` (substituted into Info.plist at build time); a committed
+  `Secrets.example.xcconfig` documents each provider's console setup.
 - ✅ **Promoted to a first-class sidebar collection** (beyond the original pilot). `RemoteMirror`
   mirrors a `RemoteStore` folder into a local cache that's opened as a normal `Collection`
   (reusing scan/index/editor/`FileIO` unchanged); `Collection.noteDidSave` uploads edits back.
