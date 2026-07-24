@@ -68,6 +68,11 @@ struct HelloNotesWidgetsEntryView: View {
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
+        // A `.systemSmall` widget has exactly one tap target, established by
+        // `widgetURL` — `Link`s inside it are inert. Without this, tapping any
+        // row in the small widget just opens the app with no deep link. Medium
+        // and large have multiple regions and keep using the per-row `Link`s.
+        .widgetURL(entry.snapshot.recents.first?.deepLink)
     }
 }
 

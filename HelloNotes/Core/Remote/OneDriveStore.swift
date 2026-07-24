@@ -44,6 +44,8 @@ final class OneDriveStore: NSObject, RemoteStore {
     }
     private let redirectURI = "hellonotes://onedrive-auth"
     private let session: URLSession
+    /// Single-flights token refreshes (Microsoft rotates refresh tokens).
+    private let refreshCoordinator = RefreshCoordinator()
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -65,9 +67,20 @@ final class OneDriveStore: NSObject, RemoteStore {
 
     // MARK: - CRUD (path-based; no ID resolution needed)
 
+    /// Lists a folder in full, following Graph's `@odata.nextLink` (a
+    /// fully-qualified URL for the next page). Without the loop a folder past
+    /// one page silently loses its tail.
     func list(path: String) async throws -> [RemoteEntry] {
-        let data = try await sendAuthed { Self.listRequest(path: path, token: $0) }
-        return try Self.parseChildren(data, parentPath: Self.normalizedPath(path))
+        let parentPath = Self.normalizedPath(path)
+        var data = try await sendAuthed { Self.listRequest(path: path, token: $0) }
+        var page = try Self.parseChildrenPage(data, parentPath: parentPath)
+        var all = page.entries
+        while let next = page.nextLink {
+            data = try await sendAuthed { Self.pageRequest(url: next, token: $0) }
+            page = try Self.parseChildrenPage(data, parentPath: parentPath)
+            all += page.entries
+        }
+        return all
     }
 
     func read(path: String) async throws -> Data {
@@ -94,21 +107,34 @@ final class OneDriveStore: NSObject, RemoteStore {
         }
     }
 
+    /// Single-flighted: Microsoft rotates refresh tokens, so concurrent 401s
+    /// must not each spend the stored one (the loser would get `invalid_grant`).
     private func refreshAccessToken() async throws -> String {
-        guard let refresh = RemoteTokenStore.token(for: Self.refreshAccount) else {
-            throw RemoteStoreError.notAuthenticated
+        let id = clientID
+        let session = self.session
+        return try await refreshCoordinator.refresh {
+            guard let refresh = RemoteTokenStore.token(for: Self.refreshAccount) else {
+                throw RemoteStoreError.notAuthenticated
+            }
+            let request = Self.refreshRequest(refreshToken: refresh, clientID: id)
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw RemoteStoreError.decoding("no HTTP response")
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                throw RemoteStoreError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let access = json["access_token"] as? String else {
+                throw RemoteStoreError.decoding("token refresh")
+            }
+            RemoteTokenStore.setToken(access, for: Self.tokenAccount)
+            // Microsoft rotates refresh tokens — persist the new one when present.
+            if let rotated = json["refresh_token"] as? String {
+                RemoteTokenStore.setToken(rotated, for: Self.refreshAccount)
+            }
+            return access
         }
-        let data = try await send(Self.refreshRequest(refreshToken: refresh, clientID: clientID))
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let access = json["access_token"] as? String else {
-            throw RemoteStoreError.decoding("token refresh")
-        }
-        RemoteTokenStore.setToken(access, for: Self.tokenAccount)
-        // Microsoft rotates refresh tokens — persist the new one when present.
-        if let rotated = json["refresh_token"] as? String {
-            RemoteTokenStore.setToken(rotated, for: Self.refreshAccount)
-        }
-        return access
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
@@ -161,6 +187,13 @@ final class OneDriveStore: NSObject, RemoteStore {
         return r
     }
 
+    /// Fetch a Graph continuation URL (`@odata.nextLink`) verbatim.
+    static func pageRequest(url: URL, token: String) -> URLRequest {
+        var r = URLRequest(url: url)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+
     static func downloadRequest(path: String, token: String) -> URLRequest {
         var r = URLRequest(url: itemURL(path: path, suffix: "/content"))
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -190,14 +223,21 @@ final class OneDriveStore: NSObject, RemoteStore {
     /// A Graph driveItem is a folder if it has a `folder` facet, a file if it has
     /// a `file` facet.
     static func parseChildren(_ data: Data, parentPath: String) throws -> [RemoteEntry] {
+        try parseChildrenPage(data, parentPath: parentPath).entries
+    }
+
+    /// One page of children, plus Graph's continuation link (nil on the last).
+    static func parseChildrenPage(_ data: Data, parentPath: String) throws
+        -> (entries: [RemoteEntry], nextLink: URL?) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let value = root["value"] as? [[String: Any]] else {
             throw RemoteStoreError.decoding("drive children")
         }
+        let nextLink = (root["@odata.nextLink"] as? String).flatMap(URL.init(string:))
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let plain = ISO8601DateFormatter()
-        return value.compactMap { item in
+        let entries: [RemoteEntry] = value.compactMap { item in
             guard let name = item["name"] as? String else { return nil }
             let isFolder = item["folder"] != nil
             let modified = (item["lastModifiedDateTime"] as? String).flatMap {
@@ -212,6 +252,7 @@ final class OneDriveStore: NSObject, RemoteStore {
                 rev: (item["eTag"] as? String)
             )
         }
+        return (entries, nextLink)
     }
 
     // MARK: - OAuth (PKCE, no secret; common authority = personal + business)

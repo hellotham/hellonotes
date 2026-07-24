@@ -70,6 +70,26 @@ enum RemoteStoreError: LocalizedError, Equatable {
     }
 }
 
+/// Serializes token refreshes so concurrent 401s share one exchange.
+///
+/// Box and OneDrive issue **single-use** refresh tokens: the refresh response
+/// carries a replacement, and the old one is spent. Two uploads that both hit a
+/// 401 would otherwise each POST the same refresh token — one wins, the other
+/// gets `invalid_grant` and fails a save the user made. With this, the first
+/// caller performs the exchange and everyone else awaits the same result.
+actor RefreshCoordinator {
+    private var inFlight: Task<String, Error>?
+
+    /// Run `exchange` unless one is already running, in which case await that.
+    func refresh(_ exchange: @escaping @Sendable () async throws -> String) async throws -> String {
+        if let inFlight { return try await inFlight.value }
+        let task = Task { try await exchange() }
+        inFlight = task
+        defer { inFlight = nil }
+        return try await task.value
+    }
+}
+
 /// Access tokens for direct-API providers, stored in the login Keychain
 /// (`ThisDeviceOnly` — long-lived secrets stay off backups). Mirrors the shape
 /// of `LLMKeychain`, keyed by a provider id string.

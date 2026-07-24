@@ -467,6 +467,15 @@ final class GitService {
 
             switch result {
             case .success:
+                // Stop can land *after* libgit2 finished (its transfer-progress
+                // callback is the only cancellation observation point), so the
+                // success path has to honour cancellation too — otherwise a
+                // cancelled clone still reports success and gets opened.
+                if Task.isCancelled {
+                    lastError = "Clone cancelled."
+                    try? FileManager.default.removeItem(at: destination)
+                    return nil
+                }
                 lastMessage = "Cloned “\(folderName)”"
                 return destination
             case .failure(let error):

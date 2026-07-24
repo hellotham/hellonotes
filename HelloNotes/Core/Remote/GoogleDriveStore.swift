@@ -77,17 +77,30 @@ final class GoogleDriveStore: NSObject, RemoteStore {
 
     // MARK: - CRUD (path-based over Drive's ID-based API)
 
+    /// Lists a folder in full, following Drive's `nextPageToken`. Without the
+    /// loop a folder past one page silently loses its tail — and since IDs are
+    /// primed here, those files then fail to read/write with a 404.
     func list(path: String) async throws -> [RemoteEntry] {
         let folderID = try await resolveFolderID(path: path)
-        let data = try await sendAuthed { Self.listRequest(folderID: folderID, token: $0) }
-        let items = try Self.parseFileList(data, parentPath: Self.normalizedPath(path))
-        cacheLock.lock()
-        for item in items {
-            if item.entry.isDirectory { folderIDs[item.entry.path] = item.id }
-            else { fileIDs[item.entry.path] = item.id }
-        }
-        cacheLock.unlock()
-        return items.map(\.entry)
+        let parentPath = Self.normalizedPath(path)
+        var all: [RemoteEntry] = []
+        var pageToken: String?
+        repeat {
+            let token = pageToken
+            let data = try await sendAuthed {
+                Self.listRequest(folderID: folderID, token: $0, pageToken: token)
+            }
+            let page = try Self.parseFileListPage(data, parentPath: parentPath)
+            cacheLock.lock()
+            for item in page.items {
+                if item.entry.isDirectory { folderIDs[item.entry.path] = item.id }
+                else { fileIDs[item.entry.path] = item.id }
+            }
+            cacheLock.unlock()
+            all += page.items.map(\.entry)
+            pageToken = page.nextPageToken
+        } while pageToken != nil
+        return all
     }
 
     func read(path: String) async throws -> Data {
@@ -234,13 +247,16 @@ final class GoogleDriveStore: NSObject, RemoteStore {
 
     // MARK: - Pure request builders (unit-tested)
 
-    static func listRequest(folderID: String, token: String) -> URLRequest {
+    static func listRequest(folderID: String, token: String, pageToken: String? = nil) -> URLRequest {
         var c = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
         c.queryItems = [
             .init(name: "q", value: "'\(folderID)' in parents and trashed=false"),
-            .init(name: "fields", value: "files(id,name,mimeType,size,modifiedTime)"),
+            // `nextPageToken` must be requested explicitly — it isn't returned
+            // when `fields` names only `files(...)`.
+            .init(name: "fields", value: "nextPageToken,files(id,name,mimeType,size,modifiedTime)"),
             .init(name: "pageSize", value: "1000"),
         ]
+        if let pageToken { c.queryItems?.append(.init(name: "pageToken", value: pageToken)) }
         var r = URLRequest(url: c.url!)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return r
@@ -302,14 +318,21 @@ final class GoogleDriveStore: NSObject, RemoteStore {
     // MARK: - Pure response parsing (unit-tested)
 
     static func parseFileList(_ data: Data, parentPath: String) throws -> [(entry: RemoteEntry, id: String)] {
+        try parseFileListPage(data, parentPath: parentPath).items
+    }
+
+    /// One page of results, plus Drive's continuation token (nil on the last).
+    static func parseFileListPage(_ data: Data, parentPath: String) throws
+        -> (items: [(entry: RemoteEntry, id: String)], nextPageToken: String?) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let files = root["files"] as? [[String: Any]] else {
             throw RemoteStoreError.decoding("drive file list")
         }
+        let nextPageToken = root["nextPageToken"] as? String
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let plain = ISO8601DateFormatter()
-        return files.compactMap { f in
+        let items: [(entry: RemoteEntry, id: String)] = files.compactMap { f in
             guard let id = f["id"] as? String,
                   let name = f["name"] as? String,
                   let mime = f["mimeType"] as? String else { return nil }
@@ -330,6 +353,7 @@ final class GoogleDriveStore: NSObject, RemoteStore {
             )
             return (entry, id)
         }
+        return (items, nextPageToken)
     }
 
     static func parseFileID(_ data: Data) -> String? {

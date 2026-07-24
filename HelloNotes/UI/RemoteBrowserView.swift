@@ -73,7 +73,15 @@ final class RemoteBrowserModel {
         error = nil
         do {
             let data = try await store.read(path: entry.path)
-            openText = String(decoding: data, as: UTF8.self)
+            // Decode strictly. `String(decoding:as:)` is *lossy* — it silently
+            // substitutes U+FFFD for invalid bytes, so opening a PDF/PNG and
+            // hitting Save would upload mojibake over the original file on the
+            // provider. Refuse to open anything that isn't valid UTF-8 text.
+            guard let text = String(data: data, encoding: .utf8) else {
+                self.error = "“\(entry.name)” isn’t a UTF-8 text file, so it can’t be edited here. Opening it would risk overwriting it with corrupted content."
+                return
+            }
+            openText = text
             openPath = entry.path
             didSave = false
         } catch {

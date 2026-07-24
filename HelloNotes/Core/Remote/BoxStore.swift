@@ -45,6 +45,8 @@ final class BoxStore: NSObject, RemoteStore {
     }
     private let redirectURI = "hellonotes://box-auth"
     private let session: URLSession
+    /// Single-flights token refreshes (Box rotates refresh tokens).
+    private let refreshCoordinator = RefreshCoordinator()
 
     /// Path→ID caches (normalized path keys). Root is always folder id "0".
     private let cacheLock = NSLock()
@@ -75,17 +77,32 @@ final class BoxStore: NSObject, RemoteStore {
 
     // MARK: - CRUD (path-based over Box's ID-based API)
 
+    /// Lists a folder in full. Box pages `folders/{id}/items`, so walk `offset`
+    /// until a short page arrives — otherwise a big folder silently loses its
+    /// tail (and, since IDs are primed here, those notes become unreadable).
     func list(path: String) async throws -> [RemoteEntry] {
         let folderID = try await resolveFolderID(path: path)
-        let data = try await sendAuthed { Self.listItemsRequest(folderID: folderID, token: $0) }
-        let items = try Self.parseItems(data, parentPath: Self.normalizedPath(path))
-        cacheLock.lock()
-        for item in items {
-            if item.entry.isDirectory { folderIDs[item.entry.path] = item.id }
-            else { fileIDs[item.entry.path] = item.id }
+        let parentPath = Self.normalizedPath(path)
+        var all: [RemoteEntry] = []
+        var offset = 0
+        while true {
+            let data = try await sendAuthed {
+                Self.listItemsRequest(folderID: folderID, token: $0, offset: offset)
+            }
+            let page = try Self.parseItemsPage(data, parentPath: parentPath)
+            cacheLock.lock()
+            for item in page.items {
+                if item.entry.isDirectory { folderIDs[item.entry.path] = item.id }
+                else { fileIDs[item.entry.path] = item.id }
+            }
+            cacheLock.unlock()
+            all += page.items.map(\.entry)
+            // Compare against the RAW entry count (`items` drops web_links, so a
+            // full page can yield fewer usable items). A short page ends the walk.
+            guard page.rawCount >= Self.pageSize else { break }
+            offset += Self.pageSize
         }
-        cacheLock.unlock()
-        return items.map(\.entry)
+        return all
     }
 
     func read(path: String) async throws -> Data {
@@ -187,21 +204,33 @@ final class BoxStore: NSObject, RemoteStore {
 
     /// Box refresh tokens are **single-use**: the refresh response carries a new
     /// refresh token that must replace the stored one, or the next refresh fails.
+    /// Routed through `refreshCoordinator` so concurrent 401s (two uploads, say)
+    /// don't each spend the same token — the loser would get `invalid_grant`.
     private func refreshAccessToken() async throws -> String {
-        guard let refresh = RemoteTokenStore.token(for: Self.refreshAccount) else {
-            throw RemoteStoreError.notAuthenticated
+        let id = clientID, secret = clientSecret
+        let session = self.session
+        return try await refreshCoordinator.refresh {
+            guard let refresh = RemoteTokenStore.token(for: Self.refreshAccount) else {
+                throw RemoteStoreError.notAuthenticated
+            }
+            let request = Self.refreshRequest(refreshToken: refresh, clientID: id, clientSecret: secret)
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw RemoteStoreError.decoding("no HTTP response")
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                throw RemoteStoreError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let access = json["access_token"] as? String else {
+                throw RemoteStoreError.decoding("token refresh")
+            }
+            RemoteTokenStore.setToken(access, for: Self.tokenAccount)
+            if let rotated = json["refresh_token"] as? String {
+                RemoteTokenStore.setToken(rotated, for: Self.refreshAccount)
+            }
+            return access
         }
-        let data = try await send(Self.refreshRequest(refreshToken: refresh,
-                                                      clientID: clientID, clientSecret: clientSecret))
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let access = json["access_token"] as? String else {
-            throw RemoteStoreError.decoding("token refresh")
-        }
-        RemoteTokenStore.setToken(access, for: Self.tokenAccount)
-        if let rotated = json["refresh_token"] as? String {
-            RemoteTokenStore.setToken(rotated, for: Self.refreshAccount)
-        }
-        return access
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
@@ -236,11 +265,15 @@ final class BoxStore: NSObject, RemoteStore {
 
     // MARK: - Pure request builders (unit-tested)
 
-    static func listItemsRequest(folderID: String, token: String) -> URLRequest {
+    /// Entries requested per page; the pager walks `offset` in these steps.
+    static let pageSize = 1000
+
+    static func listItemsRequest(folderID: String, token: String, offset: Int = 0) -> URLRequest {
         var c = URLComponents(string: "https://api.box.com/2.0/folders/\(folderID)/items")!
         c.queryItems = [
             .init(name: "fields", value: "id,type,name,size,modified_at"),
-            .init(name: "limit", value: "1000"),
+            .init(name: "limit", value: "\(pageSize)"),
+            .init(name: "offset", value: "\(offset)"),
         ]
         var r = URLRequest(url: c.url!)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -300,7 +333,13 @@ final class BoxStore: NSObject, RemoteStore {
             append(attributes + "\r\n")
         }
         append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+        // RFC 7578 §4.2: escape `\` and `"` in the filename parameter. Both are
+        // legal in an APFS filename, and an unescaped quote truncates the header
+        // value, which Box rejects with a 400.
+        let escapedName = filename
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(escapedName)\"\r\n")
         append("Content-Type: application/octet-stream\r\n\r\n")
         body.append(fileData)
         append("\r\n--\(boundary)--\r\n")
@@ -320,12 +359,20 @@ final class BoxStore: NSObject, RemoteStore {
     /// Parse a folder-items listing into entries + their Box IDs. Skips item
     /// types that aren't files or folders (e.g. `web_link`).
     static func parseItems(_ data: Data, parentPath: String) throws -> [(entry: RemoteEntry, id: String)] {
+        try parseItemsPage(data, parentPath: parentPath).items
+    }
+
+    /// One page of items, plus the *raw* entry count (before `web_link` and
+    /// other non-file/folder types are dropped) so the pager can tell a full
+    /// page from the last one.
+    static func parseItemsPage(_ data: Data, parentPath: String) throws
+        -> (items: [(entry: RemoteEntry, id: String)], rawCount: Int) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let entries = root["entries"] as? [[String: Any]] else {
             throw RemoteStoreError.decoding("folder items")
         }
         let formatter = ISO8601DateFormatter()
-        return entries.compactMap { e in
+        let items: [(entry: RemoteEntry, id: String)] = entries.compactMap { e in
             guard let type = e["type"] as? String, type == "file" || type == "folder",
                   let id = e["id"] as? String,
                   let name = e["name"] as? String else { return nil }
@@ -339,6 +386,7 @@ final class BoxStore: NSObject, RemoteStore {
             )
             return (entry, id)
         }
+        return (items, entries.count)
     }
 
     /// The upload endpoints answer with `{"entries":[{"type":"file","id":…}]}`.

@@ -44,9 +44,17 @@ final class CloudPrefs {
         pullFromCloud()
     }
 
+    // NOTE: `@objc` selectors are invoked by the ObjC runtime on the *poster's*
+    // thread — actor isolation isn't enforced across that boundary, and
+    // `didChangeExternallyNotification` is documented as arriving on a
+    // system-chosen background queue. Both handlers therefore hop onto the main
+    // actor before touching `isApplyingRemote` / UserDefaults, so the reentrancy
+    // guard actually holds (and Swift 6 strict concurrency won't trap).
     @objc private func localChanged() {
-        guard !isApplyingRemote else { return }   // don't echo a cloud→local apply back
-        push()
+        Task { @MainActor [self] in
+            guard !isApplyingRemote else { return }   // don't echo a cloud→local apply back
+            push()
+        }
     }
 
     /// Push the current local prefs to the cloud (call on background / quit).
@@ -59,7 +67,7 @@ final class CloudPrefs {
 
     @objc private func cloudChangedExternally(_ note: Notification) {
         // Only apply the keys that actually changed (or all, on initial sync).
-        pullFromCloud()
+        Task { @MainActor [self] in pullFromCloud() }
     }
 
     private func pullFromCloud() {

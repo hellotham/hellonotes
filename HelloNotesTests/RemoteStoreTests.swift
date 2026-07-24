@@ -314,8 +314,10 @@ struct GoogleDriveStoreTests {
         #expect(s.hasPrefix("https://www.googleapis.com/drive/v3/files"))
         #expect(s.contains("in%20parents") || s.contains("in+parents"))
         #expect(s.contains("trashed"))
-        #expect(s.contains("fields=files(id,name,mimeType,size,modifiedTime)")
-            || s.contains("fields=files%28id,name,mimeType,size,modifiedTime%29"))
+        // `fields` must request the file properties *and* nextPageToken (the
+        // pager needs it; Drive omits it unless explicitly selected).
+        #expect(s.contains("id,name,mimeType,size,modifiedTime"))
+        #expect(s.contains("nextPageToken"))
         #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
     }
 
@@ -436,6 +438,86 @@ struct OneDriveStoreTests {
     }
 }
 
+/// Pagination: every provider pages its folder listing, and dropping the
+/// continuation cursor silently truncates big folders (and, for the ID-based
+/// providers, makes the missing notes unreadable). These pin the cursor
+/// plumbing on each parser + request builder.
+struct RemoteListPaginationTests {
+
+    @Test func dropboxSurfacesCursorAndHasMore() throws {
+        let page1 = #"{"entries":[{".tag":"file","name":"a.md","path_display":"/a.md"}],"cursor":"CUR1","has_more":true}"#
+        let p1 = try DropboxStore.parseListFolderPage(Data(page1.utf8))
+        #expect(p1.entries.count == 1)
+        #expect(p1.cursor == "CUR1")
+        #expect(p1.hasMore == true)
+
+        let page2 = #"{"entries":[{".tag":"file","name":"b.md","path_display":"/b.md"}],"cursor":"CUR2","has_more":false}"#
+        let p2 = try DropboxStore.parseListFolderPage(Data(page2.utf8))
+        #expect(p2.hasMore == false)
+
+        // The continue request carries the cursor to the right endpoint.
+        let r = DropboxStore.listFolderContinueRequest(cursor: "CUR1", token: "T")
+        #expect(r.url?.absoluteString == "https://api.dropboxapi.com/2/files/list_folder/continue")
+        let httpBody = try #require(r.httpBody)
+        let body = try #require(try JSONSerialization.jsonObject(with: httpBody) as? [String: Any])
+        #expect(body["cursor"] as? String == "CUR1")
+    }
+
+    @Test func boxPagesByOffsetUsingRawCount() throws {
+        // A full page whose entries include a web_link: the *raw* count must
+        // drive paging, or the walk would stop early on the filtered count.
+        let fixture = """
+        {"entries":[
+          {"type":"file","id":"1","name":"a.md"},
+          {"type":"web_link","id":"2","name":"link"}
+        ]}
+        """
+        let page = try BoxStore.parseItemsPage(Data(fixture.utf8), parentPath: "")
+        #expect(page.items.count == 1)     // web_link filtered out
+        #expect(page.rawCount == 2)        // but paging sees both
+
+        let r = BoxStore.listItemsRequest(folderID: "0", token: "T", offset: 1000)
+        let s = r.url?.absoluteString ?? ""
+        #expect(s.contains("offset=1000"))
+        #expect(s.contains("limit=\(BoxStore.pageSize)"))
+    }
+
+    @Test func googleDriveSurfacesNextPageToken() throws {
+        let fixture = #"{"files":[{"id":"F1","name":"a.md","mimeType":"text/markdown"}],"nextPageToken":"NPT1"}"#
+        let page = try GoogleDriveStore.parseFileListPage(Data(fixture.utf8), parentPath: "")
+        #expect(page.items.count == 1)
+        #expect(page.nextPageToken == "NPT1")
+
+        let last = #"{"files":[{"id":"F2","name":"b.md","mimeType":"text/markdown"}]}"#
+        #expect(try GoogleDriveStore.parseFileListPage(Data(last.utf8), parentPath: "").nextPageToken == nil)
+
+        // nextPageToken must be requested in `fields`, and the token forwarded.
+        let r = GoogleDriveStore.listRequest(folderID: "root", token: "T", pageToken: "NPT1")
+        let s = r.url?.absoluteString ?? ""
+        #expect(s.contains("nextPageToken"))
+        #expect(s.contains("pageToken=NPT1"))
+    }
+
+    @Test func oneDriveSurfacesODataNextLink() throws {
+        let fixture = """
+        {"value":[{"name":"a.md","size":1,"file":{}}],
+         "@odata.nextLink":"https://graph.microsoft.com/v1.0/me/drive/root/children?$skiptoken=ABC"}
+        """
+        let page = try OneDriveStore.parseChildrenPage(Data(fixture.utf8), parentPath: "")
+        #expect(page.entries.count == 1)
+        #expect(page.nextLink?.absoluteString.contains("skiptoken=ABC") == true)
+
+        let last = #"{"value":[{"name":"b.md","size":1,"file":{}}]}"#
+        #expect(try OneDriveStore.parseChildrenPage(Data(last.utf8), parentPath: "").nextLink == nil)
+
+        // The continuation URL is fetched verbatim, with auth attached.
+        let url = try #require(page.nextLink)
+        let r = OneDriveStore.pageRequest(url: url, token: "T")
+        #expect(r.url == url)
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+    }
+}
+
 /// The mirror that promotes a RemoteStore to a first-class collection: it must
 /// pull the remote tree into a local cache and push edits back.
 @MainActor
@@ -465,6 +547,30 @@ struct RemoteMirrorTests {
         try await mirror.upload(localURL: idea)
         let readBack = try await store.read(path: "/Notes/Idea.md")
         #expect(String(decoding: readBack, as: UTF8.self) == "# Changed in the mirror")
+    }
+
+    /// A note deleted on the provider must disappear from the mirror on the next
+    /// sync. Otherwise it lingers in the sidebar and the next save re-uploads
+    /// (resurrects) it.
+    @Test func syncDownPrunesNotesDeletedRemotely() async throws {
+        let store = MockRemoteStore(preAuthenticated: true)
+        let cache = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hn-mirror-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cache) }
+
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncDown()
+        let tasks = cache.appendingPathComponent("Notes/Tasks.md")
+        #expect(FileManager.default.fileExists(atPath: tasks.path))
+
+        // Deleted on the provider (e.g. from another device) …
+        try await store.delete(path: "/Notes/Tasks.md")
+        try await mirror.syncDown()
+
+        // … so it must be gone locally too, while its siblings survive.
+        #expect(!FileManager.default.fileExists(atPath: tasks.path))
+        #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Notes/Idea.md").path))
+        #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Welcome.md").path))
     }
 
     @Test func remoteRootIsStrippedInMapping() {

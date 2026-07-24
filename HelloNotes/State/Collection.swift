@@ -562,10 +562,18 @@ final class Collection: Identifiable {
 
     /// Move a note to the Trash (never a hard delete) and re-index.
     func deleteNote(_ note: Note) async {
+        // Capture the remote path *before* trashing (the mapping is by URL).
+        let remotePath = remote.map { $0.remotePath(forLocalURL: note.fileURL) }
         do {
             try FileManager.default.trashItem(at: note.fileURL, resultingItemURL: nil)
         } catch {
             report("Couldn't move “\(note.title)” to the Trash: \(error.localizedDescription)")
+        }
+        // A direct-API collection must delete on the provider too, or the next
+        // syncDown silently re-downloads the note the user just deleted.
+        if let remote, let remotePath {
+            do { try await remote.store.delete(path: remotePath) }
+            catch { report("Couldn't delete “\(note.title)” on \(remote.store.providerName): \(error.localizedDescription)") }
         }
         await scanOffMain()
         refreshDerived()
@@ -599,10 +607,15 @@ final class Collection: Identifiable {
 
     /// Move a folder (and its contents) to the Trash and re-index.
     func deleteFolder(at url: URL) async {
+        let remotePath = remote.map { $0.remotePath(forLocalURL: url) }
         do {
             try FileManager.default.trashItem(at: url, resultingItemURL: nil)
         } catch {
             report("Couldn't move the folder to the Trash: \(error.localizedDescription)")
+        }
+        if let remote, let remotePath {
+            do { try await remote.store.delete(path: remotePath) }
+            catch { report("Couldn't delete the folder on \(remote.store.providerName): \(error.localizedDescription)") }
         }
         await scanOffMain()
         refreshDerived()

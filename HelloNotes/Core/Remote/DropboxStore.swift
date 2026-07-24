@@ -61,9 +61,19 @@ final class DropboxStore: NSObject, RemoteStore {
 
     // MARK: - CRUD
 
+    /// Lists a folder in full: Dropbox pages `list_folder`, so follow the cursor
+    /// via `list_folder/continue` until `has_more` is false. Without this a
+    /// folder past the page size silently loses its tail.
     func list(path: String) async throws -> [RemoteEntry] {
-        let data = try await sendAuthed { Self.listFolderRequest(path: path, token: $0) }
-        return try Self.parseListFolder(data)
+        var data = try await sendAuthed { Self.listFolderRequest(path: path, token: $0) }
+        var page = try Self.parseListFolderPage(data)
+        var all = page.entries
+        while page.hasMore, let cursor = page.cursor {
+            data = try await sendAuthed { Self.listFolderContinueRequest(cursor: cursor, token: $0) }
+            page = try Self.parseListFolderPage(data)
+            all += page.entries
+        }
+        return all
     }
 
     func read(path: String) async throws -> Data {
@@ -144,6 +154,13 @@ final class DropboxStore: NSObject, RemoteStore {
                     body: ["path": normalizedPath(path), "recursive": false])
     }
 
+    /// Next page of a `list_folder` walk.
+    static func listFolderContinueRequest(cursor: String, token: String) -> URLRequest {
+        jsonRequest(URL(string: "https://api.dropboxapi.com/2/files/list_folder/continue")!,
+                    token: token,
+                    body: ["cursor": cursor])
+    }
+
     static func deleteRequest(path: String, token: String) -> URLRequest {
         jsonRequest(URL(string: "https://api.dropboxapi.com/2/files/delete_v2")!,
                     token: token,
@@ -190,13 +207,19 @@ final class DropboxStore: NSObject, RemoteStore {
 
     // MARK: - Pure response parsing (unit-tested)
 
+    /// Back-compat convenience: entries only, ignoring pagination.
     static func parseListFolder(_ data: Data) throws -> [RemoteEntry] {
+        try parseListFolderPage(data).entries
+    }
+
+    /// One page of `list_folder`, plus the cursor needed to fetch the next.
+    static func parseListFolderPage(_ data: Data) throws -> (entries: [RemoteEntry], cursor: String?, hasMore: Bool) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let entries = root["entries"] as? [[String: Any]] else {
             throw RemoteStoreError.decoding("list_folder entries")
         }
         let formatter = ISO8601DateFormatter()
-        return entries.compactMap { e in
+        let parsed: [RemoteEntry] = entries.compactMap { e in
             guard let tag = e[".tag"] as? String,
                   let name = e["name"] as? String,
                   let path = (e["path_display"] as? String) ?? (e["path_lower"] as? String)
@@ -210,6 +233,7 @@ final class DropboxStore: NSObject, RemoteStore {
                 rev: e["rev"] as? String
             )
         }
+        return (parsed, root["cursor"] as? String, root["has_more"] as? Bool ?? false)
     }
 
     // MARK: - OAuth (PKCE)

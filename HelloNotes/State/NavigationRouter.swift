@@ -152,12 +152,31 @@ final class NavigationRouter {
         }
     }
 
+    /// UserDefaults key holding the ids donated last time, so the next donation
+    /// can retract the ones that disappeared.
+    private static let donatedIDsKey = "spotlightDonatedIDs"
+
     /// Donate the open notes to system Spotlight (findable in ⌘Space with a deep
     /// link back). Re-donated when the note set changes.
+    ///
+    /// `indexAppEntities` is add-or-update **by id**, and `NoteEntity.id`
+    /// encodes the relative path — so a rename or delete strands the old id in
+    /// the system index *permanently* (it survives relaunches), leaving ⌘Space
+    /// results that open nothing. Diff against the previous donation and
+    /// explicitly retract what's gone.
     func donateNotesToSpotlight() async {
         let entities = openNotesForIntents().prefix(500).map {
             NoteEntity(collectionName: $0.collectionName, relativePath: $0.relativePath, title: $0.title)
         }
-        try? await CSSearchableIndex.default().indexAppEntities(Array(entities))
+        let index = CSSearchableIndex.default()
+        let current = Set(entities.map(\.id))
+        let previous = Set(UserDefaults.standard.stringArray(forKey: Self.donatedIDsKey) ?? [])
+
+        let stale = previous.subtracting(current)
+        if !stale.isEmpty {
+            try? await index.deleteAppEntities(identifiedBy: Array(stale), ofType: NoteEntity.self)
+        }
+        try? await index.indexAppEntities(Array(entities))
+        UserDefaults.standard.set(Array(current), forKey: Self.donatedIDsKey)
     }
 }

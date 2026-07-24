@@ -57,24 +57,72 @@ final class RemoteMirror {
 
     // MARK: - Sync
 
-    /// Fetch the remote folder's Markdown into the local cache (recursive).
+    /// Fetch the remote folder's Markdown into the local cache (recursive), then
+    /// reconcile: prune local notes that no longer exist remotely.
+    ///
+    /// Two rules keep this from destroying work:
+    /// * a local file **newer** than the remote copy is left alone — it's an
+    ///   edit whose upload hasn't landed yet, and overwriting it would silently
+    ///   discard the user's changes;
+    /// * a local note absent from the remote listing is removed, so a note
+    ///   deleted elsewhere doesn't linger (and get resurrected by the next save).
     func syncDown() async throws {
-        try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+        let fm = FileManager.default
+        try fm.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+
+        var seen = Set<String>()   // standardized local paths present remotely
         var folders = [remoteRoot]
         while let folder = folders.popLast() {
             let entries = try await store.list(path: folder)
             for entry in entries {
+                let dest = localURL(forRemotePath: entry.path)
                 if entry.isDirectory {
                     folders.append(entry.path)
-                    try? FileManager.default.createDirectory(
-                        at: localURL(forRemotePath: entry.path), withIntermediateDirectories: true)
-                } else if entry.name.lowercased().hasSuffix(".md") {
-                    let data = try await store.read(path: entry.path)
-                    let dest = localURL(forRemotePath: entry.path)
-                    try? FileManager.default.createDirectory(
-                        at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try? data.write(to: dest, options: .atomic)
+                    seen.insert(dest.standardizedFileURL.path)
+                    try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
+                    continue
                 }
+                guard entry.name.lowercased().hasSuffix(".md") else { continue }
+                seen.insert(dest.standardizedFileURL.path)
+
+                // Skip the download when the local copy is strictly newer than
+                // the remote one (a pending upload).
+                if let remoteModified = entry.modified,
+                   let localModified = try? dest.resourceValues(forKeys: [.contentModificationDateKey])
+                       .contentModificationDate,
+                   localModified > remoteModified {
+                    continue
+                }
+                let data = try await store.read(path: entry.path)
+                try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? data.write(to: dest, options: .atomic)
+            }
+        }
+
+        pruneLocalItems(notIn: seen)
+    }
+
+    /// Remove cached notes (and now-empty folders) that the remote no longer has.
+    private func pruneLocalItems(notIn seen: Set<String>) {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: cacheRoot,
+                                         includingPropertiesForKeys: [.isDirectoryKey],
+                                         options: [.skipsHiddenFiles]) else { return }
+        var directories: [URL] = []
+        for case let url as URL in walker {
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            if isDirectory {
+                directories.append(url)
+            } else if url.pathExtension.lowercased() == "md",
+                      !seen.contains(url.standardizedFileURL.path) {
+                try? fm.removeItem(at: url)
+            }
+        }
+        // Deepest-first so a folder emptied by the pass above can go too.
+        for url in directories.sorted(by: { $0.pathComponents.count > $1.pathComponents.count })
+        where !seen.contains(url.standardizedFileURL.path) {
+            if let contents = try? fm.contentsOfDirectory(atPath: url.path), contents.isEmpty {
+                try? fm.removeItem(at: url)
             }
         }
     }
