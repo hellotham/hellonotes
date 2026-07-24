@@ -142,6 +142,7 @@ struct HelloNotesCommands: Commands {
             Button("Connect Dropbox…") { openWindow(id: "remoteBrowser") }
             Button("Connect Box…") { openWindow(id: "remoteBrowserBox") }
             Button("Connect Google Drive…") { openWindow(id: "remoteBrowserGDrive") }
+            Button("Connect OneDrive…") { openWindow(id: "remoteBrowserOneDrive") }
             #if DEBUG
             Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
             #endif

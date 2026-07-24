@@ -360,6 +360,82 @@ struct GoogleDriveStoreTests {
     }
 }
 
+/// Pure-logic coverage for the OneDrive (Microsoft Graph) provider: the
+/// `root:/{path}:` URL building (incl. percent-encoding), PKCE OAuth shapes on
+/// the common authority, and folder/file facet parsing.
+struct OneDriveStoreTests {
+
+    @Test func buildsGraphPathURLs() {
+        // Root uses /root; a path uses the root:/…: addressing.
+        #expect(OneDriveStore.itemURL(path: "", suffix: "/children").absoluteString
+            == "https://graph.microsoft.com/v1.0/me/drive/root/children")
+        #expect(OneDriveStore.itemURL(path: "/Notes", suffix: "/children").absoluteString
+            == "https://graph.microsoft.com/v1.0/me/drive/root:/Notes:/children")
+        #expect(OneDriveStore.itemURL(path: "/Notes/Idea.md", suffix: "/content").absoluteString
+            == "https://graph.microsoft.com/v1.0/me/drive/root:/Notes/Idea.md:/content")
+        // Spaces in a component are percent-encoded; separators stay literal.
+        #expect(OneDriveStore.itemURL(path: "/My Notes/A B.md", suffix: "").absoluteString
+            == "https://graph.microsoft.com/v1.0/me/drive/root:/My%20Notes/A%20B.md:")
+    }
+
+    @Test func uploadIsSimplePutOfBytes() {
+        let r = OneDriveStore.uploadRequest(path: "/Notes/Idea.md", data: Data("hi".utf8), token: "T")
+        #expect(r.httpMethod == "PUT")
+        #expect(r.url?.absoluteString == "https://graph.microsoft.com/v1.0/me/drive/root:/Notes/Idea.md:/content")
+        #expect(r.value(forHTTPHeaderField: "Content-Type") == "application/octet-stream")
+        #expect(r.httpBody == Data("hi".utf8))
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+    }
+
+    @Test func listRequestSelectsFacets() {
+        let r = OneDriveStore.listRequest(path: "", token: "T")
+        let s = r.url?.absoluteString ?? ""
+        #expect(s.contains("me/drive/root/children"))
+        #expect(s.contains("folder") && s.contains("file") && s.contains("lastModifiedDateTime"))
+    }
+
+    @Test func authorizeUsesCommonAuthorityAndPKCE() throws {
+        let url = OneDriveStore.authorizeURL(clientID: "CID", redirectURI: "hellonotes://onedrive-auth",
+                                             challenge: "CHAL", state: "S1")
+        #expect(url.absoluteString.hasPrefix("https://login.microsoftonline.com/common/oauth2/v2.0/authorize"))
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        func value(_ n: String) -> String? { items.first { $0.name == n }?.value }
+        #expect(value("client_id") == "CID")
+        #expect(value("code_challenge_method") == "S256")
+        #expect(value("redirect_uri") == "hellonotes://onedrive-auth")
+        #expect(value("scope")?.contains("Files.ReadWrite") == true)
+        #expect(value("scope")?.contains("offline_access") == true)
+    }
+
+    @Test func tokenExchangeIsPKCEWithScope() {
+        let r = OneDriveStore.tokenExchangeRequest(code: "C", verifier: "V", clientID: "CID",
+                                                   redirectURI: "hellonotes://onedrive-auth")
+        #expect(r.url?.absoluteString == "https://login.microsoftonline.com/common/oauth2/v2.0/token")
+        let body = String(data: r.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("grant_type=authorization_code"))
+        #expect(body.contains("code_verifier=V"))
+        #expect(!body.contains("client_secret"))
+        #expect(body.contains("offline_access"))
+    }
+
+    @Test func parsesChildrenByFacet() throws {
+        let fixture = """
+        {"value":[
+          {"name":"Idea.md","size":42,"file":{"mimeType":"text/markdown"},"lastModifiedDateTime":"2026-07-21T10:00:00Z","eTag":"e1"},
+          {"name":"Sub","size":0,"folder":{"childCount":2},"lastModifiedDateTime":"2026-07-20T09:00:00Z"}
+        ]}
+        """
+        let entries = try OneDriveStore.parseChildren(Data(fixture.utf8), parentPath: "/Notes")
+        #expect(entries.count == 2)
+        #expect(entries[0].path == "/Notes/Idea.md")
+        #expect(entries[0].isDirectory == false)
+        #expect(entries[0].size == 42)
+        #expect(entries[0].rev == "e1")
+        #expect(entries[0].modified != nil)
+        #expect(entries[1].isDirectory == true)   // has a folder facet
+    }
+}
+
 /// The mirror that promotes a RemoteStore to a first-class collection: it must
 /// pull the remote tree into a local cache and push edits back.
 @MainActor

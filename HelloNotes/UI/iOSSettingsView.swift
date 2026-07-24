@@ -25,6 +25,7 @@ struct iOSSettingsView: View {
     @State private var showDropbox = false
     @State private var showBox = false
     @State private var showGoogleDrive = false
+    @State private var showOneDrive = false
     #if DEBUG
     @State private var showCloudDemo = false
     #endif
@@ -100,6 +101,7 @@ struct iOSSettingsView: View {
                     Button("Connect Dropbox…") { showDropbox = true }
                     Button("Connect Box…") { showBox = true }
                     Button("Connect Google Drive…") { showGoogleDrive = true }
+                    Button("Connect OneDrive…") { showOneDrive = true }
                     #if DEBUG
                     Button("Cloud Demo (Mock)…") { showCloudDemo = true }
                     #endif
@@ -124,6 +126,9 @@ struct iOSSettingsView: View {
             }
             .sheet(isPresented: $showGoogleDrive) {
                 NavigationStack { RemoteBrowserView(store: GoogleDriveStore()) }
+            }
+            .sheet(isPresented: $showOneDrive) {
+                NavigationStack { RemoteBrowserView(store: OneDriveStore()) }
             }
             #if DEBUG
             .sheet(isPresented: $showCloudDemo) {

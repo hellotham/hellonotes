@@ -26,6 +26,8 @@
 	<string>$(BOX_CLIENT_SECRET)</string>
 	<key>GoogleClientID</key>
 	<string>$(GOOGLE_CLIENT_ID)</string>
+	<key>OneDriveClientID</key>
+	<string>$(ONEDRIVE_CLIENT_ID)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>HelloNotes transcribes your voice into a note, on-device.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

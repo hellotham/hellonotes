@@ -126,6 +126,14 @@ struct HelloNotesApp: App {
         }
         .defaultSize(width: 480, height: 580)
 
+        Window("OneDrive (Direct)", id: "remoteBrowserOneDrive") {
+            RemoteBrowserView(store: OneDriveStore(), onOpenAsCollection: { store, path, name in
+                Task { try? await library.openRemote(store: store, remoteRoot: path, displayName: name) }
+            })
+            .themedRoot(appearance)
+        }
+        .defaultSize(width: 480, height: 580)
+
         #if DEBUG
         Window("Cloud Demo", id: "remoteBrowserDemo") {
             RemoteBrowserView(store: MockRemoteStore(), onOpenAsCollection: { store, path, name in
