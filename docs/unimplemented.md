@@ -112,12 +112,31 @@
 
 ---
 
+## 8b · Cloud storage *(shipped 2026-07-21 — see [cloud-native-roadmap.md](cloud-native-roadmap.md); these are the known limits)*
+
+**File Provider path (Box/Dropbox/OneDrive/Google Drive/iCloud) — production-ready.** Gaps:
+- 🟡 **"Remove Download" is best-effort** — for a File Provider domain we don't own, eviction is the provider's call; we can trigger a download but can't force dehydration. Surfaced as a hint, not a guarantee.
+- 🟡 **Content search skips online-only notes** by design (so a query never downloads the vault). There is no explicit *"search online files too (downloads N)"* escape hatch yet — title/tag/alias search does cover them.
+
+**Direct-API providers (Dropbox, Box, Google Drive, OneDrive).** Gaps:
+- 🟠 **Interactive sign-in needs a signed build** — `ASWebAuthenticationSession` won't reliably present from an unsigned CLI build. Only Dropbox has been proven through a *complete* real sign-in→token→API round-trip; Box/Drive/OneDrive are verified at the authorize endpoint + request shapes (clean auth-only 401s) but their final interactive sign-in is unexercised.
+- 🟠 **`RemoteMirror.syncDown` is eager and whole-folder** — it downloads every `.md` on open (fine for note vaults, wrong for huge ones) and has no delta/cursor sync. On-demand hydration for *remote* collections is the natural next step.
+- 🟠 **No conflict resolution on the remote path** — last-write-wins. `syncDown` won't clobber a newer local file and prunes remote deletions, but a genuine two-sided edit isn't detected (the local File-Provider path *does* have the conflict banner). `RemoteEntry.rev`/`modified` are already plumbed for this.
+- 🟡 **Uploads are single-shot** — Box/Drive/OneDrive/Dropbox simple uploads cap out (e.g. Graph ~4 MB); no chunked/resumable session. Irrelevant for Markdown, wrong for large attachments.
+- 🟡 **Sidebar promotion is macOS-only** — iOS presents the browser (edit-in-place); "Open as Collection" needs `Library` plumbed into the settings sheet.
+- 🟡 **Remote collections aren't restored on launch** — deliberate (a stale cache shouldn't masquerade as a collection), but it means re-connecting each session.
+- 🟡 **Box embeds a client secret** — Box has no PKCE public-client mode, so the secret ships in the app and is extractable. Fine for personal/dev use; a public release wants a backend proxy or Box JWT server-auth.
+- 🟡 **Google "Testing" mode expires refresh tokens after 7 days** — an external, unverified consent screen means weekly re-sign-in. Publishing/verification (or Workspace-internal) removes it.
+
+---
+
 ## 9 · HIG / platform polish
 
-- 🟡 **Main window has no `defaultSize`/explicit restoration** (`HelloNotesApp.swift:20`) — relies on system frame autosave; verify first-launch isn't undersized.
-- 🟡 **Liquid Glass (macOS 26)** — custom sidebar chrome and `.background(.bar)` status bars may fight the new material; needs a visual pass on 26.
+- ✅ ~~**Main window has no `defaultSize`**~~ — added (1100×720) in the HIG pass, [implemented.md §10](implemented.md#10--human-interface-guidelines-usability-pass-2026-07-20).
+- ✅ ~~**Minimal first-run onboarding**~~ — `WelcomeView` ships a one-time welcome sheet on both platforms (§10).
+- 🟡 **Liquid Glass (macOS 26)** — custom sidebar chrome and `.background(.bar)` status bars may fight the new material; needs a visual pass on 26. *(Code audit found no custom fills or opt-outs; the remaining risk is visual-only.)*
 - 🟡 **Dark Mode in the Canvas surfaces** — graph/mind-map folder colours are drawn directly and may not adapt or meet contrast in dark mode.
-- 🟡 **Minimal first-run onboarding** — a clean launch shows the Launcher/file-picker with no welcome explaining the file-system model or pointing at AI/git setup.
+- 🟡 **Editor Dynamic Type** — the note editor uses its own text-scale control rather than system Dynamic Type. Deliberate (§10 "Consciously not changed"), but revisit if accessibility review pushes back.
 
 ---
 
@@ -155,8 +174,19 @@ scoped "Allow all", bounded buffers; debounced aggregate rebuild, bounded caches
 bounded transcript; ⌘P Print, folder-delete confirm, AI-not-configured state; Graph
 VoiceOver, labelled git state).
 
+**§9 HIG / usability** was worked through in the HIG pass —
+[implemented.md §10](implemented.md#10--human-interface-guidelines-usability-pass-2026-07-20)
+(shortcut conflicts, save/git error surfacing, empty states, first-run onboarding, native
+sidebars, VoiceOver rotor + labels, Reduce Motion, terminology, cancelable clone).
+
+**Cloud storage** shipped in full (§8b lists the residual limits) —
+[implemented.md §11](implemented.md#11--cloud-native-storage-2026-072021).
+
 **Remaining before submission:** the one item only the owner can do — **rotate + remove
-the working-tree `.env`** (§0).
+the working-tree `.env`** (§0). Note the *provider* credentials are already handled
+correctly: they live in a git-ignored `Config/Secrets.xcconfig` and were purged from git
+history before the repo's first push, so nothing leaked. `.env` is git-ignored and untracked
+too, but it still sits in the working tree with live keys in plaintext.
 
 **Remaining, non-blocking:** the residual 🟡 items under each section above, and the
 feature backlog — **§6/§7 the iOS live-editor milestone (`editor-M5`)**, §8 git pull/merge

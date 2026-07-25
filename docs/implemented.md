@@ -6,9 +6,11 @@
 > notable fixes worth remembering. It consolidates the former `implementation-plan.md`,
 > `markdown-engine-strategy.md`, `editor-rewrite.md`, and `editor-parity.md`.
 
-**Current status:** v1.0 shipped (Milestones 0–13). Builds clean on macOS + iOS; the
-editor package suite (`swift test --package-path Packages/NotesEditor`) is **83 tests /
-9 suites** green, plus the app unit tests. The editor is the in-repo
+**Current status:** v1.0 shipped (Milestones 0–13), plus the deeper Apple-platform
+integration (§10 and [native-roadmap.md](native-roadmap.md)) and **cloud storage** (§11–12,
+[cloud-native-roadmap.md](cloud-native-roadmap.md)). Builds clean on macOS + iOS; the editor
+package suite (`swift test --package-path Packages/NotesEditor`) is **83 tests / 9 suites**
+green, plus **63 app unit tests**. The editor is the in-repo
 [`Packages/NotesEditor`](../Packages/NotesEditor); the markdown-engine fork is removed.
 
 ---
@@ -487,3 +489,94 @@ A full review against Apple's HIG, then the fixes applied (both platforms build 
 - **Editor Dynamic Type**: the note editor deliberately uses its own text-scale control
   (Appearance ▸ Text size) rather than system Dynamic Type — the iOS settings footer says so
   explicitly, and honoring both at once would fight the TextKit chrome layout. Left by design.
+
+## 11 · Cloud-native storage (2026-07-20/21)
+
+Full plan, provider matrix and rationale: [cloud-native-roadmap.md](cloud-native-roadmap.md).
+Two independent paths shipped — the OS File Provider layer (Phases 0–3, covers all five
+providers with no credentials) and direct provider APIs (Phase 4, for "no client installed").
+
+### Phase 0 — Coordinated I/O *(the load-bearing fix)*
+The app used `NSFileCoordinator` **nowhere**: every read was `String(contentsOf:)`, every
+write `.write(to:.atomic)`. On a File-Provider volume an *online-only* file read that way can
+fail outright with `EDEADLK`, so cloud folders were effectively unusable — including iCloud.
+- New `Core/FileIO.swift`: coordinated `readData`/`readString`, `write` (atomic replace),
+  `create` (no-overwrite). Coordinated reads materialise on demand; a no-op for local files.
+- Migrated **every vault read/write** (editor open/save/reconcile, collection index, create,
+  rename-link rewrite, daily notes, append, search + link-graph indexing, mentions, template
+  insert, agent tools, image paste, export). App-private files (index cache, chat transcripts,
+  widget snapshot) intentionally keep direct writes.
+- Hardening: `writeWidgetSnapshot()`'s write moved off the main actor — a synchronous
+  main-thread write hangs the whole UI when a volume stalls (observed in practice).
+- **Verified live on a real iCloud/File-Provider vault** (2,019 notes): open, read, create,
+  autosave (bytes confirmed on disk), index/backlinks — no hangs, no `EDEADLK`.
+
+### Phase 1 — Dataless-aware indexing *(don't download the vault)*
+The eager indexers read *every* note body, which on a cloud vault would materialise the whole
+thing on first open — the opposite of on-demand.
+- `FileIO.isMaterialized(at:)` — true for local + already-downloaded files, false only for
+  explicitly `.notDownloaded` items; conservative (true) on unknown status. Cheap metadata.
+- `Collection.refreshDerived` (the main offender), `CollectionSearchModel.refresh`, content
+  search, and `LinkGraph.rebuild` now **skip online-only notes**; they still list (title from
+  filename) and are indexed once opened/downloaded. Full-text search likewise never silently
+  downloads — title/tag/alias search still covers everything.
+
+### Phase 2 — Online-only state in the UI
+`Note.isOnlineOnly` (captured free during the scan), a cloud badge on macOS/iOS rows, a
+status-bar "N online-only" indicator, per-note **Download / Remove Download**,
+`CloudProvider.name(for:)` labelling a collection with its provider, a "Downloading from the
+cloud…" banner while a note materialises, and cloud-aware onboarding copy.
+
+### Phase 3 — Git-on-cloud guardrails
+libgit2 reads the whole object store, so online-only objects thrash it. A cloud-backed
+collection now shows a caution in the Git panel and **auto-commit is disabled** (both in the
+UI and at the trigger, so a pre-existing enabled flag can't fire). Manual Git stays available.
+
+### Phase 4 — Direct provider APIs *(four providers, no vendor SDKs)*
+A ~60-line `RemoteStore` protocol + `URLSession` adapters — SwiftyDropbox/Box SDK/Google
+SDK/MSAL all rejected as large dependencies for what typed requests already do (§5.10 of
+architecture.md has the per-provider divergence table).
+- **Dropbox** (PKCE, path-based), **Box** (client secret, ID-based, single-use refresh
+  tokens), **Google Drive** (PKCE with redirect derived from the client id, ID-based,
+  string sizes, skips native Docs), **OneDrive** (PKCE on the `common` authority — one
+  registration serves **personal *and* business** — path-based).
+- Shared: Keychain tokens, single-flight `RefreshCoordinator`, pagination on every provider.
+- **`RemoteMirror` promotes an account to a first-class sidebar collection**: mirrors into a
+  local cache opened as a normal `Collection` (scan/index/backlinks/editor unchanged), uploads
+  on save, propagates deletes, and reconciles on sync (prunes remotely-deleted notes; won't
+  overwrite a local file newer than the remote copy).
+- Entry points: macOS **File ▸ Connect Dropbox/Box/Google Drive/OneDrive…** (each with
+  *Open as Collection*), iOS **Settings ▸ Cloud (direct API)**.
+- **Verified against each real service**: Dropbox proven fully end-to-end (real sign-in →
+  real token → real `list_folder` of the account's root); Box/Drive/OneDrive verified at the
+  authorize endpoint with the real client ids plus request-shape probes returning clean
+  auth-only 401s. Interactive sign-in needs a signed build (`ASWebAuthenticationSession`).
+
+### Credentials
+Provider keys moved out of the repo into a **git-ignored `Config/Secrets.xcconfig`**,
+substituted into Info.plist at build time via `baseConfigurationReference`; a committed
+`Secrets.example.xcconfig` documents each provider's console setup. Before the first push,
+the previously-committed values were **purged from git history** (the commits were still
+unpushed, so no force-push was needed and nothing ever reached GitHub).
+
+## 12 · Cloud review fix pass (2026-07-25)
+
+Ten findings from a full-diff review, all verified against the source before fixing:
+- **Deletes now propagate** to the provider — a delete only trashed the local mirror, so the
+  next sync resurrected the note.
+- **`syncDown` reconciles** — prunes remotely-deleted notes and emptied folders, and skips
+  overwriting a local file newer than the remote copy (which could discard a pending edit).
+- **Pagination on all four providers** (Dropbox cursor, Box offset compared against the *raw*
+  entry count, Drive `nextPageToken` — also added to `fields` — OneDrive `@odata.nextLink`).
+  Previously a folder past ~1000 entries silently lost its tail, and for the ID-based
+  providers those notes then 404'd.
+- **Binary-file corruption fixed** — the browser decoded with the *lossy* `String(decoding:)`,
+  so opening a PDF and saving uploaded mojibake over the original; it now decodes strictly
+  and refuses non-UTF-8.
+- **Single-flight token refresh** (`RefreshCoordinator`) for the rotating-token providers.
+- **Box multipart filenames** RFC 7578-escaped (a quote in a note name produced a 400).
+- **Cancelled clone can't report success** (Stop landing after libgit2 finished opened the
+  repo anyway). **`CloudPrefs`** `@objc` handlers hop to the main actor (they ran on the
+  poster's background thread, defeating the reentrancy guard). **Spotlight** donations retract
+  stale ids on rename/delete. **Small widget** rows get a working deep link via `widgetURL`.
+- +5 tests (all four pagination cursors, mirror prune). 63 unit tests pass; both platforms build.

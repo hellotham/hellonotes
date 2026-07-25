@@ -4,10 +4,15 @@
 a whole vault to a local folder. Covers Box, Dropbox, OneDrive (personal + business),
 Google Drive, and iCloud Drive.*
 
-Status: **All phases complete** (2026-07-20/21). The File-Provider path (0–3) is done and
-covers Box, Dropbox, OneDrive, Google Drive & iCloud. Phase 4 (direct Dropbox API) is wired
-into a working "Connect Dropbox" browse/edit/save UI and **proven end-to-end against a real
-Dropbox account** — real OAuth sign-in → real token → real `list_folder` of the account's root.
+Status: **All phases complete** (2026-07-20/21; review-hardened 2026-07-25). The File-Provider
+path (0–3) covers Box, Dropbox, OneDrive, Google Drive & iCloud with no credentials at all.
+Phase 4 ships **four direct-API providers** — Dropbox, Box, Google Drive and OneDrive
+(personal *and* business) — each usable standalone *and* promotable to a first-class sidebar
+collection. Dropbox is proven end-to-end against a real account (real OAuth sign-in → real
+token → real `list_folder`); the other three are verified at the real authorize endpoint with
+the live client ids plus request-shape probes. A 10-finding review pass then hardened the
+whole surface (deletes propagate, sync reconciles, listings paginate, no binary corruption,
+single-flight refresh) — see [implemented.md §12](implemented.md).
 Written 2026-07-20.
 
 ---

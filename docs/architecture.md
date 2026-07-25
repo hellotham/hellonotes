@@ -63,7 +63,8 @@ HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps
 - **No database.** Note content lives in `.md` files.
 - **Security-scoped bookmarks** (`com.apple.security.files.bookmarks.app-scope`) persist collection access across launches (sandbox-friendly), stored in `UserDefaults`. On launch we resolve each bookmark, call `startAccessingSecurityScopedResource()`, and re-scan.
 - Lightweight UI preferences (last-opened note, sort order, appearance, editor mode) live in `UserDefaults` / `@AppStorage` — these are *caches*, never the source of truth.
-- The only app data written outside collections and `UserDefaults`: **API keys and git tokens in the Keychain**, and **assistant chat transcripts** as JSONL under Application Support (per collection, atomic writes).
+- The only app data written outside collections and `UserDefaults`: **API keys, git tokens and cloud OAuth tokens in the Keychain**, **assistant chat transcripts** as JSONL under Application Support (per collection, atomic writes), and the **direct-API mirror caches** (`Application Support/RemoteMirror/<provider>/<folder>`) — working copies, never the source of truth; the provider is.
+- **Cloud folders are just paths.** Box/Dropbox/OneDrive/Google Drive/iCloud expose their storage through Apple's **File Provider** layer (`~/Library/CloudStorage/…`, or Files on iOS), where a file may be *dataless* (metadata local, bytes remote). So **all vault content I/O goes through `FileIO`**, which wraps reads/writes in `NSFileCoordinator`: a coordinated read materialises the file on demand, whereas an uncoordinated one can fail outright (`EDEADLK`). Coordination is a no-op for ordinary local files, so this is uniform. Indexing additionally consults `FileIO.isMaterialized` and **skips online-only notes** rather than downloading an entire vault to build a search index. App-private files (index cache, chat transcripts, widget snapshot) keep direct writes — they never live in a user's cloud folder.
 
 ## 5. Package evaluation
 
@@ -140,6 +141,25 @@ Used by the Core layer for structural parsing that the editor doesn't give us �
 
 A single `LLMProvider` protocol (streaming chat + tool calls) with five `Sendable` adapters: **Apple Foundation Models** (on-device, macOS 26+ gated), **MLX** (`mlx-swift` local inference, models via `Hub`/`Tokenizers`), **OpenAI-compatible**, **Anthropic**, and **Gemini** (hand-rolled SSE over `URLSession.bytes`, no SDK lock-in). The one **OpenAI-compatible** adapter serves eleven providers that differ only by base URL and a couple of headers — OpenAI, Mistral, Groq, OpenRouter, **xAI (Grok)**, **DeepSeek**, **Cerebras**, **Together AI**, **Perplexity**, and **Ollama** (both the local server and the hosted **Ollama Cloud**) plus LM Studio — so `ModelCatalog` (the data-driven `ProviderKind` enum) is the *only* thing that changes to add another; `ProviderFactory` dispatches on `kind.wire`, never on the kind itself. API keys live in the Keychain (`LLMKeychain`); cloud providers are off until the user configures one. The agent runtime (`AgentRunner` + `AgentTool` registry + `PermissionBroker`) keeps mutating tools behind explicit user approval. Frameworks like LangChain-style abstractions were rejected — the protocol is ~100 lines and owns its wire formats.
 
+### 5.10 Cloud storage  ⟶ **File Provider first; direct APIs via `URLSession`, no vendor SDKs** ✅
+
+Two independent paths, deliberately in that order:
+
+**1. Adopt the OS layer (primary).** Every modern provider — Box, Dropbox, OneDrive, Google Drive — plus iCloud Drive now presents storage through Apple's **File Provider** framework, so one code path serves all five with *zero* SDKs, OAuth, or tokens: the user opens the provider's folder and the OS handles on-demand download. The cost is being **dataless-aware** (see §4) and guarding Git on such folders (libgit2 reads the whole object store, which thrashes against online-only files).
+
+**2. Direct provider APIs (for "no client installed").** A ~60-line `RemoteStore` protocol (list/read/write/delete + auth) with four adapters written straight against each REST API over `URLSession` — **SwiftyDropbox, the Box SDK, Google's SDK and MSAL were all rejected**: each would add a large dependency (and, for MSAL/Google, a broker/redirect setup) to do what a handful of typed requests already does, and they don't share an abstraction anyway. The adapters absorb per-provider divergence behind the one protocol:
+
+| | OAuth | Addressing | Refresh tokens |
+|---|---|---|---|
+| **Dropbox** | PKCE, custom scheme | **path** (`/Notes/Idea.md`) | stable |
+| **Box** | client **secret** (no public-client mode) | **numeric ID** (cached path→ID walk) | **single-use, rotating** |
+| **Google Drive** | PKCE, redirect *derived* from the client id | **ID** (`root` alias, folder = mimeType, `q=` queries) | stable |
+| **OneDrive** | PKCE, `common` authority = personal **and** business | **path** (`/me/drive/root:/…:`) | rotating |
+
+Shared concerns live in `RemoteStore.swift`: Keychain token storage and a **single-flight `RefreshCoordinator`** (an actor — the rotating-token providers would otherwise have concurrent 401s spend the same refresh token, failing a save). Every adapter **paginates** its listings (cursor / offset / `nextPageToken` / `@odata.nextLink`); dropping the cursor silently truncates large folders.
+
+`RemoteMirror` is what makes a cloud account a *first-class collection*: it mirrors the remote folder into a local cache that is opened as an ordinary `Collection`, so scan, index, backlinks, search and the editor work unchanged; saves upload back through `Collection.noteDidSave`, deletes propagate, and `syncDown` reconciles (prunes remotely-deleted notes, and won't overwrite a local file newer than the remote copy).
+
 ## 6. Dependency summary
 
 | Package | Capability | Status | Linked to app target? |
@@ -169,6 +189,9 @@ A single `LLMProvider` protocol (streaming chat + tool calls) with five `Sendabl
 | 1 Core | `Core/DocumentStatistics.swift`, `Core/MarkdownExport.swift` | Word/char/reading stats; Markdown → HTML |
 | 1 Core | `Core/CollectionTree.swift`, `Core/CollectionFile.swift`, `Core/FuzzyMatch.swift`, `Core/FileWatcher.swift`, `Core/ImagePaste.swift` | Folder tree, attachment model, fuzzy match, FSEvents watcher, image paste → assets |
 | 1 Core | `Core/MarpSlides.swift`, `Core/ObsidianVault.swift`, `Core/SmartPaste.swift`, `Core/VisionAlt.swift`, `Core/BuildInfo.swift` | Marp deck parsing; Obsidian vault discovery; HTML→Markdown paste; Vision alt-text; splash build metadata |
+| 1 Core | `Core/FileIO.swift`, `Core/CloudProvider.swift` | **Coordinated** vault reads/writes (`NSFileCoordinator` — materialises on-demand cloud files, no-op locally); download-state probe (`isMaterialized`) + download/evict; provider identification from a path |
+| 1 Core | `Core/Remote/RemoteStore.swift`, `Core/Remote/RemoteMirror.swift` | Direct-API cloud abstraction (list/read/write/delete + auth), Keychain token store, single-flight `RefreshCoordinator`; mirror that maps a remote folder ⇄ local cache so it can become a normal `Collection` |
+| 1 Core | `Core/Remote/{Dropbox,Box,GoogleDrive,OneDrive}Store.swift`, `Core/Remote/MockRemoteStore.swift` | Four provider clients over plain `URLSession` (no vendor SDKs): PKCE or client-secret OAuth, path- or ID-addressed APIs, paginated listings; in-memory mock for tests/demo |
 | 2 State | `State/Library.swift`, `State/Collection.swift`, `State/LibrariesStore.swift`, `State/RecentsStore.swift` | Multi-collection library, per-collection scan/CRUD/watch/bookmark, saved libraries, recents |
 | 2 State | `State/EditorModel.swift`, `State/EditorTabs.swift` | Open document + debounced autosave + conflicts; one editor per tab |
 | 2 State | `State/LinkGraph.swift`, `State/CollectionSearchModel.swift` | Alias-aware backlinks/outgoing/resolution; cached text/headings/tags/aliases → search, Open Quickly, mentions |
