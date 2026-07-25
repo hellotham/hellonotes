@@ -133,7 +133,13 @@ Both the app and its website follow your Mac, or pin to one appearance:
 
 I wrote very little of this code by hand. I built HelloNotes by prompting [Claude Code](https://claude.com/claude-code), and the git history is co-authored throughout.
 
-That sentence makes it sound easy. It wasn't — it was just *differently* hard. Here's what the job actually turned out to be.
+That sentence makes it sound easy. It wasn't — it was just *differently* hard.
+
+It also wasn't improvised. I published **[AI-dō — The Way of AI](https://christham.net/aidou/)** — a book arguing that working with AI is a discipline rather than a vibe — on **8 July**. The first commit in this repository is dated **11 July**.
+
+So HelloNotes is the first thing I've built start-to-finish under a method I'd finished writing down three days earlier, and specifically under [Chapter 2, *Personal Productivity*](https://christham.net/aidou/productivity.html) and [Chapter 3, *Software Development*](https://christham.net/aidou/software.html).
+
+Writing a method down and then having to live inside it for a fortnight is an excellent way to find out which parts of it are real. Here's what the job actually turned out to be — and, at the end, an honest accounting of where practice matched the book and where it didn't.
 
 ## The prompt was never "build me an app"
 
@@ -248,6 +254,36 @@ The same instinct is why `implemented.md` records what **didn't** work. When the
 
 ---
 
+## Did the method survive contact?
+
+Since I'd just published the thing, it seems only fair to mark my own homework.
+
+Chapter 3 sets out **ICE** — a separation of three concerns that are usually mashed together in a single prompt:
+
+| ICE | The book | What it actually was here |
+|---|---|---|
+| **Intent** | Goal, constraints, failure conditions. *Human-owned.* | `PRD.md` — the four-way market gap, the local-first constraint, "no CoreData, the folder is the source of truth" |
+| **Context** | Codebase, decisions, conventions. *Assembled progressively.* | `architecture.md`, `CLAUDE.md` in the repo root, and `implemented.md` growing into a running log of decisions and dead ends |
+| **Expectations** | Definition of done, external verification. *Human-owned.* | The acceptance criterion on every task, the zero-errors build gate, and the conformance suites |
+
+The chapter's one-line version is *"say what you want and how you will know it is right, then let the model choose the how."* That is precisely what a milestone table with an **Acceptance** column is, and it's the single practice I'd keep if I could keep only one.
+
+Three other things from the book that turned out to be load-bearing rather than decorative:
+
+**The harness beats the prompt** (§3.2). `CLAUDE.md` did more work than any individual instruction I typed. "Use `@Observable` exclusively", "no CoreData", "run a compilation check to ensure 0 errors" — encoded once, applied in every session, including ones I'd forgotten the context of. The book's phrasing is *"govern the repository, not the agent"*, and the Xcode-regeneration incident is the same principle from the other direction: git is the governing record, so a corrupted `project.pbxproj` is a `git checkout` rather than a catastrophe.
+
+**Evals belong outside the builder** (§3.8). The 648-case GFM corpus and the byte-comparison against GitHub's own API are checks that the thing being tested cannot influence. That's the difference between "the tests pass" and "it is correct" — and the chapter's warning about false confidence in test results is exactly the trap I fell into with the redirect loop, where the build was green and the live page was broken.
+
+**The confidence trap is real and it is a *processing-fluency* effect** (§2.9). The book's line is *"the easier something is to take in, the truer it feels."* Two invented keyboard shortcuts read exactly as smoothly as the twelve real ones. That's not a bug in the model; it's a bug in how I read. Knowing the name of the effect is what made me grep the source instead of nodding along.
+
+And one thing I got quietly wrong. ICE says to state intent and expectations and then **let the model choose the implementation** — deliberately *not* pre-locking the architecture. My milestone tables have a **File(s)** column. I named the target file for nearly every task, which is more prescriptive than the framework asks for. Sometimes that helped, because the layering was already decided. But the editor rewrite — the best work in the project — happened precisely when I stopped specifying structure and stated the *properties* instead: byte fidelity by construction, O(damage) not O(document). Given the constraints and not the layout, the result was better than the one I'd have drawn. Chapter 3 is right and my spreadsheet habit was wrong.
+
+There's a pleasing loop in all this. Chapter 2 argues that **everything becomes Markdown** — that plain text is the universal interface between you, your tools and your models — and that durable memory works best as interlinked, editable notes. The memory this project accumulated is six Markdown files with an index, cross-referenced with `[[wiki-links]]`.
+
+Which is to say: the agent's memory is stored in exactly the format the app was built to edit. I didn't plan that. But it is, I think, the argument.
+
+---
+
 ## Three bugs that nearly shipped
 
 ### 1. Every Release build was broken, and nothing caught it
@@ -324,5 +360,6 @@ Drag it to Applications and point it at any folder of Markdown files. Or an empt
 - 💻 [Source on GitHub](https://github.com/hellotham/hellonotes)
 - 📓 [The full build log](https://github.com/hellotham/hellonotes/blob/main/docs/implemented.md) — every milestone, fix and dead end
 - 🐛 [Issues & feature requests](https://github.com/hellotham/hellonotes/issues)
+- 📘 [AI-dō — The Way of AI](https://christham.net/aidou/) — the method this was built under (free to read online)
 
 Published by [Hello Tham](https://hellotham.com).
