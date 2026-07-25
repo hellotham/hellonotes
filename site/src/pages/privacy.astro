@@ -1,0 +1,73 @@
+---
+import DocLayout from '../layouts/DocLayout.astro';
+---
+
+<DocLayout
+  title="Privacy Policy — HelloNotes"
+  description="HelloNotes collects nothing: no account, no analytics, no tracking, no servers. Your notes are plain files on your own Mac."
+  heading="Privacy Policy"
+  subheading="Last updated: 2026"
+  footerBadge="🔒 We collect nothing"
+  navLinks={[
+    { label: 'Home', href: '/' },
+    { label: 'Support', href: '/support' },
+  ]}
+  footerLinks={[
+    { label: 'Home', href: '/' },
+    { label: 'Support', href: '/support' },
+    { label: 'GitHub', href: 'https://github.com/hellotham/hellonotes' },
+  ]}
+>
+  <p>
+    HelloNotes is a <strong>local-first</strong> application. Your notes are stored as plain files
+    on your own device, in a folder you select.
+    <strong>We do not collect, transmit, sell, or have access to your notes or any personal data.</strong>
+  </p>
+
+  <div class="my-6 rounded-card border border-line bg-card px-[26px] py-[22px]">
+    <strong>In short:</strong> no account, no analytics, no tracking, no servers. Your data never
+    leaves your Mac unless you explicitly choose to sync it somewhere yourself.
+  </div>
+
+  <h2>What we collect</h2>
+  <p>
+    Nothing. HelloNotes has no analytics, no telemetry, no advertising identifiers, and no user
+    accounts. We do not operate any server that receives your data.
+  </p>
+
+  <h2>Your notes</h2>
+  <p>
+    Your notes are ordinary Markdown files in a folder on your device that you choose with the
+    “Select Vault Folder” command. They remain under your control and can be read or edited by any
+    other application.
+  </p>
+
+  <h2>On-device intelligence</h2>
+  <p>
+    The optional Summarise, Suggest Tags/Links, Expand and “Ask your vault” features use Apple’s
+    on-device Foundation Models framework. Your note content is processed locally on your Mac and is
+    <strong>not</strong> sent to us or to any third party. These features only appear on hardware with
+    Apple Intelligence available.
+  </p>
+
+  <h2>Version control (Git)</h2>
+  <p>
+    If you choose to use the built-in Git features and configure your own remote repository, your
+    notes are sent only to the destination <em>you</em> configure, under your control. HelloNotes is
+    not that destination and does not receive a copy.
+  </p>
+
+  <h2>Children’s privacy</h2>
+  <p>HelloNotes does not collect data from anyone, including children, and is rated 4+.</p>
+
+  <h2>Changes</h2>
+  <p>
+    Because we hold no user data, there is nothing for us to disclose, share, or delete on request.
+    If this policy changes, the updated version will be posted on this page.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about this policy: <a href="mailto:info@hellotham.com">info@hellotham.com</a>.
+  </p>
+</DocLayout>

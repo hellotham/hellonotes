@@ -1,0 +1,48 @@
+name: Deploy site to GitHub Pages
+
+# Replaces the old gh-pages *branch* deployment: the site is now built from
+# source (site/, an Astro + Tailwind project) on every push to main, so the
+# built output is never committed to the repo.
+on:
+  push:
+    branches: [main]
+    # Only rebuild when the site or this workflow changes — app-only commits
+    # (the Swift sources) don't need a deploy.
+    paths:
+      - 'site/**'
+      - '.github/workflows/deploy-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a newer push supersede an in-flight run, but never cancel a deploy
+# half-way through.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Build with Astro
+        uses: withastro/action@v6
+        with:
+          # The Astro project lives in a subdirectory of this repo.
+          path: ./site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

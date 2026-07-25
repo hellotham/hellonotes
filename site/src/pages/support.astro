@@ -1,0 +1,73 @@
+---
+import DocLayout from '../layouts/DocLayout.astro';
+---
+
+<DocLayout
+  title="Support — HelloNotes"
+  description="Getting started with HelloNotes, frequently asked questions, and how to get in touch."
+  heading="Support"
+  subheading="We’re happy to help."
+  footerBadge="💬 info@hellotham.com"
+  navLinks={[
+    { label: 'Home', href: '/' },
+    { label: 'Privacy', href: '/privacy' },
+  ]}
+  footerLinks={[
+    { label: 'Home', href: '/' },
+    { label: 'Privacy', href: '/privacy' },
+    { label: 'GitHub', href: 'https://github.com/hellotham/hellonotes' },
+  ]}
+>
+  <div class="my-6 rounded-card border border-line bg-card px-[26px] py-[22px]">
+    Email us at <a href="mailto:info@hellotham.com">info@hellotham.com</a> and we’ll get back to you.
+    For bugs and feature requests you can also open an issue on
+    <a href="https://github.com/hellotham/hellonotes/issues">GitHub</a>.
+  </div>
+
+  <h2>Getting started</h2>
+  <ul>
+    <li>Launch HelloNotes and click <strong>Select Vault Folder</strong>.</li>
+    <li>
+      Choose any folder of Markdown files — or an empty folder to start fresh. A new note is created
+      with <strong>New Note</strong> (or <strong>⌘N</strong>).
+    </li>
+    <li>
+      Write in Markdown. Type <code>[[</code> to link a note, <code>#</code> to add a tag, and
+      <code>$…$</code> for math.
+    </li>
+    <li>
+      Open the <strong>Graph View</strong> to see how your notes connect, and <strong>Ask Vault</strong>
+      to get on-device answers grounded in your notes.
+    </li>
+  </ul>
+
+  <h2>Frequently asked questions</h2>
+
+  <h3 class="mt-6 mb-2 text-[18px] font-bold">Where are my notes stored?</h3>
+  <p>
+    As plain <code>.md</code> files in the folder you selected. HelloNotes never moves them
+    elsewhere; you can open them in any other app.
+  </p>
+
+  <h3 class="mt-6 mb-2 text-[18px] font-bold">Do I need an account or the internet?</h3>
+  <p>No. HelloNotes works entirely offline and has no account. Nothing is uploaded anywhere.</p>
+
+  <h3 class="mt-6 mb-2 text-[18px] font-bold">Why don’t I see the “Intelligence” features?</h3>
+  <p>
+    Summarise, Suggest and “Ask your vault” require a Mac with <strong>Apple Intelligence</strong>
+    enabled (Apple silicon, a recent macOS, and Apple Intelligence turned on in System Settings).
+    Everything else works without it.
+  </p>
+
+  <h3 class="mt-6 mb-2 text-[18px] font-bold">Can I sync between devices?</h3>
+  <p>
+    Put your vault folder in any file-syncing location (iCloud Drive, Dropbox, etc.), or use the
+    built-in Git features with your own remote. Your files, your choice.
+  </p>
+
+  <h3 class="mt-6 mb-2 text-[18px] font-bold">What are the system requirements?</h3>
+  <p>macOS 15 or later.</p>
+
+  <h2>Contact</h2>
+  <p>Email <a href="mailto:info@hellotham.com">info@hellotham.com</a>.</p>
+</DocLayout>

@@ -1,0 +1,40 @@
+---
+import { href } from '../lib/paths';
+
+interface Props {
+  /** Left-hand pill, e.g. "🖥️ Mac · macOS 15+". */
+  badge: string;
+  links?: { label: string; href: string }[];
+}
+
+const {
+  badge,
+  links = [
+    { label: 'Privacy', href: '/privacy' },
+    { label: 'Support', href: '/support' },
+    { label: 'GitHub', href: 'https://github.com/hellotham/hellonotes' },
+  ],
+} = Astro.props;
+
+const resolve = (h: string) => (h.startsWith('http') ? h : href(h));
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-line pt-10 pb-14 text-muted">
+  <div class="mx-auto flex max-w-[1120px] flex-wrap items-center gap-5 px-6">
+    <span
+      class="inline-flex items-center gap-2 rounded-full border border-line bg-white/5 px-3.5 py-[7px] text-[13px] font-semibold text-muted"
+    >
+      {badge}
+    </span>
+    <span class="flex-1"></span>
+    {
+      links.map((l) => (
+        <a href={resolve(l.href)} class="font-semibold text-muted transition-colors hover:text-white">
+          {l.label}
+        </a>
+      ))
+    }
+    <span>© {year} Hello Tham</span>
+  </div>
+</footer>

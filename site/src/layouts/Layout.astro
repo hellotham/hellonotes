@@ -1,0 +1,42 @@
+---
+import '../styles/global.css';
+import { href } from '../lib/paths';
+
+interface Props {
+  title: string;
+  description: string;
+  /** Open Graph image, relative to the site root (optional). */
+  ogImage?: string;
+}
+
+const { title, description, ogImage = 'assets/shot_02.png' } = Astro.props;
+
+// Canonical + OG URLs must be absolute; Astro.site is the domain, Astro.url
+// carries the base-prefixed path.
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImageURL = new URL(href(ogImage), Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImageURL} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="icon" href={href('assets/icon.png')} />
+    <meta name="generator" content={Astro.generator} />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

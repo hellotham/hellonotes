@@ -1,0 +1,41 @@
+---
+import { href } from '../lib/paths';
+
+interface Props {
+  /** Links shown on the right. `href` is passed through `href()` unless external. */
+  links?: { label: string; href: string }[];
+}
+
+const {
+  links = [
+    { label: 'Features', href: '#features' },
+    { label: 'Screenshots', href: '#screens' },
+    { label: 'Support', href: '/support' },
+    { label: 'Privacy', href: '/privacy' },
+  ],
+} = Astro.props;
+
+const resolve = (h: string) => (h.startsWith('#') || h.startsWith('http') ? h : href(h));
+---
+
+<nav
+  class="sticky top-0 z-20 border-b border-line bg-bg/70 backdrop-blur-xl"
+>
+  <div class="mx-auto flex h-[62px] max-w-[1120px] items-center gap-3.5 px-6">
+    <a href={href('/')} class="flex items-center gap-3.5 text-ink hover:text-white">
+      <img src={href('assets/icon.png')} alt="" width="30" height="30" class="size-[30px] rounded-lg" />
+      <span class="font-extrabold tracking-[-0.02em]">HelloNotes</span>
+    </a>
+    <span class="flex-1"></span>
+    {
+      links.map((l) => (
+        <a
+          href={resolve(l.href)}
+          class="text-[15px] font-semibold text-muted transition-colors hover:text-white"
+        >
+          {l.label}
+        </a>
+      ))
+    }
+  </div>
+</nav>
