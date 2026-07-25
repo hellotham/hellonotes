@@ -126,17 +126,17 @@ const sections = [
           <div
             class:list={[
               'grid items-center gap-10',
-              s.image ? 'lg:grid-cols-2' : 'max-w-[820px]',
+              s.screen ? 'lg:grid-cols-2' : 'max-w-[820px]',
             ]}
           >
-            <div class:list={[s.image && i % 2 === 1 ? 'lg:order-2' : '']}>
+            <div class:list={[s.screen && i % 2 === 1 ? 'lg:order-2' : '']}>
               <p class="text-sm font-bold tracking-wider text-pink uppercase">{s.eyebrow}</p>
               <h2 class="mt-2 text-[clamp(24px,3.2vw,32px)] font-extrabold tracking-[-0.02em]">
                 {s.title}
               </h2>
               {s.body.map((p) => (
                 <p
-                  class="mt-4 text-[#d7d3e6] [&_code]:rounded [&_code]:bg-white/8 [&_code]:px-1"
+                  class="mt-4 text-body [&_code]:rounded [&_code]:bg-chip [&_code]:px-1"
                   set:html={p}
                 />
               ))}
@@ -158,7 +158,7 @@ const sections = [
                   screen={s.screen}
                   widths={[520, 1040]}
                   sizes="(max-width: 1024px) 100vw, 50vw"
-                  class="w-full rounded-card border border-line shadow-[0_20px_50px_rgba(0,0,0,.45)]"
+                  class="w-full rounded-card border border-line shadow-card"
                 />
               </div>
             )}
@@ -175,13 +175,13 @@ const sections = [
     <div class="mt-6 flex flex-wrap justify-center gap-3.5">
       <a
         href={href('/download')}
-        class="brand-gradient inline-flex items-center rounded-full px-6 py-3.5 font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+        class="brand-gradient inline-flex items-center rounded-full px-6 py-3.5 font-bold text-white shadow-cta transition hover:brightness-110"
       >
         Download for Mac
       </a>
       <a
         href={href('/manual')}
-        class="inline-flex items-center rounded-full border border-line bg-white/5 px-6 py-3.5 font-bold text-ink transition hover:border-[#4a4360] hover:text-white"
+        class="inline-flex items-center rounded-full border border-line bg-chip px-6 py-3.5 font-bold text-ink transition hover:border-edge hover:text-emphasis"
       >
         Read the manual
       </a>

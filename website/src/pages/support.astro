@@ -17,7 +17,7 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
         <blockquote>
           <p>
             Email <a href={`mailto:${PUBLISHER.email}`}>{PUBLISHER.email}</a> and we’ll get back to
-            you. For bugs and feature requests you can also open an issue on
+            you. For bugs and feature requests you can also open an issue on{' '}
             <a href={`${REPO}/issues`}>GitHub</a>.
           </p>
         </blockquote>
@@ -56,15 +56,15 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
           Summarise, Suggest and “Ask your library” require a Mac with <strong>Apple
           Intelligence</strong> available and enabled (Apple silicon, a recent macOS, and the
           feature turned on in System Settings). Everything else in {APP.name} works without it.
-          You can also configure your own model instead — see
+          You can also configure your own model instead — see{' '}
           <a href={href('/manual/ai')}>AI &amp; intelligence</a>.
         </p>
 
         <h3>Can I sync between devices?</h3>
         <p>
           Yes. Put your collection folder in any file-syncing location — iCloud Drive, Dropbox, Box,
-          OneDrive or Google Drive — or use the built-in Git features with your own remote. See
-          <a href={href('/manual/cloud')}>Cloud storage</a> and
+          OneDrive or Google Drive — or use the built-in Git features with your own remote. See{' '}
+          <a href={href('/manual/cloud')}>Cloud storage</a> and{' '}
           <a href={href('/manual/git')}>Version history with Git</a>.
         </p>
 
@@ -112,13 +112,13 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
           <h2 class="text-sm font-bold tracking-wider text-muted uppercase">Get in touch</h2>
           <ul class="mt-4 space-y-3 text-[15px]">
             <li>
-              <a href={`mailto:${PUBLISHER.email}`} class="text-link hover:text-white">
+              <a href={`mailto:${PUBLISHER.email}`} class="text-link hover:text-emphasis">
                 {PUBLISHER.email}
               </a>
               <p class="text-sm text-muted">General questions and support</p>
             </li>
             <li>
-              <a href={`${REPO}/issues`} class="text-link hover:text-white">GitHub issues ↗</a>
+              <a href={`${REPO}/issues`} class="text-link hover:text-emphasis">GitHub issues ↗</a>
               <p class="text-sm text-muted">Bugs and feature requests</p>
             </li>
           </ul>
@@ -130,7 +130,7 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
             {
               MANUAL.map((s) => (
                 <li>
-                  <a href={href(`/manual/${s.slug}`)} class="text-muted hover:text-white">
+                  <a href={href(`/manual/${s.slug}`)} class="text-muted hover:text-emphasis">
                     {s.title}
                   </a>
                 </li>

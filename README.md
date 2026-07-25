@@ -192,10 +192,12 @@ shipping a build means publishing a release — the 35 MB disk image is delibera
 git history. `src/lib/site.ts` holds the version, size and SHA-256 the download page prints,
 and must match the attached artefact.
 
-Screenshots are shot **twice**, light and dark, and composited by
-[`scripts/make-screenshots.py`](scripts/make-screenshots.py); `src/lib/screens.ts` is the
-registry. The Screenshots page offers a Light/Dark switch; the home and feature pages follow
-`prefers-color-scheme` on their own.
+The site follows your system appearance and can be pinned **Auto / Light / Dark** from the nav.
+Every colour is a semantic token declared once as `light-dark(<light>, <dark>)` in
+`src/styles/global.css` — there are no colour literals anywhere else. Screenshots are shot
+**twice**, light and dark, composited by
+[`scripts/make-screenshots.py`](scripts/make-screenshots.py) and registered in
+`src/lib/screens.ts`; they follow whichever appearance the site is showing.
 
 Three things to know before editing it — the first two fail *silently* (the build succeeds and
 only the live site is wrong). See [docs/website.md](docs/website.md):
@@ -209,6 +211,10 @@ only the live site is wrong). See [docs/website.md](docs/website.md):
 - **`og:image` must live in `public/`, never `src/assets/`.** Processed assets get
   content-hashed filenames that change on re-export, and social crawlers cache by URL — this
   shipped broken once, 404ing on every page while the build stayed green.
+- **`light-dark()` takes colours, not values.** Wrapping a whole gradient in it is invalid and
+  silently renders gradient-filled text transparent — put it on each stop.
+- **Mind JSX whitespace.** Astro applies JSX rules to any element containing an expression, so a
+  newline between text and an inline `<a>` eats the space. 28 of these shipped; use `{' '}`.
 
 ## 🤝 Contributing / working rules
 Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 15+ / Swift 5.10+ / Xcode 26; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.

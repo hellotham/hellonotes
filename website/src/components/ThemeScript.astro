@@ -1,0 +1,38 @@
+---
+/**
+ * Applies the reader's stored appearance before the first paint.
+ *
+ * This MUST be inline and in <head>, above any rendered content: anything
+ * deferred or bundled runs after the browser has already painted the default
+ * appearance, which is the flash of wrong theme. `is:inline` keeps Astro from
+ * moving or bundling it.
+ *
+ * The stored value is 'light' | 'dark'; anything else (including nothing at
+ * all) means "follow the system", which is the CSS default and needs no
+ * attribute. So the only job here is to set `data-theme` when a choice exists.
+ */
+---
+
+<script is:inline>
+  (function () {
+    var pinned = null;
+    try {
+      pinned = localStorage.getItem('theme');
+    } catch (e) {
+      /* Safari in private mode throws on localStorage; fall back to system. */
+    }
+    if (pinned === 'light' || pinned === 'dark') {
+      document.documentElement.dataset.theme = pinned;
+    }
+
+    // Keep the browser chrome (address bar, title bar) in step with the page.
+    var resolved =
+      pinned === 'light' || pinned === 'dark'
+        ? pinned
+        : window.matchMedia('(prefers-color-scheme: light)').matches
+          ? 'light'
+          : 'dark';
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', resolved === 'light' ? '#fbfaff' : '#0c0b12');
+  })();
+</script>

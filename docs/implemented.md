@@ -755,3 +755,65 @@ explicit `twitter:title|description|image`, `theme-color`, `apple-touch-icon`,
 `author`, `robots`, and JSON-LD `SoftwareApplication` (with `offers` at price 0 —
 omitting it reads as "price unknown" rather than "free") on the home and download
 pages.
+
+---
+
+## 16 · Auto / light / dark themes for the website (2026-07-26)
+
+The site was dark-only. It now follows the reader's system appearance and can be
+pinned to Light or Dark from a control in the nav. Full detail — the palette
+mechanism, the pre-paint script, the contrast table — is in
+[website.md § Theming](website.md#theming).
+
+### How it works
+
+**`light-dark()` carries the palette.** Each token is declared once as
+`light-dark(<light>, <dark>)` and resolves against `color-scheme`, so switching
+appearance is one declaration rather than a duplicated palette — and
+`color-scheme` fixes form controls, scrollbars and the canvas for free. The
+`@theme` block keeps the dark values as plain hex, so a browser without
+`light-dark()` skips the `@supports` block and gets the site's original dark
+appearance rather than a broken one.
+
+**Nothing outside `global.css` holds a colour.** Introducing semantic tokens
+(`body`, `edge`, `chip`, `emphasis`, `shadow-plate|card|cta|menu`) replaced 38
+`hover:text-white`, 10 `bg-white/5`, 9 `text-[#d7d3e6]`, 5 `border-[#4a4360]`
+and 11 hard-coded shadows. `text-white` now survives **only** on
+`.brand-gradient` buttons, where white is right in both appearances.
+
+**The choice is applied before first paint** by an `is:inline` script in
+`<head>`. "Auto" is the *absence* of a stored value, not a third value, so a
+reader who never touches the control keeps following their system.
+
+### Traps hit
+
+- **`light-dark()` takes colours, not values.** Wrapping a whole
+  `linear-gradient(...)` in it makes the declaration invalid, which silently
+  turned the hero's gradient-filled text transparent — it rendered as nothing at
+  all. It has to go on each *stop*.
+- **The light gradient needs deeper stops.** The button gradient's amber end
+  (`#f59e0b`) is 2.1:1 on a white page, under the 3:1 large-text floor. Light
+  uses `#6d28d9 → #db2777 → #b45309`, worst stop 4.4:1.
+- **`<picture>` cannot follow a pinned theme.** A `prefers-color-scheme` source
+  only ever sees the *system* setting, so pinning light on a dark Mac left dark
+  screenshots on a light page. `Shot.astro` now emits both and lets the same CSS
+  that drives the palette reveal one.
+- **A stale `s.image` reference** survived the earlier rename to `s.screen`, so
+  the features page had silently collapsed to one column — the layout tested a
+  field that no longer existed, and `undefined` is falsy rather than an error.
+
+### Two pre-existing bugs found while testing
+
+Both were mine, from §14, and both are invisible on a desktop:
+
+- **The download and manual pages scrolled horizontally on a phone** (690px of
+  content in a 375px viewport). A grid item's `min-width: auto` refuses to shrink
+  below its content's min-content width, and a `<pre>` never wraps — so
+  `overflow-x-auto` on the code block did nothing. Fixed with `min-w-0` on the
+  content column, plus `overflow-wrap: anywhere` on inline `<code>` for long
+  container paths. All 16 pages now fit 375px.
+- **28 missing spaces before inline tags**, including the footer's "published
+  byHello Tham" on every page. Astro applies JSX whitespace rules to any element
+  containing an expression, so a newline between text and `<a>` collapses to
+  nothing. Fixed with `{' '}`, and the built HTML is now scanned for the pattern
+  in both directions.

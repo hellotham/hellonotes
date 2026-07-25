@@ -17,6 +17,7 @@ built from source on every push; nothing generated is committed.
 | Publisher | Hello Tham Pty. Ltd. — <https://hellotham.com> |
 | DMG hosting | GitHub **Releases**, not the site (see [Distributing the DMG](#distributing-the-dmg)) |
 | Screenshots | 5 scenes × light + dark, built by [`scripts/make-screenshots.py`](../scripts/make-screenshots.py) |
+| Appearance | Auto / Light / Dark, toggled in the nav — see [Theming](#theming) |
 | Sitemap | hand-rolled [`src/pages/sitemap.xml.ts`](../website/src/pages/sitemap.xml.ts) — see [Sitemap](#sitemap) |
 
 ---
@@ -293,6 +294,81 @@ EOF
 
 ---
 
+## Theming
+
+The site follows the reader's system appearance and can be pinned to Light or
+Dark from the control in the nav. Three moving parts:
+
+**1. `light-dark()` carries the palette.** Every colour token in
+`src/styles/global.css` is declared once as `light-dark(<light>, <dark>)`, which
+resolves against the element's `color-scheme`. Switching appearance is therefore
+one declaration, not a duplicated palette:
+
+```css
+:root                    { color-scheme: light dark; }  /* follow the system */
+:root[data-theme=light]  { color-scheme: light; }
+:root[data-theme=dark]   { color-scheme: dark; }
+```
+
+`color-scheme` also fixes form controls, scrollbars and the default canvas for
+free. The `@theme` block above it declares the **dark** values as plain hex, so
+a browser without `light-dark()` skips the `@supports` block and keeps the
+site's original dark appearance rather than something broken.
+
+> **`light-dark()` takes colours, not values.** Wrapping a whole
+> `linear-gradient(...)` in it makes the declaration invalid, which silently
+> turned the hero's gradient-filled text transparent. Put it on each *stop*.
+
+**2. Tokens are semantic, and there are no colour literals outside `global.css`.**
+`bg`, `bg2`, `card`, `ink`, `body`, `muted`, `line`, `edge`, `chip`, `link`,
+`emphasis`, plus `shadow-plate|card|cta|menu`. The rewrite that introduced them
+replaced `text-[#d7d3e6]` → `text-body`, `hover:text-white` →
+`hover:text-emphasis`, `bg-white/5` → `bg-chip`, `border-[#4a4360]` →
+`border-edge` and the four hard-coded shadows. **`text-white` survives only on
+`.brand-gradient` buttons**, where the gradient is dark in both appearances.
+
+**3. The choice is applied before first paint.**
+[`ThemeScript.astro`](../website/src/components/ThemeScript.astro) is `is:inline`
+in `<head>`; anything deferred or bundled runs after the browser has painted the
+default, which is the flash of wrong theme. `localStorage.theme` holds `light` or
+`dark`; **"Auto" is the absence of a value**, not a third one, so a reader who
+never touches the control keeps tracking their system.
+
+[`ThemeToggle.astro`](../website/src/components/ThemeToggle.astro) is a
+radiogroup of three buttons (rendered twice — desktop bar and mobile menu — and
+kept in sync), and it also rewrites the `theme-color` meta.
+
+### Appearance-specific content
+
+Screenshots exist in both appearances, so `.only-light` / `.only-dark` in
+`global.css` reveal one. They are driven by the *same* conditions as the palette,
+so the two can never disagree — which is why
+[`Shot.astro`](../website/src/components/Shot.astro) is no longer a `<picture>`:
+a `prefers-color-scheme` source only ever sees the **system** setting, so pinning
+light on a dark Mac left dark screenshots on a light page. The hidden variant is
+`display: none`, and a lazy `<img>` in a `display:none` subtree is never fetched.
+
+Those rules are **unlayered**, so they beat Tailwind's utilities layer — don't
+also put a `display` utility on the same element.
+
+### Checking both appearances
+
+Contrast, measured on the built site (AA needs 4.5:1 for body text, 3:1 for large):
+
+| Token | Light | Dark |
+|---|---|---|
+| `ink` | 17.6:1 | 16.4:1 |
+| `body` | 11.1:1 | 13.4:1 |
+| `muted` | 6.0:1 | 7.3:1 |
+| `link` | 5.9:1 | 10.3:1 |
+| `emphasis` | 19.1:1 | 19.6:1 |
+| gradient text (worst stop) | 4.4:1 | 3.4:1 |
+
+The light gradient uses **deeper stops** than the button gradient: the amber end
+`#f59e0b` is only 2.1:1 on a white page, below the 3:1 large-text floor.
+
+---
+
 ## Structure
 
 ```
@@ -307,7 +383,9 @@ website/
       Nav.astro         sticky nav — inline links ≥md, a <details> menu below
       Footer.astro      publisher line, link columns, © year
       Prose.astro       the one place long-form typography is styled
-      Shot.astro        <picture> that follows the reader's light/dark preference
+      Shot.astro        screenshot pair; CSS reveals the one matching the theme
+      ThemeScript.astro pre-paint appearance script (inline, in <head>)
+      ThemeToggle.astro Auto / Light / Dark radiogroup
     pages/
       index.astro       landing page
       features.astro    feature tour

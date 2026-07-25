@@ -1,4 +1,5 @@
 ---
+import ThemeToggle from './ThemeToggle.astro';
 import { href } from '../lib/paths';
 import { NAV, APP } from '../lib/site';
 
@@ -13,7 +14,7 @@ const isActive = (path: string) => current === path || current.startsWith(path +
   <div class="mx-auto flex h-[62px] max-w-[1120px] items-center gap-3.5 px-6">
     <a
       href={href('/')}
-      class="flex shrink-0 items-center gap-3 text-ink hover:text-white"
+      class="flex shrink-0 items-center gap-3 text-ink hover:text-emphasis"
       aria-label={`${APP.name} home`}
     >
       <img src={href('assets/icon.png')} alt="" width="30" height="30" class="size-[30px] rounded-lg" />
@@ -30,8 +31,8 @@ const isActive = (path: string) => current === path || current.startsWith(path +
             href={href(l.href)}
             aria-current={isActive(l.href) ? 'page' : undefined}
             class:list={[
-              'whitespace-nowrap transition-colors hover:text-white',
-              isActive(l.href) ? 'text-white' : 'text-muted',
+              'whitespace-nowrap transition-colors hover:text-emphasis',
+              isActive(l.href) ? 'text-emphasis' : 'text-muted',
             ]}
           >
             {l.label}
@@ -39,6 +40,8 @@ const isActive = (path: string) => current === path || current.startsWith(path +
         ))
       }
     </div>
+
+    <div class="hidden md:block"><ThemeToggle /></div>
 
     <!-- Narrow screens: a disclosure menu, so no link is clipped off-screen.
          <details> needs no JavaScript and closes itself when the page navigates. -->
@@ -57,7 +60,7 @@ const isActive = (path: string) => current === path || current.startsWith(path +
         Menu
       </summary>
       <div
-        class="absolute right-0 z-40 mt-2 w-56 overflow-hidden rounded-card border border-line bg-card shadow-2xl"
+        class="absolute right-0 z-40 mt-2 w-56 overflow-hidden rounded-card border border-line bg-card shadow-menu"
       >
         {
           NAV.map((l) => (
@@ -65,14 +68,18 @@ const isActive = (path: string) => current === path || current.startsWith(path +
               href={href(l.href)}
               aria-current={isActive(l.href) ? 'page' : undefined}
               class:list={[
-                'block border-b border-line px-4 py-3 text-[15px] font-semibold last:border-b-0 hover:bg-bg2 hover:text-white',
-                isActive(l.href) ? 'text-white' : 'text-muted',
+                'block border-b border-line px-4 py-3 text-[15px] font-semibold last:border-b-0 hover:bg-bg2 hover:text-emphasis',
+                isActive(l.href) ? 'text-emphasis' : 'text-muted',
               ]}
             >
               {l.label}
             </a>
           ))
         }
+        <div class="flex items-center justify-between px-4 py-3">
+          <span class="text-[15px] font-semibold text-muted">Appearance</span>
+          <ThemeToggle />
+        </div>
       </div>
     </details>
   </div>

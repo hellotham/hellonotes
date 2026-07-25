@@ -14,7 +14,10 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
 >
   <div class="mx-auto max-w-[1120px] px-6 py-12">
     <div class="grid gap-10 lg:grid-cols-[1fr_320px]">
-      <div>
+      {/* min-w-0: a grid item will not shrink below its content's min-content
+          width, and a <pre> never wraps — without this the code blocks push the
+          whole page wider than a phone. */}
+      <div class="min-w-0">
         <!-- Primary download -->
         <div class="rounded-card border border-line bg-card p-8">
           <div class="flex flex-wrap items-center gap-5">
@@ -37,14 +40,14 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
 
           <a
             href={DOWNLOAD.url}
-            class="brand-gradient mt-7 inline-flex w-full items-center justify-center rounded-full px-6 py-4 text-lg font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+            class="brand-gradient mt-7 inline-flex w-full items-center justify-center rounded-full px-6 py-4 text-lg font-bold text-white shadow-cta transition hover:brightness-110"
           >
             Download for Mac
           </a>
 
           <p class="mt-4 text-center text-sm text-muted">
             Requires {APP.minOS}. Also available on the{' '}
-            <a href={DOWNLOAD.releasesPage} class="text-link hover:text-white">releases page</a>.
+            <a href={DOWNLOAD.releasesPage} class="text-link hover:text-emphasis">releases page</a>.
           </p>
         </div>
 
@@ -72,15 +75,15 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
             like to verify independently, compare the checksum:
           </p>
           <pre
-            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-[#d7d3e6]"><code>shasum -a 256 ~/Downloads/{DOWNLOAD.fileName}</code></pre>
+            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-body"><code>shasum -a 256 ~/Downloads/{DOWNLOAD.fileName}</code></pre>
           <p>It should print:</p>
           <pre
-            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] break-all text-[#d7d3e6]"><code>{DOWNLOAD.sha256}</code></pre>
+            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] break-all text-body"><code>{DOWNLOAD.sha256}</code></pre>
           <p>You can also confirm the signature and notarisation with:</p>
           <pre
-            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-[#d7d3e6]"><code>spctl --assess -t open --context context:primary-signature -v ~/Downloads/{DOWNLOAD.fileName}</code></pre>
+            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-body"><code>spctl --assess -t open --context context:primary-signature -v ~/Downloads/{DOWNLOAD.fileName}</code></pre>
           <p>
-            which should report <code>accepted</code> and
+            which should report <code>accepted</code> and{' '}
             <code>source=Notarized Developer ID</code>.
           </p>
 
@@ -92,7 +95,7 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
           </p>
           <p>
             To uninstall, drag {APP.name} from Applications to the Trash. Your notes stay exactly
-            where they are. Preferences live in
+            where they are. Preferences live in{' '}
             <code>~/Library/Containers/com.hellotham.HelloNotes</code> if you want to remove those
             too.
           </p>
@@ -143,7 +146,7 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
           </ul>
           <p class="mt-4 text-sm text-muted">
             Published by{' '}
-            <a href={PUBLISHER.site} class="font-semibold text-link hover:text-white">
+            <a href={PUBLISHER.site} class="font-semibold text-link hover:text-emphasis">
               {PUBLISHER.legalName}
             </a>.
           </p>
@@ -156,7 +159,7 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
           </p>
           <a
             href={href('/manual/getting-started')}
-            class="mt-4 inline-block font-semibold text-link hover:text-white"
+            class="mt-4 inline-block font-semibold text-link hover:text-emphasis"
           >
             Getting started →
           </a>

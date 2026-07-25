@@ -62,12 +62,12 @@ import { APP, PUBLISHER, REPO } from '../lib/site';
         <h2>Who makes it</h2>
         <p>
           {APP.name} is designed and published by <strong>{PUBLISHER.legalName}</strong>, a small
-          software company. You can find our other work at
+          software company. You can find our other work at{' '}
           <a href={PUBLISHER.site}>hellotham.com</a>.
         </p>
         <p>
-          Questions, bugs or ideas are always welcome at
-          <a href={`mailto:${PUBLISHER.email}`}>{PUBLISHER.email}</a>, or through the
+          Questions, bugs or ideas are always welcome at{' '}
+          <a href={`mailto:${PUBLISHER.email}`}>{PUBLISHER.email}</a>, or through the{' '}
           <a href={href('/support')}>support page</a>.
         </p>
       </Prose>
@@ -97,15 +97,15 @@ import { APP, PUBLISHER, REPO } from '../lib/site';
           <p class="mt-1 text-sm text-muted">{PUBLISHER.legalName}</p>
           <ul class="mt-4 space-y-2 text-[15px]">
             <li>
-              <a href={PUBLISHER.site} class="text-link hover:text-white">hellotham.com ↗</a>
+              <a href={PUBLISHER.site} class="text-link hover:text-emphasis">hellotham.com ↗</a>
             </li>
             <li>
-              <a href={`mailto:${PUBLISHER.email}`} class="text-link hover:text-white">
+              <a href={`mailto:${PUBLISHER.email}`} class="text-link hover:text-emphasis">
                 {PUBLISHER.email}
               </a>
             </li>
             <li>
-              <a href={REPO} class="text-link hover:text-white">Source on GitHub ↗</a>
+              <a href={REPO} class="text-link hover:text-emphasis">Source on GitHub ↗</a>
             </li>
           </ul>
         </div>

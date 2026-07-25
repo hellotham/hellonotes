@@ -6,7 +6,7 @@ import { href } from '../../lib/paths';
 <ManualLayout slug="links-and-graph">
   <h2 id="wiki-links">Wiki-links</h2>
   <p>
-    Type <code>[[</code> and an autocomplete list of notes appears; keep typing to filter, press
+    Type <code>[[</code> and an autocomplete list of notes appears; keep typing to filter, press{' '}
     <kbd>↩</kbd> to insert. The link is written as plain Markdown text — no hidden identifiers — so
     the file stays portable.
   </p>
@@ -26,11 +26,11 @@ import { href } from '../../lib/paths';
     Properties panel or directly):
   </p>
   <pre
-    class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-[#d7d3e6]"><code>---
+    class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-body"><code>---
 aliases: [TextKit, TextKit 2]
 ---</code></pre>
   <p>
-    Links, autocomplete, search and unlinked mentions all understand aliases, so
+    Links, autocomplete, search and unlinked mentions all understand aliases, so{' '}
     <code>[[TextKit]]</code> reaches the note whatever its filename is.
   </p>
 
@@ -52,7 +52,7 @@ aliases: [TextKit, TextKit 2]
 
   <h2 id="transclusion">Transclusion</h2>
   <p>
-    Embed one note inside another with <code>![[Note title]]</code>, or embed a single section with
+    Embed one note inside another with <code>![[Note title]]</code>, or embed a single section with{' '}
     <code>![[Note title#Heading]]</code>. The embedded content renders as an inline card in the
     editor and stays in sync with the source note — useful for definitions, boilerplate or a
     running index.

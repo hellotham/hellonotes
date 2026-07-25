@@ -17,11 +17,11 @@ import { APP, MANUAL } from '../../lib/site';
           <li>
             <a
               href={href(`/manual/${s.slug}`)}
-              class="group block h-full rounded-card border border-line bg-card p-6 transition hover:border-[#4a4360]"
+              class="group block h-full rounded-card border border-line bg-card p-6 transition hover:border-edge"
             >
               <div class="flex items-baseline gap-3">
                 <span class="text-sm font-bold text-pink">{String(i + 1).padStart(2, '0')}</span>
-                <h2 class="text-[19px] font-bold tracking-[-0.01em] group-hover:text-white">
+                <h2 class="text-[19px] font-bold tracking-[-0.01em] group-hover:text-emphasis">
                   {s.title}
                 </h2>
               </div>
@@ -35,7 +35,7 @@ import { APP, MANUAL } from '../../lib/site';
     <div class="mt-12 rounded-card border border-line bg-card p-6">
       <h2 class="text-lg font-bold">Can’t find an answer?</h2>
       <p class="mt-2 text-muted">
-        The <a href={href('/support')} class="text-link hover:text-white">support page</a> has a FAQ
+        The <a href={href('/support')} class="text-link hover:text-emphasis">support page</a> has a FAQ
         and the ways to reach us. We read every message.
       </p>
     </div>

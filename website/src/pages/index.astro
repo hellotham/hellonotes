@@ -82,13 +82,13 @@ const showcase = [
       <div class="mt-8 flex flex-wrap justify-center gap-3.5">
         <a
           href={href('/download')}
-          class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+          class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-cta transition hover:brightness-110"
         >
           Download for Mac
         </a>
         <a
           href={href('/features')}
-          class="inline-flex items-center gap-2.5 rounded-full border border-line bg-white/5 px-6 py-3.5 text-base font-bold text-ink transition hover:border-[#4a4360] hover:text-white"
+          class="inline-flex items-center gap-2.5 rounded-full border border-line bg-chip px-6 py-3.5 text-base font-bold text-ink transition hover:border-edge hover:text-emphasis"
         >
           Explore the features
         </a>
@@ -108,7 +108,7 @@ const showcase = [
         widths={[640, 1000, 1600]}
         sizes="(max-width: 1000px) 100vw, 1000px"
         loading="eager"
-        class="w-full rounded-card border border-line shadow-[0_30px_80px_rgba(0,0,0,.55)]"
+        class="w-full rounded-card border border-line shadow-plate"
       />
     </div>
   </header>
@@ -134,7 +134,7 @@ const showcase = [
               </div>
               <h3 class="text-[19px] font-bold tracking-[-0.01em]">{f.title}</h3>
               <p
-                class="mt-2 text-[15px] text-muted [&_code]:rounded [&_code]:bg-white/8 [&_code]:px-1"
+                class="mt-2 text-[15px] text-muted [&_code]:rounded [&_code]:bg-chip [&_code]:px-1"
                 set:html={f.body}
               />
             </div>
@@ -143,7 +143,7 @@ const showcase = [
       </div>
 
       <p class="mt-10 text-center">
-        <a href={href('/features')} class="font-semibold text-link hover:text-white">
+        <a href={href('/features')} class="font-semibold text-link hover:text-emphasis">
           See the full feature list →
         </a>
       </p>
@@ -170,7 +170,7 @@ const showcase = [
                 screen={s.screen}
                 widths={[380, 760]}
                 sizes="(max-width: 768px) 100vw, 33vw"
-                class="w-full rounded-card border border-line shadow-[0_20px_50px_rgba(0,0,0,.45)]"
+                class="w-full rounded-card border border-line shadow-card"
               />
               <figcaption class="mt-3 text-center text-sm text-muted">{s.cap}</figcaption>
             </figure>
@@ -179,7 +179,7 @@ const showcase = [
       </div>
 
       <p class="mt-10 text-center">
-        <a href={href('/screenshots')} class="font-semibold text-link hover:text-white">
+        <a href={href('/screenshots')} class="font-semibold text-link hover:text-emphasis">
           Browse all screenshots →
         </a>
       </p>
@@ -199,7 +199,7 @@ const showcase = [
         writing anywhere.
       </p>
       <p class="mt-5">
-        <a href={href('/privacy')} class="font-semibold text-link hover:text-white">
+        <a href={href('/privacy')} class="font-semibold text-link hover:text-emphasis">
           Read the privacy policy →
         </a>
       </p>
@@ -218,20 +218,20 @@ const showcase = [
       <div class="mt-7 flex flex-wrap justify-center gap-3.5">
         <a
           href={href('/download')}
-          class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+          class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-cta transition hover:brightness-110"
         >
           Download {DOWNLOAD.fileName}
         </a>
         <a
           href={REPO}
-          class="inline-flex items-center gap-2.5 rounded-full border border-line bg-white/5 px-6 py-3.5 text-base font-bold text-ink transition hover:border-[#4a4360] hover:text-white"
+          class="inline-flex items-center gap-2.5 rounded-full border border-line bg-chip px-6 py-3.5 text-base font-bold text-ink transition hover:border-edge hover:text-emphasis"
         >
           View source on GitHub
         </a>
       </div>
       <p class="mt-6 text-sm text-muted">
-        Published by
-        <a href={PUBLISHER.site} class="font-semibold text-link hover:text-white">{PUBLISHER.name}</a>.
+        Published by{' '}
+        <a href={PUBLISHER.site} class="font-semibold text-link hover:text-emphasis">{PUBLISHER.name}</a>.
       </p>
     </div>
   </section>

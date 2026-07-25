@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import ThemeScript from '../components/ThemeScript.astro';
 import { href } from '../lib/paths';
 import { APP, PUBLISHER, DOWNLOAD, REPO } from '../lib/site';
 
@@ -89,8 +90,12 @@ const appLd = {
 
     <link rel="icon" href={href('assets/icon.png')} />
     <link rel="apple-touch-icon" href={href('assets/icon.png')} />
-    <meta name="theme-color" content="#0c0b12" />
     <meta name="generator" content={Astro.generator} />
+
+    {/* Rewritten by ThemeScript to match the resolved appearance; the value
+        here is the dark default a no-JavaScript reader keeps. */}
+    <meta name="theme-color" content="#0c0b12" />
+    <ThemeScript />
 
     {appSchema && <script type="application/ld+json" set:html={JSON.stringify(appLd)} />}
   </head>

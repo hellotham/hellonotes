@@ -1,20 +1,43 @@
 @import "tailwindcss";
 
 /* Tailwind v4 is CSS-first: design tokens live in @theme (there is no
-   tailwind.config.js). These mirror the original site's custom properties, so
-   the palette stays a single source of truth and is available as utilities
-   (bg-card, text-muted, border-line, …). */
+   tailwind.config.js). Every colour here is SEMANTIC — bg, card, ink, body,
+   muted, line, edge, chip, link, emphasis — because the site has two
+   appearances and components must not know which one is showing. Nothing
+   outside this file should contain a colour literal.
+
+   The values below are the DARK palette, which doubles as the fallback for a
+   browser without light-dark() (see the @supports block); the light palette is
+   introduced there, in one place. */
 @theme {
   --color-bg: #0c0b12;
   --color-bg2: #14121d;
   --color-card: #17151f;
   --color-ink: #ece9f5;
+  /* Long-form body copy: a step down from ink so headings still lead. */
+  --color-body: #d7d3e6;
   --color-muted: #a09bb5;
   --color-line: #262233;
+  /* A border that has to be visible — hover states, active outlines. */
+  --color-edge: #4a4360;
+  /* Tinted surface for inline code, kbd, secondary buttons, active nav rows. */
+  --color-chip: #ffffff14;
+  --color-link: #f0a6c8;
+  /* The "brightest thing on the page" — what hover states resolve to. Was a
+     literal `white`, which is exactly wrong once the page can be light. */
+  --color-emphasis: #ffffff;
+
   --color-violet: #7c3aed;
   --color-pink: #ec4899;
   --color-amber: #f59e0b;
-  --color-link: #f0a6c8;
+
+  /* Shadows carry a colour var so only the tint changes between appearances;
+     the geometry is the same in both. Black at 45–55% is right on a near-black
+     page and looks like soot on a white one. */
+  --shadow-plate: 0 30px 80px var(--shadow-tint-strong);
+  --shadow-card: 0 20px 50px var(--shadow-tint);
+  --shadow-cta: 0 10px 30px var(--shadow-tint-brand);
+  --shadow-menu: 0 24px 60px var(--shadow-tint-strong);
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI",
     system-ui, sans-serif;
@@ -22,14 +45,81 @@
   --radius-card: 18px;
 }
 
+:root {
+  --shadow-tint: rgb(0 0 0 / 0.45);
+  --shadow-tint-strong: rgb(0 0 0 / 0.55);
+  --shadow-tint-brand: rgb(236 72 153 / 0.35);
+
+  /* Gradient stops. The button gradient sits under white text and stays vivid
+     in both appearances; the TEXT gradient has to meet contrast against the
+     page, and the amber end fails badly on white (2.1:1), so the light
+     appearance uses deeper stops. */
+  --grad-button: linear-gradient(115deg, #7c3aed 0%, #ec4899 55%, #f59e0b 100%);
+  --grad-text: var(--grad-button);
+}
+
+/*
+  The two appearances.
+
+  light-dark() is the whole mechanism: it resolves against the element's
+  `color-scheme`, so switching the theme is one declaration rather than a
+  duplicated palette. `color-scheme` also fixes form controls, scrollbars and
+  the default canvas for free.
+
+    no [data-theme]      → `light dark` → follows the reader's system
+    [data-theme=light]   → pinned light
+    [data-theme=dark]    → pinned dark
+
+  A browser without light-dark() skips this block entirely and keeps the dark
+  palette declared above — the site's original appearance, not a broken one.
+*/
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    color-scheme: light dark;
+
+    --color-bg: light-dark(#fbfaff, #0c0b12);
+    --color-bg2: light-dark(#f1edfa, #14121d);
+    --color-card: light-dark(#ffffff, #17151f);
+    --color-ink: light-dark(#17131f, #ece9f5);
+    --color-body: light-dark(#3c3550, #d7d3e6);
+    --color-muted: light-dark(#655c7d, #a09bb5);
+    --color-line: light-dark(#e5e0f0, #262233);
+    --color-edge: light-dark(#c3b9dd, #4a4360);
+    --color-chip: light-dark(#17131f0d, #ffffff14);
+    --color-link: light-dark(#b32573, #f0a6c8);
+    --color-emphasis: light-dark(#0b0813, #ffffff);
+
+    --shadow-tint: light-dark(rgb(38 20 71 / 0.1), rgb(0 0 0 / 0.45));
+    --shadow-tint-strong: light-dark(rgb(38 20 71 / 0.16), rgb(0 0 0 / 0.55));
+    --shadow-tint-brand: light-dark(rgb(236 72 153 / 0.28), rgb(236 72 153 / 0.35));
+
+    /* light-dark() takes COLOURS, not values — wrapping a whole gradient in it
+       makes the declaration invalid, which silently turns gradient-filled text
+       transparent. Put it on each stop instead. */
+    --grad-text: linear-gradient(
+      115deg,
+      light-dark(#6d28d9, #7c3aed) 0%,
+      light-dark(#db2777, #ec4899) 55%,
+      light-dark(#b45309, #f59e0b) 100%
+    );
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+}
+
 /* The brand gradient, reused by the wordmark, primary button and headline. */
 @utility brand-gradient {
-  background-image: linear-gradient(115deg, #7c3aed 0%, #ec4899 55%, #f59e0b 100%);
+  background-image: var(--grad-button);
 }
 
 /* Gradient-filled text (the hero's "plain Markdown."). */
 @utility gradient-text {
-  background-image: linear-gradient(115deg, #7c3aed 0%, #ec4899 55%, #f59e0b 100%);
+  background-image: var(--grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -69,4 +159,39 @@
   summary::-webkit-details-marker {
     display: none;
   }
+}
+
+/*
+  Appearance-specific content — used by the product screenshots, which exist in
+  a light and a dark shot of the same scene.
+
+  Dark is the base, so `.only-light` starts hidden and is revealed by the
+  conditions below. The attribute rules come last so a pinned theme always beats
+  the media query. The hidden one is `display: none`, which keeps a lazy <img>
+  from being fetched at all.
+*/
+.only-light {
+  display: none;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .only-light {
+    display: block;
+  }
+  :root:not([data-theme="dark"]) .only-dark {
+    display: none;
+  }
+}
+
+:root[data-theme="light"] .only-light {
+  display: block;
+}
+:root[data-theme="light"] .only-dark {
+  display: none;
+}
+:root[data-theme="dark"] .only-light {
+  display: none;
+}
+:root[data-theme="dark"] .only-dark {
+  display: block;
 }

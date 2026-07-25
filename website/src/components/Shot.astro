@@ -1,5 +1,5 @@
 ---
-import { getImage } from 'astro:assets';
+import { Image } from 'astro:assets';
 import type { Screen } from '../lib/screens';
 
 interface Props {
@@ -13,34 +13,20 @@ interface Props {
 const { screen, widths, sizes, loading = 'lazy', class: className = '' } = Astro.props;
 
 /**
- * A screenshot that follows the reader's own light/dark preference.
+ * A product screenshot that matches the appearance the site is showing.
  *
- * `<Image>` can't do this — art direction needs two sources behind a media
- * query — so build the srcsets with getImage() and hand-write the <picture>.
- * The <img> keeps the dark variant as its fallback, since the page chrome is
- * dark and that is what a browser without prefers-color-scheme support gets.
+ * This was a <picture> with a `prefers-color-scheme` source, which is wrong now
+ * that the reader can PIN an appearance: a media query only ever sees the
+ * system setting, so pinning light on a dark Mac left dark screenshots on a
+ * light page. Media queries cannot observe `data-theme`, so instead both shots
+ * are emitted and `.only-light` / `.only-dark` (global.css) reveal one — driven
+ * by the same rules as the palette, so the two can never disagree.
+ *
+ * The hidden one costs nothing: it is `display: none`, and a lazy image inside
+ * a display:none subtree is never fetched.
  */
-const optimise = async (src: Screen['light']) => {
-  const variants = await Promise.all(
-    widths.map((w) => getImage({ src, width: w, format: 'webp' }))
-  );
-  return variants.map((v, i) => `${v.src} ${widths[i]}w`).join(', ');
-};
-
-const [lightSet, darkSet] = await Promise.all([optimise(screen.light), optimise(screen.dark)]);
-const fallback = await getImage({ src: screen.dark, width: widths[widths.length - 1], format: 'webp' });
+const common = { widths, sizes, loading, class: className };
 ---
 
-<picture>
-  <source srcset={lightSet} sizes={sizes} media="(prefers-color-scheme: light)" type="image/webp" />
-  <source srcset={darkSet} sizes={sizes} type="image/webp" />
-  <img
-    src={fallback.src}
-    alt={screen.alt}
-    width={screen.dark.width}
-    height={screen.dark.height}
-    loading={loading}
-    decoding="async"
-    class={className}
-  />
-</picture>
+<div class="only-light"><Image src={screen.light} alt={screen.alt} {...common} /></div>
+<div class="only-dark"><Image src={screen.dark} alt={screen.alt} {...common} /></div>
