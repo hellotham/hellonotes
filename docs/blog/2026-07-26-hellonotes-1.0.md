@@ -78,7 +78,7 @@ You cannot patch your way out of an architecture. So I deleted the fork and had 
 
 ## Proving it renders like GitHub (not "looks about right")
 
-"GitHub-compatible Markdown" is the kind of claim everyone makes and nobody tests. I didn't ask for GitHub-compatible. I asked for **identical to the GitHub REST `POST /markdown` API** — and that one word changed the architecture.
+"GitHub-compatible Markdown" is the kind of claim everyone makes and nobody tests. I didn't ask for GitHub-compatible. I asked for **identical to the GitHub REST `POST /markdown` API** — and that one word, *identical*, changed the architecture.
 
 The Preview renders through **cmark-gfm**, the same engine GitHub uses, into HTML shown in a WKWebView styled with github-markdown-css. (That's the one place a web view earns its keep: the whole point is to be byte-identical to GitHub, and GitHub renders HTML.) Two assertions hold it in place:
 
@@ -133,13 +133,9 @@ Both the app and its website follow your Mac, or pin to one appearance:
 
 I wrote very little of this code by hand. I built HelloNotes by prompting [Claude Code](https://claude.com/claude-code), and the git history is co-authored throughout.
 
-That sentence makes it sound easy. It wasn't — it was just *differently* hard.
+It wasn't improvised, either. I published **[AI-dō — The Way of AI](https://christham.net/aidou/)** — a book arguing that working with AI is a discipline rather than a vibe — on **8 July**. The first commit in this repository is dated **11 July**. HelloNotes is the first thing I've built start-to-finish under a method I'd finished writing down three days earlier — specifically under [Chapter 2, *Personal Productivity*](https://christham.net/aidou/productivity.html) and [Chapter 3, *Software Development*](https://christham.net/aidou/software.html).
 
-It also wasn't improvised. I published **[AI-dō — The Way of AI](https://christham.net/aidou/)** — a book arguing that working with AI is a discipline rather than a vibe — on **8 July**. The first commit in this repository is dated **11 July**.
-
-So HelloNotes is the first thing I've built start-to-finish under a method I'd finished writing down three days earlier, and specifically under [Chapter 2, *Personal Productivity*](https://christham.net/aidou/productivity.html) and [Chapter 3, *Software Development*](https://christham.net/aidou/software.html).
-
-Writing a method down and then having to live inside it for a fortnight is an excellent way to find out which parts of it are real. Here's what the job actually turned out to be — and, at the end, an honest accounting of where practice matched the book and where it didn't.
+The book opens by observing that working with AI "has become strangely easy to do and strangely hard to do well." Fifteen days of living inside my own method taught me precisely which half of that sentence I had underestimated. Here's what the job actually turned out to be — and, at the end, an honest accounting of where practice matched the book and where it didn't.
 
 ## The prompt was never "build me an app"
 
@@ -158,7 +154,9 @@ The plan is the part that made this work. Each milestone wasn't a wish, it was a
 
 And each milestone closed with a *done-when* sentence in plain English — for M1: "open an existing folder of `.md` files, edit any note with live formatting and code highlighting, changes auto-persist, and new/deleted notes reflect on disk — all reopening cleanly on relaunch."
 
-So my prompts were mostly **"do Milestone 3"**. The plan already said what done looked like, which file it lived in, and how I'd know. An LLM will happily produce something plausible for a vague request; it produces something *correct* far more often when the acceptance criterion is written down before it starts. Writing the spec was my highest-leverage work all fortnight.
+So my prompts were mostly **"do Milestone 3"**. The plan already said what done looked like, which file it lived in, and how I'd know.
+
+Why this works is worth being exact about, because the book states it as a caution: *"A model is a next-token predictor, not a compiler: it does not execute a specification, it produces the most plausible continuation of everything in its context."* A spec doesn't help by being run — nothing runs it. It helps by putting the definition of *right* into that context before the work starts, so that afterwards there is something other than plausibility to judge the output against. Writing one was my highest-leverage work all fortnight.
 
 (That plan has since been folded into [`implemented.md`](https://github.com/hellotham/hellonotes/blob/main/docs/implemented.md), which is the honest engineering log — milestones, fixes, and a lot of what *didn't* work. It's still in git history if you want the original.)
 
@@ -212,7 +210,7 @@ The same instinct is why `implemented.md` records what **didn't** work. When the
 
 ## From the other side of the prompt
 
-*I asked Claude Code to write this bit itself, since it has a better view of it than I do. What follows is its account, unedited.*
+*I asked Claude Code to write this bit itself, since it has a better view of it than I do. What follows is its account, unedited. (A later editing pass over this article ran on Fable 5 — the model whose one big day is described below. It was told to review the piece; it left this section as written.)*
 
 > **What was running.** Almost every commit carries a co-author trailer: **201 Claude Opus** and **17 Claude Fable 5**. Treat that split as approximate rather than an audit trail — the trailer string is a project convention, and on the final days it kept saying `Opus 4.8` after the model behind it had already moved to Opus 5.
 >
@@ -300,7 +298,7 @@ The SIL performance inliner was walking a **null generic signature** while inlin
 
 What didn't fix it, recorded so nobody retries it: `-Osize`, single-file compilation mode, dropping an `AnyObject` constraint. What did: deleting the generic parameter, which turned out to buy nothing. Both functions now carry comments explaining why they must stay non-generic.
 
-**Debug proves nothing about Release.** That went straight into the build docs.
+**Debug proves nothing about Release.** That went straight into the build docs. The book prices this lesson exactly: *"A drifting run caught in its first minutes costs almost nothing; one discovered at the end costs days of polished, wrong work."* Six thousand four hundred lines of polished work, none of it shippable, discovered at the end.
 
 ### 2. Commits with no author
 
@@ -325,7 +323,7 @@ Worth including because they're the exact failure mode of building this way — 
 
 **The first batch of marketing screenshots contained my real notes.** All 2,019 of them, personal folder names legible down the sidebar. They were caught, discarded, and re-shot against the demo vault with every other collection closed — and the app's preferences were backed up and restored so the session left no trace. But they'd have gone straight onto the front page.
 
-Neither of these is a coding error. Both are judgement, and judgement is the part that stays yours.
+Neither of these is a coding error. Both are judgement — the half the book says never to delegate.
 
 ---
 
