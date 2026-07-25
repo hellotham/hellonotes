@@ -42,6 +42,8 @@ export default defineConfig({
   // public/privacy.html SHADOWS the real /privacy route by the resolution order
   // above, producing a redirect loop.
   build: { format: 'file' },
+
+
   vite: {
     plugins: [tailwindcss()]
   }

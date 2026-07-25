@@ -1,0 +1,46 @@
+---
+import { getImage } from 'astro:assets';
+import type { Screen } from '../lib/screens';
+
+interface Props {
+  screen: Screen;
+  widths: number[];
+  sizes: string;
+  loading?: 'eager' | 'lazy';
+  class?: string;
+}
+
+const { screen, widths, sizes, loading = 'lazy', class: className = '' } = Astro.props;
+
+/**
+ * A screenshot that follows the reader's own light/dark preference.
+ *
+ * `<Image>` can't do this — art direction needs two sources behind a media
+ * query — so build the srcsets with getImage() and hand-write the <picture>.
+ * The <img> keeps the dark variant as its fallback, since the page chrome is
+ * dark and that is what a browser without prefers-color-scheme support gets.
+ */
+const optimise = async (src: Screen['light']) => {
+  const variants = await Promise.all(
+    widths.map((w) => getImage({ src, width: w, format: 'webp' }))
+  );
+  return variants.map((v, i) => `${v.src} ${widths[i]}w`).join(', ');
+};
+
+const [lightSet, darkSet] = await Promise.all([optimise(screen.light), optimise(screen.dark)]);
+const fallback = await getImage({ src: screen.dark, width: widths[widths.length - 1], format: 'webp' });
+---
+
+<picture>
+  <source srcset={lightSet} sizes={sizes} media="(prefers-color-scheme: light)" type="image/webp" />
+  <source srcset={darkSet} sizes={sizes} type="image/webp" />
+  <img
+    src={fallback.src}
+    alt={screen.alt}
+    width={screen.dark.width}
+    height={screen.dark.height}
+    loading={loading}
+    decoding="async"
+    class={className}
+  />
+</picture>

@@ -2,68 +2,67 @@
 import { Image } from 'astro:assets';
 import PageLayout from '../layouts/PageLayout.astro';
 import { href } from '../lib/paths';
-
-import screen01 from '../assets/screens/screen_01.png';
-import screen02 from '../assets/screens/screen_02.png';
-import screen03 from '../assets/screens/screen_03.png';
-import screen04 from '../assets/screens/screen_04.png';
-import screen05 from '../assets/screens/screen_05.png';
-
-const shots = [
-  {
-    img: screen01,
-    title: 'Your notes, your files',
-    body: 'The sidebar is a view of a real folder on your Mac. Collections, folders, tags and bookmarks — over ordinary Markdown files you can open in any other app.',
-  },
-  {
-    img: screen02,
-    title: 'Maths and diagrams, rendered inline',
-    body: 'LaTeX maths and Mermaid diagrams are drawn natively in the editor as you type — no browser engine, no export step, no round trip.',
-  },
-  {
-    img: screen03,
-    title: 'Callouts, properties and rich Markdown',
-    body: 'Collapsible callouts, hidden comments, and front matter presented as a typed, editable Properties panel rather than raw YAML.',
-  },
-  {
-    img: screen04,
-    title: 'See how your thinking connects',
-    body: 'The graph view maps links between notes, with arrows for direction and focus tracing to follow a thread through the collection.',
-  },
-  {
-    img: screen05,
-    title: 'Ask your library',
-    body: 'Ask a question in plain language and get an answer grounded in your own notes, with citations back to the sources — running on-device.',
-  },
-];
+import { SCREENS } from '../lib/screens';
 ---
 
 <PageLayout
   title="Screenshots — HelloNotes"
-  description="See HelloNotes in action: the native Markdown editor, inline maths and diagrams, callouts and properties, the graph view, and on-device AI answering questions from your notes."
+  description="See HelloNotes in action, in both light and dark appearance: the native Markdown editor, inline maths and diagrams, callouts and properties, the graph view, and on-device AI answering questions from your notes."
   heading="Screenshots"
-  intro="A closer look at the editor, the graph, and the on-device intelligence."
+  intro="A closer look at the editor, the graph, and the on-device intelligence — in either appearance."
 >
   <div class="mx-auto max-w-[1000px] px-6 py-12">
-    <div class="space-y-20">
-      {
-        shots.map((s, i) => (
-          <figure>
-            <Image
-              src={s.img}
-              alt={s.title}
-              widths={[640, 1000, 1600]}
-              sizes="(max-width: 1000px) 100vw, 1000px"
-              loading={i === 0 ? 'eager' : 'lazy'}
-              class="rounded-card border border-line shadow-[0_30px_80px_rgba(0,0,0,.5)]"
-            />
-            <figcaption class="mx-auto mt-5 max-w-[680px] text-center">
-              <h2 class="text-[20px] font-bold tracking-[-0.01em]">{s.title}</h2>
-              <p class="mt-2 text-muted">{s.body}</p>
-            </figcaption>
-          </figure>
-        ))
-      }
+    {/*
+      The appearance switch is two radio inputs styled as a segmented control.
+      Radios rather than a checkbox so each state is separately labelled for a
+      screen reader, and CSS rather than JavaScript so the page keeps working
+      with scripting off. It defaults to whatever the reader's own system is
+      set to, which is also what the rest of the site follows.
+    */}
+    <div class="shots flex flex-col items-center gap-3">
+      <fieldset class="switch inline-flex rounded-full border border-line bg-card p-1">
+        <legend class="sr-only">App appearance shown in these screenshots</legend>
+        <input class="sr-only" type="radio" name="appearance" id="appearance-light" value="light" />
+        <label for="appearance-light">Light</label>
+        <input class="sr-only" type="radio" name="appearance" id="appearance-dark" value="dark" />
+        <label for="appearance-dark">Dark</label>
+      </fieldset>
+      <p class="text-sm text-muted">
+        HelloNotes follows your Mac, or you can pin it to one appearance in Settings.
+      </p>
+
+      <div class="mt-8 w-full space-y-20">
+        {
+          SCREENS.map((s, i) => (
+            <figure>
+              <div class="light-only">
+                <Image
+                  src={s.light}
+                  alt={`${s.alt} — light appearance`}
+                  widths={[640, 1000, 1600]}
+                  sizes="(max-width: 1000px) 100vw, 1000px"
+                  loading={i === 0 ? 'eager' : 'lazy'}
+                  class="rounded-card border border-line shadow-[0_30px_80px_rgba(0,0,0,.5)]"
+                />
+              </div>
+              <div class="dark-only">
+                <Image
+                  src={s.dark}
+                  alt={`${s.alt} — dark appearance`}
+                  widths={[640, 1000, 1600]}
+                  sizes="(max-width: 1000px) 100vw, 1000px"
+                  loading={i === 0 ? 'eager' : 'lazy'}
+                  class="rounded-card border border-line shadow-[0_30px_80px_rgba(0,0,0,.5)]"
+                />
+              </div>
+              <figcaption class="mx-auto mt-5 max-w-[680px] text-center">
+                <h2 class="text-[20px] font-bold tracking-[-0.01em]">{s.title}</h2>
+                <p class="mt-2 text-muted">{s.body}</p>
+              </figcaption>
+            </figure>
+          ))
+        }
+      </div>
     </div>
 
     <div class="mt-20 border-t border-line pt-10 text-center">
@@ -87,3 +86,70 @@ const shots = [
     </div>
   </div>
 </PageLayout>
+
+<style>
+  .switch label {
+    cursor: pointer;
+    border-radius: 9999px;
+    padding: 0.4rem 1.15rem;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-muted);
+    transition: background-color 0.15s, color 0.15s;
+  }
+  .switch input:checked + label,
+  .switch.is-auto-light label[for='appearance-light'],
+  .switch.is-auto-dark label[for='appearance-dark'] {
+    background-image: linear-gradient(115deg, #7c3aed 0%, #ec4899 55%, #f59e0b 100%);
+    color: #fff;
+  }
+  /* Until the reader picks a side, the segment matching their system is the one
+     that should read as active — otherwise the control looks broken on load. */
+  @media (prefers-color-scheme: light) {
+    .switch:not(:has(input:checked)) label[for='appearance-light'] {
+      background-image: linear-gradient(115deg, #7c3aed 0%, #ec4899 55%, #f59e0b 100%);
+      color: #fff;
+    }
+  }
+  @media not all and (prefers-color-scheme: light) {
+    .switch:not(:has(input:checked)) label[for='appearance-dark'] {
+      background-image: linear-gradient(115deg, #7c3aed 0%, #ec4899 55%, #f59e0b 100%);
+      color: #fff;
+    }
+  }
+  /* Keyboard focus must stay visible even though the radio itself is sr-only. */
+  .switch input:focus-visible + label {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+  }
+
+  /*
+    Neither radio is checked on load, so the default comes from the reader's own
+    system preference — the switch then overrides it once they pick a side.
+    :has() on the wrapper is what lets a control at the top of the page drive
+    figures further down without script.
+  */
+  .light-only {
+    display: none;
+  }
+  @media (prefers-color-scheme: light) {
+    .light-only {
+      display: block;
+    }
+    .dark-only {
+      display: none;
+    }
+  }
+  .shots:has(#appearance-light:checked) .light-only {
+    display: block;
+  }
+  .shots:has(#appearance-light:checked) .dark-only {
+    display: none;
+  }
+  .shots:has(#appearance-dark:checked) .dark-only {
+    display: block;
+  }
+  .shots:has(#appearance-dark:checked) .light-only {
+    display: none;
+  }
+</style>

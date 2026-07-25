@@ -192,6 +192,11 @@ shipping a build means publishing a release — the 35 MB disk image is delibera
 git history. `src/lib/site.ts` holds the version, size and SHA-256 the download page prints,
 and must match the attached artefact.
 
+Screenshots are shot **twice**, light and dark, and composited by
+[`scripts/make-screenshots.py`](scripts/make-screenshots.py); `src/lib/screens.ts` is the
+registry. The Screenshots page offers a Light/Dark switch; the home and feature pages follow
+`prefers-color-scheme` on their own.
+
 Three things to know before editing it — the first two fail *silently* (the build succeeds and
 only the live site is wrong). See [docs/website.md](docs/website.md):
 - It's a **project page** under `base: '/hellonotes'`, so build internal links and asset paths
@@ -201,6 +206,9 @@ only the live site is wrong). See [docs/website.md](docs/website.md):
   `github.io`, which merely redirects.
 - **Keyboard shortcuts in the manual come from `AppCommands.swift`, not from memory.** Grep for
   a binding before documenting it; a first pass invented two that don't exist.
+- **`og:image` must live in `public/`, never `src/assets/`.** Processed assets get
+  content-hashed filenames that change on re-export, and social crawlers cache by URL — this
+  shipped broken once, 404ing on every page while the build stayed green.
 
 ## 🤝 Contributing / working rules
 Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 15+ / Swift 5.10+ / Xcode 26; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.

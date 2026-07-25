@@ -1,15 +1,22 @@
 ---
 import '../styles/global.css';
 import { href } from '../lib/paths';
+import { APP, PUBLISHER, DOWNLOAD, REPO } from '../lib/site';
 
 interface Props {
   title: string;
   description: string;
-  /** Open Graph image, relative to the site root (optional). */
+  /**
+   * Open Graph image, relative to the site root. Must be a file in `public/` —
+   * NOT one processed by astro:assets, whose filenames are content-hashed and
+   * so change whenever the image is re-exported. Social crawlers cache by URL.
+   */
   ogImage?: string;
+  /** Emit the SoftwareApplication structured data (home and download only). */
+  appSchema?: boolean;
 }
 
-const { title, description, ogImage = 'assets/shot_02.png' } = Astro.props;
+const { title, description, ogImage = 'assets/og.png', appSchema = false } = Astro.props;
 
 // Canonical + OG URLs must be absolute; Astro.site is the domain, Astro.url
 // carries the base-prefixed path.
@@ -24,6 +31,32 @@ const canonicalPath = Astro.url.pathname
   .replace(/\.html$/, '');
 const canonical = new URL(canonicalPath, Astro.site);
 const ogImageURL = new URL(href(ogImage), Astro.site);
+
+/**
+ * Structured data. SoftwareApplication is what earns an app rich result;
+ * `offers` at price 0 is how "free" is expressed — omitting it reads as
+ * "price unknown" rather than "free".
+ */
+const appLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: APP.name,
+  applicationCategory: 'ProductivityApplication',
+  operatingSystem: APP.minOS,
+  url: new URL(href('/'), Astro.site).href,
+  downloadUrl: DOWNLOAD.url,
+  softwareVersion: APP.version,
+  description: APP.tagline,
+  image: ogImageURL.href,
+  isAccessibleForFree: true,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'AUD' },
+  publisher: {
+    '@type': 'Organization',
+    name: PUBLISHER.legalName,
+    url: PUBLISHER.site,
+  },
+  codeRepository: REPO,
+};
 ---
 
 <!doctype html>
@@ -34,16 +67,32 @@ const ogImageURL = new URL(href(ogImage), Astro.site);
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
+    <meta name="author" content={PUBLISHER.legalName} />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="sitemap" href={href('sitemap.xml')} />
 
+    <meta property="og:site_name" content={APP.name} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_AU" />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImageURL} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={`${APP.name} — ${APP.tagline}`} />
+
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageURL} />
 
     <link rel="icon" href={href('assets/icon.png')} />
+    <link rel="apple-touch-icon" href={href('assets/icon.png')} />
+    <meta name="theme-color" content="#0c0b12" />
     <meta name="generator" content={Astro.generator} />
+
+    {appSchema && <script type="application/ld+json" set:html={JSON.stringify(appLd)} />}
   </head>
   <body>
     <slot />

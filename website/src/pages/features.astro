@@ -1,13 +1,9 @@
 ---
-import { Image } from 'astro:assets';
+import Shot from '../components/Shot.astro';
 import PageLayout from '../layouts/PageLayout.astro';
+import { byId } from '../lib/screens';
 import { href } from '../lib/paths';
 
-import shot01 from '../assets/screens/shot_01.png';
-import shot02 from '../assets/screens/shot_02.png';
-import shot03 from '../assets/screens/shot_03.png';
-import shot04 from '../assets/screens/shot_04.png';
-import shot05 from '../assets/screens/shot_05.png';
 
 /** Each block alternates image side on wide screens. */
 const sections = [
@@ -15,8 +11,7 @@ const sections = [
     id: 'editor',
     eyebrow: 'The editor',
     title: 'Markdown that styles itself as you type',
-    image: shot03,
-    alt: 'The HelloNotes editor showing callouts, a properties panel and rich Markdown',
+    screen: byId('callouts'),
     body: [
       'The editor is a real native text view built on TextKit 2 — not a web view pretending to be one. Headings, emphasis, lists, task lists, tables and footnotes take on their formatting as you type, while the underlying file stays exactly the Markdown you wrote.',
       'Move the caret into a construct and its syntax is revealed for editing, then tidied away when you leave. Code blocks are syntax-highlighted, LaTeX maths and Mermaid diagrams render inline, callouts collapse, and front matter is hidden behind a typed, editable Properties panel.',
@@ -33,8 +28,7 @@ const sections = [
     id: 'graph',
     eyebrow: 'Knowledge graph',
     title: 'Notes that know about each other',
-    image: shot04,
-    alt: 'The graph view showing notes as nodes connected by directional links',
+    screen: byId('graph'),
     body: [
       'Link notes with <code>[[wiki-links]]</code>, complete with autocomplete, aliases and links straight to a heading. Every note shows what links to it, what it links out to, and which notes mention it without linking yet — each one linkable in a click.',
       'The graph view draws those relationships as a directional map you can trace, either across a whole collection or just a few links around the note you are reading. The mind map does the same for a single note’s ideas.',
@@ -51,8 +45,7 @@ const sections = [
     id: 'organise',
     eyebrow: 'Organise & find',
     title: 'Structure when you want it',
-    image: shot01,
-    alt: 'The notes sidebar showing a folder tree, tags and bookmarks',
+    screen: byId('files'),
     body: [
       'Open several collections at once as a library, with a launcher, recents and saved library sets. Existing Obsidian vaults open directly — there is no import step, because there is no proprietary format to import into.',
       'Find things by full-text search with snippets, by fuzzy-matching a title in Open Quickly, or by nested tags with autocomplete. Bookmark what you return to, and let daily notes and templates handle the repetitive structure.',
@@ -69,8 +62,7 @@ const sections = [
     id: 'ai',
     eyebrow: 'Intelligence',
     title: 'AI that runs on your Mac',
-    image: shot05,
-    alt: 'Ask Library answering a question with citations back to source notes',
+    screen: byId('ask'),
     body: [
       'Summarise a note, suggest tags or links, expand a stub, or ask a question across your whole library and get an answer with citations back to the notes it came from. By default this runs on-device with Apple Intelligence — your notes are not sent anywhere.',
       'If you would rather use a different model, bring your own: local runtimes like Ollama, LM Studio and MLX, or your own API key for a cloud provider. Keys live in the Keychain, and cloud providers stay switched off until you configure one.',
@@ -86,8 +78,7 @@ const sections = [
     id: 'sync',
     eyebrow: 'Storage & sync',
     title: 'Your files, wherever you keep them',
-    image: shot02,
-    alt: 'A note with LaTeX maths and a Mermaid diagram rendered inline',
+    screen: byId('maths'),
     body: [
       'Because notes are ordinary files, they can live wherever you already keep files. Put a collection in iCloud Drive, Dropbox, Box, OneDrive or Google Drive and it behaves like any other folder — cloud files stay online-only until you open one, so a large library does not have to be downloaded in full.',
       'For versioning, HelloNotes speaks Git directly: initialise a repository, commit as you write, browse any note’s history and restore an earlier version. Push and fetch go to a remote you configure — never to us.',
@@ -161,15 +152,13 @@ const sections = [
               </ul>
             </div>
 
-            {s.image && (
+            {s.screen && (
               <div class:list={[i % 2 === 1 ? 'lg:order-1' : '']}>
-                <Image
-                  src={s.image}
-                  alt={s.alt}
+                <Shot
+                  screen={s.screen}
                   widths={[520, 1040]}
                   sizes="(max-width: 1024px) 100vw, 50vw"
-                  loading="lazy"
-                  class="rounded-card border border-line shadow-[0_20px_50px_rgba(0,0,0,.45)]"
+                  class="w-full rounded-card border border-line shadow-[0_20px_50px_rgba(0,0,0,.45)]"
                 />
               </div>
             )}

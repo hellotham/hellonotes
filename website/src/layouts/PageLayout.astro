@@ -11,12 +11,13 @@ interface Props {
   /** Supporting line under the heading. */
   intro?: string;
   ogImage?: string;
+  appSchema?: boolean;
 }
 
-const { title, description, heading, intro, ogImage } = Astro.props;
+const { title, description, heading, intro, ogImage, appSchema } = Astro.props;
 ---
 
-<Layout title={title} description={description} ogImage={ogImage}>
+<Layout title={title} description={description} ogImage={ogImage} appSchema={appSchema}>
   <Nav />
 
   {

@@ -1,0 +1,9 @@
+# HelloNotes — https://hellotham.com/hellonotes/
+#
+# This project page is served from a sub-path, so the robots.txt crawlers
+# actually obey is the one at the domain root (the hellotham.github.io repo).
+# This copy documents the sitemap for anyone who fetches it directly.
+User-agent: *
+Allow: /
+
+Sitemap: https://hellotham.com/hellonotes/sitemap.xml
