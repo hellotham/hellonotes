@@ -25,12 +25,23 @@ export default defineConfig({
   site: 'https://hellotham.com',
   base: BASE,
 
-  // NOTE: legacy /privacy.html and /support.html redirects are NOT declared here.
-  // Astro's `redirects` honours build.format ('directory' by default), so a key
-  // of '/privacy.html' emits dist/privacy.html/index.html — a *directory*. That
-  // serves /privacy.html/ but 404s on /privacy.html, which is the URL actually in
-  // the wild. They're plain files in public/ instead (public/privacy.html), which
-  // is copied verbatim and therefore lands as a real file.
+  // Emit dist/privacy.html rather than dist/privacy/index.html.
+  //
+  // This is what keeps the OLD urls working. The previous site used
+  // /privacy.html and /support.html, and those are in the wild — App Store
+  // Connect's Privacy Policy and Support URL fields among them. GitHub Pages
+  // resolves `<path>.html` BEFORE `<path>/index.html`, so with 'file' format a
+  // single artefact answers both forms:
+  //     /hellonotes/privacy       → privacy.html ✓
+  //     /hellonotes/privacy.html  → privacy.html ✓
+  //
+  // Redirects were tried first and are a trap here. Astro's `redirects` honours
+  // this same format setting, so with the default 'directory' a key of
+  // '/privacy.html' emits a privacy.html/ *directory* (serves /privacy.html/,
+  // 404s /privacy.html). Hand-written redirect files in public/ are worse still:
+  // public/privacy.html SHADOWS the real /privacy route by the resolution order
+  // above, producing a redirect loop.
+  build: { format: 'file' },
   vite: {
     plugins: [tailwindcss()]
   }
