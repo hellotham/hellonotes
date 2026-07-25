@@ -25,20 +25,12 @@ export default defineConfig({
   site: 'https://hellotham.com',
   base: BASE,
 
-  // The old hand-written site used .html extensions. Those URLs are in the wild
-  // — App Store Connect's Privacy Policy / Support URL fields among them — and
-  // would otherwise 404 now that Astro serves extensionless routes. Astro emits
-  // a small meta-refresh page for each in a static build.
-  //
-  // Keys are relative to `base` (they land at dist/, which *is* the base root),
-  // but TARGETS are not base-prefixed automatically — a bare '/privacy' would
-  // point at hellotham.com/privacy, i.e. the wrong site. Hence the explicit
-  // ${BASE}. (No '/index.html' entry: it would create a dist/index.html
-  // *directory* and clobber the real homepage.)
-  redirects: {
-    '/privacy.html': `${BASE}/privacy`,
-    '/support.html': `${BASE}/support`,
-  },
+  // NOTE: legacy /privacy.html and /support.html redirects are NOT declared here.
+  // Astro's `redirects` honours build.format ('directory' by default), so a key
+  // of '/privacy.html' emits dist/privacy.html/index.html — a *directory*. That
+  // serves /privacy.html/ but 404s on /privacy.html, which is the URL actually in
+  // the wild. They're plain files in public/ instead (public/privacy.html), which
+  // is copied verbatim and therefore lands as a real file.
   vite: {
     plugins: [tailwindcss()]
   }
