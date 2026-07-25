@@ -10,7 +10,7 @@ push; nothing generated is committed.
 | Source | [`website/`](../website/) |
 | Framework | **Astro 7** (static output) |
 | CSS | **Tailwind 4** via `@tailwindcss/vite` |
-| Deploy | [`.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml) → GitHub Pages |
+| Deploy | [`.github/workflows/deploy-website.yml`](../.github/workflows/deploy-website.yml) → GitHub Pages |
 | Pages mode | **GitHub Actions** (`build_type: workflow`) — *not* a `gh-pages` branch |
 
 ---
@@ -32,7 +32,7 @@ The dev server honours `base`, so browse **`/hellonotes/`**, not `/`.
 ## How it deploys
 
 A push to `main` that touches `website/**` (or the workflow itself) triggers
-`deploy-site.yml`, which builds with the official **`withastro/action`**
+`deploy-website.yml`, which builds with the official **`withastro/action`**
 (`path: ./website`) and publishes with **`actions/deploy-pages`**. App-only commits
 don't redeploy.
 

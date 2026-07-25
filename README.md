@@ -15,7 +15,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [docs/production.md](docs/production.md) | Step-by-step runbook to ship the app to the Mac App Store |
 | [docs/signing.md](docs/signing.md) | Code-signing & provisioning notes (team, capabilities, entitlements) |
 | [docs/xcode-targets-setup.md](docs/xcode-targets-setup.md) | How the Widget / Quick Look extension targets and the App Group were added |
-| [docs/site.md](docs/site.md) | The marketing site — Astro + Tailwind, its GitHub Actions deploy, and the two URL traps (`base`, custom domain) |
+| [docs/website.md](docs/website.md) | The marketing site — Astro + Tailwind, its GitHub Actions deploy, and the two URL traps (`base`, custom domain) |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
 ## ✨ Features (v1.0)
@@ -181,12 +181,12 @@ npm run build    # static output → website/dist
 ```
 
 It deploys on every push to `main` that touches `website/`, via
-[`.github/workflows/deploy-site.yml`](.github/workflows/deploy-site.yml) (`withastro/action` →
+[`.github/workflows/deploy-website.yml`](.github/workflows/deploy-website.yml) (`withastro/action` →
 `actions/deploy-pages`). Pages is in **GitHub Actions** mode — nothing is committed to a
 `gh-pages` branch.
 
 Two things to know before editing it, both of which fail *silently* (the build succeeds and
-only the live site is wrong) — see [docs/site.md](docs/site.md):
+only the live site is wrong) — see [docs/website.md](docs/website.md):
 - It's a **project page** under `base: '/hellonotes'`, so build internal links and asset paths
   with the `href()` helper in `src/lib/paths.ts` rather than hard-coding the prefix.
 - `site` is the **custom domain** (`hellotham.com`), inherited from the `hellotham.github.io`
