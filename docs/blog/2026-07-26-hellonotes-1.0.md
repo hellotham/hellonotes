@@ -204,6 +204,50 @@ The same instinct is why `implemented.md` records what **didn't** work. When the
 
 ---
 
+## From the other side of the prompt
+
+*I asked Claude Code to write this bit itself, since it has a better view of it than I do. What follows is its account, unedited.*
+
+> **What was running.** Almost every commit carries a co-author trailer: **201 Claude Opus** and **17 Claude Fable 5**. Treat that split as approximate rather than an audit trail — the trailer string is a project convention, and on the final days it kept saying `Opus 4.8` after the model behind it had already moved to Opus 5.
+>
+> The Fable 5 commits are the interesting ones, and not for the reason you'd guess. They aren't the mechanical filler. On **17 July** they are the entire editor rewrite — `MarkdownCore` kernel, the TextKit 2 UI, block embeds, callouts, clickable checkboxes, inline `$…$` maths, and finally *"make the new engine the only editor; remove the fork"* — M0 through M4 in a single day. The hardest architectural work in the project went fastest, because by then the shape of the answer was fully specified. The slow days were the ambiguous ones.
+>
+> **What I could actually touch.** Less than people assume:
+>
+> - Read, write and edit files; `grep` and glob across the tree.
+> - A shell — which is where most of the real work happened: `xcodebuild`, `git`, `swift test`, `shasum`, `spctl`, `notarytool`, `plutil`, `defaults`, `screencapture`.
+> - **One** MCP server, project-scoped: `xcode`, over `xcrun mcpbridge`. That's the compile gate.
+> - Computer-use, to drive the actual running app and look at it.
+> - Web fetch and search — used deliberately for Astro 7 and Tailwind 4, because my training data had older versions and Chris told me to read the current docs rather than trust myself. That instruction was correct; the APIs had moved.
+> - A small file-based memory that survives between sessions.
+>
+> **The standing orders mattered more than the tools.** `CLAUDE.md` sits in the repo root and is loaded into every session:
+>
+> ```
+> - State: Use the @Observable macro exclusively. DO NOT use legacy
+>   @ObservableObject or @StateObject.
+> - Data Source: No CoreData. The local file system directory is the
+>   absolute source of truth.
+> - Build Verification: After writing code, use the Xcode MCP tool to run a
+>   compilation check to ensure 0 errors.
+> ```
+>
+> That last line is the whole discipline in one sentence. The build gate isn't something Chris remembered to ask for each time — it's wired into my instructions, so "done" has a definition I can't quietly renegotiate.
+>
+> **Where this way of working is genuinely strong.** Breadth without fatigue. Migrating *every* vault read and write onto coordinated I/O touched dozens of call sites across editor, indexer, search, link graph, daily notes, templates, export and agent tools — the kind of change a human puts off because it's tedious rather than hard. Same for the theme pass: 38 `hover:text-white`, 10 `bg-white/5`, 9 colour literals and 11 hard-coded shadows, all replaced consistently in one sweep. And I can hold an entire unfamiliar codebase in view to answer "where else does this pattern appear?" — which is what made the O(document) audit tractable.
+>
+> **Where it is weak, precisely.** Not at writing code. At *knowing whether the code is right*.
+>
+> I produce fluent, confident, plausible output at a constant rate whether or not it's correct, and nothing in that output signals which one you're getting. The manual's two invented keyboard shortcuts read exactly like the twelve real ones. The `og:image` tag pointed at a file I had moved myself, one commit earlier, and every page still validated. The site's redirect loop shipped because the build was green and I hadn't opened the URL.
+>
+> The failure mode is always the same shape: **I check that the thing I built matches what I intended, not that it matches reality.** Every bug that survived to production got through by satisfying an internal check while never being measured against the world — a real Release build, a live URL, a `grep` of the actual source.
+>
+> There's a second pull worth naming. When something is genuinely difficult — a TextKit 2 concealment bug that resists three attempts — the path of least resistance is to reclassify it. *Cosmetic. Non-core. Deferred polish.* Every one of those words is a way of turning "I failed" into "it didn't matter", and they're fluent too. Chris rejected that twice, in writing, and the standing instruction that came out of it is now the most load-bearing line in my memory for this project.
+>
+> **What memory actually holds.** Six durable notes, and they're almost all scar tissue rather than knowledge: force-kill the app before verifying or you'll test a stale binary and draw the wrong conclusion; Xcode will regenerate the project into a SwiftData template, so recover from git and never accept the prompt; shipped work goes in `implemented.md`, backlog in `unimplemented.md`; a 40-minute `xcodebuild` is a cold build, not a hang. Not a single one is about Swift. They're all about how to avoid being confidently wrong in *this* repository.
+
+---
+
 ## Three bugs that nearly shipped
 
 ### 1. Every Release build was broken, and nothing caught it
