@@ -1,12 +1,13 @@
 /**
  * Build a site-absolute URL that respects Astro's configured `base`.
  *
- * The site deploys to a project page (https://hellotham.github.io/hellonotes/),
- * so every internal link and asset must be prefixed with the base — a bare
- * "/privacy" would 404 against the domain root. Deriving it from
+ * The site is a project page served from a sub-path
+ * (https://hellotham.com/hellonotes/), so every internal link and asset must be
+ * prefixed with the base — a bare "/privacy" would resolve against the domain
+ * root, which is a different site. Deriving the prefix from
  * `import.meta.env.BASE_URL` (rather than hard-coding "/hellonotes/") means
- * renaming the repo, or moving to a custom domain with `base: '/'`, needs only
- * an astro.config change.
+ * renaming the repo, or moving to a domain root with `base: '/'`, needs only an
+ * astro.config change.
  *
  *   href('/')            → '/hellonotes/'
  *   href('/privacy')     → '/hellonotes/privacy'

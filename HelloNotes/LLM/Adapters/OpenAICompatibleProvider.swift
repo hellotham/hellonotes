@@ -31,7 +31,9 @@ struct OpenAICompatibleProvider: LLMProvider {
 
         var headers: [String: String] = [:]
         if kind == .openrouter {
-            headers["HTTP-Referer"] = "https://hellotham.github.io/hellonotes/"
+            // OpenRouter attribution. Use the canonical custom domain — the old
+            // hellotham.github.io URL only 301s here.
+            headers["HTTP-Referer"] = "https://hellotham.com/hellonotes/"
             headers["X-Title"] = "HelloNotes"
         }
 
