@@ -15,6 +15,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [docs/production.md](docs/production.md) | Step-by-step runbook to ship the app to the Mac App Store |
 | [docs/signing.md](docs/signing.md) | Code-signing & provisioning notes (team, capabilities, entitlements) |
 | [docs/xcode-targets-setup.md](docs/xcode-targets-setup.md) | How the Widget / Quick Look extension targets and the App Group were added |
+| [docs/site.md](docs/site.md) | The marketing site — Astro + Tailwind, its GitHub Actions deploy, and the two URL traps (`base`, custom domain) |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
 ## ✨ Features (v1.0)
@@ -159,7 +160,7 @@ HelloNotes/            App sources (synchronised Xcode group)
   ├─ iOSContentView    Layer 4 — iOS/iPadOS adaptive shell
   └─ HelloNotesApp     App entry (main window + auxiliary window scenes)
 Packages/NotesEditor/  Live editor package (MarkdownCore, MarkdownEditor, GFMRender)
-site/                  Marketing site — Astro 7 + Tailwind 4, deployed to GitHub Pages
+site/                  Marketing site — Astro 7 + Tailwind 4 → hellotham.com/hellonotes
 Config/                Secrets.example.xcconfig (template); Secrets.xcconfig is git-ignored
 docs/                  PRD, architecture, roadmaps (native + cloud), production, history
 HelloNotesTests/       App unit tests
@@ -168,23 +169,29 @@ HelloNotes.xcodeproj/  Project (SPM dependencies, shared scheme)
 ```
 
 ## 🌐 Marketing site
-[hellotham.github.io/hellonotes](https://hellotham.github.io/hellonotes/) is built from
-[`site/`](site/) — **Astro 7 + Tailwind 4** (the CSS-first `@tailwindcss/vite` plugin; there is
-no `tailwind.config.js`, the palette lives in an `@theme` block in `src/styles/global.css`).
+**<https://hellotham.com/hellonotes/>** is built from [`site/`](site/) — **Astro 7 + Tailwind 4**
+(the CSS-first `@tailwindcss/vite` plugin; there is no `tailwind.config.js` — the palette lives
+in an `@theme` block in `src/styles/global.css`).
 
 ```bash
 cd site
 npm install
-npm run dev      # local preview
+npm run dev      # http://localhost:4321/hellonotes/  (note the base path)
 npm run build    # static output → site/dist
 ```
 
 It deploys on every push to `main` that touches `site/`, via
 [`.github/workflows/deploy-site.yml`](.github/workflows/deploy-site.yml) (`withastro/action` →
-`actions/deploy-pages`); nothing is committed to a `gh-pages` branch. The site is a **project
-page**, so `astro.config.mjs` sets `base: '/hellonotes'` — build internal links with the
-`href()` helper in `src/lib/paths.ts` (derived from `import.meta.env.BASE_URL`) rather than
-hard-coding the prefix, or they'll 404.
+`actions/deploy-pages`). Pages is in **GitHub Actions** mode — nothing is committed to a
+`gh-pages` branch.
+
+Two things to know before editing it, both of which fail *silently* (the build succeeds and
+only the live site is wrong) — see [docs/site.md](docs/site.md):
+- It's a **project page** under `base: '/hellonotes'`, so build internal links and asset paths
+  with the `href()` helper in `src/lib/paths.ts` rather than hard-coding the prefix.
+- `site` is the **custom domain** (`hellotham.com`), inherited from the `hellotham.github.io`
+  user-site repo — so this repo needs no `CNAME`, and canonical/OG URLs must not point at
+  `github.io`, which merely redirects.
 
 ## 🤝 Contributing / working rules
 Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 15+ / Swift 5.10+ / Xcode 26; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.
