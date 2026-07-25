@@ -27,12 +27,14 @@ enum VisionAlt {
         }
         // Otherwise, top classification labels.
         if let labels = await classify(cgImage), !labels.isEmpty {
-            return labels.prefix(3).joined(separator: ", ")
+            return labels
         }
         return nil
     }
 
-    private static func classify(_ image: CGImage) async -> [String]? {
+    /// The top classification labels, already joined (so this and
+    /// `recognizedText` share one non-generic `OnceResumer` — see its note).
+    private static func classify(_ image: CGImage) async -> String? {
         await withCheckedContinuation { continuation in
             let once = OnceResumer(continuation)
             let request = VNClassifyImageRequest { request, _ in
@@ -41,9 +43,9 @@ enum VisionAlt {
                     .sorted { $0.confidence > $1.confidence }
                     .prefix(3)
                     .map { $0.identifier.replacingOccurrences(of: "_", with: " ") }
-                once.resume(Array(labels))
+                once.resume(labels.isEmpty ? nil : labels.joined(separator: ", "))
             }
-            perform(request, on: image, once: once, empty: [])
+            perform(request, on: image) { once.resume(nil) }
         }
     }
 
@@ -58,32 +60,45 @@ enum VisionAlt {
             }
             request.recognitionLevel = .fast
             request.usesLanguageCorrection = true
-            perform(request, on: image, once: once, empty: nil)
+            perform(request, on: image) { once.resume(nil) }
         }
     }
 
-    /// Run a Vision request off the main thread, resuming with `empty` if it
+    /// Run a Vision request off the main thread, invoking `onFailure` if it
     /// throws. `handler.perform` invokes the request's completion handler (which
     /// also resumes) even on failure, so both paths funnel through `OnceResumer`
     /// — resuming a `CheckedContinuation` twice is a runtime crash.
-    private static func perform<T>(_ request: VNRequest, on image: CGImage,
-                                   once: OnceResumer<T>, empty: T) {
+    ///
+    /// Deliberately **non-generic** (the caller closes over its own `OnceResumer`
+    /// instead of passing it in): as a generic taking `OnceResumer<T>`, this
+    /// crashed the Swift 6.2 SIL performance inliner in `-O` builds
+    /// (`isCallerAndCalleeLayoutConstraintsCompatible` → null generic
+    /// signature), so Release archives segfaulted while Debug built fine.
+    private static func perform(_ request: VNRequest, on image: CGImage,
+                                onFailure: @escaping @Sendable () -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let handler = VNImageRequestHandler(cgImage: image, options: [:])
             do { try handler.perform([request]) }
-            catch { once.resume(empty) }
+            catch { onFailure() }
         }
     }
 }
 
 /// Resumes a `CheckedContinuation` at most once (Vision's completion handler and
 /// a thrown `perform` can otherwise both resume it).
-private final class OnceResumer<T>: @unchecked Sendable {
+///
+/// Deliberately **non-generic**. As `OnceResumer<T>`, its compiler-generated
+/// `__deallocating_deinit` crashed the Swift 6.3 SIL `EarlyPerfInliner` in `-O`
+/// builds — `isCallerAndCalleeLayoutConstraintsCompatible` walked a null generic
+/// signature and segfaulted, so *every* Release archive died (Debug was fine,
+/// which is why it went unnoticed). Both callers funnel through `String?`, so
+/// the generic bought nothing. Keep it concrete.
+private final class OnceResumer: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
-    private let continuation: CheckedContinuation<T, Never>
-    init(_ continuation: CheckedContinuation<T, Never>) { self.continuation = continuation }
-    func resume(_ value: T) {
+    private let continuation: CheckedContinuation<String?, Never>
+    init(_ continuation: CheckedContinuation<String?, Never>) { self.continuation = continuation }
+    func resume(_ value: String?) {
         lock.lock(); defer { lock.unlock() }
         guard !done else { return }
         done = true
