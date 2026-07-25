@@ -1,12 +1,12 @@
 # HelloNotes — Product Requirements Document
 
-> Product name: **HelloNotes** · Status: **v1.0 (shipped)** · Last updated: 2026-07-13 · Owner: Chris Tham
+> Product name: **HelloNotes** · Status: **v1.0 (shipped)** · Last updated: 2026-07-25 · Owner: Chris Tham
 
 ---
 
 ## 1. Overview
 
-HelloNotes is a **native, local-first Markdown knowledge base for the Apple ecosystem** — a fast, tactile alternative to Electron apps like Obsidian and cross-platform editors like Typora. Notes are plain `.md` files in a folder on disk ("the vault"); that folder is the single source of truth. There is no proprietary database and no cloud lock-in. Synchronisation happens invisibly through Git.
+HelloNotes is a **native, local-first Markdown knowledge base for the Apple ecosystem** — a fast, tactile alternative to Electron apps like Obsidian and cross-platform editors like Typora. Notes are plain `.md` files in a folder ("the vault"); that folder is the single source of truth. It can sit on local disk *or* in a cloud provider's folder (Box, Dropbox, OneDrive, Google Drive, iCloud), where files stay online-only until opened — either way it's still just files you own. There is no proprietary database and no cloud lock-in. Synchronisation happens invisibly through Git.
 
 The product bet: a knowledge tool built on **AppKit + TextKit 2 + SwiftUI** can deliver editing latency, scroll performance, and OS integration that web-tech competitors structurally cannot, while keeping the user's data in an open, portable, greppable format they fully own.
 
@@ -80,6 +80,8 @@ Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P
 > **AI (optional):** on-device Apple Intelligence (summarise / suggest tags / suggest links), **Ask Library** retrieval chat with citations, an agentic **Assistant** (tools incl. web search/fetch, note editing behind explicit approval, skills, deep research), and pluggable providers — local (Apple, MLX, Ollama, LM Studio) or the user's own cloud key (Anthropic, OpenAI-compatible, Gemini). Keys in the Keychain; no developer backend.
 > **Git:** repo status, init, local commit, opt-in auto-commit (never auto-pushes), push/fetch, per-note **version history** (browse + restore), **clone** + **create-remote** with HTTPS token auth (Keychain), in-app git identity.
 > **Platform:** macOS 3-column shell with full menu bar, windowed Graph/Mind Map/Assistant/Ask Library, appearance settings (theme/accent/text size), launch splash with build info; iOS/iPadOS adaptive shell (browse / WKWebView preview / plain-text edit companion sharing Core/State).
+> **System integration** *(added 2026-07-19/20 — [native-roadmap.md](native-roadmap.md))*: App Intents (`NoteEntity` + Siri/Shortcuts), Spotlight donation, a recent-notes **widget**, **Quick Look** preview + thumbnail extensions, menu-bar quick capture + global hotkey, `hellonotes://` URL scheme, Services menu, state restoration, TipKit, on-device dictation (SpeechAnalyzer) and Foundation Models `@Generable`.
+> **Cloud storage** *(added 2026-07-20/21 — [cloud-native-roadmap.md](cloud-native-roadmap.md))*: a vault folder may live in **Box, Dropbox, OneDrive (personal/business), Google Drive or iCloud** via Apple's File Provider layer, with files kept **online-only until opened** (coordinated I/O + dataless-aware indexing); or an account can be connected **directly over its own API** (four built-in clients, no vendor SDKs) and promoted to a first-class sidebar collection.
 > **Deferred** (engine walls / roadmap): create-on-miss from an in-editor muted link click, git pull/merge + conflict UI, richer iOS editor — see [unimplemented.md](unimplemented.md).
 
 ### 7.1 Vault & file management

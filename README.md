@@ -13,7 +13,9 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [docs/native-roadmap.md](docs/native-roadmap.md) | Forward roadmap for deeper Apple-platform integration (App Intents, widgets, Spotlight…) |
 | [docs/cloud-native-roadmap.md](docs/cloud-native-roadmap.md) | Cloud storage: the File Provider path (on-demand files) and the direct-API providers, phase by phase |
 | [docs/production.md](docs/production.md) | Step-by-step runbook to ship the app to the Mac App Store |
-| [docs/implemented.md](docs/implemented.md) | Implementation history — the milestone build sequence, the editor rewrite, the retired markdown-engine fork, and the GFM-fidelity work |
+| [docs/signing.md](docs/signing.md) | Code-signing & provisioning notes (team, capabilities, entitlements) |
+| [docs/xcode-targets-setup.md](docs/xcode-targets-setup.md) | How the Widget / Quick Look extension targets and the App Group were added |
+| [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
 ## ✨ Features (v1.0)
 
@@ -49,8 +51,19 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 **Seamless Git sync**
 - Repo status, init, local commits, opt-in debounced auto-commit (never auto-pushes), user-initiated push/fetch, per-note **version history** (browse & restore), **clone** (cancelable) and **create-remote** with HTTPS token auth, and an in-app git identity.
 
+**Deep system integration**
+- **Siri & Shortcuts** — `NoteEntity` App Intents (open, create, append, search) with an `AppShortcutsProvider`, so notes are scriptable from Shortcuts and callable by voice.
+- **Spotlight** — notes are *donated* to the system index, so ⌘Space finds them and deep-links straight back (stale entries are retracted on rename/delete).
+- **Widgets** — a recent-notes widget in all three sizes, fed by an App Group snapshot; every row deep-links to its note.
+- **Quick Look** — native `.md` preview *and* thumbnail extensions, so Markdown renders in Finder's Space-bar preview and as file icons.
+- **Menu-bar quick capture** — a `MenuBarExtra` jots a line into today's daily note without switching apps, plus a system-wide **⌃⌥⌘N** hotkey.
+- **URL scheme** — `hellonotes://note?…` / `collection` / `search` / `new` / `daily`, the shared entry point behind Shortcuts, Spotlight and widget taps.
+- **Dictation** — on-device `SpeechAnalyzer` transcription straight into the daily note; **Writing Tools** and inline prediction are wired into the editor (plain-text only, so rewrites can't corrupt Markdown).
+- Services menu ("New Note from Selection"), state restoration, TipKit hints, and an Icon Composer app icon.
+
 **Native app polish**
-- Full menu bar with keyboard shortcuts, windowed Graph/Mind Map/Assistant/Ask Library surfaces, appearance settings (light/dark, accent colours, text size with Dynamic Type), a launch splash with live build info, and an adaptive iOS/iPadOS companion.
+- Full menu bar with keyboard shortcuts, native source-list sidebars, windowed Graph/Mind Map/Assistant/Ask Library surfaces, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, a **first-run welcome**, and an adaptive iOS/iPadOS companion.
+- Accessibility: VoiceOver labels throughout, a **headings rotor** in the editor on both platforms, and Reduce Motion support.
 
 > WebView policy: the *editing path is 100% native TextKit 2*. A `WKWebView` appears only in read-only rendering surfaces — the macOS/iOS GFM **Preview** and the **Marp slides** preview — never in the editor itself.
 

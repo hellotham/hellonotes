@@ -5,7 +5,20 @@ surface (App Intents, text/content APIs, macOS 26 platform expectations). Every 
 below was checked against live Apple docs — minimum-OS versions and API names are
 verified, not recalled. Execute phases in order; items within a phase are independent.*
 
-**Starting point:** HelloNotes uses almost no system-integration surface yet — no App
+> ## ✅ Status: this roadmap is complete (2026-07-19/20)
+>
+> Everything below shipped — URL scheme + router, state restoration, Services menu,
+> VoiceOver headings rotor, App Intents (`NoteEntity` + 4 intents + `AppShortcutsProvider`),
+> MenuBarExtra quick capture, global hotkey (⌃⌥⌘N), IndexedEntity **Spotlight donation**
+> (with stale-id retraction), **WidgetKit** recent-notes widget + App Group, **Quick Look**
+> preview *and* thumbnail extensions, TipKit, iCloud KV preference sync, **Foundation Models**
+> `@Generable`, **SpeechAnalyzer** dictation, and an **Icon Composer** app icon.
+> See [implemented.md](implemented.md) for the record, and
+> [cloud-native-roadmap.md](cloud-native-roadmap.md) for the storage work that followed.
+> *The historical narrative below is kept as-written for context — the "Starting point" and
+> per-phase "Remaining" notes describe the state at the time of writing, not today.*
+
+**Starting point (as of 2026-07-17):** HelloNotes uses almost no system-integration surface yet — no App
 Intents, widgets, Spotlight *donation* (it *reads* Spotlight for full-text search, but
 doesn't publish `NoteEntity`s), URL scheme, extensions, Handoff, tips, or state
 restoration. The editor is a real `NSTextView`/`UITextView` on TextKit 2 (the in-repo
