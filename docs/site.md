@@ -1,13 +1,13 @@
-# The marketing site (`site/`)
+# The marketing site (`website/`)
 
 The public site at **<https://hellotham.com/hellonotes/>** — home, privacy and
-support pages. It lives in [`site/`](../site/) and is built from source on every
+support pages. It lives in [`website/`](../website/) and is built from source on every
 push; nothing generated is committed.
 
 | Thing | Value |
 |---|---|
 | Live URL | <https://hellotham.com/hellonotes/> |
-| Source | [`site/`](../site/) |
+| Source | [`website/`](../website/) |
 | Framework | **Astro 7** (static output) |
 | CSS | **Tailwind 4** via `@tailwindcss/vite` |
 | Deploy | [`.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml) → GitHub Pages |
@@ -18,10 +18,10 @@ push; nothing generated is committed.
 ## Local development
 
 ```bash
-cd site
+cd website
 npm install
 npm run dev      # http://localhost:4321/hellonotes/
-npm run build    # static output → site/dist
+npm run build    # static output → website/dist
 npm run preview  # serve the built output
 ```
 
@@ -31,9 +31,9 @@ The dev server honours `base`, so browse **`/hellonotes/`**, not `/`.
 
 ## How it deploys
 
-A push to `main` that touches `site/**` (or the workflow itself) triggers
+A push to `main` that touches `website/**` (or the workflow itself) triggers
 `deploy-site.yml`, which builds with the official **`withastro/action`**
-(`path: ./site`) and publishes with **`actions/deploy-pages`**. App-only commits
+(`path: ./website`) and publishes with **`actions/deploy-pages`**. App-only commits
 don't redeploy.
 
 This replaced a legacy setup where the built HTML was committed to a **`gh-pages`
@@ -62,7 +62,7 @@ This is a **project page** served from a sub-path, so `astro.config.mjs` sets
 `hellotham.com/privacy` — a different site.
 
 **Always build internal links and asset paths with the `href()` helper** in
-[`src/lib/paths.ts`](../site/src/lib/paths.ts):
+[`src/lib/paths.ts`](../website/src/lib/paths.ts):
 
 ```astro
 ---
@@ -80,7 +80,7 @@ Verify after any build:
 
 ```bash
 # every root-relative path must start with /hellonotes/
-grep -ohE '(href|src)="/[^"]*"' dist/index.html dist/*/index.html | grep -v '"/hellonotes/'
+grep -ohE '(href|src)="/[^"]*"' dist/*.html | grep -v '"/hellonotes/'
 # → no output
 ```
 
@@ -99,24 +99,32 @@ Pointing `site` at `github.io` still builds and still works, but emits
 
 ---
 
-## Legacy `.html` redirects
+## Legacy `.html` URLs — why `build.format: 'file'`
 
-The old site used `privacy.html` / `support.html`. Those URLs are in the wild —
-**App Store Connect's Privacy Policy and Support URL fields among them** — and
-Astro serves extensionless routes, so they'd 404. `astro.config.mjs` maps them:
+The old site used `privacy.html` / `support.html`, and those URLs are in the wild
+— **App Store Connect's Privacy Policy and Support URL fields among them**.
 
-```js
-redirects: {
-  '/privacy.html': `${BASE}/privacy`,
-  '/support.html': `${BASE}/support`,
-}
+`astro.config.mjs` sets **`build: { format: 'file' }`**, so Astro emits
+`dist/privacy.html` as the *real page* rather than `dist/privacy/index.html`.
+GitHub Pages resolves `<path>.html` **before** `<path>/index.html`, so a single
+artefact answers both URL forms — no redirects at all:
+
+```
+/hellonotes/privacy       → privacy.html ✓   (extensionless, what we link/document)
+/hellonotes/privacy.html  → privacy.html ✓   (the legacy URL)
 ```
 
-Two gotchas encoded there:
-- Redirect **targets are not base-prefixed automatically** (keys are, since they
-  land at the base root) — hence the explicit `${BASE}`.
-- **Never add `'/index.html'`** — it creates a `dist/index.html` *directory* and
-  clobbers the real homepage.
+**Two redirect approaches were tried first and both fail** — don't reintroduce
+them:
+
+1. **Astro's `redirects` config** honours this same `build.format`. With the
+   default `'directory'`, a key of `'/privacy.html'` emits a `privacy.html/`
+   *directory*: `/privacy.html/` works, `/privacy.html` 404s — and the URL in the
+   wild has no trailing slash.
+2. **Hand-written redirect files in `public/`** are worse: `public/privacy.html`
+   *shadows* the real `/privacy` route by the resolution order above, so
+   `/privacy` serves the redirect, which points back at `/privacy` — an infinite
+   loop. This shipped briefly and broke both doc pages live.
 
 The URLs registered with Apple are listed in
 [production.md](production.md) §4/§5 and should stay in sync with the routes here.
@@ -126,7 +134,7 @@ The URLs registered with Apple are listed in
 ## Structure
 
 ```
-site/
+website/
   astro.config.mjs      site + base + redirects + the Tailwind Vite plugin
   src/
     layouts/

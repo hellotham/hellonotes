@@ -13,7 +13,16 @@ const { title, description, ogImage = 'assets/shot_02.png' } = Astro.props;
 
 // Canonical + OG URLs must be absolute; Astro.site is the domain, Astro.url
 // carries the base-prefixed path.
-const canonical = new URL(Astro.url.pathname, Astro.site);
+//
+// `build.format: 'file'` (see astro.config.mjs) makes that path the .html form —
+// '/hellonotes/index.html', '/hellonotes/privacy.html'. Both work, but we link,
+// document and register the EXTENSIONLESS form with Apple, and a canonical of
+// '/index.html' is never right. Normalise so the canonical matches what we point
+// people at.
+const canonicalPath = Astro.url.pathname
+  .replace(/\/index\.html$/, '/')
+  .replace(/\.html$/, '');
+const canonical = new URL(canonicalPath, Astro.site);
 const ogImageURL = new URL(href(ogImage), Astro.site);
 ---
 

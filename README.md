@@ -160,7 +160,7 @@ HelloNotes/            App sources (synchronised Xcode group)
   ├─ iOSContentView    Layer 4 — iOS/iPadOS adaptive shell
   └─ HelloNotesApp     App entry (main window + auxiliary window scenes)
 Packages/NotesEditor/  Live editor package (MarkdownCore, MarkdownEditor, GFMRender)
-site/                  Marketing site — Astro 7 + Tailwind 4 → hellotham.com/hellonotes
+website/               Marketing site — Astro 7 + Tailwind 4 → hellotham.com/hellonotes
 Config/                Secrets.example.xcconfig (template); Secrets.xcconfig is git-ignored
 docs/                  PRD, architecture, roadmaps (native + cloud), production, history
 HelloNotesTests/       App unit tests
@@ -169,18 +169,18 @@ HelloNotes.xcodeproj/  Project (SPM dependencies, shared scheme)
 ```
 
 ## 🌐 Marketing site
-**<https://hellotham.com/hellonotes/>** is built from [`site/`](site/) — **Astro 7 + Tailwind 4**
+**<https://hellotham.com/hellonotes/>** is built from [`website/`](website/) — **Astro 7 + Tailwind 4**
 (the CSS-first `@tailwindcss/vite` plugin; there is no `tailwind.config.js` — the palette lives
 in an `@theme` block in `src/styles/global.css`).
 
 ```bash
-cd site
+cd website
 npm install
 npm run dev      # http://localhost:4321/hellonotes/  (note the base path)
-npm run build    # static output → site/dist
+npm run build    # static output → website/dist
 ```
 
-It deploys on every push to `main` that touches `site/`, via
+It deploys on every push to `main` that touches `website/`, via
 [`.github/workflows/deploy-site.yml`](.github/workflows/deploy-site.yml) (`withastro/action` →
 `actions/deploy-pages`). Pages is in **GitHub Actions** mode — nothing is committed to a
 `gh-pages` branch.
