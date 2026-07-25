@@ -133,7 +133,31 @@ xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'platform=macOS' -only-testing:HelloNotesTests test   # green
 xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'platform=macOS' -configuration Release build         # builds clean
+# …and BOTH slices, exactly as the archive builds them:
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+  -destination 'generic/platform=macOS' -configuration Release build
 ```
+
+> ### ⚠️ The Release build is not optional — Debug proves nothing about it
+> **A green Debug build can hide a hard shipping blocker.** On 2026‑07‑25 every
+> Release build was failing while Debug was perfectly clean: `swift-frontend`
+> **segfaulted** in the SIL `EarlyPerfInliner` — an optimizer pass that only runs
+> under `-O` — so no archive, and therefore no DMG or App Store build, could be
+> produced at all. It went unnoticed through ~6,400 lines of work because every
+> verification build had been Debug. (Cause: a generic class's compiler‑generated
+> `deinit`; see [implemented.md §13](implemented.md).)
+>
+> Two habits that follow:
+> - **Run the Release build after any substantial change**, not just before shipping.
+> - **When a build fails with no `error:` line, suspect a compiler crash.** Check
+>   `~/Library/Logs/DiagnosticReports/swift-frontend-*.ips`, and grep the *full*
+>   `xcodebuild` output (not a filtered tail) for `While running pass` — that line
+>   names the exact SIL function, which is the fastest route to the trigger:
+>   ```bash
+>   xcodebuild … 2>&1 > /tmp/rel.log; grep -aE "While running pass|Stack dump" /tmp/rel.log
+>   ```
+> - `SWIFT_COMPILATION_MODE=singlefile SWIFT_ENABLE_BATCH_MODE=NO` narrows a
+>   whole‑module crash to a single file.
 
 ---
 
@@ -407,6 +431,67 @@ xcodebuild -exportArchive -archivePath "$ARCHIVE" \
 
 echo "✓ Uploaded. Watch App Store Connect for the processed build."
 ```
+
+## Appendix A2 · Direct distribution — signed, notarized DMG
+
+The App Store path is above; this is the **outside‑the‑store** path (Developer ID),
+which produces `dist/HelloNotes.dmg`. `scripts/package-dmg.sh` does everything from
+an already‑notarized `.app` onward, so the only question is how you produce that app.
+
+**One‑time:** a *Developer ID Application* cert (see [signing.md](signing.md) Part 6)
+and a stored notary profile:
+```bash
+xcrun notarytool store-credentials "hellotham-notary" \
+  --apple-id info@hellotham.com --team-id RPL5R637DS
+```
+The prompt wants an **app‑specific password** (account.apple.com → Sign‑In and
+Security → App‑Specific Passwords), *not* the Apple Account password. Changing the
+Apple Account password revokes it, and you'd re‑run this.
+
+**Either** archive + export in Xcode (Organizer ▸ Distribute App ▸ Direct
+Distribution), **or** headlessly — no Xcode UI needed:
+```bash
+# 1 · Archive (universal: arm64 + x86_64)
+xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
+  -destination 'generic/platform=macOS' \
+  -archivePath build/HelloNotes.xcarchive -allowProvisioningUpdates
+
+# 2 · Export with Developer ID  (ExportOptions.plist: method=developer-id,
+#     teamID=RPL5R637DS, signingStyle=automatic)
+xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
+  -exportOptionsPlist ExportOptions.plist -exportPath build/export \
+  -allowProvisioningUpdates
+
+# 3 · Notarize + staple the .app (package-dmg.sh requires this — it runs
+#     `stapler validate` on its input and refuses an un-notarized app)
+ditto -c -k --keepParent build/export/HelloNotes.app build/HelloNotes.zip
+xcrun notarytool submit build/HelloNotes.zip --keychain-profile "hellotham-notary" --wait
+xcrun stapler staple build/export/HelloNotes.app
+
+# 4 · Build, sign, notarize and staple the DMG
+scripts/package-dmg.sh build/export/HelloNotes.app
+```
+
+**Verify what you're shipping** (don't just trust the script's own output — mount it
+and assess the app as a user's Mac would):
+```bash
+spctl --assess -t open --context context:primary-signature --verbose dist/HelloNotes.dmg
+#   → accepted / source=Notarized Developer ID
+hdiutil attach dist/HelloNotes.dmg -nobrowse -mountpoint /tmp/hn
+lipo -info /tmp/hn/HelloNotes.app/Contents/MacOS/HelloNotes   # x86_64 arm64
+spctl --assess --type execute --verbose /tmp/hn/HelloNotes.app
+xcrun stapler validate /tmp/hn/HelloNotes.app                 # works offline
+hdiutil detach /tmp/hn
+```
+
+> **Gotchas learned the hard way**
+> - `package-dmg.sh` **overwrites `dist/HelloNotes.dmg` (`rm -f`)**. Move the previous
+>   build aside first if you want to keep it.
+> - The DMG bakes in whatever `Config/Secrets.xcconfig` held at build time. Building
+>   on a machine without it ships with **empty cloud provider keys** — the app still
+>   runs, those providers just report "not configured".
+> - Do §1h's Release check *before* archiving: an archive is the slowest possible way
+>   to discover a Release‑only compile failure.
 
 ## Appendix B · Pre‑submission checklist
 

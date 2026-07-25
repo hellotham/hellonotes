@@ -8,9 +8,11 @@
 
 **Current status:** v1.0 shipped (Milestones 0–13), plus the deeper Apple-platform
 integration (§10 and [native-roadmap.md](native-roadmap.md)) and **cloud storage** (§11–12,
-[cloud-native-roadmap.md](cloud-native-roadmap.md)). Builds clean on macOS + iOS; the editor
-package suite (`swift test --package-path Packages/NotesEditor`) is **83 tests / 9 suites**
-green, plus **63 app unit tests**. The editor is the in-repo
+[cloud-native-roadmap.md](cloud-native-roadmap.md)). Builds clean on macOS + iOS in **both
+Debug and Release** (§13 — Release is checked explicitly now, because a Release-only
+optimizer crash once broke every archive while Debug stayed green); the editor package suite
+(`swift test --package-path Packages/NotesEditor`) is **83 tests / 9 suites** green, plus
+**63 app unit tests**. Ships as a signed, notarized universal DMG. The editor is the in-repo
 [`Packages/NotesEditor`](../Packages/NotesEditor); the markdown-engine fork is removed.
 
 ---
@@ -580,3 +582,50 @@ Ten findings from a full-diff review, all verified against the source before fix
   poster's background thread, defeating the reentrancy guard). **Spotlight** donations retract
   stale ids on rename/delete. **Small widget** rows get a working deep link via `widgetURL`.
 - +5 tests (all four pagination cursors, mirror prune). 63 unit tests pass; both platforms build.
+
+## 13 · Release-only optimizer crash — found while packaging the DMG (2026-07-25)
+
+**Every Release build was broken and nothing caught it.** Packaging a signed DMG
+failed at the archive step: `swift-frontend` **segfaulted** with no `error:` line, so
+no archive — and therefore no DMG or App Store build — could be produced at all. Debug
+built perfectly, which is exactly why it survived ~6,400 lines of work: every
+verification build in the session (including the review fix-pass) had been Debug.
+
+**Diagnosis.** The `.ips` crash reports named the pass but not the function; the useful
+line was buried in the full `xcodebuild` output (a filtered tail hid it):
+
+```
+While running pass "EarlyPerfInliner" on SILFunction
+"$s10HelloNotes11OnceResumer…CfD"        → OnceResumer<A>.__deallocating_deinit
+```
+
+The SIL performance inliner walked a **null generic signature** in
+`isCallerAndCalleeLayoutConstraintsCompatible` while inlining the compiler-generated
+`deinit` of the *generic* class `OnceResumer<T>` (`Core/VisionAlt.swift`). A toolchain
+bug — but one our code triggers: Xcode 26.6 / Swift 6.3.3 was installed 2026-06-27,
+i.e. unchanged since the last good universal build (2026-07-12), so the trigger came in
+with our own code, not a compiler update.
+
+**Fix** — remove the generics, which bought nothing here:
+- `OnceResumer<T>` → **non-generic** over `CheckedContinuation<String?, Never>`. Both
+  callers already funnel to `String?`, so `classify()` now joins its own labels (which
+  also simplified `describe()`).
+- `perform<T>(… once: OnceResumer<T>, empty: T)` → non-generic `perform(… onFailure:)`,
+  each caller closing over its own resumer — a second instance of the same
+  caller/callee generic-layout shape.
+- Both carry comments explaining the constraint so they aren't "tidied" back later.
+
+**What did *not* work** (recorded so it isn't retried): `-Osize`, non-whole-module
+compilation (`SWIFT_COMPILATION_MODE=singlefile`), and dropping `AnyObject` from
+`RemoteStore`. Only removing the generic fixed it. Per-file bisection *was* useful:
+`SWIFT_COMPILATION_MODE=singlefile SWIFT_ENABLE_BATCH_MODE=NO` narrows a whole-module
+crash to one file.
+
+**Verified:** Release arm64 ✓, Release universal (arm64 + x86_64) ✓, Debug ✓ — then a
+full archive → Developer ID export → notarize → staple → `scripts/package-dmg.sh`,
+producing a `dist/HelloNotes.dmg` that `spctl` assesses as *accepted / Notarized
+Developer ID*, universal, with all three extensions embedded.
+
+**Process change:** [production.md §1h](production.md) now spells out that Debug proves
+nothing about Release, with the `While running pass` debugging recipe; the README build
+section says the same. Appendix A2 there documents the whole Developer ID → DMG path.

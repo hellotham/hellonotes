@@ -123,7 +123,17 @@ xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platfo
 
 # editor package tests (GFM conformance, live-editor fidelity, parser fuzz)
 swift test --package-path Packages/NotesEditor
+
+# Release build — run this too before shipping (see the note below)
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'generic/platform=macOS' -configuration Release build
 ```
+
+> **A green Debug build does not imply Release compiles.** Optimizer-only failures
+> exist: a Swift SIL-inliner crash once broke *every* Release build (and therefore
+> any archive/DMG) while Debug stayed clean. Run the Release build after substantial
+> changes — and if a build fails with **no `error:` line**, suspect a compiler crash
+> and grep the full log for `While running pass`, which names the offending function.
+> Details and the debugging recipe: [docs/production.md §1h](docs/production.md).
 
 Run the **HelloNotes** scheme, then click **Open…** and choose any directory of Markdown files — or point it at the bundled [`SampleVault/`](SampleVault/), whose notes demonstrate callouts, diagrams, math, transclusion, wiki-links, tags, slides, daily notes, and templates.
 

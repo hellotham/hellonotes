@@ -130,6 +130,22 @@
 
 ---
 
+## 8c · Build & release hygiene
+
+- ✅ ~~**Release build unverified**~~ — a Release-only Swift optimizer crash broke *every*
+  archive (so no DMG, no App Store build) while Debug stayed green, and went unnoticed for
+  ~6,400 lines because all verification was Debug. Fixed, and
+  [production.md §1h](production.md) now requires the Release build with a debugging recipe
+  ([implemented.md §13](implemented.md)).
+- 🟡 **No CI** — the Release build, universal (arm64 + x86_64) slice, and test suites are all
+  run by hand. A CI job running §1h's commands on every push would have caught the above the
+  day it landed. Highest-value remaining process gap.
+- 🟡 **Toolchain-sensitive code shapes** — two functions in `Core/VisionAlt.swift` are
+  deliberately non-generic to dodge a SIL-inliner bug and carry comments saying so. If the
+  Swift toolchain moves on, re-check before "simplifying" them back.
+
+---
+
 ## 9 · HIG / platform polish
 
 - ✅ ~~**Main window has no `defaultSize`**~~ — added (1100×720) in the HIG pass, [implemented.md §10](implemented.md#10--human-interface-guidelines-usability-pass-2026-07-20).
