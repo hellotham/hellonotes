@@ -1,0 +1,86 @@
+---
+import ManualLayout from '../../layouts/ManualLayout.astro';
+import { href } from '../../lib/paths';
+---
+
+<ManualLayout slug="cloud">
+  <h2 id="two-ways">Two ways to use cloud storage</h2>
+  <p>
+    Because your notes are ordinary files, they can live wherever you already keep files. HelloNotes
+    supports two approaches — the first is simpler and recommended.
+  </p>
+
+  <h2 id="folder">1. Open a cloud folder (recommended)</h2>
+  <p>
+    Box, Dropbox, OneDrive (personal and business), Google Drive and iCloud Drive all present their
+    storage to macOS as ordinary folders. If you have the provider’s app installed, just open that
+    folder as a collection — everything works exactly as it does locally, and syncing between your
+    devices is handled by the provider.
+  </p>
+  <p>
+    Cloud files are often <strong>online-only</strong> until something opens them. HelloNotes
+    handles this deliberately:
+  </p>
+  <ul>
+    <li>Online-only notes appear in the list with a cloud badge, so you can see what is not local.</li>
+    <li>
+      Opening one downloads it on demand, with a “Downloading from the cloud…” indicator while it
+      arrives.
+    </li>
+    <li>
+      Indexing <strong>skips</strong> notes that are not downloaded, so opening a large collection
+      does not silently pull your entire library onto the disk. They are indexed once opened.
+    </li>
+    <li>
+      The status bar shows how many notes are still online-only, and each note has
+      <strong>Download</strong> and <strong>Remove Download</strong> in its context menu.
+    </li>
+  </ul>
+  <p>
+    Full-text search covers downloaded notes; searching by title, tag or alias covers everything,
+    since that comes from the index rather than the file contents.
+  </p>
+
+  <h2 id="direct">2. Connect an account directly</h2>
+  <p>
+    If you do not have the provider’s app installed — or do not want it — HelloNotes can talk to
+    <strong>Dropbox, Box, Google Drive</strong> and <strong>OneDrive</strong> over their own APIs.
+  </p>
+  <ol>
+    <li>Choose <strong>File ▸ Connect Dropbox…</strong> (or Box, Google Drive, OneDrive).</li>
+    <li>Sign in to your account in the window that appears.</li>
+    <li>Browse your folders and open a note to read or edit it in place.</li>
+    <li>
+      Or click <strong>Open as Collection</strong> to add the folder to the sidebar as a normal
+      collection — with search, links, backlinks and the editor all working as usual. Saves are
+      uploaded back automatically.
+    </li>
+  </ol>
+  <p>
+    Sign-in uses the provider’s standard OAuth flow. Tokens are stored in the macOS Keychain, and no
+    credentials pass through us.
+  </p>
+
+  <h2 id="conflicts">Editing on more than one device</h2>
+  <p>
+    If a note changes underneath you — another device, a sync client, another app — HelloNotes
+    notices and tells you, offering to reload the version on disk or keep yours. It will not
+    silently discard either one.
+  </p>
+  <p>
+    As with any file-syncing service, the usual advice applies: let a sync finish before editing the
+    same note somewhere else.
+  </p>
+
+  <h2 id="git-note">A note on Git in cloud folders</h2>
+  <p>
+    Git and cloud-sync clients do not always get along: Git needs its object files present locally,
+    and a sync client may keep them online-only or rewrite them mid-operation. HelloNotes therefore
+    disables <strong>auto-commit</strong> for collections inside a cloud folder and shows a caution
+    in the Git panel. Manual commits remain available when the folder is fully downloaded.
+  </p>
+  <p>
+    For version history, a local folder plus a Git remote is the more reliable arrangement — see
+    <a href={href('/manual/git')}>Version history with Git</a>.
+  </p>
+</ManualLayout>

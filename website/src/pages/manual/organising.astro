@@ -1,0 +1,90 @@
+---
+import ManualLayout from '../../layouts/ManualLayout.astro';
+import { href } from '../../lib/paths';
+---
+
+<ManualLayout slug="organising">
+  <h2 id="collections">Collections and libraries</h2>
+  <p>
+    A <strong>collection</strong> is one folder of notes. You can have several open at once — work,
+    personal, a project — and the set of open collections is a <strong>library</strong> you can save
+    and reopen from the launcher. Recently opened folders are remembered there too.
+  </p>
+  <p>
+    Each collection keeps its own folder tree, tags and bookmarks. Search spans all of them.
+  </p>
+
+  <h2 id="search">Search</h2>
+  <p>
+    The search field above the note list searches titles first (instantly, from the index) and then
+    note contents, showing a snippet of the matching text. Results are grouped by collection, and
+    matching attachments such as PDFs appear alongside notes.
+  </p>
+
+  <h2 id="open-quickly">Open Quickly</h2>
+  <p>
+    <kbd>⇧⌘O</kbd> opens a fuzzy finder over note titles, aliases and headings. Type a few letters,
+    press <kbd>↩</kbd>. It is the fastest way to move around a large collection without touching the
+    mouse.
+  </p>
+
+  <h2 id="tags">Tags</h2>
+  <p>
+    Write <code>#tag</code> anywhere in a note. Typing <code>#</code> offers autocomplete from tags
+    already in the collection, which keeps them consistent.
+  </p>
+  <p>
+    Tags nest with slashes — <code>#project/website</code>, <code>#project/app</code> — and the
+    sidebar shows them as a tree you can expand and filter by. Selecting a tag filters the note list
+    to notes carrying it.
+  </p>
+
+  <h2 id="bookmarks">Bookmarks</h2>
+  <p>
+    <kbd>⇧⌘D</kbd> bookmarks the current note; bookmarks appear in the sidebar for one-click access.
+    They are stored per collection, so each project keeps its own shortlist.
+  </p>
+
+  <h2 id="daily">Daily notes</h2>
+  <p>
+    <strong>Today’s Note</strong> in the sidebar opens (or creates) a note for today. Configure in
+    <strong>Settings ▸ General</strong>:
+  </p>
+  <ul>
+    <li><strong>Folder</strong> — where daily notes live; blank means the collection root.</li>
+    <li>
+      <strong>Date format</strong> — date tokens such as <code>yyyy-MM-dd</code>. The settings pane
+      shows a worked example of today’s filename as you type.
+    </li>
+  </ul>
+  <p>
+    You can also capture into today’s note without opening the app at all — see the menu-bar item
+    and global hotkey in <a href={href('/manual/shortcuts')}>Keyboard shortcuts</a>.
+  </p>
+
+  <h2 id="templates">Templates</h2>
+  <p>
+    Put Markdown files in your templates folder (<strong>Settings ▸ General</strong>, default
+    <code>Templates</code>) and insert one into the current note from the toolbar. Templates expand
+    date and title tokens as they are inserted:
+  </p>
+  <table>
+    <thead><tr><th>Token</th><th>Becomes</th></tr></thead>
+    <tbody>
+      <tr><td><code>&#123;&#123;date&#125;&#125;</code></td><td>Today’s date</td></tr>
+      <tr><td><code>&#123;&#123;time&#125;&#125;</code></td><td>The current time</td></tr>
+      <tr><td><code>&#123;&#123;title&#125;&#125;</code></td><td>The note’s title</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="files">Folders, moving and attachments</h2>
+  <ul>
+    <li>Create folders in the tree and drag notes between them — the files really move on disk.</li>
+    <li>Renaming a note rewrites links to it across the collection.</li>
+    <li>Deleting moves the file to the Trash; it is never a hard delete.</li>
+    <li>
+      Non-Markdown files show in the tree and open in a native viewer (PDFKit / Quick Look), so a
+      collection can hold its own reference material.
+    </li>
+  </ul>
+</ManualLayout>

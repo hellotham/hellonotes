@@ -1,0 +1,43 @@
+---
+import PageLayout from '../../layouts/PageLayout.astro';
+import { href } from '../../lib/paths';
+import { APP, MANUAL } from '../../lib/site';
+---
+
+<PageLayout
+  title="User manual — HelloNotes"
+  description="The complete HelloNotes user manual: getting started, the editor, links and the graph, organising notes, AI, cloud storage, Git version history and keyboard shortcuts."
+  heading="User manual"
+  intro={`Everything you need to get the most out of ${APP.name}, from your first note to the last keyboard shortcut.`}
+>
+  <div class="mx-auto max-w-[1120px] px-6 py-12">
+    <ol class="grid gap-4 sm:grid-cols-2">
+      {
+        MANUAL.map((s, i) => (
+          <li>
+            <a
+              href={href(`/manual/${s.slug}`)}
+              class="group block h-full rounded-card border border-line bg-card p-6 transition hover:border-[#4a4360]"
+            >
+              <div class="flex items-baseline gap-3">
+                <span class="text-sm font-bold text-pink">{String(i + 1).padStart(2, '0')}</span>
+                <h2 class="text-[19px] font-bold tracking-[-0.01em] group-hover:text-white">
+                  {s.title}
+                </h2>
+              </div>
+              <p class="mt-2 text-[15px] text-muted">{s.blurb}</p>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+
+    <div class="mt-12 rounded-card border border-line bg-card p-6">
+      <h2 class="text-lg font-bold">Can’t find an answer?</h2>
+      <p class="mt-2 text-muted">
+        The <a href={href('/support')} class="text-link hover:text-white">support page</a> has a FAQ
+        and the ways to reach us. We read every message.
+      </p>
+    </div>
+  </div>
+</PageLayout>

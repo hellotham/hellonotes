@@ -1,40 +1,74 @@
 ---
 import { href } from '../lib/paths';
+import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
 
-interface Props {
-  /** Left-hand pill, e.g. "🖥️ Mac · macOS 15+". */
-  badge: string;
-  links?: { label: string; href: string }[];
-}
-
-const {
-  badge,
-  links = [
-    { label: 'Privacy', href: '/privacy' },
-    { label: 'Support', href: '/support' },
-    { label: 'GitHub', href: 'https://github.com/hellotham/hellonotes' },
-  ],
-} = Astro.props;
-
-const resolve = (h: string) => (h.startsWith('http') ? h : href(h));
 const year = new Date().getFullYear();
 ---
 
-<footer class="border-t border-line pt-10 pb-14 text-muted">
-  <div class="mx-auto flex max-w-[1120px] flex-wrap items-center gap-5 px-6">
-    <span
-      class="inline-flex items-center gap-2 rounded-full border border-line bg-white/5 px-3.5 py-[7px] text-[13px] font-semibold text-muted"
-    >
-      {badge}
-    </span>
-    <span class="flex-1"></span>
-    {
-      links.map((l) => (
-        <a href={resolve(l.href)} class="font-semibold text-muted transition-colors hover:text-white">
-          {l.label}
+<footer class="border-t border-line bg-bg2/40">
+  <div class="mx-auto max-w-[1120px] px-6 py-14">
+    <div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+      <div>
+        <a href={href('/')} class="flex items-center gap-3 text-ink hover:text-white">
+          <img src={href('assets/icon.png')} alt="" width="32" height="32" class="size-8 rounded-lg" />
+          <span class="font-extrabold tracking-[-0.02em]">{APP.name}</span>
         </a>
-      ))
-    }
-    <span>© {year} Hello Tham</span>
+        <p class="mt-3 text-sm text-muted">
+          A private, local-first Markdown knowledge base for the Mac.
+        </p>
+        <p class="mt-3 text-sm text-muted">
+          {APP.name} is published by
+          <a href={PUBLISHER.site} class="font-semibold text-link hover:text-white">{PUBLISHER.name}</a>.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-sm font-bold text-ink">Product</h2>
+        <ul class="mt-3 space-y-2 text-sm">
+          <li><a href={href('/features')} class="text-muted hover:text-white">Features</a></li>
+          <li><a href={href('/screenshots')} class="text-muted hover:text-white">Screenshots</a></li>
+          <li><a href={href('/download')} class="text-muted hover:text-white">Download</a></li>
+          <li><a href={REPO} class="text-muted hover:text-white">Source on GitHub</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h2 class="text-sm font-bold text-ink">Manual</h2>
+        <ul class="mt-3 space-y-2 text-sm">
+          <li><a href={href('/manual')} class="text-muted hover:text-white">Contents</a></li>
+          {
+            MANUAL.slice(0, 3).map((s) => (
+              <li>
+                <a href={href(`/manual/${s.slug}`)} class="text-muted hover:text-white">
+                  {s.title}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <div>
+        <h2 class="text-sm font-bold text-ink">Company</h2>
+        <ul class="mt-3 space-y-2 text-sm">
+          <li><a href={href('/about')} class="text-muted hover:text-white">About</a></li>
+          <li><a href={href('/support')} class="text-muted hover:text-white">Support</a></li>
+          <li><a href={href('/privacy')} class="text-muted hover:text-white">Privacy</a></li>
+          <li>
+            <a href={PUBLISHER.site} class="text-muted hover:text-white">{PUBLISHER.name} ↗</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div
+      class="mt-12 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-6 text-sm text-muted"
+    >
+      <span>© {year} {PUBLISHER.legalName}. All rights reserved.</span>
+      <span class="flex-1"></span>
+      <span>Requires {APP.minOS}</span>
+      <span aria-hidden="true">·</span>
+      <a href={`mailto:${PUBLISHER.email}`} class="hover:text-white">{PUBLISHER.email}</a>
+    </div>
   </div>
 </footer>

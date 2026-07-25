@@ -1,0 +1,166 @@
+---
+import PageLayout from '../layouts/PageLayout.astro';
+import Prose from '../components/Prose.astro';
+import { href } from '../lib/paths';
+import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
+---
+
+<PageLayout
+  title="Download — HelloNotes for Mac"
+  description={`Download HelloNotes ${APP.version} for macOS — a free, signed and notarised universal app for Apple silicon and Intel. Requires ${APP.minOS}.`}
+  heading={`Download ${APP.name}`}
+  intro={`Version ${APP.version} — free, signed and notarised by Apple.`}
+>
+  <div class="mx-auto max-w-[1120px] px-6 py-12">
+    <div class="grid gap-10 lg:grid-cols-[1fr_320px]">
+      <div>
+        <!-- Primary download -->
+        <div class="rounded-card border border-line bg-card p-8">
+          <div class="flex flex-wrap items-center gap-5">
+            <img
+              src={href('assets/icon.png')}
+              alt=""
+              width="72"
+              height="72"
+              class="size-18 rounded-2xl"
+            />
+            <div class="min-w-[220px] flex-1">
+              <h2 class="text-2xl font-extrabold tracking-[-0.02em]">
+                {APP.name} {APP.version}
+              </h2>
+              <p class="mt-1 text-muted">
+                {DOWNLOAD.fileName} · {DOWNLOAD.size} · {APP.architectures}
+              </p>
+            </div>
+          </div>
+
+          <a
+            href={DOWNLOAD.url}
+            class="brand-gradient mt-7 inline-flex w-full items-center justify-center rounded-full px-6 py-4 text-lg font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+          >
+            Download for Mac
+          </a>
+
+          <p class="mt-4 text-center text-sm text-muted">
+            Requires {APP.minOS}. Also available on the{' '}
+            <a href={DOWNLOAD.releasesPage} class="text-link hover:text-white">releases page</a>.
+          </p>
+        </div>
+
+        <Prose>
+          <h2 id="installing">Installing</h2>
+          <ol>
+            <li>Download <code>{DOWNLOAD.fileName}</code> and open it — a disk image window appears.</li>
+            <li>Drag the <strong>{APP.name}</strong> icon onto the <strong>Applications</strong> folder shown beside it.</li>
+            <li>Eject the disk image, then open {APP.name} from Applications or Launchpad.</li>
+            <li>
+              On first launch, choose <strong>Open…</strong> and pick any folder of Markdown files —
+              or an empty folder to start fresh.
+            </li>
+          </ol>
+
+          <p>
+            Because the app is signed with a Developer ID and notarised by Apple, macOS opens it
+            without a security warning. You do not need to change any Gatekeeper settings, and you
+            should never need to right-click → Open.
+          </p>
+
+          <h2 id="verifying">Verifying the download</h2>
+          <p>
+            Every release is code-signed and notarised, so macOS checks it for you. If you would
+            like to verify independently, compare the checksum:
+          </p>
+          <pre
+            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-[#d7d3e6]"><code>shasum -a 256 ~/Downloads/{DOWNLOAD.fileName}</code></pre>
+          <p>It should print:</p>
+          <pre
+            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] break-all text-[#d7d3e6]"><code>{DOWNLOAD.sha256}</code></pre>
+          <p>You can also confirm the signature and notarisation with:</p>
+          <pre
+            class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-[#d7d3e6]"><code>spctl --assess -t open --context context:primary-signature -v ~/Downloads/{DOWNLOAD.fileName}</code></pre>
+          <p>
+            which should report <code>accepted</code> and
+            <code>source=Notarized Developer ID</code>.
+          </p>
+
+          <h2 id="updating">Updating and uninstalling</h2>
+          <p>
+            To update, download the latest disk image and replace the app in Applications. Your
+            notes are untouched — they are your own files, in your own folder, and {APP.name} never
+            moves them.
+          </p>
+          <p>
+            To uninstall, drag {APP.name} from Applications to the Trash. Your notes stay exactly
+            where they are. Preferences live in
+            <code>~/Library/Containers/com.hellotham.HelloNotes</code> if you want to remove those
+            too.
+          </p>
+
+          <h2 id="source">Building from source</h2>
+          <p>
+            {APP.name} is open source. You can read the code, build it yourself, or open an issue
+            on <a href={REPO}>GitHub</a>.
+          </p>
+        </Prose>
+      </div>
+
+      <!-- Sidebar -->
+      <aside class="lg:sticky lg:top-[86px] lg:self-start">
+        <div class="rounded-card border border-line bg-card p-6">
+          <h2 class="text-sm font-bold tracking-wider text-muted uppercase">Requirements</h2>
+          <dl class="mt-4 space-y-3 text-[15px]">
+            <div>
+              <dt class="text-muted">Operating system</dt>
+              <dd class="font-semibold">{APP.minOS}</dd>
+            </div>
+            <div>
+              <dt class="text-muted">Architecture</dt>
+              <dd class="font-semibold">{APP.architectures}</dd>
+            </div>
+            <div>
+              <dt class="text-muted">Price</dt>
+              <dd class="font-semibold">Free</dd>
+            </div>
+            <div>
+              <dt class="text-muted">Account required</dt>
+              <dd class="font-semibold">None</dd>
+            </div>
+            <div>
+              <dt class="text-muted">Internet required</dt>
+              <dd class="font-semibold">No</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="mt-5 rounded-card border border-line bg-card p-6">
+          <h2 class="text-sm font-bold tracking-wider text-muted uppercase">Security</h2>
+          <ul class="mt-4 space-y-2 text-[15px] text-muted">
+            <li>✅ Signed with a Developer ID</li>
+            <li>✅ Notarised by Apple</li>
+            <li>✅ Runs in the App Sandbox</li>
+            <li>✅ Hardened runtime enabled</li>
+          </ul>
+          <p class="mt-4 text-sm text-muted">
+            Published by{' '}
+            <a href={PUBLISHER.site} class="font-semibold text-link hover:text-white">
+              {PUBLISHER.legalName}
+            </a>.
+          </p>
+        </div>
+
+        <div class="mt-5 rounded-card border border-line bg-card p-6">
+          <h2 class="text-sm font-bold tracking-wider text-muted uppercase">New here?</h2>
+          <p class="mt-3 text-[15px] text-muted">
+            The manual walks through your first collection, the editor and everything after it.
+          </p>
+          <a
+            href={href('/manual/getting-started')}
+            class="mt-4 inline-block font-semibold text-link hover:text-white"
+          >
+            Getting started →
+          </a>
+        </div>
+      </aside>
+    </div>
+  </div>
+</PageLayout>

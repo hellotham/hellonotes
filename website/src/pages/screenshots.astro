@@ -1,0 +1,89 @@
+---
+import { Image } from 'astro:assets';
+import PageLayout from '../layouts/PageLayout.astro';
+import { href } from '../lib/paths';
+
+import screen01 from '../assets/screens/screen_01.png';
+import screen02 from '../assets/screens/screen_02.png';
+import screen03 from '../assets/screens/screen_03.png';
+import screen04 from '../assets/screens/screen_04.png';
+import screen05 from '../assets/screens/screen_05.png';
+
+const shots = [
+  {
+    img: screen01,
+    title: 'Your notes, your files',
+    body: 'The sidebar is a view of a real folder on your Mac. Collections, folders, tags and bookmarks — over ordinary Markdown files you can open in any other app.',
+  },
+  {
+    img: screen02,
+    title: 'Maths and diagrams, rendered inline',
+    body: 'LaTeX maths and Mermaid diagrams are drawn natively in the editor as you type — no browser engine, no export step, no round trip.',
+  },
+  {
+    img: screen03,
+    title: 'Callouts, properties and rich Markdown',
+    body: 'Collapsible callouts, hidden comments, and front matter presented as a typed, editable Properties panel rather than raw YAML.',
+  },
+  {
+    img: screen04,
+    title: 'See how your thinking connects',
+    body: 'The graph view maps links between notes, with arrows for direction and focus tracing to follow a thread through the collection.',
+  },
+  {
+    img: screen05,
+    title: 'Ask your library',
+    body: 'Ask a question in plain language and get an answer grounded in your own notes, with citations back to the sources — running on-device.',
+  },
+];
+---
+
+<PageLayout
+  title="Screenshots — HelloNotes"
+  description="See HelloNotes in action: the native Markdown editor, inline maths and diagrams, callouts and properties, the graph view, and on-device AI answering questions from your notes."
+  heading="Screenshots"
+  intro="A closer look at the editor, the graph, and the on-device intelligence."
+>
+  <div class="mx-auto max-w-[1000px] px-6 py-12">
+    <div class="space-y-20">
+      {
+        shots.map((s, i) => (
+          <figure>
+            <Image
+              src={s.img}
+              alt={s.title}
+              widths={[640, 1000, 1600]}
+              sizes="(max-width: 1000px) 100vw, 1000px"
+              loading={i === 0 ? 'eager' : 'lazy'}
+              class="rounded-card border border-line shadow-[0_30px_80px_rgba(0,0,0,.5)]"
+            />
+            <figcaption class="mx-auto mt-5 max-w-[680px] text-center">
+              <h2 class="text-[20px] font-bold tracking-[-0.01em]">{s.title}</h2>
+              <p class="mt-2 text-muted">{s.body}</p>
+            </figcaption>
+          </figure>
+        ))
+      }
+    </div>
+
+    <div class="mt-20 border-t border-line pt-10 text-center">
+      <p class="text-muted">
+        Screenshots show HelloNotes 1.0 on macOS. Interested in how it all works?
+      </p>
+      <div class="mt-5 flex flex-wrap justify-center gap-3.5">
+        <a
+          href={href('/download')}
+          class="brand-gradient inline-flex items-center rounded-full px-6 py-3.5 font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+        >
+          Download for Mac
+        </a>
+        <a
+          href={href('/features')}
+          class="inline-flex items-center rounded-full border border-line bg-white/5 px-6 py-3.5 font-bold text-ink transition hover:border-[#4a4360] hover:text-white"
+        >
+          Read about the features
+        </a>
+      </div>
+    </div>
+  </div>
+</PageLayout>

@@ -1,0 +1,75 @@
+---
+import ManualLayout from '../../layouts/ManualLayout.astro';
+import { href } from '../../lib/paths';
+---
+
+<ManualLayout slug="getting-started">
+  <h2 id="opening">Opening your first collection</h2>
+  <p>
+    HelloNotes works on a <strong>collection</strong>: an ordinary folder of Markdown files. There
+    is no import, no library format and no database — you simply point the app at a folder.
+  </p>
+  <ol>
+    <li>Launch HelloNotes. On a first run you are offered a welcome sheet.</li>
+    <li>Choose <strong>Open a Collection</strong> (or <kbd>⌘O</kbd> at any time).</li>
+    <li>
+      Pick any folder containing <code>.md</code> files — or an empty folder to start something new.
+    </li>
+  </ol>
+  <p>
+    An existing <strong>Obsidian vault</strong> works as-is: choose the vault folder and it opens
+    directly, wiki-links, tags, aliases and front matter intact.
+  </p>
+
+  <h2 id="layout">The layout</h2>
+  <p>The window has three columns:</p>
+  <ul>
+    <li>
+      <strong>Sidebar</strong> — your collections, quick actions (new note, today’s note, graph,
+      assistant), bookmarks and tags.
+    </li>
+    <li>
+      <strong>Note list</strong> — the folder tree of the focused collection, or search results when
+      you are searching.
+    </li>
+    <li><strong>Editor</strong> — the note itself, with a status bar along the bottom.</li>
+  </ul>
+  <p>
+    Several collections can be open at once; the one you last clicked is the <em>focused</em>
+    collection that new notes are created in.
+  </p>
+
+  <h2 id="first-note">Creating your first note</h2>
+  <ol>
+    <li>Press <kbd>⌘N</kbd>, or click <strong>New Note</strong> in the sidebar.</li>
+    <li>A file is created in the focused collection and opened for editing.</li>
+    <li>
+      Type as you would in any Markdown editor. Formatting appears as you type — see
+      <a href={href('/manual/editor')}>The editor</a>.
+    </li>
+  </ol>
+  <p>
+    The first heading becomes the note’s title in the list. To rename the file itself, use
+    <strong>Note ▸ Rename…</strong> (<kbd>⇧⌘R</kbd>) — links to that note elsewhere in the
+    collection are rewritten for you.
+  </p>
+
+  <h2 id="saving">Saving</h2>
+  <p>
+    There is no save command, because there is nothing to remember to do. Edits are written to disk
+    automatically a moment after you stop typing, and always when you switch notes, close a window
+    or quit. The status bar shows <strong>Saved</strong> when the file on disk matches what you see.
+  </p>
+  <p>
+    If a note changes on disk while you are editing it — a sync client, another app, another device
+    — HelloNotes tells you rather than silently picking a winner, and lets you reload or keep your
+    version.
+  </p>
+
+  <h2 id="next">Where to go next</h2>
+  <ul>
+    <li><a href={href('/manual/editor')}>The editor</a> — live Markdown, view modes, maths and diagrams.</li>
+    <li><a href={href('/manual/links-and-graph')}>Links &amp; the graph</a> — connect notes together.</li>
+    <li><a href={href('/manual/organising')}>Organising notes</a> — search, tags, daily notes and templates.</li>
+  </ul>
+</ManualLayout>

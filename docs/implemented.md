@@ -629,3 +629,66 @@ Developer ID*, universal, with all three extensions embedded.
 **Process change:** [production.md §1h](production.md) now spells out that Debug proves
 nothing about Release, with the `While running pass` debugging recipe; the README build
 section says the same. Appendix A2 there documents the whole Developer ID → DMG path.
+
+---
+
+## 14 · The product site — Astro rebuild and expansion (2026-07-25)
+
+The public site was a hand-written three-page static site (`site/`), deployed from a
+committed **`gh-pages` branch**. It is now an **Astro 7 + Tailwind 4** project in
+[`website/`](../website/), built from source by a GitHub Actions workflow, and expanded
+to the sixteen pages an App Store submission is expected to have. Full detail — site
+map, deploy, the URL traps — is in [website.md](website.md).
+
+### Two silent-failure traps, both hit live
+
+Neither shows up at build time; the build succeeds and only the deployed site is wrong.
+
+1. **`base`.** This is a project page under `/hellonotes`, so every internal link must
+   go through `href()` in `src/lib/paths.ts`. A bare `href="/privacy"` resolves to
+   `hellotham.com/privacy` — someone else's page.
+2. **`site`.** Canonical and OG URLs were emitted on `hellotham.github.io`, which merely
+   *301s* to the custom domain. A canonical must name the final URL.
+
+### The legacy `.html` URLs — and the redirect loop
+
+`privacy.html` and `support.html` are registered with **App Store Connect**, so they
+have to keep resolving. Two approaches were tried and both failed:
+
+- Astro's `redirects` config honours `build.format`; under the default `'directory'`, a
+  key of `/privacy.html` emits a `privacy.html/` **directory** — so `/privacy.html`
+  still 404s.
+- Hand-written redirect files in `public/` are worse. GitHub Pages resolves
+  `<path>.html` **before** `<path>/index.html`, so `public/privacy.html` *shadowed* the
+  real `/privacy` route and redirected to itself. **This shipped and broke both
+  document pages live.**
+
+The fix is `build: { format: 'file' }`: one artefact, `dist/privacy.html`, answers
+`/privacy` and `/privacy.html` alike, with no redirects at all.
+
+### The expansion
+
+Sixteen pages: landing, feature tour, screenshot gallery, download, an **eight-section
+user manual**, and about / privacy / support. `src/lib/site.ts` is the single source of
+truth for app metadata, the publisher (**Hello Tham**), the download artefact and both
+navigation structures — the manual's ordering, prev/next links and index cards are all
+derived from one array. Screenshots moved into `src/assets/` so `astro:assets` can
+process them: 3.1 MB PNGs become 10–84 KB WebP with intrinsic dimensions.
+
+The **disk image is not in the repo.** The download button points at
+`releases/latest/download/HelloNotes.dmg`; at ~35 MB, committing it would sit in git
+history forever and be re-uploaded in every Pages artefact. Publishing a build is
+therefore `gh release create`, and the version/size/SHA-256 the download page prints
+must be updated in `site.ts` to match.
+
+### Caught in review
+
+- **Two invented keyboard shortcuts.** A first draft of `manual/shortcuts.astro`
+  documented `⌃⌘S` and `⌘T`; neither exists. The page was rebuilt from the
+  `.keyboardShortcut(…)` modifiers in `AppCommands.swift`. Documenting a UI from memory
+  produces confident, plausible, wrong output — grep first.
+- **The nav clipped its own links on a phone** (`Manual`, `Download`, `Support` ran off
+  a 375 pt viewport with no affordance). Inline links are now `md:` and up; below that a
+  JavaScript-free `<details>` disclosure menu.
+- **Headings inherited `body { line-height: 1.6 }`**, which looks broken once a heading
+  wraps. Base rule: `1.15` plus `text-wrap: balance`.

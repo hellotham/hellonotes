@@ -1,58 +1,60 @@
 ---
-import Layout from '../layouts/Layout.astro';
-import Nav from '../components/Nav.astro';
-import Footer from '../components/Footer.astro';
+import { Image } from 'astro:assets';
+import PageLayout from '../layouts/PageLayout.astro';
 import { href } from '../lib/paths';
+import { APP, PUBLISHER, DOWNLOAD, REPO } from '../lib/site';
+
+import screen02 from '../assets/screens/screen_02.png';
+import shot03 from '../assets/screens/shot_03.png';
+import shot04 from '../assets/screens/shot_04.png';
+import shot05 from '../assets/screens/shot_05.png';
 
 const features = [
   {
     icon: '📄',
     title: 'Local-first, plain files',
-    body: 'Your notes are ordinary <code class="rounded bg-white/5 px-1">.md</code> files in a folder you choose. No lock-in, no database, readable in any editor.',
+    body: 'Your notes are ordinary <code>.md</code> files in a folder you choose. No database, no lock-in, readable in any editor — and still yours if you ever stop using HelloNotes.',
   },
   {
     icon: '✍️',
-    title: 'Live Markdown',
-    body: 'A native editor with live styling, syntax-highlighted code, inline LaTeX math, Mermaid diagrams, callouts and hidden comments.',
+    title: 'A native live editor',
+    body: 'Built on TextKit 2, not a browser engine. Markdown styles as you type, with syntax-highlighted code, LaTeX maths, Mermaid diagrams and collapsible callouts rendered natively.',
   },
   {
     icon: '🔗',
     title: 'Connected thinking',
-    body: '[[Wiki-links]] and heading links with autocomplete, backlinks, unlinked mentions, note transclusion, and an interactive graph view.',
+    body: '<code>[[Wiki-links]]</code> with autocomplete and aliases, backlinks, unlinked mentions, note transclusion, and an interactive graph of how everything relates.',
   },
   {
     icon: '🔎',
-    title: 'Find anything',
-    body: 'Full-text search, “Open Quickly”, nested #tags with autocomplete, bookmarks, daily notes and templates.',
+    title: 'Find anything, fast',
+    body: 'Full-text search with snippets, Open Quickly, nested tags with autocomplete, bookmarks, daily notes and templates.',
   },
   {
     icon: '✨',
-    title: 'On-device intelligence',
-    body: 'Summarise, suggest tags and links, expand a stub, or “ask your vault” — powered by Apple Intelligence, entirely on your Mac.',
+    title: 'Intelligence on your Mac',
+    body: 'Summarise, suggest tags and links, or ask questions across your whole library — on-device with Apple Intelligence, or your own model if you prefer.',
   },
   {
     icon: '🕘',
     title: 'Version history with Git',
-    body: 'Built-in Git: initialise a repo, browse a note’s history and restore earlier versions. Export to HTML or PDF anytime.',
+    body: 'Initialise a repository, commit as you write, browse any note’s history and restore an earlier version. Sync to your own remote — never to us.',
   },
 ];
 
-const shots = [
-  { src: 'assets/shot_02.png', alt: 'LaTeX math and Mermaid diagrams rendered inline' },
-  { src: 'assets/shot_03.png', alt: 'Callouts, properties and rich Markdown' },
-  { src: 'assets/shot_05.png', alt: 'Ask your vault — on-device AI answers with citations' },
-  { src: 'assets/shot_04.png', alt: 'Graph view of how notes connect' },
-  { src: 'assets/shot_01.png', alt: 'The notes sidebar — your files, local and private' },
+const showcase = [
+  { img: shot03, alt: 'Callouts, properties and rich Markdown in the editor', cap: 'Callouts & properties' },
+  { img: shot05, alt: 'Ask Library answering a question with citations from your notes', cap: 'Ask your library' },
+  { img: shot04, alt: 'The graph view showing how notes connect', cap: 'Graph view' },
 ];
 ---
 
-<Layout
+<PageLayout
   title="HelloNotes — a private, local-first Markdown knowledge base for Mac"
-  description="HelloNotes is a fast, private, local-first Markdown knowledge base for your Mac. Wiki-links, backlinks, a graph view, diagrams, math and on-device AI — your notes stay plain files you own."
+  description="HelloNotes is a fast, private, local-first Markdown knowledge base for your Mac. Wiki-links, backlinks, a graph view, diagrams, maths and on-device AI — over notes that stay plain files you own."
 >
-  <Nav />
-
-  <header class="relative overflow-hidden px-6 pt-24 pb-18 text-center">
+  <!-- Hero -->
+  <header class="relative overflow-hidden px-6 pt-20 pb-16 text-center">
     <div
       aria-hidden="true"
       class="pointer-events-none absolute inset-x-[-20%] top-[-40%] h-[620px] blur-[10px]"
@@ -63,44 +65,61 @@ const shots = [
     >
     </div>
 
-    <div class="relative mx-auto max-w-[1120px]">
+    <div class="relative mx-auto max-w-[900px]">
       <img
         src={href('assets/icon.png')}
-        alt="HelloNotes app icon"
-        width="128"
-        height="128"
-        class="mx-auto mb-6 size-32 rounded-[28px] shadow-[0_24px_60px_rgba(236,72,153,.35)]"
+        alt={`${APP.name} app icon`}
+        width="120"
+        height="120"
+        class="mx-auto mb-6 size-30 rounded-[26px] shadow-[0_24px_60px_rgba(236,72,153,.35)]"
       />
-      <h1 class="text-[clamp(40px,7vw,68px)] font-extrabold tracking-[-0.03em]">
+      <h1 class="text-[clamp(40px,7vw,66px)] font-extrabold tracking-[-0.03em]">
         Think in <span class="gradient-text">plain Markdown.</span>
       </h1>
-      <p class="mx-auto mt-3.5 max-w-[640px] text-[clamp(18px,2.4vw,23px)] text-muted">
+      <p class="mx-auto mt-4 max-w-[640px] text-[clamp(18px,2.4vw,23px)] text-muted">
         A fast, private, local-first knowledge base for your Mac. Wiki-links, backlinks, a graph
-        view, diagrams, math and on-device AI — over notes that stay plain files you own.
+        view, diagrams, maths and on-device AI — over notes that stay plain files you own.
       </p>
-      <div class="mt-7 flex flex-wrap justify-center gap-3.5">
+
+      <div class="mt-8 flex flex-wrap justify-center gap-3.5">
         <a
-          href="#screens"
-          class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-[22px] py-3.5 text-base font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+          href={href('/download')}
+          class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
         >
-          Coming to the Mac App Store
+          Download for Mac
         </a>
         <a
-          href="https://github.com/hellotham/hellonotes"
-          class="inline-flex items-center gap-2.5 rounded-full border border-line bg-white/5 px-[22px] py-3.5 text-base font-bold text-ink transition hover:border-[#4a4360] hover:text-white"
+          href={href('/features')}
+          class="inline-flex items-center gap-2.5 rounded-full border border-line bg-white/5 px-6 py-3.5 text-base font-bold text-ink transition hover:border-[#4a4360] hover:text-white"
         >
-          View source on GitHub
+          Explore the features
         </a>
       </div>
-      <p class="mt-3.5 text-sm text-muted">
-        Requires macOS 15 or later · No account · No cloud required
+
+      <p class="mt-4 text-sm text-muted">
+        Version {APP.version} · {APP.minOS} · {APP.architectures} · Free
       </p>
+      <p class="mt-1 text-sm text-muted">
+        Signed and notarised by Apple · No account · Nothing collected
+      </p>
+    </div>
+
+    <div class="relative mx-auto mt-14 max-w-[1000px]">
+      <Image
+        src={screen02}
+        alt="HelloNotes showing a note with LaTeX maths and a Mermaid diagram rendered inline"
+        widths={[640, 1000, 1600]}
+        sizes="(max-width: 1000px) 100vw, 1000px"
+        loading="eager"
+        class="rounded-card border border-line shadow-[0_30px_80px_rgba(0,0,0,.55)]"
+      />
     </div>
   </header>
 
-  <section id="features" class="px-6 py-[70px]">
+  <!-- Features -->
+  <section class="px-6 py-20">
     <div class="mx-auto max-w-[1120px]">
-      <div class="mx-auto mb-11 max-w-[680px] text-center">
+      <div class="mx-auto mb-12 max-w-[680px] text-center">
         <h2 class="text-[clamp(28px,4vw,40px)] font-extrabold tracking-[-0.02em]">
           Everything a knowledge base should be
         </h2>
@@ -108,6 +127,7 @@ const shots = [
           Powerful where it counts, and out of your way everywhere else.
         </p>
       </div>
+
       <div class="grid gap-[18px] [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
         {
           features.map((f) => (
@@ -116,17 +136,27 @@ const shots = [
                 {f.icon}
               </div>
               <h3 class="text-[19px] font-bold tracking-[-0.01em]">{f.title}</h3>
-              <p class="mt-2 text-[15px] text-muted" set:html={f.body} />
+              <p
+                class="mt-2 text-[15px] text-muted [&_code]:rounded [&_code]:bg-white/8 [&_code]:px-1"
+                set:html={f.body}
+              />
             </div>
           ))
         }
       </div>
+
+      <p class="mt-10 text-center">
+        <a href={href('/features')} class="font-semibold text-link hover:text-white">
+          See the full feature list →
+        </a>
+      </p>
     </div>
   </section>
 
-  <section id="screens" class="px-6 py-[70px]">
+  <!-- Showcase -->
+  <section class="border-y border-line bg-bg2/40 px-6 py-20">
     <div class="mx-auto max-w-[1120px]">
-      <div class="mx-auto mb-11 max-w-[680px] text-center">
+      <div class="mx-auto mb-12 max-w-[680px] text-center">
         <h2 class="text-[clamp(28px,4vw,40px)] font-extrabold tracking-[-0.02em]">
           See it in action
         </h2>
@@ -134,37 +164,80 @@ const shots = [
           A calm, keyboard-first editor with real power under the hood.
         </p>
       </div>
-      <div class="flex flex-col gap-15">
+
+      <div class="grid gap-6 md:grid-cols-3">
         {
-          shots.map((s) => (
-            <div class="overflow-hidden rounded-card border border-line shadow-[0_30px_80px_rgba(0,0,0,.5)]">
-              <img
-                src={href(s.src)}
+          showcase.map((s) => (
+            <figure>
+              <Image
+                src={s.img}
                 alt={s.alt}
+                widths={[380, 760]}
+                sizes="(max-width: 768px) 100vw, 33vw"
                 loading="lazy"
-                decoding="async"
-                class="block w-full"
+                class="rounded-card border border-line shadow-[0_20px_50px_rgba(0,0,0,.45)]"
               />
-            </div>
+              <figcaption class="mt-3 text-center text-sm text-muted">{s.cap}</figcaption>
+            </figure>
           ))
         }
       </div>
+
+      <p class="mt-10 text-center">
+        <a href={href('/screenshots')} class="font-semibold text-link hover:text-white">
+          Browse all screenshots →
+        </a>
+      </p>
     </div>
   </section>
 
-  <section class="border-y border-line bg-linear-to-b from-bg to-bg2 px-6">
-    <div class="mx-auto flex max-w-[1120px] flex-wrap items-center gap-7 py-12">
+  <!-- Privacy -->
+  <section class="px-6 py-20">
+    <div class="mx-auto max-w-[820px] text-center">
       <div class="text-[40px]">🔒</div>
-      <div>
-        <h3 class="text-2xl font-extrabold">Private by design</h3>
-        <p class="mt-1.5 max-w-[620px] text-muted">
-          HelloNotes collects nothing. There’s no account, no analytics and no tracking. On-device
-          AI runs locally and never sends your notes anywhere.{' '}
-          <a href={href('/privacy')} class="text-link hover:text-white">Read the privacy policy →</a>
-        </p>
-      </div>
+      <h2 class="mt-3 text-[clamp(26px,3.4vw,34px)] font-extrabold tracking-[-0.02em]">
+        Private by design
+      </h2>
+      <p class="mx-auto mt-4 max-w-[640px] text-lg text-muted">
+        {APP.name} collects nothing. There is no account, no analytics and no tracking, and we operate
+        no server that could receive your notes. On-device AI runs locally and never sends your
+        writing anywhere.
+      </p>
+      <p class="mt-5">
+        <a href={href('/privacy')} class="font-semibold text-link hover:text-white">
+          Read the privacy policy →
+        </a>
+      </p>
     </div>
   </section>
 
-  <Footer badge="🖥️ Mac · macOS 15+" />
-</Layout>
+  <!-- Download CTA -->
+  <section class="border-t border-line bg-linear-to-b from-bg to-bg2 px-6 py-20">
+    <div class="mx-auto max-w-[820px] text-center">
+      <h2 class="text-[clamp(26px,3.4vw,34px)] font-extrabold tracking-[-0.02em]">
+        Start writing today
+      </h2>
+      <p class="mx-auto mt-3 max-w-[560px] text-muted">
+        {APP.name} {APP.version} is a free, signed and notarised download for {APP.minOS}.
+      </p>
+      <div class="mt-7 flex flex-wrap justify-center gap-3.5">
+        <a
+          href={href('/download')}
+          class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+        >
+          Download {DOWNLOAD.fileName}
+        </a>
+        <a
+          href={REPO}
+          class="inline-flex items-center gap-2.5 rounded-full border border-line bg-white/5 px-6 py-3.5 text-base font-bold text-ink transition hover:border-[#4a4360] hover:text-white"
+        >
+          View source on GitHub
+        </a>
+      </div>
+      <p class="mt-6 text-sm text-muted">
+        Published by
+        <a href={PUBLISHER.site} class="font-semibold text-link hover:text-white">{PUBLISHER.name}</a>.
+      </p>
+    </div>
+  </section>
+</PageLayout>

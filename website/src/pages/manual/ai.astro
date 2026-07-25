@@ -1,0 +1,91 @@
+---
+import ManualLayout from '../../layouts/ManualLayout.astro';
+import { href } from '../../lib/paths';
+---
+
+<ManualLayout slug="ai">
+  <h2 id="on-device">On-device by default</h2>
+  <p>
+    The intelligence features use <strong>Apple Intelligence</strong>, running on your Mac. Your
+    notes are processed locally and are not sent to us or to any third party. These features appear
+    only on hardware where Apple Intelligence is available and enabled in System Settings.
+  </p>
+  <p>
+    Everything else in HelloNotes works without them — the AI is an addition, never a requirement.
+  </p>
+
+  <h2 id="note-actions">Note actions</h2>
+  <ul>
+    <li><strong>Summarise</strong> — a short summary of the current note.</li>
+    <li><strong>Suggest tags</strong> — proposes tags based on the content; you choose which to keep.</li>
+    <li><strong>Suggest links</strong> — finds notes that are plausibly related and offers to link them.</li>
+    <li><strong>Expand</strong> — fleshes out a stub or bullet into prose.</li>
+    <li>
+      <strong>Rewrite selection</strong> — improve, shorten, simplify or restructure the selected
+      text. You see the result and choose <em>Replace</em> or <em>Insert below</em>; nothing changes
+      until you do.
+    </li>
+  </ul>
+
+  <h2 id="ask">Ask your library</h2>
+  <p>
+    <strong>Ask Library</strong> answers questions using your own notes as the source. It finds the
+    relevant ones, reads them, and answers with <strong>citations</strong> back to the notes it drew
+    on so you can check the reasoning and jump to the original.
+  </p>
+  <p>
+    It is most useful for questions you know you have written about but cannot place — “what did I
+    decide about the pricing model?” rather than general knowledge.
+  </p>
+
+  <h2 id="assistant">The Assistant</h2>
+  <p>
+    The Assistant is a chat window with tools: it can search your collection, read notes, propose
+    edits, and — if you enable them — search and fetch from the web.
+  </p>
+  <blockquote>
+    <p>
+      <strong>Edits always require your approval.</strong> When the Assistant wants to change a
+      note, it shows you the exact change first and waits. Nothing is written to disk until you
+      approve it.
+    </p>
+  </blockquote>
+  <p>
+    <strong>Skills</strong> let you save reusable instructions for repeated jobs, and
+    <strong>deep research</strong> runs a longer multi-step investigation across your notes and,
+    optionally, the web.
+  </p>
+
+  <h2 id="providers">Using your own model</h2>
+  <p>
+    If you would rather not use Apple Intelligence — or your Mac does not support it — you can
+    configure a different model in <strong>Settings ▸ AI</strong>.
+  </p>
+  <p><strong>Local</strong>, nothing leaves your machine:</p>
+  <ul>
+    <li><strong>Ollama</strong> — run <code>ollama serve</code>; no key needed.</li>
+    <li><strong>LM Studio</strong> — start its local server; no key needed.</li>
+    <li><strong>MLX</strong> — runs a downloaded model on Apple silicon.</li>
+  </ul>
+  <p><strong>Cloud</strong>, using your own API key:</p>
+  <p>
+    Anthropic, OpenAI, Gemini, Mistral, Groq, OpenRouter, xAI, DeepSeek, Cerebras, Together AI,
+    Perplexity and Ollama Cloud are supported. Paste your key in Settings; it is stored in the macOS
+    Keychain and never sent to us.
+  </p>
+  <blockquote>
+    <p>
+      Cloud providers are <strong>off until you configure one</strong>. When you use one, the text
+      for that action goes to that provider under your own account and their privacy policy — see
+      the <a href={href('/privacy')}>privacy policy</a>.
+    </p>
+  </blockquote>
+
+  <h2 id="settings">Choosing where each feature runs</h2>
+  <p>
+    Settings ▸ AI has two separate choices: the <strong>chat provider</strong> (Assistant and Ask
+    Library) and the <strong>intelligence provider</strong> (Summarise, Suggest, Expand). Both
+    default to on-device Apple Intelligence. <strong>Creativity</strong> controls how varied the
+    output is — lower is more focused and predictable.
+  </p>
+</ManualLayout>

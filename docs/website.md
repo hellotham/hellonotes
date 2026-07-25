@@ -1,8 +1,9 @@
-# The marketing site (`website/`)
+# The product site (`website/`)
 
-The public site at **<https://hellotham.com/hellonotes/>** — home, privacy and
-support pages. It lives in [`website/`](../website/) and is built from source on every
-push; nothing generated is committed.
+The public site at **<https://hellotham.com/hellonotes/>** — landing page, feature
+tour, screenshots, download, an online user manual, and the about / privacy /
+support pages Apple's reviewers look for. It lives in [`website/`](../website/) and is
+built from source on every push; nothing generated is committed.
 
 | Thing | Value |
 |---|---|
@@ -12,6 +13,9 @@ push; nothing generated is committed.
 | CSS | **Tailwind 4** via `@tailwindcss/vite` |
 | Deploy | [`.github/workflows/deploy-website.yml`](../.github/workflows/deploy-website.yml) → GitHub Pages |
 | Pages mode | **GitHub Actions** (`build_type: workflow`) — *not* a `gh-pages` branch |
+| Pages | 16 |
+| Publisher | Hello Tham Pty. Ltd. — <https://hellotham.com> |
+| DMG hosting | GitHub **Releases**, not the site (see [Distributing the DMG](#distributing-the-dmg)) |
 
 ---
 
@@ -131,26 +135,103 @@ The URLs registered with Apple are listed in
 
 ---
 
+## Site map
+
+All 16 routes, and what each one is for. `NAV` and `MANUAL` in
+[`src/lib/site.ts`](../website/src/lib/site.ts) are the single source of truth for
+the nav bar and the manual's ordering, prev/next links and index cards — add a
+manual page there and the navigation follows automatically.
+
+| Route | Page | Purpose |
+|---|---|---|
+| `/` | `index.astro` | Landing page — hero, six-card feature grid, screenshot showcase, privacy pitch, download CTA |
+| `/features` | `features.astro` | The long-form feature tour, grouped by task, alternating with screenshots |
+| `/screenshots` | `screenshots.astro` | Full-width captioned gallery |
+| `/download` | `download.astro` | Download button, requirements, install steps, checksum + `spctl` verification |
+| `/manual` | `manual/index.astro` | Manual contents — one card per section |
+| `/manual/getting-started` | | Opening a collection, the layout, first note, saving |
+| `/manual/editor` | | Live Markdown, view modes, maths, diagrams, callouts, find, images, export |
+| `/manual/links-and-graph` | | Wiki-links, aliases, backlinks, transclusion, graph, mind map |
+| `/manual/organising` | | Search, Open Quickly, tags, bookmarks, daily notes, templates |
+| `/manual/ai` | | Apple Intelligence, Ask Library, the Assistant, bring-your-own-model |
+| `/manual/cloud` | | iCloud / Dropbox / Box / OneDrive / Google Drive, and the two ways to use them |
+| `/manual/git` | | Init, identity, commits, history, remotes, current limits |
+| `/manual/shortcuts` | | Keyboard reference |
+| `/about` | `about.astro` | What the app is, who publishes it, how it's built — points at Hello Tham |
+| `/privacy` | `privacy.astro` | Privacy policy — the URL registered with App Store Connect |
+| `/support` | `support.astro` | Support / FAQ — the URL registered with App Store Connect |
+
+> **Keyboard shortcuts must be copied from the app, never from memory.**
+> `manual/shortcuts.astro` was built by reading the `.keyboardShortcut(…)`
+> modifiers in `HelloNotes/App/AppCommands.swift`. Two plausible-sounding
+> bindings were invented on a first pass and had to be removed — if you add a
+> row, grep for it first.
+
+---
+
+## Distributing the DMG
+
+The download button points at
+`github.com/hellotham/hellonotes/releases/latest/download/HelloNotes.dmg`, so
+**shipping a new build means publishing a GitHub Release** — the site itself is
+never rebuilt for a release, and `latest` re-points automatically.
+
+The disk image is deliberately **not** committed to `website/public/`: at ~35 MB
+it would be added to the git history permanently and re-uploaded in every Pages
+artefact.
+
+After notarising (see [production.md](production.md)), publish and update the
+site's metadata together:
+
+```bash
+shasum -a 256 dist/HelloNotes.dmg          # → paste into DOWNLOAD.sha256
+gh release create v1.0 dist/HelloNotes.dmg --title "HelloNotes 1.0" --notes-file …
+```
+
+`APP.version`, `DOWNLOAD.size` and `DOWNLOAD.sha256` in `src/lib/site.ts` are
+what the download page prints for people verifying the file by hand — they must
+match the artefact actually attached to the release.
+
+---
+
 ## Structure
 
 ```
 website/
-  astro.config.mjs      site + base + redirects + the Tailwind Vite plugin
+  astro.config.mjs      site + base + build.format + the Tailwind Vite plugin
   src/
     layouts/
       Layout.astro      <head>, canonical + OG/Twitter meta, <slot/>
-      DocLayout.astro   Layout + Nav/Footer + prose styling (privacy, support)
+      PageLayout.astro  Layout + Nav/Footer + the page header band
+      ManualLayout.astro PageLayout + manual sidebar, prose and prev/next
     components/
-      Nav.astro         sticky nav; links resolved through href()
-      Footer.astro      badge + links + © year
+      Nav.astro         sticky nav — inline links ≥md, a <details> menu below
+      Footer.astro      publisher line, link columns, © year
+      Prose.astro       the one place long-form typography is styled
     pages/
-      index.astro       home — feature grid and screenshots are data arrays
+      index.astro       landing page
+      features.astro    feature tour
+      screenshots.astro gallery
+      download.astro    download + install + verification
+      about.astro       about / publisher
       privacy.astro     privacy policy
-      support.astro     support / FAQ
-    lib/paths.ts        href() — the base-aware URL builder
+      support.astro     support + FAQ
+      manual/           index + eight manual sections
+    lib/
+      paths.ts          href() — the base-aware URL builder
+      site.ts           app, publisher, download and navigation metadata
+    assets/screens/     screenshots, optimised at build time by astro:assets
     styles/global.css   @import "tailwindcss" + @theme tokens + @utility gradients
-  public/assets/        app icon + five screenshots (served verbatim)
+  public/assets/        app icon (served verbatim — it needs a stable URL)
 ```
+
+### Images
+
+Screenshots live in `src/assets/`, **not** `public/`, so `astro:assets`
+processes them: the `<Image>` component emits sized, hashed WebP (a 3.1 MB PNG
+becomes 10–84 KB) with intrinsic `width`/`height` so nothing shifts as the page
+loads. Only the app icon stays in `public/` — the nav, footer and OG tags all
+want one stable, unhashed URL for it.
 
 ### Styling notes
 
@@ -160,6 +241,29 @@ ported from the original stylesheet lives in an `@theme` block in
 (`bg-card`, `text-muted`, `border-line`, `rounded-card`). The brand gradient and
 the gradient-filled text are `@utility` rules.
 
+Two base rules in that file are load-bearing: headings get `line-height: 1.15`
+(the `body` value of 1.6 leaves wrapped headings looking broken on a phone), and
+the `<details>` mobile menu's marker is hidden. The menu needs no JavaScript —
+it closes on its own because following a link reloads the page.
+
 The old `@astrojs/tailwind` integration is **deprecated** — this project uses the
 `@tailwindcss/vite` plugin, registered under `vite.plugins` in `astro.config.mjs`
 (which is what `npx astro add tailwind` sets up).
+
+---
+
+## Checking a build before pushing
+
+```bash
+cd website && npm run build
+
+# 1. every root-relative path carries the base
+grep -ohE '(href|src)="/[^"]*"' dist/**/*.html dist/*.html | grep -v '"/hellonotes/'
+
+# 2. canonicals are extensionless and on the custom domain
+grep -h 'rel="canonical"' dist/*.html | head
+
+# 3. no internal link 404s — resolve every href against the emitted files
+```
+
+Both URL traps above are invisible at build time; only the live site is wrong.

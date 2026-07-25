@@ -1,73 +1,92 @@
 ---
-import DocLayout from '../layouts/DocLayout.astro';
+import PageLayout from '../layouts/PageLayout.astro';
+import Prose from '../components/Prose.astro';
+import { href } from '../lib/paths';
+import { APP, PUBLISHER } from '../lib/site';
 ---
 
-<DocLayout
+<PageLayout
   title="Privacy Policy — HelloNotes"
   description="HelloNotes collects nothing: no account, no analytics, no tracking, no servers. Your notes are plain files on your own Mac."
   heading="Privacy Policy"
-  subheading="Last updated: 2026"
-  footerBadge="🔒 We collect nothing"
-  navLinks={[
-    { label: 'Home', href: '/' },
-    { label: 'Support', href: '/support' },
-  ]}
-  footerLinks={[
-    { label: 'Home', href: '/' },
-    { label: 'Support', href: '/support' },
-    { label: 'GitHub', href: 'https://github.com/hellotham/hellonotes' },
-  ]}
+  intro="Last updated: 2026"
 >
-  <p>
-    HelloNotes is a <strong>local-first</strong> application. Your notes are stored as plain files
-    on your own device, in a folder you select.
-    <strong>We do not collect, transmit, sell, or have access to your notes or any personal data.</strong>
-  </p>
+  <div class="mx-auto max-w-[1120px] px-6 py-12">
+    <Prose>
+      <p>
+        {APP.name} is a <strong>local-first</strong> application published by
+        {PUBLISHER.legalName}. Your notes are stored as plain files on your own device, in a folder
+        you select.
+        <strong>
+          We do not collect, transmit, sell, or have access to your notes or any personal data.
+        </strong>
+      </p>
 
-  <div class="my-6 rounded-card border border-line bg-card px-[26px] py-[22px]">
-    <strong>In short:</strong> no account, no analytics, no tracking, no servers. Your data never
-    leaves your Mac unless you explicitly choose to sync it somewhere yourself.
+      <blockquote>
+        <p>
+          <strong>In short:</strong> no account, no analytics, no tracking, no servers. Your data
+          never leaves your Mac unless you explicitly choose to sync it somewhere yourself.
+        </p>
+      </blockquote>
+
+      <h2>What we collect</h2>
+      <p>
+        Nothing. {APP.name} has no analytics, no telemetry, no advertising identifiers, and no user
+        accounts. We do not operate any server that receives your data. Because we hold no data
+        about you, there is nothing for us to disclose, share, or delete on request.
+      </p>
+
+      <h2>Your notes</h2>
+      <p>
+        Your notes are ordinary Markdown files in a folder on your device that you choose. They
+        remain under your control and can be read or edited by any other application. {APP.name}
+        reads and writes only the folders you explicitly open, using macOS security-scoped access.
+      </p>
+
+      <h2>On-device intelligence</h2>
+      <p>
+        The optional Summarise, Suggest Tags/Links, Expand and “Ask your library” features use
+        Apple’s on-device Foundation Models framework. Your note content is processed locally on
+        your Mac and is <strong>not</strong> sent to us or to any third party. These features appear
+        only on hardware where Apple Intelligence is available.
+      </p>
+
+      <h2>Optional cloud AI providers</h2>
+      <p>
+        {APP.name} can optionally use a third-party AI provider (such as Anthropic, OpenAI or
+        Google) if — and only if — you choose to configure one with <em>your own</em> API key.
+        These providers are switched off until you set one up.
+      </p>
+      <p>
+        When you use such a provider, the text you submit for that action (for example the note
+        being summarised, or your question along with relevant excerpts from your notes) is sent to
+        that provider under your own account and their privacy policy. Your key is stored in the
+        macOS Keychain and is never transmitted to us. The Assistant’s optional web search and fetch
+        tools likewise contact the internet only when you invoke them.
+      </p>
+
+      <h2>Cloud storage and version control</h2>
+      <p>
+        If you keep a collection in iCloud Drive, Dropbox, Box, OneDrive or Google Drive, or connect
+        one of those accounts directly, your files are handled by that service under its own privacy
+        policy — the same as any other folder on your Mac. Similarly, if you use the built-in Git
+        features with your own remote repository, your notes are sent only to the destination
+        <em>you</em> configure. {APP.name} is not that destination and does not receive a copy.
+      </p>
+
+      <h2>Children’s privacy</h2>
+      <p>{APP.name} does not collect data from anyone, including children, and is rated 4+.</p>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        If this policy changes, the updated version will be posted on this page with a revised date.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions about this policy: <a href={`mailto:${PUBLISHER.email}`}>{PUBLISHER.email}</a>,
+        or see the <a href={href('/support')}>support page</a>.
+      </p>
+    </Prose>
   </div>
-
-  <h2>What we collect</h2>
-  <p>
-    Nothing. HelloNotes has no analytics, no telemetry, no advertising identifiers, and no user
-    accounts. We do not operate any server that receives your data.
-  </p>
-
-  <h2>Your notes</h2>
-  <p>
-    Your notes are ordinary Markdown files in a folder on your device that you choose with the
-    “Select Vault Folder” command. They remain under your control and can be read or edited by any
-    other application.
-  </p>
-
-  <h2>On-device intelligence</h2>
-  <p>
-    The optional Summarise, Suggest Tags/Links, Expand and “Ask your vault” features use Apple’s
-    on-device Foundation Models framework. Your note content is processed locally on your Mac and is
-    <strong>not</strong> sent to us or to any third party. These features only appear on hardware with
-    Apple Intelligence available.
-  </p>
-
-  <h2>Version control (Git)</h2>
-  <p>
-    If you choose to use the built-in Git features and configure your own remote repository, your
-    notes are sent only to the destination <em>you</em> configure, under your control. HelloNotes is
-    not that destination and does not receive a copy.
-  </p>
-
-  <h2>Children’s privacy</h2>
-  <p>HelloNotes does not collect data from anyone, including children, and is rated 4+.</p>
-
-  <h2>Changes</h2>
-  <p>
-    Because we hold no user data, there is nothing for us to disclose, share, or delete on request.
-    If this policy changes, the updated version will be posted on this page.
-  </p>
-
-  <h2>Contact</h2>
-  <p>
-    Questions about this policy: <a href="mailto:info@hellotham.com">info@hellotham.com</a>.
-  </p>
-</DocLayout>
+</PageLayout>

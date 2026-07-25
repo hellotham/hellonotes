@@ -1,0 +1,38 @@
+---
+import Layout from './Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  /** Big page heading. Omit on pages that render their own hero (the landing page). */
+  heading?: string;
+  /** Supporting line under the heading. */
+  intro?: string;
+  ogImage?: string;
+}
+
+const { title, description, heading, intro, ogImage } = Astro.props;
+---
+
+<Layout title={title} description={description} ogImage={ogImage}>
+  <Nav />
+
+  {
+    heading && (
+      <header class="border-b border-line bg-linear-to-b from-bg2/60 to-bg px-6 py-14">
+        <div class="mx-auto max-w-[1120px]">
+          <h1 class="text-[clamp(32px,5vw,46px)] font-extrabold tracking-[-0.02em]">{heading}</h1>
+          {intro && <p class="mt-3 max-w-[720px] text-lg text-muted">{intro}</p>}
+        </div>
+      </header>
+    )
+  }
+
+  <main>
+    <slot />
+  </main>
+
+  <Footer />
+</Layout>

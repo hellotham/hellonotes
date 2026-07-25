@@ -1,0 +1,95 @@
+---
+import ManualLayout from '../../layouts/ManualLayout.astro';
+
+/** Taken from the app's menu definitions, not from memory. */
+const groups = [
+  {
+    title: 'Notes & files',
+    rows: [
+      ['⌘N', 'New note'],
+      ['⌥⌘N', 'New window'],
+      ['⇧⌘T', 'Today’s note'],
+      ['⌘O', 'Open a collection…'],
+      ['⇧⌘O', 'Open Quickly'],
+      ['⇧⌘R', 'Rename note…'],
+      ['⌘D', 'Duplicate note'],
+      ['⇧⌘D', 'Add / remove bookmark'],
+      ['⌘⌫', 'Move note to Trash'],
+      ['⌥⌘R', 'Rescan collection'],
+      ['⌘P', 'Print…'],
+    ],
+  },
+  {
+    title: 'Editing',
+    rows: [
+      ['⌘F', 'Find & replace in the note'],
+      ['⌘B', 'Bold'],
+      ['⌘I', 'Italic'],
+      ['⌥⌘1 … ⌥⌘6', 'Heading level 1–6'],
+      ['⇧⌘7', 'Bulleted list'],
+      ['⇧⌘9', 'Numbered list'],
+    ],
+  },
+  {
+    title: 'Windows & views',
+    rows: [
+      ['⇧⌘G', 'Graph view'],
+      ['⇧⌘J', 'Ask Library'],
+      ['⇧⌘A', 'Assistant'],
+      ['⌘,', 'Settings'],
+    ],
+  },
+  {
+    title: 'System-wide',
+    rows: [
+      ['⌃⌥⌘N', 'Quick capture into today’s note — works in any app'],
+      ['⌃⌘D', 'Dictate into today’s note'],
+    ],
+  },
+];
+---
+
+<ManualLayout slug="shortcuts">
+  <p>
+    Menu commands show their shortcut beside them, so the menu bar is always the authority. This is
+    the same list in one place.
+  </p>
+
+  {
+    groups.map((g) => (
+      <>
+        <h2 id={g.title.toLowerCase().replace(/[^a-z]+/g, '-')}>{g.title}</h2>
+        <table>
+          <thead>
+            <tr>
+              <th class="w-40">Shortcut</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {g.rows.map(([key, action]) => (
+              <tr>
+                <td>
+                  <kbd>{key}</kbd>
+                </td>
+                <td>{action}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </>
+    ))
+  }
+
+  <h2 id="text">Standard macOS shortcuts</h2>
+  <p>
+    Because the editor is a native text view, every system text shortcut works as it does elsewhere
+    on macOS — <kbd>⌘Z</kbd> undo, <kbd>⇧⌘Z</kbd> redo, <kbd>⌥←</kbd>/<kbd>⌥→</kbd> by word,
+    <kbd>⌘↑</kbd>/<kbd>⌘↓</kbd> to the start or end of the document, and the full set of Emacs-style
+    control bindings.
+  </p>
+  <p>
+    Writing Tools, dictation, Emoji &amp; Symbols and the system spell checker are all available
+    from the Edit menu.
+  </p>
+</ManualLayout>

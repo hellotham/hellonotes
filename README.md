@@ -15,7 +15,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [docs/production.md](docs/production.md) | Step-by-step runbook to ship the app to the Mac App Store |
 | [docs/signing.md](docs/signing.md) | Code-signing & provisioning notes (team, capabilities, entitlements) |
 | [docs/xcode-targets-setup.md](docs/xcode-targets-setup.md) | How the Widget / Quick Look extension targets and the App Group were added |
-| [docs/website.md](docs/website.md) | The marketing site — Astro + Tailwind, its GitHub Actions deploy, and the two URL traps (`base`, custom domain) |
+| [docs/website.md](docs/website.md) | The product site — Astro + Tailwind, its site map, GitHub Actions deploy, DMG distribution, and the two URL traps (`base`, custom domain) |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
 ## ✨ Features (v1.0)
@@ -160,7 +160,7 @@ HelloNotes/            App sources (synchronised Xcode group)
   ├─ iOSContentView    Layer 4 — iOS/iPadOS adaptive shell
   └─ HelloNotesApp     App entry (main window + auxiliary window scenes)
 Packages/NotesEditor/  Live editor package (MarkdownCore, MarkdownEditor, GFMRender)
-website/               Marketing site — Astro 7 + Tailwind 4 → hellotham.com/hellonotes
+website/               Product site — Astro 7 + Tailwind 4 → hellotham.com/hellonotes
 Config/                Secrets.example.xcconfig (template); Secrets.xcconfig is git-ignored
 docs/                  PRD, architecture, roadmaps (native + cloud), production, history
 HelloNotesTests/       App unit tests
@@ -168,10 +168,12 @@ SampleVault/           Demo collection used by docs & screenshots
 HelloNotes.xcodeproj/  Project (SPM dependencies, shared scheme)
 ```
 
-## 🌐 Marketing site
-**<https://hellotham.com/hellonotes/>** is built from [`website/`](website/) — **Astro 7 + Tailwind 4**
-(the CSS-first `@tailwindcss/vite` plugin; there is no `tailwind.config.js` — the palette lives
-in an `@theme` block in `src/styles/global.css`).
+## 🌐 Product site
+**<https://hellotham.com/hellonotes/>** — landing page, feature tour, screenshots, download,
+an eight-section online user manual, and about / privacy / support pages. Published by
+**Hello Tham** (<https://hellotham.com>). Built from [`website/`](website/) with **Astro 7 +
+Tailwind 4** (the CSS-first `@tailwindcss/vite` plugin; there is no `tailwind.config.js` — the
+palette lives in an `@theme` block in `src/styles/global.css`).
 
 ```bash
 cd website
@@ -185,13 +187,20 @@ It deploys on every push to `main` that touches `website/`, via
 `actions/deploy-pages`). Pages is in **GitHub Actions** mode — nothing is committed to a
 `gh-pages` branch.
 
-Two things to know before editing it, both of which fail *silently* (the build succeeds and
-only the live site is wrong) — see [docs/website.md](docs/website.md):
+The **download button points at the latest GitHub Release**, not at a file in the site, so
+shipping a build means publishing a release — the 35 MB disk image is deliberately kept out of
+git history. `src/lib/site.ts` holds the version, size and SHA-256 the download page prints,
+and must match the attached artefact.
+
+Three things to know before editing it — the first two fail *silently* (the build succeeds and
+only the live site is wrong). See [docs/website.md](docs/website.md):
 - It's a **project page** under `base: '/hellonotes'`, so build internal links and asset paths
   with the `href()` helper in `src/lib/paths.ts` rather than hard-coding the prefix.
 - `site` is the **custom domain** (`hellotham.com`), inherited from the `hellotham.github.io`
   user-site repo — so this repo needs no `CNAME`, and canonical/OG URLs must not point at
   `github.io`, which merely redirects.
+- **Keyboard shortcuts in the manual come from `AppCommands.swift`, not from memory.** Grep for
+  a binding before documenting it; a first pass invented two that don't exist.
 
 ## 🤝 Contributing / working rules
 Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 15+ / Swift 5.10+ / Xcode 26; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.

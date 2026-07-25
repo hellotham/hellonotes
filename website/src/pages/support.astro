@@ -1,73 +1,144 @@
 ---
-import DocLayout from '../layouts/DocLayout.astro';
+import PageLayout from '../layouts/PageLayout.astro';
+import Prose from '../components/Prose.astro';
+import { href } from '../lib/paths';
+import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
 ---
 
-<DocLayout
+<PageLayout
   title="Support — HelloNotes"
-  description="Getting started with HelloNotes, frequently asked questions, and how to get in touch."
+  description="Get help with HelloNotes: the user manual, frequently asked questions, and how to reach us by email or on GitHub."
   heading="Support"
-  subheading="We’re happy to help."
-  footerBadge="💬 info@hellotham.com"
-  navLinks={[
-    { label: 'Home', href: '/' },
-    { label: 'Privacy', href: '/privacy' },
-  ]}
-  footerLinks={[
-    { label: 'Home', href: '/' },
-    { label: 'Privacy', href: '/privacy' },
-    { label: 'GitHub', href: 'https://github.com/hellotham/hellonotes' },
-  ]}
+  intro="We’re happy to help."
 >
-  <div class="my-6 rounded-card border border-line bg-card px-[26px] py-[22px]">
-    Email us at <a href="mailto:info@hellotham.com">info@hellotham.com</a> and we’ll get back to you.
-    For bugs and feature requests you can also open an issue on
-    <a href="https://github.com/hellotham/hellonotes/issues">GitHub</a>.
+  <div class="mx-auto max-w-[1120px] px-6 py-12">
+    <div class="grid gap-12 lg:grid-cols-[1fr_320px]">
+      <Prose>
+        <blockquote>
+          <p>
+            Email <a href={`mailto:${PUBLISHER.email}`}>{PUBLISHER.email}</a> and we’ll get back to
+            you. For bugs and feature requests you can also open an issue on
+            <a href={`${REPO}/issues`}>GitHub</a>.
+          </p>
+        </blockquote>
+
+        <h2>Start with the manual</h2>
+        <p>
+          The <a href={href('/manual')}>online manual</a> covers everything from opening your first
+          collection to keyboard shortcuts. The most common starting points:
+        </p>
+        <ul>
+          {
+            MANUAL.slice(0, 4).map((s) => (
+              <li>
+                <a href={href(`/manual/${s.slug}`)}>{s.title}</a> — {s.blurb}
+              </li>
+            ))
+          }
+        </ul>
+
+        <h2>Frequently asked questions</h2>
+
+        <h3>Where are my notes stored?</h3>
+        <p>
+          As plain <code>.md</code> files in the folder you selected. {APP.name} never moves them
+          elsewhere, and you can open them in any other app at any time.
+        </p>
+
+        <h3>Do I need an account or an internet connection?</h3>
+        <p>
+          No. {APP.name} works entirely offline and has no account. Nothing is uploaded anywhere
+          unless you deliberately configure Git syncing or a cloud AI provider.
+        </p>
+
+        <h3>Why don’t I see the intelligence features?</h3>
+        <p>
+          Summarise, Suggest and “Ask your library” require a Mac with <strong>Apple
+          Intelligence</strong> available and enabled (Apple silicon, a recent macOS, and the
+          feature turned on in System Settings). Everything else in {APP.name} works without it.
+          You can also configure your own model instead — see
+          <a href={href('/manual/ai')}>AI &amp; intelligence</a>.
+        </p>
+
+        <h3>Can I sync between devices?</h3>
+        <p>
+          Yes. Put your collection folder in any file-syncing location — iCloud Drive, Dropbox, Box,
+          OneDrive or Google Drive — or use the built-in Git features with your own remote. See
+          <a href={href('/manual/cloud')}>Cloud storage</a> and
+          <a href={href('/manual/git')}>Version history with Git</a>.
+        </p>
+
+        <h3>Does it work with my existing Obsidian vault?</h3>
+        <p>
+          Yes, directly. Point {APP.name} at the vault folder and it opens as a collection — there
+          is no import step, because both apps are simply reading Markdown files. Wiki-links,
+          aliases, tags, callouts and front matter all carry over.
+        </p>
+
+        <h3>The app won’t open / macOS says it can’t be verified</h3>
+        <p>
+          It should never say that: {APP.name} is signed with a Developer ID and notarised by Apple.
+          If you do see a warning, the download may be incomplete — delete it, download again from
+          the <a href={href('/download')}>download page</a>, and check the checksum listed there.
+        </p>
+
+        <h3>What are the system requirements?</h3>
+        <p>{APP.minOS}, on Apple silicon or Intel.</p>
+
+        <h3>How do I uninstall it?</h3>
+        <p>
+          Drag {APP.name} from Applications to the Trash. Your notes are unaffected — they are your
+          own files in your own folder.
+        </p>
+
+        <h2>Reporting a bug</h2>
+        <p>To help us fix something quickly, it’s useful to include:</p>
+        <ul>
+          <li>What you did, what you expected, and what happened instead</li>
+          <li>Your macOS version and Mac model</li>
+          <li>Whether the collection is local, in a cloud folder, or a Git repository</li>
+          <li>A screenshot, if the problem is visual</li>
+        </ul>
+
+        <h2>Contact</h2>
+        <p>
+          Email <a href={`mailto:${PUBLISHER.email}`}>{PUBLISHER.email}</a>. {APP.name} is published
+          by <a href={PUBLISHER.site}>{PUBLISHER.legalName}</a>.
+        </p>
+      </Prose>
+
+      <aside class="lg:sticky lg:top-[86px] lg:self-start">
+        <div class="rounded-card border border-line bg-card p-6">
+          <h2 class="text-sm font-bold tracking-wider text-muted uppercase">Get in touch</h2>
+          <ul class="mt-4 space-y-3 text-[15px]">
+            <li>
+              <a href={`mailto:${PUBLISHER.email}`} class="text-link hover:text-white">
+                {PUBLISHER.email}
+              </a>
+              <p class="text-sm text-muted">General questions and support</p>
+            </li>
+            <li>
+              <a href={`${REPO}/issues`} class="text-link hover:text-white">GitHub issues ↗</a>
+              <p class="text-sm text-muted">Bugs and feature requests</p>
+            </li>
+          </ul>
+        </div>
+
+        <div class="mt-5 rounded-card border border-line bg-card p-6">
+          <h2 class="text-sm font-bold tracking-wider text-muted uppercase">Documentation</h2>
+          <ul class="mt-4 space-y-2 text-[15px]">
+            {
+              MANUAL.map((s) => (
+                <li>
+                  <a href={href(`/manual/${s.slug}`)} class="text-muted hover:text-white">
+                    {s.title}
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+      </aside>
+    </div>
   </div>
-
-  <h2>Getting started</h2>
-  <ul>
-    <li>Launch HelloNotes and click <strong>Select Vault Folder</strong>.</li>
-    <li>
-      Choose any folder of Markdown files — or an empty folder to start fresh. A new note is created
-      with <strong>New Note</strong> (or <strong>⌘N</strong>).
-    </li>
-    <li>
-      Write in Markdown. Type <code>[[</code> to link a note, <code>#</code> to add a tag, and
-      <code>$…$</code> for math.
-    </li>
-    <li>
-      Open the <strong>Graph View</strong> to see how your notes connect, and <strong>Ask Vault</strong>
-      to get on-device answers grounded in your notes.
-    </li>
-  </ul>
-
-  <h2>Frequently asked questions</h2>
-
-  <h3 class="mt-6 mb-2 text-[18px] font-bold">Where are my notes stored?</h3>
-  <p>
-    As plain <code>.md</code> files in the folder you selected. HelloNotes never moves them
-    elsewhere; you can open them in any other app.
-  </p>
-
-  <h3 class="mt-6 mb-2 text-[18px] font-bold">Do I need an account or the internet?</h3>
-  <p>No. HelloNotes works entirely offline and has no account. Nothing is uploaded anywhere.</p>
-
-  <h3 class="mt-6 mb-2 text-[18px] font-bold">Why don’t I see the “Intelligence” features?</h3>
-  <p>
-    Summarise, Suggest and “Ask your vault” require a Mac with <strong>Apple Intelligence</strong>
-    enabled (Apple silicon, a recent macOS, and Apple Intelligence turned on in System Settings).
-    Everything else works without it.
-  </p>
-
-  <h3 class="mt-6 mb-2 text-[18px] font-bold">Can I sync between devices?</h3>
-  <p>
-    Put your vault folder in any file-syncing location (iCloud Drive, Dropbox, etc.), or use the
-    built-in Git features with your own remote. Your files, your choice.
-  </p>
-
-  <h3 class="mt-6 mb-2 text-[18px] font-bold">What are the system requirements?</h3>
-  <p>macOS 15 or later.</p>
-
-  <h2>Contact</h2>
-  <p>Email <a href="mailto:info@hellotham.com">info@hellotham.com</a>.</p>
-</DocLayout>
+</PageLayout>

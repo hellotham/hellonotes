@@ -1,41 +1,79 @@
 ---
 import { href } from '../lib/paths';
+import { NAV, APP } from '../lib/site';
 
-interface Props {
-  /** Links shown on the right. `href` is passed through `href()` unless external. */
-  links?: { label: string; href: string }[];
-}
-
-const {
-  links = [
-    { label: 'Features', href: '#features' },
-    { label: 'Screenshots', href: '#screens' },
-    { label: 'Support', href: '/support' },
-    { label: 'Privacy', href: '/privacy' },
-  ],
-} = Astro.props;
-
-const resolve = (h: string) => (h.startsWith('#') || h.startsWith('http') ? h : href(h));
+/** Current path (base-stripped, extension-stripped) so the active link is marked. */
+const raw = Astro.url.pathname.replace(/\/index\.html$/, '/').replace(/\.html$/, '');
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const current = raw.startsWith(base) ? raw.slice(base.length) || '/' : raw;
+const isActive = (path: string) => current === path || current.startsWith(path + '/');
 ---
 
-<nav
-  class="sticky top-0 z-20 border-b border-line bg-bg/70 backdrop-blur-xl"
->
+<nav class="sticky top-0 z-30 border-b border-line bg-bg/70 backdrop-blur-xl">
   <div class="mx-auto flex h-[62px] max-w-[1120px] items-center gap-3.5 px-6">
-    <a href={href('/')} class="flex items-center gap-3.5 text-ink hover:text-white">
+    <a
+      href={href('/')}
+      class="flex shrink-0 items-center gap-3 text-ink hover:text-white"
+      aria-label={`${APP.name} home`}
+    >
       <img src={href('assets/icon.png')} alt="" width="30" height="30" class="size-[30px] rounded-lg" />
-      <span class="font-extrabold tracking-[-0.02em]">HelloNotes</span>
+      <span class="font-extrabold tracking-[-0.02em]">{APP.name}</span>
     </a>
+
     <span class="flex-1"></span>
-    {
-      links.map((l) => (
-        <a
-          href={resolve(l.href)}
-          class="text-[15px] font-semibold text-muted transition-colors hover:text-white"
-        >
-          {l.label}
-        </a>
-      ))
-    }
+
+    <!-- Wide screens: every link inline. -->
+    <div class="hidden items-center gap-5 text-[15px] font-semibold md:flex">
+      {
+        NAV.map((l) => (
+          <a
+            href={href(l.href)}
+            aria-current={isActive(l.href) ? 'page' : undefined}
+            class:list={[
+              'whitespace-nowrap transition-colors hover:text-white',
+              isActive(l.href) ? 'text-white' : 'text-muted',
+            ]}
+          >
+            {l.label}
+          </a>
+        ))
+      }
+    </div>
+
+    <!-- Narrow screens: a disclosure menu, so no link is clipped off-screen.
+         <details> needs no JavaScript and closes itself when the page navigates. -->
+    <details class="relative md:hidden">
+      <summary
+        class="flex cursor-pointer list-none items-center gap-2 rounded-full border border-line px-3.5 py-1.5 text-[15px] font-semibold text-ink"
+        aria-label="Menu"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+          <path
+            d="M2 4h12M2 8h12M2 12h12"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"></path>
+        </svg>
+        Menu
+      </summary>
+      <div
+        class="absolute right-0 z-40 mt-2 w-56 overflow-hidden rounded-card border border-line bg-card shadow-2xl"
+      >
+        {
+          NAV.map((l) => (
+            <a
+              href={href(l.href)}
+              aria-current={isActive(l.href) ? 'page' : undefined}
+              class:list={[
+                'block border-b border-line px-4 py-3 text-[15px] font-semibold last:border-b-0 hover:bg-bg2 hover:text-white',
+                isActive(l.href) ? 'text-white' : 'text-muted',
+              ]}
+            >
+              {l.label}
+            </a>
+          ))
+        }
+      </div>
+    </details>
   </div>
 </nav>

@@ -1,0 +1,115 @@
+---
+import PageLayout from '../layouts/PageLayout.astro';
+import Prose from '../components/Prose.astro';
+import { href } from '../lib/paths';
+import { APP, PUBLISHER, REPO } from '../lib/site';
+---
+
+<PageLayout
+  title="About — HelloNotes"
+  description={`${APP.name} is a private, local-first Markdown knowledge base for the Mac, published by ${PUBLISHER.legalName}.`}
+  heading={`About ${APP.name}`}
+  intro={`A private, local-first Markdown knowledge base for the Mac, published by ${PUBLISHER.name}.`}
+>
+  <div class="mx-auto max-w-[1120px] px-6 py-12">
+    <div class="grid gap-12 lg:grid-cols-[1fr_320px]">
+      <Prose>
+        <h2>Why {APP.name} exists</h2>
+        <p>
+          Most note apps ask you to put your thinking inside their database, in their format, on
+          their servers. That is a large amount of trust to extend to software — and it tends to be
+          discovered only when you want to leave, or when the service does.
+        </p>
+        <p>
+          {APP.name} takes the opposite position. Your notes are plain Markdown files in a folder
+          you choose. There is no proprietary store, no sync service of ours, and no account. The
+          folder in Finder <em>is</em> the database. If {APP.name} disappeared tomorrow, every note
+          would still open in any text editor on any platform.
+        </p>
+
+        <h2>Built for the Mac, not ported to it</h2>
+        <p>
+          The app is written in Swift with AppKit, SwiftUI and TextKit 2. The editor is a real
+          native text view, so typing stays responsive in long documents and the app behaves the way
+          Mac software should — proper menus and keyboard shortcuts, Shortcuts and Spotlight
+          integration, Quick Look, widgets, VoiceOver support and on-device intelligence.
+        </p>
+        <p>
+          The only place a web view appears is in the read-only Preview, which deliberately renders
+          through the same engine GitHub uses so that what you see matches what GitHub would show.
+          The editing path itself never touches one.
+        </p>
+
+        <h2>Privacy is the default, not a setting</h2>
+        <p>
+          {APP.name} collects nothing. No analytics, no telemetry, no crash reporting to us, no
+          advertising identifiers, no accounts. We do not run a server that could receive your
+          notes even if we wanted to.
+        </p>
+        <p>
+          The AI features run on-device using Apple Intelligence. If you choose to configure a cloud
+          model with your own API key, that is your key and your account, and it is off until you
+          set it up. The same applies to Git: you can sync to a remote you control, and we are never
+          a party to it. The <a href={href('/privacy')}>privacy policy</a> spells this out in full.
+        </p>
+
+        <h2>Open source</h2>
+        <p>
+          The complete source is on <a href={REPO}>GitHub</a>. You are welcome to read it, build it,
+          check the privacy claims above against the code, or open an issue.
+        </p>
+
+        <h2>Who makes it</h2>
+        <p>
+          {APP.name} is designed and published by <strong>{PUBLISHER.legalName}</strong>, a small
+          software company. You can find our other work at
+          <a href={PUBLISHER.site}>hellotham.com</a>.
+        </p>
+        <p>
+          Questions, bugs or ideas are always welcome at
+          <a href={`mailto:${PUBLISHER.email}`}>{PUBLISHER.email}</a>, or through the
+          <a href={href('/support')}>support page</a>.
+        </p>
+      </Prose>
+
+      <aside class="lg:sticky lg:top-[86px] lg:self-start">
+        <div class="rounded-card border border-line bg-card p-6 text-center">
+          <img
+            src={href('assets/icon.png')}
+            alt=""
+            width="80"
+            height="80"
+            class="mx-auto size-20 rounded-2xl"
+          />
+          <h2 class="mt-4 text-lg font-extrabold">{APP.name} {APP.version}</h2>
+          <p class="mt-1 text-sm text-muted">{APP.minOS}</p>
+          <a
+            href={href('/download')}
+            class="brand-gradient mt-5 inline-flex w-full items-center justify-center rounded-full px-5 py-3 font-bold text-white transition hover:brightness-110"
+          >
+            Download
+          </a>
+        </div>
+
+        <div class="mt-5 rounded-card border border-line bg-card p-6">
+          <h2 class="text-sm font-bold tracking-wider text-muted uppercase">Published by</h2>
+          <p class="mt-3 text-lg font-extrabold">{PUBLISHER.name}</p>
+          <p class="mt-1 text-sm text-muted">{PUBLISHER.legalName}</p>
+          <ul class="mt-4 space-y-2 text-[15px]">
+            <li>
+              <a href={PUBLISHER.site} class="text-link hover:text-white">hellotham.com ↗</a>
+            </li>
+            <li>
+              <a href={`mailto:${PUBLISHER.email}`} class="text-link hover:text-white">
+                {PUBLISHER.email}
+              </a>
+            </li>
+            <li>
+              <a href={REPO} class="text-link hover:text-white">Source on GitHub ↗</a>
+            </li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </div>
+</PageLayout>

@@ -1,0 +1,201 @@
+---
+import { Image } from 'astro:assets';
+import PageLayout from '../layouts/PageLayout.astro';
+import { href } from '../lib/paths';
+
+import shot01 from '../assets/screens/shot_01.png';
+import shot02 from '../assets/screens/shot_02.png';
+import shot03 from '../assets/screens/shot_03.png';
+import shot04 from '../assets/screens/shot_04.png';
+import shot05 from '../assets/screens/shot_05.png';
+
+/** Each block alternates image side on wide screens. */
+const sections = [
+  {
+    id: 'editor',
+    eyebrow: 'The editor',
+    title: 'Markdown that styles itself as you type',
+    image: shot03,
+    alt: 'The HelloNotes editor showing callouts, a properties panel and rich Markdown',
+    body: [
+      'The editor is a real native text view built on TextKit 2 — not a web view pretending to be one. Headings, emphasis, lists, task lists, tables and footnotes take on their formatting as you type, while the underlying file stays exactly the Markdown you wrote.',
+      'Move the caret into a construct and its syntax is revealed for editing, then tidied away when you leave. Code blocks are syntax-highlighted, LaTeX maths and Mermaid diagrams render inline, callouts collapse, and front matter is hidden behind a typed, editable Properties panel.',
+    ],
+    bullets: [
+      'Four view modes: Edit, Preview, Markdown source and Split',
+      'GitHub-identical Preview, rendered with the same engine GitHub uses',
+      'Find & replace, multi-tab and multi-window editing',
+      'Export a note to HTML or PDF',
+      'Marp front matter turns a note into a slide deck',
+    ],
+  },
+  {
+    id: 'graph',
+    eyebrow: 'Knowledge graph',
+    title: 'Notes that know about each other',
+    image: shot04,
+    alt: 'The graph view showing notes as nodes connected by directional links',
+    body: [
+      'Link notes with <code>[[wiki-links]]</code>, complete with autocomplete, aliases and links straight to a heading. Every note shows what links to it, what it links out to, and which notes mention it without linking yet — each one linkable in a click.',
+      'The graph view draws those relationships as a directional map you can trace, either across a whole collection or just a few links around the note you are reading. The mind map does the same for a single note’s ideas.',
+    ],
+    bullets: [
+      'Wiki-links with autocomplete, aliases and heading targets',
+      'Backlinks, outgoing links and unlinked mentions',
+      'Note transclusion — embed a note or a single section inline',
+      'Directional graph with focus tracing',
+      'Content-based mind map of one note’s structure',
+    ],
+  },
+  {
+    id: 'organise',
+    eyebrow: 'Organise & find',
+    title: 'Structure when you want it',
+    image: shot01,
+    alt: 'The notes sidebar showing a folder tree, tags and bookmarks',
+    body: [
+      'Open several collections at once as a library, with a launcher, recents and saved library sets. Existing Obsidian vaults open directly — there is no import step, because there is no proprietary format to import into.',
+      'Find things by full-text search with snippets, by fuzzy-matching a title in Open Quickly, or by nested tags with autocomplete. Bookmark what you return to, and let daily notes and templates handle the repetitive structure.',
+    ],
+    bullets: [
+      'Multi-collection library with saved sets and recents',
+      'Obsidian vaults open as-is',
+      'Full-text search, Open Quickly, nested tags, bookmarks',
+      'Daily notes and templates with date tokens',
+      'Attachments (PDF, images, CSV…) open in a native viewer',
+    ],
+  },
+  {
+    id: 'ai',
+    eyebrow: 'Intelligence',
+    title: 'AI that runs on your Mac',
+    image: shot05,
+    alt: 'Ask Library answering a question with citations back to source notes',
+    body: [
+      'Summarise a note, suggest tags or links, expand a stub, or ask a question across your whole library and get an answer with citations back to the notes it came from. By default this runs on-device with Apple Intelligence — your notes are not sent anywhere.',
+      'If you would rather use a different model, bring your own: local runtimes like Ollama, LM Studio and MLX, or your own API key for a cloud provider. Keys live in the Keychain, and cloud providers stay switched off until you configure one.',
+    ],
+    bullets: [
+      'On-device summarise, suggest tags/links, expand',
+      'Ask Library — retrieval chat grounded in your notes, with citations',
+      'An agentic Assistant whose edits require your explicit approval',
+      'Bring your own model: Apple, MLX, Ollama, LM Studio, or a cloud key',
+    ],
+  },
+  {
+    id: 'sync',
+    eyebrow: 'Storage & sync',
+    title: 'Your files, wherever you keep them',
+    image: shot02,
+    alt: 'A note with LaTeX maths and a Mermaid diagram rendered inline',
+    body: [
+      'Because notes are ordinary files, they can live wherever you already keep files. Put a collection in iCloud Drive, Dropbox, Box, OneDrive or Google Drive and it behaves like any other folder — cloud files stay online-only until you open one, so a large library does not have to be downloaded in full.',
+      'For versioning, HelloNotes speaks Git directly: initialise a repository, commit as you write, browse any note’s history and restore an earlier version. Push and fetch go to a remote you configure — never to us.',
+    ],
+    bullets: [
+      'Works with iCloud, Dropbox, Box, OneDrive and Google Drive',
+      'On-demand download: online-only notes are fetched when opened',
+      'Optional direct connection to a cloud account, no provider app needed',
+      'Built-in Git: commit, per-note history, restore, push/fetch',
+    ],
+  },
+  {
+    id: 'mac',
+    eyebrow: 'A proper Mac app',
+    title: 'At home on macOS',
+    body: [
+      'HelloNotes behaves the way a Mac app should. It is scriptable from Shortcuts and callable by voice, publishes your notes to Spotlight so ⌘Space finds them, ships a recent-notes widget, and renders Markdown in Finder’s Quick Look and file icons.',
+      'A menu-bar item captures a thought into today’s daily note without switching apps, and a system-wide hotkey does the same from anywhere. Writing Tools, dictation and VoiceOver are all wired in.',
+    ],
+    bullets: [
+      'Siri & Shortcuts via App Intents',
+      'Spotlight indexing with deep links back into the app',
+      'Recent-notes widget in three sizes',
+      'Quick Look preview and thumbnails for Markdown files',
+      'Menu-bar quick capture and a global hotkey',
+      'On-device dictation, Writing Tools, VoiceOver and a headings rotor',
+    ],
+  },
+];
+---
+
+<PageLayout
+  title="Features — HelloNotes"
+  description="A full tour of HelloNotes: the native TextKit 2 editor, wiki-links and the graph, search and tags, on-device AI, cloud storage, Git version history, and deep macOS integration."
+  heading="Features"
+  intro="Everything HelloNotes does, grouped by what you are trying to get done."
+>
+  <div class="mx-auto max-w-[1120px] px-6">
+    {
+      sections.map((s, i) => (
+        <section
+          id={s.id}
+          class="scroll-mt-24 border-b border-line py-16 last:border-0"
+        >
+          <div
+            class:list={[
+              'grid items-center gap-10',
+              s.image ? 'lg:grid-cols-2' : 'max-w-[820px]',
+            ]}
+          >
+            <div class:list={[s.image && i % 2 === 1 ? 'lg:order-2' : '']}>
+              <p class="text-sm font-bold tracking-wider text-pink uppercase">{s.eyebrow}</p>
+              <h2 class="mt-2 text-[clamp(24px,3.2vw,32px)] font-extrabold tracking-[-0.02em]">
+                {s.title}
+              </h2>
+              {s.body.map((p) => (
+                <p
+                  class="mt-4 text-[#d7d3e6] [&_code]:rounded [&_code]:bg-white/8 [&_code]:px-1"
+                  set:html={p}
+                />
+              ))}
+              <ul class="mt-5 space-y-2">
+                {s.bullets.map((b) => (
+                  <li class="flex gap-2.5 text-[15px] text-muted">
+                    <span class="text-pink" aria-hidden="true">
+                      ✦
+                    </span>
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {s.image && (
+              <div class:list={[i % 2 === 1 ? 'lg:order-1' : '']}>
+                <Image
+                  src={s.image}
+                  alt={s.alt}
+                  widths={[520, 1040]}
+                  sizes="(max-width: 1024px) 100vw, 50vw"
+                  loading="lazy"
+                  class="rounded-card border border-line shadow-[0_20px_50px_rgba(0,0,0,.45)]"
+                />
+              </div>
+            )}
+          </div>
+        </section>
+      ))
+    }
+  </div>
+
+  <section class="border-t border-line bg-linear-to-b from-bg to-bg2 px-6 py-16 text-center">
+    <h2 class="text-[clamp(24px,3vw,30px)] font-extrabold tracking-[-0.02em]">
+      Ready to try it?
+    </h2>
+    <div class="mt-6 flex flex-wrap justify-center gap-3.5">
+      <a
+        href={href('/download')}
+        class="brand-gradient inline-flex items-center rounded-full px-6 py-3.5 font-bold text-white shadow-[0_10px_30px_rgba(236,72,153,.35)] transition hover:brightness-110"
+      >
+        Download for Mac
+      </a>
+      <a
+        href={href('/manual')}
+        class="inline-flex items-center rounded-full border border-line bg-white/5 px-6 py-3.5 font-bold text-ink transition hover:border-[#4a4360] hover:text-white"
+      >
+        Read the manual
+      </a>
+    </div>
+  </section>
+</PageLayout>

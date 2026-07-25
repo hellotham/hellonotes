@@ -1,0 +1,84 @@
+---
+import ManualLayout from '../../layouts/ManualLayout.astro';
+import { href } from '../../lib/paths';
+---
+
+<ManualLayout slug="git">
+  <h2 id="why">Why Git</h2>
+  <p>
+    Because notes are plain text files, Git gives you a complete, inspectable history of your
+    thinking for free — every version of every note, with the ability to go back. HelloNotes speaks
+    Git directly, so you never need the command line, but everything it creates is a perfectly
+    ordinary repository you can also use elsewhere.
+  </p>
+
+  <h2 id="init">Initialising a repository</h2>
+  <p>
+    The Git panel sits at the bottom of the sidebar. For a collection that is not yet a repository
+    it offers <strong>Initialize Repository</strong>. After that the panel shows the current branch
+    and how many files have changed.
+  </p>
+
+  <h2 id="identity">Setting your identity</h2>
+  <p>
+    Commits need a name and email. Open the gear icon in the Git panel to set them for HelloNotes;
+    if you already have a global Git identity it is used automatically.
+  </p>
+
+  <h2 id="commit">Committing</h2>
+  <ul>
+    <li><strong>Commit</strong> stages everything that changed and records it with a message.</li>
+    <li>
+      <strong>Auto-commit</strong> (a checkbox in the panel) commits quietly in the background a
+      little after you stop editing. It is off by default, and it <strong>never pushes</strong> —
+      publishing is always something you do deliberately.
+    </li>
+  </ul>
+
+  <h2 id="history">Browsing and restoring history</h2>
+  <p>
+    Every note has a <strong>History</strong> view listing the commits that touched it. Select one
+    to read that version, and restore it if you want it back. Restoring writes the old content as a
+    new change, so nothing in the history is lost.
+  </p>
+
+  <h2 id="remote">Syncing with a remote</h2>
+  <p>
+    To back up or sync between machines, connect a remote — GitHub, GitLab, or any Git host.
+  </p>
+  <ol>
+    <li>Open Git settings (the gear in the Git panel) and add an account with a personal access token.</li>
+    <li>Use <strong>Connect Remote</strong>, or <strong>Clone</strong> an existing repository into a new collection.</li>
+    <li><strong>Sync ▸ Push</strong> uploads your commits; <strong>Sync ▸ Fetch</strong> retrieves what is on the remote.</li>
+  </ol>
+  <blockquote>
+    <p>
+      Use an <strong>HTTPS</strong> remote with a personal access token. Tokens are stored in the
+      macOS Keychain. SSH remotes rely on an agent that a sandboxed app cannot reliably reach.
+    </p>
+  </blockquote>
+  <p>
+    Cloning shows a progress indicator and can be stopped with <strong>Stop</strong> if you change
+    your mind or the repository turns out to be larger than expected.
+  </p>
+
+  <h2 id="limits">Current limitations</h2>
+  <ul>
+    <li>
+      <strong>No merge or pull.</strong> HelloNotes can fetch and push, but does not merge diverged
+      histories. If two machines have both committed, reconcile them with a Git client or the
+      command line.
+    </li>
+    <li>
+      <strong>Auto-commit is disabled in cloud folders.</strong> See
+      <a href={href('/manual/cloud')}>Cloud storage</a> for why.
+    </li>
+  </ul>
+
+  <h2 id="tips">Tips</h2>
+  <ul>
+    <li>A private repository is a good backup: complete history, under your control, off your Mac.</li>
+    <li>Add a <code>.gitignore</code> for <code>.DS_Store</code> and any large binaries you would rather not version.</li>
+    <li>Push before switching machines; fetch when you arrive.</li>
+  </ul>
+</ManualLayout>

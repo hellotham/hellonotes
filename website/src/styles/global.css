@@ -54,4 +54,19 @@
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
+
+  /* Body copy wants 1.6; headings inherit it and look airy, especially once
+     they wrap on a phone. Tighten them and keep wrapped lines even. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  /* The mobile menu is a <details> disclosure — no JavaScript. */
+  summary::-webkit-details-marker {
+    display: none;
+  }
 }

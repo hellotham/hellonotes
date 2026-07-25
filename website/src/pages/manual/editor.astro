@@ -1,0 +1,97 @@
+---
+import ManualLayout from '../../layouts/ManualLayout.astro';
+import { href } from '../../lib/paths';
+---
+
+<ManualLayout slug="editor">
+  <h2 id="live">Live Markdown</h2>
+  <p>
+    HelloNotes styles Markdown as you type. Headings grow, emphasis takes effect, lists and task
+    lists gain bullets and checkboxes, tables align — all while the file on disk stays exactly the
+    Markdown you typed. Nothing is rewritten behind your back.
+  </p>
+  <p>
+    Move the caret into a construct and its raw syntax is revealed so you can edit it; move away and
+    it tidies itself again. This is the “caret-driven concealment” you may know from Obsidian or
+    Bear.
+  </p>
+
+  <h2 id="modes">View modes</h2>
+  <table>
+    <thead>
+      <tr><th>Mode</th><th>What it shows</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Edit</strong></td><td>The live editor. This is where you write.</td></tr>
+      <tr><td><strong>Preview</strong></td><td>Read-only, rendered exactly as GitHub would render it.</td></tr>
+      <tr><td><strong>Markdown</strong></td><td>The raw source, unstyled.</td></tr>
+      <tr><td><strong>Split</strong></td><td>Editor and preview side by side.</td></tr>
+    </tbody>
+  </table>
+  <p>
+    The Preview is rendered with <strong>cmark-gfm</strong>, the same engine GitHub uses, so a note
+    that looks right here looks right in a README.
+  </p>
+
+  <h2 id="rich">Code, maths and diagrams</h2>
+  <ul>
+    <li>
+      <strong>Code blocks</strong> are syntax-highlighted by language, using the GitHub theme.
+    </li>
+    <li>
+      <strong>LaTeX maths</strong> renders natively — <code>$inline$</code> and <code>$$display$$</code>.
+    </li>
+    <li>
+      <strong>Mermaid diagrams</strong> in a <code>```mermaid</code> block are drawn inline, natively.
+    </li>
+  </ul>
+  <p>
+    None of these use a browser engine, so they scroll and type as smoothly as plain text.
+  </p>
+
+  <h2 id="callouts">Callouts, comments and properties</h2>
+  <p>
+    Obsidian-style callouts work as you would expect, with icons and collapsible bodies:
+  </p>
+  <pre
+    class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-[#d7d3e6]"><code>&gt; [!note] Worth remembering
+&gt; The body of the callout goes here.</code></pre>
+  <p>
+    Text wrapped in <code>%%double percent signs%%</code> is dimmed as a comment. YAML front matter
+    at the top of a note is hidden from the prose and presented in a typed, editable
+    <strong>Properties</strong> panel — text, number, checkbox, date and list fields, rather than
+    raw YAML.
+  </p>
+
+  <h2 id="finding">Finding and replacing</h2>
+  <p>
+    <kbd>⌘F</kbd> opens the find bar for the current note, with replace and replace-all. To search
+    across the whole collection instead, use the search field above the note list — see
+    <a href={href('/manual/organising')}>Organising notes</a>.
+  </p>
+
+  <h2 id="images">Images and attachments</h2>
+  <p>
+    Paste an image and it is written into your collection as a PNG with a relative Markdown link —
+    by default into an <code>assets</code> folder beside the note, which you can change in Settings.
+    Non-Markdown files in the folder (PDFs, images, CSVs) appear in the tree and open in a native
+    viewer.
+  </p>
+  <p>
+    Pasting rich text from a browser converts it to clean Markdown rather than pasting HTML.
+  </p>
+
+  <h2 id="windows">Tabs, windows and export</h2>
+  <ul>
+    <li>Notes open in tabs along the top of the editor.</li>
+    <li><strong>Open in New Window</strong> puts a note in its own window for side-by-side work.</li>
+    <li><strong>File ▸ Export</strong> writes the current note to HTML or PDF.</li>
+    <li>A note with Marp front matter gains a native slide-deck preview.</li>
+  </ul>
+
+  <h2 id="stats">Statistics and outline</h2>
+  <p>
+    The status bar shows a live word count. The outline popover lists the note’s headings — click
+    one to jump straight to that section — alongside character, paragraph and reading-time figures.
+  </p>
+</ManualLayout>

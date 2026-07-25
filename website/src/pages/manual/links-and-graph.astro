@@ -1,0 +1,91 @@
+---
+import ManualLayout from '../../layouts/ManualLayout.astro';
+import { href } from '../../lib/paths';
+---
+
+<ManualLayout slug="links-and-graph">
+  <h2 id="wiki-links">Wiki-links</h2>
+  <p>
+    Type <code>[[</code> and an autocomplete list of notes appears; keep typing to filter, press
+    <kbd>↩</kbd> to insert. The link is written as plain Markdown text — no hidden identifiers — so
+    the file stays portable.
+  </p>
+  <ul>
+    <li><code>[[Note title]]</code> — link to a note.</li>
+    <li><code>[[Note title#Heading]]</code> — link straight to a section. Headings autocomplete too.</li>
+    <li><code>[[Note title|shown text]]</code> — link with different display text.</li>
+  </ul>
+  <p>
+    Clicking a link opens that note. If the note does not exist yet, HelloNotes offers to create it,
+    so you can write the link first and fill it in later.
+  </p>
+
+  <h2 id="aliases">Aliases</h2>
+  <p>
+    A note can answer to more than one name. Add aliases in the note’s front matter (via the
+    Properties panel or directly):
+  </p>
+  <pre
+    class="my-4 overflow-x-auto rounded-card border border-line bg-card p-4 text-[13px] text-[#d7d3e6]"><code>---
+aliases: [TextKit, TextKit 2]
+---</code></pre>
+  <p>
+    Links, autocomplete, search and unlinked mentions all understand aliases, so
+    <code>[[TextKit]]</code> reaches the note whatever its filename is.
+  </p>
+
+  <h2 id="backlinks">Backlinks, outgoing links and mentions</h2>
+  <p>The references panel beneath a note shows three things:</p>
+  <ul>
+    <li><strong>Backlinks</strong> — notes that link <em>to</em> this one.</li>
+    <li><strong>Outgoing links</strong> — notes this one links to.</li>
+    <li>
+      <strong>Unlinked mentions</strong> — notes that mention this note’s title or an alias in plain
+      text without linking. Each has a <strong>Link</strong> button that converts the mention into a
+      proper wiki-link in one click.
+    </li>
+  </ul>
+  <p>
+    Unlinked mentions are the quiet workhorse: they surface connections you made before you had a
+    note for the idea.
+  </p>
+
+  <h2 id="transclusion">Transclusion</h2>
+  <p>
+    Embed one note inside another with <code>![[Note title]]</code>, or embed a single section with
+    <code>![[Note title#Heading]]</code>. The embedded content renders as an inline card in the
+    editor and stays in sync with the source note — useful for definitions, boilerplate or a
+    running index.
+  </p>
+
+  <h2 id="graph">The graph view</h2>
+  <p>
+    Open <strong>Graph View</strong> from the sidebar to see your collection as a map: each note a
+    node, each link an arrow showing direction.
+  </p>
+  <ul>
+    <li>Click a node to focus it and trace what it connects to.</li>
+    <li>Switch between the whole collection and a few links around one note.</li>
+    <li>Double-click a node to open that note.</li>
+  </ul>
+  <p>
+    The graph opens in its own window, so you can keep it beside the editor while you write.
+  </p>
+
+  <h2 id="mind-map">The mind map</h2>
+  <p>
+    Where the graph maps notes to each other, the <strong>mind map</strong> maps the inside of a
+    single note: headings become branches, bullets become leaves, and linked notes appear as chips
+    you can jump to. It is a quick way to see the shape of a long document.
+  </p>
+
+  <h2 id="tips">Tips</h2>
+  <ul>
+    <li>Link generously while writing; the backlinks panel makes the value visible later.</li>
+    <li>Rename with <strong>Note ▸ Rename…</strong> so links across the collection are rewritten.</li>
+    <li>
+      Use <a href={href('/manual/organising')}>tags</a> for categories and links for relationships —
+      they answer different questions.
+    </li>
+  </ul>
+</ManualLayout>
