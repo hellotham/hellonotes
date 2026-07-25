@@ -159,12 +159,32 @@ HelloNotes/            App sources (synchronised Xcode group)
   ├─ iOSContentView    Layer 4 — iOS/iPadOS adaptive shell
   └─ HelloNotesApp     App entry (main window + auxiliary window scenes)
 Packages/NotesEditor/  Live editor package (MarkdownCore, MarkdownEditor, GFMRender)
+site/                  Marketing site — Astro 7 + Tailwind 4, deployed to GitHub Pages
 Config/                Secrets.example.xcconfig (template); Secrets.xcconfig is git-ignored
 docs/                  PRD, architecture, roadmaps (native + cloud), production, history
 HelloNotesTests/       App unit tests
 SampleVault/           Demo collection used by docs & screenshots
 HelloNotes.xcodeproj/  Project (SPM dependencies, shared scheme)
 ```
+
+## 🌐 Marketing site
+[hellotham.github.io/hellonotes](https://hellotham.github.io/hellonotes/) is built from
+[`site/`](site/) — **Astro 7 + Tailwind 4** (the CSS-first `@tailwindcss/vite` plugin; there is
+no `tailwind.config.js`, the palette lives in an `@theme` block in `src/styles/global.css`).
+
+```bash
+cd site
+npm install
+npm run dev      # local preview
+npm run build    # static output → site/dist
+```
+
+It deploys on every push to `main` that touches `site/`, via
+[`.github/workflows/deploy-site.yml`](.github/workflows/deploy-site.yml) (`withastro/action` →
+`actions/deploy-pages`); nothing is committed to a `gh-pages` branch. The site is a **project
+page**, so `astro.config.mjs` sets `base: '/hellonotes'` — build internal links with the
+`href()` helper in `src/lib/paths.ts` (derived from `import.meta.env.BASE_URL`) rather than
+hard-coding the prefix, or they'll 404.
 
 ## 🤝 Contributing / working rules
 Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 15+ / Swift 5.10+ / Xcode 26; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.
