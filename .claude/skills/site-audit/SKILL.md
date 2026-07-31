@@ -23,7 +23,7 @@ only the live site is wrong, which is what makes them worth automating:
 | Check | The incident |
 |---|---|
 | base prefix | Project page under `/hellonotes`; a bare `href="/privacy"` is someone else's page. Use `href()` from `src/lib/paths.ts`. |
-| broken refs | `og:image` pointed at a file moved one commit earlier — every page's unfurl 404'd while everything validated. |
+| broken refs | the generalisation of the og:image incident below — any href/src/srcset naming a moved or renamed emitted file. |
 | canonicals | First emitted on `github.io` (a redirecting domain), later with `.html` forms after `build.format: 'file'`. |
 | sitemap == canonicals | `@astrojs/sitemap` stripped the home page's trailing slash, advertising a URL that 301s. |
 | og:image resolves | Social crawlers cache by URL; the image must live in `public/` (stable name), never `src/assets/` (content-hashed). |

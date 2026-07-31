@@ -280,17 +280,7 @@ pointing `rel=canonical` at one.
 The endpoint enumerates routes with `import.meta.glob` and applies exactly the
 rule `Layout.astro` uses for the canonical, so the two sets are identical:
 
-```bash
-cd website && npm run build
-python3 - <<'EOF'
-import re, pathlib
-locs = set(re.findall(r"<loc>([^<]+)</loc>", pathlib.Path("dist/sitemap.xml").read_text()))
-canon = {m.group(1) for p in pathlib.Path("dist").rglob("*.html")
-         if (m := re.search(r'<link rel="canonical" href="([^"]+)"', p.read_text()))}
-print("sitemap only:", locs - canon, "| pages only:", canon - locs)
-EOF
-# → both empty
-```
+`audit.py` (the `/site-audit` skill) asserts this equality on every run.
 
 ---
 
@@ -439,14 +429,13 @@ The old `@astrojs/tailwind` integration is **deprecated** — this project uses 
 
 ```bash
 cd website && npm run build
-
-# 1. every root-relative path carries the base
-grep -ohE '(href|src)="/[^"]*"' dist/**/*.html dist/*.html | grep -v '"/hellonotes/'
-
-# 2. canonicals are extensionless and on the custom domain
-grep -h 'rel="canonical"' dist/*.html | head
-
-# 3. no internal link 404s — resolve every href against the emitted files
+python3 .claude/skills/site-audit/audit.py   # from the repo root (any cwd works)
 ```
+
+The audit covers base prefixes, internal ref resolution, canonicals,
+sitemap/canonical agreement, og:image, and JSX whitespace collapse — every
+check is an incident that shipped with a green build. The `/site-audit` skill
+documents the incident behind each check; a PostToolUse hook also runs this
+automatically after edits to website build inputs.
 
 Both URL traps above are invisible at build time; only the live site is wrong.

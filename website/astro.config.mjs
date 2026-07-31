@@ -4,7 +4,9 @@ import { defineConfig } from 'astro/config';
 import tailwindcss from '@tailwindcss/vite';
 
 /** Sub-path this project page is served from. Single source of truth for the
- *  `base` and for redirect targets (which Astro does not base-prefix). */
+ *  `base` and for redirect targets (which Astro does not base-prefix).
+ *  NOTE: .claude/skills/site-audit/audit.py asserts this value independently
+ *  (deliberately, so a misconfigured base fails the audit) — change both. */
 const BASE = '/hellonotes';
 
 // https://astro.build/config

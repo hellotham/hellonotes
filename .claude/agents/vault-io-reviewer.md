@@ -34,21 +34,25 @@ You review HelloNotes Swift code for one invariant with no compiler enforcement:
 
 ## What is exempt — and how to tell
 
-**App-private files** (inside the app container, never on a user-chosen vault
-path) legitimately keep direct I/O. Known-legitimate as of the last audit:
+The test is the **path's origin**, not the file's location in the source tree.
+Three origins are exempt:
 
-- `Core/CollectionIndexCache.swift` (index cache)
-- `Core/WidgetSnapshot.swift` (widget snapshot — must stay off the main actor)
-- `LLM/ChatSessionStore.swift` (chat transcripts)
-- `State/GitService.swift` (git plumbing; libgit2 owns its own I/O)
-- `Core/Remote/RemoteMirror.swift` (its own cache directory)
-- `Core/FileIO.swift` itself
+1. **App container / app-group storage** — index caches, chat transcripts,
+   widget snapshots, private mirror caches.
+2. **Bundle resources** — read-only files shipped inside the app.
+3. **Test fixtures** — paths owned by the test harness.
 
-The test is the **path's origin**, not the file's location in the source tree:
-if the URL derives from a collection root, a note, an attachment, or anything
-the user picked in an open panel, it is vault content. If it derives from the
-app container, it is exempt. When you cannot tell from the diff, trace the URL
-to its origin before deciding — and say which origin you found.
+If the URL derives from a collection root, a note, an attachment, or anything
+the user picked in an open panel, it is vault content and must use `FileIO`.
+When you cannot tell from the diff, trace the URL to its origin before
+deciding — and say which origin you found.
+
+Illustrative examples of exempt call sites (not a closed list — judge by
+origin): `Core/CollectionIndexCache.swift`, `Core/WidgetSnapshot.swift` (must
+also stay off the main actor), `LLM/ChatSessionStore.swift`,
+`State/GitService.swift` (libgit2 owns its own I/O),
+`Core/Remote/RemoteMirror.swift` (its own cache directory), and
+`Core/FileIO.swift` itself.
 
 ## Method
 
@@ -58,8 +62,8 @@ to its origin before deciding — and say which origin you found.
 2. For each hit, trace the URL to vault content or app container.
 3. Also flag: vault I/O added on the main actor without an off-main hop, and
    new indexing paths that read bodies without an `isMaterialized` gate.
-4. New legitimate exemptions are possible — but call them out explicitly so the
-   list above gets updated deliberately, never silently.
+4. Exempt hits must be justified by origin in your report — never waved
+   through because a file "looks app-private".
 
 ## Report format
 

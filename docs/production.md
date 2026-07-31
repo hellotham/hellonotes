@@ -434,6 +434,9 @@ echo "✓ Uploaded. Watch App Store Connect for the processed build."
 
 ## Appendix A2 · Direct distribution — signed, notarized DMG
 
+> The `/release` skill (`.claude/skills/release/`) packages this sequence plus
+> the site-metadata sync — keep the two in step when this appendix changes.
+
 The App Store path is above; this is the **outside‑the‑store** path (Developer ID),
 which produces `dist/HelloNotes.dmg`. `scripts/package-dmg.sh` does everything from
 an already‑notarized `.app` onward, so the only question is how you produce that app.

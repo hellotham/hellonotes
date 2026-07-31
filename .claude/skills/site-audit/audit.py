@@ -1,68 +1,60 @@
 #!/usr/bin/env python3
 """
-Audit the built HelloNotes website (website/dist) for the silent failures this
-project has actually shipped. Every check here corresponds to a real incident
-recorded in docs/website.md or docs/implemented.md §14-16:
+Audit the built HelloNotes website (website/dist) for silent failures: base
+prefixes, internal ref resolution, canonicals, sitemap/canonical agreement,
+og:image resolution, and JSX whitespace collapse.
 
-  1. base-prefix   — a bare href="/privacy" resolves to hellotham.com/privacy,
-                     someone else's page. Every root-relative ref must carry
-                     /hellonotes/.
-  2. broken-refs   — internal href/src/srcset must resolve to an emitted file
-                     (GitHub Pages resolves <path>.html before <path>/index.html,
-                     so both forms count as existing).
-  3. canonicals    — extensionless, on the custom domain. github.io merely 301s;
-                     a canonical must name the final URL.
-  4. sitemap       — sitemap.xml URLs must EQUAL the set of page canonicals.
-                     (@astrojs/sitemap emitted a redirecting URL; the hand-rolled
-                     endpoint exists so these can't diverge — verify anyway.)
-  5. og-image      — present on every page and pointing at a file that exists.
-                     Once 404'd on every page after the image moved out of
-                     public/ (hashed asset names change on re-export).
-  6. whitespace    — Astro applies JSX whitespace rules inside any element with
-                     an expression, collapsing "published by\n<a>" to
-                     "published byHello Tham". 28 of these shipped. Checked in
-                     both directions (word<tag and tag>word).
+Each check corresponds to a shipped incident — the catalogue with the incident
+behind every check lives in SKILL.md next to this file; deep background in
+docs/website.md and docs/implemented.md §14-16.
 
-Exit code 0 = clean, 1 = failures (each printed with file and detail).
-Run from the repo root: python3 .claude/skills/site-audit/audit.py
+Runs from any cwd (paths are anchored to this file's repo). Exit 0 = clean,
+exit 1 = failures, one line each.
 """
 
 import re
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[3]
+DIST = ROOT / "website" / "dist"
 BASE = "/hellonotes/"
+# Deliberately hard-coded rather than read from astro.config.mjs: an audit that
+# derives its expectation from the config would validate a misconfigured base.
 SITE = "https://hellotham.com"
-DIST = Path("website/dist")
 
 INLINE_TAGS = r"(?:a|span|code|strong|em|kbd)"
 
 
-def fail_list():
+def run_audit():
+    """Return (failures, pages_checked)."""
     failures = []
 
     if not DIST.is_dir():
-        return ["website/dist missing — run `npm run build` in website/ first"]
+        return ["website/dist missing — run `npm run build` in website/ first"], 0
 
-    pages = {p: p.read_text() for p in DIST.rglob("*.html")}
-
-    # Everything that exists, addressed every way GitHub Pages will serve it.
+    # One traversal: collect page paths and every servable address. GitHub
+    # Pages resolves <path>.html before <path>/index.html, so both forms exist.
+    pages = []
     existing = set()
     for p in DIST.rglob("*"):
-        if p.is_file():
-            rel = BASE + str(p.relative_to(DIST))
-            existing.add(rel)
-            if rel.endswith("/index.html"):
-                existing.add(rel[: -len("index.html")])
-            if rel.endswith(".html"):
-                existing.add(rel[: -len(".html")])
+        if not p.is_file():
+            continue
+        rel = BASE + str(p.relative_to(DIST))
+        existing.add(rel)
+        if rel.endswith("/index.html"):
+            existing.add(rel[: -len("index.html")])
+        if rel.endswith(".html"):
+            existing.add(rel[: -len(".html")])
+            pages.append(p)
 
     canonicals = set()
 
-    for page, html in sorted(pages.items()):
+    for page in sorted(pages):
+        html = page.read_text()
         name = str(page.relative_to(DIST))
 
-        # -- 1 & 2: reference resolution ------------------------------------
+        # Base prefix + internal ref resolution.
         refs = re.findall(r'(?:href|src)="([^"]+)"', html)
         for srcset in re.findall(r'srcset="([^"]+)"', html):
             refs += [c.strip().split(" ")[0] for c in srcset.split(",")]
@@ -74,7 +66,7 @@ def fail_list():
             elif u.split("#")[0] not in existing:
                 failures.append(f"{name}: broken internal ref → {u}")
 
-        # -- 3: canonical ---------------------------------------------------
+        # Canonical: extensionless, on the custom domain.
         m = re.search(r'<link rel="canonical" href="([^"]+)"', html)
         if not m:
             failures.append(f"{name}: no rel=canonical")
@@ -86,23 +78,21 @@ def fail_list():
             if c.endswith(".html"):
                 failures.append(f"{name}: canonical carries .html → {c}")
 
-        # -- 5: og:image ----------------------------------------------------
+        # og:image present and resolving.
         m = re.search(r'property="og:image" content="([^"]+)"', html)
         if not m:
             failures.append(f"{name}: no og:image")
-        else:
-            path = m.group(1).removeprefix(SITE)
-            if path.split("#")[0] not in existing:
-                failures.append(f"{name}: og:image does not resolve → {m.group(1)}")
+        elif m.group(1).removeprefix(SITE) not in existing:
+            failures.append(f"{name}: og:image does not resolve → {m.group(1)}")
 
-        # -- 6: whitespace collapses ----------------------------------------
+        # JSX whitespace collapse, both directions.
         body = html.split("<body", 1)[-1]
-        for m in re.finditer(rf"([a-z]{{2,}})<{INLINE_TAGS}\b[^>]*>", body):
+        for m in re.finditer(rf"[a-z]{{2,}}<{INLINE_TAGS}\b[^>]*>", body):
             failures.append(f"{name}: space collapsed before tag → …{m.group(0)[:40]}")
-        for m in re.finditer(rf"[a-z]{{3,}}</{INLINE_TAGS}>([a-z]{{2,}})", body):
+        for m in re.finditer(rf"[a-z]{{3,}}</{INLINE_TAGS}>[a-z]{{2,}}", body):
             failures.append(f"{name}: space collapsed after tag → …{m.group(0)[:40]}")
 
-    # -- 4: sitemap == canonicals -------------------------------------------
+    # Sitemap URLs must equal the set of page canonicals.
     sitemap = DIST / "sitemap.xml"
     if not sitemap.exists():
         failures.append("sitemap.xml missing from dist")
@@ -113,17 +103,16 @@ def fail_list():
         for missing in sorted(canonicals - locs):
             failures.append(f"sitemap.xml: page canonical absent → {missing}")
 
-    return failures
+    return failures, len(pages)
 
 
 def main():
-    failures = fail_list()
+    failures, n_pages = run_audit()
     if failures:
         print(f"✗ {len(failures)} failure(s):")
         for f in failures:
             print(f"  {f}")
         sys.exit(1)
-    n_pages = len(list(DIST.rglob("*.html")))
     print(f"✓ site audit clean — {n_pages} pages checked (refs, canonicals, sitemap, og:image, whitespace)")
 
 

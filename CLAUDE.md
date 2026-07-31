@@ -20,7 +20,7 @@
 - Docs: shipped work → `docs/implemented.md`; backlog only → `docs/unimplemented.md`.
 
 # Commands
-- Build (macOS): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes build`
+- Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification.
 - Editor tests: `swift test --package-path Packages/NotesEditor`
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
 - Release/DMG: use the `/release` skill (`docs/production.md` Appendix A2 is authoritative).
