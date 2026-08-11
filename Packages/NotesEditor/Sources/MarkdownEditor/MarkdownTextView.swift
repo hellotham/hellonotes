@@ -45,6 +45,19 @@ public final class EditorProxy {
         textView?.reliablyScroll(to: range)
     }
 
+    /// Restore the insertion point after an in-place buffer replacement
+    /// (external reload). Clamps to the new length and deliberately does NOT
+    /// autoscroll, so a reload triggered by another editor keeps this view's
+    /// scroll position. Also syncs the document's caret-reveal state.
+    public func setSelection(_ range: NSRange) {
+        guard let tv = textView else { return }
+        let len = (tv.string as NSString).length
+        let loc = min(max(0, range.location), len)
+        let clamped = NSRange(location: loc, length: min(max(0, range.length), len - loc))
+        tv.setSelectedRange(clamped)
+        tv.document?.selectionDidChange(clamped)
+    }
+
     /// Wrap an AI-driven mutation so the document pauses its styling while
     /// the transform streams in, then restyles once at the end.
     public func performAITransform(_ body: (EditorProxy) -> Void) {
@@ -103,6 +116,14 @@ public final class MarkdownTextView: NSTextView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
+        // Leave `automaticallyAdjustsContentInsets` at its default (true).
+        // A SwiftUI window with a toolbar uses `.fullSizeContentView`, so this
+        // scroll view extends UP UNDER the toolbar; the automatic content
+        // inset is what compensates, and it makes the minimum scroll offset
+        // NEGATIVE (-toolbarHeight) so document y=0 can sit below the toolbar.
+        // Disabling it leaves the first ~66pt of the note rendered under the
+        // toolbar with no way to scroll to it. Verified in a clean-room
+        // harness: scratchpad/EditorProbe.swift, stages 7 vs 8.
         scrollView.documentView = textView
 
         // Progressive styling: as content scrolls into view, make sure its
@@ -169,6 +190,14 @@ public final class MarkdownTextView: NSTextView {
             contentStorage.textStorage = document.storage
         }
         syncRenderMetrics()
+        // Diagnostics: report geometry once layout has settled. Note-open path
+        // only, and only when HN_GEOM_LOG asked for it — so an ordinary run
+        // doesn't even schedule the work.
+        if Self.geomLoggingEnabled {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.dumpGeometry("bind")
+            }
+        }
     }
 
     /// Feed the document the current usable width + appearance for sizing
@@ -184,6 +213,111 @@ public final class MarkdownTextView: NSTextView {
     public override func layout() {
         super.layout()
         syncRenderMetrics()
+    }
+
+    /// Layout diagnostics, off unless deliberately switched on:
+    ///
+    ///     HN_GEOM_LOG=1 scripts/relaunch-debug.sh
+    ///     cat ~/Library/Containers/com.hellotham.HelloNotes/Data/Library/Caches/hn-geom.log
+    ///
+    /// A plain file rather than `os_log` — readable from a terminal with `cat`,
+    /// with none of the unified log's level/predicate fragility, and with no
+    /// need to look at the screen. Debug builds only, and gated, so a shipped
+    /// build neither writes the file nor pays for the geometry walk.
+    private static let geomLoggingEnabled: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["HN_GEOM_LOG"] != nil
+        #else
+        return false
+        #endif
+    }()
+
+    private static let geomLogURL: URL? = {
+        (try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+                                      appropriateFor: nil, create: true))?
+            .appendingPathComponent("hn-geom.log")
+    }()
+
+    /// Throttle so scroll/layout-driven dumps stay off the hot path.
+    private var lastGeomDump = Date.distantPast
+
+    /// Append the editor's scroll/layout geometry to the probe file. Never on
+    /// the typing path, and a no-op unless `HN_GEOM_LOG` is set.
+    func dumpGeometry(_ tag: String, throttle: Bool = false) {
+        guard Self.geomLoggingEnabled else { return }
+        let now = Date()
+        if throttle, now.timeIntervalSince(lastGeomDump) < 0.2 { return }
+        lastGeomDump = now
+
+        let sv = enclosingScrollView
+        let insets = sv?.contentInsets ?? NSEdgeInsetsZero
+        let autoInsets = sv?.automaticallyAdjustsContentInsets ?? false
+        let visible = sv?.documentVisibleRect ?? .zero
+        let clipBounds = sv?.contentView.bounds ?? .zero
+
+        // The Y of the first laid-out fragment — if this is negative, or below 0
+        // while the clip can't reach it, the document top is offscreen.
+        var firstFragTop = CGFloat.nan
+        var usage = CGRect.zero
+        if let tlm = textLayoutManager {
+            usage = tlm.usageBoundsForTextContainer
+            tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location,
+                                              options: [.ensuresLayout]) { frag in
+                firstFragTop = frag.layoutFragmentFrame.origin.y
+                return false   // first only
+            }
+        }
+
+        // Window-relative geometry: is the scroll view's top ABOVE the window's
+        // content layout rect (i.e. extending up under the titlebar/toolbar, so
+        // content at scroll y=0 is hidden behind it)?
+        let winFrame = window?.frame ?? .zero
+        let contentLayout = window?.contentLayoutRect ?? .zero
+        let svInWindow = sv.map { $0.convert($0.bounds, to: nil) } ?? .zero
+        // Caret rect (first selection) in view coords, if any.
+        var caretRect = CGRect.zero
+        if let tlm = textLayoutManager, let sel = tlm.textSelections.first?.textRanges.first {
+            tlm.enumerateTextSegments(in: sel, type: .selection, options: []) { _, rect, _, _ in
+                caretRect = rect; return false
+            }
+        }
+        let head = (self.textStorage?.string.prefix(28)).map { String($0).replacingOccurrences(of: "\n", with: "⏎") } ?? ""
+
+        let line = "[\(tag)] autoInsets=\(autoInsets) "
+            + "contentInsets.top=\(String(format: "%.1f", insets.top)) "
+            + "tvFrame=\(NSStringFromRect(self.frame)) "
+            + "tcInset.h=\(String(format: "%.1f", self.textContainerInset.height)) "
+            + "firstFragTop=\(String(format: "%.1f", firstFragTop)) "
+            + "caret=\(NSStringFromRect(caretRect)) "
+            + "usage=\(NSStringFromRect(usage)) "
+            + "docVisible=\(NSStringFromRect(visible)) "
+            + "clipBounds=\(NSStringFromRect(clipBounds)) "
+            + "svInWindow=\(NSStringFromRect(svInWindow)) "
+            + "contentLayoutRect=\(NSStringFromRect(contentLayout)) "
+            + "winH=\(String(format: "%.0f", winFrame.height)) "
+            + "head=\"\(head)\" "
+            + "len=\(self.textStorage?.length ?? -1)"
+
+        // Walk UP from the scroll view to the window's content view, printing
+        // each ancestor's height. Whichever ancestor is taller than the
+        // window's content area is the one proposing the oversized height.
+        var chain = "\n  ancestors (bottom-up):"
+        var node: NSView? = sv
+        var depth = 0
+        while let v = node, depth < 14 {
+            chain += "\n    \(depth): \(type(of: v)) h=\(String(format: "%.1f", v.frame.height))"
+                + " y=\(String(format: "%.1f", v.frame.origin.y))"
+            node = v.superview
+            depth += 1
+        }
+
+        guard let url = Self.geomLogURL,
+              let data = (line + chain + "\n").data(using: .utf8) else { return }
+        if let fh = try? FileHandle(forWritingTo: url) {
+            fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+        } else {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     // MARK: - Accessibility: VoiceOver headings rotor
@@ -408,6 +542,25 @@ public struct MarkdownEditorView: NSViewRepresentable {
 
     public init(document: EditorDocument) {
         self.document = document
+    }
+
+    /// Take exactly the space offered — never advertise an ideal size.
+    ///
+    /// Without this, SwiftUI sizes the representable from the scroll view's
+    /// `fittingSize`, which derives from its document view: the WHOLE note
+    /// (measured at 3433pt for a 76-line note). That ideal height propagates
+    /// up — detail column 1477.5pt, `NSSplitView` 1477.5pt — so the entire
+    /// `NavigationSplitView` became taller than the 923pt window and was
+    /// offset to y = -251. The top of every note was laid out *above* the
+    /// window and no scrolling could reach it.
+    ///
+    /// A scroll view must never report its content's height as its ideal size;
+    /// it is by definition a viewport onto content larger than itself. Never
+    /// return nil here: that falls back to `fittingSize` and re-arms the bug.
+    public func sizeThatFits(_ proposal: ProposedViewSize,
+                             nsView: NSScrollView,
+                             context: Context) -> CGSize? {
+        viewportSizeThatFits(proposal)
     }
 
     public func editable(_ flag: Bool) -> Self {

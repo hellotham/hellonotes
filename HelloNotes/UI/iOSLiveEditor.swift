@@ -44,6 +44,8 @@ struct iOSLiveEditor: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // S3: the editor fills whatever the detail column offers.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: taskKey) {
             let built = await EditorDocument.make(
                 text: editor.text,

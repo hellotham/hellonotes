@@ -358,6 +358,10 @@ struct iOSContentView: View {
                     preview(note)
                 }
             }
+            // S3: the detail column is a viewport, whatever mode it is in.
+            // Without the clamp the editor's or preview's ideal height sizes
+            // the column, and the split view follows it past the screen.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(note.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -13,6 +13,7 @@
 
 #if os(macOS)
 import SwiftUI
+import MarkdownEditor
 import AppKit
 
 // MARK: - Item model
@@ -140,6 +141,13 @@ struct NoteOutlineList: NSViewRepresentable {
         coord.refreshAccent()
         coord.applySelection(selection)
     }
+
+    /// Viewport sizing (S1). This one matters as much as the editor: an
+    /// outline of a 2,000-note vault has a fitting height of tens of
+    /// thousands of points, and `NSSplitView` sizes itself to its TALLEST
+    /// column — so without this the note list alone inflates the whole shell.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView,
+                      context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
 
     // MARK: - Coordinator
 

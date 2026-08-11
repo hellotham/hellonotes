@@ -255,6 +255,12 @@ struct NoteEditorView: View {
                     Divider()
                     bottomBar
                 }
+                // S3: content expands, chrome stays fixed. The mode content
+                // (editor, GFM preview, split) is a viewport; the banners and
+                // bottom bar are definite-height chrome. Without this clamp the
+                // VStack adopts the largest child's ideal height and pushes the
+                // whole column past its window.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .navigationTitle(editor.note?.title ?? "")
                 .task(id: editor.note?.fileURL) {
                     properties = FrontMatter.properties(in: editor.text)

@@ -43,6 +43,9 @@ struct GFMWebView: NSViewRepresentable {
     let baseURL: URL?
     func makeNSView(context: Context) -> WKWebView { Self.makeWebView() }
     func updateNSView(_ web: WKWebView, context: Context) { Self.load(web, html, baseURL) }
+    // Viewport sizing — docs/layout-architecture.md S1.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: WKWebView,
+                      context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
 }
 #else
 struct GFMWebView: UIViewRepresentable {
@@ -50,6 +53,9 @@ struct GFMWebView: UIViewRepresentable {
     let baseURL: URL?
     func makeUIView(context: Context) -> WKWebView { Self.makeWebView() }
     func updateUIView(_ web: WKWebView, context: Context) { Self.load(web, html, baseURL) }
+    // Viewport sizing — docs/layout-architecture.md S1.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView,
+                      context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
 }
 #endif
 

@@ -12,6 +12,7 @@
 
 #if os(macOS)
 import SwiftUI
+import MarkdownEditor
 import AppKit
 import PDFKit
 import QuickLookUI
@@ -74,6 +75,9 @@ private struct PDFKitView: NSViewRepresentable {
     func updateNSView(_ view: PDFView, context: Context) {
         if view.document?.documentURL != url { view.document = PDFDocument(url: url) }
     }
+    // Viewport sizing (S1): take what we're offered, never the PDF's own size.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: PDFView,
+                      context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
 }
 
 // MARK: - QuickLook (images, SVG, and anything else)
@@ -89,6 +93,9 @@ private struct QuickLookView: NSViewRepresentable {
     func updateNSView(_ view: QLPreviewView, context: Context) {
         if (view.previewItem as? NSURL) as URL? != url { view.previewItem = url as NSURL }
     }
+    // Viewport sizing (S1): take what we're offered, never the file's natural size.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: QLPreviewView,
+                      context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
 }
 
 // MARK: - CSV / TSV

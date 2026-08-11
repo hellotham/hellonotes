@@ -297,6 +297,11 @@ struct MacContentView: View {
         // A floor under the three-column layout, so the editor's status bar
         // and note list never collapse into vertical text wrapping.
         .frame(minWidth: 860, minHeight: 480)
+        // S2 (docs/layout-architecture.md): a minimum is a floor, not a
+        // ceiling. Without a maximum, any column child with a large ideal size
+        // (note list, editor, file viewer) inflates the split view past the
+        // window and offsets it off-screen.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             if !Self.didShowSplash {
                 Self.didShowSplash = true
@@ -871,6 +876,9 @@ struct MacContentView: View {
 
     @ViewBuilder
     private var editorColumn: some View {
+        // S3: content expands, chrome stays fixed. Without the clamp this
+        // VStack adopts the ideal height of whichever child is largest
+        // (editor, file viewer) and pushes it up into the split view.
         VStack(spacing: 0) {
             if tabs.openNotes.count > 1 {
                 EditorTabBar(
@@ -915,6 +923,7 @@ struct MacContentView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Bottom status bar shown when a collection is open but no note is selected.

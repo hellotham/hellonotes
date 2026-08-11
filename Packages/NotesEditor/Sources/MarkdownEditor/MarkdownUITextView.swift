@@ -222,6 +222,16 @@ public struct MarkdownEditorView: UIViewRepresentable {
 
     public init(document: EditorDocument) { self.document = document }
 
+    /// Take exactly the space offered — never the note's own height (S1).
+    /// Returning nil here falls back to the text view's content size, which
+    /// propagates up as an ideal and inflates every ancestor. See
+    /// `viewportSizeThatFits` and docs/layout-architecture.md.
+    public func sizeThatFits(_ proposal: ProposedViewSize,
+                             uiView: MarkdownUITextView,
+                             context: Context) -> CGSize? {
+        viewportSizeThatFits(proposal)
+    }
+
     public func editable(_ flag: Bool) -> Self {
         var copy = self; copy.isEditable = flag; return copy
     }

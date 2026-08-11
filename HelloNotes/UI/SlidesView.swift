@@ -11,6 +11,7 @@
 
 #if os(macOS)
 import SwiftUI
+import MarkdownEditor
 import WebKit
 
 struct SlidesView: View {
@@ -116,5 +117,8 @@ private struct SlideWebView: NSViewRepresentable {
     func updateNSView(_ view: WKWebView, context: Context) {
         view.loadHTMLString(html, baseURL: baseURL)
     }
+    // Viewport sizing (S1): take what we're offered, never the deck's size.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: WKWebView,
+                      context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
 }
 #endif
