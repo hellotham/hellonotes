@@ -19,6 +19,20 @@
 import SwiftUI
 import MarkdownEditor
 
+/// Where the caret should land when it crosses the title/body seam, and a token
+/// so the same destination twice in a row still fires.
+///
+/// `x` is a distance in points from the first glyph — not a character index —
+/// because the title and the body are set in different fonts, so only a distance
+/// means the same thing on both sides. `nil` means there is no column to keep.
+struct CaretHandoff: Equatable {
+    var token: Int = 0
+    var x: CGFloat?
+
+    /// The next request for the same seam, carrying a new destination.
+    func next(x: CGFloat?) -> CaretHandoff { CaretHandoff(token: token &+ 1, x: x) }
+}
+
 struct InlineNoteTitle: View {
     /// The current title (filename without extension).
     let title: String
@@ -33,7 +47,7 @@ struct InlineNoteTitle: View {
     /// still fires.
     /// Defaulted because only the Mac hands the caret back up: the iOS editor
     /// exposes no `EditorProxy`, so there is nothing there to arrow up *from*.
-    var focusRequest: Int = 0
+    var focusRequest: CaretHandoff = .init()
 
     @State private var draft = ""
 
@@ -60,8 +74,10 @@ struct InlineNoteTitle: View {
             text: $draft,
             font: theme.headingFont(level: 1),
             onCommit: { commit(from: $0) },
-            onEnterBody: {
-                NotificationCenter.default.post(name: .hnEditorFocusStart, object: nil)
+            onEnterBody: { x in
+                NotificationCenter.default.post(
+                    name: .hnEditorFocusStart, object: nil,
+                    userInfo: x.map { ["x": $0] })
             },
             focusRequest: focusRequest
         )

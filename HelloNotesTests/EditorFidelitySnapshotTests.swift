@@ -198,13 +198,10 @@ final class EditorFidelitySnapshotTests: XCTestCase {
         for (dark, wantKeyword) in [(false, NSColor(srgbRed: 0xd7/255, green: 0x3a/255, blue: 0x49/255, alpha: 1)),
                                     (true,  NSColor(srgbRed: 0xff/255, green: 0x7b/255, blue: 0x72/255, alpha: 1))] {
             let adapter = CodeHighlighterAdapter(darkMode: dark)
-            let highlighted = await adapter.highlight(code, language: "swift")
-            let styled = try XCTUnwrap(highlighted, "swift code should highlight")
-            // Find the colour applied to the "struct" keyword (offset 0).
-            var kwColor: NSColor?
-            styled.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: 6)) { v, _, _ in
-                if let c = v as? NSColor { kwColor = c }
-            }
+            let runs = await adapter.highlight(code, language: "swift")
+            XCTAssertFalse(runs.isEmpty, "swift code should highlight")
+            // The colour applied to the "struct" keyword (offset 0).
+            let kwColor = runs.first { NSLocationInRange(0, $0.range) }?.color
             let got = try XCTUnwrap(kwColor, "keyword should be coloured").usingColorSpace(.sRGB)!
             let want = wantKeyword.usingColorSpace(.sRGB)!
             XCTAssertEqual(got.redComponent,   want.redComponent,   accuracy: 0.02, "\(dark ? "dark" : "light") keyword red")
@@ -212,6 +209,14 @@ final class EditorFidelitySnapshotTests: XCTestCase {
             XCTAssertEqual(got.blueComponent,  want.blueComponent,  accuracy: 0.02, "\(dark ? "dark" : "light") keyword blue")
 
             // Render the highlighted code to a PNG for visual confirmation.
+            // The adapter hands back colour runs now, not a styled string, so
+            // the snapshot rebuilds one — which also proves the runs are enough
+            // to reconstruct what the editor draws.
+            let styled = NSMutableAttributedString(
+                string: code, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)])
+            for run in runs where NSMaxRange(run.range) <= styled.length {
+                styled.addAttribute(.foregroundColor, value: run.color, range: run.range)
+            }
             let inset: CGFloat = 12
             let size = styled.size()
             let image = NSImage(size: NSSize(width: size.width + inset * 2, height: size.height + inset * 2))

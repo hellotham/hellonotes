@@ -154,6 +154,8 @@ struct iOSContentView: View {
             )
         }
         .task {
+            // Not under a test host — see TestEnvironment.
+            guard !TestEnvironment.isRunningTests else { return }
             if library.isEmpty {
                 await library.restore()
                 if library.isEmpty && !hasSeenWelcome { pendingWelcome = true }

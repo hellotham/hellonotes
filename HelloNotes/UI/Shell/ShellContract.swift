@@ -37,7 +37,12 @@ enum ShellMetrics {
 
     static let listFloor: CGFloat = 220
     static let listIdeal: CGFloat = 280
-    static let listCap: CGFloat = 400
+    /// Capped close to the ideal, not at a comfortable maximum. `NSSplitView`
+    /// hands slack to whichever column can still grow, and once the library
+    /// column became a fixed 64pt rail the note list was the only taker — so
+    /// the ~156pt the rail freed went into the *list*, which had just been made
+    /// the least interesting column on screen. The width belongs to the editor.
+    static let listCap: CGFloat = 340
 
     static let inspectorFloor: CGFloat = 220
     static let inspectorIdeal: CGFloat = 280

@@ -17,6 +17,18 @@ public enum EditorLinkTap {
     case url(URL)
 }
 
+/// How the caret left the top of the text, and therefore where it should land
+/// in the chrome above it.
+public enum CaretEscape: Equatable, Sendable {
+    /// Arrowed up off the first line: keep the column. `x` is measured in points
+    /// from the text's left edge, not the view's, so it survives the different
+    /// inset and different font on the other side of the seam.
+    case vertical(x: CGFloat)
+    /// Walked backwards off character zero (← or ⌃B): there is no column to
+    /// keep, so land at the very end of what is above.
+    case backward
+}
+
 #if canImport(AppKit)
 import AppKit
 import SwiftUI
@@ -45,20 +57,30 @@ public final class EditorProxy {
         textView?.reliablyScroll(to: range)
     }
 
-    /// Make the editor first responder with the caret at the very start.
+    /// Make the editor first responder with the caret on the **first line**, at
+    /// the horizontal offset `x` (points from the text's left edge).
+    ///
     /// Used when the caret arrives from chrome *above* the text — the inline
-    /// note title — so the two read as one continuous flow.
-    public func focusStart() {
+    /// note title — so the two read as one continuous flow. Arrowing down a
+    /// column is supposed to keep your place in that column: landing at the
+    /// start of the line instead is the thing AppKit spends real effort not
+    /// doing within a single text view, and the seam must not undo it.
+    public func focusFirstLine(atX x: CGFloat) {
         guard let tv = textView else { return }
         tv.window?.makeFirstResponder(tv)
-        tv.setSelectedRange(NSRange(location: 0, length: 0))
-        tv.document?.selectionDidChange(NSRange(location: 0, length: 0))
-        tv.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        let location = tv.offsetOnFirstLine(nearestTo: x)
+        tv.setSelectedRange(NSRange(location: location, length: 0))
+        tv.document?.selectionDidChange(NSRange(location: location, length: 0))
+        tv.scrollRangeToVisible(NSRange(location: location, length: 0))
         // Without this the view is first responder but draws no insertion
         // point: AppKit only restarts the blink timer for focus changes it
         // made itself, so a programmatic handover leaves an invisible caret.
         tv.updateInsertionPointStateAndRestartTimer(true)
     }
+
+    /// The caret arrived from above with no column to honour (it walked
+    /// backwards off the start of the title, rather than arrowing down).
+    public func focusStart() { focusFirstLine(atX: 0) }
 
     /// Restore the insertion point after an in-place buffer replacement
     /// (external reload). Clamps to the new length and deliberately does NOT
@@ -168,31 +190,99 @@ public final class MarkdownTextView: NSTextView {
 
     // MARK: - Caret escaping upward
 
-    /// Called when the caret is at the very start and the user keeps going up
-    /// or left. The host puts focus on whatever sits above the text — the
-    /// inline note title — so arrowing between them feels like one document
-    /// even though the title lives in the filename, not the file.
-    var onCaretEscapeTop: (() -> Void)?
+    /// Called when the caret leaves the top of the text. The host puts focus on
+    /// whatever sits above — the inline note title — so arrowing between them
+    /// feels like one document even though the title lives in the filename,
+    /// not the file.
+    var onCaretEscapeTop: ((CaretEscape) -> Void)?
 
     private var caretIsAtStart: Bool {
         selectedRange().location == 0 && selectedRange().length == 0
     }
 
     public override func moveUp(_ sender: Any?) {
-        // Only intercept on the first line; anywhere else this is ordinary
-        // caret movement and must behave exactly as AppKit intends.
-        if caretIsAtStart, let escape = onCaretEscapeTop { escape(); return }
+        // Anywhere but the first line this is ordinary caret movement and must
+        // behave exactly as AppKit intends. On the first line there is nothing
+        // above *in the text*, so the title is what "up" means — and it must
+        // arrive there in the same column, which is the whole point of arrowing
+        // up rather than clicking.
+        if selectedRange().length == 0, caretIsOnFirstLine, let escape = onCaretEscapeTop {
+            escape(.vertical(x: caretXOffset))
+            return
+        }
         super.moveUp(sender)
     }
 
     public override func moveLeft(_ sender: Any?) {
-        if caretIsAtStart, let escape = onCaretEscapeTop { escape(); return }
+        if caretIsAtStart, let escape = onCaretEscapeTop { escape(.backward); return }
         super.moveLeft(sender)
     }
 
     public override func moveBackward(_ sender: Any?) {
-        if caretIsAtStart, let escape = onCaretEscapeTop { escape(); return }
+        if caretIsAtStart, let escape = onCaretEscapeTop { escape(.backward); return }
         super.moveBackward(sender)
+    }
+
+    // MARK: - Where the caret is, horizontally
+
+    /// The caret's x offset from the **text's** left edge (not the view's), so
+    /// it means the same thing to a different view with a different inset and a
+    /// different font — which is exactly what the title is.
+    var caretXOffset: CGFloat {
+        guard let frame = segmentFrame(at: selectedRange().location) else { return 0 }
+        // Measured from the first glyph, not the container edge: both sides of
+        // the seam have their own line-fragment padding, and only the distance
+        // into the *text* means the same thing to both.
+        return max(0, frame.minX - (textContainer?.lineFragmentPadding ?? 0))
+    }
+
+    /// True when the caret sits on the first *visual* line — a soft-wrapped
+    /// first paragraph still has real lines above the caret, and moving up
+    /// through them is AppKit's job, not ours.
+    private var caretIsOnFirstLine: Bool {
+        guard let here = segmentFrame(at: selectedRange().location),
+              let first = segmentFrame(at: 0) else { return caretIsAtStart }
+        return abs(here.minY - first.minY) < 0.5
+    }
+
+    /// The caret rect for `location`, in text-container coordinates.
+    private func segmentFrame(at location: Int) -> CGRect? {
+        guard let tlm = textLayoutManager,
+              let content = tlm.textContentManager,
+              let start = content.location(content.documentRange.location, offsetBy: location)
+        else { return nil }
+        var rect: CGRect?
+        tlm.enumerateTextSegments(in: NSTextRange(location: start), type: .selection,
+                                  options: [.rangeNotRequired]) { _, frame, _, _ in
+            rect = frame
+            return false
+        }
+        return rect
+    }
+
+    /// The character offset on the first line closest to `x` (measured from the
+    /// text's left edge). Ask the layout for the position rather than counting
+    /// characters: the title is set in the document's H1 and the body is not, so
+    /// a column is a distance, never a character count.
+    func offsetOnFirstLine(nearestTo x: CGFloat) -> Int {
+        guard x > 0, let firstLine = segmentFrame(at: 0) else { return 0 }
+        let origin = textContainerOrigin
+        let padding = textContainer?.lineFragmentPadding ?? 0
+        let point = CGPoint(x: x + padding + origin.x, y: firstLine.midY + origin.y)
+        let offset = characterIndexForInsertion(at: point)
+        // Never past the first line: a first line shorter than the title must
+        // not drop the caret into the second one.
+        let end = firstLineEndOffset
+        guard offset <= end else { return end }
+        return offset
+    }
+
+    /// The offset just before the first line break (or the end of a one-line
+    /// document).
+    private var firstLineEndOffset: Int {
+        let text = string as NSString
+        let newline = text.range(of: "\n")
+        return newline.location == NSNotFound ? text.length : newline.location
     }
 
     // MARK: - Wrap guide
@@ -621,7 +711,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var busDocumentId: String?
     private var editorProxy: EditorProxy?
     private var wrapGuideColumns = 0
-    private var onCaretEscapeTopHandler: (() -> Void)?
+    private var onCaretEscapeTopHandler: ((CaretEscape) -> Void)?
 
     public init(document: EditorDocument) {
         self.document = document
@@ -657,7 +747,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     }
 
     /// Called when the caret leaves through the top of the document.
-    public func onCaretEscapeTop(_ handler: @escaping () -> Void) -> Self {
+    public func onCaretEscapeTop(_ handler: @escaping (CaretEscape) -> Void) -> Self {
         var copy = self; copy.onCaretEscapeTopHandler = handler; return copy
     }
 

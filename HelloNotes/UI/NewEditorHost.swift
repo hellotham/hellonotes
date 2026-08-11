@@ -72,9 +72,16 @@ struct NewEditorHost: View {
                     .wrapGuide(isEditable ? wrapGuide : 0)
                     // Arrowing up off the first line hands the caret to the
                     // inline title, so title and body read as one flow even
-                    // though the title lives in the filename, not the file.
-                    .onCaretEscapeTop {
-                        NotificationCenter.default.post(name: .hnEditorCaretEscapedTop, object: nil)
+                    // though the title lives in the filename, not the file —
+                    // carrying the column, so "up" keeps your place in it.
+                    .onCaretEscapeTop { escape in
+                        let userInfo: [String: CGFloat]?
+                        switch escape {
+                        case .vertical(let x): userInfo = ["x": x]
+                        case .backward:        userInfo = nil
+                        }
+                        NotificationCenter.default.post(
+                            name: .hnEditorCaretEscapedTop, object: nil, userInfo: userInfo)
                     }
                     .commandBus(documentId: editor.note?.fileURL.path ?? "default")
                     .proxy(proxy)
@@ -176,9 +183,11 @@ struct NewEditorHost: View {
                 if built.text != editor.text { editor.text = built.text }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .hnEditorFocusStart)) { _ in
-            // The title is handing the caret down into the body.
-            proxy.focusStart()
+        .onReceive(NotificationCenter.default.publisher(for: .hnEditorFocusStart)) { note in
+            // The title is handing the caret down into the body, in the column
+            // it left from (absent for Return/Tab, which commit rather than
+            // navigate and so land at the start).
+            proxy.focusFirstLine(atX: note.userInfo?["x"] as? CGFloat ?? 0)
         }
         .onChange(of: editor.loadRevision) { _, revision in
             // External reload (Obsidian, git pull, iCloud) of the currently

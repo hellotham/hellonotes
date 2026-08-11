@@ -1,0 +1,159 @@
+name: Build & test
+
+# The gap this closes, from unimplemented.md §8c: the Release build, both
+# platform builds and the test suites were all run by hand, so nothing caught a
+# break until someone happened to run the right command.
+#
+# Two real failures from one session make the case:
+#
+#   * `xcodebuild build` does **not** compile the test target. A breaking change
+#     to a package API left `HelloNotesTests` uncompilable while every build
+#     said BUILD SUCCEEDED — twice.
+#   * Building only the platform you are looking at hid two iOS breaks (a shared
+#     view referencing an AppKit-only type, and a layout living inside a
+#     `#if os(macOS)` file) for days.
+#
+# So: build **both** platforms, build-for-testing (which is what compiles the
+# tests), and run them.
+#
+# No step interpolates event data — no issue titles, branch names or commit
+# messages reach a `run:`. The only `${{ }}` inside a shell command is this
+# workflow's own matrix, and it goes through `env:` regardless.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'website/**'
+      - 'docs/**'
+      - '**/*.md'
+  pull_request:
+    paths-ignore:
+      - 'website/**'
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A push that supersedes an in-flight run cancels it — macOS runners are the
+  # expensive kind, and only the tip's answer matters.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SPM_CACHE: ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM
+
+jobs:
+  editor-package:
+    # Fast and hermetic: no Xcode project, no simulator, no test host. Runs
+    # first so an editor regression fails in ~2 minutes rather than ~40.
+    name: Editor package tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: maxim-lobanov/setup-xcode@v1.7.0
+        with:
+          xcode-version: latest-stable
+      - name: swift test
+        run: swift test --package-path Packages/NotesEditor
+
+  app:
+    name: App — ${{ matrix.platform }}
+    runs-on: macos-15
+    # Cold builds are 30–47 minutes across 74 targets (CLAUDE.md). A long
+    # xcodebuild here is a cold build, not a hang.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            destination: 'platform=macOS'
+            test: true
+          - platform: iOS
+            destination: 'generic/platform=iOS Simulator'
+            test: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: maxim-lobanov/setup-xcode@v1.7.0
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache resolved packages
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved', '**/project.pbxproj') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      # The direct-API cloud providers read their keys from a git-ignored
+      # xcconfig. The app builds and runs without it — those providers just
+      # report "not configured" — so CI uses the committed template.
+      - name: Provide the secrets template
+        run: cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
+
+      - name: Build
+        env:
+          DESTINATION: ${{ matrix.destination }}
+        run: |
+          xcodebuild build \
+            -project HelloNotes.xcodeproj -scheme HelloNotes \
+            -destination "$DESTINATION" -configuration Debug \
+            -clonedSourcePackagesDirPath "$SPM_CACHE"
+
+      # Separate from `test` on purpose: this is the step that compiles the test
+      # target, and it is the one that would have caught the break above. It
+      # needs no test host, so it fails fast and for an unambiguous reason.
+      - name: Compile the tests
+        if: matrix.test
+        env:
+          DESTINATION: ${{ matrix.destination }}
+        run: |
+          xcodebuild build-for-testing \
+            -project HelloNotes.xcodeproj -scheme HelloNotes \
+            -destination "$DESTINATION" -configuration Debug \
+            -clonedSourcePackagesDirPath "$SPM_CACHE"
+
+      - name: Test
+        if: matrix.test
+        env:
+          DESTINATION: ${{ matrix.destination }}
+        run: |
+          xcodebuild test-without-building \
+            -project HelloNotes.xcodeproj -scheme HelloNotes \
+            -destination "$DESTINATION" -configuration Debug \
+            -only-testing:HelloNotesTests \
+            -clonedSourcePackagesDirPath "$SPM_CACHE"
+
+  release:
+    # "A green Debug build does not imply Release compiles" — a Swift SIL-inliner
+    # crash once broke every Release build (and so every archive and DMG) while
+    # Debug stayed clean, unnoticed for ~6,400 lines. See implemented.md §13.
+    # Runs only on main, because it is the slowest job here.
+    name: Release build (macOS)
+    if: github.event_name != 'pull_request'
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: maxim-lobanov/setup-xcode@v1.7.0
+        with:
+          xcode-version: latest-stable
+      - name: Cache resolved packages
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved', '**/project.pbxproj') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Provide the secrets template
+        run: cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
+      - name: Build (Release)
+        run: |
+          xcodebuild build \
+            -project HelloNotes.xcodeproj -scheme HelloNotes \
+            -destination 'generic/platform=macOS' -configuration Release \
+            -clonedSourcePackagesDirPath "$SPM_CACHE"

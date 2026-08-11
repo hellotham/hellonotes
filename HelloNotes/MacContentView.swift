@@ -370,6 +370,16 @@ struct MacContentView: View {
         // the editor's status bar and note list never collapse into vertical
         // text wrapping — and if the OS forces smaller anyway, the shell
         // degrades rather than erroring.
+        // The toolbar gets its own row, with its own background and the
+        // separator that comes with it. SwiftUI's default for a
+        // `NavigationSplitView` window is a *transparent* toolbar over
+        // full-height content, so every column paints up into the titlebar —
+        // the note list's material, the inspector's, and the selected tab's
+        // highlight all bled through it, which read as a rendering bug rather
+        // than as depth. HIG (macOS): "the toolbar resides in the frame at the
+        // top of a window, either below or integrated with the title bar" — it
+        // is a frame, so give it edges.
+        .toolbarBackground(.visible, for: .windowToolbar)
         .frame(minWidth: ShellMetrics.windowMinWidth, minHeight: ShellMetrics.windowMinHeight)
         // S2 (docs/layout-architecture.md): a minimum is a floor, not a
         // ceiling. Without a maximum, any column child with a large ideal size
@@ -377,6 +387,11 @@ struct MacContentView: View {
         // window and offsets it off-screen.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
+            // A hosted test bundle launches this app to run in. Restoring the
+            // user's real library there is both a privacy surprise and the
+            // reason the suite crawled: 2,000 notes of coordinated cloud I/O
+            // land on the same main actor the tests run on. See TestEnvironment.
+            guard !TestEnvironment.isRunningTests else { return }
             if !Self.didShowSplash {
                 Self.didShowSplash = true
                 SplashWindow.show(autoDismiss: true)
@@ -440,6 +455,10 @@ struct MacContentView: View {
             // Another window (graph, mind map, assistant, chat) asked us to
             // show a note.
             guard let id else { return }
+            // Same rule as the menu commands: nothing changes the selection
+            // underneath the palette while it is up, because a sheet over a
+            // window whose state moved on is how it wedged.
+            showOpenQuickly = false
             selectedTag = nil
             searchText = ""
             selectedNoteID = id
@@ -458,6 +477,7 @@ struct MacContentView: View {
         .onChange(of: searchText) { _, q in scheduleSearch(q) }
         .onChange(of: router.pendingSearch) { _, query in
             guard let query else { return }
+            showOpenQuickly = false
             selectedTag = nil
             searchText = query
             router.pendingSearch = nil
@@ -575,7 +595,10 @@ struct MacContentView: View {
             // menu item; when this button isn't present, ⌘W falls through to
             // Close and dismisses the window — the Safari/Xcode convention.
             if tabs.openNotes.count > 1, let id = selectedNoteID, tabs.editor(withID: id) != nil {
-                Button("") { closeTab(id) }
+                // Through the same wrapper as every other command: this one is
+                // a window-level shortcut rather than a menu item, which is
+                // exactly how it escaped the original sweep.
+                Button("") { closingOpenQuickly { closeTab(id) }() }
                     .keyboardShortcut("w", modifiers: .command)
                     .opacity(0)
                     .frame(width: 0, height: 0)
@@ -856,6 +879,11 @@ struct MacContentView: View {
                     // search field yields.
                     set: { selectedTag = $0; if $0 != nil { searchText = "" } }
                 ),
+                suggestTags: { text, existing in
+                    try await IntelligenceService(settings: llmSettings)
+                        .suggestTags(for: text, existing: existing)
+                },
+                onInsertTag: { insertTag($0) },
                 backlinks: references.backlinks,
                 outgoingLinks: references.outgoingLinks,
                 unlinkedMentions: references.unlinkedMentions,
@@ -870,6 +898,28 @@ struct MacContentView: View {
         } else {
             ContentUnavailableView("No Collection", systemImage: "sidebar.right",
                                    description: Text("Open a collection to inspect its notes."))
+        }
+    }
+
+    /// Write a suggested tag into the open note.
+    ///
+    /// Appended as plain `#tag` text rather than pushed into front matter: the
+    /// note's own tags are parsed from its body (`MarkdownParsing.tags`), so
+    /// that is where a tag has to be for the rail to show it back. Joins the
+    /// last line when that line is already nothing but tags, so accepting three
+    /// suggestions gives one tag line rather than three.
+    private func insertTag(_ tag: String) {
+        guard let editor = activeEditor else { return }
+        let text = editor.text
+        let lastLine = text.split(separator: "\n", omittingEmptySubsequences: false).last ?? ""
+        let isTagLine = !lastLine.isEmpty && lastLine.split(separator: " ").allSatisfy {
+            $0.hasPrefix("#") && $0.count > 1
+        }
+        if isTagLine {
+            editor.text = text + " #\(tag)"
+        } else {
+            let separator = text.isEmpty ? "" : (text.hasSuffix("\n") ? "\n" : "\n\n")
+            editor.text = text + separator + "#\(tag)"
         }
     }
 

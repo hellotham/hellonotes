@@ -57,6 +57,11 @@ struct NoteInspector: View {
     /// whether following it leads anywhere.
     var noteCount: (String) -> Int = { _ in 0 }
     @Binding var selectedTag: String?
+    /// Ask the configured model for tags this note's *content* suggests.
+    /// `nil` hides the button — no provider configured, nothing to offer.
+    var suggestTags: ((String, [String]) async throws -> [String])? = nil
+    /// Write a suggested tag into the note. `nil` makes suggestions read-only.
+    var onInsertTag: ((String) -> Void)? = nil
 
     // References
     let backlinks: [Note]
@@ -79,6 +84,17 @@ struct NoteInspector: View {
     /// The tag search. Not persisted — reopening the rail to a mysteriously
     /// narrowed result would be worse than retyping three letters.
     @State private var tagQuery = ""
+
+    /// Suggestion state. `.idle` and `.none` are different answers — "not asked"
+    /// versus "asked, and this note already carries everything worth carrying".
+    enum SuggestionState: Equatable {
+        case idle
+        case loading
+        case ready([String])
+        case none
+        case failed(String)
+    }
+    @State private var suggestion: SuggestionState = .idle
 
     private var tab: InspectorTab { InspectorTab(rawValue: storedTab) ?? .outline }
 
@@ -184,6 +200,12 @@ struct NoteInspector: View {
 
             Spacer(minLength: 0)
         }
+        // Suggestions belong to one note; carrying them to the next one would
+        // offer tags derived from text that is no longer on screen.
+        .onChange(of: noteText) { old, new in
+            // Not on every keystroke — only when the *note* changed under us.
+            if suggestion != .idle, abs(old.count - new.count) > 40 { suggestion = .idle }
+        }
     }
 
     /// What this note is tagged — the question the inspector is open to answer.
@@ -193,9 +215,13 @@ struct NoteInspector: View {
     private var thisNotesTags: some View {
         let mine = MarkdownParsing.tags(in: noteText)
         VStack(alignment: .leading, spacing: 6) {
-            Text("THIS NOTE")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text("THIS NOTE")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                if suggestTags != nil { suggestButton(existing: mine) }
+            }
             if mine.isEmpty {
                 Text("No tags. Write #tag anywhere in the note to add one.")
                     .font(.caption)
@@ -208,9 +234,90 @@ struct NoteInspector: View {
                     }
                 }
             }
+            suggestions
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
+    }
+
+    // MARK: - Suggested tags
+
+    /// Deliberately a button, not something that runs on open. Suggesting costs
+    /// a model call per note, and a rail you glance at should not be spending
+    /// tokens (or, on a local model, seconds) every time the selection changes.
+    private func suggestButton(existing: [String]) -> some View {
+        Button {
+            guard let suggestTags else { return }
+            suggestion = .loading
+            Task {
+                do {
+                    let tags = try await suggestTags(noteText, existing)
+                    // Anything the note already carries is not a suggestion.
+                    let fresh = tags.filter { tag in
+                        !existing.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
+                    }
+                    suggestion = fresh.isEmpty ? .none : .ready(fresh)
+                } catch {
+                    suggestion = .failed(error.localizedDescription)
+                }
+            }
+        } label: {
+            if case .loading = suggestion {
+                ProgressView().controlSize(.small)
+            } else {
+                Label("Suggest", systemImage: "sparkles").font(.caption2)
+            }
+        }
+        .buttonStyle(.borderless)
+        .disabled(suggestion == .loading || noteText.isEmpty)
+        .help("Suggest tags from this note's content")
+    }
+
+    @ViewBuilder
+    private var suggestions: some View {
+        switch suggestion {
+        case .idle, .loading:
+            EmptyView()
+        case .none:
+            Text("No new tags suggested.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        case .failed(let message):
+            Text(message)
+                .font(.caption2)
+                .foregroundStyle(.red)
+                .lineLimit(3)
+                .help(message)
+        case .ready(let tags):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("SUGGESTED")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                WrapLayout(spacing: 6) {
+                    ForEach(tags, id: \.self) { tag in
+                        Button {
+                            onInsertTag?(tag)
+                            // It is in the note now, so it is no longer a
+                            // suggestion — the list must not offer it twice.
+                            if case .ready(let current) = suggestion {
+                                let left = current.filter { $0 != tag }
+                                suggestion = left.isEmpty ? .idle : .ready(left)
+                            }
+                        } label: {
+                            Label("#\(tag)", systemImage: "plus")
+                                .font(.caption)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(.quaternary))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(onInsertTag == nil)
+                        .help("Add #\(tag) to this note")
+                    }
+                }
+            }
+            .padding(.top, 2)
+        }
     }
 
     /// Tags matching the query, with how many notes carry each — a count of 1

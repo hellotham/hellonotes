@@ -15,6 +15,13 @@
 //  Owning the NSTextField lets both be fixed at the source: place the caret
 //  explicitly on focus, and restart the insertion point when handing over.
 //
+//  It also carries the *column* across the seam. Arrowing up a column is meant
+//  to keep your place in that column; landing at the end of the title (or at
+//  the start of the body on the way back down) is exactly the behaviour AppKit
+//  works to avoid inside a single text view, and the seam must not undo it.
+//  Because the title is set in the document's H1 and the body is not, a column
+//  is a *distance* in points from the first glyph, never a character count.
+//
 
 #if os(macOS)
 import SwiftUI
@@ -25,10 +32,12 @@ struct InlineTitleField: NSViewRepresentable {
     let font: NSFont
     /// Commit the edit (rename).
     var onCommit: (String) -> Void
-    /// The caret is leaving downward — the host focuses the note body.
-    var onEnterBody: () -> Void
-    /// Set by the host to pull focus here, with the caret at the end.
-    var focusRequest: Int
+    /// The caret is leaving downward — the host focuses the note body, at the
+    /// horizontal offset given (points from the first glyph), or `nil` when
+    /// there is no column to keep (Return and Tab commit rather than navigate).
+    var onEnterBody: (CGFloat?) -> Void
+    /// Set by the host to pull focus here. Carries where the caret should land.
+    var focusRequest: CaretHandoff
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField(string: text)
@@ -53,9 +62,9 @@ struct InlineTitleField: NSViewRepresentable {
         if field.stringValue != text, field.currentEditor() == nil {
             field.stringValue = text
         }
-        if context.coordinator.lastFocusRequest != focusRequest {
-            context.coordinator.lastFocusRequest = focusRequest
-            context.coordinator.takeFocusPlacingCaretAtEnd()
+        if context.coordinator.lastFocusRequest != focusRequest.token {
+            context.coordinator.lastFocusRequest = focusRequest.token
+            context.coordinator.takeFocus(landingAt: focusRequest.x)
         }
     }
 
@@ -75,17 +84,52 @@ struct InlineTitleField: NSViewRepresentable {
 
         init(_ parent: InlineTitleField) { self.parent = parent }
 
-        /// Focus with the caret at the end rather than the whole title
-        /// selected. AppKit selects all when a field becomes first responder,
-        /// which is right when you tab into a form and wrong when a caret has
-        /// just arrived from the text below.
-        func takeFocusPlacingCaretAtEnd() {
+        /// Focus with the caret placed deliberately, rather than the whole
+        /// title selected. AppKit selects all when a field becomes first
+        /// responder, which is right when you tab into a form and wrong when a
+        /// caret has just arrived from the text below.
+        ///
+        /// `x` is the column to keep (points from the first glyph); `nil` means
+        /// the caret walked backwards off the start of the body, where there is
+        /// no column and the end of the title is where it belongs.
+        func takeFocus(landingAt x: CGFloat?) {
             guard let field, let window = field.window else { return }
             window.makeFirstResponder(field)
-            if let editor = field.currentEditor() {
-                let end = (field.stringValue as NSString).length
-                editor.selectedRange = NSRange(location: end, length: 0)
+            guard let editor = field.currentEditor() else { return }
+            let text = field.stringValue as NSString
+            let location = x.map { Self.index(nearestTo: $0, in: text, font: parent.font) }
+                ?? text.length
+            editor.selectedRange = NSRange(location: location, length: 0)
+        }
+
+        /// The caret's distance from the first glyph, for the body to land on.
+        ///
+        /// Measured by laying out the prefix rather than asking the field
+        /// editor's layout manager: the title is one unwrapped line, so the
+        /// prefix width *is* the offset, and it stays right when the caret sits
+        /// past the last glyph (where a zero-length glyph range has no rect).
+        var caretXOffset: CGFloat {
+            guard let field, let editor = field.currentEditor() else { return 0 }
+            let prefix = (field.stringValue as NSString).substring(to: min(
+                editor.selectedRange.location, (field.stringValue as NSString).length))
+            return (prefix as NSString).size(withAttributes: [.font: parent.font]).width
+        }
+
+        /// The character index whose prefix width is nearest `x`. Linear in the
+        /// title's length, which is a filename — the exact answer is cheaper
+        /// here than an approximation.
+        static func index(nearestTo x: CGFloat, in text: NSString, font: NSFont) -> Int {
+            var best = 0
+            var bestDelta = CGFloat.greatestFiniteMagnitude
+            for i in 0...text.length {
+                let width = (text.substring(to: i) as NSString)
+                    .size(withAttributes: [.font: font]).width
+                let delta = abs(width - x)
+                if delta < bestDelta { bestDelta = delta; best = i }
+                // Widths are monotonic, so once we start getting worse we're done.
+                if width > x { break }
             }
+            return best
         }
 
         func controlTextDidChange(_ obj: Notification) {
@@ -104,11 +148,18 @@ struct InlineTitleField: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView,
                      doCommandBy selector: Selector) -> Bool {
             switch selector {
-            case #selector(NSResponder.insertNewline(_:)),
-                 #selector(NSResponder.insertTab(_:)),
-                 #selector(NSResponder.moveDown(_:)):
+            case #selector(NSResponder.moveDown(_:)):
+                // Arrowing down keeps the column.
+                let x = caretXOffset
                 parent.onCommit(control.stringValue)
-                parent.onEnterBody()
+                parent.onEnterBody(x)
+                return true
+            case #selector(NSResponder.insertNewline(_:)),
+                 #selector(NSResponder.insertTab(_:)):
+                // Return and Tab are "I'm done here", not navigation, so the
+                // body gets the caret at its start.
+                parent.onCommit(control.stringValue)
+                parent.onEnterBody(nil)
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 control.stringValue = parent.text
