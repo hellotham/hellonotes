@@ -177,36 +177,16 @@ decisions are not:
   green macOS builds.
 - 🟡 **The universal (arm64 + x86_64) slice is still verified by hand** — CI builds the native
   runner architecture only.
-- 🔴 **The website screenshots predate the shell redesign** (2026-08-11). All five
-  light/dark pairs in `website/src/lib/screens.ts` show the old wide left sidebar with its
-  collection card, quick-action buttons and bookmarks — a UI that no longer exists, and now
-  two redesigns stale. **Blocks the next website deploy** — the download page and the feature
-  tour both lead with them.
+- ✅ ~~**The website screenshots predate the shell redesign**~~ — reshot 2026-08-12,
+  all ten plates from one binary, and the procedure (plus the Screen Recording
+  requirement, the raw-filename convention, and the on-device model's
+  non-determinism) is written up in [website.md](website.md) § Re-shooting them.
 
-  *The two editor-side blockers are gone* (the `$$` artifacts, §20, and the appearance-blind
-  block images, §19), and Ask Library needs **no API keys**: Apple Intelligence is the default
-  intelligence provider and this machine runs macOS 26, so scene 5 shoots on-device.
-
-  **What blocks it now is a host permission, not the app.** Every capture path fails:
-  `screencapture` full-screen returns pure black, `screencapture -l <id>` returns
-  "could not create image from window", and the computer-use `screenshot` returns
-  "permission missing or SCContentFilter failure". macOS requires **Screen Recording** for
-  all three. Grant it to the host process — `/Applications/Claude.app` — under
-  **System Settings ▸ Privacy & Security ▸ Screen & System Audio Recording**, then restart
-  the app (macOS only applies the grant to a fresh process). `System Events` window
-  resizing also failed with "Can't get window 1", which points at Accessibility being
-  unset for the same process.
-
-  Procedure once permission is granted:
-  - **Shoot at 1470×852**, not 1470×923; 923 only fits with the Dock hidden, and the
-    compositor scales to fit, so any *consistent* size works.
-  - Grant computer-use access to **HelloNotes alone** — screenshot filtering is
-    compositor-level (`screenshotFiltering: native`), so no other window can appear in
-    the frame, which retires the old "hide the Claude window" trap entirely.
-  - `⌘O` → Recent Collections → SampleVault; right-click the real vault → Close
-    Collection (the ⊗ on the group row ignores a synthetic click; the context menu
-    works). **Restore the real vault afterwards** — closing it changes the user's library.
-  - Composite with `scripts/make-screenshots.py raw website/src/assets/screens`.
+  The shoot found three more editor bugs, which is now its established value:
+  the `$$` artifacts (§6, fixed), a red spell-check squiggle surviving
+  concealment on every rendered formula, and — the serious one — `bind(to:)`
+  flattening the *previous* document's fonts, so switching notes permanently
+  corrupted the note you left. See [implemented.md §20](implemented.md).
 
 - 🟡 **Toolchain-sensitive code shapes** — two functions in `Core/VisionAlt.swift` are
   deliberately non-generic to dodge a SIL-inliner bug and carry comments saying so. If the

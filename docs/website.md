@@ -224,42 +224,46 @@ Two presentations, deliberately different:
 
 ### Re-shooting them
 
-The capture is manual, and there are three traps:
+The capture is manual. **Screen Recording must be granted to the process running
+the capture** (System Settings ▸ Privacy & Security ▸ Screen & System Audio
+Recording), and the grant only applies to a *fresh* process — quit and reopen
+after enabling it. Without it `screencapture` returns pure black full-screen,
+`screencapture -l` fails with "could not create image from window", and
+ScreenCaptureKit-based tools report "permission missing or SCContentFilter
+failure". A black 107 KB PNG where a desktop should be is the tell.
 
-1. **Use SampleVault, never a real vault.** The first capture pass caught the
-   author's own 2,019-note collection, with personal folder names legible in the
-   sidebar. Open SampleVault and *close* every other collection first.
-2. **The Claude Code window floats above everything**, so a `screencapture -R`
-   of the window region catches it. Hide that app for the duration and restore it
-   afterwards.
-3. **Synthetic `click at` events do not register in this SwiftUI app.** Drive the
-   UI with real clicks; AppleScript is fine for `set position`/`set size`.
+Traps, each one paid for:
 
-**Shoot at 1470×852**, not 1470×923: 923 only fits with the Dock hidden, and
-the compositor scales to fit, so any *consistent* size works — the wider aspect
-fills the plate slightly better. Set it without touching the mouse:
+1. **Use SampleVault, never a real vault.** The first pass caught the author's
+   own 2,000-note collection with personal folder names legible in the sidebar.
+   Open SampleVault, close every other collection, and **put the library back
+   afterwards** — closing a collection is a change to the user's state.
+2. **Capture with `screencapture -l <windowID>`, never `-R`.** It takes the one
+   window through the real compositor, so materials and vibrancy render
+   truthfully and nothing can float over the frame. It also means the desktop
+   *around* the window never appears — if you see wallpaper in a full-screen
+   grab, that is outside the window and will not be in the plate.
+3. **Synthetic `click at` events do not register in this SwiftUI app.** Drive it
+   with real clicks. The ⊗ on a collection's group row ignores them too; its
+   right-click menu ▸ Close Collection works.
+4. **Raw files are `light_1.png` … `dark_5.png`** — single digit, no zero
+   padding. The script skips anything else silently and still writes `og.png`,
+   so a run that "succeeded" can have composited nothing.
 
-```bash
-osascript -e 'tell application "System Events" to tell process "HelloNotes" \
-  to set size of window 1 to {1470, 923}'
-```
+**Shoot at 1470×852**, not 1470×923: 923 only fits with the Dock hidden, and the
+compositor scales to fit, so any *consistent* size works.
 
-Two more things learned driving it (2026-08-11):
+**Scene 5 (Ask Library) needs no API keys.** Apple Intelligence is the default
+intelligence provider, so the answer is generated on-device. Two things to know:
 
-- **Capture with `screencapture -l <windowID>`**, not `-R`. It takes the one
-  window through the compositor, so trap 2 above disappears entirely — no app
-  needs hiding, and materials and vibrancy render truthfully.
-- **The ⊗ on a collection's group row ignores a synthetic click**; its
-  right-click menu ▸ Close Collection works. Same for opening: `⌘O` ▸ Recent
-  Collections. Restore the real vault afterwards — closing it is a change to the
-  user's library, not just to the shot.
-
-Capture each scene as `raw/{light,dark}_{1..5}.png`, then:
-
-```bash
-python3 -m venv venv && ./venv/bin/pip install Pillow
-./venv/bin/python scripts/make-screenshots.py raw website/src/assets/screens
-```
+- The on-device model is **not deterministic and not always right**. Across four
+  runs of the same question it produced a clean answer, a verbatim dump of
+  README, and one that invented a "Backlinks button in the editor bar" that does
+  not exist. **Read the answer before shipping it** — a hallucination in a
+  marketing screenshot is a false claim about the product.
+- Get one good answer, then **switch the app's theme with the answer still on
+  screen** rather than re-asking. The text survives the appearance change, so
+  the light/dark pair matches exactly — which is the whole premise of the pair.
 
 The script composites the brand gradient, the caption and the window plate with
 rounded corners and a drop shadow — and also writes `public/assets/og.png`. The
