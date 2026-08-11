@@ -51,6 +51,12 @@ struct InlineNoteTitle: View {
             // reseeds the field.
             .onChange(of: title) { _, _ in revert() }
             .task(id: title) { revert() }
+            // Start exactly where the first glyph starts. The editor insets its
+            // text by the container inset *plus* the line-fragment padding, and
+            // a title that ignores either sits visibly out of margin with the
+            // body no matter how well it matches the H1 font.
+            .padding(.leading, EditorMetrics.textLeadingInset)
+            .padding(.trailing, EditorMetrics.textContainerInset.width)
             .padding(.top, 4)
             .padding(.bottom, 2)
             .accessibilityLabel("Note title")

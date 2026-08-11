@@ -274,7 +274,7 @@ struct NoteEditorView: View {
                     case .split:
                         // Split has two rules at once, so one title above both.
                         VStack(spacing: 0) {
-                            inlineTitle.padding(.horizontal, ShellMetrics.insets)
+                            inlineTitle
                             splitModeContent
                         }
                     }

@@ -81,7 +81,11 @@ public final class MarkdownTextView: NSTextView {
         textView.autoresizingMask = [.width]
         textView.maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainerInset = NSSize(width: 16, height: 12)
+        // From EditorMetrics so a host can align chrome with the text — see
+        // the inline note title. One number, not two that drift.
+        textView.textContainerInset = NSSize(width: EditorMetrics.textContainerInset.width,
+                                             height: EditorMetrics.textContainerInset.height)
+        textView.textContainer?.lineFragmentPadding = EditorMetrics.lineFragmentPadding
         textView.drawsBackground = false
 
         textView.allowsUndo = true

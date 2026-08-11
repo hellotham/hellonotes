@@ -39,11 +39,22 @@ nonisolated enum MarkdownParsing {
         pattern: #"(?<!!)\[\[([^\|\]\r\n]*)(?:\|[^\]\r\n]+)?\]\]"#
     )
 
-    /// Matches `#tag` (letters, digits, `_`, `-`, `/`), not preceded by a word
-    /// character (so it won't fire inside `foo#bar`).
+    /// Matches `#tag` (letters, digits, `_`, `-`, `/`).
+    ///
+    /// The lookbehind excludes a preceding word character (so it won't fire
+    /// inside `foo#bar`) **and** a preceding `/`, which is how a fragment on a
+    /// bare URL reads: `https://example.com/post/#2` is an anchor, not a tag.
     private static let tagRegex = try! NSRegularExpression(
-        pattern: #"(?<![\w])#([\p{L}0-9_][\p{L}0-9_/-]*)"#
+        pattern: #"(?<![\w/])#([\p{L}0-9_][\p{L}0-9_/-]*)"#
     )
+
+    /// A tag must contain at least one non-digit — Obsidian's rule, and the
+    /// reason is visible in real prose: "Objective #2", "see #10", "(#3)" are
+    /// ordinary writing, and treating them as tags put bare numbers at the top
+    /// of the tag list ahead of every real one.
+    private static func isPlausibleTag(_ tag: String) -> Bool {
+        tag.contains { !$0.isNumber }
+    }
 
     /// The distinct wiki-link targets referenced by `text`, normalised: any
     /// `#heading` suffix removed and surrounding whitespace trimmed. Empty
@@ -85,7 +96,8 @@ nonisolated enum MarkdownParsing {
             else { return nil }
             guard match.numberOfRanges > 1,
                   let captured = Range(match.range(at: 1), in: text) else { return nil }
-            return String(text[captured])
+            let tag = String(text[captured])
+            return isPlausibleTag(tag) ? tag : nil
         }
         .uniqued()
     }

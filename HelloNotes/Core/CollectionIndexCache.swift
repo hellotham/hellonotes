@@ -34,9 +34,14 @@ nonisolated struct NoteIndexRecord: Codable, Sendable {
 
 nonisolated enum CollectionIndexCache {
 
-    /// Bump when the record format (or what the parse extracts) changes; a
+    /// Bump when the record format **or what the parse extracts** changes; a
     /// version mismatch simply forces one full rebuild.
-    static let version = 1
+    ///
+    /// 2 — tags no longer include link fragments. The cache is keyed on each
+    ///     file's mtime and size, so fixing the *parser* changed nothing on
+    ///     disk and every note kept serving the tags the old parser had
+    ///     written. A parser fix is a cache invalidation.
+    static let version = 2
 
     private struct Snapshot: Codable {
         var version: Int

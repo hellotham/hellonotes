@@ -36,8 +36,12 @@ public final class MarkdownUITextView: UITextView {
         tv.isScrollEnabled = true
         tv.alwaysBounceVertical = true
         tv.backgroundColor = .clear
-        tv.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-        tv.textContainer.lineFragmentPadding = 5
+        // From EditorMetrics so a host can align chrome with the text.
+        tv.textContainerInset = UIEdgeInsets(top: EditorMetrics.textContainerInset.height,
+                                             left: EditorMetrics.textContainerInset.width,
+                                             bottom: EditorMetrics.textContainerInset.height,
+                                             right: EditorMetrics.textContainerInset.width)
+        tv.textContainer.lineFragmentPadding = EditorMetrics.lineFragmentPadding
         // Markdown is source text: typographic substitutions corrupt syntax.
         // Autocorrect/autocapitalization can rewrite source (e.g. inside code
         // spans or link targets), so disable them, matching the macOS view.

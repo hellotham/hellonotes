@@ -485,7 +485,6 @@ struct iOSContentView: View {
                         theme: EditorTheme(fontSize: appearance.editorFontSize),
                         onRename: { renameNote(note, to: $0) }
                     )
-                    .padding(.horizontal, ShellMetrics.insets)
                 }
                 switch mode {
                 case .edit:
