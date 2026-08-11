@@ -1008,18 +1008,11 @@ extension MarkdownTextView: NSAccessibilityCustomRotorItemSearchDelegate {
     @objc public func rotor(_ rotor: NSAccessibilityCustomRotor,
                             resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters)
         -> NSAccessibilityCustomRotor.ItemResult? {
-        let headings = document?.headings() ?? []
-        guard !headings.isEmpty else { return nil }
-        let forward = searchParameters.searchDirection == .next
-        let target: (level: Int, title: String, range: NSRange)?
-        if let current = searchParameters.currentItem?.targetRange {
-            target = forward
-                ? headings.first { $0.range.location > current.location }
-                : headings.last { $0.range.location < current.location }
-        } else {
-            target = forward ? headings.first : headings.last
-        }
-        guard let heading = target else { return nil }
+        guard let heading = document?.rotorHeading(
+            after: searchParameters.currentItem?.targetRange.location,
+            forward: searchParameters.searchDirection == .next,
+            matching: searchParameters.filterString ?? ""
+        ) else { return nil }
         let result = NSAccessibilityCustomRotor.ItemResult(targetElement: self)
         result.targetRange = heading.range
         result.customLabel = heading.title

@@ -527,6 +527,34 @@ public final class EditorDocument {
         }
     }
 
+    /// The heading a VoiceOver headings rotor should move to: the first one
+    /// after `location`, or before it when searching backwards. `location`
+    /// is nil when the rotor has no current item, which starts from whichever
+    /// end the search direction implies.
+    ///
+    /// `filter` is the rotor's search field. Ignoring it — as both platform
+    /// views used to — makes typing there look broken: VoiceOver narrows
+    /// nothing and keeps stepping through every heading.
+    ///
+    /// Lives here rather than in the views because AppKit and UIKit each had
+    /// their own copy of this walk, and only one coordinate system difference
+    /// actually separates them.
+    public func rotorHeading(
+        after location: Int?,
+        forward: Bool,
+        matching filter: String = ""
+    ) -> (level: Int, title: String, range: NSRange)? {
+        var candidates = headings()
+        if !filter.isEmpty {
+            candidates = candidates.filter { $0.title.localizedCaseInsensitiveContains(filter) }
+        }
+        guard !candidates.isEmpty else { return nil }
+        guard let location else { return forward ? candidates.first : candidates.last }
+        return forward
+            ? candidates.first { $0.range.location > location }
+            : candidates.last { $0.range.location < location }
+    }
+
     // MARK: - Restyle
 
     /// Whole-document cmark-gfm inline style runs, cached per `revision` so pure
@@ -561,7 +589,9 @@ public final class EditorDocument {
         )
         isApplyingStyles = false
         if services.codeHighlighter != nil {
-            for index in blockIndices { refreshHighlight(blockIndex: index) }
+            for index in blockIndices {
+                refreshHighlight(blockIndex: index, revealed: revealed.contains(index))
+            }
         }
         #if canImport(AppKit)
         for index in blockIndices {
@@ -586,11 +616,20 @@ public final class EditorDocument {
     @ObservationIgnored private var highlightColorCache: [Int: [(NSRange, PlatformColor)]] = [:]
     @ObservationIgnored private var highlightsInFlight: Set<Int> = []
 
-    private func refreshHighlight(blockIndex: Int) {
+    private func refreshHighlight(blockIndex: Int, revealed: Bool) {
         guard let highlighter = services.codeHighlighter,
               blockIndex >= 0, blockIndex < parse.blocks.count else { return }
         let block = parse.blocks[blockIndex]
         guard case .fencedCode(let info, let closed) = block.kind, !info.isEmpty else { return }
+
+        #if canImport(AppKit)
+        // A Mermaid fence is both a highlightable code block and a rendered
+        // embed. Once collapsed, its source is concealed at 0.1pt with a clear
+        // color — painting syntax colors back over it (this runs async, so it
+        // lands *after* the collapse) turns the invisible source into a
+        // scattering of coloured specks under the diagram.
+        if !revealed, blockEmbedKind(at: blockIndex) != nil { return }
+        #endif
 
         // The code body: lines between the fences.
         let bodyFirst = block.firstLine + 1
@@ -633,7 +672,7 @@ public final class EditorDocument {
             // cached runs up).
             if let idx = self.parse.blockIndex(at: min(bodyRange.location, max(0, self.storage.length - 1))),
                case .fencedCode = self.parse.blocks[idx].kind {
-                self.refreshHighlight(blockIndex: idx)
+                self.refreshHighlight(blockIndex: idx, revealed: self.revealedBlocks.contains(idx))
             }
         }
     }
@@ -765,22 +804,62 @@ public final class EditorDocument {
         }
     }
 
+    /// The final newline-delimited paragraph inside `range`. A trailing
+    /// newline *terminates* the last paragraph rather than starting a new one,
+    /// so it is not treated as a separator.
+    private func lastParagraphRange(in range: NSRange, text ns: NSString) -> NSRange {
+        guard range.length > 0 else { return range }
+        var searchEnd = range.location + range.length
+        if ns.character(at: searchEnd - 1) == 0x0A { searchEnd -= 1 }
+        var start = range.location
+        var i = searchEnd - 1
+        while i >= range.location {
+            if ns.character(at: i) == 0x0A { start = i + 1; break }
+            i -= 1
+        }
+        return NSRange(location: start, length: range.location + range.length - start)
+    }
+
     /// Collapse a block's source to near-zero height and reserve the image's
     /// height below it (drawn by RenderedBlockFragment). Source stays in the
     /// storage — concealed, not deleted.
     private func collapse(range: NSRange, to image: NSImage) {
         guard range.location + range.length <= storage.length else { return }
+        let ns: NSString = storage.mutableString
+
+        // Conceal the block's trailing newline as well. Left at the body font
+        // it lays out as a full-height empty line directly beneath the
+        // rendered image — visible dead space in every note with display maths.
+        var concealed = range
+        if concealed.location + concealed.length < ns.length,
+           ns.character(at: concealed.location + concealed.length) == 0x0A {
+            concealed.length += 1
+        }
+
         isApplyingStyles = true
         storage.beginEditing()
         // Collapse the source line(s).
-        storage.addAttribute(.font, value: theme.concealed, range: range)
-        storage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: range)
-        // Reserve the image band under the paragraph.
-        let para = NSMutableParagraphStyle()
-        para.paragraphSpacing = image.size.height + 2 * RenderedBlockFragment.imageGap
-        storage.addAttribute(.paragraphStyle, value: para, range: range)
+        storage.addAttribute(.font, value: theme.concealed, range: concealed)
+        storage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: concealed)
+
+        // Reserve the image band *once*. `paragraphSpacing` applies at the end
+        // of every paragraph and a newline ends a paragraph, so setting it
+        // across a multi-line block reserved the band once per line — three
+        // times for `$$…$$`, i.e. ~90pt of dead space for a one-line formula.
+        // The band belongs to the last paragraph; the ones before it get zero.
+        let band = NSMutableParagraphStyle()
+        band.paragraphSpacing = image.size.height + 2 * RenderedBlockFragment.imageGap
+        let last = lastParagraphRange(in: concealed, text: ns)
+        let leading = NSRange(location: concealed.location, length: last.location - concealed.location)
+        if leading.length > 0 {
+            let flat = NSMutableParagraphStyle()
+            flat.paragraphSpacing = 0
+            storage.addAttribute(.paragraphStyle, value: flat, range: leading)
+        }
+        storage.addAttribute(.paragraphStyle, value: band, range: last)
+
         // Mark the first char so the fragment knows to draw.
-        storage.addAttribute(blockImageAttribute, value: image, range: NSRange(location: range.location, length: 1))
+        storage.addAttribute(blockImageAttribute, value: image, range: NSRange(location: concealed.location, length: 1))
         storage.endEditing()
         isApplyingStyles = false
     }
@@ -796,11 +875,13 @@ public final class EditorDocument {
         guard blockIndex >= 0, blockIndex < parse.blocks.count else { return }
         let block = parse.blocks[blockIndex]
         guard case .frontMatter = block.kind, !revealed else { return }
-        var content = block.range
+        // Conceal the closing `---` line's newline too. Stripped from the range
+        // it keeps the body font and lays out as a full-height empty line above
+        // the note's first real content — the fold is meant to leave nothing.
         let ns: NSString = storage.mutableString
-        if content.length > 0, content.location + content.length <= ns.length,
-           ns.character(at: content.location + content.length - 1) == 0x0A { content.length -= 1 }
-        guard content.length > 0, content.location + content.length <= ns.length else { return }
+        let content = NSRange(location: block.range.location,
+                              length: min(block.range.length, ns.length - block.range.location))
+        guard content.length > 0 else { return }
 
         isApplyingStyles = true
         storage.beginEditing()

@@ -163,6 +163,9 @@ public enum BlockParser {
         var i = lineRange.location
         var end = lineRange.location + lineRange.length
         if end > i && text.character(at: end - 1) == 0x0A { end -= 1 }
+        // …and the CR of a CRLF pair, or the trailing-whitespace check below
+        // rejects a perfectly good `---` fence and front matter never folds.
+        if end > i && text.character(at: end - 1) == 0x0D { end -= 1 }
         var spaces = 0
         while i < end && text.character(at: i) == 0x20 { i += 1; spaces += 1 }
         guard spaces <= 3 else { return false }
@@ -220,7 +223,16 @@ struct LineCursor {
         return Self.classify(buffer, count: len)
     }
 
-    static func classify(_ b: [unichar], count: Int) -> LineInfo {
+    static func classify(_ b: [unichar], count rawCount: Int) -> LineInfo {
+        // `contentRange` strips the `\n` but not the `\r`, so a CRLF file hands
+        // every classifier below a trailing carriage return. They all scan to
+        // `count`, so that CR made `===`, `---`, `***` and `___` fail to match:
+        // setext headings and thematic breaks silently parsed as paragraphs in
+        // any CRLF document. (The fence case trimmed 0x0D itself, which is why
+        // fenced code was the one construct that worked.)
+        var count = rawCount
+        if count > 0, b[count - 1] == 0x0D { count -= 1 }
+
         var i = 0
         while i < count, b[i] == 0x20 { i += 1 }         // leading spaces
         let indent = i
@@ -446,12 +458,13 @@ private struct BlockBuilder {
             // A blank line stays inside an open indented code block (chunks may
             // be blank-separated); it ends anything else.
             if case .indentedCode = open { return line + 1 }
+            // Extend an open blank run rather than closing and reopening it.
+            // The test used to sit *after* `closeOpen`, which resets `open` to
+            // `.none` — so it never matched and every blank line became its own
+            // one-line block instead of one run.
+            if case .blank = open { return line + 1 }
             closeOpen(through: line - 1)
-            if case .blank(let from) = open {
-                open = .blank(fromLine: from)      // extend the run
-            } else {
-                open = .blank(fromLine: line)
-            }
+            open = .blank(fromLine: line)
             return line + 1
 
         case .atxHeading(let level):

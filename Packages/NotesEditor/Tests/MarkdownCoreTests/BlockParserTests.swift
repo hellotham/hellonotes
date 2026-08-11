@@ -13,6 +13,36 @@ import Testing
         BlockParser.fullParse(text as NSString).blocks.map(\.kind)
     }
 
+    // MARK: - CRLF
+
+    /// `contentRange` strips the `\n` but not the `\r`, so every structural
+    /// classifier saw a trailing carriage return and refused to match. A file
+    /// saved on Windows parsed its setext headings, thematic breaks and front
+    /// matter as ordinary paragraphs.
+    @Test func crlfDocumentsClassifyLikeLFOnes() {
+        let lf = "---\ntitle: T\n---\n\nHeading\n=======\n\nSub\n---\n\n***\n\ntail\n"
+        let crlf = lf.replacingOccurrences(of: "\n", with: "\r\n")
+        #expect(kinds(crlf) == kinds(lf))
+
+        // And spelled out, so a future change can't quietly make both wrong.
+        let crlfKinds = kinds(crlf)
+        #expect(crlfKinds.contains { if case .frontMatter = $0 { return true }; return false })
+        #expect(crlfKinds.contains { if case .heading(1, true) = $0 { return true }; return false })
+        #expect(crlfKinds.contains { if case .heading(2, true) = $0 { return true }; return false })
+        #expect(crlfKinds.contains { if case .thematicBreak = $0 { return true }; return false })
+    }
+
+    /// Consecutive blank lines are one run, not one block each. The merge test
+    /// used to sit after `closeOpen`, which had already reset the open state.
+    @Test func consecutiveBlankLinesMergeIntoOneBlock() {
+        // No trailing newline: one would add a final empty line, which is a
+        // second (legitimate) blank run and obscures what's being tested.
+        let parsed = BlockParser.fullParse("para\n\n\n\n# H" as NSString)
+        let blanks = parsed.blocks.filter { if case .blank = $0.kind { return true }; return false }
+        #expect(blanks.count == 1)
+        #expect(blanks.first?.lineCount == 3)
+    }
+
     // MARK: - Tiling invariant
 
     @Test func blocksTileTheDocument() {

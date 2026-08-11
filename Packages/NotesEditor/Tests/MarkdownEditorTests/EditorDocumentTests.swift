@@ -97,6 +97,31 @@ import AppKit
         #expect(headings.map(\.level) == [1, 2, 1])
     }
 
+    /// The VoiceOver headings rotor's walk. Both platform views used to carry
+    /// their own copy of this and neither honoured the rotor's search field.
+    @Test func rotorHeadingWalksAndHonoursTheSearchField() {
+        let text = "# Alpha\n\nbody\n\n## Beta\n\nmore\n\n### Gamma\n"
+        let document = EditorDocument(text: text)
+        let ns = text as NSString
+        let alpha = ns.range(of: "# Alpha").location
+        let gamma = ns.range(of: "### Gamma").location
+
+        // No current item: start from whichever end the direction implies.
+        #expect(document.rotorHeading(after: nil, forward: true)?.title == "Alpha")
+        #expect(document.rotorHeading(after: nil, forward: false)?.title == "Gamma")
+
+        // Stepping, and stopping at the ends rather than wrapping.
+        #expect(document.rotorHeading(after: alpha, forward: true)?.title == "Beta")
+        #expect(document.rotorHeading(after: gamma, forward: false)?.title == "Beta")
+        #expect(document.rotorHeading(after: gamma, forward: true) == nil)
+        #expect(document.rotorHeading(after: alpha, forward: false) == nil)
+
+        // The search field narrows the walk, case-insensitively.
+        #expect(document.rotorHeading(after: nil, forward: true, matching: "gam")?.title == "Gamma")
+        #expect(document.rotorHeading(after: alpha, forward: true, matching: "alp") == nil)
+        #expect(document.rotorHeading(after: nil, forward: true, matching: "zzz") == nil)
+    }
+
     @Test func revealFollowsSelection() {
         let text = "# Heading\n\npara with **bold** text"
         let document = EditorDocument(text: text)
@@ -518,6 +543,143 @@ import AppKit
         try await Task.sleep(for: .milliseconds(120))
         let embedLoc = (text as NSString).range(of: "![[").location
         #expect(document.storage.attribute(blockImageAttribute, at: embedLoc, effectiveRange: nil) == nil)
+    }
+
+    // MARK: - Multi-line block embeds
+    //
+    // `StubBlockRenderer` above declines `.math`, so every embed test before
+    // these used a *single-line* `![[pic.png]]` paragraph — which is exactly
+    // why two multi-line collapse bugs shipped. A `$$…$$` block is three
+    // newline-delimited paragraphs, and both defects only appear past one.
+
+    private struct EveryKindRenderer: BlockRenderer {
+        let image: PlatformImage
+        func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage? { image }
+    }
+
+    /// Collapse a `$$…$$` block and hand back the document plus its range.
+    private func collapsedMathDocument(
+        imageHeight: CGFloat
+    ) async throws -> (document: EditorDocument, block: NSRange) {
+        let text = "Intro:\n\n$$\n\\int_0^1 x\\,dx = \\frac{1}{2}\n$$\n\nAfter."
+        let img = PlatformImage(size: CGSize(width: 300, height: imageHeight))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+
+        let start = (text as NSString).range(of: "$$").location
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            if document.storage.attribute(blockImageAttribute, at: start, effectiveRange: nil) != nil { break }
+        }
+        #expect(document.storage.attribute(blockImageAttribute, at: start, effectiveRange: nil) != nil)
+        #expect(document.text == text)   // byte fidelity survives the collapse
+
+        let block = try #require(document.blocks.first {
+            if case .mathBlock = $0.kind { return true }
+            return false
+        }).range
+        return (document, block)
+    }
+
+    /// `paragraphSpacing` applies at the end of *every* paragraph, so setting
+    /// it across a multi-line block reserved the image band once per line —
+    /// three bands for a one-line formula, ~90pt of dead space beneath it.
+    @Test func multiLineBlockEmbedReservesItsImageBandExactlyOnce() async throws {
+        let imageHeight: CGFloat = 44
+        let (document, block) = try await collapsedMathDocument(imageHeight: imageHeight)
+
+        // Assert the *paragraph* semantics, not the attribute-run count: a
+        // single run spanning the whole block still reserves one band per
+        // newline it covers, which is the bug. The band-bearing range must
+        // therefore be one paragraph — no interior newline.
+        var banded: [(NSRange, CGFloat)] = []
+        document.storage.enumerateAttribute(.paragraphStyle, in: block, options: []) { value, range, _ in
+            if let spacing = (value as? NSParagraphStyle)?.paragraphSpacing, spacing > 0 {
+                banded.append((range, spacing))
+            }
+        }
+        #expect(banded.count == 1)
+        let (range, spacing) = try #require(banded.first)
+        #expect(spacing == imageHeight + 2 * RenderedBlockFragment.imageGap)
+
+        let ns = document.storage.string as NSString
+        var interior = range
+        if interior.length > 0, ns.character(at: interior.location + interior.length - 1) == 0x0A {
+            interior.length -= 1        // a trailing newline terminates this paragraph
+        }
+        let newline = ns.rangeOfCharacter(from: CharacterSet.newlines, options: [], range: interior)
+        #expect(newline.location == NSNotFound,
+                "the image band spans \(banded[0].0) — it is reserved once per newline inside it")
+    }
+
+    /// The block's trailing newline used to fall outside the concealed range,
+    /// so it kept the 15pt body font and laid out as a full-height empty line
+    /// directly under the rendered formula.
+    @Test func multiLineBlockEmbedConcealsItsTrailingNewline() async throws {
+        let (document, block) = try await collapsedMathDocument(imageHeight: 44)
+
+        var visible: [String] = []
+        let ns = document.storage.string as NSString
+        document.storage.enumerateAttributes(in: block, options: []) { attrs, range, _ in
+            let size = (attrs[.font] as? PlatformFont)?.pointSize ?? 0
+            var alpha: CGFloat = 0
+            #if canImport(AppKit)
+            alpha = (attrs[.foregroundColor] as? PlatformColor)?
+                .usingColorSpace(.deviceRGB)?.alphaComponent ?? 0
+            #endif
+            if size > 1, alpha > 0.01 {
+                visible.append(ns.substring(with: range).replacingOccurrences(of: "\n", with: "\\n"))
+            }
+        }
+        #expect(visible.isEmpty, "unconcealed characters in a collapsed block: \(visible)")
+    }
+
+    /// Deliberately slower than the block render, so its colors land *after*
+    /// the collapse. The repaint is a race between two async services; left to
+    /// chance the highlight usually wins and the bug hides.
+    private struct SlowEverythingHighlighter: CodeHighlighting {
+        func highlight(_ code: String, language: String) async -> [CodeColorRun] {
+            try? await Task.sleep(for: .milliseconds(150))
+            return [CodeColorRun(range: NSRange(location: 0, length: (code as NSString).length), color: .systemPink)]
+        }
+    }
+
+    /// A Mermaid fence is both a highlightable code block and a rendered
+    /// embed. Highlighting runs async, so its colors landed *after* the
+    /// collapse and repainted the concealed 0.1pt source — coloured specks
+    /// scattered under the diagram.
+    @Test func collapsedMermaidSourceIsNotRepaintedByTheHighlighter() async throws {
+        let text = "Chart:\n\n```mermaid\ngraph LR\n  A --> B\n```\n\nAfter."
+        let img = PlatformImage(size: CGSize(width: 300, height: 60))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(
+                codeHighlighter: SlowEverythingHighlighter(),
+                blockRenderer: EveryKindRenderer(image: img)
+            )
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+
+        let start = (text as NSString).range(of: "```mermaid").location
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            if document.storage.attribute(blockImageAttribute, at: start, effectiveRange: nil) != nil { break }
+        }
+        // Let the (deliberately slow) highlight land on top of the collapse.
+        try await Task.sleep(for: .milliseconds(400))
+
+        let block = try #require(document.blocks.first {
+            if case .fencedCode = $0.kind { return true }
+            return false
+        }).range
+        var pink = 0
+        document.storage.enumerateAttribute(.foregroundColor, in: block, options: []) { value, range, _ in
+            if let color = value as? PlatformColor, color == .systemPink { pink += range.length }
+        }
+        #expect(pink == 0, "highlighter repainted \(pink) concealed characters")
     }
 
     // MARK: - Latency at the p99-note scale

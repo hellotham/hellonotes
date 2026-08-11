@@ -78,20 +78,14 @@ public final class MarkdownUITextView: UITextView {
     /// item moves VoiceOver focus (and the caret) to that heading.
     private func installHeadingRotor() {
         let rotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
-            guard let self, let headings = self.document?.headings(), !headings.isEmpty else { return nil }
-            let forward = predicate.searchDirection == .next
+            guard let self else { return nil }
             let currentLocation: Int? = predicate.currentItem.targetRange.map {
                 self.offset(from: self.beginningOfDocument, to: $0.start)
             }
-            let target: (level: Int, title: String, range: NSRange)?
-            if let location = currentLocation {
-                target = forward
-                    ? headings.first { $0.range.location > location }
-                    : headings.last { $0.range.location < location }
-            } else {
-                target = forward ? headings.first : headings.last
-            }
-            guard let heading = target,
+            guard let heading = self.document?.rotorHeading(
+                    after: currentLocation,
+                    forward: predicate.searchDirection == .next
+                  ),
                   let start = self.position(from: self.beginningOfDocument, offset: heading.range.location),
                   let end = self.position(from: start, offset: heading.range.length),
                   let textRange = self.textRange(from: start, to: end)
