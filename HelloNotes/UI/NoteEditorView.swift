@@ -420,6 +420,7 @@ struct NoteEditorView: View {
             fontSize: appearance.editorFontSize,
             accent: appearance.editorAccentNSColor,
             isEditable: isEditable,
+            wrapGuide: appearance.wrapGuide,
             onOpenWikiLink: onOpenWikiLink,
             completions: { kind, query in
                 switch kind {

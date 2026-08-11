@@ -23,6 +23,8 @@ struct NewEditorHost: View {
     var fontSize: CGFloat
     var accent: NSColor
     var isEditable: Bool = true
+    /// Vertical guide at N characters while editing; 0 for none (decision 5).
+    var wrapGuide: Int = 0
     var onOpenWikiLink: (String) -> Void
     /// Completions for the `[[link` / `#tag` the caret is in (the host's
     /// ranking over the collection's titles, headings, and tags).
@@ -66,6 +68,8 @@ struct NewEditorHost: View {
             if let document {
                 MarkdownEditorView(document: document)
                     .editable(isEditable)
+                    // Reading mode has no ruler: the measure is the guide there.
+                    .wrapGuide(isEditable ? wrapGuide : 0)
                     .commandBus(documentId: editor.note?.fileURL.path ?? "default")
                     .proxy(proxy)
                     .onLinkTap { tap in

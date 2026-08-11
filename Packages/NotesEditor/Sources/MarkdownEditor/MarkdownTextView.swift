@@ -147,6 +147,39 @@ public final class MarkdownTextView: NSTextView {
     /// Assigned once on the main thread; `deinit` only reads it to remove.
     nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
 
+    // MARK: - Wrap guide
+
+    /// A vertical guide at this many characters, or 0 for none.
+    ///
+    /// A *guide*, in the Xcode and VS Code sense: a line you can see while the
+    /// text still wraps at the view's edge. Making it a wrap point would be a
+    /// different (and much more intrusive) feature — anyone who wants a hard
+    /// column sets a fixed Editor width instead.
+    var wrapGuideColumns: Int = 0 {
+        didSet { if wrapGuideColumns != oldValue { needsDisplay = true } }
+    }
+
+    /// Where the guide sits, in view coordinates — `nil` when it is off or
+    /// would fall outside the text area, in which case drawing it would just
+    /// be a line hugging the edge of the view.
+    private var wrapGuideX: CGFloat? {
+        guard wrapGuideColumns > 0, let font = document?.theme.body else { return nil }
+        let advance = ("0" as NSString).size(withAttributes: [.font: font]).width
+        guard advance > 0 else { return nil }
+        let x = textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0)
+              + advance * CGFloat(wrapGuideColumns)
+        return x < bounds.width - 1 ? x : nil
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let x = wrapGuideX else { return }
+        NSColor.separatorColor.withAlphaComponent(0.55).setFill()
+        // Hairline at the current backing scale, so it stays one pixel.
+        let width = 1 / (window?.backingScaleFactor ?? 2)
+        NSRect(x: x, y: dirtyRect.minY, width: width, height: dirtyRect.height).fill()
+    }
+
     deinit {
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
     }
@@ -539,6 +572,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var onRewriteSelectionHandler: ((NSRange) -> Void)?
     private var busDocumentId: String?
     private var editorProxy: EditorProxy?
+    private var wrapGuideColumns = 0
 
     public init(document: EditorDocument) {
         self.document = document
@@ -565,6 +599,12 @@ public struct MarkdownEditorView: NSViewRepresentable {
 
     public func editable(_ flag: Bool) -> Self {
         var copy = self; copy.isEditable = flag; return copy
+    }
+
+    /// Show a vertical guide at `columns` characters, or 0 for none. A line to
+    /// see, not a wrap point — the text still runs to the edge of the pane.
+    public func wrapGuide(_ columns: Int) -> Self {
+        var copy = self; copy.wrapGuideColumns = columns; return copy
     }
 
     public func onLinkTap(_ handler: @escaping (EditorLinkTap) -> Void) -> Self {
@@ -615,6 +655,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
             textView.bind(to: document)
         }
         context.coordinator.onLinkTap = onLinkTap
+        textView.wrapGuideColumns = wrapGuideColumns
         textView.onPasteMarkdown = onPasteMarkdown
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
