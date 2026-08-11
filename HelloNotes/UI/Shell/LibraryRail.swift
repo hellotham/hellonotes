@@ -77,6 +77,12 @@ struct LibraryRail<Footer: View>: View {
                 }
                 .padding(.vertical, 8)
             }
+            // Leave the traffic lights their band. Without this the first icon
+            // sits under the close button — the defect visible in every capture
+            // of the running app.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: ShellMetrics.trafficLightClearance)
+            }
             // S1: a rail is a viewport. `ScrollView` sizes to its content's
             // ideal height, and a library with many collections would otherwise
             // hand the split view a column taller than the window.

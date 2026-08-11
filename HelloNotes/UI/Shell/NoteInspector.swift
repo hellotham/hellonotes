@@ -100,6 +100,10 @@ struct NoteInspector: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The inspector column runs full height too, so its tab strip needs
+            // the same clearance — otherwise it is crammed into the corner
+            // underneath the window's toolbar buttons.
+            Color.clear.frame(height: ShellMetrics.trafficLightClearance)
             picker
             Divider()
             content

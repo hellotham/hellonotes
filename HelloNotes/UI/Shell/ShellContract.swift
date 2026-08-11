@@ -31,6 +31,21 @@ enum ShellMetrics {
     /// switcher is what a place-picker looks like.
     static let railWidth: CGFloat = 64
 
+    /// The band at the top of a full-height column that the window's traffic
+    /// lights and toolbar occupy — 52pt on a standard toolbar window.
+    ///
+    /// A column running to the very top is the macOS design (Mail, Xcode), and
+    /// what makes it read as deliberate is that this band is left *empty*, so
+    /// the window controls sit in the column rather than on top of its first
+    /// row. AppKit gives a source-list `List` this clearance automatically; a
+    /// hand-built rail or a custom inspector gets none, which is why the rail's
+    /// first icon sat under the close button.
+    ///
+    /// Verified in `scratchpad/ChromeLab` (`--design 2`) against a capture of
+    /// the real app, both taken with `screencapture` through the compositor —
+    /// the only rendering path that draws materials as they actually appear.
+    static let trafficLightClearance: CGFloat = 52
+
     static let libraryFloor: CGFloat = railWidth
     static let libraryIdeal: CGFloat = railWidth
     static let libraryCap: CGFloat = railWidth

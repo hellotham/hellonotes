@@ -1358,7 +1358,10 @@ struct MacContentView: View {
                 Button {
                     showOpenQuickly = true
                 } label: {
-                    Label("Open Quickly", systemImage: "magnifyingglass")
+                    // Not a second magnifying glass: there is already a search
+                    // field in this column, and two identical glasses meaning
+                    // different things reads as a duplicated search box.
+                    Label("Open Quickly", systemImage: "arrow.forward.square")
                 }
                 .help("Open Quickly (⇧⌘O)")
                 .disabled(focused?.notes.isEmpty ?? true)

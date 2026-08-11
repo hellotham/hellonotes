@@ -374,7 +374,15 @@ func run() {
 // how HelloNotes' window is actually made. The VC model above still was not
 // faithful enough — candidate 16 passes there while the app measures 52pt — so
 // the last unmodelled difference is SwiftUI building and owning the window.
-if CommandLine.arguments.contains("--rail") {
+if CommandLine.arguments.contains("--design") {
+    // A design bench has to be on screen: the compositor is the only thing that
+    // draws materials and Liquid Glass, and those are the subject. The window
+    // shows briefly, is captured by id, and closes itself.
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        DesignApp.main()
+    }
+} else if CommandLine.arguments.contains("--rail") {
     MainActor.assumeIsolated { RailApp.main() }
 } else if CommandLine.arguments.contains("--app") {
     MainActor.assumeIsolated { LabApp.main() }

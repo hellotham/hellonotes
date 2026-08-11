@@ -118,6 +118,30 @@ launching. Work around it rather than paying for it repeatedly:
   finished, kill it and say so — an unattended run keeps a window open on
   someone else's machine.
 
+## Look at the app — properly
+
+`screencapture -l <windowID>` captures **one window** through the real
+compositor. It needs no Screen Recording permission for a window you can
+enumerate, and it is the only rendering path that draws materials, vibrancy and
+Liquid Glass as they actually appear.
+
+```bash
+# the window id (compile once; CoreGraphics, no permissions)
+swiftc -O scripts/winid.swift -o /tmp/winid && /tmp/winid
+screencapture -l<id> -o -x /tmp/hn-app.png
+```
+
+**Never judge chrome from `cacheDisplay`/`bitmapImageRepForCachingDisplay`.**
+It cannot render materials, so it paints them as flat white. An entire session
+was lost to a "white capsule" that existed only in such a snapshot: eight
+attempted fixes, two reverts and a shipped regression, all aimed at an artefact
+of the instrument. The same trap caught the design bench, which rendered its
+candidates the same way.
+
+**Validate an instrument before trusting it.** One capture of any app with a
+normal sidebar would have exposed the flaw in seconds. If a measurement
+disagrees with what the user can see, the measurement is the suspect.
+
 ## Observe without touching the screen
 
 ### Headless harnesses — prefer these; they need no relaunch at all
