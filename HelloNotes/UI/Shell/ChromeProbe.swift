@@ -44,9 +44,15 @@ struct ChromeProbe: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         guard ChromeProbeLog.enabled else { return view }
-        // After layout settles: the split view has no useful frames before it.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak view] in
-            ChromeProbeLog.dump(window: view?.window, tag: "appear")
+        // Twice, because *when* you measure is part of the measurement. The
+        // titlebar clearance takes effect on a later layout pass than the style
+        // flag itself, so a single early reading showed `fullSize=false` with
+        // the overlap unchanged — and read as a failed fix rather than an
+        // early look.
+        for (delay, tag) in [(0.8, "appear"), (3.0, "settled")] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak view] in
+                ChromeProbeLog.dump(window: view?.window, tag: tag)
+            }
         }
         return view
     }
@@ -58,23 +64,94 @@ struct ChromeProbe: NSViewRepresentable {
                       context: Context) -> CGSize? { .zero }
 }
 
-/// Reports how far the titlebar overlaps the content view, so a column's own
+/// Keeps the shell's columns out of the window's titlebar band.
+///
+/// Proved in `scratchpad/ChromeLab` before a line of this shipped — which is
+/// the process this problem needed and did not get for four attempts. The bench
+/// builds the same three-column `NavigationSplitView` in an off-screen window,
+/// applies each candidate, and measures. Its verdict:
+///
+///     1  baseline                              52pt overlap, 5 columns under
+///     2  opaque toolbar on detail              52pt, 5           (no effect)
+///     3  no fullSizeContentView at creation     0pt, 0           PASS
+///     4  strip fullSizeContentView after layout 0pt, 0           PASS
+///     5–7 toolbarStyle expanded/unified/preference — worse or unchanged
+///     8  allowsFullHeightLayout = false        52pt, 5  (5 items reached!)
+///     10 inset the columns' content            52pt, 5  (columns unmoved)
+///     11 strip, then something re-applies it   52pt, 5  ← what the app saw
+///     12 strip + re-asserting observer          0pt, 0           PASS
+///
+/// So stripping `.fullSizeContentView` is right, and SwiftUI puts it back —
+/// candidate 11 reproduces the app's measurement exactly. The flag therefore has
+/// to be re-asserted whenever the window updates, which is candidate 12 and is
+/// what this ships. Note candidate 8: the documented `allowsFullHeightLayout`
+/// reached all five split items in the bench and *still* changed nothing, so
+/// that avenue was dead on its own terms, not merely unreachable.
+struct TitlebarClearance: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.attach(to: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.attach(to: nsView)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// Zero-sized: an observer, never a participant in layout (S1/S2).
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView,
+                      context: Context) -> CGSize? { .zero }
+
+    @MainActor
+    final class Coordinator {
+        private var tokens: [NSObjectProtocol] = []
+        private weak var window: NSWindow?
+
+        func attach(to view: NSView) {
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let window = view?.window, window !== self.window else { return }
+                self.window = window
+                self.clear(window)
+                // One assertion is not enough: SwiftUI re-applies its own window
+                // style, and a window that has been re-flagged is a window whose
+                // columns are 52pt into the titlebar again.
+                let names: [Notification.Name] = [
+                    NSWindow.didUpdateNotification,
+                    NSWindow.didResizeNotification,
+                    NSWindow.didBecomeKeyNotification,
+                ]
+                self.tokens = names.map { name in
+                    NotificationCenter.default.addObserver(forName: name, object: window,
+                                                            queue: .main) { note in
+                        guard let window = note.object as? NSWindow else { return }
+                        MainActor.assumeIsolated { self.clear(window) }
+                    }
+                }
+            }
+        }
+
+        private func clear(_ window: NSWindow) {
+            guard window.styleMask.contains(.fullSizeContentView) else { return }
+            window.styleMask.remove(.fullSizeContentView)
+            window.titlebarAppearsTransparent = false
+            window.titlebarSeparatorStyle = .line
+        }
+
+        deinit {
+            tokens.forEach(NotificationCenter.default.removeObserver)
+        }
+    }
+}
+
+/// Publishes how far the titlebar overlaps the content view, so a column's own
 /// content can start below it.
 ///
-/// Four attempts to stop the *columns* reaching under the titlebar all failed,
-/// and the probe says why in one line: `clearance controllers=0 items=0`.
-/// SwiftUI's `NavigationSplitView` on macOS 26 is not backed by
-/// `NSSplitViewController`, so there are no `NSSplitViewItem`s and
-/// `allowsFullHeightLayout` — the documented control for "may this item be laid
-/// out beneath the titlebar" — cannot be reached. Neither can the style mask
-/// (removing `.fullSizeContentView` measured no change), and no toolbar or
-/// background modifier applies, because the columns genuinely are up there.
-///
-/// A full-height sidebar *is* the standard macOS treatment (Finder, Mail), so
-/// the material behind the titlebar stays. What must not happen is our own
-/// content drawing into that band — a selection chip under the traffic lights
-/// is ours, not the platform's. This measures the band so the rail can inset
-/// past it.
+/// `TitlebarClearance` takes `.fullSizeContentView` off the window and keeps it
+/// off, which fixed the note list and the inspector. The rail still needed this:
+/// its rows are ours to place, and a selection chip under the traffic lights is
+/// our bug whatever the column does.
 struct TitlebarInsetReader: NSViewRepresentable {
     @Binding var inset: CGFloat
 
@@ -129,6 +206,9 @@ enum ChromeProbeLog {
         var lines: [String] = []
         let mask = window.styleMask
         lines.append("chrome[\(tag)] "
+            + "styleMask=0x\(String(mask.rawValue, radix: 16)) "
+            + "unifiedTitleAndToolbar=\(mask.contains(.unifiedTitleAndToolbar)) "
+            + "contentVC=\(window.contentViewController.map { String(describing: type(of: $0)) } ?? "nil") "
             + "fullSizeContentView=\(mask.contains(.fullSizeContentView)) "
             + "titlebarTransparent=\(window.titlebarAppearsTransparent) "
             + "titleVisibility=\(window.titleVisibility == .visible ? "visible" : "hidden") "

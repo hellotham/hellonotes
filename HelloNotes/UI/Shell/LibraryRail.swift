@@ -42,11 +42,13 @@ struct LibraryRail<Footer: View>: View {
     /// The "+" beneath the collections — open another collection or vault.
     var onAddCollection: () -> Void
 
-    /// How far the window's titlebar overlaps this column. The rows start below
-    /// it: the column is laid out full height by SwiftUI and cannot be moved
-    /// (see TitlebarInsetReader), so the first row's selection chip would
-    /// otherwise sit under the traffic lights.
+    /// How far the window's titlebar still overlaps this column. The rows start
+    /// below it: a `List` inside a `VStack` with a pinned footer is no longer
+    /// the column's root view, so it does not inherit AppKit's automatic
+    /// titlebar content-inset, and the first row's selection chip lands under
+    /// the traffic lights.
     var topInset: CGFloat = 0
+
 
     /// Pinned to the bottom, below a divider. The Mac puts Git here; iOS
     /// passes `EmptyView`.

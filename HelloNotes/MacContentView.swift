@@ -137,10 +137,10 @@ struct MacContentView: View {
     /// full panel and gets a button instead of a column.
     @State private var showGitPanel = false
 
-    /// How far the titlebar overlaps the content view (52pt with a toolbar).
-    /// The rail insets its rows past it so nothing of ours draws under the
-    /// window controls — see TitlebarInsetReader.
+    /// The titlebar's overlap of the content view, measured rather than assumed.
+    /// The rail insets its rows past it — see TitlebarInsetReader.
     @State private var titlebarInset: CGFloat = 0
+
 
 
     // MARK: - Focused / selection helpers
@@ -375,8 +375,11 @@ struct MacContentView: View {
         // the editor's status bar and note list never collapse into vertical
         // text wrapping — and if the OS forces smaller anyway, the shell
         // degrades rather than erroring.
-        // Measures the titlebar band so the rail's own content can start below
-        // it. See TitlebarInsetReader for why the column itself cannot be moved.
+        // Keeps the columns out of the titlebar band, so the toolbar is its own
+        // row. Proved in scratchpad/ChromeLab before shipping — see
+        // TitlebarClearance for the bench's verdict on all twelve candidates.
+        .background(TitlebarClearance())
+        // …and the rail's own rows inset past whatever band is left.
         .background(TitlebarInsetReader(inset: $titlebarInset))
         // Measures the titlebar/column overlap when HN_GEOM_LOG asks; a no-op
         // and zero-sized otherwise. See ChromeProbe.
