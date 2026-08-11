@@ -1,5 +1,7 @@
 ---
-status: DECIDED — all open questions resolved in review (Part 7). Not yet ported.
+status: PORTED (2026-08-11) — the sizing contract, the adaptive shell, the inspector rail
+and the width model are in the app on both platforms. Decisions 2, 3, 4 (persistence),
+7 and 11 are not yet built; see docs/unimplemented.md §6b. Shipped detail: docs/implemented.md §17.
 Wireframes: docs/wireframes.html
 ---
 
@@ -287,21 +289,26 @@ Correctness is **measured**, never eyeballed. For every scene × content combina
 **Content extremes:** empty · 1 line · 100k lines · 2,000-note outline · 4000px image / large PDF ·
 wide table · Dynamic Type XS → AX5 · keyboard up.
 
-**Harnesses** (headless, no app relaunch): `scratchpad/LayoutRef/` proves the shell rules;
-`scratchpad/RealProbe/` drives the real `MarkdownEditor` package. The running app appends its ancestor
-chain to `~/Library/Containers/com.hellotham.HelloNotes/Data/Library/Caches/hn-geom.log` — any ancestor
-taller than the scene is a live S1/S2 violation.
+**Where the matrix lives:** `HelloNotesTests/ShellContractTests` — it drives the app's own
+`AdaptiveShell` and `NoteOutlineList` in a real toolbar window that is never ordered front, so this
+class of bug fails the build. It asserts on viewports **and their ancestors**, never on scroll
+content: being a window onto something larger than itself is what a viewport is *for*.
+
+**Exploratory harnesses** (headless, no app relaunch, outside the repo): `scratchpad/LayoutRef/`
+proved the shell rules before the port; `scratchpad/RealProbe/` drives the real `MarkdownEditor`
+package. For live diagnosis, `HN_GEOM_LOG=1` makes a Debug build append its ancestor chain to
+`~/Library/Containers/com.hellotham.HelloNotes/Data/Library/Caches/hn-geom.log` — any ancestor taller
+than the scene is a live S1/S2 violation.
 
 ---
 
 ## Plan
 
 1. **Design** — this document + `docs/wireframes.html`. ✅ reviewed
-2. **Reference implementation** — extend `scratchpad/LayoutRef/` to cover rails, bands, compact
-   retraction, panes/tabs and the ruler; run the full matrix.
-3. **Port** — `AdaptiveShell` replaces `MacContentView` + `iOSContentView`; the 9 representables get S1;
-   rails, bands and panes get S2/S3.
-4. **Regression test** — the matrix becomes automated so this class of bug cannot return silently.
+2. **Reference implementation** — `scratchpad/LayoutRef/`, 38/38 against the contract. ✅
+3. **Port** — the 9 representables got S1; `AdaptiveShell` now arranges both shells; rails, bands and
+   the compact model got S2/S3. ✅ *(the parts deliberately left: unimplemented.md §6b)*
+4. **Regression test** — `HelloNotesTests/ShellContractTests`, 11 tests over the full scene matrix. ✅
 
 ---
 

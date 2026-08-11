@@ -817,3 +817,108 @@ Both were mine, from §14, and both are invisible on a desktop:
   containing an expression, so a newline between text and `<a>` collapses to
   nothing. Fixed with `{' '}`, and the built HTML is now scanned for the pattern
   in both directions.
+
+---
+
+## 17 · The layout redesign (2026-08-11)
+
+A note's first lines were unreachable — no scroll position would bring them into
+view. Six speculative fixes failed because each treated it as a scrolling bug.
+Instrumenting the running app to print its own view hierarchy gave the answer in
+one measurement, inside a 923pt window:
+
+```
+NavigationSplitRepresentable   h=1477.5  y=-251   ← 554pt too tall
+  MarkdownEditorView host      h=1390.5  y=52
+    NSScrollView               h=1390.5
+```
+
+The scroll offset was always correct. **The view was larger than the window it
+lived in**, so its top 251pt sat above the window frame — rendered nowhere,
+reachable by nothing.
+
+Full design and rationale: [layout-architecture.md](layout-architecture.md);
+wireframes for every device: [wireframes.html](wireframes.html).
+
+### The bug class
+
+`NSScrollView.fittingSize` derives from its document view, so for a 76-line note
+it measured **3433pt**: the whole document. A representable that doesn't
+implement `sizeThatFits` hands that to SwiftUI as an *ideal* size, and
+`NSSplitView` sizes itself to its **tallest column**. Only **1 of 9**
+representables implemented it, and the shell declared `minWidth/minHeight` with
+no ceiling, so nothing clamped the ideal back down.
+
+This was systemic, not an editor defect: `NSOutlineView`, `UITextView`,
+`WKWebView`, `PDFView` and `QLPreviewView` all report content size the same way.
+A 2,000-note outline inflated the shell by itself.
+
+### What shipped
+
+**The sizing contract** (Part 5). All nine representables answer `sizeThatFits`
+with the proposal via a shared `viewportSizeThatFits`, and never return `nil` —
+`nil` means "ask the platform view", which *is* the bug. Containers whose
+children are viewports clamp to `.infinity`; the shell states a maximum as well
+as a minimum.
+
+**`AdaptiveShell`** picks the arrangement by the **axis of abundance**, never
+the device: wide displays spend room on side rails, tall ones band navigation
+across the top, phones give the editor the whole screen. A Mac window and an
+iPad of the same size get the same shell, so Stage Manager stops being a special
+case. Native where native delivers the contract — the wide shells are a real
+`NavigationSplitView` plus a real `.inspector`.
+
+**The inspector rail** consolidates four scattered surfaces (references under
+the editor, outline in a popover, tags in the left sidebar, history in a sheet)
+into one place that reopens on its last-used tab. Tags left the left rail: it
+answers "where is it?", the inspector answers "what is this, and what touches
+it?". Selecting a tag there still filters the note list — the rails cooperate.
+
+**Reading is not editing** (decision 5). Reading holds a fixed measure and
+centres it; editing takes the pane and stays left-aligned, VS Code style. A
+fixed 80ch column in a 3200pt pane is a ribbon stranded in gutters. Widths
+resolve against the font in use, never stored as points. The wrap guide is a
+line you can see, not a wrap point.
+
+**`EditorDocumentStore`** keeps built documents above the shell. Building one
+parses and styles the whole note, and it used to happen again on every tab
+switch and every shell rearrangement — each time dropping the caret and scroll.
+
+### Also fixed on the way
+
+Editing a note while Obsidian had the same iCloud vault open made the caret lag
+badly. Three causes, all on the main actor: derived index state was rebuilt and
+republished on the main actor even when unchanged (now computed off-main, with
+an O(1) signature-gated handoff); the file watcher ran a full vault scan per
+event where a co-editor delivers bursts (now debounced 400ms); and an external
+reload rebuilt the whole editor document (now patched in place, preserving caret
+and scroll).
+
+### Traps hit
+
+- **`automaticallyAdjustsContentInsets = false` looked like the fix and was the
+  opposite.** In a `.fullSizeContentView` toolbar window the scroll view extends
+  up under the toolbar, and the automatic inset is what makes the minimum scroll
+  offset *negative* so document y=0 can clear it. Disabling it hid the first
+  66pt with no way to reach them. A clean-room harness proved it (stages 7 vs 8).
+- **Clamping the scroll origin to `max(0, y)` forbade the very offset reaching
+  the top requires.**
+- **`Group` has a `TableColumnContent` overload.** With a `List` inside, the
+  compiler picks it and then fails to infer its generics, reporting errors about
+  `TableColumn` in a file with no table. `@ViewBuilder` on the property instead.
+- **A custom band layout has no navigation context.** `NavigationSplitView`
+  gives each column one; a hand-built band must supply its own or `.searchable`,
+  `.navigationTitle` and every column toolbar button silently vanish.
+- **`NoteHistoryView` was hard-coded to 720x480** — fine as a sheet, an overflow
+  in a 280pt rail, which is the exact failure the redesign exists to stop.
+
+### How it is kept fixed
+
+`HelloNotesTests/ShellContractTests` is Part 6's validation matrix: fourteen
+scenes from a 320pt iPad slice to 3840x2160, plus a live resize sweep down to
+250pt and back, measured in a real toolbar window that is never ordered front.
+It asserts on viewports **and their ancestors**, never on scroll content — being
+a window onto something larger than itself is what a viewport is *for*.
+
+The unreachable top-of-file was a layout fact, not a logic fact, so nothing in
+the codebase could have caught it. Now it fails the build.

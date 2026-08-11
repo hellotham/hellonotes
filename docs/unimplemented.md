@@ -96,11 +96,35 @@
 
 ---
 
+## 6b · Layout architecture — the parts not yet built *(design: [layout-architecture.md](layout-architecture.md); shipped parts: implemented.md §17)*
+
+The sizing contract, the adaptive shell, the inspector rail and the width model
+are in. These decisions are not:
+
+- 🟡 **Manual pane splitting** (decision 2) — `ShellMetrics.maxPanes` computes
+  the ceiling (`min(4, pane/320)`) and the contract test asserts it, but there is
+  no split command and no second pane. Today: one pane, plus tabs.
+- 🟡 **The persistent format bar** (decision 3) — `ShellContext.showsFormatBar`
+  resolves the rule (pointer, pane ≥560, editing) and is tested; the bar itself
+  isn't built. Formatting is still menu- and shortcut-driven.
+- 🟡 **Column widths remembered per window** (decision 4) — dragging and
+  collapsing work and are clamped to the contract's floors and caps, but only
+  via the system's own state restoration; nothing is stored deliberately.
+- 🟡 **Scroll-linked chrome retraction on compact** (decision 11) — chrome
+  retracts when the note is expanded, not in response to scroll direction.
+- 🟡 **A keyboard accessory bar** for touch editing (Part 3) — not built.
+
+---
+
 ## 7 · iOS / iPadOS parity
 
 - ✅ **Live editor** — shipped (`editor-M5`, see §6) with full block chrome; the remaining iOS-editor item is wiring the app-side services (code colours, embeds) — see §6.
-- 🍎 **macOS-only surfaces** — Open Quickly, tags tree, the Git UI, image paste, Mermaid preview, document statistics, outline, HTML/PDF export, multi-tab, version history, wiki-link autocomplete, open-in-new-window, Graph/Mind Map/Slides, file viewer, and the whole AI stack. The shared `Core`/`State` layers can back iOS UIs later.
-- 🟡 **iPad multitasking / Stage Manager** for the split layout is unverified (needs a device).
+- ✅ **Adaptive shell** — iOS resolves its layout by the same rule as macOS, with a compact tab-bar model of its own (implemented.md §17). The inspector rail, outline, tags, references, properties and history are now cross-platform.
+- 🍎 **macOS-only surfaces** — Open Quickly, the Git UI, image paste, Mermaid preview, HTML/PDF export, multi-tab, wiki-link autocomplete, open-in-new-window, Graph/Mind Map/Slides, file viewer, and the whole AI stack. The shared `Core`/`State` layers can back iOS UIs later.
+- 🟠 **AI as a compact place** (decision 7) — the bottom tab bar has no AI tab because `AssistantView` and Ask Library are still macOS-only. Decision 7 also wants Graph and Mind Map as full-screen sheets on iPad. **Unblock:** port those four views.
+- 🟠 **Heading navigation from the iOS outline** — the inspector posts `.hnEditorFindQuery`, but `MarkdownEditorView` exposes no `EditorProxy` on iOS, so nothing consumes it. The outline reads; it doesn't scroll. **Unblock:** an iOS proxy seam in `MarkdownEditor`.
+- 🟠 **Unlinked mentions in the iOS inspector** — needs the Spotlight query the macOS shell runs; the other two reference sections come straight from the index.
+- 🟡 **iPad multitasking / Stage Manager** for the split layout is unverified on a device. The contract test covers a 320pt slice and a 250pt tile headlessly.
 
 ---
 
