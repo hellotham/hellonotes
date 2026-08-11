@@ -370,11 +370,24 @@ public final class MarkdownTextView: NSTextView {
 
     func bind(to document: EditorDocument) {
         self.document = document
-        // Default font/typing attributes MUST be set before the storage is
-        // attached: setting `font` applies it to the entire text storage,
-        // which would clobber the per-run concealed (0.1pt) fonts already in
-        // the document's storage — leaving concealed markers invisible but
-        // still occupying their full width.
+        // Setting `font` applies it to the **whole text storage attached right
+        // now**, so it must be done while no real document is in place. Two
+        // separate hazards, and only the first was handled before:
+        //
+        //  1. It must precede attaching the *new* storage, or it flattens the
+        //     per-run concealed (0.1pt) fonts the document has already applied.
+        //  2. It must not run while the *previous* document's storage is still
+        //     attached — otherwise re-binding reaches back and flattens the
+        //     note you just left. Documents outlive their views (they are kept
+        //     alive across view churn), so that damage is permanent: headings
+        //     came back at body size and folded front matter came back at full
+        //     height but still transparent, leaving an empty band at the top.
+        //
+        // Parking a throwaway storage first gives the assignment somewhere
+        // harmless to land.
+        if let contentStorage = textContentStorage {
+            contentStorage.textStorage = NSTextStorage()
+        }
         font = document.theme.body
         typingAttributes = [
             .font: document.theme.body,

@@ -118,9 +118,15 @@ public final class MarkdownUITextView: UITextView {
 
     private func bind(to document: EditorDocument) {
         self.document = document
-        // Default typing attributes MUST be set before the storage is attached,
-        // mirroring the macOS view (setting `font` applies it to the whole
-        // storage, clobbering per-run concealed fonts otherwise).
+        // Mirrors macOS: `font` applies to the storage attached *right now*, so
+        // it must land neither on the new document (flattening its concealed
+        // runs) nor on a previously attached one (flattening the note just
+        // left). Only `make(document:)` calls this today, so there is never a
+        // previous storage — the throwaway keeps that from becoming a trap if
+        // this ever gets called twice.
+        if let contentStorage = textLayoutManager?.textContentManager as? NSTextContentStorage {
+            contentStorage.textStorage = NSTextStorage()
+        }
         font = document.theme.body
         typingAttributes = [
             .font: document.theme.body,
