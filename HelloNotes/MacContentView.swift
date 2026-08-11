@@ -137,6 +137,9 @@ struct MacContentView: View {
     /// full panel and gets a button instead of a column.
     @State private var showGitPanel = false
 
+    /// The titlebar's overlap of the content view, measured rather than assumed.
+    /// The rail insets its rows past it — see TitlebarInsetReader.
+    @State private var titlebarInset: CGFloat = 0
 
 
 
@@ -376,6 +379,8 @@ struct MacContentView: View {
         // row. Proved in scratchpad/ChromeLab before shipping — see
         // TitlebarClearance for the bench's verdict on all twelve candidates.
         .background(TitlebarClearance())
+        // …and the rail's own rows inset past whatever band is left.
+        .background(TitlebarInsetReader(inset: $titlebarInset))
         // Measures the titlebar/column overlap when HN_GEOM_LOG asks; a no-op
         // and zero-sized otherwise. See ChromeProbe.
         .background(ChromeProbe())
@@ -796,6 +801,7 @@ struct MacContentView: View {
             },
             onRevealCollection: { NSWorkspace.shared.activateFileViewerSelecting([$0.rootURL]) },
             onAddCollection: { showLauncher = true },
+            topInset: titlebarInset,
             footer: { gitFooter }
         )
         .navigationTitle("HelloNotes")
@@ -1383,7 +1389,7 @@ struct MacContentView: View {
                 } label: {
                     // Not a magnifying glass: there is already a search field
                     // in this column, and two identical glasses meaning
-                    // different things is the confusion, not the feature.
+                    // different things reads as a duplicated search box.
                     Label("Open Quickly", systemImage: "arrow.forward.square")
                 }
                 .help("Open Quickly (⇧⌘O)")

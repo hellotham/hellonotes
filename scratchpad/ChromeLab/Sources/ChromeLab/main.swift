@@ -58,6 +58,21 @@ struct LabShell: View {
     }
 }
 
+/// The redesign under test: three columns as an `HSplitView` of ordinary views.
+/// Nothing here is a `sidebar`, so nothing gets the full-height treatment.
+struct HSplitShell: View {
+    var body: some View {
+        HSplitView {
+            Color(nsColor: .systemPurple).frame(width: 64)
+            Color(nsColor: .systemTeal).frame(minWidth: 220, idealWidth: 280, maxWidth: 340)
+            Color(nsColor: .systemOrange).frame(maxWidth: .infinity)
+            Color(nsColor: .systemPink).frame(width: 280)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .toolbar { ToolbarItem { Image(systemName: "magnifyingglass") } }
+    }
+}
+
 // MARK: - Candidates
 
 struct Candidate {
@@ -84,6 +99,8 @@ struct Candidate {
     var skipLayoutAfterStrip: Bool = false
     /// Resize the content view to `contentLayoutRect` explicitly.
     var resizeContentView: Bool = false
+    /// Build the shell from `HSplitView` instead of `NavigationSplitView`.
+    var useHSplit: Bool = false
     /// Host through a `contentViewController`, the way SwiftUI's `WindowGroup`
     /// does, rather than assigning `contentView` directly. This is the fidelity
     /// the first bench lacked: with a content *view* the strip alone works, and
@@ -129,6 +146,12 @@ let candidates: [Candidate] = [
               useContentViewController: true),
     Candidate(name: "18 [VC] no fullSize at creation",
               fullSizeContentView: false, useContentViewController: true),
+    // 19/20: the redesign. No NavigationSplitView at all — an HSplitView of
+    // plain views, where no column is a "sidebar" and none gets full-height
+    // behaviour. If this measures clean without any window surgery, the whole
+    // class of problem is a consequence of the container, not of our content.
+    Candidate(name: "19 HSplitView shell (no NavigationSplitView)", useHSplit: true),
+    Candidate(name: "20 HSplitView + no fullSize", fullSizeContentView: false, useHSplit: true),
 ]
 
 /// Re-removes `.fullSizeContentView` every time the window updates, so a later
@@ -186,8 +209,10 @@ func measure(_ candidate: Candidate) -> Result {
     toolbar.displayMode = .iconOnly
     window.toolbar = toolbar
 
-    let root = LabShell(opaqueToolbar: candidate.opaqueToolbar,
-                        contentInset: candidate.contentInset)
+    let root = AnyView(candidate.useHSplit
+        ? AnyView(HSplitShell())
+        : AnyView(LabShell(opaqueToolbar: candidate.opaqueToolbar,
+                           contentInset: candidate.contentInset)))
     if candidate.useContentViewController {
         window.contentViewController = NSHostingController(rootView: root)
     } else {
@@ -460,7 +485,7 @@ struct RailApp: App {
     var body: some Scene {
         WindowGroup {
             RailShell(wrapped: CommandLine.arguments.contains("--wrapped"))
-                .background(ClearanceInstaller(strip: true))
+                .background(ClearanceInstaller(strip: !CommandLine.arguments.contains("--nostrip")))
                 .background(RailMeasurer())
         }
     }
@@ -473,13 +498,21 @@ struct RailShell: View {
     var body: some View {
         NavigationSplitView {
             if wrapped {
+                // What the rail was: List inside a VStack with the footer.
                 VStack(spacing: 0) {
                     rows
                     Divider()
                     Text("git").frame(maxWidth: .infinity).padding(.vertical, 8)
                 }
             } else {
-                rows
+                // What was just shipped without proof: List as the root, footer
+                // as a bottom safe-area inset.
+                rows.safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 0) {
+                        Divider()
+                        Text("git").frame(maxWidth: .infinity).padding(.vertical, 8)
+                    }
+                }
             }
         } detail: {
             Color(nsColor: .systemOrange)
@@ -508,23 +541,27 @@ struct RailMeasurer: NSViewRepresentable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             MainActor.assumeIsolated {
                 guard let w = v.window, let content = w.contentView else { print("no window"); exit(2) }
-                let layout = w.contentLayoutRect
-                // The topmost row-ish view in the leftmost column.
-                var topMost: CGFloat = 0
-                func walk(_ view: NSView) {
-                    let f = view.convert(view.bounds, to: nil)
-                    // Only the sidebar column, and only views that actually draw.
-                    if f.minX < 120, f.width > 20, f.height > 4, f.height < 80,
-                       view.subviews.isEmpty || view is NSTextField {
-                        topMost = max(topMost, f.maxY)
-                    }
-                    view.subviews.forEach(walk)
+
+                // Measure the thing that actually decides this, rather than
+                // guessing at which subview is "the first row": AppKit gives a
+                // source list an automatic top content inset the height of the
+                // titlebar. If that inset is there, the rows clear the traffic
+                // lights. If it is zero, they do not. The previous heuristic
+                // ("topmost smallish view in the left column") returned the same
+                // number for both shapes and proved nothing.
+                var reports: [String] = []
+                for scroll in scrollViews(in: content) {
+                    let f = scroll.convert(scroll.bounds, to: nil)
+                    guard f.minX < 200 else { continue }   // the sidebar column
+                    reports.append("top=\(Int(scroll.contentInsets.top))pt "
+                        + "auto=\(scroll.automaticallyAdjustsContentInsets)")
                 }
-                walk(content)
-                let shape = CommandLine.arguments.contains("--wrapped") ? "VStack{List,footer}" : "bare List"
-                let clears = topMost <= layout.maxY + 0.5
-                print("[rail \(shape)] topRowMaxY=\(Int(topMost)) contentLayoutMaxY=\(Int(layout.maxY)) "
-                      + (clears ? "CLEARS titlebar" : "OVERLAPS titlebar by \(Int(topMost - layout.maxY))pt"))
+                let shape = (CommandLine.arguments.contains("--wrapped")
+                    ? "VStack{List,footer}" : "List+bottomInset")
+                    + (CommandLine.arguments.contains("--nostrip") ? " [no clearance]" : " [clearance]")
+                let inset = reports.first ?? "no sidebar scroll view found"
+                let overlap = Int(max(0, content.bounds.height - w.contentLayoutRect.height))
+                print("[rail \(shape)] \(inset)  windowOverlap=\(overlap)pt")
                 exit(0)
             }
         }
@@ -532,4 +569,15 @@ struct RailMeasurer: NSViewRepresentable {
     }
     func updateNSView(_ nsView: NSView, context: Context) {}
     func sizeThatFits(_ p: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? { .zero }
+}
+
+@MainActor
+func scrollViews(in view: NSView) -> [NSScrollView] {
+    var found: [NSScrollView] = []
+    func walk(_ v: NSView) {
+        if let s = v as? NSScrollView { found.append(s) }
+        v.subviews.forEach(walk)
+    }
+    walk(view)
+    return found
 }

@@ -42,6 +42,12 @@ struct LibraryRail<Footer: View>: View {
     /// The "+" beneath the collections — open another collection or vault.
     var onAddCollection: () -> Void
 
+    /// How far the window's titlebar still overlaps this column. The rows start
+    /// below it: a `List` inside a `VStack` with a pinned footer is no longer
+    /// the column's root view, so it does not inherit AppKit's automatic
+    /// titlebar content-inset, and the first row's selection chip lands under
+    /// the traffic lights.
+    var topInset: CGFloat = 0
 
 
     /// Pinned to the bottom, below a divider. The Mac puts Git here; iOS
@@ -49,21 +55,7 @@ struct LibraryRail<Footer: View>: View {
     @ViewBuilder var footer: () -> Footer
 
     var body: some View {
-        railList
-            // The Git footer as a *bottom safe-area inset* rather than a `VStack`
-            // sibling. That keeps the `List` the column's root view, which is
-            // the condition for AppKit's automatic titlebar content-inset — the
-            // thing that stops the first row's selection chip landing under the
-            // traffic lights. Wrapped in a `VStack` it was not the root, so it
-            // did not get the inset, and no magic number was going to be the
-            // right one at every window size and toolbar style.
-            .safeAreaInset(edge: .bottom, spacing: 0) { footer() }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityIdentifier("shell.libraryRail")
-    }
-
-    private var railList: some View {
-        Group {
+        VStack(spacing: 0) {
             // A `List`, not a `ScrollView`. In a full-height sidebar column the
             // window's titlebar floats *over* the content, and a scroll view
             // deliberately scrolls its content underneath it — so the first
@@ -100,10 +92,17 @@ struct LibraryRail<Footer: View>: View {
                 .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
                 .listRowSeparator(.hidden)
             }
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: topInset)
+            }
+            // S1: a rail is a viewport onto its rows, never sized by them.
+            .frame(maxHeight: .infinity)
+
+            footer()
         }
-        .listStyle(.sidebar)
-        // S1: a rail is a viewport onto its rows, never sized by them.
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("shell.libraryRail")
     }
 
     // MARK: - Rows
