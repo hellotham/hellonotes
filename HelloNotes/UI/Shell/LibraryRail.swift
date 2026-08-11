@@ -93,6 +93,14 @@ struct LibraryRail<Footer: View>: View {
                 .listRowSeparator(.hidden)
             }
             .listStyle(.sidebar)
+            // The rail's own background is what bleeds into the titlebar row.
+            // Measured in the running app (ChromeProbe's pixel sample): every
+            // other column paints the window background inside the 52pt band,
+            // while the rail paints an opaque colour there — the `List`'s
+            // background, which covers the whole column including the band.
+            // Hiding it lets the column's material show through instead, the
+            // same as the note list and the inspector.
+            .scrollContentBackground(.hidden)
             .safeAreaInset(edge: .top, spacing: 0) {
                 Color.clear.frame(height: topInset)
             }

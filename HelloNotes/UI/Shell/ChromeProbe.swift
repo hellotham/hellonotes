@@ -133,10 +133,23 @@ struct TitlebarClearance: NSViewRepresentable {
         }
 
         private func clear(_ window: NSWindow) {
-            guard window.styleMask.contains(.fullSizeContentView) else { return }
-            window.styleMask.remove(.fullSizeContentView)
-            window.titlebarAppearsTransparent = false
+            if window.styleMask.contains(.fullSizeContentView) {
+                window.styleMask.remove(.fullSizeContentView)
+                window.titlebarAppearsTransparent = false
+            }
             window.titlebarSeparatorStyle = .line
+
+            // Removing the flag is not enough on its own: the app settles with
+            // it off and *still* reports a 52pt band, because SwiftUI keeps
+            // re-applying its window configuration. So inset the safe area by
+            // whatever band survives, which is the supported way to tell every
+            // view inside — including the sidebar's material — to lay out below
+            // the titlebar rather than behind it.
+            guard let content = window.contentView else { return }
+            let band = max(0, content.bounds.height - window.contentLayoutRect.height)
+            if abs(content.additionalSafeAreaInsets.top - band) > 0.5 {
+                content.additionalSafeAreaInsets.top = band
+            }
         }
 
         deinit {
@@ -199,6 +212,46 @@ enum ChromeProbeLog {
         append("chrome[note] \(line)\n")
     }
 
+    /// Samples rendered pixels in the titlebar band, per column.
+    ///
+    /// Every frame-based metric here disagreed with what the user could see —
+    /// a wrapper view can be full height with nothing of the column drawn in
+    /// the band, which is exactly what the bench proved. Pixels are the only
+    /// measurement that corresponds to the complaint. For each column region it
+    /// reports the colour *inside* the band and the colour just *below* it: the
+    /// same colour twice means that column's content is drawn up there.
+    @MainActor
+    static func samplePixels(window: NSWindow, tag: String) {
+        guard enabled, let content = window.contentView else { return }
+        let band = max(0, content.bounds.height - window.contentLayoutRect.height)
+        guard band > 2,
+              let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
+        content.cacheDisplay(in: content.bounds, to: rep)
+
+        func hex(_ x: Int, _ y: Int) -> String {
+            guard x >= 0, y >= 0, x < rep.pixelsWide, y < rep.pixelsHigh,
+                  let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return "----" }
+            return String(format: "%02X%02X%02X",
+                          Int(c.redComponent * 255), Int(c.greenComponent * 255),
+                          Int(c.blueComponent * 255))
+        }
+
+        // Column regions, by the widths the shell actually uses.
+        let width = content.bounds.width
+        let probes: [(String, CGFloat)] = [
+            ("rail", 32),
+            ("list", ShellMetrics.railWidth + 120),
+            ("editor", width * 0.5),
+            ("inspector", width - 60),
+        ]
+        let inBand = Int(band / 2)                 // middle of the band
+        let below = Int(band + 12)                 // just under it
+        let line = probes.filter { $0.1 < width }.map { name, x in
+            "\(name)=\(hex(Int(x), inBand))/\(hex(Int(x), below))"
+        }.joined(separator: " ")
+        append("chrome[\(tag)] pixels band=\(Int(band))pt (inBand/below) \(line)\n")
+    }
+
     @MainActor
     static func dump(window: NSWindow?, tag: String) {
         guard enabled, let window, let content = window.contentView else { return }
@@ -242,6 +295,7 @@ enum ChromeProbeLog {
             }
         }
         append(lines.joined(separator: "\n") + "\n")
+        samplePixels(window: window, tag: tag)
     }
 
     private static func collectSplitViews(in view: NSView, into found: inout [NSSplitView]) {

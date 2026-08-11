@@ -72,24 +72,46 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
     // MARK: - Wide / two: the native three-column shell plus an inspector
 
     private func columnShell(_ kind: ShellKind) -> some View {
-        NavigationSplitView(columnVisibility: columnBinding(kind)) {
-            libraryRail()
-                .navigationSplitViewColumnWidth(min: ShellMetrics.libraryFloor,
-                                                ideal: ShellMetrics.libraryIdeal,
-                                                max: ShellMetrics.libraryCap)
-        } content: {
-            noteList()
-                .navigationSplitViewColumnWidth(min: ShellMetrics.listFloor,
-                                                ideal: ShellMetrics.listIdeal,
-                                                max: ShellMetrics.listCap)
-        } detail: {
-            EditorPaneContainer { pane() }
-                .inspector(isPresented: inspectorBinding(kind)) {
-                    inspector()
-                        .inspectorColumnWidth(min: ShellMetrics.inspectorFloor,
-                                              ideal: ShellMetrics.inspectorIdeal,
-                                              max: ShellMetrics.inspectorCap)
-                }
+        HStack(spacing: 0) {
+            // The rail sits *outside* the `NavigationSplitView`, not in its
+            // sidebar slot.
+            //
+            // Measured, after every other avenue was ruled out one at a time
+            // (see ChromeProbe): the first column of a `NavigationSplitView` is
+            // given AppKit's **sidebar material**, and that material is drawn
+            // full height, behind the titlebar, by design. The app's own pixel
+            // probe showed it plainly — every other column paints the window
+            // background inside the 52pt titlebar band, and only the rail
+            // painted an opaque colour there. Nothing in SwiftUI turns that
+            // material off: not a toolbar background, not the window's style
+            // mask, not `allowsFullHeightLayout`, not
+            // `scrollContentBackground(.hidden)`, not `additionalSafeAreaInsets`.
+            //
+            // So the rail stops being that column. As an ordinary sibling view
+            // it draws only what we give it, and it respects the safe area like
+            // any other view — which is what keeps it out of the titlebar row.
+            // The note list becomes the split view's sidebar, which is what a
+            // source list should have been all along.
+            if kind.hasLibraryRail {
+                libraryRail()
+                    .frame(width: ShellMetrics.railWidth)
+                Divider()
+            }
+
+            NavigationSplitView(columnVisibility: columnBinding(kind)) {
+                noteList()
+                    .navigationSplitViewColumnWidth(min: ShellMetrics.listFloor,
+                                                    ideal: ShellMetrics.listIdeal,
+                                                    max: ShellMetrics.listCap)
+            } detail: {
+                EditorPaneContainer { pane() }
+                    .inspector(isPresented: inspectorBinding(kind)) {
+                        inspector()
+                            .inspectorColumnWidth(min: ShellMetrics.inspectorFloor,
+                                                  ideal: ShellMetrics.inspectorIdeal,
+                                                  max: ShellMetrics.inspectorCap)
+                    }
+            }
         }
     }
 
@@ -97,9 +119,11 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
     /// overlay. `NavigationSplitView` already gives that: force the two-column
     /// visibility and the system keeps the sidebar one toggle away.
     private func columnBinding(_ kind: ShellKind) -> Binding<NavigationSplitViewVisibility> {
-        kind.libraryIsOverlay
-            ? .constant(.doubleColumn)
-            : $columnVisibility
+        // The split view is two columns now (list + pane), and the rail is a
+        // sibling that simply isn't built below 960pt — `hasLibraryRail` is the
+        // same decision 12 rule, applied where the view is created rather than
+        // through the split view's visibility.
+        $columnVisibility
     }
 
     /// The inspector exists only where the contract says there is room for it.

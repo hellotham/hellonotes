@@ -395,6 +395,29 @@ struct LabApp: App {
     }
 }
 
+/// Clears the flag from inside the *layout pass*, not after it.
+///
+/// `didUpdate` fires after AppKit has already laid the window out, so removing
+/// the flag there is a tug-of-war with SwiftUI, which re-applies it: the app
+/// settles with the flag off and the layout still computed as though it were on.
+/// A view's `layout()` runs *during* every pass, so clearing it here means the
+/// flag is off at the moment the geometry is decided.
+final class LayoutHookView: NSView {
+    override func layout() {
+        if let w = window, w.styleMask.contains(.fullSizeContentView) {
+            w.styleMask.remove(.fullSizeContentView)
+            w.titlebarAppearsTransparent = false
+        }
+        super.layout()
+    }
+}
+
+struct LayoutHookInstaller: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { LayoutHookView(frame: .zero) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+    func sizeThatFits(_ p: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? { .zero }
+}
+
 /// The mechanism under test, exactly as the app ships it.
 struct ClearanceInstaller: NSViewRepresentable {
     let strip: Bool
@@ -440,6 +463,44 @@ struct ClearanceInstaller: NSViewRepresentable {
     }
 }
 
+/// Samples actual rendered pixels in the titlebar band.
+///
+/// Every previous metric measured *wrapper view frames*, which is why it kept
+/// disagreeing with what a person sees: a wrapper can be full height while
+/// nothing of the column is drawn up there, and vice versa. The columns are
+/// painted in distinct colours, so "is a column bleeding into the toolbar row"
+/// is answerable exactly — read the pixel.
+@MainActor
+func columnColourInTitlebarBand(_ window: NSWindow) -> String {
+    guard let content = window.contentView else { return "no content view" }
+    let band = max(0, content.bounds.height - window.contentLayoutRect.height)
+    guard band > 0 else { return "no titlebar band at all" }
+
+    guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+        return "could not snapshot"
+    }
+    content.cacheDisplay(in: content.bounds, to: rep)
+
+    // Sample a few points across the band, in view coordinates. The content
+    // view is flipped-from-bottom, so the band is at the TOP = high y.
+    let ys = [content.bounds.height - 6, content.bounds.height - band / 2]
+    let xs: [(String, CGFloat)] = [("rail", 30), ("list", 240), ("editor", 700), ("inspector", 1350)]
+    var hits: [String] = []
+    for (name, x) in xs where x < content.bounds.width {
+        for y in ys {
+            guard let c = rep.colorAt(x: Int(x), y: Int(content.bounds.height - y)) else { continue }
+            let rgb = c.usingColorSpace(.sRGB)
+            guard let rgb else { continue }
+            // The lab colours are saturated; window chrome is not.
+            let sat = rgb.saturationComponent
+            if sat > 0.35 { hits.append(name); break }
+        }
+    }
+    return hits.isEmpty
+        ? "band \(Int(band))pt: NO column colour in it — clean"
+        : "band \(Int(band))pt: column colour present at [\(hits.joined(separator: ", "))] — BLEEDING"
+}
+
 /// Measures the real window a second after it exists, prints, and exits.
 struct AppMeasurer: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
@@ -458,7 +519,9 @@ struct AppMeasurer: NSViewRepresentable {
                         if c.convert(c.bounds, to: nil).maxY > layout.maxY + 0.5 { under += 1 }
                     }
                 }
-                let mode = CommandLine.arguments.contains("--strip") ? "strip+observer" : "baseline"
+                let mode = CommandLine.arguments.contains("--layouthook") ? "layout hook"
+                         : CommandLine.arguments.contains("--strip") ? "strip+observer" : "baseline"
+                print("[WindowGroup \(mode)] PIXELS → \(columnColourInTitlebarBand(w))")
                 print("[WindowGroup \(mode)] styleMask=0x\(String(w.styleMask.rawValue, radix: 16)) "
                       + "contentVC=\(w.contentViewController.map { String(describing: type(of: $0)) } ?? "nil") "
                       + "fullSize=\(w.styleMask.contains(.fullSizeContentView)) "
@@ -497,6 +560,7 @@ struct RailShell: View {
 
     var body: some View {
         NavigationSplitView {
+            Group {
             if wrapped {
                 // What the rail was: List inside a VStack with the footer.
                 VStack(spacing: 0) {
@@ -514,6 +578,10 @@ struct RailShell: View {
                     }
                 }
             }
+            }
+            // The app pins its rail to 64pt. A default-width sidebar was not a
+            // faithful model — and this is the last unmodelled difference.
+            .navigationSplitViewColumnWidth(min: 64, ideal: 64, max: 64)
         } detail: {
             Color(nsColor: .systemOrange)
                 .toolbar { ToolbarItem { Image(systemName: "magnifyingglass") } }
@@ -524,6 +592,12 @@ struct RailShell: View {
         List {
             ForEach(0..<6) { i in
                 Text("row \(i)")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    // A saturated chip, like the rail's selection background —
+                    // this is the thing that lands on the traffic lights.
+                    .background(RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .systemPurple)))
                     .accessibilityIdentifier(i == 0 ? "rail.firstRow" : "rail.row")
                     .frame(maxWidth: .infinity)
                     .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
@@ -531,8 +605,16 @@ struct RailShell: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear.frame(height: CommandLine.arguments.contains("--shortfall") ? shortfall : 0)
+        }
         .frame(maxHeight: .infinity)
     }
+
+    /// The part of the titlebar band AppKit's automatic inset does *not* cover.
+    /// Measured, so it is 0 when there is no band and 0 when AppKit already
+    /// covered it — it cannot double-inset.
+    @State private var shortfall: CGFloat = 0
 }
 
 struct RailMeasurer: NSViewRepresentable {
@@ -556,6 +638,7 @@ struct RailMeasurer: NSViewRepresentable {
                     reports.append("top=\(Int(scroll.contentInsets.top))pt "
                         + "auto=\(scroll.automaticallyAdjustsContentInsets)")
                 }
+                print("[rail PIXELS] " + railChipInBand(w))
                 let shape = (CommandLine.arguments.contains("--wrapped")
                     ? "VStack{List,footer}" : "List+bottomInset")
                     + (CommandLine.arguments.contains("--nostrip") ? " [no clearance]" : " [clearance]")
@@ -569,6 +652,23 @@ struct RailMeasurer: NSViewRepresentable {
     }
     func updateNSView(_ nsView: NSView, context: Context) {}
     func sizeThatFits(_ p: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? { .zero }
+}
+
+/// Is a saturated chip drawn in the titlebar band of the *rail* column?
+@MainActor
+func railChipInBand(_ window: NSWindow) -> String {
+    guard let content = window.contentView else { return "no content view" }
+    let band = max(0, content.bounds.height - window.contentLayoutRect.height)
+    guard band > 0 else { return "no band" }
+    guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return "?" }
+    content.cacheDisplay(in: content.bounds, to: rep)
+    for y in stride(from: 2.0, through: band - 2, by: 4.0) {
+        guard let c = rep.colorAt(x: 40, y: Int(y))?.usingColorSpace(.sRGB) else { continue }
+        if c.saturationComponent > 0.35 {
+            return "band \(Int(band))pt: CHIP IN BAND at \(Int(y))pt from top — BLEEDING"
+        }
+    }
+    return "band \(Int(band))pt: no chip in band — clean"
 }
 
 @MainActor
