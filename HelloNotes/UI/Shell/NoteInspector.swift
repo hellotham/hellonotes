@@ -14,7 +14,6 @@
 //  over there.
 //
 
-#if os(macOS)
 import SwiftUI
 
 /// The inspector's tabs, in the order they appear. Persisted so the rail
@@ -120,28 +119,30 @@ struct NoteInspector: View {
 
     // MARK: - Tags (decision 1 — they live here now, not in the left rail)
 
+    // `@ViewBuilder` rather than a `Group`: `Group` also has a
+    // `TableColumnContent` overload, and when the body is a `List` the compiler
+    // picks it and then fails to infer its generics.
+    @ViewBuilder
     private var tagsTab: some View {
-        Group {
-            if tagTree.isEmpty {
-                emptyState("No Tags", "number",
-                           "Tags you write as #tag in a note appear here.")
-            } else {
-                List {
-                    Button { selectedTag = nil } label: {
-                        Label("All Notes", systemImage: "tray.full")
-                            .fontWeight(selectedTag == nil ? .semibold : .regular)
-                    }
-                    .buttonStyle(.plain)
+        if tagTree.isEmpty {
+            emptyState("No Tags", "number",
+                       "Tags you write as #tag in a note appear here.")
+        } else {
+            List {
+                Button { selectedTag = nil } label: {
+                    Label("All Notes", systemImage: "tray.full")
+                        .fontWeight(selectedTag == nil ? .semibold : .regular)
+                }
+                .buttonStyle(.plain)
 
-                    ForEach(tagTree) { node in
-                        TagTreeRow(node: node, selectedTag: selectedTag,
-                                   selectedColor: appearance.accentText ?? .accentColor) { tag in
-                            selectedTag = tag
-                        }
+                ForEach(tagTree) { node in
+                    TagTreeRow(node: node, selectedTag: selectedTag,
+                               selectedColor: appearance.accentTextColor) { tag in
+                        selectedTag = tag
                     }
                 }
-                .listStyle(.sidebar)
             }
+            .listStyle(.sidebar)
         }
     }
 
@@ -151,27 +152,26 @@ struct NoteInspector: View {
         !outgoingLinks.isEmpty || !backlinks.isEmpty || !unlinkedMentions.isEmpty
     }
 
+    @ViewBuilder
     private var referencesTab: some View {
-        Group {
-            if !hasReferences {
-                emptyState("No References", "link",
-                           "Nothing links to this note yet, and it links nowhere.")
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        if !outgoingLinks.isEmpty {
-                            section("Outgoing Links", systemImage: "arrow.up.forward", notes: outgoingLinks)
-                        }
-                        if !backlinks.isEmpty {
-                            section("Linked Mentions", systemImage: "link", notes: backlinks)
-                        }
-                        if !unlinkedMentions.isEmpty {
-                            unlinkedSection
-                        }
+        if !hasReferences {
+            emptyState("No References", "link",
+                       "Nothing links to this note yet, and it links nowhere.")
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if !outgoingLinks.isEmpty {
+                        section("Outgoing Links", systemImage: "arrow.up.forward", notes: outgoingLinks)
                     }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if !backlinks.isEmpty {
+                        section("Linked Mentions", systemImage: "link", notes: backlinks)
+                    }
+                    if !unlinkedMentions.isEmpty {
+                        unlinkedSection
+                    }
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -248,4 +248,3 @@ struct NoteInspector: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
-#endif

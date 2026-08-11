@@ -5,7 +5,6 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
 import SwiftUI
 
 extension Notification.Name {
@@ -95,4 +94,3 @@ struct OutlineView: View {
         .font(.callout)
     }
 }
-#endif

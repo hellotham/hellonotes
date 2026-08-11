@@ -122,7 +122,8 @@ struct ShellContractTests {
     func chromeRules() {
         for scene in Self.scenes {
             let kind = shellKind(width: scene.width, height: scene.height)
-            let paneWidth = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView, EmptyView>
+            let paneWidth = AdaptiveShell<EmptyView, EmptyView, EmptyView,
+                                          EmptyView, EmptyView>
                 .estimatedPaneWidth(kind: kind, width: scene.width)
             let touch = ShellContext(kind: kind, size: CGSize(width: scene.width, height: scene.height),
                                      paneWidth: paneWidth, prefersTouch: true)
@@ -204,7 +205,13 @@ struct ShellContractTests {
             noteList: { OversizedViewport(tag: "list", contentHeight: 56_000) },  // 2,000 notes
             pane: { OversizedViewport(tag: "editor", contentHeight: 40_000) },
             inspector: { OversizedViewport(tag: "inspector", contentHeight: 2000) },
-            compactChrome: { Color.clear.frame(height: ShellMetrics.bottomTabBar) }
+            compact: {
+                VStack(spacing: 0) {
+                    OversizedViewport(tag: "editor", contentHeight: 40_000)
+                    Color.clear.frame(height: ShellMetrics.miniStrip)
+                    Color.clear.frame(height: ShellMetrics.bottomTabBar)
+                }
+            }
         )
     }
 

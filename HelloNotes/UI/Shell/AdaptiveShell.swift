@@ -17,7 +17,7 @@
 import SwiftUI
 
 struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
-                     Inspector: View, CompactChrome: View>: View {
+                     Inspector: View, Compact: View>: View {
     /// Whether the inspector rail is showing. Bound so a toolbar item and the
     /// View menu can toggle it, and so it can be remembered (decision 10).
     @Binding var inspectorPresented: Bool
@@ -31,9 +31,14 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
     @ViewBuilder var noteList: () -> NoteList
     @ViewBuilder var pane: () -> Pane
     @ViewBuilder var inspector: () -> Inspector
-    /// The compact shell's bottom chrome — mini-note strip + tab bar
-    /// (decision 6). Empty on shells that don't use it.
-    @ViewBuilder var compactChrome: () -> CompactChrome
+    /// The whole compact presentation, supplied by the caller.
+    ///
+    /// Compact is not the wide shell with different furniture — it is a
+    /// different information architecture: a bottom tab bar of *places*, with
+    /// the open note persisting above it like a now-playing track (decision 6).
+    /// Rails and a list column have no meaning there, so the shell hands off
+    /// rather than pretending to arrange something it cannot.
+    @ViewBuilder var compact: () -> Compact
 
     var body: some View {
         GeometryReader { geo in
@@ -56,7 +61,7 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
     private func arrangement(_ kind: ShellKind, context: ShellContext) -> some View {
         switch kind {
         case .compact:
-            compactShell()
+            compact()
         case .tall:
             tallShell(width: context.size.width)
         case .two, .wide, .wideInspector:
@@ -110,10 +115,14 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
     private func tallShell(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                libraryRail()
+                // Each band cell needs its own navigation context. In the
+                // column shells `NavigationSplitView` provides one per column;
+                // here the shell must, or `.searchable`, `.navigationTitle`
+                // and every column toolbar button silently disappear.
+                NavigationStack { libraryRail() }
                     .frame(width: ShellMetrics.libraryIdeal)
                 Divider()
-                noteList()
+                NavigationStack { noteList() }
             }
             .frame(height: ShellMetrics.bandIdeal)
             .accessibilityIdentifier("shell.band")
@@ -121,7 +130,7 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
             Divider()
 
             HStack(spacing: 0) {
-                EditorPaneContainer { pane() }
+                EditorPaneContainer { NavigationStack { pane() } }
                 // A tall window that is also wide keeps its right rail.
                 if width >= ShellMetrics.tallRailMin && inspectorPresented {
                     Divider()
@@ -129,19 +138,6 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
                         .frame(width: ShellMetrics.inspectorIdeal)
                 }
             }
-        }
-    }
-
-    // MARK: - Compact: the editor is the screen
-
-    /// The Apple Music model (decision 6): the open note behaves like the
-    /// now-playing track — a mini strip above the tab bar, one tap from full
-    /// screen, and both retract as you scroll or type (decision 11) so writing
-    /// gets the whole display without losing the way back.
-    private func compactShell() -> some View {
-        VStack(spacing: 0) {
-            EditorPaneContainer { pane() }
-            compactChrome()
         }
     }
 

@@ -310,7 +310,10 @@ struct MacContentView: View {
             noteList: { noteList },
             pane: { editorColumn },
             inspector: { inspector },
-            compactChrome: { EmptyView() }
+            // A Mac window declares an 860pt minimum, so the compact shell is
+            // only reachable if the OS forces it (Stage Manager can ignore a
+            // minimum). Degrade to the editor rather than an error — decision 9.
+            compact: { EditorPaneContainer { editorColumn } }
         )
         // The declared window minimum (decision 9). A floor under the layout so
         // the editor's status bar and note list never collapse into vertical

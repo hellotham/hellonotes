@@ -44,6 +44,18 @@ struct iOSContentView: View {
     @State private var selectedNoteID: Note.ID?
     @State private var selectedTag: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    /// The right inspector rail, remembered per scene (decision 10). Off by
+    /// default on iPad: a reader wants the note, not the apparatus.
+    @SceneStorage("inspectorPresented") private var inspectorPresented = false
+
+    /// Compact only: which place the bottom tab bar is showing, and whether the
+    /// open note is filling the screen rather than sitting in the mini strip.
+    @State private var place: CompactPlace = .notes
+    @State private var noteIsExpanded = false
+
+    /// The open note's front-matter properties, edited in the inspector.
+    @State private var properties: [Property] = []
     /// On iPhone (collapsed), open straight to the note list rather than the
     /// filter sidebar.
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
@@ -89,14 +101,18 @@ struct iOSContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
-            sidebar
-        } content: {
-            noteList
-        } detail: {
-            detail
-        }
-        .navigationSplitViewStyle(.balanced)
+        AdaptiveShell(
+            inspectorPresented: $inspectorPresented,
+            columnVisibility: $columnVisibility,
+            // Touch sizing: 44pt targets, and the keyboard accessory bar
+            // instead of a persistent format bar (decision 3).
+            prefersTouch: true,
+            libraryRail: { sidebar },
+            noteList: { noteList },
+            pane: { detail },
+            inspector: { inspector },
+            compact: { compactShell }
+        )
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result {
                 Task { await openPicked(urls) }
@@ -175,16 +191,9 @@ struct iOSContentView: View {
                     }
                 }
 
-                if !tags.isEmpty {
-                    Section("Tags") {
-                        ForEach(tags, id: \.self) { tag in
-                            filterRow(title: tag, systemImage: "number", isSelected: selectedTag == tag) {
-                                selectedTag = tag
-                                searchText = ""
-                            }
-                        }
-                    }
-                }
+                // Tags are not here. The library rail answers "where is it?";
+                // tags are cross-cutting and belong to the inspector, or to
+                // their own place in the compact tab bar (decision 1).
             }
         }
         .listStyle(.sidebar)   // native inset/grouped source-list appearance (esp. iPad)
@@ -339,6 +348,114 @@ struct iOSContentView: View {
                 }
             }
         }
+    }
+
+    /// Tags as their own place in the compact tab bar — the phone has no
+    /// inspector rail to keep them in, and they are still how people navigate
+    /// across a vault rather than down it.
+    private var tagList: some View {
+        Group {
+            if tags.isEmpty {
+                ContentUnavailableView("No Tags", systemImage: "number",
+                                       description: Text("Tags you write as #tag in a note appear here."))
+            } else {
+                List {
+                    filterRow(title: "All Notes", systemImage: "tray.full",
+                              isSelected: selectedTag == nil) {
+                        selectedTag = nil
+                        place = .search
+                    }
+                    ForEach(tags, id: \.self) { tag in
+                        filterRow(title: tag, systemImage: "number",
+                                  isSelected: selectedTag == tag) {
+                            selectedTag = tag
+                            searchText = ""
+                            // Picking a tag is a request to see its notes.
+                            place = .search
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Tags")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - The inspector rail (right)
+
+    /// The same rail the Mac has, on the iPad shells wide or tall enough for
+    /// it. Below that it isn't offered at all — every point goes to the list
+    /// and the text, which is exactly where they are tightest.
+    @ViewBuilder
+    private var inspector: some View {
+        if let collection = focused {
+            NoteInspector(
+                noteText: editor.text,
+                onSelectHeading: { scrollToHeading($0.title) },
+                tagTree: collection.search.tagTree(),
+                selectedTag: Binding(
+                    get: { selectedTag },
+                    set: { selectedTag = $0; if $0 != nil { searchText = "" } }
+                ),
+                backlinks: editor.note.map {
+                    collection.linkGraph.backlinks(for: $0, in: collection.notes)
+                } ?? [],
+                outgoingLinks: editor.note.map {
+                    collection.linkGraph.outgoingLinks(for: $0, in: collection.notes)
+                } ?? [],
+                // Unlinked mentions need a Spotlight query the iOS shell does
+                // not run yet; the other two come straight from the index.
+                unlinkedMentions: [],
+                onOpenNote: { selectedNoteID = $0.id },
+                onLinkMention: { _ in },
+                properties: $properties,
+                onPropertiesChanged: {
+                    editor.text = FrontMatter.applying(properties, to: editor.text)
+                },
+                fileURL: editor.note?.fileURL,
+                git: collection.git,
+                onRestoreRevision: { editor.text = $0 }
+            )
+        } else {
+            ContentUnavailableView("No Collection", systemImage: "sidebar.right",
+                                   description: Text("Open a collection to inspect its notes."))
+        }
+    }
+
+    /// Heading navigation is a notification, so it reaches the editor from
+    /// anywhere in the shell — the rail is the editor's sibling, not its parent.
+    ///
+    /// The iOS editor host does not consume this yet: `MarkdownEditorView`
+    /// exposes no `EditorProxy` on iOS, so there is nothing to drive the scroll
+    /// with. Posting it anyway means the outline starts working the moment the
+    /// package grows that seam, rather than needing this rewired.
+    private func scrollToHeading(_ title: String) {
+        NotificationCenter.default.post(name: .hnEditorFindQuery, object: nil,
+                                        userInfo: ["query": title])
+    }
+
+    // MARK: - Compact: the editor is the screen
+
+    /// Phone-sized: places in a bottom tab bar, the open note above it as a
+    /// mini strip, one tap from full screen (decisions 6 and 11).
+    private var compactShell: some View {
+        CompactShell(
+            place: $place,
+            openNoteTitle: editor.note?.title,
+            noteIsExpanded: $noteIsExpanded,
+            places: { place in
+                NavigationStack {
+                    switch place {
+                    case .notes:  sidebar
+                    // The same list, with its search field already up — the
+                    // tab means "start typing", not a different set of notes.
+                    case .search: noteList
+                    case .tags:   tagList
+                    }
+                }
+            },
+            editor: { detail }
+        )
     }
 
     // MARK: - Column 3: Editor

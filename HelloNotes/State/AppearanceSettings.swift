@@ -190,6 +190,21 @@ final class AppearanceSettings {
     /// The current tint as a concrete colour, for previews/swatches.
     var resolvedAccent: Color { accentColor ?? .accentColor }
 
+    /// The accent to use for *text* (links, a selected label), everywhere.
+    ///
+    /// On macOS this is the contrast-corrected `accentText`, which walks the
+    /// accent until it clears the WCAG target against the window background.
+    /// iOS has no equivalent machinery yet, so it takes the plain tint — the
+    /// point of this property is that call sites don't platform-branch over a
+    /// theming decision.
+    var accentTextColor: Color {
+        #if os(macOS)
+        accentText ?? .accentColor
+        #else
+        resolvedAccent
+        #endif
+    }
+
     #if os(macOS)
     /// The chosen accent as an sRGB colour, deepened toward a richer mauve when
     /// "increase contrast" is on (so fills and labels have more headroom).

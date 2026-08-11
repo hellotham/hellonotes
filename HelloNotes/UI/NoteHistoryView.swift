@@ -5,7 +5,6 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
 import SwiftUI
 
 /// A sheet listing a note's Git history. Selecting a commit previews that
@@ -78,21 +77,31 @@ struct NoteHistoryView: View {
                 systemImage: "clock",
                 description: Text("This note has no committed versions yet. Commit changes to build up a history.")
             )
-        } else if presentation == .sheet {
-            HSplitView {
-                revisionList
-                    .frame(minWidth: 240, idealWidth: 280)
-                previewPane
-                    .frame(minWidth: 300)
-            }
         } else {
-            // Rail: stacked, because 280pt cannot hold two columns.
-            VSplitView {
-                revisionList
-                    .frame(minHeight: 120)
-                previewPane
-                    .frame(minHeight: 120)
+            #if os(macOS)
+            if presentation == .sheet {
+                HSplitView {
+                    revisionList
+                        .frame(minWidth: 240, idealWidth: 280)
+                    previewPane
+                        .frame(minWidth: 300)
+                }
+            } else {
+                // Rail: stacked, because 280pt cannot hold two columns.
+                VSplitView {
+                    revisionList.frame(minHeight: 120)
+                    previewPane.frame(minHeight: 120)
+                }
             }
+            #else
+            // H/VSplitView are AppKit-only, and a draggable divider is a
+            // pointer affordance anyway — touch gets a fixed split.
+            VStack(spacing: 0) {
+                revisionList
+                Divider()
+                previewPane
+            }
+            #endif
         }
     }
 
@@ -173,4 +182,3 @@ struct NoteHistoryView: View {
         isLoadingPreview = false
     }
 }
-#endif

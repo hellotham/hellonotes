@@ -5,7 +5,6 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
 import SwiftUI
 
 /// An editable panel for a note's YAML front-matter properties. Booleans are
@@ -136,4 +135,3 @@ struct PropertiesEditor: View {
         onChange()
     }
 }
-#endif

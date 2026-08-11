@@ -5,7 +5,6 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
 import SwiftUI
 
 /// One row of the sidebar tag tree. Leaf tags are a plain clickable label;
@@ -43,4 +42,3 @@ struct TagTreeRow: View {
         .buttonStyle(.plain)
     }
 }
-#endif
