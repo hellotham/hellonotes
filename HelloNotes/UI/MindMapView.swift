@@ -26,6 +26,10 @@ struct MindMapView: View {
     var resolveLink: (String) -> (url: URL, title: String)?
     /// Root-chip colour — pass the app's resolved accent.
     var accent: Color = .accentColor
+    /// Chip text used to scale by canvas zoom alone, ignoring the system text
+    /// size. The *same* factor feeds `estimatedChipSize`, so the chips grow
+    /// with their labels — scaling only the font would clip every title.
+    @ScaledMetric(relativeTo: .body) private var typeScale: CGFloat = 1
     /// Open a linked note in the editor.
     var onOpenNote: (URL) -> Void = { _ in }
     /// Reveal a section in the note (`nil` = just open the note).
@@ -72,7 +76,7 @@ struct MindMapView: View {
 
     private var scrollingMap: some View {
         let model = self.model
-        let layout = cachedLayout ?? model.layout()
+        let layout = cachedLayout ?? model.layout(textScale: typeScale)
         let contentSize = layout.size
         let positions = layout.positions
 
@@ -109,7 +113,7 @@ struct MindMapView: View {
                 }
                 .onEnded { _ in gestureBaseZoom = nil }
         )
-        .task(id: text) { cachedLayout = model.layout() }
+        .task(id: "\(text)|\(typeScale)") { cachedLayout = model.layout(textScale: typeScale) }
     }
 
     private func edgeCanvas(model: MindMapModel, positions: [String: CGPoint]) -> some View {
@@ -144,7 +148,7 @@ struct MindMapView: View {
     private func nodeChip(_ node: MindMapModel.Node) -> some View {
         let color = branchColor(node)
         let isRoot = node.depth == 0
-        let fontSize = (isRoot ? 15.0 : node.depth == 1 ? 13.0 : 11.5) * zoom
+        let fontSize = (isRoot ? 15.0 : node.depth == 1 ? 13.0 : 11.5) * typeScale * zoom
 
         Button {
             switch node.kind {
@@ -226,7 +230,7 @@ struct MindMapView: View {
     /// The zoom that fits the whole map in the current viewport.
     private func fitZoom() -> CGFloat {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return 1 }
-        let size = (cachedLayout ?? model.layout()).size
+        let size = (cachedLayout ?? model.layout(textScale: typeScale)).size
         return min(viewportSize.width / size.width, viewportSize.height / size.height) * 0.96
     }
 }
@@ -486,14 +490,14 @@ struct MindMapModel {
     /// Lay the nodes out: radial rings by depth first, then a collision pass
     /// that pushes overlapping chips apart (the root stays pinned), and a
     /// final rebase so everything sits inside a positive-coordinate world.
-    func layout() -> Layout {
+    func layout(textScale: CGFloat = 1) -> Layout {
         var centers: [CGPoint] = nodes.map { node in
             guard node.depth > 0 else { return .zero }
             let r = Self.ringStep * CGFloat(node.depth)
             return CGPoint(x: r * CGFloat(cos(node.angle)),
                            y: r * CGFloat(sin(node.angle)))
         }
-        let sizes = nodes.map(Self.estimatedChipSize)
+        let sizes = nodes.map { Self.estimatedChipSize($0, textScale: textScale) }
         let rootIndex = nodes.firstIndex { $0.depth == 0 }
 
         LayoutRelaxation.separate(
@@ -509,8 +513,8 @@ struct MindMapModel {
 
     /// The approximate footprint of a node's chip (mirrors `nodeChip`'s font
     /// and padding at zoom 1).
-    nonisolated static func estimatedChipSize(_ node: Node) -> CGSize {
-        let fontSize: CGFloat = node.depth == 0 ? 15 : node.depth == 1 ? 13 : 11.5
+    nonisolated static func estimatedChipSize(_ node: Node, textScale: CGFloat = 1) -> CGSize {
+        let fontSize: CGFloat = (node.depth == 0 ? 15 : node.depth == 1 ? 13 : 11.5) * textScale
         let hPad: CGFloat = node.depth == 0 ? 13 : 10
         let vPad: CGFloat = node.depth == 0 ? 8 : 5.5
         var textWidth = LayoutRelaxation.estimatedTextWidth(

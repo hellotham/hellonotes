@@ -140,6 +140,11 @@ final class Collection: Identifiable {
         var discoveredFolders: [URL] = []
 
         for case let fileURL as URL in enumerator {
+            // A superseded walk should stop rather than run to completion behind
+            // the one that replaced it: a bulk `git checkout` fires several
+            // watcher batches, and each used to put another full walk on the
+            // disk. The caller discards a cancelled walk's partial results.
+            if Task.isCancelled { return ([], [], []) }
             guard let resourceValues = try? fileURL.resourceValues(forKeys: Set(resourceKeys)) else {
                 continue
             }
@@ -190,7 +195,17 @@ final class Collection: Identifiable {
     /// large collection would otherwise freeze the UI.
     func scanOffMain() async {
         let root = rootURL
-        let result = await Task.detached(priority: .userInitiated) { Self.enumerate(root) }.value
+        // `Task.detached` does not inherit cancellation, so the debounce task
+        // cancelling itself left its walk running to the end. Forward it.
+        let walk = Task.detached(priority: .userInitiated) { Self.enumerate(root) }
+        let result = await withTaskCancellationHandler {
+            await walk.value
+        } onCancel: {
+            walk.cancel()
+        }
+        // A cancelled walk returns early with partial results — applying them
+        // would empty the collection.
+        guard !Task.isCancelled else { return }
         notes = result.notes
         attachments = result.attachments
         folders = result.folders

@@ -84,6 +84,10 @@ struct GraphView: View {
     let onSelect: (URL) -> Void
     /// Fallback tint (used by the focus ring); nodes take their colour per folder.
     var accent: Color = .accentColor
+    /// Node labels used to scale by canvas zoom alone, so raising the system
+    /// text size moved every other surface in the app and left the graph at a
+    /// flat 11pt. Zoom still multiplies on top — the two are independent.
+    @ScaledMetric(relativeTo: .caption) private var labelPointSize: CGFloat = 11
     /// When hosted in its own window there is no sheet to dismiss: hide the
     /// Done button, and clicking focuses rather than dismissing.
     var isWindowed = false
@@ -328,7 +332,7 @@ struct GraphView: View {
 
                 ctx.draw(
                     Text(nodes[i].label)
-                        .font(.system(size: 11 * zoom, weight: .medium))
+                        .font(.system(size: labelPointSize * zoom, weight: .medium))
                         .foregroundStyle(.primary),
                     at: CGPoint(x: p.x, y: p.y + r + 10 * zoom)
                 )

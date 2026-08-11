@@ -218,10 +218,37 @@ final class Library {
             store.removeObject(forKey: Self.legacyKey)
         }
 
+        // `open(url:)` awaits each collection's off-main scan before returning,
+        // so restoring several folders used to cost the *sum* of their cold-scan
+        // latencies at every launch. Create them up front (cheap, main-actor)
+        // and let the scans overlap: activate() suspends on scanOffMain() and
+        // git.refreshStatus(), which frees the main actor for its siblings, so
+        // the launch now costs the slowest scan rather than all of them.
+        var restored: [Collection] = []
         for data in datas {
             guard let url = Bookmark.resolve(data) else { continue }
-            await open(url: url)
+            let id = url.standardizedFileURL.path
+            guard !collections.contains(where: { $0.id == id }) else { continue }
+            let collection = Collection(rootURL: url)
+            collections.append(collection)
+            restored.append(collection)
         }
+        guard !restored.isEmpty else { return }
+
+        let externalChange: @MainActor () -> Void = { [weak self] in self?.onExternalChange() }
+        await withTaskGroup(of: Void.self) { group in
+            for collection in restored {
+                group.addTask { @MainActor in
+                    await collection.activate(onExternalChange: externalChange)
+                }
+            }
+        }
+
+        // Focus the last restored collection and persist once, matching the
+        // serial version's end state.
+        focusedID = restored.last?.id ?? focusedID
+        for collection in restored { onOpened(collection.rootURL) }
+        persist()
     }
 
     private func persist() {
