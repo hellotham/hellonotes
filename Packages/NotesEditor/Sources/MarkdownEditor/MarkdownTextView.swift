@@ -54,6 +54,10 @@ public final class EditorProxy {
         tv.setSelectedRange(NSRange(location: 0, length: 0))
         tv.document?.selectionDidChange(NSRange(location: 0, length: 0))
         tv.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        // Without this the view is first responder but draws no insertion
+        // point: AppKit only restarts the blink timer for focus changes it
+        // made itself, so a programmatic handover leaves an invisible caret.
+        tv.updateInsertionPointStateAndRestartTimer(true)
     }
 
     /// Restore the insertion point after an in-place buffer replacement

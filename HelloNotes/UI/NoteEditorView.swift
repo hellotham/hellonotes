@@ -91,9 +91,9 @@ struct NoteEditorView: View {
     // just posts queries and reflects the match count it posts back.
     @State private var showReferences = false
 
-    /// Focus for the inline title. Owned here because the *editor* has to be
-    /// able to hand focus back up to it when the caret leaves the first line.
-    @FocusState private var titleFocused: Bool
+    /// Bumped when the caret leaves the top of the note, to pull focus into
+    /// the title. A counter, so arrowing up twice in a row still works.
+    @State private var titleFocusRequest = 0
 
     @State private var showFindBar = false
     @State private var findText = ""
@@ -294,7 +294,7 @@ struct NoteEditorView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onReceive(NotificationCenter.default.publisher(for: .hnEditorCaretEscapedTop)) { _ in
                     // The caret left the top of the note — catch it in the title.
-                    if appearance.showInlineTitle { titleFocused = true }
+                    if appearance.showInlineTitle { titleFocusRequest += 1 }
                 }
                 .navigationTitle(editor.note?.title ?? "")
                 .task(id: editor.note?.fileURL) {
@@ -380,7 +380,7 @@ struct NoteEditorView: View {
                 title: note.title,
                 theme: EditorTheme(fontSize: appearance.editorFontSize),
                 onRename: { onRenameNote($0) },
-                isFocused: $titleFocused
+                focusRequest: titleFocusRequest
             )
         }
     }
