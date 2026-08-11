@@ -12,6 +12,27 @@
 # that fails loudly, because you then test the wrong code and trust the result.
 set -euo pipefail
 
+# Launching takes over the user's screen, so this script must never do it by
+# accident. It takes no arguments; anything passed is a misunderstanding of what
+# it does, and a misunderstanding must not cost someone their window. (Asking it
+# for `--help` relaunched the app, which is exactly the failure this prevents.)
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    -h|--help)
+      echo "usage: relaunch-debug.sh    (no arguments)"
+      echo
+      echo "Force-kills every running HelloNotes instance, then launches the"
+      echo "freshly built Debug app. Build first; this does not build."
+      exit 0
+      ;;
+    *)
+      echo "relaunch-debug.sh takes no arguments (got: $*)." >&2
+      echo "Refusing to launch — run it bare, or --help." >&2
+      exit 2
+      ;;
+  esac
+fi
+
 app=$(ls -td "$HOME"/Library/Developer/Xcode/DerivedData/HelloNotes-*/Build/Products/Debug/HelloNotes.app 2>/dev/null | head -1)
 if [[ -z "$app" ]]; then
   echo "No Debug build found in DerivedData — run xcodebuild first." >&2

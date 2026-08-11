@@ -48,9 +48,19 @@ does exactly that.
 
 ## Rules
 
-- **Relaunch only when the user asks.** The app runs on the machine they are
-  working on; an unrequested relaunch takes their window away mid-task. Build,
-  verify headlessly (below), then hand it over.
+- **Relaunch only when the user asks _for that relaunch_.** The app runs on the
+  machine they are working on; an unrequested relaunch takes their window away
+  mid-task. "Launch when you're finished" is permission for **one** launch at
+  the end, not a standing licence — three relaunches inside two minutes is the
+  same interruption three times. Build, verify headlessly (below), then hand it
+  over once.
+- **Never run the script speculatively.** Not to read its usage, not to check
+  what it does — read the file. It takes no arguments and now refuses them,
+  because `relaunch-debug.sh --help` used to just relaunch the app.
+- **Print its whole output.** Do not `tail` it. The line that says
+  `Killing running HelloNotes instance(s): <pids>` is the evidence that the old
+  instance died; hiding it makes a correct relaunch look like a careless one,
+  and there is no way to tell the two apart afterwards.
 - **Do not run `xcodebuild test` while you are still working.** A macOS test
   bundle needs a test *host*, so every run launches HelloNotes on the user's
   screen — and a run that hangs or that you start twice leaves **several copies
