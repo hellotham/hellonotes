@@ -269,6 +269,27 @@ struct HelloNotesTests {
         #expect(MarkdownParsing.tags(in: text) == ["alpha", "beta/child"])
     }
 
+    @Test
+    func linkFragmentsAreNotTags() {
+        // Documents converted from PDF are full of cross-reference anchors.
+        // One real vault had 2,552 of these across 92 notes, and every one
+        // became a `#_bookmark0` tag that buried the genuine tags.
+        let converted = """
+        See page [10](#_bookmark0) and [11](#_bookmark1) for detail.
+
+        A real #topic tag, and a URL https://example.com/page#section.
+        """
+        #expect(MarkdownParsing.tags(in: converted) == ["topic"])
+    }
+
+    @Test
+    func tagsStillWorkAroundPunctuation() {
+        // The fragment fix must not cost the ordinary cases.
+        let text = "(#parenthesised) #trailing, #end. [#bracketed] #a/b/c"
+        #expect(MarkdownParsing.tags(in: text)
+                == ["parenthesised", "trailing", "end", "bracketed", "a/b/c"])
+    }
+
     // MARK: - LinkGraph
 
     @Test @MainActor

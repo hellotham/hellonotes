@@ -72,6 +72,10 @@ struct NoteInspector: View {
 
     @Environment(AppearanceSettings.self) private var appearance
     @AppStorage("inspectorTab") private var storedTab = InspectorTab.outline.rawValue
+    /// Narrows the tag tree. Not persisted — a filter is a momentary act, and
+    /// reopening the rail to a mysteriously short list would be worse than
+    /// retyping three letters.
+    @State private var tagFilter = ""
 
     private var tab: InspectorTab { InspectorTab(rawValue: storedTab) ?? .outline }
 
@@ -82,9 +86,15 @@ struct NoteInspector: View {
             content
                 // S3 — the inspector's content is a viewport; it expands and
                 // scrolls, and never sizes the rail by what it holds.
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                //
+                // `alignment: .top` is load-bearing, not decoration. A tab
+                // whose content has no flexible child — a short outline, a
+                // handful of properties — is *centred* by a bare
+                // `maxHeight: .infinity`, which reads as a large empty gap
+                // under the picker with the content stranded down the pane.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var picker: some View {
@@ -128,22 +138,76 @@ struct NoteInspector: View {
             emptyState("No Tags", "number",
                        "Tags you write as #tag in a note appear here.")
         } else {
-            List {
-                Button { selectedTag = nil } label: {
-                    Label("All Notes", systemImage: "tray.full")
-                        .fontWeight(selectedTag == nil ? .semibold : .regular)
-                }
-                .buttonStyle(.plain)
-
-                ForEach(tagTree) { node in
-                    TagTreeRow(node: node, selectedTag: selectedTag,
-                               selectedColor: appearance.accentTextColor) { tag in
-                        selectedTag = tag
+            VStack(spacing: 0) {
+                // A vault of any size has more tags than a 280pt rail can show,
+                // and scrolling a flat alphabetical list to find one is the
+                // worst way to look something up. Filtering is: type three
+                // letters and the list is short.
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("Filter tags", text: $tagFilter)
+                        .textFieldStyle(.plain)
+                        .font(.callout)
+                    if !tagFilter.isEmpty {
+                        Button { tagFilter = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear filter")
                     }
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+
+                Divider()
+
+                List {
+                    if tagFilter.isEmpty {
+                        Button { selectedTag = nil } label: {
+                            Label("All Notes", systemImage: "tray.full")
+                                .fontWeight(selectedTag == nil ? .semibold : .regular)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    ForEach(filteredTagTree) { node in
+                        TagTreeRow(node: node, selectedTag: selectedTag,
+                                   selectedColor: appearance.accentTextColor) { tag in
+                            selectedTag = tag
+                        }
+                    }
+
+                    if filteredTagTree.isEmpty {
+                        Text("No tags match “\(tagFilter)”")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .listStyle(.sidebar)
             }
-            .listStyle(.sidebar)
         }
+    }
+
+    /// The tree narrowed to tags matching the filter. A parent is kept when it
+    /// matches *or* any descendant does, so filtering never orphans a match
+    /// under a hidden ancestor.
+    private var filteredTagTree: [TagNode] {
+        let query = tagFilter.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return tagTree }
+        func prune(_ node: TagNode) -> TagNode? {
+            let matches = node.fullPath.localizedCaseInsensitiveContains(query)
+            let keptChildren = node.children.compactMap(prune)
+            guard matches || !keptChildren.isEmpty else { return nil }
+            var copy = node
+            // A match keeps its whole subtree; an ancestor keeps only the
+            // branches that led to a match.
+            copy.children = matches ? node.children : keptChildren
+            return copy
+        }
+        return tagTree.compactMap(prune)
     }
 
     // MARK: - References
@@ -243,8 +307,21 @@ struct NoteInspector: View {
 
     // MARK: -
 
+    /// An empty state sits near the top of the rail rather than floating in
+    /// the middle of a tall column, where it reads as a layout fault.
     private func emptyState(_ title: String, _ symbol: String, _ message: String) -> some View {
-        ContentUnavailableView(title, systemImage: symbol, description: Text(message))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.title2)
+                .foregroundStyle(.tertiary)
+            Text(title).font(.headline)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 28)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }

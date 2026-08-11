@@ -61,9 +61,33 @@ nonisolated enum MarkdownParsing {
             .uniqued()
     }
 
+    /// Matches an inline link's destination — `](…)` — so a `#fragment` inside
+    /// one is never mistaken for a tag.
+    private static let linkDestinationRegex = try! NSRegularExpression(
+        pattern: #"\]\([^)\r\n]*\)"#
+    )
+
     /// The distinct hashtags in `text`, without the leading `#`.
+    ///
+    /// A `#` inside a link destination is a **fragment**, not a tag:
+    /// `[10](#_bookmark0)` points at an anchor in the same document. Documents
+    /// converted from PDF are full of these — one real vault had 2,552 of them
+    /// across 92 notes, every one of which turned into a `#_bookmark0` tag and
+    /// buried the genuine tags in the tag list. The lookbehind alone can't see
+    /// it, because the character before the `#` is `(`, not a word character.
     static func tags(in text: String) -> [String] {
-        matches(of: tagRegex, in: text, group: 1).uniqued()
+        let full = NSRange(text.startIndex..., in: text)
+        let destinations = linkDestinationRegex.matches(in: text, range: full).map(\.range)
+
+        return tagRegex.matches(in: text, range: full).compactMap { match -> String? in
+            let hash = match.range        // includes the leading `#`
+            guard !destinations.contains(where: { NSIntersectionRange($0, hash).length > 0 })
+            else { return nil }
+            guard match.numberOfRanges > 1,
+                  let captured = Range(match.range(at: 1), in: text) else { return nil }
+            return String(text[captured])
+        }
+        .uniqued()
     }
 
     /// The note's alternate names, from an `aliases:` key in YAML front matter.

@@ -119,11 +119,6 @@ struct MacContentView: View {
     /// the shell overrides this and the library becomes an overlay (decision 12).
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
-    /// The open note's front-matter properties, edited in the inspector.
-    /// Owned here rather than in the editor column because the inspector is the
-    /// editor's *sibling*, and two separate editors over one front matter would
-    /// drift apart.
-    @State private var properties: [Property] = []
 
     // MARK: - Focused / selection helpers
 
@@ -325,9 +320,6 @@ struct MacContentView: View {
         // (note list, editor, file viewer) inflates the split view past the
         // window and offsets it off-screen.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onChange(of: selectedNoteID) { _, _ in
-            properties = FrontMatter.properties(in: activeEditor?.text ?? "")
-        }
         .task {
             if !Self.didShowSplash {
                 Self.didShowSplash = true
@@ -817,8 +809,8 @@ struct MacContentView: View {
                 unlinkedMentions: references.unlinkedMentions,
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: linkMention,
-                properties: $properties,
-                onPropertiesChanged: applyProperties,
+                properties: propertiesBinding,
+                onPropertiesChanged: {},
                 fileURL: selectedNote?.fileURL,
                 git: collection.git,
                 onRestoreRevision: { restored in activeEditor?.text = restored }
@@ -829,11 +821,21 @@ struct MacContentView: View {
         }
     }
 
-    /// Splice the inspector's edited properties back into the note's front
-    /// matter, through the same buffer typing goes through (so it autosaves).
-    private func applyProperties() {
-        guard let editor = activeEditor else { return }
-        editor.text = FrontMatter.applying(properties, to: editor.text)
+    /// Front matter, read from and written straight through the note buffer.
+    ///
+    /// Deliberately derived rather than copied into `@State`. The copy was
+    /// seeded when the *selection* changed, which happens before the editor has
+    /// loaded that note's text — so the inspector showed the properties of
+    /// nothing at all. A binding over the buffer cannot be stale, and writing
+    /// through it autosaves by the same path typing does.
+    private var propertiesBinding: Binding<[Property]> {
+        Binding(
+            get: { FrontMatter.properties(in: activeEditor?.text ?? "") },
+            set: { updated in
+                guard let editor = activeEditor else { return }
+                editor.text = FrontMatter.applying(updated, to: editor.text)
+            }
+        )
     }
 
     // MARK: - Git section (focused collection)
@@ -954,17 +956,38 @@ struct MacContentView: View {
         // S3: content expands, chrome stays fixed. Without the clamp this
         // VStack adopts the ideal height of whichever child is largest
         // (editor, file viewer) and pushes it up into the split view.
-        VStack(spacing: 0) {
-            if tabs.openNotes.count > 1 {
-                EditorTabBar(
-                    notes: tabs.openNotes,
-                    activeID: selectedNoteID,
-                    onSelect: { selectedNoteID = $0 },
-                    onClose: closeTab
-                )
-                Divider()
+        editorPaneBody
+            // HIG, macOS: "the toolbar resides in the frame at the top of a
+            // window, either below or integrated with the title bar", and
+            // custom bar backgrounds "might overlay or interfere with
+            // background effects that the system provides". A tab strip is not
+            // a toolbar — "a tab bar is specifically for navigating between
+            // areas of an app" — so it gets its own row *below* the toolbar
+            // rather than sharing that frame. (Sharing the row is called out
+            // as an iPadOS affordance, pointedly not a macOS one.)
+            //
+            // `safeAreaInset` is what puts it there: as a plain first child of
+            // the column it drew into the toolbar's own row, because the window
+            // is `.fullSizeContentView` and the column extends up under it.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if tabs.openNotes.count > 1 {
+                    VStack(spacing: 0) {
+                        EditorTabBar(
+                            notes: tabs.openNotes,
+                            activeID: selectedNoteID,
+                            onSelect: { selectedNoteID = $0 },
+                            onClose: closeTab
+                        )
+                        Divider()
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
+    @ViewBuilder
+    private var editorPaneBody: some View {
+        VStack(spacing: 0) {
             if let attachment = selectedAttachment {
                 FileViewerView(file: attachment)
             } else if let activeEditor, let c = editorCollection {
