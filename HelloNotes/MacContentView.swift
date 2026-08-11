@@ -370,6 +370,9 @@ struct MacContentView: View {
         // the editor's status bar and note list never collapse into vertical
         // text wrapping — and if the OS forces smaller anyway, the shell
         // degrades rather than erroring.
+        // Measures the titlebar/column overlap when HN_GEOM_LOG asks; a no-op
+        // and zero-sized otherwise. See ChromeProbe.
+        .background(ChromeProbe())
         .frame(minWidth: ShellMetrics.windowMinWidth, minHeight: ShellMetrics.windowMinHeight)
         // S2 (docs/layout-architecture.md): a minimum is a floor, not a
         // ceiling. Without a maximum, any column child with a large ideal size
