@@ -40,6 +40,15 @@ struct NewEditorHost: View {
     @State private var proxy = EditorProxy()
     @State private var syncTask: Task<Void, Never>?
 
+    // The note the current `document` was built for, and the EditorModel
+    // loadRevision already reflected in it. An external reload of that *same*
+    // note is applied in place (preserving caret + scroll) instead of
+    // rebuilding, so a co-editing app (Obsidian) saving repeatedly no longer
+    // tears the whole editor down — and re-renders every block embed — on
+    // every write.
+    @State private var builtNotePath: String?
+    @State private var appliedLoadRevision = 0
+
     // Autocomplete popup state, reported by the editor per caret move.
     @State private var inlineContext: EditorDocument.InlineContext?
     @State private var caretRect: CGRect = .zero
@@ -98,6 +107,13 @@ struct NewEditorHost: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // S3 (docs/layout-architecture.md): the editor fills its container.
+        // `MarkdownEditorView` now answers `sizeThatFits` itself, so this is
+        // no longer load-bearing on its own — but it is what stops any future
+        // child of this Group from sizing the column by its own ideal, which
+        // is how the first lines of every note ended up rendered 251pt above
+        // the window with no scroll offset able to reach them.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: taskKey) {
             syncTask?.cancel()
             // Case-insensitive title set, matching CollectionWikiLinkResolver.
@@ -115,6 +131,8 @@ struct NewEditorHost: View {
             guard !Task.isCancelled else { return }
             built.onEdit = { _ in scheduleSync(from: built) }
             document = built
+            builtNotePath = editor.note?.fileURL.path
+            appliedLoadRevision = editor.loadRevision
             // A flush (note switch, window resign, quit) must save the
             // document's *current* text, not a snapshot trailing by the
             // sync debounce.
@@ -122,6 +140,21 @@ struct NewEditorHost: View {
                 guard let built else { return }
                 if built.text != editor.text { editor.text = built.text }
             }
+        }
+        .onChange(of: editor.loadRevision) { _, revision in
+            // External reload (Obsidian, git pull, iCloud) of the currently
+            // open note: patch the live document in place. A note switch also
+            // bumps loadRevision, but taskKey (path) rebuilds for that — the
+            // path guard keeps us from patching the wrong document mid-switch.
+            guard revision != appliedLoadRevision else { return }
+            appliedLoadRevision = revision
+            guard let document,
+                  editor.note?.fileURL.path == builtNotePath,
+                  document.text != editor.text
+            else { return }
+            let caret = document.selectedRange
+            document.replaceText(editor.text)
+            proxy.setSelection(caret)
         }
         .onDisappear {
             syncTask?.cancel()
@@ -132,12 +165,15 @@ struct NewEditorHost: View {
         }
     }
 
-    /// Rebuild the document when the note or its loaded-from-disk state
-    /// changes (open, external reload, conflict resolution — never our own
-    /// saves), or when the theme/appearance changes (highlight colors are
-    /// appearance-specific).
+    /// Rebuild the whole document only when its *identity* changes — a
+    /// different note opens, or the theme/appearance changes (highlight colors
+    /// are appearance-specific). `loadRevision` is deliberately absent: an
+    /// external reload of the same note is applied in place by
+    /// `.onChange(of: editor.loadRevision)`, because a full rebuild drops the
+    /// caret and scroll position and re-renders every block embed — which,
+    /// under live co-editing, turned every remote save into a visible stall.
     private var taskKey: String {
-        "\(editor.note?.fileURL.path ?? "")|\(editor.loadRevision)|\(Int(fontSize))|\(colorScheme == .dark ? "d" : "l")"
+        "\(editor.note?.fileURL.path ?? "")|\(Int(fontSize))|\(colorScheme == .dark ? "d" : "l")"
     }
 
     private func scheduleSync(from document: EditorDocument) {

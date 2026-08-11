@@ -35,25 +35,35 @@ struct QuickOpenItem: Identifiable, Hashable {
 @MainActor
 @Observable
 final class CollectionSearchModel {
-    private struct Entry {
+    private struct Entry: Sendable {
         let note: Note
         let headings: [DocumentHeading]
         let tags: [String]
         let aliases: [String]
     }
 
-    private var entries: [Entry] = []
+    // `entries` / `entryByURL` back on-demand query methods (title search,
+    // notesTagged, aliases-of). They are `@ObservationIgnored`: nothing
+    // reactive reads them directly, and — critically — an index rebuild must
+    // be able to swap them in without waking any view. The *reactive* surface
+    // is the four `cached*` aggregates below.
+    @ObservationIgnored private var entries: [Entry] = []
+    @ObservationIgnored private var entryByURL: [URL: Entry] = [:]
 
-    // Derived aggregates, computed once per `refresh` and served from the cache.
-    // They used to be rebuilt over all entries on every call — and each is read
-    // several times per sidebar/editor render (`allTags` 3×), i.e. per keystroke.
+    // Derived aggregates — the only observable state. Each is written only when
+    // it actually changed (see `apply`), so a rebuild whose result is identical
+    // never invalidates the sidebar's tag tree or anything else.
     private var cachedTags: [String] = []
     private var cachedTagTree: [TagNode] = []
     private var cachedLinkTargets: [String] = []
     private var cachedItems: [QuickOpenItem] = []
-    /// Entries keyed by URL, so per-note lookups (aliases on the selection
-    /// and save paths) are O(1) instead of a linear scan of every entry.
-    private var entryByURL: [URL: Entry] = [:]
+
+    /// Hash of the last-applied searchable metadata (per-note tags, title,
+    /// aliases, headings). An off-main rebuild whose signature matches this
+    /// skips the main-actor assignment entirely — so a co-editor rewriting a
+    /// note's *body* (which changes none of that) costs the editor thread
+    /// nothing at all.
+    @ObservationIgnored private var aggregateSignature = 0
 
     /// Reload the metadata index from the current notes. Reads files off-main
     /// to parse them; the text itself is discarded after parsing.
@@ -61,46 +71,100 @@ final class CollectionSearchModel {
         let urls = notes.map(\.fileURL)
         let noteByURL = Dictionary(notes.map { ($0.fileURL, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let loaded = await Task.detached(priority: .utility) { () -> [(URL, [DocumentHeading], [String], [String])] in
-            urls.compactMap { url in
+        // Read the files AND fold them into the derived aggregates entirely off
+        // the main actor — the editor thread never sees this work.
+        let derived = await Task.detached(priority: .utility) { () -> Derived in
+            let entries: [Entry] = urls.compactMap { url in
                 // Skip online-only files so metadata indexing never downloads a
                 // whole cloud vault; they're indexed once materialized (opened).
                 guard FileIO.isMaterialized(at: url),
                       let text = try? FileIO.readString(at: url) else { return nil }
                 let parsed = CollectionIndexCache.parse(text)
-                return (url, parsed.headings, parsed.tags, parsed.aliases)
+                return noteByURL[url].map {
+                    Entry(note: $0, headings: parsed.headings, tags: parsed.tags, aliases: parsed.aliases)
+                }
             }
+            return CollectionSearchModel.computeDerived(from: entries)
         }.value
 
-        entries = loaded.compactMap { url, headings, tags, aliases in
-            noteByURL[url].map { Entry(note: $0, headings: headings, tags: tags, aliases: aliases) }
-        }
-        rebuildAggregates()
+        apply(derived, replacingEntries: true)
     }
 
     /// Populate the index from already-parsed metadata (the persistent index
-    /// cache) — no file reads at all.
-    func load(pairs: [(note: Note, record: NoteIndexRecord)]) {
-        entries = pairs.map { note, record in
-            Entry(note: note,
-                  headings: record.headings,
-                  tags: record.tags,
-                  aliases: record.aliases)
-        }
-        rebuildAggregates()
+    /// cache) — no file reads. The fold into aggregates runs off the main
+    /// actor; the main actor only receives the finished, signature-gated result.
+    func load(pairs: [(note: Note, record: NoteIndexRecord)]) async {
+        let derived = await Task.detached(priority: .utility) { () -> Derived in
+            let entries = pairs.map { pair in
+                Entry(note: pair.note,
+                      headings: pair.record.headings,
+                      tags: pair.record.tags,
+                      aliases: pair.record.aliases)
+            }
+            return CollectionSearchModel.computeDerived(from: entries)
+        }.value
+        apply(derived, replacingEntries: true)
     }
 
-    /// Recompute the cached tag / link-target aggregates from `entries`.
-    private func rebuildAggregates() {
-        entryByURL = Dictionary(entries.map { ($0.note.fileURL, $0) }, uniquingKeysWith: { first, _ in first })
-        cachedTags = Set(entries.flatMap(\.tags))
+    /// The off-main product of an index rebuild — everything the model serves,
+    /// computed away from the main actor so it never competes with typing.
+    private struct Derived: Sendable {
+        var entries: [Entry]
+        var entryByURL: [URL: Entry]
+        var tags: [String]
+        var tagTree: [TagNode]
+        var linkTargets: [String]
+        var items: [QuickOpenItem]
+        var signature: Int
+    }
+
+    /// Pure and `nonisolated`, so it runs on a background executor: data in,
+    /// data out, no actor state and no I/O. This is the O(collection) work —
+    /// tag set, tag tree, link targets, quick-open items — kept off the editor
+    /// thread.
+    private nonisolated static func computeDerived(from entries: [Entry]) -> Derived {
+        let entryByURL = Dictionary(entries.map { ($0.note.fileURL, $0) }, uniquingKeysWith: { first, _ in first })
+        let tags = Set(entries.flatMap(\.tags))
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        cachedTagTree = TagTree.build(from: cachedTags)
+        let tagTree = TagTree.build(from: tags)
         var seen = Set<String>()
-        cachedLinkTargets = entries
+        let linkTargets = entries
             .flatMap { [$0.note.title] + $0.aliases }
             .filter { seen.insert($0.lowercased()).inserted }
-        cachedItems = buildItems()
+        let items = buildItems(from: entries)
+
+        var hasher = Hasher()
+        for entry in entries {
+            hasher.combine(entry.note.fileURL)
+            hasher.combine(entry.note.title)
+            hasher.combine(entry.tags)
+            hasher.combine(entry.aliases)
+            hasher.combine(entry.headings)
+        }
+        return Derived(entries: entries, entryByURL: entryByURL, tags: tags,
+                       tagTree: tagTree, linkTargets: linkTargets, items: items,
+                       signature: hasher.finalize())
+    }
+
+    /// Hand an off-main rebuild's result to the main actor. This is the ONLY
+    /// main-thread step, and it is O(1) in the common case: if the searchable
+    /// signature is unchanged, it returns before touching any observable state.
+    /// When something did change, each cache is still written only if it
+    /// differs, so the sidebar's tag `ForEach` re-renders only on real change.
+    private func apply(_ derived: Derived, replacingEntries: Bool) {
+        // Cheap (buffer retain) and non-observed, so it never wakes a view.
+        if replacingEntries {
+            entries = derived.entries
+            entryByURL = derived.entryByURL
+        }
+        guard derived.signature != aggregateSignature else { return }
+        aggregateSignature = derived.signature
+        if derived.tags != cachedTags {
+            cachedTags = derived.tags
+            cachedTagTree = derived.tagTree
+        }
+        if derived.linkTargets != cachedLinkTargets { cachedLinkTargets = derived.linkTargets }
+        if derived.items != cachedItems { cachedItems = derived.items }
     }
 
     /// All distinct hashtags across the collection, sorted case-insensitively.
@@ -159,10 +223,22 @@ final class CollectionSearchModel {
 
     private func scheduleAggregateRebuild() {
         aggregateRebuildTask?.cancel()
+        // Snapshot the live entries (O(1) COW). `updateNote` already patched
+        // them and the O(1) lookup synchronously, so queries are correct
+        // immediately; only the O(collection) aggregate fold is deferred —
+        // and it runs off the main actor, so the editor thread is never
+        // blocked by it.
+        let snapshot = entries
         aggregateRebuildTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            let derived = await Task.detached(priority: .utility) {
+                CollectionSearchModel.computeDerived(from: snapshot)
+            }.value
             guard !Task.isCancelled, let self else { return }
-            self.rebuildAggregates()
+            // Entries are maintained live by `updateNote`; only fold in the
+            // aggregates (signature-gated, so unchanged metadata is a no-op).
+            self.apply(derived, replacingEntries: false)
         }
     }
 
@@ -269,7 +345,7 @@ final class CollectionSearchModel {
 
     /// The full candidate set (notes + aliases + headings), built once per
     /// `refresh` and cached — it was rebuilt on every Open-Quickly keystroke.
-    private func buildItems() -> [QuickOpenItem] {
+    private nonisolated static func buildItems(from entries: [Entry]) -> [QuickOpenItem] {
         entries.flatMap { entry -> [QuickOpenItem] in
             var items = [QuickOpenItem(
                 id: entry.note.fileURL.path,

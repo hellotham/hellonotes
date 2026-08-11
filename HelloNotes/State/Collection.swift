@@ -93,6 +93,11 @@ final class Collection: Identifiable {
     /// temp files) instead of re-scanning the whole collection on every save.
     private var recentSelfWrites: [String: Date] = [:]
 
+    /// Coalesces bursts of external changes (a co-editing app like Obsidian
+    /// autosaving, or iCloud streaming a file down in pieces) into a single
+    /// scan + reconcile, instead of re-walking the whole vault per event.
+    private var externalReconcileTask: Task<Void, Never>?
+
     /// Debounced index refresh scheduled after an editor save (the note *set*
     /// is unchanged, so no re-scan is needed — only the content-derived index).
     private var deriveTask: Task<Void, Never>?
@@ -257,7 +262,7 @@ final class Collection: Identifiable {
             guard !Task.isCancelled else { return }
 
             linkGraph.load(pairs: pairs)
-            search.load(pairs: pairs)
+            await search.load(pairs: pairs)
             derivedRevision &+= 1
         }
     }
@@ -277,9 +282,19 @@ final class Collection: Identifiable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard self.hasExternalChanges(in: paths) else { return }
-                await self.scanOffMain()
-                self.refreshDerived()
-                onExternalChange()
+                // Debounce: a live co-editor (Obsidian) plus iCloud can rewrite
+                // files in rapid bursts. Without coalescing, each event drove a
+                // full off-main vault scan + index rebuild + editor reconcile —
+                // which, while the open note is being co-edited, stutters the UI
+                // and keeps resetting the editor's scroll position.
+                self.externalReconcileTask?.cancel()
+                self.externalReconcileTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled, let self else { return }
+                    await self.scanOffMain()
+                    self.refreshDerived()
+                    onExternalChange()
+                }
             }
         }
         watcher.start(url: rootURL)
