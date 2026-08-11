@@ -71,16 +71,8 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
 
     // MARK: - Wide / two: the native three-column shell plus an inspector
 
-    @ViewBuilder
     private func columnShell(_ kind: ShellKind) -> some View {
-        #if os(macOS)
-        macColumnShell(kind)
-        #else
-        // iPadOS keeps the real `NavigationSplitView`: the inset sidebar is the
-        // platform's own look there, not a defect, and it brings the sidebar
-        // toggle and column behaviour a touch UI expects.
-        NavigationSplitView(columnVisibility: kind.libraryIsOverlay
-                            ? .constant(.doubleColumn) : $columnVisibility) {
+        NavigationSplitView(columnVisibility: columnBinding(kind)) {
             libraryRail()
                 .navigationSplitViewColumnWidth(min: ShellMetrics.libraryFloor,
                                                 ideal: ShellMetrics.libraryIdeal,
@@ -92,66 +84,28 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
                                                 max: ShellMetrics.listCap)
         } detail: {
             EditorPaneContainer { pane() }
-                .inspector(isPresented: kind == .wideInspector
-                           ? $inspectorPresented : .constant(false)) {
+                .inspector(isPresented: inspectorBinding(kind)) {
                     inspector()
                         .inspectorColumnWidth(min: ShellMetrics.inspectorFloor,
                                               ideal: ShellMetrics.inspectorIdeal,
                                               max: ShellMetrics.inspectorCap)
                 }
         }
-        #endif
     }
 
-    #if os(macOS)
-    private func macColumnShell(_ kind: ShellKind) -> some View {
-        // An `HSplitView` of ordinary views, not a `NavigationSplitView`.
-        //
-        // On macOS 26 the first column of a `NavigationSplitView` is drawn as an
-        // **inset floating capsule** — the new sidebar appearance. At 64pt that
-        // capsule is a rounded pill running the whole window height, straight
-        // through the titlebar row, which is what "the collection vertical bar"
-        // is. It is not the `List` (plain and sidebar styles render the same
-        // pill) and it is not the column's contents: moving the rail out of the
-        // slot simply moved the capsule onto the note list instead. It belongs
-        // to the slot.
-        //
-        // `HSplitView` has no sidebar slot, so no column gets that treatment;
-        // each is an ordinary view drawing on the window's own background, and
-        // columns stay draggable (decision 4). Each carries its own
-        // `NavigationStack` because `.searchable`, `.navigationTitle` and the
-        // column toolbars need a navigation context — the same thing the tall
-        // shell already does for its band cells.
-        HSplitView {
-            if kind.hasLibraryRail {
-                libraryRail()
-                    .frame(width: ShellMetrics.railWidth)
-            }
-
-            NavigationStack { noteList() }
-                .frame(minWidth: ShellMetrics.listFloor,
-                       idealWidth: ShellMetrics.listIdeal,
-                       maxWidth: ShellMetrics.listCap)
-
-            NavigationStack { EditorPaneContainer { pane() } }
-                .frame(minWidth: ShellMetrics.editorFloor, maxWidth: .infinity)
-
-            if kind == .wideInspector && inspectorPresented {
-                inspector()
-                    .frame(minWidth: ShellMetrics.inspectorFloor,
-                           idealWidth: ShellMetrics.inspectorIdeal,
-                           maxWidth: ShellMetrics.inspectorCap)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    /// Decision 12 — below 960pt the library rail vanishes and opens as an
+    /// overlay. `NavigationSplitView` already gives that: force the two-column
+    /// visibility and the system keeps the sidebar one toggle away.
+    private func columnBinding(_ kind: ShellKind) -> Binding<NavigationSplitViewVisibility> {
+        kind.libraryIsOverlay
+            ? .constant(.doubleColumn)
+            : $columnVisibility
     }
-    #endif
 
-    // Decision 12 — below 960pt the library rail vanishes — is now expressed
-    // where the rail is built (`kind.hasLibraryRail` above) rather than through
-    // a split view's column visibility, because there is no longer a split view
-    // to hide a column of. `columnVisibility` stays in the API so the View menu
-    // and the window's sidebar toggle keep a binding to talk to.
+    /// The inspector exists only where the contract says there is room for it.
+    private func inspectorBinding(_ kind: ShellKind) -> Binding<Bool> {
+        kind == .wideInspector ? $inspectorPresented : .constant(false)
+    }
 
     // MARK: - Tall: navigation bands across the top
 

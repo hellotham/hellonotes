@@ -139,17 +139,11 @@ struct TitlebarClearance: NSViewRepresentable {
             }
             window.titlebarSeparatorStyle = .line
 
-            // Removing the flag is not enough on its own: the app settles with
-            // it off and *still* reports a 52pt band, because SwiftUI keeps
-            // re-applying its window configuration. So inset the safe area by
-            // whatever band survives, which is the supported way to tell every
-            // view inside — including the sidebar's material — to lay out below
-            // the titlebar rather than behind it.
-            guard let content = window.contentView else { return }
-            let band = max(0, content.bounds.height - window.contentLayoutRect.height)
-            if abs(content.additionalSafeAreaInsets.top - band) > 0.5 {
-                content.additionalSafeAreaInsets.top = band
-            }
+            // No `additionalSafeAreaInsets` here. That was tried while hunting
+            // the capsule, did nothing for it, and — once the shell became an
+            // `HSplitView` whose columns honour the safe area properly — showed
+            // up as a 52pt gap above the rail and the note list. A failed
+            // experiment left in is a regression waiting for its moment.
         }
 
         deinit {

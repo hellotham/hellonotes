@@ -92,23 +92,7 @@ struct LibraryRail<Footer: View>: View {
                 .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
                 .listRowSeparator(.hidden)
             }
-            // `.plain`, not `.sidebar`. On macOS 26 a sidebar list is drawn as
-            // an *inset floating capsule* — and at 64pt wide that capsule is a
-            // white pill running the whole window height, straight through the
-            // titlebar row. The window's own snapshot showed it plainly; every
-            // frame- and pixel-metric before that had been measuring the wrong
-            // thing. A rail is a switcher, not a source list: it wants plain
-            // rows on the column's own background.
-            .listStyle(.plain)
-            .background(.clear)
-            // The rail's own background is what bleeds into the titlebar row.
-            // Measured in the running app (ChromeProbe's pixel sample): every
-            // other column paints the window background inside the 52pt band,
-            // while the rail paints an opaque colour there — the `List`'s
-            // background, which covers the whole column including the band.
-            // Hiding it lets the column's material show through instead, the
-            // same as the note list and the inspector.
-            .scrollContentBackground(.hidden)
+            .listStyle(.sidebar)
             .safeAreaInset(edge: .top, spacing: 0) {
                 Color.clear.frame(height: topInset)
             }

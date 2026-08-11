@@ -804,7 +804,6 @@ struct MacContentView: View {
             topInset: titlebarInset,
             footer: { gitFooter }
         )
-        .navigationTitle("HelloNotes")
     }
 
     /// Moving the rail is a navigation, so it clears whatever was narrowing the
