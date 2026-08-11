@@ -6,10 +6,17 @@ description: Rebuild and relaunch the HelloNotes macOS Debug app for live testin
 # Relaunch HelloNotes (Debug, live testing)
 
 macOS keeps a launched app's **original** Mach-O mapped even after you rebuild on
-disk: `open` and AppleScript quit/relaunch both re-attach to the running process,
-so UI verification silently tests **stale code**. The only reliable relaunch is a
-hard `killall -9` + `open -n` of the freshly built app. `scripts/relaunch-debug.sh`
-does exactly that.
+disk: plain `open` re-attaches to the running process, so UI verification silently
+tests **stale code**. The instance has to end, and a new one has to start with
+`open -n`. `scripts/relaunch-debug.sh` does that.
+
+**It quits gracefully first, and so must you.** HelloNotes autosaves on a
+debounce and `TerminationGuard` drains those pending writes during the quit
+handshake. `kill -9` skips it, so a hard kill can silently discard whatever was
+typed in the last debounce window — data loss on a notes app, caused by a
+convenience. The script asks the app to quit, waits 10s, escalates to SIGTERM,
+and only reaches SIGKILL if the app refuses both — printing a loud warning when
+it does. Never reach for `killall -9` or `pkill -9` on HelloNotes yourself.
 
 ## Steps
 
@@ -35,8 +42,12 @@ does exactly that.
 
    - finds every live instance by process name **and** by executable path, so a
      test host or an Xcode-launched run is caught too;
-   - `kill -9`s them and **waits until they're actually gone** — a graceful quit
-     can be refused by a modal sheet, and a fixed `sleep` can be too short;
+   - **quits them gracefully**, so debounced autosaves are flushed, escalating to
+     SIGTERM and only then SIGKILL, and **waits until they're actually gone** at
+     each stage rather than hoping a fixed `sleep` was enough;
+   - waits for **LaunchServices** to forget them too, not just the process table
+     — the Dock icon and the window are what a person actually sees, and they
+     outlive the process by a moment;
    - refuses to launch if anything survived, because a survivor *is* the old
      binary and testing against it produces a confident wrong answer;
    - confirms the process that came up is running the executable just built, and
@@ -89,8 +100,12 @@ launching. Work around it rather than paying for it repeatedly:
   test hosts running is what puts three copies of the app on the user's screen:
 
   ```bash
-  pkill -f "xcodebuild test"; sleep 1; pkill -9 -f "HelloNotesTests.xctest"; killall -9 HelloNotes
+  pkill -f "xcodebuild test"; sleep 1; pkill -9 -f "HelloNotesTests.xctest"
   ```
+
+  A test *host* holds no unsaved user work, so killing it is safe. Do **not**
+  add `killall -9 HelloNotes` to that line — it would also hard-kill the user's
+  own running app and skip its autosave flush.
 
 - **Never leave a test run in the background** across turns. If it hasn't
   finished, kill it and say so — an unattended run keeps a window open on
