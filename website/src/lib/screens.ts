@@ -34,7 +34,7 @@ export const SCREENS: Screen[] = [
     id: 'files',
     light: light01,
     dark: dark01,
-    alt: 'The HelloNotes window showing the library rail, the note list and a note open in the editor',
+    alt: 'The HelloNotes window showing the sidebar of collections and folders, and a note open in the editor',
     title: 'Your notes, your files',
     body: 'The note list is a view of a real folder on your Mac. Collections, folders, links and tags — over ordinary Markdown files you can open in any other app.',
   },

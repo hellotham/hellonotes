@@ -815,50 +815,6 @@ struct MacContentView: View {
             .overlay { noteListEmptyState }
     }
 
-    /// Git, pinned to the bottom of the rail. Git is meaningless for a
-    /// direct-API (remote) collection — its `rootURL` is a local mirror cache,
-    /// not the user's repo — so the button is simply absent there.
-    @ViewBuilder
-    private var gitFooter: some View {
-        if let collection = railCollection ?? focused, !collection.isRemote {
-            VStack(spacing: 0) {
-                Divider()
-                Button {
-                    showGitPanel = true
-                } label: {
-                    VStack(spacing: 2) {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 15))
-                                .frame(width: 40, height: 26)
-                            if collection.git.status.isRepository && !collection.git.status.isClean {
-                                Circle().fill(.orange).frame(width: 6, height: 6).offset(x: -3, y: 0)
-                            }
-                        }
-                        Text(collection.git.status.branch ?? "Git")
-                            .font(.system(size: 9))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .padding(.vertical, 6)
-                .help("Git — branch, status, commit and sync for “\(collection.name)”")
-                .accessibilityLabel("Git")
-                .popover(isPresented: $showGitPanel, arrowEdge: .trailing) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        gitSection
-                    }
-                    .padding(12)
-                    .frame(width: 300)
-                }
-            }
-        }
-    }
-
     // MARK: - The inspector rail (right)
 
     /// "What is this, and what touches it?" — outline, tags, references,

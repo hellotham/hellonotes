@@ -6,7 +6,7 @@
 export const APP = {
   name: 'HelloNotes',
   tagline: 'Think in plain Markdown.',
-  version: '1.0',
+  version: '1.1',
   minOS: 'macOS 15 or later',
   /** Universal binary — verified with `lipo -info` on the shipped DMG. */
   architectures: 'Apple silicon & Intel',
