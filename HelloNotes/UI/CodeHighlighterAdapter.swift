@@ -25,8 +25,17 @@ import UIKit
 
 actor CodeHighlighterAdapter: CodeHighlighting {
     private let highlighter: Highlighter?
-    private let cache = NSCache<NSString, NSAttributedString>()
+    /// Cached *colour runs*, not the styled string: the runs are all the editor
+    /// wants, they are `Sendable` (so they leave this actor without a fight),
+    /// and caching them means the `enumerateAttribute` walk is paid once per
+    /// snippet rather than on every cache hit. A plain dictionary rather than
+    /// `NSCache` because the actor already serializes access and `NSCache`
+    /// cannot hold a struct.
+    private var cache: [String: [CodeColorRun]] = [:]
+    private var cacheOrder: [String] = []
     private var unsupportedLanguages: Set<String> = []
+
+    private let cacheLimit = 256
 
     /// - Parameter darkMode: picked at creation; the host rebuilds the
     ///   document (and this adapter) when the appearance flips.
@@ -37,23 +46,39 @@ actor CodeHighlighterAdapter: CodeHighlighting {
         // are identical whether you're editing or previewing.
         h?.setTheme(darkMode ? "github-dark" : "github")
         highlighter = h
-        cache.countLimit = 256
     }
 
-    func highlight(_ code: String, language: String) async -> NSAttributedString? {
-        guard let highlighter, !language.isEmpty, !unsupportedLanguages.contains(language) else { return nil }
+    func highlight(_ code: String, language: String) async -> [CodeColorRun] {
+        guard let highlighter, !language.isEmpty, !unsupportedLanguages.contains(language) else { return [] }
         // Key on language + length + hash rather than the full snippet: including
         // the length makes a collision require same-length AND same-hash (≈never),
-        // without duplicating a large code block into the NSCache key.
-        let key = "\(language)\u{1}\(code.count)\u{1}\(code.hashValue)" as NSString
-        if let cached = cache.object(forKey: key) { return cached }
+        // without duplicating a large code block into the cache key.
+        let key = "\(language)\u{1}\(code.count)\u{1}\(code.hashValue)"
+        if let cached = cache[key] { return cached }
         guard let styled = highlighter.highlight(code, as: language) else {
             // Unknown language: remember, so repeated fences don't re-enter
             // the JS engine just to fail again.
             unsupportedLanguages.insert(language)
-            return nil
+            return []
         }
-        cache.setObject(styled, forKey: key)
-        return styled
+        var runs: [CodeColorRun] = []
+        styled.enumerateAttribute(.foregroundColor,
+                                  in: NSRange(location: 0, length: styled.length)) { value, range, _ in
+            if let color = value as? PlatformColor {
+                runs.append(CodeColorRun(range: range, color: color))
+            }
+        }
+        store(runs, for: key)
+        return runs
+    }
+
+    private func store(_ runs: [CodeColorRun], for key: String) {
+        if cache[key] == nil {
+            cacheOrder.append(key)
+            if cacheOrder.count > cacheLimit {
+                cache.removeValue(forKey: cacheOrder.removeFirst())
+            }
+        }
+        cache[key] = runs
     }
 }

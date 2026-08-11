@@ -22,7 +22,11 @@ import AppKit
 import UIKit
 #endif
 
-enum PlatformImageKit {
+/// `nonisolated` deliberately: the target defaults to `MainActor` isolation,
+/// and these are pure image helpers with no state, called from the render
+/// actors that keep decoding and scaling off the main thread. Isolating them to
+/// the main actor would put every embed decode in front of the caret.
+nonisolated enum PlatformImageKit {
 
     /// Draw into an image of `size` using a top-left-origin, y-down context on
     /// both platforms. The platform graphics context is current inside `draw`,

@@ -30,7 +30,14 @@
 
 import Foundation
 
-enum FileIO {
+/// `nonisolated` deliberately. The target builds with
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise put every
+/// one of these on the main actor — and the whole point of them is to be called
+/// from the off-main work that scanning, indexing and link-rewriting do. They
+/// hold no state; `NSFileCoordinator` and `FileManager` are safe to use from
+/// any thread. Hopping back to the main actor to read a file would undo the
+/// off-main scan work (implemented.md) and put vault I/O in front of the caret.
+nonisolated enum FileIO {
 
     // MARK: - Reads
 

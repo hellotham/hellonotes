@@ -40,9 +40,31 @@ import UIKit
 /// so the engine underneath is swappable (highlight.js today, tree-sitter
 /// tomorrow) without touching the editor.
 public protocol CodeHighlighting: Sendable {
-    /// A styled rendering of `code` for `language`, or nil when the
+    /// The foreground colours for `code` in `language`, or empty when the
     /// language is unknown or highlighting fails.
-    func highlight(_ code: String, language: String) async -> NSAttributedString?
+    func highlight(_ code: String, language: String) async -> [CodeColorRun]
+}
+
+/// One run of syntax colour: a range in the code, and the colour to draw it in.
+///
+/// The protocol used to hand back a whole `NSAttributedString`, which the editor
+/// then mined for `.foregroundColor` and threw away. That was both more than it
+/// needed and not `Sendable` — an implementation running on an actor (the usual
+/// shape, since highlighting engines are not thread-safe) could not return one
+/// without crossing an isolation boundary with a mutable-by-subclass class.
+/// Returning the runs is what the editor actually wanted, and it crosses safely.
+///
+/// `nonisolated` because the target defaults to `MainActor` isolation, and a
+/// value whose whole purpose is to be *returned from* a highlighting actor
+/// cannot have a main-actor initializer.
+public nonisolated struct CodeColorRun: Sendable {
+    public let range: NSRange
+    public let color: PlatformColor
+
+    public init(range: NSRange, color: PlatformColor) {
+        self.range = range
+        self.color = color
+    }
 }
 
 /// Services the host app injects. All closures are Sendable (styling can
@@ -580,14 +602,11 @@ public final class EditorDocument {
         highlightsInFlight.insert(key)
 
         Task { [weak self] in
-            let styled = await highlighter.highlight(code, language: language)
+            let highlighted = await highlighter.highlight(code, language: language)
             guard let self else { return }
             self.highlightsInFlight.remove(key)
-            guard let styled else { return }
-            var runs: [(NSRange, PlatformColor)] = []
-            styled.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: styled.length)) { value, range, _ in
-                if let color = value as? PlatformColor { runs.append((range, color)) }
-            }
+            guard !highlighted.isEmpty else { return }
+            let runs = highlighted.map { ($0.range, $0.color) }
             if self.highlightColorCache.count > 128 { self.highlightColorCache.removeAll() }
             self.highlightColorCache[key] = runs
             // The text may have shifted while the highlight ran; re-derive

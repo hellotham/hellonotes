@@ -435,13 +435,11 @@ import AppKit
     // MARK: - Code highlighting
 
     private struct MockHighlighter: CodeHighlighting {
-        func highlight(_ code: String, language: String) async -> NSAttributedString? {
-            guard language == "swift" else { return nil }
-            let styled = NSMutableAttributedString(string: code)
-            if let range = (code as NSString).range(of: "let") as NSRange?, range.location != NSNotFound {
-                styled.addAttribute(.foregroundColor, value: PlatformColor.systemPink, range: range)
-            }
-            return styled
+        func highlight(_ code: String, language: String) async -> [CodeColorRun] {
+            guard language == "swift" else { return [] }
+            let range = (code as NSString).range(of: "let")
+            guard range.location != NSNotFound else { return [] }
+            return [CodeColorRun(range: range, color: .systemPink)]
         }
     }
 
