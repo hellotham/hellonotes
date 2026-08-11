@@ -51,17 +51,40 @@ does exactly that.
 - **Relaunch only when the user asks.** The app runs on the machine they are
   working on; an unrequested relaunch takes their window away mid-task. Build,
   verify headlessly (below), then hand it over.
-- **`xcodebuild test` relaunches the app too.** A macOS test bundle needs a test
-  *host*, so running the suite launches HelloNotes on the user's screen exactly
-  as `relaunch-debug.sh` does. Say so when you run tests, and prefer
-  `swift test --package-path Packages/NotesEditor` (no host) or the scratchpad
-  harnesses when you only need a headless check.
+- **Do not run `xcodebuild test` while you are still working.** A macOS test
+  bundle needs a test *host*, so every run launches HelloNotes on the user's
+  screen — and a run that hangs or that you start twice leaves **several copies
+  of the app open**, which the user then has to clean up. Treat it exactly like
+  a relaunch: it is a thing you do at the *end*, on the finished change, not a
+  gate you tap between edits. See "Running the app tests" below.
 - **Never** `open` the app or relaunch via AppleScript to test a change — you'll
   test the old binary. Always go through `scripts/relaunch-debug.sh`.
 - **Respect the user's screen.** Never drive the app with computer-use or
   screenshots. Prefer telemetry you can read from the terminal.
 - Confirm it's the new binary: `pgrep -x HelloNotes` and check the start time is
   now.
+
+## Running the app tests
+
+`HelloNotesTests` is hosted by the app, so there is no flag that stops it
+launching. Work around it rather than paying for it repeatedly:
+
+- **During the change**, use only what runs headless — `xcodebuild build` for
+  both platforms, `swift test --package-path Packages/NotesEditor`, and the
+  scratchpad harnesses below. None of these open a window.
+- **At the end**, run the app suite once. Scope it (`-only-testing:...`) so it
+  finishes in seconds rather than minutes: `ShellContractTests` alone is ~2s,
+  where the whole suite has been seen to sit for 20+ minutes.
+- **Always clean up afterwards**, whether it passed, failed or hung — leaving
+  test hosts running is what puts three copies of the app on the user's screen:
+
+  ```bash
+  pkill -f "xcodebuild test"; sleep 1; pkill -9 -f "HelloNotesTests.xctest"; killall -9 HelloNotes
+  ```
+
+- **Never leave a test run in the background** across turns. If it hasn't
+  finished, kill it and say so — an unattended run keeps a window open on
+  someone else's machine.
 
 ## Observe without touching the screen
 
