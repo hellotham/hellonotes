@@ -53,6 +53,8 @@ struct NoteEditorView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(LLMSettings.self) private var llmSettings
     @Environment(AppearanceSettings.self) private var appearance
+    /// The pane this editor was given — the width rules resolve against it.
+    @Environment(\.shell) private var shell
 
     /// Folder (relative to the note) where pasted images are saved; empty means
     /// the same folder as the note. Configured in Settings.
@@ -82,6 +84,8 @@ struct NoteEditorView: View {
 
     // Find & replace bar state. The engine owns the search/replace; this view
     // just posts queries and reflects the match count it posts back.
+    @State private var showReferences = false
+
     @State private var showFindBar = false
     @State private var findText = ""
     @State private var replaceText = ""
@@ -245,10 +249,13 @@ struct NoteEditorView: View {
                         downloadingBanner
                     }
 
+                    // Decision 5: each mode gets its own width rule. Reading is
+                    // a fixed measure, centred; editing and source fill the
+                    // pane (or the chosen proportion of it), left-aligned.
                     switch mode {
-                    case .edit:     editModeContent
-                    case .preview:  previewModeContent
-                    case .markdown: sourceEditor
+                    case .edit:     measured(.editing) { editModeContent }
+                    case .preview:  measured(.reading) { previewModeContent }
+                    case .markdown: measured(.editing, monospaced: true) { sourceEditor }
                     case .split:    splitModeContent
                     }
 
@@ -332,6 +339,47 @@ struct NoteEditorView: View {
         }
     }
 
+    // MARK: - Text width (decision 5)
+
+    /// Apply the width rule for `intent` to whatever the pane gave us.
+    ///
+    /// Reading holds a fixed measure and centres it, because a measure that
+    /// isn't centred isn't a measure. Editing takes the pane (or the chosen
+    /// proportion) and stays left-aligned, VS Code style — a centred
+    /// proportional column would just reintroduce the symmetric gutters this
+    /// is meant to remove. On a narrow pane `min()` collapses the distinction
+    /// and neither setting bites.
+    @ViewBuilder
+    private func measured<Content: View>(_ intent: TextIntent,
+                                         monospaced: Bool = false,
+                                         @ViewBuilder content: () -> Content) -> some View {
+        let resolved = TextWidth.resolve(
+            intent: intent,
+            paneWidth: shell.paneWidth,
+            characterWidth: Self.characterWidth(size: appearance.editorFontSize,
+                                                monospaced: monospaced),
+            reading: appearance.readingWidth,
+            editing: appearance.editorWidth
+        )
+        HStack(spacing: 0) {
+            if resolved.centred { Spacer(minLength: 0) }
+            content()
+                .frame(maxWidth: resolved.width)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Measured, not assumed: a character count means a different point width
+    /// in the proportional body font than in the monospaced source font, so the
+    /// width is always resolved against the font actually in use.
+    private static func characterWidth(size: CGFloat, monospaced: Bool) -> CGFloat {
+        let font = monospaced
+            ? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+            : NSFont.systemFont(ofSize: size)
+        return ("0" as NSString).size(withAttributes: [.font: font]).width
+    }
+
     // MARK: - Editor modes
 
     /// The live, editable WYSIWYG editor plus its edit-only chrome: the
@@ -354,17 +402,13 @@ struct NoteEditorView: View {
             )
         }
 
-        if !properties.isEmpty || showProperties {
-            PropertiesEditor(properties: $properties, onChange: applyProperties)
-            Divider()
-        }
-
+        // Front matter and references are no longer persistent chrome here.
+        // They are cross-cutting answers to "what is this?", so they live in
+        // the inspector rail (decision 1), and remain one click away from the
+        // bottom bar for the shells and windows that have no rail. That gives
+        // the text back ~200pt of height it was lending to a panel most of the
+        // time — text outranks references under pressure.
         editorHost(isEditable: true)
-
-        if hasReferences {
-            Divider()
-            referencesPanel
-        }
     }
 
     /// The HelloNotes TextKit 2 editor. `isEditable: false` gives the read-only
@@ -402,10 +446,6 @@ struct NoteEditorView: View {
     @ViewBuilder
     private var previewModeContent: some View {
         githubPreview
-        if hasReferences {
-            Divider()
-            referencesPanel
-        }
     }
 
     /// GitHub-identical rendered preview: the note (front matter stripped, the
@@ -692,7 +732,10 @@ struct NoteEditorView: View {
         !outgoingLinks.isEmpty || !backlinks.isEmpty || !unlinkedMentions.isEmpty
     }
 
-    private var referencesPanel: some View {
+    /// The same content the inspector's References tab shows, for the shells
+    /// and windows that have no inspector rail (below 1400pt, and the
+    /// standalone note window). A route, not a second home.
+    private var referencesPopover: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 if !outgoingLinks.isEmpty {
@@ -708,8 +751,8 @@ struct NoteEditorView: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxHeight: 200)
-        .background(.quaternary.opacity(0.4))
+        .frame(width: 320)
+        .frame(maxHeight: 360)
     }
 
     private func referenceSection(_ title: String, systemImage: String, notes: [Note]) -> some View {
@@ -801,7 +844,23 @@ struct NoteEditorView: View {
             // Actions (right) — dynamic per context
             barButton("Find & replace (⌘F)", "magnifyingglass", action: toggleFindBar)
                 .disabled(mode != .edit)
-            barButton("Edit front-matter properties", "list.bullet.rectangle") { showProperties = true }
+            barButton("Edit front-matter properties", "list.bullet.rectangle") {
+                // Seed from the buffer as the popover opens, so this can never
+                // show values the inspector has since changed.
+                properties = FrontMatter.properties(in: editor.text)
+                showProperties = true
+            }
+            .popover(isPresented: $showProperties, arrowEdge: .bottom) {
+                PropertiesEditor(properties: $properties, onChange: applyProperties)
+                    .padding(12)
+                    .frame(width: 320)
+            }
+            if hasReferences {
+                barButton("Links to and from this note", "link") { showReferences = true }
+                    .popover(isPresented: $showReferences, arrowEdge: .bottom) {
+                        referencesPopover
+                    }
+            }
             barButton("Outline & statistics", "list.bullet.indent") { showOutline = true }
                 .popover(isPresented: $showOutline, arrowEdge: .bottom) {
                     OutlineView(text: editor.text, onSelectHeading: jumpToHeading)

@@ -91,6 +91,29 @@ final class AppearanceSettings {
     /// Deepen the accent and raise the text-contrast target to WCAG AAA (7:1).
     var increaseContrast: Bool { didSet { UserDefaults.standard.set(increaseContrast, forKey: "increaseContrast") } }
 
+    // MARK: Text width (decision 5 — reading is not editing)
+
+    /// The measure used when *reading*: a fixed character count, centred,
+    /// because line length is the whole point of reading comfortably.
+    var readingWidth: ReadingWidth {
+        didSet { UserDefaults.standard.set(readingWidth.rawValue, forKey: "readingWidth") }
+    }
+
+    /// How much of the pane *editing* uses. Full by default: the pane is the
+    /// workspace, and nobody would accept a Markdown file rendered as a narrow
+    /// ribbon down the middle of a code editor.
+    var editorWidth: EditorWidth {
+        didSet { UserDefaults.standard.set(editorWidth.rawValue, forKey: "editorWidth") }
+    }
+
+    /// An optional vertical guide while editing, in characters — a line you can
+    /// see, like Xcode's page guide, *not* a wrap point. 0 is off.
+    var wrapGuide: Int {
+        didSet { UserDefaults.standard.set(wrapGuide, forKey: "wrapGuide") }
+    }
+
+    static let wrapGuideChoices = [0, 72, 80, 100]
+
     static let minScale = 0.8
     static let maxScale = 1.5
 
@@ -102,6 +125,9 @@ final class AppearanceSettings {
         let stored = defaults.double(forKey: "textScale")
         textScale = stored == 0 ? 1.0 : min(max(stored, Self.minScale), Self.maxScale)
         increaseContrast = defaults.bool(forKey: "increaseContrast")
+        readingWidth = ReadingWidth(rawValue: defaults.string(forKey: "readingWidth") ?? "") ?? .normal
+        editorWidth = EditorWidth(rawValue: defaults.string(forKey: "editorWidth") ?? "") ?? .full
+        wrapGuide = defaults.integer(forKey: "wrapGuide")
         applyWindowAppearance()
     }
 

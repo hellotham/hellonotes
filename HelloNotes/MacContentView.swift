@@ -106,8 +106,23 @@ struct MacContentView: View {
     /// How notes are ordered in the folder tree.
     @State private var sortOrder: SortOrder = .modified
 
-    /// Active tag filter, if any (within the focused collection).
+    /// Active tag filter, if any (within the focused collection). Set from the
+    /// inspector's Tags tab — the rails cooperate across the shell (decision 1).
     @State private var selectedTag: String?
+
+    /// The right inspector rail. Per window, and remembered, because it is a
+    /// place the user works in rather than something they summon (decision 10).
+    @SceneStorage("inspectorPresented") private var inspectorPresented = true
+
+    /// Left-rail visibility, so the native sidebar toggle works. Below 960pt
+    /// the shell overrides this and the library becomes an overlay (decision 12).
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    /// The open note's front-matter properties, edited in the inspector.
+    /// Owned here rather than in the editor column because the inspector is the
+    /// editor's *sibling*, and two separate editors over one front matter would
+    /// drift apart.
+    @State private var properties: [Property] = []
 
     // MARK: - Focused / selection helpers
 
@@ -287,21 +302,28 @@ struct MacContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } content: {
-            noteList
-        } detail: {
-            editorColumn
-        }
-        // A floor under the three-column layout, so the editor's status bar
-        // and note list never collapse into vertical text wrapping.
-        .frame(minWidth: 860, minHeight: 480)
+        AdaptiveShell(
+            inspectorPresented: $inspectorPresented,
+            columnVisibility: $columnVisibility,
+            libraryRail: { sidebar },
+            noteList: { noteList },
+            pane: { editorColumn },
+            inspector: { inspector },
+            compactChrome: { EmptyView() }
+        )
+        // The declared window minimum (decision 9). A floor under the layout so
+        // the editor's status bar and note list never collapse into vertical
+        // text wrapping — and if the OS forces smaller anyway, the shell
+        // degrades rather than erroring.
+        .frame(minWidth: ShellMetrics.windowMinWidth, minHeight: ShellMetrics.windowMinHeight)
         // S2 (docs/layout-architecture.md): a minimum is a floor, not a
         // ceiling. Without a maximum, any column child with a large ideal size
         // (note list, editor, file viewer) inflates the split view past the
         // window and offsets it off-screen.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: selectedNoteID) { _, _ in
+            properties = FrontMatter.properties(in: activeEditor?.text ?? "")
+        }
         .task {
             if !Self.didShowSplash {
                 Self.didShowSplash = true
@@ -725,24 +747,10 @@ struct MacContentView: View {
                         }
                     }
 
-                    let tags = focused.search.allTags()
-                    if !tags.isEmpty {
-                        Section("Tags") {
-                            Button { selectedTag = nil } label: {
-                                Label("All Notes", systemImage: "tray.full")
-                                    .fontWeight(selectedTag == nil ? .semibold : .regular)
-                            }
-                            .buttonStyle(.plain)
-
-                            ForEach(focused.search.tagTree()) { node in
-                                TagTreeRow(node: node, selectedTag: selectedTag,
-                                           selectedColor: appearance.accentText ?? .accentColor) { tag in
-                                    selectedTag = tag
-                                    searchText = ""
-                                }
-                            }
-                        }
-                    }
+                    // Tags deliberately do NOT live here. The left rail answers
+                    // "where is it?" — collections, folders, bookmarks. Tags
+                    // are cross-cutting, so they belong to the inspector, which
+                    // answers "what is this, and what touches it?" (decision 1).
                 }
             }
             .listStyle(.sidebar)
@@ -759,6 +767,48 @@ struct MacContentView: View {
         }
         .navigationTitle("HelloNotes")
         .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+    }
+
+    // MARK: - The inspector rail (right)
+
+    /// "What is this, and what touches it?" — outline, tags, references,
+    /// properties and history, in one place instead of four (decisions 1, 8, 10).
+    @ViewBuilder
+    private var inspector: some View {
+        if let collection = editorCollection {
+            NoteInspector(
+                noteText: activeEditor?.text ?? "",
+                onSelectHeading: { scrollToHeading($0.title) },
+                tagTree: collection.search.tagTree(),
+                selectedTag: Binding(
+                    get: { selectedTag },
+                    // Selecting a tag in the right rail filters the list in the
+                    // left one — and a filter and a search would fight, so the
+                    // search field yields.
+                    set: { selectedTag = $0; if $0 != nil { searchText = "" } }
+                ),
+                backlinks: references.backlinks,
+                outgoingLinks: references.outgoingLinks,
+                unlinkedMentions: references.unlinkedMentions,
+                onOpenNote: { selectedNoteID = $0.id },
+                onLinkMention: linkMention,
+                properties: $properties,
+                onPropertiesChanged: applyProperties,
+                fileURL: selectedNote?.fileURL,
+                git: collection.git,
+                onRestoreRevision: { restored in activeEditor?.text = restored }
+            )
+        } else {
+            ContentUnavailableView("No Collection", systemImage: "sidebar.right",
+                                   description: Text("Open a collection to inspect its notes."))
+        }
+    }
+
+    /// Splice the inspector's edited properties back into the note's front
+    /// matter, through the same buffer typing goes through (so it autosaves).
+    private func applyProperties() {
+        guard let editor = activeEditor else { return }
+        editor.text = FrontMatter.applying(properties, to: editor.text)
     }
 
     // MARK: - Git section (focused collection)

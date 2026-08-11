@@ -61,6 +61,37 @@ struct AppearanceSettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .animation(.default, value: settings.textScale)
             }
+
+            // Reading and editing want different widths, so they get different
+            // settings (docs/layout-architecture.md, decision 5).
+            Section("Text width") {
+                Picker("Reading width", selection: $settings.readingWidth) {
+                    ForEach(ReadingWidth.allCases, id: \.self) { width in
+                        Text(width.label).tag(width)
+                    }
+                }
+                Text("How wide a line gets in Reading mode. A comfortable measure is about 80 characters; the column is centred in the pane.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("Editor width", selection: $settings.editorWidth) {
+                    ForEach(EditorWidth.allCases, id: \.self) { width in
+                        Text(width.label).tag(width)
+                    }
+                }
+                Text("How much of the pane you write in. Full uses the whole pane, left-aligned — tables and diagrams need the room.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("Wrap guide", selection: $settings.wrapGuide) {
+                    ForEach(AppearanceSettings.wrapGuideChoices, id: \.self) { columns in
+                        Text(columns == 0 ? "Off" : "\(columns) characters").tag(columns)
+                    }
+                }
+                Text("A line you can see while editing, not a wrap point — text still runs to the edge of the pane.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }
