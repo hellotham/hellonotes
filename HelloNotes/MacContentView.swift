@@ -137,11 +137,6 @@ struct MacContentView: View {
     /// full panel and gets a button instead of a column.
     @State private var showGitPanel = false
 
-    /// The titlebar's overlap of the content view, measured rather than assumed.
-    /// The rail insets its rows past it — see TitlebarInsetReader.
-    @State private var titlebarInset: CGFloat = 0
-
-
 
     // MARK: - Focused / selection helpers
 
@@ -375,15 +370,6 @@ struct MacContentView: View {
         // the editor's status bar and note list never collapse into vertical
         // text wrapping — and if the OS forces smaller anyway, the shell
         // degrades rather than erroring.
-        // Keeps the columns out of the titlebar band, so the toolbar is its own
-        // row. Proved in scratchpad/ChromeLab before shipping — see
-        // TitlebarClearance for the bench's verdict on all twelve candidates.
-        .background(TitlebarClearance())
-        // …and the rail's own rows inset past whatever band is left.
-        .background(TitlebarInsetReader(inset: $titlebarInset))
-        // Measures the titlebar/column overlap when HN_GEOM_LOG asks; a no-op
-        // and zero-sized otherwise. See ChromeProbe.
-        .background(ChromeProbe())
         .frame(minWidth: ShellMetrics.windowMinWidth, minHeight: ShellMetrics.windowMinHeight)
         // S2 (docs/layout-architecture.md): a minimum is a floor, not a
         // ceiling. Without a maximum, any column child with a large ideal size
@@ -801,9 +787,9 @@ struct MacContentView: View {
             },
             onRevealCollection: { NSWorkspace.shared.activateFileViewerSelecting([$0.rootURL]) },
             onAddCollection: { showLauncher = true },
-            topInset: titlebarInset,
             footer: { gitFooter }
         )
+        .navigationTitle("HelloNotes")
     }
 
     /// Moving the rail is a navigation, so it clears whatever was narrowing the
@@ -1227,20 +1213,6 @@ struct MacContentView: View {
             .navigationTitle(noteListTitle)
             .toolbar { noteListToolbar }
             .overlay { noteListEmptyState }
-            // The toolbar gets its own row, with the background and separator
-            // that come with it. SwiftUI's default for a `NavigationSplitView`
-            // window is a *transparent* toolbar over full-height content, so
-            // every column paints up into the titlebar — the note list's
-            // material, the inspector's, the selected tab's highlight — which
-            // reads as a rendering fault rather than as depth. HIG (macOS): the
-            // toolbar "resides in the frame at the top of a window"; a frame
-            // has edges.
-            //
-            // It belongs *here*, on the view that owns the toolbar items, not
-            // on the shell: a toolbar modifier resolves against the nearest
-            // toolbar-owning container, so outside the `NavigationSplitView` it
-            // had nothing to attach to.
-            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
     }
 
     private var noteListTitle: String {
@@ -1386,10 +1358,7 @@ struct MacContentView: View {
                 Button {
                     showOpenQuickly = true
                 } label: {
-                    // Not a magnifying glass: there is already a search field
-                    // in this column, and two identical glasses meaning
-                    // different things reads as a duplicated search box.
-                    Label("Open Quickly", systemImage: "arrow.forward.square")
+                    Label("Open Quickly", systemImage: "magnifyingglass")
                 }
                 .help("Open Quickly (⇧⌘O)")
                 .disabled(focused?.notes.isEmpty ?? true)
