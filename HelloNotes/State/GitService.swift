@@ -222,6 +222,7 @@ final class GitService {
     /// handle forwards into the detached libgit2 clone (whose transfer-progress
     /// callback checks `Task.isCancelled` and aborts the transfer).
     private var cloneHandle: Task<URL?, Never>?
+    private var createHandle: Task<URL?, Never>?
 
     private func run(success: String, _ operation: @escaping @Sendable () async throws -> Void) async {
         let previous = lastQueued
@@ -392,9 +393,21 @@ final class GitService {
             return remoteURL
         }()
 
-        return await runReturning {
-            do {
-                try await Task.detached(priority: .userInitiated) {
+        // The same cancellable runner `cloneRepository` uses, for the same
+        // reason: creating *with* a remote ends in a push, and a push to an
+        // unreachable host hangs. Without a handle the sheet spun on `isBusy`
+        // with no way out but force-quitting the app.
+        let previous = lastQueued
+        let handle = Task { @MainActor [self] () -> URL? in
+            await previous?.value
+            isBusy = true
+            lastError = nil
+            defer { isBusy = false }
+
+            // libgit2 blocks its thread, so this runs detached and cancellation
+            // is forwarded explicitly — a detached task doesn't inherit it.
+            let inner = Task.detached(priority: .userInitiated) { () -> Result<Void, Error> in
+                do {
                     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                     let readme = directory.appendingPathComponent("README.md")
                     try Data("# \(safeName)\n".utf8).write(to: readme)
@@ -405,18 +418,44 @@ final class GitService {
                     _ = try repo.commit(message: "Initial commit")
 
                     if let pushURL {
+                        // The local repo is made; don't start a network op that
+                        // was already cancelled.
+                        try Task.checkCancellation()
                         try repo.remote.add(named: "origin", at: pushURL)
                         try await repo.push()
                     }
-                }.value
-                self.lastMessage = remoteURL == nil ? "Created “\(safeName)”" : "Created and pushed “\(safeName)”"
+                    return .success(())
+                } catch {
+                    return .failure(error)
+                }
+            }
+            let result = await withTaskCancellationHandler {
+                await inner.value
+            } onCancel: {
+                inner.cancel()
+            }
+
+            // Stop can land after the work finished, so cancellation is checked
+            // on the success path too — otherwise a cancelled create still
+            // reports success and gets opened.
+            if Task.isCancelled {
+                lastError = "Create cancelled."
+                try? FileManager.default.removeItem(at: directory)
+                return nil
+            }
+            switch result {
+            case .success:
+                lastMessage = remoteURL == nil ? "Created “\(safeName)”" : "Created and pushed “\(safeName)”"
                 return directory
-            } catch {
-                self.lastError = Self.scrubCredentials("Couldn't create the repository: \(error)")
+            case .failure(let error):
+                lastError = Self.scrubCredentials("Couldn't create the repository: \(error)")
                 try? FileManager.default.removeItem(at: directory)
                 return nil
             }
         }
+        createHandle = handle
+        lastQueued = Task { _ = await handle.value }
+        return await handle.value
     }
 
     // MARK: - Clone
@@ -516,6 +555,13 @@ final class GitService {
     /// tick; `cloneRepository` then returns nil with a "Clone cancelled." status.
     func cancelClone() {
         cloneHandle?.cancel()
+    }
+
+    /// Cancel an in-flight create. The local steps are near-instant; the one
+    /// that can hang is the push to the new remote, which stops at libgit2's
+    /// next progress tick. Either way the half-made repository is removed.
+    func cancelCreate() {
+        createHandle?.cancel()
     }
 }
 

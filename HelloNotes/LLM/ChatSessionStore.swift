@@ -45,6 +45,14 @@ final class ChatSessionStore {
     /// The most recent write, so each save chains after it instead of racing.
     private var writeTask: Task<Void, Never>?
 
+    /// Reports a persistence failure to the host, which shows it on the
+    /// assistant's error line. Losing the transcript is recoverable — the
+    /// conversation stays in memory for the run and `load()` tolerates a
+    /// truncated file — so this warns rather than throws. It was previously
+    /// `try?`: a full disk or a revoked container silently stopped saving and
+    /// the loss only showed up at the next launch, as an empty conversation.
+    var onPersistenceError: (@Sendable @MainActor (String) -> Void)?
+
     func save(_ messages: [LLMMessage]) {
         let capped = Array(messages.suffix(Self.persistedTailLimit))
         let url = fileURL
@@ -53,6 +61,7 @@ final class ChatSessionStore {
         // every turn, and tool outputs make it large. Chain on the previous write
         // so two saves in one turn (pre-turn + completion) can't land out of
         // order and persist a stale transcript.
+        let report = onPersistenceError
         writeTask = Task.detached(priority: .utility) {
             await previous?.value
             let encoder = JSONEncoder()
@@ -60,14 +69,26 @@ final class ChatSessionStore {
                 guard let d = try? encoder.encode(message) else { return nil }
                 return String(data: d, encoding: .utf8)
             }
-            try? lines.joined(separator: "\n").data(using: .utf8)?.write(to: url, options: .atomic)
+            do {
+                try Data(lines.joined(separator: "\n").utf8).write(to: url, options: .atomic)
+            } catch {
+                await MainActor.run {
+                    report?("Couldn't save the chat transcript: \(error.localizedDescription)")
+                }
+            }
         }
     }
 
     func clear() {
         writeTask?.cancel()
         writeTask = nil
-        try? FileManager.default.removeItem(at: fileURL)
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch CocoaError.fileNoSuchFile {
+            // Nothing persisted yet — clearing an empty conversation is a no-op.
+        } catch {
+            onPersistenceError?("Couldn't clear the saved chat: \(error.localizedDescription)")
+        }
     }
 
     private static func hash(_ string: String) -> String {

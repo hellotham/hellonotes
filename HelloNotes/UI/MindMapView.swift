@@ -321,15 +321,20 @@ struct MindMapModel {
                     stack = [(1, root)]
                     continue
                 }
-                while stack.count > 1 && stack.last!.level >= level { stack.removeLast() }
+                // `stack` starts at [root] and only pops while `count > 1`, so
+                // it is never empty — but that invariant was being asserted by
+                // three separate `stack.last!`s. Fall back to the root instead:
+                // unreachable today, and no longer a crash if the invariant
+                // ever moves.
+                while stack.count > 1, let last = stack.last, last.level >= level { stack.removeLast() }
                 let section = Item(title: Self.cleanInline(title), kind: .section)
-                if attach(section, to: stack.last!.item) {
+                if attach(section, to: stack.last?.item ?? root) {
                     stack.append((level, section))
                 }
                 continue
             }
 
-            let current = stack.last!.item
+            let current = stack.last?.item ?? root
 
             // Wiki links anywhere in the line become linked-note leaves of the
             // current section (embeds `![[…]]` excluded).
@@ -431,12 +436,16 @@ struct MindMapModel {
 
     /// `[[Target]]`, `[[Target#h]]`, `[[Target|alias]]` → "Target"
     /// (embeds `![[…]]` excluded).
-    private static let wikiLinkRegex = try? NSRegularExpression(
+    /// `try!`, matching every other constant pattern in the app: the pattern is
+    /// a literal, so a failure is a programming error that shows up on the
+    /// first run. `try?` here meant a broken pattern would silently render
+    /// every mind map with no links at all, and never say why.
+    private static let wikiLinkRegex = try! NSRegularExpression(
         pattern: #"(?<!\!)\[\[([^\]\|#\n]+)(?:#[^\]\|\n]*)?(?:\|[^\]\n]*)?\]\]"#
     )
 
     private static func wikiTargets(_ line: String) -> [String] {
-        guard let regex = wikiLinkRegex else { return [] }
+        let regex = wikiLinkRegex
         let range = NSRange(line.startIndex..., in: line)
         return regex.matches(in: line, range: range).compactMap { match in
             guard match.numberOfRanges > 1, let r = Range(match.range(at: 1), in: line) else { return nil }

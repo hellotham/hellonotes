@@ -704,14 +704,7 @@ struct NoteEditorView: View {
     /// the displayed text, then clear the transient highlight shortly after.
     private func jumpToHeading(_ heading: DocumentHeading) {
         showOutline = false
-        NotificationCenter.default.post(
-            name: .hnEditorFindQuery,
-            object: nil,
-            userInfo: ["query": heading.title]
-        )
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
-        }
+        hnJumpToHeadingInEditor(titled: heading.title)
     }
 
     // MARK: - Conflict banner
@@ -786,20 +779,31 @@ struct NoteEditorView: View {
     /// and windows that have no inspector rail (below 1400pt, and the
     /// standalone note window). A route, not a second home.
     private var referencesPopover: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                if !outgoingLinks.isEmpty {
-                    referenceSection("Outgoing Links", systemImage: "arrow.up.forward", notes: outgoingLinks)
+        Group {
+            if hasReferences {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !outgoingLinks.isEmpty {
+                            referenceSection("Outgoing Links", systemImage: "arrow.up.forward", notes: outgoingLinks)
+                        }
+                        if !backlinks.isEmpty {
+                            referenceSection("Linked Mentions", systemImage: "link", notes: backlinks)
+                        }
+                        if !unlinkedMentions.isEmpty {
+                            unlinkedSection
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if !backlinks.isEmpty {
-                    referenceSection("Linked Mentions", systemImage: "link", notes: backlinks)
-                }
-                if !unlinkedMentions.isEmpty {
-                    unlinkedSection
-                }
+            } else {
+                // Same copy the inspector's References tab uses — a note with no
+                // links is a state worth showing, not a reason to hide the
+                // control. The button used to vanish entirely, which reads as a
+                // missing feature rather than an empty one.
+                ContentUnavailableView("No References", systemImage: "link",
+                                       description: Text("Nothing links to this note yet, and it links nowhere."))
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(width: 320)
         .frame(maxHeight: 360)
@@ -905,12 +909,10 @@ struct NoteEditorView: View {
                     .padding(12)
                     .frame(width: 320)
             }
-            if hasReferences {
-                barButton("Links to and from this note", "link") { showReferences = true }
-                    .popover(isPresented: $showReferences, arrowEdge: .bottom) {
-                        referencesPopover
-                    }
-            }
+            barButton("Links to and from this note", "link") { showReferences = true }
+                .popover(isPresented: $showReferences, arrowEdge: .bottom) {
+                    referencesPopover
+                }
             barButton("Outline & statistics", "list.bullet.indent") { showOutline = true }
                 .popover(isPresented: $showOutline, arrowEdge: .bottom) {
                     OutlineView(text: editor.text, onSelectHeading: jumpToHeading)

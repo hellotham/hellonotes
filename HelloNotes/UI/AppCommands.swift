@@ -82,6 +82,11 @@ struct HelloNotesCommands: Commands {
         actions?.format != nil && actions?.note != nil && editorMode == EditorMode.edit.rawValue
     }
 
+    /// The Help menu's destination. A literal, so this cannot actually be nil —
+    /// but a shipped build shouldn't crash on a menu item over a typo, so it is
+    /// unwrapped at the call site rather than force-unwrapped here.
+    private let helpURL = URL(string: "https://github.com/hellotham/hellonotes")
+
     var body: some Commands {
         // MARK: App — About shows the splash (it carries the version, build,
         // and credits), staying up until clicked.
@@ -275,7 +280,7 @@ struct HelloNotesCommands: Commands {
         // MARK: Help — point the stock stub somewhere real.
         CommandGroup(replacing: .help) {
             Button("HelloNotes Help") {
-                NSWorkspace.shared.open(URL(string: "https://github.com/hellotham/hellonotes")!)
+                if let helpURL { NSWorkspace.shared.open(helpURL) }
             }
         }
     }

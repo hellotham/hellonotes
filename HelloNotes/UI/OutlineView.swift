@@ -30,6 +30,29 @@ extension Notification.Name {
     static let hnEditorReplaceAll = Notification.Name("hn.editor.replaceAll")
 }
 
+/// Scroll the editor to a heading and clear the resulting highlight a moment
+/// later, so a table-of-contents jump flashes the destination instead of
+/// leaving it permanently marked.
+///
+/// One implementation because there are two callers — the toolbar's outline
+/// popover and the inspector's outline — and they each had their own copy of
+/// the same `asyncAfter(1.2)`. Two copies of a timing constant drift, and when
+/// they do, "clear highlight" starts behaving differently depending on which
+/// outline you used.
+@MainActor
+func hnJumpToHeadingInEditor(titled title: String) {
+    NotificationCenter.default.post(
+        name: .hnEditorFindQuery, object: nil, userInfo: ["query": title]
+    )
+    DispatchQueue.main.asyncAfter(deadline: .now() + hnHeadingHighlightDuration) {
+        NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
+    }
+}
+
+/// How long a jumped-to heading stays highlighted. Long enough to catch the
+/// eye after the scroll settles, short enough not to look like a selection.
+let hnHeadingHighlightDuration: TimeInterval = 1.2
+
 /// A popover showing the note's statistics and an outline (table of contents).
 /// Clicking a heading jumps the editor to that section.
 struct OutlineView: View {

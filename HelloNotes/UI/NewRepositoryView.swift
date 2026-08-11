@@ -78,11 +78,20 @@ struct NewRepositoryView: View {
 
             Divider()
             HStack {
-                if busy { ProgressView().controlSize(.small) }
+                if busy {
+                    ProgressView().controlSize(.small)
+                    Text("Creating…").foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button("Create") { create() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!canCreate)
+                if busy {
+                    // Creating with a remote ends in a push, which can hang on
+                    // an unreachable host. Cancelling removes the half-made repo.
+                    Button("Stop", role: .cancel) { git.cancelCreate() }
+                } else {
+                    Button("Create") { create() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!canCreate)
+                }
             }
             .padding()
         }

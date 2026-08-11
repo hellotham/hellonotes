@@ -1673,10 +1673,7 @@ struct MacContentView: View {
     }
 
     private func scrollToHeading(_ title: String) {
-        NotificationCenter.default.post(name: .hnEditorFindQuery, object: nil, userInfo: ["query": title])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
-        }
+        hnJumpToHeadingInEditor(titled: title)
     }
 }
 

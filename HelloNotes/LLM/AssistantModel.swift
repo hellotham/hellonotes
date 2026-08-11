@@ -34,7 +34,10 @@ final class AssistantModel {
 
     /// Persists the conversation across launches (set by the host view).
     var sessionStore: ChatSessionStore? {
-        didSet { if messages.isEmpty { messages = sessionStore?.load() ?? [] } }
+        didSet {
+            sessionStore?.onPersistenceError = { [weak self] message in self?.errorText = message }
+            if messages.isEmpty { messages = sessionStore?.load() ?? [] }
+        }
     }
 
     /// Live permission prompts (for the approval UI) come from the broker.
