@@ -28,8 +28,10 @@ struct InlineNoteTitle: View {
     /// Commit a new title. Called only when it actually changed and isn't blank.
     var onRename: (String) -> Void
 
+    /// Owned by the host so the editor can hand focus *back* up here.
+    @FocusState.Binding var isFocused: Bool
+
     @State private var draft = ""
-    @FocusState private var isFocused: Bool
 
     var body: some View {
         TextField("Untitled", text: $draft)
@@ -37,7 +39,18 @@ struct InlineNoteTitle: View {
             .font(Font(theme.headingFont(level: 1)))
             .lineLimit(1)
             .focused($isFocused)
-            .onSubmit(commit)
+            // Enter, Tab and Down all mean "I'm done here, take me into the
+            // note" — the body is the only place below this field.
+            .onSubmit { commit(); enterBody() }
+            .onKeyPress(.downArrow) { commit(); enterBody(); return .handled }
+            .onKeyPress(.tab) { commit(); enterBody(); return .handled }
+            // A filename can't hold "/" or ":". Correcting them as they're
+            // typed shows the user what the name will actually be, rather than
+            // silently rewriting it at rename time.
+            .onChange(of: draft) { _, new in
+                let cleaned = Self.sanitised(new)
+                if cleaned != new { draft = cleaned }
+            }
             // Escape abandons the edit rather than renaming the file — a
             // rename rewrites links across the vault, so it should never
             // happen by accident on a half-typed word.
@@ -67,11 +80,25 @@ struct InlineNoteTitle: View {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         // A blank title would leave the file unnameable; treat it as a cancel.
         guard !trimmed.isEmpty else { revert(); return }
+        // Already sanitised as typed; trimming is the last step.
         guard trimmed != title else { return }
         onRename(trimmed)
     }
 
     private func revert() {
         draft = title
+    }
+
+    private func enterBody() {
+        isFocused = false
+        NotificationCenter.default.post(name: .hnEditorFocusStart, object: nil)
+    }
+
+    /// What the file system will accept. `/` is a path separator and `:` is the
+    /// legacy HFS separator that Finder still displays as `/`.
+    static func sanitised(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "/", with: "-")
+           .replacingOccurrences(of: ":", with: "-")
+           .replacingOccurrences(of: "\n", with: " ")
     }
 }

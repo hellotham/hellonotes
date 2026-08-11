@@ -13,6 +13,11 @@ extension Notification.Name {
     /// Host → engine: scroll to (and briefly highlight) the first match of a
     /// query in the editor's displayed text. Used for table-of-contents jumps.
     static let hnEditorFindQuery = Notification.Name("hn.editor.findQuery")
+    /// The caret tried to leave the top of the document — put focus on the
+    /// inline title, so title and body arrow like one flow.
+    static let hnEditorCaretEscapedTop = Notification.Name("hn.editor.caretEscapedTop")
+    /// The inline title is handing the caret down into the body.
+    static let hnEditorFocusStart = Notification.Name("hn.editor.focusStart")
     /// Host → engine: clear find highlights.
     static let hnEditorClearHighlights = Notification.Name("hn.editor.clearHighlights")
     /// Engine → host: number of matches for the last `findQuery` (`userInfo["count"]`).

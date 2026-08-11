@@ -70,6 +70,12 @@ struct NewEditorHost: View {
                     .editable(isEditable)
                     // Reading mode has no ruler: the measure is the guide there.
                     .wrapGuide(isEditable ? wrapGuide : 0)
+                    // Arrowing up off the first line hands the caret to the
+                    // inline title, so title and body read as one flow even
+                    // though the title lives in the filename, not the file.
+                    .onCaretEscapeTop {
+                        NotificationCenter.default.post(name: .hnEditorCaretEscapedTop, object: nil)
+                    }
                     .commandBus(documentId: editor.note?.fileURL.path ?? "default")
                     .proxy(proxy)
                     .onLinkTap { tap in
@@ -169,6 +175,10 @@ struct NewEditorHost: View {
                 guard let built else { return }
                 if built.text != editor.text { editor.text = built.text }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .hnEditorFocusStart)) { _ in
+            // The title is handing the caret down into the body.
+            proxy.focusStart()
         }
         .onChange(of: editor.loadRevision) { _, revision in
             // External reload (Obsidian, git pull, iCloud) of the currently

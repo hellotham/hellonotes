@@ -91,6 +91,10 @@ struct NoteEditorView: View {
     // just posts queries and reflects the match count it posts back.
     @State private var showReferences = false
 
+    /// Focus for the inline title. Owned here because the *editor* has to be
+    /// able to hand focus back up to it when the caret leaves the first line.
+    @FocusState private var titleFocused: Bool
+
     @State private var showFindBar = false
     @State private var findText = ""
     @State private var replaceText = ""
@@ -288,6 +292,10 @@ struct NoteEditorView: View {
                 // VStack adopts the largest child's ideal height and pushes the
                 // whole column past its window.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onReceive(NotificationCenter.default.publisher(for: .hnEditorCaretEscapedTop)) { _ in
+                    // The caret left the top of the note — catch it in the title.
+                    if appearance.showInlineTitle { titleFocused = true }
+                }
                 .navigationTitle(editor.note?.title ?? "")
                 .task(id: editor.note?.fileURL) {
                     properties = FrontMatter.properties(in: editor.text)
@@ -371,7 +379,8 @@ struct NoteEditorView: View {
             InlineNoteTitle(
                 title: note.title,
                 theme: EditorTheme(fontSize: appearance.editorFontSize),
-                onRename: { onRenameNote($0) }
+                onRename: { onRenameNote($0) },
+                isFocused: $titleFocused
             )
         }
     }

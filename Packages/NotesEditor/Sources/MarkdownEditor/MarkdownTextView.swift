@@ -45,6 +45,17 @@ public final class EditorProxy {
         textView?.reliablyScroll(to: range)
     }
 
+    /// Make the editor first responder with the caret at the very start.
+    /// Used when the caret arrives from chrome *above* the text — the inline
+    /// note title — so the two read as one continuous flow.
+    public func focusStart() {
+        guard let tv = textView else { return }
+        tv.window?.makeFirstResponder(tv)
+        tv.setSelectedRange(NSRange(location: 0, length: 0))
+        tv.document?.selectionDidChange(NSRange(location: 0, length: 0))
+        tv.scrollRangeToVisible(NSRange(location: 0, length: 0))
+    }
+
     /// Restore the insertion point after an in-place buffer replacement
     /// (external reload). Clamps to the new length and deliberately does NOT
     /// autoscroll, so a reload triggered by another editor keeps this view's
@@ -150,6 +161,35 @@ public final class MarkdownTextView: NSTextView {
     /// The scroll-view bounds-change observer registered in `scrollableEditor`.
     /// Assigned once on the main thread; `deinit` only reads it to remove.
     nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
+
+    // MARK: - Caret escaping upward
+
+    /// Called when the caret is at the very start and the user keeps going up
+    /// or left. The host puts focus on whatever sits above the text — the
+    /// inline note title — so arrowing between them feels like one document
+    /// even though the title lives in the filename, not the file.
+    var onCaretEscapeTop: (() -> Void)?
+
+    private var caretIsAtStart: Bool {
+        selectedRange().location == 0 && selectedRange().length == 0
+    }
+
+    public override func moveUp(_ sender: Any?) {
+        // Only intercept on the first line; anywhere else this is ordinary
+        // caret movement and must behave exactly as AppKit intends.
+        if caretIsAtStart, let escape = onCaretEscapeTop { escape(); return }
+        super.moveUp(sender)
+    }
+
+    public override func moveLeft(_ sender: Any?) {
+        if caretIsAtStart, let escape = onCaretEscapeTop { escape(); return }
+        super.moveLeft(sender)
+    }
+
+    public override func moveBackward(_ sender: Any?) {
+        if caretIsAtStart, let escape = onCaretEscapeTop { escape(); return }
+        super.moveBackward(sender)
+    }
 
     // MARK: - Wrap guide
 
@@ -577,6 +617,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var busDocumentId: String?
     private var editorProxy: EditorProxy?
     private var wrapGuideColumns = 0
+    private var onCaretEscapeTopHandler: (() -> Void)?
 
     public init(document: EditorDocument) {
         self.document = document
@@ -609,6 +650,11 @@ public struct MarkdownEditorView: NSViewRepresentable {
     /// see, not a wrap point — the text still runs to the edge of the pane.
     public func wrapGuide(_ columns: Int) -> Self {
         var copy = self; copy.wrapGuideColumns = columns; return copy
+    }
+
+    /// Called when the caret leaves through the top of the document.
+    public func onCaretEscapeTop(_ handler: @escaping () -> Void) -> Self {
+        var copy = self; copy.onCaretEscapeTopHandler = handler; return copy
     }
 
     public func onLinkTap(_ handler: @escaping (EditorLinkTap) -> Void) -> Self {
@@ -660,6 +706,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         }
         context.coordinator.onLinkTap = onLinkTap
         textView.wrapGuideColumns = wrapGuideColumns
+        textView.onCaretEscapeTop = onCaretEscapeTopHandler
         textView.onPasteMarkdown = onPasteMarkdown
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
