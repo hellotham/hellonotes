@@ -370,6 +370,13 @@ struct MacContentView: View {
         // the editor's status bar and note list never collapse into vertical
         // text wrapping — and if the OS forces smaller anyway, the shell
         // degrades rather than erroring.
+        // HIG (Toolbars): "Don't title windows with your app name. Your app's
+        // name doesn't provide useful information about your content
+        // hierarchy." The window is titled with where you are — the collection
+        // — and left empty when there is none, which the same section allows:
+        // "If titling a toolbar seems redundant, you can leave the title area
+        // empty."
+        .navigationTitle(railCollection?.name ?? "")
         .frame(minWidth: ShellMetrics.windowMinWidth, minHeight: ShellMetrics.windowMinHeight)
         // S2 (docs/layout-architecture.md): a minimum is a floor, not a
         // ceiling. Without a maximum, any column child with a large ideal size
@@ -787,7 +794,11 @@ struct MacContentView: View {
             },
             onRevealCollection: { NSWorkspace.shared.activateFileViewerSelecting([$0.rootURL]) },
             onAddCollection: { showLauncher = true },
-            footer: { gitFooter }
+            // HIG (Sidebars): "Avoid putting critical information or actions at
+            // the bottom of a sidebar. People often relocate a window in a way
+            // that hides its bottom edge." Git moved to the collection status
+            // bar, which already carries collection-level state.
+            footer: { EmptyView() }
         )
         .navigationTitle("HelloNotes")
     }
@@ -1077,6 +1088,78 @@ struct MacContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The toolbar belongs to the editor, Mail-style. Declared on the
+            // note list it rendered over the *inspector* — the rightmost column
+            // wins the trailing edge — leaving nothing above the text.
+            .toolbar { editorToolbar }
+    }
+
+    /// Sidebar toggles first, then the note commands. Both rails need a way in
+    /// and out; there was no affordance for either.
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        // The platform's own affordances rather than hand-placed buttons:
+        // `toggleSidebar` at the leading edge, which the sidebar tracking
+        // separator pins to the sidebar's trailing edge, and the inspector
+        // toggle trailing. Where these land is AppKit's decision, not ours.
+        ToolbarItem(placement: .navigation) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    columnVisibility = columnVisibility == .doubleColumn ? .all : .doubleColumn
+                }
+            } label: {
+                Label("Toggle Collections", systemImage: "sidebar.leading")
+            }
+            .help("Show or hide the collections rail")
+        }
+        ToolbarItem {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { inspectorPresented.toggle() }
+            } label: {
+                Label("Inspector", systemImage: "sidebar.trailing")
+            }
+            .help("Show or hide the inspector")
+        }
+        // Centred, so they sit over the *editor*. Trailing items right-align to
+        // the window edge, which with an inspector open is over the inspector —
+        // Mail's toolbar looks like it is over the reading pane only because
+        // Mail has no right rail to land on.
+        ToolbarItem(placement: .principal) {
+            HStack(spacing: 12) {
+                Menu {
+                    Picker("Sort By", selection: $sortOrder) {
+                        ForEach(SortOrder.allCases) { order in
+                            Label(order.rawValue, systemImage: order.systemImage).tag(order)
+                        }
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                }
+                .disabled(library.isEmpty || isSearching || selectedTag != nil)
+
+                Menu {
+                    if templateNotes.isEmpty {
+                        Text("No templates in \(templatesFolder.isEmpty ? "—" : "\"\(templatesFolder)\"")")
+                    } else {
+                        ForEach(templateNotes) { template in
+                            Button(template.title) { insertTemplate(template) }
+                        }
+                    }
+                } label: {
+                    Label("Insert Template", systemImage: "doc.badge.plus")
+                }
+                .help("Insert a template into the current note")
+                .disabled(activeEditor == nil || templateNotes.isEmpty)
+
+                Button {
+                    showOpenQuickly = true
+                } label: {
+                    Label("Open Quickly", systemImage: "arrow.forward.square")
+                }
+                .help("Open Quickly (⇧⌘O)")
+                .disabled(focused?.notes.isEmpty ?? true)
+            }
+        }
     }
 
     @ViewBuilder
@@ -1158,6 +1241,7 @@ struct MacContentView: View {
 
             Spacer(minLength: 12)
 
+            gitStatusButton
             statusBarButton("New note", "square.and.pencil") { newNote() }
             statusBarButton("Today's note", "calendar") { openTodaysNote() }
             statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { openWindow(id: "graph") }
@@ -1173,6 +1257,37 @@ struct MacContentView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.bar)
+    }
+
+    /// Git, in the status bar rather than at the foot of the rail — the branch
+    /// and a dirty pip, opening the full panel.
+    @ViewBuilder
+    private var gitStatusButton: some View {
+        if let collection = gitCollection, !collection.isRemote {
+            Button {
+                showGitPanel = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                    if let branch = collection.git.status.branch {
+                        Text(branch).lineLimit(1)
+                    }
+                    if collection.git.status.isRepository && !collection.git.status.isClean {
+                        Circle().fill(.orange).frame(width: 6, height: 6)
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Git — branch, status, commit and sync for “\(collection.name)”")
+            .popover(isPresented: $showGitPanel, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 8) { gitSection }
+                    .padding(12)
+                    .frame(width: 300)
+            }
+            Divider().frame(height: 11)
+        }
     }
 
     private func statusBarButton(_ help: String, _ systemImage: String, action: @escaping () -> Void) -> some View {
@@ -1211,7 +1326,6 @@ struct MacContentView: View {
         noteListContent
             .searchable(text: $searchText, placement: .sidebar, prompt: "Search all collections")
             .navigationTitle(noteListTitle)
-            .toolbar { noteListToolbar }
             .overlay { noteListEmptyState }
     }
 
@@ -1323,49 +1437,6 @@ struct MacContentView: View {
             },
             onMoveItem: { source, folder in moveItem(at: source, into: folder) }
         )
-    }
-
-    @ToolbarContentBuilder
-    private var noteListToolbar: some ToolbarContent {
-        ToolbarItem {
-                Menu {
-                    Picker("Sort By", selection: $sortOrder) {
-                        ForEach(SortOrder.allCases) { order in
-                            Label(order.rawValue, systemImage: order.systemImage).tag(order)
-                        }
-                    }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
-                }
-                .disabled(library.isEmpty || isSearching || selectedTag != nil)
-            }
-            ToolbarItem {
-                Menu {
-                    if templateNotes.isEmpty {
-                        Text("No templates in \(templatesFolder.isEmpty ? "—" : "\"\(templatesFolder)\"")")
-                    } else {
-                        ForEach(templateNotes) { template in
-                            Button(template.title) { insertTemplate(template) }
-                        }
-                    }
-                } label: {
-                    Label("Insert Template", systemImage: "doc.badge.plus")
-                }
-                .help("Insert a template into the current note")
-                .disabled(activeEditor == nil || templateNotes.isEmpty)
-            }
-            ToolbarItem {
-                Button {
-                    showOpenQuickly = true
-                } label: {
-                    // Not a second magnifying glass: there is already a search
-                    // field in this column, and two identical glasses meaning
-                    // different things reads as a duplicated search box.
-                    Label("Open Quickly", systemImage: "arrow.forward.square")
-                }
-                .help("Open Quickly (⇧⌘O)")
-                .disabled(focused?.notes.isEmpty ?? true)
-            }
     }
 
     /// Empty states for the outline only — the Library place draws its own,

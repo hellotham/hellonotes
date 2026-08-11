@@ -29,7 +29,14 @@ enum ShellMetrics {
     /// three scrolling lists sat side by side. Commands are not places. The
     /// only *places* on the left are the library and the collections, and a
     /// switcher is what a place-picker looks like.
-    static let railWidth: CGFloat = 64
+    /// Wide enough to contain the window's traffic lights.
+    ///
+    /// The lights span roughly x=16…73pt. At 64pt the rail's trailing divider
+    /// landed *inside the green button* — a rule drawn straight through a
+    /// window control. A first column that runs to the top of the window has to
+    /// be wider than the controls that sit in it; Mail's sidebar is far wider
+    /// for the same reason.
+    static let railWidth: CGFloat = 84
 
     /// The band at the top of a full-height column that the window's traffic
     /// lights and toolbar occupy — 52pt on a standard toolbar window.
