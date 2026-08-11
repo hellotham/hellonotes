@@ -31,8 +31,20 @@ does exactly that.
    ./scripts/relaunch-debug.sh
    ```
 
-   It prints the new PID and its start time. If it says
-   `No Debug build found`, run step 1 first.
+   The script verifies rather than assumes, and exits non-zero if it can't:
+
+   - finds every live instance by process name **and** by executable path, so a
+     test host or an Xcode-launched run is caught too;
+   - `kill -9`s them and **waits until they're actually gone** — a graceful quit
+     can be refused by a modal sheet, and a fixed `sleep` can be too short;
+   - refuses to launch if anything survived, because a survivor *is* the old
+     binary and testing against it produces a confident wrong answer;
+   - confirms the process that came up is running the executable just built, and
+     prints that build's timestamp.
+
+   Read its output. `Verified: running the build at <time>` is the only line
+   that means the relaunch worked. If it says `No Debug build found`, run step 1.
+   Never report the app relaunched without that line.
 
 ## Rules
 
