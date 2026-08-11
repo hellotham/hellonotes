@@ -31,11 +31,31 @@ struct InlineNoteTitle: View {
     /// Bumped by the host to pull focus here — the caret arrived from the
     /// note below. A counter rather than a Bool so a second request in a row
     /// still fires.
-    var focusRequest: Int
+    /// Defaulted because only the Mac hands the caret back up: the iOS editor
+    /// exposes no `EditorProxy`, so there is nothing there to arrow up *from*.
+    var focusRequest: Int = 0
 
     @State private var draft = ""
 
     var body: some View {
+        field
+        .padding(.leading, EditorMetrics.textLeadingInset)
+        .padding(.trailing, EditorMetrics.textContainerInset.width)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
+        .task(id: title) { draft = title }
+        .accessibilityLabel("Note title")
+        .accessibilityHint("Renaming updates the file and every link to it")
+    }
+
+    /// The Mac owns its field editor (see `InlineTitleField`) because the caret
+    /// crosses between the title and the note body there and both boundary
+    /// behaviours have to be corrected at the source. iOS has no such crossing
+    /// — the editor exposes no proxy to hand the caret to — so the platform's
+    /// own text field is exactly right.
+    @ViewBuilder
+    private var field: some View {
+        #if os(macOS)
         InlineTitleField(
             text: $draft,
             font: theme.headingFont(level: 1),
@@ -45,13 +65,18 @@ struct InlineNoteTitle: View {
             },
             focusRequest: focusRequest
         )
-        .padding(.leading, EditorMetrics.textLeadingInset)
-        .padding(.trailing, EditorMetrics.textContainerInset.width)
-        .padding(.top, 4)
-        .padding(.bottom, 2)
-        .task(id: title) { draft = title }
-        .accessibilityLabel("Note title")
-        .accessibilityHint("Renaming updates the file and every link to it")
+        #else
+        TextField("Untitled", text: $draft)
+            .textFieldStyle(.plain)
+            .font(Font(theme.headingFont(level: 1)))
+            .submitLabel(.done)
+            .autocorrectionDisabled()
+            .onChange(of: draft) { _, value in
+                let clean = Self.sanitised(value)
+                if clean != value { draft = clean }
+            }
+            .onSubmit { commit(from: draft) }
+        #endif
     }
 
     private func commit(from value: String) {

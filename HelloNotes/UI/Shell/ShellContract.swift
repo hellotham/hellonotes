@@ -18,9 +18,22 @@ import SwiftUI
 /// nobody decided; put it here (and in Part 3 of the design) before using it.
 enum ShellMetrics {
     // Rails and columns
-    static let libraryFloor: CGFloat = 160
-    static let libraryIdeal: CGFloat = 220
-    static let libraryCap: CGFloat = 320
+
+    /// The library rail is a **switcher**, not a list: one icon per place —
+    /// the library itself, then each open collection. It holds a 44pt touch
+    /// target plus a one-line caption and nothing else, so there is nothing in
+    /// it to widen and floor == ideal == cap (the divider does not drag).
+    ///
+    /// Why a rail at all: the left column used to be a grab bag — a collection
+    /// card, five command buttons, bookmarks and Git, all inside a `List`, so
+    /// three scrolling lists sat side by side. Commands are not places. The
+    /// only *places* on the left are the library and the collections, and a
+    /// switcher is what a place-picker looks like.
+    static let railWidth: CGFloat = 64
+
+    static let libraryFloor: CGFloat = railWidth
+    static let libraryIdeal: CGFloat = railWidth
+    static let libraryCap: CGFloat = railWidth
 
     static let listFloor: CGFloat = 220
     static let listIdeal: CGFloat = 280

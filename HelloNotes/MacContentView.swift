@@ -119,6 +119,24 @@ struct MacContentView: View {
     /// the shell overrides this and the library becomes an overlay (decision 12).
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
+    /// Which place the library rail is on, remembered per window. Stored as the
+    /// collection's id — `""` means the Library place — because `SceneStorage`
+    /// takes primitives, and because an id survives a collection being closed
+    /// and reopened where an index or a reference would not.
+    ///
+    /// The sentinel distinguishes "never chosen" (follow the focused
+    /// collection on first launch) from "chose Library", which is `""` — the
+    /// two look identical otherwise, and a new window would keep snapping back
+    /// to a collection the user had just navigated out of.
+    @SceneStorage("railPlace") private var railPlaceID = MacContentView.railPlaceUnset
+
+    static let railPlaceUnset = "?"
+
+    /// The Git panel, reached from the rail's footer. A 64pt rail has no room
+    /// for a branch name, a commit button and a status line, so Git keeps its
+    /// full panel and gets a button instead of a column.
+    @State private var showGitPanel = false
+
 
     // MARK: - Focused / selection helpers
 
@@ -138,6 +156,27 @@ struct MacContentView: View {
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // MARK: - The library rail's place
+
+    /// The collection the rail is scoped to, or `nil` on the Library place.
+    /// Resolved by id every time rather than held, so closing the collection
+    /// the rail was on falls back to Library instead of dangling.
+    private var railCollection: Collection? {
+        library.collections.first { $0.id == railPlaceID }
+    }
+
+    private var railPlace: RailPlace {
+        railCollection.map { .collection($0.id) } ?? .library
+    }
+
+    /// The Library place owns the note-list column when the rail is on it —
+    /// except while searching, which is deliberately cross-collection and
+    /// overrides the rail's scope (a query is a question about the library, not
+    /// about wherever you happen to be standing).
+    private var showsLibraryPlace: Bool {
+        railPlace == .library && !isSearching && selectedTag == nil
     }
 
     /// The editor for the active tab (the selected note).
@@ -298,10 +337,27 @@ struct MacContentView: View {
     }
 
     var body: some View {
+        // Split in two deliberately: the scene wiring below (a dozen `onChange`
+        // handlers, a `task`, and a stack of sheets and alerts) is one
+        // expression to the type checker, and adding to it eventually trips
+        // "unable to type-check in reasonable time". Two opaque halves are two
+        // smaller problems.
+        presentations(
+            shellCore
+                .modifier(FileOperationErrorAlert(collection: focused))
+                .modifier(FolderDeleteConfirmation(folder: $pendingFolderDelete) { folder in
+                    if let c = library.collections.first(where: { folder.path == $0.id || folder.path.hasPrefix($0.id + "/") }) {
+                        Task { await c.deleteFolder(at: folder) }
+                    }
+                })
+        )
+    }
+
+    private var shellCore: some View {
         AdaptiveShell(
             inspectorPresented: $inspectorPresented,
             columnVisibility: $columnVisibility,
-            libraryRail: { sidebar },
+            libraryRail: { libraryRail },
             noteList: { noteList },
             pane: { editorColumn },
             inspector: { inspector },
@@ -353,6 +409,11 @@ struct MacContentView: View {
                 let url = URL(fileURLWithPath: restoredNotePath)
                 if library.allNotes.contains(where: { $0.id == url }) { selectedNoteID = url }
             }
+            // A window that has never had its rail moved opens in the focused
+            // collection, not on the Library place: the notes are the point.
+            if railPlaceID == Self.railPlaceUnset {
+                railPlaceID = library.focusedID ?? ""
+            }
         }
         .onChange(of: selectedNoteID) { _, newID in
             restoredNotePath = newID?.path ?? ""
@@ -364,6 +425,16 @@ struct MacContentView: View {
         .onChange(of: library.focusedID) { _, newID in
             restoredCollectionID = newID ?? ""
             selectedTag = nil
+            // The rail follows the focus while it is standing in a collection:
+            // opening a search hit from another collection should move the rail
+            // rather than leave it pointing at a tree you're no longer looking
+            // at. On the Library place it stays put — you went there on purpose.
+            if railPlace != .library, let newID { railPlaceID = newID }
+        }
+        .onChange(of: library.collections.count) { was, now in
+            // Opening the first collection should land you in it rather than
+            // leaving you on the Library place looking at quick actions.
+            if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
         }
         .onChange(of: library.pendingOpenNoteID) { _, id in
             // Another window (graph, mind map, assistant, chat) asked us to
@@ -425,12 +496,12 @@ struct MacContentView: View {
             TerminationGuard.current?.register(tabs) { [tabs] in await tabs.flushAll() }
         }
         .onDisappear { TerminationGuard.current?.unregister(tabs) }
-        .modifier(FileOperationErrorAlert(collection: focused))
-        .modifier(FolderDeleteConfirmation(folder: $pendingFolderDelete) { folder in
-            if let c = library.collections.first(where: { folder.path == $0.id || folder.path.hasPrefix($0.id + "/") }) {
-                Task { await c.deleteFolder(at: folder) }
-            }
-        })
+    }
+
+    /// Every sheet, alert and scene value the window owns — the second half of
+    /// the split described in `body`.
+    private func presentations<V: View>(_ content: V) -> some View {
+        content
         .sheet(isPresented: $showOpenQuickly) {
             if let c = focused {
                 OpenQuicklyView(search: c.search) { selectedNoteID = $0.id }
@@ -682,108 +753,88 @@ struct MacContentView: View {
         Task { await library.open(urls: toOpen) }
     }
 
-    // MARK: - Column 1: Sidebar
+    // MARK: - Column 1: the library rail
 
-    private var sidebar: some View {
-        VStack(spacing: 0) {
-            // Primary action stays a prominent button above the source list.
-            Button {
-                showLauncher = true
-            } label: {
-                Label("Open…", systemImage: "books.vertical")
+    /// A switcher of *places*, not a list of everything. Tags deliberately do
+    /// not live here either: the left rail answers "where is it?" — the library
+    /// and the collections — while tags are cross-cutting and belong to the
+    /// inspector, which answers "what is this, and what touches it?"
+    /// (decision 1).
+    private var libraryRail: some View {
+        LibraryRail(
+            collections: library.collections,
+            place: Binding(get: { railPlace }, set: { select($0) }),
+            accent: appearance.resolvedAccent,
+            onSelectCollection: { library.focus($0) },
+            onCloseCollection: { collection in
+                if selectedNote.map({ library.collection(containing: $0.fileURL)?.id == collection.id }) ?? false {
+                    selectedNoteID = nil
+                }
+                library.close(collection)
+            },
+            onRevealCollection: { NSWorkspace.shared.activateFileViewerSelecting([$0.rootURL]) },
+            onAddCollection: { showLauncher = true },
+            footer: { gitFooter }
+        )
+        .navigationTitle("HelloNotes")
+    }
+
+    /// Moving the rail is a navigation, so it clears whatever was narrowing the
+    /// note list — otherwise switching collections lands you in the previous
+    /// one's tag filter with nothing in it.
+    private func select(_ place: RailPlace) {
+        selectedTag = nil
+        searchText = ""
+        switch place {
+        case .library:
+            railPlaceID = ""
+        case .collection(let id):
+            railPlaceID = id
+        }
+    }
+
+    /// Git, pinned to the bottom of the rail. Git is meaningless for a
+    /// direct-API (remote) collection — its `rootURL` is a local mirror cache,
+    /// not the user's repo — so the button is simply absent there.
+    @ViewBuilder
+    private var gitFooter: some View {
+        if let collection = railCollection ?? focused, !collection.isRemote {
+            VStack(spacing: 0) {
+                Divider()
+                Button {
+                    showGitPanel = true
+                } label: {
+                    VStack(spacing: 2) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 15))
+                                .frame(width: 40, height: 26)
+                            if collection.git.status.isRepository && !collection.git.status.isClean {
+                                Circle().fill(.orange).frame(width: 6, height: 6).offset(x: -3, y: 0)
+                            }
+                        }
+                        Text(collection.git.status.branch ?? "Git")
+                            .font(.system(size: 9))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .help("Recents, Obsidian vaults, libraries, clone, or a new repository")
-            .padding([.horizontal, .top], 10)
-            .padding(.bottom, 6)
-
-            // The navigational content as a native macOS source list.
-            List {
-                if let focused {
-                    Section {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(focused.name).font(.headline)
-                            Text("\(focused.notes.count) notes")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            if let remote = focused.remote {
-                                Label("\(remote.store.providerName) (direct)", systemImage: "network")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .help("A direct \(remote.store.providerName) collection over the provider's API. Edits sync back automatically.")
-                            } else if let provider = CloudProvider.name(for: focused.rootURL) {
-                                Label(provider, systemImage: CloudProvider.symbol)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .help("This collection is stored in \(provider). Online-only notes download on demand.")
-                            }
-                        }
-                    }
-
-                    Section {
-                        Button { newNote() } label: {
-                            Label("New Note", systemImage: "square.and.pencil")
-                        }
-                        Button { openTodaysNote() } label: {
-                            Label("Today's Note", systemImage: "calendar")
-                        }
-                        Button { openWindow(id: "graph") } label: {
-                            Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
-                        }
-                        .disabled(focused.notes.isEmpty)
-                        .popoverTip(GraphTip())
-                        Button { openWindow(id: "askLibrary") } label: {
-                            Label("Ask Library", systemImage: "sparkles.rectangle.stack")
-                        }
-                        .disabled(library.allNotes.isEmpty)
-                        Button { openWindow(id: "assistant") } label: {
-                            Label("Assistant", systemImage: "sparkles")
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    let bookmarked = focused.bookmarks.bookmarkedNotes(from: focused.notes)
-                    if !bookmarked.isEmpty {
-                        Section("Bookmarks") {
-                            ForEach(bookmarked) { note in
-                                Button {
-                                    selectedTag = nil
-                                    searchText = ""
-                                    selectedNoteID = note.id
-                                } label: {
-                                    Label(note.title, systemImage: "bookmark.fill")
-                                        .lineLimit(1)
-                                        .foregroundStyle(selectedNoteID == note.id
-                                            ? AnyShapeStyle(appearance.accentText ?? Color.accentColor)
-                                            : AnyShapeStyle(.primary))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    // Tags deliberately do NOT live here. The left rail answers
-                    // "where is it?" — collections, folders, bookmarks. Tags
-                    // are cross-cutting, so they belong to the inspector, which
-                    // answers "what is this, and what touches it?" (decision 1).
+                    .contentShape(.rect)
                 }
-            }
-            .listStyle(.sidebar)
-
-            // Git is meaningless for a direct-API (remote) collection — its
-            // rootURL is a local mirror cache, not the user's repo.
-            if focused != nil && focused?.isRemote != true {
-                VStack(alignment: .leading, spacing: 8) {
-                    gitSection
+                .buttonStyle(.plain)
+                .padding(.vertical, 6)
+                .help("Git — branch, status, commit and sync for “\(collection.name)”")
+                .accessibilityLabel("Git")
+                .popover(isPresented: $showGitPanel, arrowEdge: .trailing) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        gitSection
+                    }
+                    .padding(12)
+                    .frame(width: 300)
                 }
-                .padding([.horizontal, .bottom], 10)
-                .padding(.top, 6)
             }
         }
-        .navigationTitle("HelloNotes")
-        .navigationSplitViewColumnWidth(min: 200, ideal: 220)
     }
 
     // MARK: - The inspector rail (right)
@@ -839,13 +890,15 @@ struct MacContentView: View {
         )
     }
 
-    // MARK: - Git section (focused collection)
+    // MARK: - Git section (the rail's collection)
+
+    /// Git acts on the collection the rail is standing in; on the Library place
+    /// it falls back to the focused one, so the button is never a dead end.
+    private var gitCollection: Collection? { railCollection ?? focused }
 
     @ViewBuilder
     private var gitSection: some View {
-        if let git = focused?.git {
-            Divider()
-
+        if let git = gitCollection?.git {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.triangle.branch")
                 Text("GIT").font(.caption2).foregroundStyle(.secondary)
@@ -863,7 +916,7 @@ struct MacContentView: View {
             // repo whose objects are online-only thrashes (and coordinated access
             // isn't wired through libgit2). Warn, and keep auto-commit off in a
             // cloud folder.
-            if let root = focused?.rootURL, let provider = CloudProvider.name(for: root) {
+            if let root = gitCollection?.rootURL, let provider = CloudProvider.name(for: root) {
                 Label("In \(provider). Git works best when the folder is fully downloaded — online-only files can slow or break operations.",
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)
@@ -917,7 +970,7 @@ struct MacContentView: View {
                     }
                 }
 
-                let cloudBacked = focused.map { CloudProvider.name(for: $0.rootURL) != nil } ?? false
+                let cloudBacked = gitCollection.map { CloudProvider.name(for: $0.rootURL) != nil } ?? false
                 Toggle("Auto-commit", isOn: $autoCommit)
                     .font(.caption)
                     .toggleStyle(.checkbox)
@@ -1054,6 +1107,9 @@ struct MacContentView: View {
             statusBarButton("Today's note", "calendar") { openTodaysNote() }
             statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { openWindow(id: "graph") }
                 .disabled(focused?.notes.isEmpty ?? true)
+                // The tip used to hang off the sidebar's Graph button; the
+                // status bar is where that command still lives on screen.
+                .popoverTip(GraphTip())
             statusBarButton("Ask your library", "sparkles.rectangle.stack") { openWindow(id: "askLibrary") }
                 .disabled(library.allNotes.isEmpty)
             statusBarButton("Assistant", "sparkles") { openWindow(id: "assistant") }
@@ -1085,9 +1141,73 @@ struct MacContentView: View {
         }
     }
 
-    // MARK: - Column 2: Note list (all collections)
+    // MARK: - Column 2: the note list, or the Library place
 
+    /// One column, two occupants. The rail decides which: a collection means
+    /// its folder tree, Library means the library-wide place. Search and a tag
+    /// filter override both, because a query is a question about the library
+    /// rather than about wherever you happen to be standing.
+    ///
+    /// The search field, the sort menu and the empty states live out here on
+    /// the container, so `.searchable` survives the swap — attached to the
+    /// occupant it would disappear along with it, taking the only way *out* of
+    /// the Library place with it.
     private var noteList: some View {
+        noteListContent
+            .searchable(text: $searchText, placement: .sidebar, prompt: "Search all collections")
+            .navigationTitle(noteListTitle)
+            .toolbar { noteListToolbar }
+            .overlay { noteListEmptyState }
+    }
+
+    private var noteListTitle: String {
+        if let selectedTag { return "#\(selectedTag)" }
+        if isSearching { return "Search" }
+        return railCollection?.name ?? "Library"
+    }
+
+    @ViewBuilder
+    private var noteListContent: some View {
+        if showsLibraryPlace {
+            LibraryPlace(
+                actions: libraryActions,
+                recents: LibraryPlace.mostRecent(library.allNotes),
+                bookmarks: library.collections.flatMap {
+                    $0.bookmarks.bookmarkedNotes(from: $0.notes)
+                },
+                selection: selectedNoteID,
+                accent: appearance.resolvedAccent,
+                onOpenNote: { note in
+                    selectedTag = nil
+                    searchText = ""
+                    selectedNoteID = note.id
+                },
+                onOpenLibrary: { showLauncher = true },
+                isEmptyLibrary: library.isEmpty
+            )
+        } else {
+            outlineList
+        }
+    }
+
+    /// Library-wide commands. They were in the left sidebar next to the
+    /// collection list, which was the mistake: every one of them acts on the
+    /// library or opens a window, none of them is a place.
+    private var libraryActions: [LibraryPlace.Action] {
+        [
+            .init(title: "New Note", symbol: "square.and.pencil",
+                  isEnabled: focused != nil) { newNote() },
+            .init(title: "Today's Note", symbol: "calendar",
+                  isEnabled: focused != nil) { openTodaysNote() },
+            .init(title: "Graph View", symbol: "point.3.connected.trianglepath.dotted",
+                  isEnabled: !(focused?.notes.isEmpty ?? true)) { openWindow(id: "graph") },
+            .init(title: "Ask Library", symbol: "sparkles.rectangle.stack",
+                  isEnabled: !library.allNotes.isEmpty) { openWindow(id: "askLibrary") },
+            .init(title: "Assistant", symbol: "sparkles") { openWindow(id: "assistant") },
+        ]
+    }
+
+    private var outlineList: some View {
         NoteOutlineList(
             roots: cachedRoots,
             signature: cachedSignature,
@@ -1095,6 +1215,9 @@ struct MacContentView: View {
             focusedCollectionID: library.focusedID,
             accent: appearance.resolvedAccent,
             fontScale: appearance.textScale,
+            // Search shows collection group rows; every other mode is one
+            // collection's folder tree, and the rail is what says which.
+            scopedCollectionID: isSearching ? nil : railCollection?.id,
             isBookmarked: { note in
                 library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
             },
@@ -1125,7 +1248,7 @@ struct MacContentView: View {
                             selectedNoteID = note.id
                         }
                     }
-                } else if let c = collection ?? focused {
+                } else if let c = collection ?? railCollection ?? focused {
                     Task { if let note = await c.createNote() { selectedNoteID = note.id } }
                 }
             },
@@ -1133,7 +1256,7 @@ struct MacContentView: View {
                 if let folderID, let c = library.collections.first(where: { folderID == $0.id || folderID.hasPrefix($0.id + "/") }) {
                     newFolderParent = URL(fileURLWithPath: folderID, isDirectory: true)
                     newFolderCollection = c
-                } else if let c = collection ?? focused {
+                } else if let c = collection ?? railCollection ?? focused {
                     newFolderParent = nil
                     newFolderCollection = c
                 }
@@ -1145,10 +1268,11 @@ struct MacContentView: View {
             },
             onMoveItem: { source, folder in moveItem(at: source, into: folder) }
         )
-        .searchable(text: $searchText, placement: .sidebar, prompt: "Search all collections")
-        .navigationTitle(selectedTag.map { "#\($0)" } ?? "Notes")
-        .toolbar {
-            ToolbarItem {
+    }
+
+    @ToolbarContentBuilder
+    private var noteListToolbar: some ToolbarContent {
+        ToolbarItem {
                 Menu {
                     Picker("Sort By", selection: $sortOrder) {
                         ForEach(SortOrder.allCases) { order in
@@ -1184,38 +1308,39 @@ struct MacContentView: View {
                 .help("Open Quickly (⇧⌘O)")
                 .disabled(focused?.notes.isEmpty ?? true)
             }
-        }
-        .overlay {
-            if library.isEmpty {
-                ContentUnavailableView {
-                    Label("No Collections", systemImage: "folder")
-                } description: {
-                    Text("Open a collection, an Obsidian vault, or a saved library to begin.")
-                } actions: {
-                    Button("Open…") { showLauncher = true }
-                        .buttonStyle(.borderedProminent)
-                }
-            } else if isSearching && searchResults.isEmpty && !isSearchInFlight {
+    }
+
+    /// Empty states for the outline only — the Library place draws its own,
+    /// and an overlay over it would cover the quick actions it exists to show.
+    @ViewBuilder
+    private var noteListEmptyState: some View {
+        if showsLibraryPlace {
+            EmptyView()
+        } else if isSearching {
+            if searchResults.isEmpty && !isSearchInFlight {
                 ContentUnavailableView.search(text: searchText)
-            } else if !isSearching && selectedTag == nil
-                        && library.collections.allSatisfy({ $0.notes.isEmpty }) {
-                ContentUnavailableView {
-                    Label("No Notes", systemImage: "square.and.pencil")
-                } description: {
-                    Text("This collection is empty. Create your first note to get started.")
-                } actions: {
-                    Button("New Note") { newNote() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(focused == nil)
-                }
+            }
+        } else if selectedTag == nil, let collection = railCollection, collection.notes.isEmpty {
+            ContentUnavailableView {
+                Label("No Notes", systemImage: "square.and.pencil")
+            } description: {
+                Text("“\(collection.name)” is empty. Create your first note to get started.")
+            } actions: {
+                Button("New Note") { newNote() }
+                    .buttonStyle(.borderedProminent)
             }
         }
     }
 
     // MARK: - Outline items (NSOutlineView data)
 
-    /// The outline tree for the current mode: collections as group rows, with
-    /// their folder trees (or flat search / tag results) as children.
+    /// The outline tree for the current mode.
+    ///
+    /// The rail replaced the collection level: in the ordinary case the roots
+    /// are the *folders* of the collection the rail is standing in, not the
+    /// collections themselves. Group rows survive in exactly one place —
+    /// search, which is cross-collection by design and therefore still has to
+    /// say which collection each hit came from.
     private func buildOutlineRoots() -> [NoteOutlineItem] {
         if isSearching {
             return searchResults.map { group in
@@ -1226,16 +1351,16 @@ struct MacContentView: View {
                     NoteOutlineItem(id: $0.url.path, kind: .file($0))
                 })
             }
-        } else if selectedTag != nil, let focused {
-            return [NoteOutlineItem(id: focused.id, kind: .collection(focused),
-                                    children: taggedRows.map {
+        } else if selectedTag != nil {
+            // A tag filter is already scoped to one collection, so a group row
+            // above it would say nothing the rail hasn't said.
+            return taggedRows.map {
                 NoteOutlineItem(id: $0.note.fileURL.path, kind: .note($0.note, snippet: nil))
-            })]
-        } else {
-            return library.collections.map { collection in
-                NoteOutlineItem(id: collection.id, kind: .collection(collection),
-                                children: outlineItems(from: tree(for: collection), prefix: collection.id))
             }
+        } else if let collection = railCollection {
+            return outlineItems(from: tree(for: collection), prefix: collection.id)
+        } else {
+            return []
         }
     }
 
@@ -1265,12 +1390,18 @@ struct MacContentView: View {
             mode = "s:\(searchResultsRevision)"
         } else if let selectedTag {
             mode = "t:\(selectedTag):\(focused?.id ?? "")"
+        } else if let collection = railCollection {
+            // Only the rail's collection is in the tree now, so only its
+            // revision can change it — opening or editing another collection no
+            // longer rebuilds this one's outline.
+            mode = "n:\(collection.id)#\(collection.revision)"
         } else {
-            mode = "n:" + library.collections
-                .map { "\($0.id)#\($0.revision)" }
-                .joined(separator: ",")
+            mode = "n:-"
         }
-        return "\(sortOrder.rawValue)|\(library.focusedID ?? "")|\(appearance.textScale)|\(mode)"
+        // The rail's place is part of the key: without it, switching
+        // collections leaves the previous collection's tree on screen until
+        // something else happens to change the key.
+        return "\(sortOrder.rawValue)|\(railPlaceID)|\(library.focusedID ?? "")|\(appearance.textScale)|\(mode)"
     }
 
     /// Rebuild and cache the outline tree + its signature. Called only when
@@ -1295,7 +1426,7 @@ struct MacContentView: View {
     }
 
     private func newNote() {
-        guard let c = focused else { return }
+        guard let c = railCollection ?? focused else { return }
         Task { if let note = await c.createNote() { selectedNoteID = note.id } }
     }
 
@@ -1305,7 +1436,7 @@ struct MacContentView: View {
     private func openTodaysNote() {
         let name = TemplateExpander.dailyNoteName(for: .now, format: dailyDateFormat)
         let rel = dailyNoteFolder.isEmpty ? "\(name).md" : "\(dailyNoteFolder)/\(name).md"
-        guard let c = focused else { return }
+        guard let c = railCollection ?? focused else { return }
         Task {
             if let note = await c.note(atRelativePath: rel, creatingWith: "# \(name)\n\n") {
                 selectedTag = nil

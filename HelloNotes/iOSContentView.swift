@@ -10,12 +10,11 @@ import SwiftUI
 import MarkdownEditor
 import UniformTypeIdentifiers
 
-/// The iOS / iPadOS shell. A three-column `NavigationSplitView` mirrors the
-/// macOS app: a navigation sidebar listing every open collection (plus the
-/// focused collection's All Notes + `#tags` filter), the note list, and the
-/// editor. On iPad landscape all three columns show at once (like macOS); on
-/// iPad portrait the sidebar tucks behind a toggle; on iPhone it collapses to a
-/// push stack. Shares `Note`, `Library`, `Collection`, `EditorModel`, and
+/// The iOS / iPadOS shell, arranged by `AdaptiveShell` exactly as macOS is: a
+/// narrow library rail of *places*, the note list (or the Library place), the
+/// editor, and an inspector where there is room. On iPad landscape all of them
+/// show at once; in portrait the shell bands navigation across the top; on
+/// iPhone it hands off to `CompactShell`, where the editor is the screen. Shares `Note`, `Library`, `Collection`, `EditorModel`, and
 /// `CollectionSearchModel` with macOS. The live TextKit 2 editor now runs on
 /// iOS too (`iOSLiveEditor`), sharing the NotesEditor package with macOS.
 struct iOSContentView: View {
@@ -61,10 +60,32 @@ struct iOSContentView: View {
     /// filter sidebar.
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
 
+    /// Which place the library rail is on — `""` is the Library place, the
+    /// sentinel means "never chosen", so a first launch lands in the notes.
+    @SceneStorage("railPlace") private var railPlaceID = iOSContentView.railPlaceUnset
+    static let railPlaceUnset = "?"
+
     /// Launch splash overlay; fades out after a beat (or on tap).
     @State private var showSplash = true
 
     private var focused: Collection? { library.focused }
+
+    /// The collection the library rail is standing in, or `nil` on the Library
+    /// place. Resolved by id every time, so closing it falls back to Library
+    /// rather than dangling.
+    private var railCollection: Collection? {
+        library.collections.first { $0.id == railPlaceID }
+    }
+
+    private var railPlace: RailPlace {
+        railCollection.map { .collection($0.id) } ?? .library
+    }
+
+    /// Search and a tag filter are questions about the library and override the
+    /// rail's scope; otherwise the Library place owns the note-list column.
+    private var showsLibraryPlace: Bool {
+        railPlace == .library && searchText.isEmpty && selectedTag == nil
+    }
 
     /// Open picked folders, expanding any that are (or contain) Obsidian vaults
     /// — so choosing an iCloud Drive folder full of vaults opens each of them.
@@ -88,17 +109,20 @@ struct iOSContentView: View {
     }
 
     /// Tags of the focused collection.
-    private var tags: [String] { focused?.search.allTags() ?? [] }
+    private var tags: [String] { (railCollection ?? focused)?.search.allTags() ?? [] }
 
     /// Notes shown in the list — the focused collection's notes, filtered by the
     /// active tag or the search field.
     private var displayedNotes: [Note] {
-        guard let focused else { return [] }
+        // Scoped by the rail, falling back to the focused collection so a
+        // search or tag filter still has somewhere to look from the Library
+        // place.
+        guard let scope = railCollection ?? focused else { return [] }
         if let selectedTag {
-            return focused.search.notesTagged(selectedTag)
+            return scope.search.notesTagged(selectedTag)
         }
-        guard !searchText.isEmpty else { return focused.notes }
-        return focused.notes.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+        guard !searchText.isEmpty else { return scope.notes }
+        return scope.notes.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
@@ -108,7 +132,7 @@ struct iOSContentView: View {
             // Touch sizing: 44pt targets, and the keyboard accessory bar
             // instead of a persistent format bar (decision 3).
             prefersTouch: true,
-            libraryRail: { sidebar },
+            libraryRail: { libraryRail },
             noteList: { noteList },
             pane: { detail },
             inspector: { inspector },
@@ -134,6 +158,9 @@ struct iOSContentView: View {
                 await library.restore()
                 if library.isEmpty && !hasSeenWelcome { pendingWelcome = true }
             }
+            // A window whose rail has never been moved opens in the focused
+            // collection, not on the Library place: the notes are the point.
+            if railPlaceID == Self.railPlaceUnset { railPlaceID = library.focusedID ?? "" }
         }
         .onChange(of: showSplash) { _, visible in
             // Present onboarding only after the launch splash has faded.
@@ -142,11 +169,17 @@ struct iOSContentView: View {
                 showWelcome = true
             }
         }
-        .onChange(of: library.focusedID) { _, _ in
+        .onChange(of: library.focusedID) { _, newID in
             // Switching collections resets the in-collection filter/selection.
             selectedTag = nil
             searchText = ""
             selectedNoteID = nil
+            // The rail follows the focus while it is standing in a collection;
+            // on the Library place it stays put — you went there on purpose.
+            if railPlace != .library, let newID { railPlaceID = newID }
+        }
+        .onChange(of: library.collections.count) { was, now in
+            if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
         }
         .onChange(of: selectedNoteID) { _, newID in
             let note = library.allNotes.first { $0.id == newID }
@@ -170,10 +203,61 @@ struct iOSContentView: View {
         }
     }
 
-    // MARK: - Column 1: Navigation sidebar
+    // MARK: - Column 1: the library rail
+
+    /// The same switcher the Mac has: places only — the Library, then one row
+    /// per open collection. On iPhone the shell hands off to `CompactShell`
+    /// instead, where a 64pt rail beside a 375pt screen would be absurd; there
+    /// the collection list keeps its own tab (`collectionsList`).
+    private var libraryRail: some View {
+        LibraryRail(
+            collections: library.collections,
+            place: Binding(get: { railPlace }, set: { select($0) }),
+            accent: appearance.resolvedAccent,
+            onSelectCollection: { library.focus($0) },
+            onCloseCollection: { library.close($0) },
+            onAddCollection: { showImporter = true },
+            footer: {
+                VStack(spacing: 0) {
+                    Divider()
+                    Button {
+                        showSettings = true
+                    } label: {
+                        VStack(spacing: 2) {
+                            Image(systemName: "gearshape").font(.system(size: 15))
+                            Text("Settings").font(.system(size: 9)).lineLimit(1)
+                        }
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 8)
+                    .accessibilityLabel("Settings")
+                }
+            }
+        )
+        .navigationTitle("Library")
+    }
+
+    /// Moving the rail is a navigation: it clears whatever was narrowing the
+    /// note list, so switching collections never lands in the previous one's
+    /// empty tag filter.
+    private func select(_ place: RailPlace) {
+        selectedTag = nil
+        searchText = ""
+        selectedNoteID = nil
+        preferredCompactColumn = .content
+        switch place {
+        case .library: railPlaceID = ""
+        case .collection(let id): railPlaceID = id
+        }
+    }
+
+    // MARK: - Compact: the collection list as its own place
 
     @ViewBuilder
-    private var sidebar: some View {
+    private var collectionsList: some View {
         List {
             if library.isEmpty {
                 Section {
@@ -237,8 +321,11 @@ struct iOSContentView: View {
     /// A collection row: tap to focus it (and show its notes); swipe to close.
     private func collectionRow(_ collection: Collection) -> some View {
         Button {
+            // Compact has no rail, but it shares the rail's scope: without
+            // this the list would keep showing whichever collection the rail
+            // was left on at iPad size.
+            select(.collection(collection.id))
             library.focus(collection)
-            preferredCompactColumn = .content   // on iPhone, push to the note list
         } label: {
             HStack {
                 Label(collection.name, systemImage: "books.vertical")
@@ -288,15 +375,23 @@ struct iOSContentView: View {
     @ViewBuilder
     private var noteList: some View {
         Group {
-            if library.isEmpty {
-                ContentUnavailableView {
-                    Label("No Collections", systemImage: "folder")
-                } description: {
-                    Text("Open one or more folders of Markdown files to begin.")
-                } actions: {
-                    Button("Open Collection") { showImporter = true }
-                        .buttonStyle(.borderedProminent)
-                }
+            if showsLibraryPlace || library.isEmpty {
+                LibraryPlace(
+                    actions: libraryActions,
+                    recents: LibraryPlace.mostRecent(library.allNotes),
+                    bookmarks: library.collections.flatMap {
+                        $0.bookmarks.bookmarkedNotes(from: $0.notes)
+                    },
+                    selection: selectedNoteID,
+                    accent: appearance.resolvedAccent,
+                    onOpenNote: { note in
+                        selectedTag = nil
+                        searchText = ""
+                        selectedNoteID = note.id
+                    },
+                    onOpenLibrary: { showImporter = true },
+                    isEmptyLibrary: library.isEmpty
+                )
             } else {
                 List(displayedNotes, selection: $selectedNoteID) { note in
                     VStack(alignment: .leading, spacing: 2) {
@@ -326,21 +421,21 @@ struct iOSContentView: View {
                         }
                     }
                 }
-                .searchable(text: $searchText, prompt: "Search \(focused?.name ?? "notes")")
+                .searchable(text: $searchText, prompt: "Search \(railCollection?.name ?? "notes")")
                 .overlay {
-                    if (focused?.notes ?? []).isEmpty {
+                    if displayedNotes.isEmpty {
                         ContentUnavailableView("No Notes", systemImage: "doc.text")
                     }
                 }
             }
         }
-        .navigationTitle(selectedTag.map { "#\($0)" } ?? (focused?.name ?? "Notes"))
+        .navigationTitle(noteListTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if !library.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        guard let c = focused else { return }
+                        guard let c = railCollection ?? focused else { return }
                         Task { if let note = await c.createNote() { selectedNoteID = note.id } }
                     } label: {
                         Label("New Note", systemImage: "square.and.pencil")
@@ -349,6 +444,26 @@ struct iOSContentView: View {
                 }
             }
         }
+    }
+
+    private var noteListTitle: String {
+        if let selectedTag { return "#\(selectedTag)" }
+        return railCollection?.name ?? "Library"
+    }
+
+    /// Library-wide commands, shown in the Library place. The iPad has no
+    /// separate Graph / Ask Library / Assistant windows, so this is the short
+    /// list the platform actually has.
+    private var libraryActions: [LibraryPlace.Action] {
+        let scope = railCollection ?? focused
+        return [
+            .init(title: "New Note", symbol: "square.and.pencil", isEnabled: scope != nil) {
+                guard let scope else { return }
+                Task { if let note = await scope.createNote() { selectedNoteID = note.id } }
+            },
+            .init(title: "Open Collection", symbol: "folder.badge.plus") { showImporter = true },
+            .init(title: "Settings…", symbol: "gearshape") { showSettings = true },
+        ]
     }
 
     /// Rename from the inline title. Goes through the collection so the file
@@ -462,7 +577,7 @@ struct iOSContentView: View {
             places: { place in
                 NavigationStack {
                     switch place {
-                    case .notes:  sidebar
+                    case .notes:  collectionsList
                     // The same list, with its search field already up — the
                     // tab means "start typing", not a different set of notes.
                     case .search: noteList

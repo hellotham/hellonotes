@@ -152,6 +152,52 @@ struct ShellContractTests {
         #expect(ShellMetrics.maxPanes(detailWidth: 250) == 1)
     }
 
+    @Test("The library rail is a fixed-width switcher, and the pane pays for it")
+    func libraryRailIsFixedWidth() {
+        // A switcher holds an icon and a caption; there is nothing in it to
+        // widen, so the column cannot be dragged.
+        #expect(ShellMetrics.libraryFloor == ShellMetrics.railWidth)
+        #expect(ShellMetrics.libraryIdeal == ShellMetrics.railWidth)
+        #expect(ShellMetrics.libraryCap == ShellMetrics.railWidth)
+        // Wide enough for a 44pt touch target with room either side (HIG).
+        #expect(ShellMetrics.railWidth >= 44)
+
+        // Every arrangement that shows the rail subtracts exactly its width —
+        // this is what stops the pane estimate (and so the format-bar rule and
+        // the reading measure) drifting from what the pane actually gets.
+        let wide = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView, EmptyView>
+            .estimatedPaneWidth(kind: .wide, width: 1100)
+        #expect(wide == 1100 - ShellMetrics.railWidth - ShellMetrics.listIdeal - 2)
+
+        let inspector = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView, EmptyView>
+            .estimatedPaneWidth(kind: .wideInspector, width: 1470)
+        #expect(inspector == 1470 - ShellMetrics.railWidth - ShellMetrics.listIdeal
+                                  - ShellMetrics.inspectorIdeal - 3)
+
+        // The rail is a place-switcher, so its two places are distinct and a
+        // collection's identity is what tells them apart.
+        #expect(RailPlace.library != RailPlace.collection("/a"))
+        #expect(RailPlace.collection("/a") != RailPlace.collection("/b"))
+        #expect(RailPlace.collection("/a") == RailPlace.collection("/a"))
+    }
+
+    @Test("The Library place shows the most recent notes without sorting the vault")
+    func mostRecentPicksTheTop() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let notes = (0..<200).map { index in
+            Note(title: "n\(index)",
+                 fileURL: URL(fileURLWithPath: "/v/n\(index).md"),
+                 lastModified: base.addingTimeInterval(TimeInterval(index)))
+        }
+        // Shuffled input, because the single-pass selection must not quietly
+        // depend on the array already being in order.
+        let top = LibraryPlace.mostRecent(notes.shuffled(), limit: 8)
+        #expect(top.map(\.title) == ["n199", "n198", "n197", "n196",
+                                     "n195", "n194", "n193", "n192"])
+        #expect(LibraryPlace.mostRecent([], limit: 8).isEmpty)
+        #expect(LibraryPlace.mostRecent(Array(notes.prefix(3)), limit: 8).count == 3)
+    }
+
     // MARK: - The measured rules (Part 6, 1–4)
 
     /// Hosts a view in a real toolbar window that is never ordered front, lays

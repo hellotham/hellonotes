@@ -66,6 +66,12 @@ struct NoteOutlineList: NSViewRepresentable {
     /// Multiplies the row fonts and heights with the app's text-size setting.
     var fontScale: CGFloat = 1
 
+    /// The collection the whole outline belongs to, when the library rail has
+    /// scoped it to one (the ordinary case — the rail replaced the tree's
+    /// collection level). `nil` while searching, where the roots are collection
+    /// group rows and each subtree names its own collection.
+    var scopedCollectionID: Collection.ID? = nil
+
     var isBookmarked: (Note) -> Bool
     var onToggleBookmark: (Note) -> Void
     var onDelete: (Note) -> Void
@@ -283,7 +289,12 @@ struct NoteOutlineList: NSViewRepresentable {
         /// The folder a drop on `item` means: a folder row is itself the target
         /// (its id is the folder's absolute path); a collection row is its root.
         private func dropTarget(for item: Any?) -> (folderURL: URL, collectionID: String)? {
-            guard let node = item as? NoteOutlineItem else { return nil }
+            guard let node = item as? NoteOutlineItem else {
+                // Dropped below the rows: the scoped collection's root, which
+                // used to be reachable by dropping on its group row.
+                guard let id = parent.scopedCollectionID else { return nil }
+                return (URL(fileURLWithPath: id, isDirectory: true), id)
+            }
             if let collection = node.collection {
                 return (collection.rootURL, collection.id)
             }
@@ -296,8 +307,20 @@ struct NoteOutlineList: NSViewRepresentable {
         }
 
         /// The collection id owning `node` (folder ids are prefixed with it).
+        ///
+        /// In search results the roots are collection group rows, so the owner
+        /// is the group this node hangs under. Everywhere else the roots are
+        /// *folders* of one collection — matching a node against them would
+        /// return a folder path as if it were a collection id, and a drop from
+        /// one top-level folder into another would then be rejected as
+        /// cross-collection. There the rail already knows the answer.
         private func rootID(containing node: NoteOutlineItem) -> String? {
-            roots.first { node.id == $0.id || node.id.hasPrefix($0.id + "/") }?.id
+            if let group = roots.first(where: {
+                $0.isGroup && (node.id == $0.id || node.id.hasPrefix($0.id + "/"))
+            }) {
+                return group.id
+            }
+            return parent.scopedCollectionID
         }
 
         // MARK: Delegate — rows & cells
@@ -491,8 +514,18 @@ struct NoteOutlineList: NSViewRepresentable {
 
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
-            guard let outline = outlineView, outline.clickedRow >= 0,
-                  let node = outline.item(atRow: outline.clickedRow) as? NoteOutlineItem else { return }
+            guard let outline = outlineView else { return }
+            guard outline.clickedRow >= 0,
+                  let node = outline.item(atRow: outline.clickedRow) as? NoteOutlineItem else {
+                // Empty space below the rows. With the rail scoping the outline
+                // there is no collection row left to right-click, so this is
+                // the only way to create something at the collection's root.
+                if parent.scopedCollectionID != nil {
+                    addItem(menu, "New Note") { self.parent.onNewNote(nil, nil) }
+                    addItem(menu, "New Folder") { self.parent.onNewFolder(nil, nil) }
+                }
+                return
+            }
 
             if let note = node.note {
                 addItem(menu, "Rename…") { self.parent.onRename(note) }

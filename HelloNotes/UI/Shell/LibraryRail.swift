@@ -1,0 +1,157 @@
+//
+//  LibraryRail.swift
+//  HelloNotes
+//
+//  Column 1 of the wide shells: a narrow vertical switcher of *places* — the
+//  Library at the top, then one row per open collection, with a pinned footer
+//  at the bottom.
+//
+//  This replaces the old left sidebar, which was a `List` holding a collection
+//  card, five command buttons, bookmarks and Git all at once — three scrolling
+//  lists side by side, and commands presented as if they were destinations.
+//  Commands are not places. The rail carries only places; everything that used
+//  to sit beside them now lives in the Library place itself (LibraryPlace.swift)
+//  where it is actually library-wide.
+//
+//  The consequence, decided with the user: the rail **replaces the note list's
+//  collection level**. The outline used to root at collections with folders
+//  beneath; now the rail picks the collection and the outline roots at that
+//  collection's folders. One question answered in one place.
+//
+
+import SwiftUI
+
+/// Which place the rail is showing. `.library` is the library-wide place;
+/// `.collection` scopes the note list to one collection's folder tree.
+enum RailPlace: Hashable, Sendable {
+    case library
+    case collection(Collection.ID)
+}
+
+struct LibraryRail<Footer: View>: View {
+    var collections: [Collection]
+    @Binding var place: RailPlace
+    var accent: Color
+
+    /// Selecting a collection also focuses it — the rail *is* the focus control
+    /// now, so the two can never disagree.
+    var onSelectCollection: (Collection) -> Void
+    var onCloseCollection: (Collection) -> Void
+    /// macOS only; `nil` hides the menu item.
+    var onRevealCollection: ((Collection) -> Void)? = nil
+    /// The "+" beneath the collections — open another collection or vault.
+    var onAddCollection: () -> Void
+
+    /// Pinned to the bottom, below a divider. The Mac puts Git here; iOS
+    /// passes `EmptyView`.
+    @ViewBuilder var footer: () -> Footer
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView(.vertical) {
+                VStack(spacing: 2) {
+                    railButton(
+                        symbol: "books.vertical.fill",
+                        caption: "Library",
+                        isSelected: place == .library,
+                        help: "Quick actions, recent notes and bookmarks across every open collection"
+                    ) {
+                        place = .library
+                    }
+
+                    if !collections.isEmpty {
+                        Divider().padding(.vertical, 4).padding(.horizontal, 12)
+                    }
+
+                    ForEach(collections) { collection in
+                        collectionButton(collection)
+                    }
+
+                    railButton(
+                        symbol: "plus",
+                        caption: "Open",
+                        isSelected: false,
+                        help: "Open a collection, an Obsidian vault, or a saved library",
+                        action: onAddCollection
+                    )
+                }
+                .padding(.vertical, 8)
+            }
+            // S1: a rail is a viewport. `ScrollView` sizes to its content's
+            // ideal height, and a library with many collections would otherwise
+            // hand the split view a column taller than the window.
+            .frame(maxHeight: .infinity)
+
+            footer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("shell.libraryRail")
+    }
+
+    // MARK: - Rows
+
+    private func collectionButton(_ collection: Collection) -> some View {
+        railButton(
+            symbol: collection.isRemote ? "network" : "folder.fill",
+            caption: collection.name,
+            isSelected: place == .collection(collection.id),
+            help: "\(collection.name) — \(collection.notes.count) note\(collection.notes.count == 1 ? "" : "s")",
+            // An orange pip means "this collection has uncommitted changes",
+            // the one thing about a collection worth knowing before you open it.
+            badge: collection.git.status.isRepository && !collection.git.status.isClean
+        ) {
+            place = .collection(collection.id)
+            onSelectCollection(collection)
+        }
+        .contextMenu {
+            Button("Focus Collection") {
+                place = .collection(collection.id)
+                onSelectCollection(collection)
+            }
+            if let onRevealCollection {
+                Button("Reveal in Finder") { onRevealCollection(collection) }
+            }
+            Divider()
+            Button("Close Collection") { onCloseCollection(collection) }
+        }
+    }
+
+    private func railButton(symbol: String,
+                            caption: String,
+                            isSelected: Bool,
+                            help: String,
+                            badge: Bool = false,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isSelected ? AnyShapeStyle(accent.opacity(0.18)) : AnyShapeStyle(.clear))
+                        .frame(width: 40, height: 30)
+                        .overlay {
+                            Image(systemName: symbol)
+                                .font(.system(size: 15, weight: .regular))
+                                .foregroundStyle(isSelected ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
+                        }
+                    if badge {
+                        Circle()
+                            .fill(.orange)
+                            .frame(width: 6, height: 6)
+                            .offset(x: -3, y: 2)
+                    }
+                }
+                Text(caption)
+                    .font(.system(size: 9))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(caption)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
