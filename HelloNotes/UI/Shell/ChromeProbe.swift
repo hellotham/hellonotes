@@ -58,6 +58,71 @@ struct ChromeProbe: NSViewRepresentable {
                       context: Context) -> CGSize? { .zero }
 }
 
+/// Stops the split-view columns being laid out beneath the window's titlebar.
+///
+/// The probe measured the problem exactly: `contentLayoutRect` is 52pt shorter
+/// than the content view, and *every* column — rail, note list, editor,
+/// inspector — is full height, so all four paint those 52pt up under the
+/// titlebar. That is what "the sidebar background bleeds into the toolbar row"
+/// and "the rail's rounded border overlaps the window controls" both are. No
+/// background or toolbar modifier can undo it, because the columns really are
+/// up there; and taking `.fullSizeContentView` off the window changed nothing
+/// (measured: flag off, overlap still 52pt).
+///
+/// `NSSplitViewItem.allowsFullHeightLayout` is the actual control — "whether
+/// the split view item can be laid out beneath the window's titlebar" — and
+/// SwiftUI exposes no equivalent, which is why three attempts from that side
+/// all missed. `titlebarSeparatorStyle = .line` then draws the rule under the
+/// toolbar that makes it read as its own row.
+struct TitlebarClearance: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        apply(from: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // SwiftUI rebuilds and re-styles its split view controllers, so this is
+        // re-asserted rather than assumed to have stuck the first time.
+        apply(from: nsView)
+    }
+
+    /// Zero-sized: an observer, never a participant in layout (S1/S2).
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView,
+                      context: Context) -> CGSize? { .zero }
+
+    private func apply(from view: NSView) {
+        // A hop, because the window and the split view controllers do not exist
+        // yet on the first pass.
+        DispatchQueue.main.async { [weak view] in
+            guard let window = view?.window, let content = window.contentView else { return }
+            window.titlebarSeparatorStyle = .line
+            for controller in splitViewControllers(in: content) {
+                for item in controller.splitViewItems where item.allowsFullHeightLayout {
+                    item.allowsFullHeightLayout = false
+                    item.titlebarSeparatorStyle = .line
+                }
+            }
+        }
+    }
+
+    /// Every `NSSplitViewController` in the window. Found through the split
+    /// views themselves, since SwiftUI does not hand its controllers over.
+    private func splitViewControllers(in view: NSView) -> [NSSplitViewController] {
+        var found: [NSSplitViewController] = []
+        func walk(_ v: NSView) {
+            if let split = v as? NSSplitView,
+               let controller = split.delegate as? NSSplitViewController,
+               !found.contains(where: { $0 === controller }) {
+                found.append(controller)
+            }
+            v.subviews.forEach(walk)
+        }
+        walk(view)
+        return found
+    }
+}
+
 enum ChromeProbeLog {
     static let enabled: Bool = {
         #if DEBUG

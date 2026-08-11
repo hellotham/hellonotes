@@ -370,6 +370,10 @@ struct MacContentView: View {
         // the editor's status bar and note list never collapse into vertical
         // text wrapping — and if the OS forces smaller anyway, the shell
         // degrades rather than erroring.
+        // Keeps the columns out of the titlebar band, so the toolbar is its own
+        // row with a rule under it. See TitlebarClearance — the mechanism was
+        // measured, not guessed.
+        .background(TitlebarClearance())
         // Measures the titlebar/column overlap when HN_GEOM_LOG asks; a no-op
         // and zero-sized otherwise. See ChromeProbe.
         .background(ChromeProbe())

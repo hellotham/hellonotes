@@ -53,6 +53,21 @@ final class GitService {
         status = await serializedRead { await Self.readStatus(at: url) }
     }
 
+    /// The same read **without** taking a queue slot, for callers that already
+    /// hold one.
+    ///
+    /// This is not an optimisation, it is the fix for a self-deadlock. `run()`
+    /// stores its task in `lastQueued` and then, inside that task, `execute()`
+    /// called `refreshStatus()`. `serializedRead` would take `previous =
+    /// lastQueued` — *the very task it is running inside* — and await it, while
+    /// that task waited for the read to return. A cycle: the queue waiting on
+    /// itself, which is what parked the two Git tests with the whole worker
+    /// pool idle.
+    private func refreshStatusInQueue() async {
+        guard let url = rootURL else { status = RepoStatus(); return }
+        status = await Self.readStatus(at: url)
+    }
+
     // MARK: - Operations
 
     /// Turn the collection into a Git repository (explicit user action only).
@@ -249,7 +264,10 @@ final class GitService {
             lastMessage = nil
         }
 
-        await refreshStatus()
+        // Already inside the queue slot this operation owns — see
+        // `refreshStatusInQueue`. Calling the serialized `refreshStatus()` here
+        // makes the queue await itself.
+        await refreshStatusInQueue()
     }
 
     /// FIFO-serialized, value-returning runner for the create/clone paths

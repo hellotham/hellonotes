@@ -196,8 +196,11 @@ public final class MarkdownTextView: NSTextView {
     /// not the file.
     var onCaretEscapeTop: ((CaretEscape) -> Void)?
 
+    /// "At the start" means the start of the *body*: a note whose text opens
+    /// with front matter still begins, as far as the reader is concerned, at
+    /// the first line after it.
     private var caretIsAtStart: Bool {
-        selectedRange().location == 0 && selectedRange().length == 0
+        selectedRange().length == 0 && selectedRange().location <= firstBodyLineStart
     }
 
     public override func moveUp(_ sender: Any?) {
@@ -240,8 +243,10 @@ public final class MarkdownTextView: NSTextView {
     /// first paragraph still has real lines above the caret, and moving up
     /// through them is AppKit's job, not ours.
     private var caretIsOnFirstLine: Bool {
-        guard let here = segmentFrame(at: selectedRange().location),
-              let first = segmentFrame(at: 0) else { return caretIsAtStart }
+        let start = firstBodyLineStart
+        guard selectedRange().location >= start,
+              let here = segmentFrame(at: selectedRange().location),
+              let first = segmentFrame(at: start) else { return caretIsAtStart }
         return abs(here.minY - first.minY) < 0.5
     }
 
@@ -265,25 +270,46 @@ public final class MarkdownTextView: NSTextView {
     /// characters: the title is set in the document's H1 and the body is not, so
     /// a column is a distance, never a character count.
     func offsetOnFirstLine(nearestTo x: CGFloat) -> Int {
-        guard x > 0, let firstLine = segmentFrame(at: 0) else { return 0 }
+        let start = firstBodyLineStart
+        guard x > 0, let firstLine = segmentFrame(at: start) else { return start }
         let origin = textContainerOrigin
         let padding = textContainer?.lineFragmentPadding ?? 0
         let point = CGPoint(x: x + padding + origin.x, y: firstLine.midY + origin.y)
         let offset = characterIndexForInsertion(at: point)
-        // Never past the first line: a first line shorter than the title must
-        // not drop the caret into the second one.
-        let end = firstLineEndOffset
-        guard offset <= end else { return end }
-        return offset
+        // Never past that line: a first line shorter than the title must not
+        // drop the caret into the second one.
+        let end = lineEnd(from: start)
+        return min(max(offset, start), end)
     }
 
-    /// The offset just before the first line break (or the end of a one-line
-    /// document).
-    private var firstLineEndOffset: Int {
+    /// Where the note's *text* begins — after any front matter.
+    ///
+    /// Front matter is concealed until the caret enters it, so landing the
+    /// caret on literal line 0 of a note that has some pops the whole `---`
+    /// block open. That is the note's metadata appearing in the middle of the
+    /// prose, and it belongs in the inspector's Properties tab, not underneath
+    /// the title. Arrowing down from the title means "the first line I would
+    /// write on", which is the first line after it.
+    var firstBodyLineStart: Int {
+        guard let document,
+              let front = document.parse.blocks.first(where: { $0.kind == .frontMatter })
+        else { return 0 }
+        let end = NSMaxRange(front.range)
         let text = string as NSString
-        let newline = text.range(of: "\n")
+        return min(end, text.length)
+    }
+
+    /// The offset just before the next line break at or after `start` (or the
+    /// end of the text).
+    private func lineEnd(from start: Int) -> Int {
+        let text = string as NSString
+        guard start < text.length else { return text.length }
+        let search = NSRange(location: start, length: text.length - start)
+        let newline = text.range(of: "\n", options: [], range: search)
         return newline.location == NSNotFound ? text.length : newline.location
     }
+
+
 
     // MARK: - Wrap guide
 

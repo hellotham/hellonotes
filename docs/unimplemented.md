@@ -222,25 +222,14 @@ decisions are not:
     coordinated cloud I/O on the same main actor the `@MainActor` tests run on. The suite sat
     for 20+ minutes looking hung. `TestEnvironment.isRunningTests` now skips the app's launch
     work under a test host; 117 tests complete in seconds.
-- 🔴 **The two `GitService` tests deadlock the app suite.** `gitInitStatusAndCommit` and
-  `gitNoteHistoryTracksFileRevisions` pass **alone** and pass **as a pair**, but in a full run
-  of `HelloNotesTests` they never report and `xcodebuild test` never returns. Everything else
-  passes first: `Suite HelloNotesTests passed after 2.0s`, 117 tests green, then nothing.
-
-  Measured, not guessed — sampling the live test host shows the main thread parked in
-  `-[XCTWaiter _performWait:]` with the entire libdispatch worker pool idle in
-  `start_wqthread`. Nothing is running: an async continuation never resumes. That is a
-  deadlock, not slowness, so a longer timeout will not help.
-
-  Moving them to their own `@Suite(.serialized) GitServiceTests` was not enough (it did fix
-  `HelloNotesTests` itself, which now completes in ~2s). Next step is the `GitService` FIFO:
-  `run` and `serializedRead` both chain onto `lastQueued` from a `@MainActor` context and then
-  `await task.value` — worth checking whether one path can await a task that is itself waiting
-  on the main actor. Reproduce with:
-  `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -only-testing:HelloNotesTests`
-
-  **Blocks CI's Test step** — the workflow is otherwise ready, and its `build`,
-  `build-for-testing` and Release jobs are all useful today.
+- ✅ ~~**The two `GitService` tests deadlock the app suite.**~~ The FIFO waited on
+  itself. `run()` stored its task in `lastQueued` and then, inside that task,
+  `execute()` called `refreshStatus()` — which took `previous = lastQueued`, *the
+  very task it was running inside*, and awaited it while that task waited for the
+  read to return. A cycle, which is why the main thread sat in `XCTWaiter` with
+  the whole worker pool idle, and why a longer timeout would never have helped.
+  `execute()` now uses `refreshStatusInQueue()`, which reads without taking a
+  second slot. Full suite: **119 tests in 18 suites, 2.3s.**
 - 🟡 The git tests would also be faster and more hermetic if they did not copy the whole
   `SampleVault` per test — a two-note fixture would prove the same thing.
 
