@@ -447,6 +447,32 @@ and a stored notary profile:
 xcrun notarytool store-credentials "hellotham-notary" \
   --apple-id info@hellotham.com --team-id RPL5R637DS
 ```
+**The stored profile has twice vanished mid-pipeline (2026-08-12).** Both times
+`xcrun notarytool` went from working to `No Keychain password item found for
+profile: hellotham-notary`, with the login keychain rewritten in between and
+`security find-generic-password -s com.apple.gke.notary.tool` confirming the item
+was genuinely gone (the keychain itself was unlocked, `no-timeout`). Once it
+failed straight after archive+export; once it survived export, notarized the
+*app* successfully, then was gone by the time the DMG was signed a minute later —
+so **the culprit is not pinned down**, and it is not simply "Xcode ate it".
+
+Two practical consequences:
+
+- Budget for re-running `store-credentials` mid-release. Nothing else is lost —
+  the archive, the export and the app's own notarization all survive; only the
+  remaining `notarytool` calls fail.
+- Consider storing the profile in a **dedicated keychain** that the build
+  toolchain has no reason to touch, and passing it explicitly:
+
+  ```bash
+  security create-keychain -p "" notary.keychain-db
+  security unlock-keychain -p "" notary.keychain-db
+  xcrun notarytool store-credentials "hellotham-notary" \
+    --apple-id info@hellotham.com --team-id RPL5R637DS \
+    --keychain ~/Library/Keychains/notary.keychain-db
+  # then add --keychain … to every notarytool call
+  ```
+
 The prompt wants an **app‑specific password** (account.apple.com → Sign‑In and
 Security → App‑Specific Passwords), *not* the Apple Account password. Changing the
 Apple Account password revokes it, and you'd re‑run this.
