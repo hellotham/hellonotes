@@ -625,6 +625,23 @@ struct MacContentView: View {
     }
 
     /// Flush pending edits (the file is about to move), rename, and reselect.
+    /// Rename the open note from its inline title. Goes through the same
+    /// collection path as the note-list rename, so the file moves *and* every
+    /// `[[wiki-link]]` to it is rewritten — a title that only relabelled the
+    /// note would quietly break every link pointing at it.
+    private func renameSelectedNote(to title: String) {
+        guard let note = selectedNote,
+              let collection = library.collection(containing: note.fileURL) else { return }
+        Task {
+            // Flush first: renaming moves the file, and an in-flight autosave
+            // would be writing to the old path.
+            await tabs.flushAll()
+            if let renamed = await collection.renameNote(note, to: title) {
+                selectedNoteID = renamed.id
+            }
+        }
+    }
+
     private func performRename() {
         guard let note = renameTarget,
               let c = library.collection(containing: note.fileURL) else { renameTarget = nil; return }
@@ -964,6 +981,7 @@ struct MacContentView: View {
                     onOpenWikiLink: openWikiLink,
                     onOpenNote: { selectedNoteID = $0.id },
                     onLinkMention: linkMention,
+                    onRenameNote: { renameSelectedNote(to: $0) },
                     onShowMindMap: {
                         if let url = selectedNote?.fileURL { openWindow(value: MindMapRef(url)) }
                     }

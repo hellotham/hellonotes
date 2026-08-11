@@ -93,7 +93,11 @@ nonisolated public struct EditorTheme: @unchecked Sendable {
         self.accent = accentColor
     }
 
-    func headingFont(level: Int) -> PlatformFont {
+    /// The font a heading of `level` is drawn in. Public so a host can render
+    /// chrome that has to sit flush with the document's own headings — the
+    /// inline note title, for one — without duplicating the size ratios here
+    /// and drifting from them.
+    public func headingFont(level: Int) -> PlatformFont {
         headings[max(1, min(level, 6)) - 1]
     }
 }

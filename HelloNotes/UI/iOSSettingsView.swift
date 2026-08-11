@@ -76,6 +76,12 @@ struct iOSSettingsView: View {
                     Text("Scales the note editor and preview. Everything else follows the system text size in Settings > Display & Brightness.")
                 }
 
+                Section {
+                    Toggle("Show note title", isOn: $settings.showInlineTitle)
+                } footer: {
+                    Text("Shows the file's name above the note as a heading. Editing it renames the file and updates every link to it.")
+                }
+
                 Section("Attachments") {
                     TextField("Pasted-image folder", text: $attachmentFolder, prompt: Text("Same folder as note"))
                         .autocorrectionDisabled()

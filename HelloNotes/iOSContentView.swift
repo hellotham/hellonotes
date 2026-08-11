@@ -7,6 +7,7 @@
 
 #if os(iOS)
 import SwiftUI
+import MarkdownEditor
 import UniformTypeIdentifiers
 
 /// The iOS / iPadOS shell. A three-column `NavigationSplitView` mirrors the
@@ -350,6 +351,20 @@ struct iOSContentView: View {
         }
     }
 
+    /// Rename from the inline title. Goes through the collection so the file
+    /// moves *and* every `[[wiki-link]]` to it is rewritten.
+    private func renameNote(_ note: Note, to title: String) {
+        guard let collection = library.collection(containing: note.fileURL) else { return }
+        Task {
+            // Renaming moves the file; an in-flight autosave would be writing
+            // to the old path.
+            await editor.flush()
+            if let renamed = await collection.renameNote(note, to: title) {
+                selectedNoteID = renamed.id
+            }
+        }
+    }
+
     /// Tags as their own place in the compact tab bar — the phone has no
     /// inspector rail to keep them in, and they are still how people navigate
     /// across a vault rather than down it.
@@ -463,7 +478,15 @@ struct iOSContentView: View {
     @ViewBuilder
     private var detail: some View {
         if let note = editor.note {
-            Group {
+            VStack(spacing: 0) {
+                if appearance.showInlineTitle {
+                    InlineNoteTitle(
+                        title: note.title,
+                        theme: EditorTheme(fontSize: appearance.editorFontSize),
+                        onRename: { renameNote(note, to: $0) }
+                    )
+                    .padding(.horizontal, ShellMetrics.insets)
+                }
                 switch mode {
                 case .edit:
                     liveEditor(note)

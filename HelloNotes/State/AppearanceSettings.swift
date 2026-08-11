@@ -112,6 +112,12 @@ final class AppearanceSettings {
         didSet { UserDefaults.standard.set(wrapGuide, forKey: "wrapGuide") }
     }
 
+    /// Show the note's filename above its body as an editable level-1 heading.
+    /// On by default: without it a note appears to start mid-content.
+    var showInlineTitle: Bool {
+        didSet { UserDefaults.standard.set(showInlineTitle, forKey: "showInlineTitle") }
+    }
+
     static let wrapGuideChoices = [0, 72, 80, 100]
 
     static let minScale = 0.8
@@ -128,6 +134,9 @@ final class AppearanceSettings {
         readingWidth = ReadingWidth(rawValue: defaults.string(forKey: "readingWidth") ?? "") ?? .normal
         editorWidth = EditorWidth(rawValue: defaults.string(forKey: "editorWidth") ?? "") ?? .full
         wrapGuide = defaults.integer(forKey: "wrapGuide")
+        // Default on, so `bool(forKey:)` returning false for "never set" is
+        // read as the default rather than as the user having turned it off.
+        showInlineTitle = defaults.object(forKey: "showInlineTitle") as? Bool ?? true
         applyWindowAppearance()
     }
 

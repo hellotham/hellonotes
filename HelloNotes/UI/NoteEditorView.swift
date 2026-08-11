@@ -48,6 +48,11 @@ struct NoteEditorView: View {
 
     /// Called to turn an unlinked mention into a `[[link]]` in that note.
     var onLinkMention: (Note) -> Void = { _ in }
+
+    /// Rename the open note from the inline title. The host owns this because
+    /// renaming is a *collection* operation — it moves the file and rewrites
+    /// every `[[wiki-link]]` pointing at it.
+    var onRenameNote: (String) -> Void = { _ in }
     var onShowMindMap: () -> Void = { }
 
     @Environment(\.openWindow) private var openWindow
@@ -252,11 +257,26 @@ struct NoteEditorView: View {
                     // Decision 5: each mode gets its own width rule. Reading is
                     // a fixed measure, centred; editing and source fill the
                     // pane (or the chosen proportion of it), left-aligned.
+                    //
+                    // The title goes *inside* the measure, so it sits flush
+                    // with the first line of the body in every mode rather
+                    // than floating at the pane's left edge while a centred
+                    // reading column starts somewhere else.
                     switch mode {
-                    case .edit:     measured(.editing) { editModeContent }
-                    case .preview:  measured(.reading) { previewModeContent }
-                    case .markdown: measured(.editing, monospaced: true) { sourceEditor }
-                    case .split:    splitModeContent
+                    case .edit:
+                        measured(.editing) { VStack(spacing: 0) { inlineTitle; editModeContent } }
+                    case .preview:
+                        measured(.reading) { VStack(spacing: 0) { inlineTitle; previewModeContent } }
+                    case .markdown:
+                        measured(.editing, monospaced: true) {
+                            VStack(spacing: 0) { inlineTitle; sourceEditor }
+                        }
+                    case .split:
+                        // Split has two rules at once, so one title above both.
+                        VStack(spacing: 0) {
+                            inlineTitle.padding(.horizontal, ShellMetrics.insets)
+                            splitModeContent
+                        }
                     }
 
                     Divider()
@@ -336,6 +356,23 @@ struct NoteEditorView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Inline title
+
+    /// The note's filename as an editable H1 above its body — the first thing
+    /// a note *is*. Without it the body appears to start mid-content, and the
+    /// only place the title showed was the window's title bar, which is not
+    /// where anyone reads.
+    @ViewBuilder
+    private var inlineTitle: some View {
+        if appearance.showInlineTitle, let note = editor.note {
+            InlineNoteTitle(
+                title: note.title,
+                theme: EditorTheme(fontSize: appearance.editorFontSize),
+                onRename: { onRenameNote($0) }
+            )
         }
     }
 

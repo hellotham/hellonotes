@@ -91,6 +91,11 @@ struct AppearanceSettingsView: View {
                 Text("A line you can see while editing, not a wrap point — text still runs to the edge of the pane.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("Show note title", isOn: $settings.showInlineTitle)
+                Text("Shows the file's name above the note as a heading. Editing it renames the file and updates every link to it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
