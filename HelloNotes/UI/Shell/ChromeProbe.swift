@@ -228,7 +228,14 @@ enum ChromeProbeLog {
               let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
         content.cacheDisplay(in: content.bounds, to: rep)
 
-        func hex(_ x: Int, _ y: Int) -> String {
+        // The rep is in *pixels*; everything else here is in points. On a
+        // Retina display that is a factor of two, and sampling point
+        // coordinates into a pixel buffer reads somewhere else entirely —
+        // which is how this probe came to report a clean rail while the
+        // window's own snapshot showed it white. Scale, or measure nothing.
+        let scale = CGFloat(rep.pixelsWide) / max(1, content.bounds.width)
+        func hex(_ xPoints: CGFloat, _ yPoints: CGFloat) -> String {
+            let x = Int(xPoints * scale), y = Int(yPoints * scale)
             guard x >= 0, y >= 0, x < rep.pixelsWide, y < rep.pixelsHigh,
                   let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return "----" }
             return String(format: "%02X%02X%02X",
@@ -244,12 +251,27 @@ enum ChromeProbeLog {
             ("editor", width * 0.5),
             ("inspector", width - 60),
         ]
-        let inBand = Int(band / 2)                 // middle of the band
-        let below = Int(band + 12)                 // just under it
+        let inBand = band / 2                      // middle of the band
+        let below = band + 12                      // just under it
         let line = probes.filter { $0.1 < width }.map { name, x in
-            "\(name)=\(hex(Int(x), inBand))/\(hex(Int(x), below))"
+            "\(name)=\(hex(x, inBand))/\(hex(x, below))"
         }.joined(separator: " ")
         append("chrome[\(tag)] pixels band=\(Int(band))pt (inBand/below) \(line)\n")
+    }
+
+    /// Writes the window's own rendered contents to a PNG beside the log.
+    /// Only this window, no screen-recording permission, nothing of anyone
+    /// else's screen — the app photographing itself.
+    @MainActor
+    static func snapshot(window: NSWindow?, tag: String) {
+        guard enabled, let window, let content = window.contentView,
+              let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
+        content.cacheDisplay(in: content.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]),
+              let url = logURL?.deletingLastPathComponent()
+                  .appendingPathComponent("hn-window-\(tag).png") else { return }
+        try? data.write(to: url)
+        append("chrome[\(tag)] snapshot written to \(url.path)\n")
     }
 
     @MainActor
@@ -296,6 +318,7 @@ enum ChromeProbeLog {
         }
         append(lines.joined(separator: "\n") + "\n")
         samplePixels(window: window, tag: tag)
+        snapshot(window: window, tag: tag)
     }
 
     private static func collectSplitViews(in view: NSView, into found: inout [NSSplitView]) {
