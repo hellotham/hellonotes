@@ -19,7 +19,7 @@ struct HelloNotesTests {
 
     /// The repo's committed sample vault (`SampleVault/`), located relative to
     /// this source file so tests exercise the same demo content shipped in the repo.
-    private static var sampleVaultURL: URL {
+    static var sampleVaultURL: URL {
         URL(filePath: #filePath)          // …/HelloNotesTests/HelloNotesTests.swift
             .deletingLastPathComponent()  // …/HelloNotesTests
             .deletingLastPathComponent()  // …/<repo root>
@@ -517,56 +517,6 @@ struct HelloNotesTests {
         #expect(GraphLayout.positions(count: 0, edges: [], size: size).isEmpty)
     }
 
-    // MARK: - GitService
-
-    @Test @MainActor
-    func gitInitStatusAndCommit() async throws {
-        let vault = try copiedSampleVault()
-        defer { try? FileManager.default.removeItem(at: vault) }
-
-        let git = GitService()
-        git.rootURL = vault
-
-        await git.refreshStatus()
-        #expect(git.status.isRepository == false)
-
-        await git.initializeRepository()
-        #expect(git.status.isRepository == true)
-        #expect(git.status.changeCount > 0)   // the sample notes are untracked
-
-        // Commit works even without a global git identity (ensureCommitIdentity
-        // sets a local one), and leaves the tree clean.
-        await git.commitAll(message: "Initial commit")
-        #expect(git.lastError == nil)
-        #expect(git.status.isClean)
-    }
-
-    @Test @MainActor
-    func gitNoteHistoryTracksFileRevisions() async throws {
-        let vault = try copiedSampleVault()
-        defer { try? FileManager.default.removeItem(at: vault) }
-
-        let git = GitService()
-        git.rootURL = vault
-        await git.initializeRepository()
-        await git.commitAll(message: "Import sample vault")   // baseline
-
-        // Track a fresh note's revisions on top of the sample-vault baseline.
-        let noteURL = vault.appendingPathComponent("History.md")
-        try write("# Version one", to: noteURL)
-        await git.commitAll(message: "First")
-        try write("# Version two", to: noteURL)
-        await git.commitAll(message: "Second")
-
-        let history = await git.history(for: noteURL)
-        #expect(history.count == 2)               // both commits changed the file
-        #expect(history.first?.summary == "Second")   // newest first
-
-        // The oldest revision's content matches the first version we wrote.
-        let oldest = try #require(history.last)
-        let content = await git.content(ofRevision: oldest.id, for: noteURL)
-        #expect(content == "# Version one")
-    }
 
     // MARK: - Document statistics & export
 
@@ -886,4 +836,84 @@ struct MindMapModelTests {
         #expect(model.nodes.filter { $0.kind == .bullet }.count == MindMapModel.maxBulletsPerSection)
     }
 }
+
+/// The Git tests, on their own serialized suite.
+///
+/// They are the only tests here that do real work through libgit2 — init, add
+/// every file in a copy of the sample vault, commit, walk history — and
+/// `GitService` is `@MainActor`, so that work competes for the same actor the
+/// other three dozen `@MainActor` tests in this file are running on. Left in
+/// the parallel suite they do finish, but slowly enough that the run looks
+/// hung: 117 tests complete in seconds and then nothing moves for minutes.
+///
+/// `.serialized` is the fix rather than a timeout because the problem is
+/// contention, not a deadlock — they pass alone, and they pass as a pair.
+@Suite(.serialized)
+@MainActor
+struct GitServiceTests {
+    /// Same fixture helpers as `HelloNotesTests` — private there, and a shared
+    /// base would buy nothing but coupling for two small functions.
+    private static let sampleVaultURL = HelloNotesTests.sampleVaultURL
+
+    private func copiedSampleVault() throws -> URL {
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HelloNotesGitTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.copyItem(at: Self.sampleVaultURL, to: dest)
+        return dest
+    }
+
+    private func write(_ text: String, to url: URL) throws {
+        try Data(text.utf8).write(to: url, options: .atomic)
+    }
+
+    @Test @MainActor
+    func gitInitStatusAndCommit() async throws {
+        let vault = try copiedSampleVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let git = GitService()
+        git.rootURL = vault
+
+        await git.refreshStatus()
+        #expect(git.status.isRepository == false)
+
+        await git.initializeRepository()
+        #expect(git.status.isRepository == true)
+        #expect(git.status.changeCount > 0)   // the sample notes are untracked
+
+        // Commit works even without a global git identity (ensureCommitIdentity
+        // sets a local one), and leaves the tree clean.
+        await git.commitAll(message: "Initial commit")
+        #expect(git.lastError == nil)
+        #expect(git.status.isClean)
+    }
+
+    @Test @MainActor
+    func gitNoteHistoryTracksFileRevisions() async throws {
+        let vault = try copiedSampleVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let git = GitService()
+        git.rootURL = vault
+        await git.initializeRepository()
+        await git.commitAll(message: "Import sample vault")   // baseline
+
+        // Track a fresh note's revisions on top of the sample-vault baseline.
+        let noteURL = vault.appendingPathComponent("History.md")
+        try write("# Version one", to: noteURL)
+        await git.commitAll(message: "First")
+        try write("# Version two", to: noteURL)
+        await git.commitAll(message: "Second")
+
+        let history = await git.history(for: noteURL)
+        #expect(history.count == 2)               // both commits changed the file
+        #expect(history.first?.summary == "Second")   // newest first
+
+        // The oldest revision's content matches the first version we wrote.
+        let oldest = try #require(history.last)
+        let content = await git.content(ofRevision: oldest.id, for: noteURL)
+        #expect(content == "# Version one")
+    }
+}
+
 #endif

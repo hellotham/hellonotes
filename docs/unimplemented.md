@@ -162,9 +162,14 @@ decisions are not:
   ~6,400 lines because all verification was Debug. Fixed, and
   [production.md §1h](production.md) now requires the Release build with a debugging recipe
   ([implemented.md §13](implemented.md)).
-- 🟡 **No CI** — the Release build, universal (arm64 + x86_64) slice, and test suites are all
-  run by hand. A CI job running §1h's commands on every push would have caught the above the
-  day it landed. Highest-value remaining process gap.
+- ✅ ~~**No CI**~~ — `.github/workflows/build-and-test.yml` now builds both platforms, runs
+  `build-for-testing` (the step that actually compiles the test target), runs the suites, and
+  builds Release on `main`. Added after one session produced both failures it exists to catch:
+  a package API change left `HelloNotesTests` uncompilable while `xcodebuild build` kept
+  reporting success — **`build` does not compile tests** — and two iOS breaks survived days of
+  green macOS builds.
+- 🟡 **The universal (arm64 + x86_64) slice is still verified by hand** — CI builds the native
+  runner architecture only.
 - 🔴 **The website screenshots predate the shell redesign** (2026-08-11). All five light/dark
   pairs in `website/src/lib/screens.ts` show the old wide left sidebar with its collection
   card, quick-action buttons and bookmarks — a UI that no longer exists. The manual text has
@@ -209,6 +214,35 @@ decisions are not:
 
 - 🟡 **No end-to-end / UI tests** beyond the app unit tests and the editor package's conformance/perf suites. Consider smoke tests for the highest-risk flows: save→external-change reconciliation, rename-with-link-rewrite, git commit/push, and assistant tool approval.
 - 🟡 **Data-safety paths lack tests** — the §1 items (atomic assistant writes, flush-on-quit, transactional rename) would each benefit from a regression test once fixed.
+
+- 🟡 **The app suite is hosted by the app, so it is slow and it launches a window.** A macOS
+  unit-test bundle needs a test *host*, and there is no flag that stops it. Two consequences
+  were worth fixing and one is left:
+  - ✅ The host used to restore the **user's real library** on launch — 2,000 notes of
+    coordinated cloud I/O on the same main actor the `@MainActor` tests run on. The suite sat
+    for 20+ minutes looking hung. `TestEnvironment.isRunningTests` now skips the app's launch
+    work under a test host; 117 tests complete in seconds.
+- 🔴 **The two `GitService` tests deadlock the app suite.** `gitInitStatusAndCommit` and
+  `gitNoteHistoryTracksFileRevisions` pass **alone** and pass **as a pair**, but in a full run
+  of `HelloNotesTests` they never report and `xcodebuild test` never returns. Everything else
+  passes first: `Suite HelloNotesTests passed after 2.0s`, 117 tests green, then nothing.
+
+  Measured, not guessed — sampling the live test host shows the main thread parked in
+  `-[XCTWaiter _performWait:]` with the entire libdispatch worker pool idle in
+  `start_wqthread`. Nothing is running: an async continuation never resumes. That is a
+  deadlock, not slowness, so a longer timeout will not help.
+
+  Moving them to their own `@Suite(.serialized) GitServiceTests` was not enough (it did fix
+  `HelloNotesTests` itself, which now completes in ~2s). Next step is the `GitService` FIFO:
+  `run` and `serializedRead` both chain onto `lastQueued` from a `@MainActor` context and then
+  `await task.value` — worth checking whether one path can await a task that is itself waiting
+  on the main actor. Reproduce with:
+  `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -only-testing:HelloNotesTests`
+
+  **Blocks CI's Test step** — the workflow is otherwise ready, and its `build`,
+  `build-for-testing` and Release jobs are all useful today.
+- 🟡 The git tests would also be faster and more hermetic if they did not copy the whole
+  `SampleVault` per test — a two-note fixture would prove the same thing.
 
 ---
 
