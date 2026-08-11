@@ -48,38 +48,44 @@ struct LibraryRail<Footer: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.vertical) {
-                VStack(spacing: 2) {
-                    railButton(
-                        symbol: "books.vertical.fill",
-                        caption: "Library",
-                        isSelected: place == .library,
-                        help: "Quick actions, recent notes and bookmarks across every open collection"
-                    ) {
-                        place = .library
-                    }
-
-                    if !collections.isEmpty {
-                        Divider().padding(.vertical, 4).padding(.horizontal, 12)
-                    }
-
-                    ForEach(collections) { collection in
-                        collectionButton(collection)
-                    }
-
-                    railButton(
-                        symbol: "plus",
-                        caption: "Open",
-                        isSelected: false,
-                        help: "Open a collection, an Obsidian vault, or a saved library",
-                        action: onAddCollection
-                    )
+            // A `List`, not a `ScrollView`. In a full-height sidebar column the
+            // window's titlebar floats *over* the content, and a scroll view
+            // deliberately scrolls its content underneath it — so the first
+            // row's selection chip landed on top of the traffic lights. AppKit
+            // gives a source list the titlebar content-inset for free, which is
+            // why the sidebar this rail replaced never had the problem. Use the
+            // container the platform already insets rather than re-deriving the
+            // inset by hand.
+            List {
+                railButton(
+                    symbol: "books.vertical.fill",
+                    caption: "Library",
+                    isSelected: place == .library,
+                    help: "Quick actions, recent notes and bookmarks across every open collection"
+                ) {
+                    place = .library
                 }
-                .padding(.vertical, 8)
+                .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+                .listRowSeparator(.hidden)
+
+                ForEach(collections) { collection in
+                    collectionButton(collection)
+                        .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+                        .listRowSeparator(.hidden)
+                }
+
+                railButton(
+                    symbol: "plus",
+                    caption: "Open",
+                    isSelected: false,
+                    help: "Open a collection, an Obsidian vault, or a saved library",
+                    action: onAddCollection
+                )
+                .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+                .listRowSeparator(.hidden)
             }
-            // S1: a rail is a viewport. `ScrollView` sizes to its content's
-            // ideal height, and a library with many collections would otherwise
-            // hand the split view a column taller than the window.
+            .listStyle(.sidebar)
+            // S1: a rail is a viewport onto its rows, never sized by them.
             .frame(maxHeight: .infinity)
 
             footer()

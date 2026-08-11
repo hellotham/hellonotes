@@ -370,16 +370,6 @@ struct MacContentView: View {
         // the editor's status bar and note list never collapse into vertical
         // text wrapping — and if the OS forces smaller anyway, the shell
         // degrades rather than erroring.
-        // The toolbar gets its own row, with its own background and the
-        // separator that comes with it. SwiftUI's default for a
-        // `NavigationSplitView` window is a *transparent* toolbar over
-        // full-height content, so every column paints up into the titlebar —
-        // the note list's material, the inspector's, and the selected tab's
-        // highlight all bled through it, which read as a rendering bug rather
-        // than as depth. HIG (macOS): "the toolbar resides in the frame at the
-        // top of a window, either below or integrated with the title bar" — it
-        // is a frame, so give it edges.
-        .toolbarBackground(.visible, for: .windowToolbar)
         .frame(minWidth: ShellMetrics.windowMinWidth, minHeight: ShellMetrics.windowMinHeight)
         // S2 (docs/layout-architecture.md): a minimum is a floor, not a
         // ceiling. Without a maximum, any column child with a large ideal size
@@ -1223,6 +1213,20 @@ struct MacContentView: View {
             .navigationTitle(noteListTitle)
             .toolbar { noteListToolbar }
             .overlay { noteListEmptyState }
+            // The toolbar gets its own row, with the background and separator
+            // that come with it. SwiftUI's default for a `NavigationSplitView`
+            // window is a *transparent* toolbar over full-height content, so
+            // every column paints up into the titlebar — the note list's
+            // material, the inspector's, the selected tab's highlight — which
+            // reads as a rendering fault rather than as depth. HIG (macOS): the
+            // toolbar "resides in the frame at the top of a window"; a frame
+            // has edges.
+            //
+            // It belongs *here*, on the view that owns the toolbar items, not
+            // on the shell: a toolbar modifier resolves against the nearest
+            // toolbar-owning container, so outside the `NavigationSplitView` it
+            // had nothing to attach to.
+            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
     }
 
     private var noteListTitle: String {
