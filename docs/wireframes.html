@@ -1,0 +1,610 @@
+<title>HelloNotes — UI layout wireframes</title>
+<style>
+  :root{--ground:#eef1f4;--panel:#fff;--ink:#14171a;--graphite:#667080;--hair:#ccd3da;
+    --accent:#2b5fd9;--accent-soft:#dbe4fb;--nav:#b9c2cc;--nav-soft:#dde2e8;--insp:#cfd8cc;
+    --chrome:#e3e8ed;--drop:#b0402f;--ok:#2f6f4f;--amber:#8a6410;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Helvetica Neue",sans-serif;}
+  @media (prefers-color-scheme:dark){:root{--ground:#0f1215;--panel:#171b20;--ink:#e6eaee;
+    --graphite:#8b95a1;--hair:#2a3138;--accent:#6f97ff;--accent-soft:#1d2c4d;--nav:#3a434e;
+    --nav-soft:#232a31;--insp:#2b3630;--chrome:#1e242a;--drop:#e0715c;--ok:#6bbd92;--amber:#d8a53c;}}
+  :root[data-theme="dark"]{--ground:#0f1215;--panel:#171b20;--ink:#e6eaee;--graphite:#8b95a1;
+    --hair:#2a3138;--accent:#6f97ff;--accent-soft:#1d2c4d;--nav:#3a434e;--nav-soft:#232a31;
+    --insp:#2b3630;--chrome:#1e242a;--drop:#e0715c;--ok:#6bbd92;--amber:#d8a53c;}
+  :root[data-theme="light"]{--ground:#eef1f4;--panel:#fff;--ink:#14171a;--graphite:#667080;
+    --hair:#ccd3da;--accent:#2b5fd9;--accent-soft:#dbe4fb;--nav:#b9c2cc;--nav-soft:#dde2e8;
+    --insp:#cfd8cc;--chrome:#e3e8ed;--drop:#b0402f;--ok:#2f6f4f;--amber:#8a6410;}
+
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.55;margin:0;padding:40px 24px 96px;}
+  .wrap{max-width:1200px;margin:0 auto;}
+  h1{font-size:1.9rem;margin:0 0 6px;letter-spacing:-.02em;text-wrap:balance;}
+  .sub{color:var(--graphite);max-width:64ch;margin:0 0 26px;}
+  h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.11em;color:var(--graphite);
+     margin:46px 0 4px;padding-bottom:8px;border-bottom:1px solid var(--hair);}
+  h2 span{color:var(--ink);text-transform:none;letter-spacing:0;font-weight:400;}
+  .rule{background:var(--panel);border:1px solid var(--hair);border-left:3px solid var(--accent);
+        padding:14px 18px;margin:0 0 26px;font-size:.95rem;}
+  .rule b{color:var(--accent);}
+  .rule.amber{border-left-color:var(--amber);} .rule.amber b{color:var(--amber);}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 0 4px;font-size:.78rem;}
+  .key{display:flex;align-items:center;gap:6px;color:var(--graphite);}
+  .sw{width:20px;height:11px;border:1px solid var(--hair);}
+  .plates{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px;margin-top:20px;}
+  .plates.wide{grid-template-columns:1fr;}
+  figure{margin:0;background:var(--panel);border:1px solid var(--hair);padding:16px;}
+  figcaption{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:11px;}
+  .dev{font-weight:600;font-size:.95rem;}
+  .dim{font-family:var(--mono);font-size:.76rem;color:var(--graphite);font-variant-numeric:tabular-nums;}
+  .mode{margin-left:auto;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;
+        letter-spacing:.06em;padding:2px 7px;border:1px solid currentColor;}
+  .mode.wide{color:var(--accent);} .mode.tall{color:var(--ok);}
+  .mode.compact{color:var(--graphite);} .mode.panes{color:var(--amber);}
+  .screen{width:100%;border:1px solid var(--graphite);display:flex;flex-direction:column;background:var(--ground);}
+  .toolbar{height:7%;min-height:12px;background:var(--chrome);border-bottom:1px solid var(--hair);flex:none;}
+  .body{flex:1;display:flex;min-height:0;}
+  .body.vert{flex-direction:column;}
+  .col{display:flex;flex-direction:column;align-items:center;justify-content:center;
+       font-family:var(--mono);font-size:.57rem;color:var(--ink);overflow:hidden;
+       border-right:1px solid var(--hair);text-align:center;padding:2px;}
+  .col em,.text em{font-style:normal;color:var(--graphite);font-size:.9em;display:block;font-variant-numeric:tabular-nums;}
+  .lib{background:var(--nav);} .list{background:var(--nav-soft);} .inspector{background:var(--insp);border-left:1px solid var(--graphite);border-right:none;}
+  .band{flex:none;display:flex;border-bottom:1px solid var(--graphite);}
+  .detail{flex:1;display:flex;min-width:0;min-height:0;border-right:none;}
+  .pane{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--graphite);}
+  .pane:last-child{border-right:none;}
+  .tabs{flex:none;height:5%;min-height:9px;background:var(--chrome);border-bottom:1px solid var(--hair);
+        display:flex;align-items:center;gap:2px;padding:0 3px;font-family:var(--mono);font-size:.5rem;color:var(--graphite);}
+  .tab{background:var(--panel);border:1px solid var(--hair);border-bottom:none;padding:0 4px;white-space:nowrap;overflow:hidden;}
+  .tab.on{border-top:2px solid var(--accent);}
+  .edit{flex:1;display:flex;min-height:0;}
+  .gutter{flex:1;background:repeating-linear-gradient(135deg,transparent,transparent 4px,var(--hair) 4px,var(--hair) 5px);}
+  .text{background:var(--accent-soft);border-left:1px solid var(--accent);border-right:1px solid var(--accent);
+        display:flex;flex-direction:column;align-items:center;justify-content:center;
+        font-family:var(--mono);font-size:.57rem;color:var(--accent);font-weight:600;padding:2px;text-align:center;}
+  .prev{background:var(--nav-soft);border-left:1px solid var(--graphite);color:var(--graphite);font-weight:400;}
+  .status,.navbar{flex:none;background:var(--chrome);font-family:var(--mono);font-size:.52rem;color:var(--graphite);
+        display:flex;align-items:center;justify-content:center;min-height:10px;}
+  .status{border-top:1px solid var(--hair);} .navbar{border-bottom:1px solid var(--hair);}
+  .mini{flex:none;background:var(--accent-soft);border-top:1px solid var(--accent);color:var(--accent);
+        font-family:var(--mono);font-size:.52rem;display:flex;align-items:center;justify-content:center;min-height:11px;}
+  .tabbar{flex:none;background:var(--chrome);border-top:1px solid var(--hair);display:flex;
+          align-items:center;justify-content:space-around;font-family:var(--mono);font-size:.5rem;
+          color:var(--graphite);min-height:13px;}
+  .fmt{flex:none;background:var(--panel);border-bottom:1px solid var(--hair);display:flex;
+       align-items:center;justify-content:center;gap:6px;font-family:var(--mono);font-size:.5rem;
+       color:var(--ink);min-height:11px;letter-spacing:.08em;}
+  .blockwide{background:var(--nav-soft);border-top:1px solid var(--graphite);border-bottom:1px solid var(--graphite);
+       display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.55rem;
+       color:var(--ink);text-align:center;padding:2px;}
+  .accessory{flex:none;background:var(--panel);border-top:1px solid var(--accent);display:flex;
+       align-items:center;justify-content:space-around;font-family:var(--mono);font-size:.5rem;
+       color:var(--accent);min-height:12px;}
+  .ruler{border-right:1px dashed var(--accent)!important;}
+  .rulerlab{font-family:var(--mono);font-size:.5rem;color:var(--accent);opacity:.85;}
+  .ovl{position:relative;}
+  .ovl::before{content:"☰";position:absolute;left:3px;top:3px;z-index:2;font-size:.58rem;color:var(--graphite);}
+  .note{margin:10px 0 0;font-size:.8rem;color:var(--graphite);}
+  .note b{color:var(--ink);font-weight:600;}
+  .hidden-list{margin:6px 0 0;font-family:var(--mono);font-size:.66rem;color:var(--drop);}
+  .tablewrap{overflow-x:auto;margin-top:16px;}
+  table{border-collapse:collapse;width:100%;font-size:.84rem;}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--hair);vertical-align:top;}
+  th{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--graphite);font-weight:600;}
+  td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;}
+  .yes{color:var(--ok);} .no{color:var(--drop);} .maybe{color:var(--amber);}
+  code{font-family:var(--mono);font-size:.9em;background:var(--nav-soft);padding:1px 4px;}
+</style>
+
+<div class="wrap">
+<h1>HelloNotes — UI layout wireframes</h1>
+<p class="sub">The layout contract, drawn per device. Plates are true to internal proportion; regions carry
+their real size in points. Approve these and the contract is fixed — the headless harness then proves it
+before any app code changes.</p>
+
+<p class="rule"><b>Layout follows the axis of abundance, not the width alone.</b>
+Wide displays have horizontal room, so navigation becomes <b>side rails</b> — library left, inspector right.
+Tall displays have vertical room, so navigation becomes a <b>band across the top</b> and the editor keeps the
+full measure beneath it. Phones have neither, so the <b>editor is the whole screen</b> and everything else
+retracts. In all three, the reading column is protected and the way to switch notes never disappears.</p>
+
+<p class="rule amber"><b>Why aspect, not width.</b> An iPad in portrait is 834pt wide — by width alone that
+buys a second column and a 554pt measure. Band it instead and the editor gets the <b>full 700pt measure</b>
+with navigation spending the height that portrait has to spare. Same pixels, better reading.</p>
+
+<div class="legend">
+  <span class="key"><span class="sw" style="background:var(--accent-soft);border-color:var(--accent)"></span> reading column</span>
+  <span class="key"><span class="sw" style="background:var(--nav)"></span> library / folders (left)</span>
+  <span class="key"><span class="sw" style="background:var(--nav-soft)"></span> note list</span>
+  <span class="key"><span class="sw" style="background:var(--insp)"></span> inspector (right)</span>
+  <span class="key"><span class="sw" style="background:var(--chrome)"></span> chrome</span>
+  <span class="key">☰ retracted to overlay</span>
+</div>
+
+<h2>1 · Choosing a shell <span>· two dimensions, not one</span></h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Condition</th><th>Shell</th><th>Navigation lives</th><th>Reading column</th></tr></thead>
+<tbody>
+<tr><td class="num">width &lt; 600</td><td><b>Compact</b></td><td>bottom tab bar + retracting mini-note</td><td>full screen</td></tr>
+<tr><td class="num">width ≥ 600 · height &gt; width</td><td><b>Tall</b></td><td>band across the top</td><td>full width, ≤ 700</td></tr>
+<tr><td class="num">width 600–960 · landscape</td><td><b>Two</b></td><td>list column, library retracted</td><td>rest, ≤ 700</td></tr>
+<tr><td class="num">width ≥ 960</td><td><b>Wide</b></td><td>left rail + list column</td><td>panes, each ≤ 700</td></tr>
+<tr><td class="num">width ≥ 1400</td><td><b>Wide + inspector</b></td><td>left rail + list + right inspector</td><td>panes, each ≤ 700</td></tr>
+</tbody></table></div>
+<p class="note">One rule reads both platforms: a Mac window and an iPad at the same size get the same shell.
+Stage Manager makes device identity meaningless, so it is never consulted.</p>
+
+<h2>2 · The two rails <span>· what goes left, what goes right</span></h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Rail</th><th>Question it answers</th><th>Contents</th><th>Floor</th><th>Ideal</th><th>Cap</th></tr></thead>
+<tbody>
+<tr><td><b>Left — library</b></td><td>“Where is it?”</td><td>collections, folder tree, bookmarks, quick actions, Git panel as chrome</td><td class="num">160</td><td class="num">220</td><td class="num">320</td></tr>
+<tr><td><b>Right — inspector</b></td><td>“What is this, and what touches it?”</td><td>tabbed: <b>Outline</b> · <b>Tags</b> · <b>Backlinks</b> · <b>Properties</b> · <b>Graph</b></td><td class="num">220</td><td class="num">280</td><td class="num">360</td></tr>
+</tbody></table></div>
+<p class="note">The inspector consolidates four surfaces that are scattered today — references panel under
+the note, outline in a popover, tags in the left sidebar, graph in a separate window. On a wide display they
+become tabs in one rail; below 1400pt they collapse back to on-demand popovers and the Graph window.
+<b>Selecting a tag still filters the note list</b> on the left — the rails cooperate.</p>
+
+
+<h2>3 · Reading is not editing <span>· the same note, two different demands</span></h2>
+<p class="rule"><b>Intent tracks the device.</b> Someone at a 3840pt display is <b>editing</b> — building
+tables, drafting Mermaid diagrams, restructuring. Someone holding an iPad is almost certainly <b>reading</b>.
+The measure cap serves reading; it must not become a cage for editing.</p>
+
+<div class="tablewrap"><table>
+<thead><tr><th>Intent</th><th>Typical context</th><th>Prose</th><th>Blocks — tables, code, Mermaid, math, images</th><th>Tools</th></tr></thead>
+<tbody>
+<tr><td><b>Reading</b></td><td>iPad, phone, Reading mode</td><td class="num">fixed 80ch · <b>centred</b></td><td>fit to pane, scroll if wider</td><td class="no">none — mode switcher only</td></tr>
+<tr><td><b>Editing</b></td><td>Mac, large windows, Edit / Source / Split</td><td class="num"><b>full pane · left-aligned</b></td><td class="yes">full pane width</td><td class="yes">always within reach</td></tr>
+</tbody></table></div>
+
+<p class="rule amber"><b>The constraint belongs to reading, not editing.</b> A fixed 80ch column inside a
+3200pt pane is <b>17% of the display</b> — and since splitting is manual, that is the <em>default</em> state of a
+wide window, not an edge case. Nobody would accept a Markdown file rendered as a ribbon down the middle of a
+code editor. <b>Think VS Code:</b> editing runs full width, left-aligned, from the left gutter to the pane
+edge. Reading keeps the centred measure, because reading is the activity where line length decides comfort.</p>
+
+<div class="plates">
+  <figure>
+    <figcaption><span class="dev">Block breakout</span><span class="dim">pane 1380 · prose 600</span><span class="mode panes">edit</span></figcaption>
+    <div class="screen" style="aspect-ratio:1000/620">
+      <div class="toolbar"></div>
+      <div class="body"><div class="detail"><div class="pane">
+        <div class="tabs"><span class="tab on">Design notes</span><span class="tab">+</span></div>
+        <div class="fmt">B &nbsp;I &nbsp;H1 &nbsp;&#8249;/&#8250; &nbsp;&#8862; table &nbsp;&#931; math &nbsp;&#9671; mermaid &nbsp;&#8942;</div>
+        <div class="edit" style="flex-direction:column">
+          <div class="text" style="flex:0 0 22%;align-items:flex-start;padding-left:6px">prose &mdash; full pane, left-aligned<em>VS Code model</em></div>
+          <div class="blockwide" style="flex:0 0 26%">table &mdash; full pane width</div>
+          <div class="text" style="flex:0 0 16%;align-items:flex-start;padding-left:6px">prose</div>
+          <div class="blockwide" style="flex:1">Mermaid diagram &mdash; full pane width</div>
+        </div>
+        <div class="status" style="height:5%">status</div>
+      </div></div></div>
+    </div>
+    <p class="note"><b>What a big screen is actually for.</b> Prose, tables and diagrams all use the pane
+      they were given. Nothing is stranded in gutters, and the wide things finally have room.</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">Same note, reading</span><span class="dim">iPad · Preview</span><span class="mode tall">read</span></figcaption>
+    <div class="screen" style="aspect-ratio:1000/620">
+      <div class="toolbar"></div>
+      <div class="body"><div class="detail"><div class="pane">
+        <div class="edit" style="flex-direction:column">
+          <div style="display:flex;flex:0 0 26%"><div class="gutter"></div><div class="text prev" style="flex:0 0 56%">prose<em>80ch · centred</em></div><div class="gutter"></div></div>
+          <div class="blockwide" style="flex:0 0 30%">table &mdash; fits pane, scrolls if wider</div>
+          <div style="display:flex;flex:1"><div class="gutter"></div><div class="text prev" style="flex:0 0 56%">prose</div><div class="gutter"></div></div>
+        </div>
+      </div></div></div>
+    </div>
+    <p class="note">Reading drops every tool. A block too wide for the pane scrolls inside its own
+      container — the page itself never scrolls sideways.</p>
+  </figure>
+</div>
+
+
+<h2>4 · Modes and the wrap ruler <span>· reading · editing · source</span></h2>
+<p class="rule"><b>The cap becomes a ruler.</b> Rather than one hard maximum, prose wraps at a
+<b>configurable ruler</b> — the print-margin guide every developer already knows from Xcode and VS Code,
+measured in characters so it tracks text size. <b>Blocks break the ruler; nothing breaks the pane.</b></p>
+
+<div class="tablewrap"><table>
+<thead><tr><th>Mode</th><th>Syntax markers</th><th>Prose wraps at</th><th>Blocks</th><th>Tools</th><th>Type</th></tr></thead>
+<tbody>
+<tr><td><b>Reading</b></td><td>hidden — fully rendered</td><td class="num">Reading width · 75ch default</td><td>break out to pane</td><td class="no">none</td><td>prose</td></tr>
+<tr><td><b>Editing</b> (live)</td><td>revealed at the caret only</td><td class="num">Wrap ruler · 80ch default</td><td class="yes">break out to pane</td><td class="yes">format / accessory bar</td><td>prose</td></tr>
+<tr><td><b>Source</b></td><td>all visible, unstyled</td><td class="num">Wrap ruler, or off → h-scroll</td><td class="no">none — it is plain text</td><td class="yes">format bar</td><td>monospace</td></tr>
+<tr><td><b>Split</b></td><td>Editing | Reading</td><td class="num">each half, independently</td><td>each half</td><td class="yes">format bar</td><td>both</td></tr>
+</tbody></table></div>
+
+<p class="rule amber"><b>Two settings, because they are two activities.</b>
+<b>Appearance ▸ Reading width</b> — Narrow 60 · Normal 75 · Wide 90 · Full.
+<b>Appearance ▸ Wrap ruler</b> — 72 · 80 · 100 · Off, with an optional guide line.
+Set them equal and switching modes never reflows; leave them apart and reading gets the tighter measure it
+deserves while editing keeps the room it needs.</p>
+
+<div class="plates">
+  <figure>
+    <figcaption><span class="dev">The wrap ruler in editing</span><span class="dim">pane 1380 · ruler 80ch ≈ 560</span><span class="mode panes">editing</span></figcaption>
+    <div class="screen" style="aspect-ratio:1000/620">
+      <div class="toolbar"></div>
+      <div class="body"><div class="detail"><div class="pane">
+        <div class="fmt">B &nbsp;I &nbsp;H1 &nbsp;&#8249;/&#8250; &nbsp;&#8862; table &nbsp;&#931; math &nbsp;&#9671; mermaid</div>
+        <div class="edit" style="flex-direction:column">
+          <div style="display:flex;flex:0 0 24%"><div class="text ruler" style="flex:0 0 44%;align-items:flex-start;padding-left:6px">prose runs past the guide<em>guide at 80ch</em></div><div class="text" style="flex:1;border-left:none">&hellip; to the pane edge</div></div>
+          <div class="blockwide" style="flex:0 0 26%">table &mdash; full pane</div>
+          <div style="display:flex;flex:1"><div class="text ruler" style="flex:0 0 44%;align-items:flex-start;padding-left:6px">prose</div><div class="text" style="flex:1;border-left:none">&hellip;</div></div>
+        </div>
+        <div class="status" style="height:5%">status &nbsp;·&nbsp; <span class="rulerlab">ruler 80</span></div>
+      </div></div></div>
+    </div>
+    <p class="note">The dashed line is a <b>guide, not a wall</b> — exactly Xcode's page guide. Text runs
+      past it to the pane edge; the guide is there for anyone who wants a visual column reference. It is
+      <b>off by default</b>. Set Editor width to a fixed <em>n</em>ch if you want a hard column.</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">Source mode</span><span class="dim">monospace · ruler 80</span><span class="mode compact">source</span></figcaption>
+    <div class="screen" style="aspect-ratio:1000/620">
+      <div class="toolbar"></div>
+      <div class="body"><div class="detail"><div class="pane">
+        <div class="fmt">&#8249;/&#8250; raw markdown &nbsp;·&nbsp; wrap: on &#8964;</div>
+        <div class="edit"><div class="text ruler" style="flex:0 0 58%;align-items:flex-start;padding-left:6px">## Heading<em>left-aligned, monospace</em></div><div class="text" style="flex:1;border-left:none">&hellip; full pane</div></div>
+        <div class="status" style="height:5%">col 42 &nbsp;·&nbsp; <span class="rulerlab">ruler 80</span></div>
+      </div></div></div>
+    </div>
+    <p class="note"><b>Source is a code editor.</b> Left-aligned, monospace, guide visible — and 80
+      monospace characters is a <em>different</em> point width from 80 proportional ones, so the ruler is
+      resolved against the current font, never stored as points.</p>
+  </figure>
+</div>
+
+<p class="note" style="font-size:.86rem"><b>Implications worth stating, because they bite:</b>
+<b>(a)</b> the ruler is a maximum, not a minimum — <code>effectiveWrap = min(ruler, pane − insets)</code>, so a
+narrow pane simply wraps earlier and a phone never sees the setting at all;
+<b>(b)</b> blocks break the ruler but <b>never the pane</b> — anything wider scrolls inside its own container,
+so the page never scrolls sideways;
+<b>(c)</b> the ruler is global, not per pane, so two panes each wrap at <code>min(ruler, own width)</code> and stay
+visually consistent;
+<b>(d)</b> Split shows both settings at once, side by side — the clearest demonstration that they are
+different activities.</p>
+<h2>5 · Toolbars <span>· where the editing tools live</span></h2>
+<p class="rule"><b>Tools follow the hand, not the window.</b> With a pointer, tools sit in a persistent bar
+the eye can ignore. Under touch, tools belong <b>above the keyboard</b>, because that is where the hand
+already is — and they appear only while editing.</p>
+
+<div class="tablewrap"><table>
+<thead><tr><th>Context</th><th>Placement</th><th>Height</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><b>Pointer · pane ≥ 560 · Edit</b></td><td>persistent format bar, top of each pane</td><td class="num">36</td><td>style · lists · link · <b>insert: table, code, math, Mermaid, callout, image</b></td></tr>
+<tr><td><b>Pointer · pane &lt; 560</b></td><td>format bar collapses to an overflow ⋯ menu</td><td class="num">36</td><td>same set, one menu deep</td></tr>
+<tr><td><b>Pointer · any size</b></td><td>window toolbar (native)</td><td class="num">52</td><td>mode switcher · find · inspector toggle · split pane</td></tr>
+<tr><td><b>Pointer · always</b></td><td>menu bar — Format menu</td><td class="num">—</td><td>every command, keyboard-first; the toolbar is a shortcut, never the only route</td></tr>
+<tr><td><b>Touch · editing</b></td><td><b>keyboard accessory bar</b>, pinned above the keyboard</td><td class="num">44</td><td>scrolling row: style · lists · link · table · code · math · ⋯</td></tr>
+<tr><td><b>Touch · reading</b></td><td class="no">no toolbar</td><td class="num">—</td><td>mode switcher in the nav bar only</td></tr>
+</tbody></table></div>
+
+<div class="plates">
+  <figure>
+    <figcaption><span class="dev">Mac — editing</span><span class="dim">format bar + window toolbar</span><span class="mode wide">pointer</span></figcaption>
+    <div class="screen" style="aspect-ratio:900/560">
+      <div class="toolbar" style="height:10%"></div>
+      <div class="body">
+        <div class="col list" style="flex:0 0 22%">list</div>
+        <div class="detail"><div class="pane">
+          <div class="tabs"><span class="tab on">note</span><span class="tab">+</span></div>
+          <div class="fmt">B &nbsp;I &nbsp;H1 &nbsp;&#8249;/&#8250; &nbsp;&#8862; &nbsp;&#931; &nbsp;&#9671; &nbsp;&#8942;</div>
+          <div class="edit"><div class="gutter"></div><div class="text" style="flex:0 0 66%">reading column</div><div class="gutter"></div></div>
+          <div class="status" style="height:6%">status</div>
+        </div></div>
+      </div>
+    </div>
+    <p class="note">Two bars, two jobs: the window toolbar acts on the <b>document</b> (mode, find,
+      inspector, split); the pane's format bar acts on the <b>selection</b>. Insert actions for tables,
+      Mermaid and math sit here because this is the editing machine.</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">iPhone — editing</span><span class="dim">keyboard accessory bar</span><span class="mode compact">touch</span></figcaption>
+    <div class="screen" style="aspect-ratio:402/700">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="navbar" style="height:5.5%">&#8249; Notes &nbsp;&middot;&nbsp; &#8964;</div>
+        <div class="detail" style="flex:0 0 38%"><div class="pane">
+          <div class="edit"><div class="text" style="flex:1">reading column<em>whole width</em></div></div>
+        </div></div>
+        <div class="accessory" style="height:6%"><span>B</span><span>I</span><span>H</span><span>&#8226;</span><span>[[ ]]</span><span>&#8862;</span><span>&#8942;</span></div>
+        <div class="col" style="flex:1;background:var(--nav);border:none">keyboard</div>
+      </div>
+    </div>
+    <p class="note"><b>Tools where the thumbs are.</b> The accessory bar rides above the keyboard and leaves
+      with it — so reading is uncluttered and editing is one reach away. The tab bar and mini strip stay
+      retracted while the keyboard is up.</p>
+  </figure>
+</div>
+<h2>6 · Wide — horizontal abundance <span>· left rail · panes · right inspector</span></h2>
+<div class="plates wide">
+  <figure>
+    <figcaption><span class="dev">Mac large — two panes + inspector</span><span class="dim">3840 × 2160</span><span class="mode panes">wide + panes</span></figcaption>
+    <div class="screen" style="aspect-ratio:3840/1080">
+      <div class="toolbar"></div>
+      <div class="body">
+        <div class="col lib" style="flex:0 0 8.3%">library<em>320 cap</em></div>
+        <div class="col list" style="flex:0 0 10.4%">note list<em>400 cap</em></div>
+        <div class="detail">
+          <div class="pane">
+            <div class="tabs"><span class="tab on">Ana&#772;layo</span><span class="tab">Bronkhorst</span><span class="tab">+</span></div>
+            <div class="edit"><div class="text" style="flex:1;align-items:flex-start;padding-left:6px">editor &mdash; fills the pane<em>left-aligned</em></div></div>
+            <div class="status" style="height:5%">status 28</div>
+          </div>
+          <div class="pane">
+            <div class="tabs"><span class="tab on">SUSE Summit</span><span class="tab">+</span></div>
+            <div class="edit"><div class="text" style="flex:1;align-items:flex-start;padding-left:6px">editor &mdash; fills the pane</div></div>
+            <div class="status" style="height:5%">status 28</div>
+          </div>
+        </div>
+        <div class="col inspector" style="flex:0 0 9.4%">inspector<em>360 cap</em><em>outline·tags·links</em></div>
+      </div>
+    </div>
+    <p class="note"><b>Splitting is manual</b> — a wide display opens with one pane; this shows the
+      capability. Each pane's editor fills its own width, left-aligned, with the inspector permanent at
+      this size. Up to four panes.</p>
+  </figure>
+</div>
+
+<div class="plates">
+  <figure>
+    <figcaption><span class="dev">Mac typical</span><span class="dim">1470 × 923</span><span class="mode wide">wide + inspector</span></figcaption>
+    <div class="screen" style="aspect-ratio:1470/923">
+      <div class="toolbar"></div>
+      <div class="body">
+        <div class="col lib" style="flex:0 0 15%">library<em>220</em></div>
+        <div class="col list" style="flex:0 0 19%">list<em>280</em></div>
+        <div class="detail"><div class="pane">
+          <div class="tabs"><span class="tab on">SUSE Summit</span><span class="tab">Ana&#772;layo</span><span class="tab">+</span></div>
+          <div class="edit"><div class="text" style="flex:1">reading column<em>690</em></div></div>
+          <div class="status" style="height:3%">status</div>
+        </div></div>
+        <div class="col inspector" style="flex:0 0 19%">inspector<em>280</em><em>Outline<br>Tags<br>Backlinks</em></div>
+      </div>
+    </div>
+    <p class="note"><b>P1, the desk researcher.</b> 220 + 280 + 280 = 780 of navigation leaves 690 for the
+      text — inside the measure. Backlinks move from beneath the note into the right rail, so nothing
+      competes for vertical space.</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">Mac default</span><span class="dim">1100 × 720</span><span class="mode wide">wide</span></figcaption>
+    <div class="screen" style="aspect-ratio:1100/720">
+      <div class="toolbar"></div>
+      <div class="body">
+        <div class="col lib" style="flex:0 0 20%">library<em>220</em></div>
+        <div class="col list" style="flex:0 0 25.5%">list<em>280</em></div>
+        <div class="detail"><div class="pane">
+          <div class="tabs"><span class="tab on">note</span><span class="tab">+</span></div>
+          <div class="edit"><div class="text" style="flex:1">reading column<em>600</em></div></div>
+          <div class="status" style="height:4%">status</div>
+        </div></div>
+      </div>
+    </div>
+    <p class="note">Below 1400 the inspector retracts to on-demand popovers — outline, backlinks and tags
+      are a click away rather than a permanent column.</p>
+    <p class="hidden-list">retracted: inspector rail</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">iPad landscape</span><span class="dim">1194 × 834</span><span class="mode wide">wide</span></figcaption>
+    <div class="screen" style="aspect-ratio:1194/834">
+      <div class="toolbar"></div>
+      <div class="body">
+        <div class="col lib" style="flex:0 0 18.4%">library<em>220</em></div>
+        <div class="col list" style="flex:0 0 23.4%">list<em>280</em></div>
+        <div class="detail"><div class="pane">
+          <div class="tabs"><span class="tab on">note</span><span class="tab">+</span></div>
+          <div class="edit"><div class="text" style="flex:1">reading column<em>694</em></div></div>
+          <div class="status" style="height:3.4%">status</div>
+        </div></div>
+      </div>
+    </div>
+    <p class="note">Same shell as the Mac at the same width — chosen by geometry, never by platform.</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">Mac minimum</span><span class="dim">860 × 480</span><span class="mode wide">two</span></figcaption>
+    <div class="screen ovl" style="aspect-ratio:860/480">
+      <div class="toolbar"></div>
+      <div class="body">
+        <div class="col list" style="flex:0 0 32.6%">note list<em>280</em></div>
+        <div class="detail"><div class="pane">
+          <div class="tabs"><span class="tab on">note</span><span class="tab">+</span></div>
+          <div class="edit"><div class="text" style="flex:1">reading column<em>580</em></div></div>
+          <div class="status" style="height:6%">status</div>
+        </div></div>
+      </div>
+    </div>
+    <p class="note">Landscape and under 960: the library retracts to an overlay rather than squeezing
+      the text to ~400pt.</p>
+    <p class="hidden-list">retracted: library rail · inspector</p>
+  </figure>
+</div>
+
+<h2>7 · Tall — vertical abundance <span>· navigation bands across the top</span></h2>
+<div class="plates">
+  <figure>
+    <figcaption><span class="dev">iPad portrait</span><span class="dim">834 × 1194</span><span class="mode tall">tall · banded</span></figcaption>
+    <div class="screen" style="aspect-ratio:834/1194">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="band" style="height:26%">
+          <div class="col lib" style="flex:0 0 26%">library<em>220</em></div>
+          <div class="col list" style="flex:1;border-right:none">note list<em>614 · folder tree</em></div>
+        </div>
+        <div class="detail"><div class="pane">
+          <div class="tabs"><span class="tab on">SUSE</span><span class="tab">Ana&#772;layo</span><span class="tab">⌄</span></div>
+          <div class="edit"><div class="gutter"></div><div class="text" style="flex:0 0 84%">reading column<em>700 · full measure</em></div><div class="gutter"></div></div>
+          <div class="status" style="height:3%">status</div>
+        </div></div>
+      </div>
+    </div>
+    <p class="note"><b>The gain.</b> Banded, the note gets the <b>full 834pt width</b> — against 554pt if
+      this were two columns — so the centred reading measure sits in comfortable margins rather than being
+      squeezed. Navigation spends the height portrait has to spare; the band collapses with a swipe.</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">Tall Mac window</span><span class="dim">900 × 1400</span><span class="mode tall">tall + rail</span></figcaption>
+    <div class="screen" style="aspect-ratio:900/1400">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="band" style="height:22%">
+          <div class="col lib" style="flex:0 0 24%">library<em>220</em></div>
+          <div class="col list" style="flex:1;border-right:none">note list<em>680</em></div>
+        </div>
+        <div class="body" style="flex:1">
+          <div class="detail"><div class="pane">
+            <div class="tabs"><span class="tab on">note</span><span class="tab">+</span></div>
+            <div class="edit"><div class="text" style="flex:1">reading column<em>620</em></div></div>
+            <div class="status" style="height:3%">status</div>
+          </div></div>
+          <div class="col inspector" style="flex:0 0 31%">inspector<em>280</em></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">A portrait-ish window still ≥ 900 wide keeps the <b>right rail</b> alongside the banded
+      navigator — your point that a vertical right sidebar can survive if the width allows.</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">iPad ½ split</span><span class="dim">507 × 1024</span><span class="mode compact">compact</span></figcaption>
+    <div class="screen" style="aspect-ratio:507/1024">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="detail"><div class="pane">
+          <div class="tabs" style="height:5%"><span class="tab on">SUSE</span><span class="tab">Notes</span><span class="tab">⌄</span></div>
+          <div class="edit"><div class="text" style="flex:1">reading column<em>507</em></div></div>
+        </div></div>
+        <div class="mini" style="height:5%">▲ Notes · SUSE Summit</div>
+        <div class="tabbar" style="height:6%"><span>Notes</span><span>Search</span><span>Tags</span><span>AI</span></div>
+      </div>
+    </div>
+    <p class="note">Under 600pt even a band would starve the text, so this falls to the compact shell —
+      the same one the phone uses.</p>
+    <p class="hidden-list">retracted: library · list · inspector</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">iPad ⅓ split</span><span class="dim">320 × 1024</span><span class="mode compact">compact</span></figcaption>
+    <div class="screen" style="aspect-ratio:320/1024">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="detail"><div class="pane">
+          <div class="tabs" style="height:5%"><span class="tab on">SUSE</span><span class="tab">⌄</span></div>
+          <div class="edit"><div class="text" style="flex:1">reading column<em>320 · floor</em></div></div>
+        </div></div>
+        <div class="tabbar" style="height:5%"><span>Notes</span><span>Search</span><span>Tags</span><span>AI</span></div>
+      </div>
+    </div>
+    <p class="note"><b>P4, the capturer</b> beside Safari. Text at its floor; the tab strip survives because
+      it is the only way to reach another open note.</p>
+    <p class="hidden-list">retracted: library · list · inspector · status</p>
+  </figure>
+</div>
+
+<h2>8 · Compact — the editor is the screen <span>· Apple Music model</span></h2>
+<p class="rule amber"><b>The open note behaves like the now-playing track.</b> A bottom tab bar carries the
+app’s places — Notes, Search, Tags, AI. The note you are editing persists above it as a <b>mini strip</b>,
+one tap from full screen, exactly as a mini-player does. <b>Both retract as you scroll or type</b> and return
+when you scroll back, so writing gets the entire display without losing your way back.</p>
+<div class="plates">
+  <figure>
+    <figcaption><span class="dev">iPhone — browsing</span><span class="dim">402 × 874</span><span class="mode compact">compact</span></figcaption>
+    <div class="screen" style="aspect-ratio:402/874">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="col list" style="flex:1;border-right:none">note list<em>full width</em></div>
+        <div class="mini" style="height:6.4%">▲ SUSE Summit Sydney · editing</div>
+        <div class="tabbar" style="height:7.5%"><span>Notes</span><span>Search</span><span>Tags</span><span>AI</span></div>
+      </div>
+    </div>
+    <p class="note">Browsing the list, the open note is never lost — it waits in the mini strip
+      (56pt) above the tab bar (49pt + safe area).</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">iPhone — editing</span><span class="dim">402 × 874</span><span class="mode compact">editor king</span></figcaption>
+    <div class="screen" style="aspect-ratio:402/874">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="navbar" style="height:4.5%">‹ Notes &nbsp;·&nbsp; ⌄ tabs</div>
+        <div class="detail"><div class="pane">
+          <div class="edit"><div class="text" style="flex:1">reading column<em>402 · whole screen</em></div></div>
+        </div></div>
+      </div>
+    </div>
+    <p class="note"><b>P5.</b> Tab bar and mini strip have retracted; the note owns every point. Scroll up
+      or dismiss the keyboard and they slide back. Open notes reach via the ⌄ menu in the nav bar.</p>
+    <p class="hidden-list">retracted: tab bar · mini strip · status · everything else</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">iPhone SE</span><span class="dim">375 × 667</span><span class="mode compact">compact</span></figcaption>
+    <div class="screen" style="aspect-ratio:375/667">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="navbar" style="height:6%">‹ Notes &nbsp;·&nbsp; ⌄</div>
+        <div class="detail"><div class="pane">
+          <div class="edit"><div class="text" style="flex:1">reading column<em>375</em></div></div>
+        </div></div>
+        <div class="tabbar" style="height:8.5%"><span>Notes</span><span>Search</span><span>Tags</span><span>AI</span></div>
+      </div>
+    </div>
+    <p class="note">Smallest supported screen — the shortest height, so retraction matters most here.</p>
+  </figure>
+
+  <figure>
+    <figcaption><span class="dev">iPhone — keyboard up</span><span class="dim">402 × 874 · ~420 usable</span><span class="mode compact">worst case</span></figcaption>
+    <div class="screen" style="aspect-ratio:402/874">
+      <div class="toolbar"></div>
+      <div class="body vert">
+        <div class="navbar" style="height:4.5%">‹ Notes</div>
+        <div class="detail" style="flex:0 0 40%"><div class="pane">
+          <div class="edit"><div class="text" style="flex:1">reading column<em>~350 tall</em></div></div>
+        </div></div>
+        <div class="col" style="flex:1;background:var(--nav);border:none">keyboard<em>~52% of the screen</em></div>
+      </div>
+    </div>
+    <p class="note"><b>The extreme that must not break.</b> With the keyboard up the editor has ~350pt of
+      height. Chrome must retract, not compress — and the caret must stay visible above the keyboard.</p>
+  </figure>
+</div>
+
+<h2>9 · The contract <span>· what each shell guarantees</span></h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Shell</th><th>Trigger</th><th>Left rail</th><th>List</th><th>Right inspector</th><th>Panes</th><th>Switching</th><th>Tools</th></tr></thead>
+<tbody>
+<tr><td><b>Wide + inspector</b></td><td class="num">w ≥ 1400</td><td class="yes">column</td><td class="yes">column</td><td class="yes">column ≤360</td><td class="yes">1–4</td><td class="yes">tabs / panes</td><td class="yes">format bar</td></tr>
+<tr><td><b>Wide</b></td><td class="num">w ≥ 960</td><td class="yes">column</td><td class="yes">column</td><td class="maybe">popover</td><td class="maybe">1–2</td><td class="yes">tabs</td><td class="yes">format bar</td></tr>
+<tr><td><b>Tall</b></td><td class="num">w ≥ 600 · h &gt; w</td><td class="yes">top band</td><td class="yes">top band</td><td class="maybe">rail if w ≥ 900</td><td class="num">1</td><td class="yes">tabs</td><td class="maybe">bar or accessory</td></tr>
+<tr><td><b>Two</b></td><td class="num">w 600–960 landscape</td><td class="no">overlay</td><td class="yes">column</td><td class="maybe">popover</td><td class="num">1</td><td class="yes">tabs</td><td class="yes">format bar</td></tr>
+<tr><td><b>Compact</b></td><td class="num">w &lt; 600</td><td class="no">tab bar</td><td class="no">tab bar</td><td class="no">popover</td><td class="num">1</td><td class="yes">tab strip + ⌄</td><td class="yes">accessory bar</td></tr>
+</tbody></table></div>
+<p class="note">Invariant across every row: the reading column stays within <b>290–700pt</b>, and a way to
+switch between open notes is always present.</p>
+
+<h2>10 · Decisions needed <span>· these change what you see daily</span></h2>
+<p class="note" style="font-size:.9rem">
+<b>1 · Right inspector</b> absorbs backlinks, outline, tags and graph into one tabbed rail at ≥1400pt.
+That moves tags out of the left sidebar — the biggest visible change.<br>
+<b>2 · Tall shells band</b> navigation across the top instead of using a second column.<br>
+<b>3 · Compact adopts the Apple Music model</b> — bottom tab bar plus a retracting mini-note strip.<br>
+<b>4 · Two columns at the 860pt Mac minimum</b> rather than today’s always-three.<br>
+<b>5 · One shell replaces <code>MacContentView</code> + <code>iOSContentView</code>.</b><br>
+<b>6 · Panes default to 2 at ≥1400pt of detail</b> — or should splitting always be manual?<br>
+<b>7 · Two width settings</b> — Reading width (default 75ch) and Wrap ruler (default 80ch), both in
+characters so they track text size. Equal values mean mode switching never reflows.<br>
+<b>8 · Blocks break the ruler, never the pane</b> — tables, Mermaid, code, math and images fill the pane
+and scroll inside themselves if wider.<br>
+<b>9 · Format bar is per pane and persistent with a pointer</b>, and becomes the keyboard accessory bar
+under touch.
+</p>
+</div>

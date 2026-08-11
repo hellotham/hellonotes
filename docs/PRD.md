@@ -79,7 +79,7 @@ Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P
 > **Search & nav:** title filter, full-text search with snippets, Open Quickly (⇧⌘O) over notes/headings/aliases, tags + **nested tags** tree + **tag autocomplete**, **bookmarks**, **daily notes** + **templates**.
 > **AI (optional):** on-device Apple Intelligence (summarise / suggest tags / suggest links), **Ask Library** retrieval chat with citations, an agentic **Assistant** (tools incl. web search/fetch, note editing behind explicit approval, skills, deep research), and pluggable providers — local (Apple, MLX, Ollama, LM Studio) or the user's own cloud key (Anthropic, OpenAI-compatible, Gemini). Keys in the Keychain; no developer backend.
 > **Git:** repo status, init, local commit, opt-in auto-commit (never auto-pushes), push/fetch, per-note **version history** (browse + restore), **clone** + **create-remote** with HTTPS token auth (Keychain), in-app git identity.
-> **Platform:** macOS 3-column shell with full menu bar, windowed Graph/Mind Map/Assistant/Ask Library, appearance settings (theme/accent/text size), launch splash with build info; iOS/iPadOS adaptive shell (browse / WKWebView preview / plain-text edit companion sharing Core/State).
+> **Platform:** macOS adaptive shell (width/aspect-driven; see layout-architecture.md) with full menu bar, windowed Graph/Mind Map/Assistant/Ask Library, appearance settings (theme/accent/text size), launch splash with build info; iOS/iPadOS runs the same shell sharing Core/State, with the full four view modes.
 > **System integration** *(added 2026-07-19/20 — [native-roadmap.md](native-roadmap.md))*: App Intents (`NoteEntity` + Siri/Shortcuts), Spotlight donation, a recent-notes **widget**, **Quick Look** preview + thumbnail extensions, menu-bar quick capture + global hotkey, `hellonotes://` URL scheme, Services menu, state restoration, TipKit, on-device dictation (SpeechAnalyzer) and Foundation Models `@Generable`.
 > **Cloud storage** *(added 2026-07-20/21 — [cloud-native-roadmap.md](cloud-native-roadmap.md))*: a vault folder may live in **Box, Dropbox, OneDrive (personal/business), Google Drive or iCloud** via Apple's File Provider layer, with files kept **online-only until opened** (coordinated I/O + dataless-aware indexing); or an account can be connected **directly over its own API** (four built-in clients, no vendor SDKs) and promoted to a first-class sidebar collection.
 > **Deferred** (engine walls / roadmap): create-on-miss from an in-editor muted link click, git pull/merge + conflict UI, richer iOS editor — see [unimplemented.md](unimplemented.md).
@@ -123,8 +123,10 @@ Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P
 - **P1** Math (SwiftMath). **P0** Code highlighting (HighlighterSwift).
 
 ### 7.7 Platform
-- **P0** macOS 15+ 3-column shell (`NavigationSplitView`).
-- **P2** iOS/iPadOS shell (`NavigationStack`), sharing the Core/State layers.
+- **P0** macOS 15+ **adaptive shell** — one width- and aspect-driven layout, not a fixed 3-column split.
+  See [docs/layout-architecture.md](layout-architecture.md) and [docs/wireframes.html](wireframes.html).
+- **P2** iOS/iPadOS uses the **same shell**, sharing the Core/State layers — device identity is never
+  consulted, because Stage Manager makes it meaningless (an iPad window can be 320pt or 1600pt wide).
 
 ## 8. Key user stories (MVP)
 1. *As a new user,* I pick a folder of Markdown files and immediately see them listed, so I can start working with my existing notes.
@@ -133,11 +135,35 @@ Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P
 4. *As a returning user,* I reopen the app and my vault and last note are still there, so I resume instantly.
 5. *As a note-keeper,* I create and delete notes from within the app, and the changes are reflected as real files in Finder.
 
-## 9. UX overview (MVP)
-Three-column macOS layout:
-- **Sidebar (col 1):** vault name + note count, "Select Vault", "New Note", search field.
-- **List (col 2):** notes (title + modified date), selectable; sort by modified desc by default.
-- **Editor (col 3):** the live Markdown editor for the selected note, with a saved/unsaved indicator; empty-state when nothing is selected.
+## 9. UX overview
+
+The shell follows the **axis of abundance**, not the device. Full design in
+[docs/layout-architecture.md](layout-architecture.md); wireframes for every size in
+[docs/wireframes.html](wireframes.html).
+
+| Available space | Shell | Navigation lives |
+|---|---|---|
+| `width ≥ 1400` | Wide + inspector | left rail · list · right inspector |
+| `width ≥ 960` | Wide | left rail · list |
+| `width ≥ 600`, taller than wide | Tall | a band across the top |
+| `width 600–960`, landscape | Two | list column; library retracts to an overlay |
+| `width < 600` | Compact | bottom tab bar + retracting mini-note strip |
+
+**The two rails.** The left rail answers *"where is it?"* — collections, folder tree, bookmarks, quick
+actions, with the Git panel as chrome. The right **inspector** answers *"what is this, and what touches
+it?"* — tabbed **Outline · Tags · Backlinks · Properties · Graph · History**.
+
+**Priority under pressure:** `text > switching > list > library > references > properties`. Navigation
+yields first; the note is the last thing to shrink and the last to disappear.
+
+**Panes and tabs are one job at two sizes.** Where there is width, a pane can be split so two notes sit
+side by side (manually — never automatically). Where there is not, **tabs** are the way to switch, so they
+become *more* important as the screen shrinks, not less. Switching is never removed.
+
+**Reading is not editing.** Reading holds a fixed, centred measure (default 80 characters), because line
+length decides reading comfort. Editing **fills the pane, left-aligned — the VS Code model** — because a
+fixed column inside a 3200pt pane is 17% of the display, and a Markdown editor should use the workspace it
+was given. Tables, code, Mermaid, math and images always take the full pane width.
 
 ## 10. Success metrics
 - **Performance:** typing latency < 16 ms (60fps) on a 5k-word note; vault scan of 1,000 notes < 300 ms.
@@ -154,6 +180,9 @@ Three-column macOS layout:
 
 ## 12. Open questions
 1. **Preview model:** ✅ *Resolved (v1.0)* — always-live inline styling remains the default, joined by explicit view modes (Edit / native read-only Preview / Markdown source / Split).
+   ✅ *Width model (v1.1)* — **Reading** uses a fixed centred measure (default 80ch, user-configurable);
+   **Editing** and **Source** fill the pane left-aligned, with an optional wrap *guide* line (off by
+   default) rather than a hard column. Blocks always take the full pane width.
 2. **Auto-commit cadence:** ✅ *Resolved* — opt-in debounced auto-commit plus a manual Commit/Sync; never auto-pushes.
 3. **Wiki-link create-on-miss:** ✅ *Resolved (v0.1)* — new linked notes are created in the vault root. (Configurable location is a possible later refinement.)
 4. **Extensibility:** *Open* — still holding Vellum's "pure editor" line; no plugin surface in v1.0. (AI "skills" — Markdown instruction notes in the collection — cover part of this space without a plugin runtime.)
