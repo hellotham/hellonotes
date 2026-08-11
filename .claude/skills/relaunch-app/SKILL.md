@@ -39,6 +39,11 @@ does exactly that.
 - **Relaunch only when the user asks.** The app runs on the machine they are
   working on; an unrequested relaunch takes their window away mid-task. Build,
   verify headlessly (below), then hand it over.
+- **`xcodebuild test` relaunches the app too.** A macOS test bundle needs a test
+  *host*, so running the suite launches HelloNotes on the user's screen exactly
+  as `relaunch-debug.sh` does. Say so when you run tests, and prefer
+  `swift test --package-path Packages/NotesEditor` (no host) or the scratchpad
+  harnesses when you only need a headless check.
 - **Never** `open` the app or relaunch via AppleScript to test a change — you'll
   test the old binary. Always go through `scripts/relaunch-debug.sh`.
 - **Respect the user's screen.** Never drive the app with computer-use or
