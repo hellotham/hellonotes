@@ -1,6 +1,6 @@
 # HelloNotes
 
-> **Version 1.0** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
+> **Version 1.1** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
 
 HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps like Obsidian and cross-platform editors like Typora. It's built strictly on modern Swift — **AppKit + TextKit 2 + SwiftUI** — prioritising high-FPS text rendering, plain `.md` files as the absolute source of truth, and seamless background Git synchronisation. **No proprietary database. Your files in Finder *are* the database** — and those files can live locally *or* in Box, Dropbox, OneDrive, Google Drive or iCloud, opened on demand without pulling the whole vault down.
 
@@ -17,9 +17,10 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [docs/signing.md](docs/signing.md) | Code-signing & provisioning notes (team, capabilities, entitlements) |
 | [docs/xcode-targets-setup.md](docs/xcode-targets-setup.md) | How the Widget / Quick Look extension targets and the App Group were added |
 | [docs/website.md](docs/website.md) | The product site — Astro + Tailwind, its site map, GitHub Actions deploy, DMG distribution, and the two URL traps (`base`, custom domain) |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release, in user-facing terms |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
-## ✨ Features (v1.0)
+## ✨ Features (v1.1)
 
 **Local-first, multi-collection**
 - No CoreData/SwiftData/iCloud store; your `.md` files are the truth. Open **several collections at once** as a *library*, with a launcher, recents, and saved library sets.

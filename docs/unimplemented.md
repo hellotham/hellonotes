@@ -1,6 +1,7 @@
 # Unimplemented, Deferred & Production Readiness
 
-> As of **v1.0**, wrapping up for release. A single register of everything **not** shipped
+> As of **v1.1** (register reconciled against the source 2026-08-11 — five entries
+> described gaps that had already been closed; see [implemented.md §20](implemented.md)). A single register of everything **not** shipped
 > or **not** production-hardened: gaps, deferrals, bugs, tech debt, usability, accessibility,
 > security, performance, and App-Store packaging. Compiled from a five-lane code audit
 > (correctness · release/packaging · data-safety/concurrency/AI · usability/a11y · perf/scale).
@@ -38,7 +39,7 @@
 *Resolved and moved to [implemented.md §7](implemented.md#7--post-review-fix-pass-2026-07-19): `createRepository`/`cloneRepository` routed through the git FIFO queue; serialized `EditorModel` writes (no stale-on-quit race).*
 
 - 🟡 **Assistant edit vs. open editor buffer** — the assistant's writes are now atomic, but if the same note is open in the editor with unsaved edits, the change still races the editor's autosave/reconcile (the write goes to disk, not through the open `EditorModel`). Reconciliation raises a conflict in the common case, but a narrow window remains. **Fix:** route assistant writes through the open buffer when the note is being edited.
-- 🟡 **`ChatSessionStore` write is `try?`** (`ChatSessionStore.swift:46,50`) — a failed transcript write/removeItem is silent; low stakes (chat history, load is resilient) but worth surfacing.
+- ✅ ~~**`ChatSessionStore` write is `try?`**~~ — resolved (§20): save/clear failures now report through the assistant's `errorText`, except `fileNoSuchFile` on clear (an empty conversation).
 
 ---
 
@@ -58,8 +59,8 @@
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): debounced search-aggregate rebuild; bounded `CollectionEmbedProvider`/`BlockRenderAdapter` image caches; bounded + off-main chat-transcript persistence.*
 
 - 🟡 **Transclusion card render runs on the main actor** — a file read + `NoteTranscluder` `lockFocus` per *uncached* `![[Note]]` embed (`CollectionEmbedProvider.swift`) blocks the UI while rendering. Now bounded/cached (so it's rare), but the first render of each card is still main-actor. **Fix:** render to a bitmap off-main (lockFocus is main-only, so this needs a `CGContext`/`NSBitmapImageRep` path).
-- 🟡 **External-change scan isn't coalesced** — each watcher batch that passes the change filter runs a fresh full directory walk with no in-flight cancellation (`Collection.swift`); a bulk `git checkout`/`pull` can trigger several back-to-back walks (the expensive *derive* is already coalesced, so impact is bounded).
-- 🟡 **Collections open sequentially at launch** — `Library.restore()` awaits each collection's off-main scan before the next (`Library.swift`); a saved library of many collections serializes cold-scan latency (single-collection launch is unaffected).
+- 🟡 **External-change scan isn't fully coalesced** — *partly resolved (§20)*: `Task.detached` doesn't inherit cancellation, so a cancelled debounce task used to leave its walk running while the replacement started another. Cancellation is now forwarded, `enumerate` returns early, and partial results are discarded. **Still open:** there is no in-flight latch, so a change arriving mid-walk still starts a fresh walk once the current one is cancelled rather than queueing one re-run. Deliberately left — a latch adds re-entrancy to the core scan path.
+- ✅ ~~**Collections open sequentially at launch**~~ — resolved (§20): `restore()` creates the collections up front and activates them in a task group, so launch costs the slowest scan rather than the sum.
 - 🟡 **Main-actor single-file reads** in `linkMention`/`insertTemplate` (`MacContentView.swift`) — small user-initiated reads, low impact.
 - 🟡 **`LibraryChatView.retrieve` reads every note per question** (off-main, user-initiated); fine now, revisit for very large vaults.
 
@@ -69,9 +70,9 @@
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): file-operation errors now surface (alert); folder-delete confirmation; ⌘P Print; "AI not configured" empty state; rename distinguishes name-taken from OS errors.*
 
-- 🟡 **Indeterminate spinners with no timeout/cancel** — git clone/create/push spin on `git.isBusy` alone (`CloneRepositoryView.swift`, `NewRepositoryView.swift`); a hung network op spins with no cancel. The op has a libgit2 timeout, but the UI offers no Cancel button.
-- 🟡 **References panel disappears when empty** instead of a "No backlinks yet" state (`NoteEditorView.swift`).
-- 🟡 **Duplicate has no keyboard shortcut** (⌘D is Bookmark, Finder-style).
+- 🟡 **Push still has no Cancel** — clone has had a real Stop for some time, and **create** gained one in §20 (cancellable runner, cancellation forwarded into the detached libgit2 work, half-made repository removed). Push is the remaining op that spins on `git.isBusy` alone.
+- ✅ ~~**References panel disappears when empty**~~ — resolved (§20): the button stays put and shows the same "No References" copy the inspector already used. (The inspector's own tab already had the empty state.)
+- ✅ ~~**Duplicate has no keyboard shortcut**~~ — **entry was stale**: Duplicate is ⌘D (Finder convention) and Bookmark is ⇧⌘D (`AppCommands.swift`). Shipped before 1.1, never struck off.
 
 ---
 
@@ -79,20 +80,20 @@
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): Graph is now VoiceOver-navigable (`accessibilityChildren`); git dirty-state dot is labelled (not colour-only). (Mind Map nodes were already real `Text`/`Button` views, so already navigable.)*
 
-- 🟠 **No editor headings rotor** — zero `accessibilityRotor`; long notes have no VoiceOver heading navigation. The editor is an `NSTextView` (`NSViewRepresentable`), so this needs AppKit-level accessibility (custom `accessibilityCustomRotors` on the text view exposing heading ranges), not a SwiftUI rotor. Headings are already extracted, so the data is there.
+- ✅ ~~**No editor headings rotor**~~ — **entry was stale**: shipped on macOS (`accessibilityCustomRotors` + `NSAccessibilityCustomRotorItemSearchDelegate`) *and* iOS (`UIAccessibilityCustomRotor(systemType: .heading)`). The real gap underneath it — neither copy honoured the rotor's `filterString`, so typing to narrow the list did nothing — was fixed in §20, and the walk moved to `EditorDocument.rotorHeading(after:forward:matching:)` so it is testable.
 - 🟠 **Custom TextKit-2 editor a11y needs an on-device VoiceOver audit** — concealed/replaced ranges (near-zero-size marker fonts, drawn block embeds) may misreport to VoiceOver. `NSTextView` is natively accessible, but the concealment layer needs verification on a real device with VoiceOver.
-- 🟡 **Canvas labels scale by zoom, not Dynamic Type** (`GraphView`, `MindMapView`); the rest of the UI respects Dynamic Type.
-- 🟡 **Reduce Motion isn't queried** — low exposure (graph/mind-map layouts are precomputed, not live-simulated).
+- ✅ ~~**Canvas labels scale by zoom, not Dynamic Type**~~ — resolved (§20): both canvases use `@ScaledMetric`, and the mind map feeds the same factor into `estimatedChipSize` so chips grow with their labels instead of clipping.
+- ✅ ~~**Reduce Motion isn't queried**~~ — **entry was stale**: the only continuously animating surface (`SplashScreenView`) already pauses its `TimelineView` on `accessibilityReduceMotion`. Everything else is a precomputed layout or a single state transition.
 
 ---
 
 ## 6 · Editor gaps
 
-- 🟡 **Concealed `$$` block leaves a coloured dot and a height gap** — found while shooting
-  the website screenshots. A rendered block formula is followed by a small coloured glyph and
-  roughly 90pt of empty space: the collapsed source is concealed by near-zero-size marker
-  fonts (§5) but still contributes a glyph and reserves line height. Cosmetic, but it is in
-  every note with display maths — and it is what blocks screenshot scene 2 (§8c).
+- ✅ ~~**Concealed `$$` block leaves a coloured dot and a height gap**~~ — resolved (§20).
+  Three separate defects, all from `collapse(range:to:)` treating a multi-line block as
+  one line: the image band was reserved once per newline (~90pt of dead space), the block's
+  trailing newline stayed at body size (a blank line under the formula), and the async code
+  highlighter repainted a collapsed Mermaid fence's concealed source (the coloured specks).
 
 *The **iOS live editor** (`editor-M5`) is now **shipped**, including the fragment chrome — see [implemented.md §6](implemented.md#6--production-release-hardening). iOS has a live TextKit 2 editor with inline styling, caret-driven concealment, and the full block chrome (bullets, checkboxes, callouts, gutter bars, heading rules) via an overlay renderer; the `BlockRendering` chrome was ported to cross-platform CoreGraphics with no macOS regression.*
 
@@ -176,28 +177,37 @@ decisions are not:
   green macOS builds.
 - 🟡 **The universal (arm64 + x86_64) slice is still verified by hand** — CI builds the native
   runner architecture only.
-- 🔴 **The website screenshots predate the shell redesign** (2026-08-11). All five light/dark
-  pairs in `website/src/lib/screens.ts` show the old wide left sidebar with its collection
-  card, quick-action buttons and bookmarks — a UI that no longer exists, and now two
-  redesigns stale. **Blocks the next website deploy** — the download page and the feature
+- 🔴 **The website screenshots predate the shell redesign** (2026-08-11). All five
+  light/dark pairs in `website/src/lib/screens.ts` show the old wide left sidebar with its
+  collection card, quick-action buttons and bookmarks — a UI that no longer exists, and now
+  two redesigns stale. **Blocks the next website deploy** — the download page and the feature
   tour both lead with them.
 
-  *Attempted 2026-08-11 with computer-use; the shoot found two bugs that had to be fixed
-  first (see implemented.md §19) and stopped on two remaining blockers:*
-  - **Shoot at 1470×852, not 1470×923.** 923 only fits with the Dock hidden; the compositor
-    scales to fit, so any consistent size works and the wider aspect fills the plate better.
-    Set the window with `System Events`, not by hand.
-  - **Scene 2 (maths + diagrams) is not shippable yet** — two cosmetic artifacts in the
-    editor's concealment layer: a stray coloured dot below a `$$` block, and ~90pt of dead
-    space between the rendered formula and the next paragraph (the collapsed source still
-    reserves height). Both pre-date the redesign; both are visible in a marketing shot.
-  - **Scene 5 (Ask Library) needs a configured provider** and a real question/answer, so it
-    cannot be shot without live keys — which is entangled with the `.env` rotation in §0.
-  - Procedure that *did* work, for whoever resumes: `⌘O` → Recent Collections → SampleVault,
-    right-click the real vault → Close Collection (the ⊗ on the group row does not respond to
-    a synthetic click; the context menu does), then `screencapture -l <windowID>` — which
-    captures the one window through the compositor and sidesteps the "Claude window floats
-    over a region capture" trap entirely.
+  *The two editor-side blockers are gone* (the `$$` artifacts, §20, and the appearance-blind
+  block images, §19), and Ask Library needs **no API keys**: Apple Intelligence is the default
+  intelligence provider and this machine runs macOS 26, so scene 5 shoots on-device.
+
+  **What blocks it now is a host permission, not the app.** Every capture path fails:
+  `screencapture` full-screen returns pure black, `screencapture -l <id>` returns
+  "could not create image from window", and the computer-use `screenshot` returns
+  "permission missing or SCContentFilter failure". macOS requires **Screen Recording** for
+  all three. Grant it to the host process — `/Applications/Claude.app` — under
+  **System Settings ▸ Privacy & Security ▸ Screen & System Audio Recording**, then restart
+  the app (macOS only applies the grant to a fresh process). `System Events` window
+  resizing also failed with "Can't get window 1", which points at Accessibility being
+  unset for the same process.
+
+  Procedure once permission is granted:
+  - **Shoot at 1470×852**, not 1470×923; 923 only fits with the Dock hidden, and the
+    compositor scales to fit, so any *consistent* size works.
+  - Grant computer-use access to **HelloNotes alone** — screenshot filtering is
+    compositor-level (`screenshotFiltering: native`), so no other window can appear in
+    the frame, which retires the old "hide the Claude window" trap entirely.
+  - `⌘O` → Recent Collections → SampleVault; right-click the real vault → Close
+    Collection (the ⊗ on the group row ignores a synthetic click; the context menu
+    works). **Restore the real vault afterwards** — closing it changes the user's library.
+  - Composite with `scripts/make-screenshots.py raw website/src/assets/screens`.
+
 - 🟡 **Toolchain-sensitive code shapes** — two functions in `Core/VisionAlt.swift` are
   deliberately non-generic to dodge a SIL-inliner bug and carry comments saying so. If the
   Swift toolchain moves on, re-check before "simplifying" them back.
@@ -209,7 +219,7 @@ decisions are not:
 - ✅ ~~**Main window has no `defaultSize`**~~ — added (1100×720) in the HIG pass, [implemented.md §10](implemented.md#10--human-interface-guidelines-usability-pass-2026-07-20).
 - ✅ ~~**Minimal first-run onboarding**~~ — `WelcomeView` ships a one-time welcome sheet on both platforms (§10).
 - 🟡 **Liquid Glass (macOS 26)** — custom sidebar chrome and `.background(.bar)` status bars may fight the new material; needs a visual pass on 26. *(Code audit found no custom fills or opt-outs; the remaining risk is visual-only.)*
-- 🟡 **Dark Mode in the Canvas surfaces** — graph/mind-map folder colours are drawn directly and may not adapt or meet contrast in dark mode.
+- ✅ ~~**Dark Mode in the Canvas surfaces**~~ — **entry was stale**: `NodePalette` is built entirely from adaptive system hues (`.blue`, `.purple`, …), which resolve per appearance; nothing is a fixed RGB value.
 - 🟡 **Editor Dynamic Type** — the note editor uses its own text-scale control rather than system Dynamic Type. Deliberate (§10 "Consciously not changed"), but revisit if accessibility review pushes back.
 
 ---
@@ -222,11 +232,12 @@ decisions are not:
 
 ## 11 · Tech debt & cleanups
 
-- 🟠 **Incremental parse doesn't converge for prose** (`Packages/NotesEditor/Sources/MarkdownCore/BlockParser.swift`) — convergence only fires at `open == .none` (`isAtBoundary`), which prose (paragraphs, blanks, lists, quotes, tables) never leaves standing between lines, so an edit near the top of a long non-heading note re-parses to EOF: O(document) per keystroke. Correctness holds (fuzz tests pass); only the "cost proportional to the edit" guarantee is defeated. **Fix** needs the convergence check to compare the full builder state (not just `.none`) with its own fuzz re-verification — deferred from the review-fix passes as too risky for a blind `--fix`. (Related, same file: the `.blank` merge branch is dead — `closeOpen` nulls `open` before the `if case .blank` test — and the thematic-break / setext / front-matter-fence classifiers don't tolerate a trailing `\r`, so CRLF files mis-parse those constructs.)
-- 🟡 **Inconsistent regex construction** — `try! NSRegularExpression` on constant patterns in `MarkdownParsing.swift:38,44,123` vs `try?` for the same pattern class in `MindMapView.swift:429`; pick one (a shared precompiled-regex helper).
-- 🟡 **Fragile force-unwrap idioms on constants** — `URL(string:)!` (`AppCommands.swift:236`), `stack.last!` on an unenforced invariant (`MindMapView.swift:319`); safe today, brittle.
+- 🟠 **Incremental parse doesn't converge for prose** (`Packages/NotesEditor/Sources/MarkdownCore/BlockParser.swift`) — convergence only fires at `open == .none` (`isAtBoundary`), which prose (paragraphs, blanks, lists, quotes, tables) never leaves standing between lines, so an edit near the top of a long non-heading note re-parses to EOF: O(document) per keystroke. Correctness holds (fuzz tests pass); only the "cost proportional to the edit" guarantee is defeated. **Fix** needs the convergence check to compare the full builder state (not just `.none`) with its own fuzz re-verification — deliberately still deferred: it is the parser every other feature sits on, and a release week is the wrong time. *(The two sibling defects noted here are resolved in §20: the dead `.blank` merge branch — the test sat after `closeOpen`, which had already reset `open` — and the CRLF classifiers, which made setext headings, thematic breaks and front matter parse as paragraphs in any Windows-saved file.)*
+
+- ✅ ~~**Inconsistent regex construction**~~ — resolved (§20): `try!` is the convention for a literal pattern (a failure is a programming error, visible on the first run). `MindMapView`'s `try?` meant a broken pattern would have rendered every mind map with no links and never said why. The two patterns are *not* interchangeable — the mind map's handles `[[Target#heading]]` — so they stay separate.
+- ✅ ~~**Fragile force-unwrap idioms on constants**~~ — resolved (§20) for both sites named. *(The `URL(string:)!` calls in `Core/Remote/*Store.swift` interpolate provider file IDs and are a separate, larger sweep.)*
 - ✅ **Undocumented unsafe-concurrency conformances** — *resolved (§7):* `CollectionEmbedProvider`'s `@unchecked Sendable` now carries a lock-invariant justification, and the editor's `nonisolated(unsafe)` observer tokens (`busTokens`, `boundsObserver`) are documented; `MarkdownTextView`'s bounds observer is now removed in `deinit`.
-- 🟡 **Duplicated magic-timing** — the 1.2 s highlight-clear `asyncAfter` is copy-pasted in two paths (`MacContentView.swift:1164`, `NoteEditorView.swift:598`); if they drift, toolbar vs outline "clear highlight" diverges. (Same root as the §1 timing-based scroll-to-heading hand-off — replace both with an editor-ready signal.)
+- 🟡 **Heading jump is still timing-based** — the two copies of the 1.2 s highlight-clear are now one function (`hnJumpToHeadingInEditor`, §20), so they can no longer drift. The underlying want — an editor-ready signal instead of a fixed delay — is still open.
 - 🟡 **English-only inline copy** — see §10 (also a maintainability cost).
 
 ---
@@ -288,3 +299,39 @@ None block the macOS 1.0 release.
 A post-review fix pass (2026-07-19) resolved the blocker and most should-fix items from
 a full-codebase review — see [implemented.md §7](implemented.md#7--post-review-fix-pass-2026-07-19).
 The items it landed are struck from the sections above; what it left open is tracked below.
+
+---
+
+## 1.1 (2026-08-11)
+
+The 1.1 batch closed the §6 concealment defects, the §11 CRLF and dead-branch
+faults, the §1 silent transcript write, the §4 references empty state and
+create-repository cancel, the §3 launch-scan serialization and superseded walks,
+and the §5 rotor search field and canvas Dynamic Type — see
+[implemented.md §20](implemented.md).
+
+**Read this register against the source before working from it.** Reconciling it
+for 1.1 found **five entries describing gaps that had already been closed** and
+never struck off: the editor headings rotor (shipped on *both* platforms), the
+Duplicate shortcut, the clone Cancel button, Reduce Motion, and the canvas colour
+palette. Four were no-ops. The two that weren't hid the *real* defects underneath
+them — the rotor ignoring its search field, and the canvases ignoring the system
+text size — which only a code read surfaced.
+
+**Deliberately not done in 1.1**, and why:
+
+- **Incremental-parse convergence for prose** (§11) — the parser everything else
+  sits on; the register itself flags it as too risky for a blind pass, and a
+  release week is the wrong time.
+- **Localization** (§10) — app-wide, not a point release.
+- **SSRF IP-pinning** (§2) — needs a custom `URLProtocol`; a security change
+  deserves its own scrutiny, not a release-day drive-by.
+- **Git pull/merge** (§8) — blocked upstream in SwiftGitX.
+- **The iOS AI ports** (§7) — four new views.
+- **Column widths remembered per window** (§6b decision 4) — the *behaviour*
+  already works via the system's own split-view state restoration (the autosaved
+  frames are in `com.hellotham.HelloNotes`). Owning it deliberately is a
+  code-ownership refactor with no user-visible change, and not worth
+  destabilising the shell the release after its redesign.
+- **An in-flight latch for external scans** (§3) — adds re-entrancy to the core
+  scan path; the cancellation half shipped instead.

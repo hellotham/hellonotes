@@ -1148,3 +1148,84 @@ text around them — a defect baked into the marketing rather than the app.
 **The lesson, and it is the same one as §18's:** a bug that only shows up when
 you drive the real product is invisible to a build, a test suite and a code
 read. Two of them were sitting in a "finished" feature.
+
+---
+
+## 20 · The 1.1 batch — collapse artifacts, CRLF, and the stale register (2026-08-11)
+
+Released as **1.1**. Worked from [unimplemented.md](unimplemented.md); the first
+finding was that the register itself had drifted.
+
+### The collapse path only ever saw one-line blocks
+
+Every block-embed test used a single-line `![[pic.png]]` paragraph, and the
+suite's stub renderer explicitly declined `.math`. So `collapse(range:to:)` was
+never exercised on a multi-line block, and three defects lived in that gap —
+all of them visible in any note with display maths, which is what had blocked
+the website screenshots since §19.
+
+| Defect | Cause |
+|---|---|
+| ~90pt of dead space under a formula | `paragraphSpacing` applies at the end of *every* paragraph, and a newline ends a paragraph. Set across a three-line `$$…$$` block it reserved the image band **three times**. |
+| A full blank line under the image | The block's trailing newline sat outside the concealed range, so it kept the 15pt body font. Front-matter folding had the same bug — hence the blank line above every note with properties. |
+| Coloured specks under a Mermaid diagram | A Mermaid fence is *both* a highlightable code block and a rendered embed. The highlighter runs async, so its colours landed after the collapse and repainted the concealed 0.1pt source. Measured: 18 characters. |
+
+The band now goes on the last paragraph only, concealment covers the trailing
+newline, and `refreshHighlight` skips a block that is currently collapsed.
+
+**On the tests.** Each new test was run against the *unfixed* source. Two passed
+against the bug and had to be rewritten: one counted attribute *runs* when the
+defect is about *paragraphs* (a single run spanning three paragraphs still
+reserves three bands), and one let the highlight/collapse race resolve the lucky
+way until the stub highlighter was made deliberately slow. A test that passes
+against the unfixed code documents nothing.
+
+### CRLF, and a merge branch that could never run
+
+`LineIndex.contentRange` strips the `\n` but not the `\r`, so every structural
+classifier in `BlockParser` saw a trailing carriage return and refused to match.
+In a file saved on Windows, setext headings, thematic breaks and front matter
+all parsed as ordinary paragraphs. The fence classifier trimmed `0x0D` itself,
+which is why fenced code was the one construct that worked — and why the bug
+survived: the obvious test case passes.
+
+Separately, the blank-run merge test sat *after* `closeOpen`, which resets
+`open` to `.none`, so it never matched and every blank line became its own
+one-line block.
+
+### The register had drifted
+
+Five items in unimplemented.md described gaps that had already been closed and
+never struck off — the editor headings rotor (shipped on **both** platforms),
+the Duplicate shortcut (⌘D, with Bookmark moved to ⇧⌘D), the clone Cancel
+button, Reduce Motion (the only continuously animating surface already checks
+it) and the canvas colour palette (built from adaptive system hues throughout).
+
+Verifying before implementing turned four of those into no-ops and surfaced the
+*real* remaining gaps underneath two of them:
+
+- Both platform views implemented the rotor's next/previous walk separately, and
+  neither honoured `filterString` — so typing in VoiceOver's rotor search field
+  silently returned unfiltered results. The walk now lives on `EditorDocument`,
+  where it is testable (no test constructs an `NSTextView`).
+- The canvases sized labels from zoom alone, so raising the system text size
+  moved every other surface and left the graph and mind map at a flat 11pt.
+
+**The lesson:** a backlog is a claim about the present, and it decays. Reading
+the code first cost minutes per item and prevented re-implementing four things
+that already worked.
+
+### Silent failures, and an inescapable sheet
+
+- `ChatSessionStore` wrote with `try?`. A full disk stopped saving and the loss
+  only appeared at the next launch, as an empty conversation.
+- Creating a repository *with* a remote ends in a push, and a push to an
+  unreachable host hangs; the sheet spun on `isBusy` with no way out. It now
+  uses the cancellable runner `cloneRepository` already had — cancellation
+  forwarded into the detached libgit2 work, half-made repository removed.
+- `Library.restore()` awaited each collection's scan before starting the next,
+  so launch cost the *sum* of the cold scans. They now overlap.
+- `Task.detached` does not inherit cancellation, so a cancelled watcher-debounce
+  task left its directory walk running and the replacement started a second one
+  beside it. Cancellation is forwarded; partial results from a cancelled walk
+  are discarded rather than applied (applying them would empty the collection).
