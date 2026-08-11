@@ -796,7 +796,8 @@ struct MacContentView: View {
             NoteInspector(
                 noteText: activeEditor?.text ?? "",
                 onSelectHeading: { scrollToHeading($0.title) },
-                tagTree: collection.search.tagTree(),
+                allTags: collection.search.allTags(),
+                noteCount: { collection.search.notesTagged($0).count },
                 selectedTag: Binding(
                     get: { selectedTag },
                     // Selecting a tag in the right rail filters the list in the

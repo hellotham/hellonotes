@@ -51,7 +51,11 @@ struct NoteInspector: View {
     var onSelectHeading: (DocumentHeading) -> Void
 
     // Tags — selecting one filters the note list in the *other* rail.
-    let tagTree: [TagNode]
+    /// Every tag in the collection. Never listed wholesale; searched.
+    let allTags: [String]
+    /// How many notes carry a tag, shown beside a search result so you can see
+    /// whether following it leads anywhere.
+    var noteCount: (String) -> Int = { _ in 0 }
     @Binding var selectedTag: String?
 
     // References
@@ -72,10 +76,9 @@ struct NoteInspector: View {
 
     @Environment(AppearanceSettings.self) private var appearance
     @AppStorage("inspectorTab") private var storedTab = InspectorTab.outline.rawValue
-    /// Narrows the tag tree. Not persisted — a filter is a momentary act, and
-    /// reopening the rail to a mysteriously short list would be worse than
-    /// retyping three letters.
-    @State private var tagFilter = ""
+    /// The tag search. Not persisted — reopening the rail to a mysteriously
+    /// narrowed result would be worse than retyping three letters.
+    @State private var tagQuery = ""
 
     private var tab: InspectorTab { InspectorTab(rawValue: storedTab) ?? .outline }
 
@@ -127,87 +130,154 @@ struct NoteInspector: View {
         }
     }
 
-    // MARK: - Tags (decision 1 — they live here now, not in the left rail)
+    // MARK: - Tags
+    //
+    // Note-first, then search — never a directory (docs/layout-architecture.md
+    // decision 1, refined after measuring a real vault: of 2,027 notes only 81
+    // carry a tag, 223 tags exist and just 40 appear in more than one note).
+    //
+    // A ranked or alphabetical list of 223 names is 223 rows of noise to answer
+    // a question the user didn't ask. The question they *did* ask, by opening
+    // the inspector, is "what is this note?" — so that goes first, and the
+    // other 222 tags are reached by typing. Nothing is enumerated by default,
+    // which is also why this doesn't get worse as a vault grows.
+    //
+    // Following a tag is navigation, and navigation results belong in the note
+    // list, which already has rows, snippets, sorting and selection. Selecting
+    // here sets the list's filter rather than reproducing it in a 280pt rail.
 
     // `@ViewBuilder` rather than a `Group`: `Group` also has a
     // `TableColumnContent` overload, and when the body is a `List` the compiler
     // picks it and then fails to infer its generics.
     @ViewBuilder
     private var tagsTab: some View {
-        if tagTree.isEmpty {
-            emptyState("No Tags", "number",
-                       "Tags you write as #tag in a note appear here.")
-        } else {
-            VStack(spacing: 0) {
-                // A vault of any size has more tags than a 280pt rail can show,
-                // and scrolling a flat alphabetical list to find one is the
-                // worst way to look something up. Filtering is: type three
-                // letters and the list is short.
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("Filter tags", text: $tagFilter)
-                        .textFieldStyle(.plain)
-                        .font(.callout)
-                    if !tagFilter.isEmpty {
-                        Button { tagFilter = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Clear filter")
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+        VStack(alignment: .leading, spacing: 0) {
+            thisNotesTags
 
+            Divider()
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Find a tag", text: $tagQuery)
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+                if !tagQuery.isEmpty {
+                    Button { tagQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear")
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+
+            // Results disclose only once you have typed. An empty field shows
+            // nothing rather than everything: with 223 tags, "everything" is
+            // the state this design exists to avoid.
+            if !tagQuery.trimmingCharacters(in: .whitespaces).isEmpty {
                 Divider()
+                searchResults
+            }
 
-                List {
-                    if tagFilter.isEmpty {
-                        Button { selectedTag = nil } label: {
-                            Label("All Notes", systemImage: "tray.full")
-                                .fontWeight(selectedTag == nil ? .semibold : .regular)
-                        }
-                        .buttonStyle(.plain)
-                    }
+            Spacer(minLength: 0)
+        }
+    }
 
-                    ForEach(filteredTagTree) { node in
-                        TagTreeRow(node: node, selectedTag: selectedTag,
-                                   selectedColor: appearance.accentTextColor) { tag in
-                            selectedTag = tag
-                        }
-                    }
-
-                    if filteredTagTree.isEmpty {
-                        Text("No tags match “\(tagFilter)”")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+    /// What this note is tagged — the question the inspector is open to answer.
+    /// Each is a button, because the reason to look at a note's tag is usually
+    /// to see what else shares it.
+    @ViewBuilder
+    private var thisNotesTags: some View {
+        let mine = MarkdownParsing.tags(in: noteText)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("THIS NOTE")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if mine.isEmpty {
+                Text("No tags. Write #tag anywhere in the note to add one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                WrapLayout(spacing: 6) {
+                    ForEach(mine, id: \.self) { tag in
+                        tagChip(tag, isSelected: selectedTag == tag, count: nil)
                     }
                 }
-                .listStyle(.sidebar)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+    }
+
+    /// Tags matching the query, with how many notes carry each — a count of 1
+    /// means following it leads only back here, which is worth knowing before
+    /// the click rather than after.
+    private var searchResults: some View {
+        let query = tagQuery.trimmingCharacters(in: .whitespaces)
+        let matches = allTags
+            .filter { $0.localizedCaseInsensitiveContains(query) }
+            .sorted { (noteCount($0), $1.lowercased()) > (noteCount($1), $0.lowercased()) }
+        return Group {
+            if matches.isEmpty {
+                Text("No tag matches “\(query)”")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(matches.prefix(40), id: \.self) { tag in
+                            Button { selectedTag = tag } label: {
+                                HStack(spacing: 6) {
+                                    Text("#\(tag)")
+                                        .lineLimit(1)
+                                        .foregroundStyle(selectedTag == tag
+                                                         ? appearance.accentTextColor : .primary)
+                                    Spacer(minLength: 6)
+                                    Text("\(noteCount(tag))")
+                                        .font(.caption)
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if matches.count > 40 {
+                            Text("+\(matches.count - 40) more — keep typing")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 4)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                }
             }
         }
     }
 
-    /// The tree narrowed to tags matching the filter. A parent is kept when it
-    /// matches *or* any descendant does, so filtering never orphans a match
-    /// under a hidden ancestor.
-    private var filteredTagTree: [TagNode] {
-        let query = tagFilter.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return tagTree }
-        func prune(_ node: TagNode) -> TagNode? {
-            let matches = node.fullPath.localizedCaseInsensitiveContains(query)
-            let keptChildren = node.children.compactMap(prune)
-            guard matches || !keptChildren.isEmpty else { return nil }
-            var copy = node
-            // A match keeps its whole subtree; an ancestor keeps only the
-            // branches that led to a match.
-            copy.children = matches ? node.children : keptChildren
-            return copy
+    /// A tag as a chip. Nesting is shown as the full path on one chip rather
+    /// than a disclosure tree: 8 of 223 tags are nested here, which does not
+    /// pay for indentation, triangles and expansion state.
+    private func tagChip(_ tag: String, isSelected: Bool, count: Int?) -> some View {
+        Button { selectedTag = isSelected ? nil : tag } label: {
+            Text("#\(tag)")
+                .font(.caption)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isSelected ? appearance.accentTextColor.opacity(0.22)
+                                       : Color.secondary.opacity(0.12),
+                            in: Capsule())
+                .foregroundStyle(isSelected ? appearance.accentTextColor : .primary)
         }
-        return tagTree.compactMap(prune)
+        .buttonStyle(.plain)
+        .help(isSelected ? "Stop filtering by #\(tag)" : "Show every note tagged #\(tag)")
     }
 
     // MARK: - References

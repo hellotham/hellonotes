@@ -168,7 +168,9 @@ private struct FlowChips: View {
 }
 
 /// Minimal flow layout so chips wrap to the available width.
-private struct WrapLayout: Layout {
+/// Wraps subviews onto as many rows as they need. Shared: the inspector's
+/// tag chips wrap the same way.
+struct WrapLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

@@ -407,7 +407,8 @@ struct iOSContentView: View {
             NoteInspector(
                 noteText: editor.text,
                 onSelectHeading: { scrollToHeading($0.title) },
-                tagTree: collection.search.tagTree(),
+                allTags: collection.search.allTags(),
+                noteCount: { collection.search.notesTagged($0).count },
                 selectedTag: Binding(
                     get: { selectedTag },
                     set: { selectedTag = $0; if $0 != nil { searchText = "" } }
