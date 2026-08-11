@@ -15,6 +15,7 @@ import TipKit
 /// panel act on the focused collection (the one owning the selected note).
 struct MacContentView: View {
     @Environment(Library.self) private var library
+    @Environment(EditorDocumentStore.self) private var documents
     @Environment(NavigationRouter.self) private var router
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(\.scenePhase) private var scenePhase
@@ -379,6 +380,10 @@ struct MacContentView: View {
             library.pendingOpenNoteID = nil
         }
         .onChange(of: library.allNotes) { _, notes in
+            // A cached document captured which wiki-link targets existed when
+            // it was built, so once the note set changes it would colour
+            // [[links]] by a stale answer.
+            documents.forgetAll()
             tabs.prune(keeping: Set(notes.map(\.id)))
             revalidateSelection()
             library.writeWidgetSnapshot()   // refresh the recent-notes widget
@@ -1026,6 +1031,9 @@ struct MacContentView: View {
     private func closeTab(_ id: Note.ID) {
         Task {
             let next = await tabs.close(id)
+            // Closing a tab is the user saying they're done with the note —
+            // stop holding its parsed document.
+            documents.forget(path: id.path)
             if selectedNoteID == id {
                 selectedNoteID = next
             }

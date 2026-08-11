@@ -35,6 +35,9 @@ struct NewEditorHost: View {
     var blockRenderer: BlockRenderAdapter? = nil
 
     @Environment(\.colorScheme) private var colorScheme
+    /// Documents outlive this view, so tab switches and shell rearrangements
+    /// don't re-parse the note or lose the caret.
+    @Environment(EditorDocumentStore.self) private var documents
 
     @State private var document: EditorDocument?
     @State private var proxy = EditorProxy()
@@ -116,22 +119,44 @@ struct NewEditorHost: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: taskKey) {
             syncTask?.cancel()
-            // Case-insensitive title set, matching CollectionWikiLinkResolver.
-            let titles = Set(linkCandidates.map { $0.lowercased() })
-            let services = EditorServices(
-                wikiLinkExists: { title in titles.contains(title.lowercased()) },
-                codeHighlighter: CodeHighlighterAdapter(darkMode: colorScheme == .dark),
-                blockRenderer: blockRenderer
-            )
-            let built = await EditorDocument.make(
-                text: editor.text,
-                theme: EditorTheme(fontSize: fontSize, accent: accent),
-                services: services
-            )
-            guard !Task.isCancelled else { return }
+            guard let path = editor.note?.fileURL.path else { return }
+            let key = EditorDocumentStore.Key(path: path, fontSize: fontSize,
+                                              isDark: colorScheme == .dark)
+
+            // Reuse the note's document if it is still around. Building one
+            // parses and styles the whole note, so doing it again on every tab
+            // switch — or every time the shell rearranges — is the difference
+            // between switching notes instantly and waiting for a large one.
+            // The cached document also still holds its caret and scroll.
+            let built: EditorDocument
+            if let existing = documents.document(for: key) {
+                built = existing
+                // Whatever happened while this note was off screen wins.
+                if built.text != editor.text { built.replaceText(editor.text) }
+            } else {
+                // Case-insensitive title set, matching CollectionWikiLinkResolver.
+                let titles = Set(linkCandidates.map { $0.lowercased() })
+                let services = EditorServices(
+                    wikiLinkExists: { title in titles.contains(title.lowercased()) },
+                    codeHighlighter: CodeHighlighterAdapter(darkMode: colorScheme == .dark),
+                    blockRenderer: blockRenderer
+                )
+                let made = await EditorDocument.make(
+                    text: editor.text,
+                    theme: EditorTheme(fontSize: fontSize, accent: accent),
+                    services: services
+                )
+                guard !Task.isCancelled else { return }
+                documents.insert(made, for: key)
+                built = made
+            }
+
+            // Re-bound every time this host adopts the document, so a document
+            // that outlived its previous host never reports edits to a stale
+            // editor model.
             built.onEdit = { _ in scheduleSync(from: built) }
             document = built
-            builtNotePath = editor.note?.fileURL.path
+            builtNotePath = path
             appliedLoadRevision = editor.loadRevision
             // A flush (note switch, window resign, quit) must save the
             // document's *current* text, not a snapshot trailing by the

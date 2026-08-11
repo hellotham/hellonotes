@@ -26,6 +26,10 @@ struct iOSLiveEditor: View {
 
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
     @Environment(\.colorScheme) private var colorScheme
+    /// Documents outlive this view. On iPad this matters most: rotating between
+    /// the tall and wide shells re-creates the editor, and without the store
+    /// every rotation would re-parse the note and drop the caret.
+    @Environment(EditorDocumentStore.self) private var documents
     @State private var document: EditorDocument?
 
     var body: some View {
@@ -47,11 +51,22 @@ struct iOSLiveEditor: View {
         // S3: the editor fills whatever the detail column offers.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: taskKey) {
-            let built = await EditorDocument.make(
-                text: editor.text,
-                theme: EditorTheme(fontSize: fontSize),
-                services: makeServices()
-            )
+            let key = EditorDocumentStore.Key(path: note.fileURL.path,
+                                              fontSize: fontSize,
+                                              isDark: colorScheme == .dark)
+            let built: EditorDocument
+            if let existing = documents.document(for: key) {
+                built = existing
+                if built.text != editor.text { built.replaceText(editor.text) }
+            } else {
+                let made = await EditorDocument.make(
+                    text: editor.text,
+                    theme: EditorTheme(fontSize: fontSize),
+                    services: makeServices()
+                )
+                documents.insert(made, for: key)
+                built = made
+            }
             // Push edits back to the model (its didSet debounces + saves).
             built.onEdit = { _ in
                 if editor.text != built.text { editor.text = built.text }

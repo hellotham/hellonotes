@@ -17,6 +17,10 @@ struct HelloNotesApp: App {
     @State private var llmSettings = LLMSettings()
     /// App-wide theming (appearance, accent, text size), applied at every root.
     @State private var appearance = AppearanceSettings()
+    /// Built editor documents, kept above every view that shows one so tab
+    /// switches and shell rearrangements don't re-parse the note or lose the
+    /// caret. See EditorDocumentStore.
+    @State private var documents = EditorDocumentStore()
     #if os(macOS)
     /// Drains pending editor autosaves on ⌘Q before the process exits.
     @NSApplicationDelegateAdaptor(TerminationGuard.self) private var terminationGuard
@@ -38,6 +42,7 @@ struct HelloNotesApp: App {
                 .environment(router)
                 .environment(llmSettings)
                 .environment(appearance)
+                .environment(documents)
                 .themedRoot(appearance)
                 .onOpenURL { router.handle($0) }
             #else
@@ -48,6 +53,7 @@ struct HelloNotesApp: App {
                 .environment(library)
                 .environment(router)
                 .environment(appearance)
+                .environment(documents)
                 .themedRoot(appearance)
                 .onOpenURL { router.handle($0) }
             #endif
@@ -66,6 +72,7 @@ struct HelloNotesApp: App {
                     .environment(library)
                     .environment(llmSettings)
                     .environment(appearance)
+                    .environment(documents)
                     .themedRoot(appearance)
             }
         }
@@ -76,6 +83,7 @@ struct HelloNotesApp: App {
             GraphWindowView()
                 .environment(library)
                 .environment(appearance)
+                .environment(documents)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 760, height: 560)
@@ -85,6 +93,7 @@ struct HelloNotesApp: App {
                 .environment(library)
                 .environment(llmSettings)
                 .environment(appearance)
+                .environment(documents)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 560, height: 640)
@@ -94,6 +103,7 @@ struct HelloNotesApp: App {
                 .environment(library)
                 .environment(llmSettings)
                 .environment(appearance)
+                .environment(documents)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 560, height: 680)
@@ -149,6 +159,7 @@ struct HelloNotesApp: App {
                 MindMapWindowView(rootURL: ref.url)
                     .environment(library)
                     .environment(appearance)
+                    .environment(documents)
                     .themedRoot(appearance)
             }
         }
