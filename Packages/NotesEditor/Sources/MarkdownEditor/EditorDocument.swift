@@ -527,6 +527,26 @@ public final class EditorDocument {
         }
     }
 
+    /// Whether `range` is source rather than prose — a fenced or indented code
+    /// block, display maths, or front matter. The spell checker has nothing
+    /// useful to say about any of them.
+    ///
+    /// This is not only noise: when such a block is collapsed to a rendered
+    /// image its source is concealed with a 0.1pt font, but the misspelling
+    /// underline is drawn by the spell checker and **not** scaled by the font —
+    /// so the squiggle survives at full weight and paints a stray red dash
+    /// above the formula. A Mermaid fence escaped it only by luck, because
+    /// `graph`, `Start`, `Middle` and `End` are all real words.
+    public func isSourceOnly(_ range: NSRange) -> Bool {
+        guard storage.length > 0 else { return false }
+        let probe = min(max(0, range.location), storage.length - 1)
+        guard let index = parse.blockIndex(at: probe), index < parse.blocks.count else { return false }
+        switch parse.blocks[index].kind {
+        case .fencedCode, .indentedCode, .mathBlock, .frontMatter: return true
+        default: return false
+        }
+    }
+
     /// The heading a VoiceOver headings rotor should move to: the first one
     /// after `location`, or before it when searching backwards. `location`
     /// is nil when the rotor has no current item, which starts from whichever

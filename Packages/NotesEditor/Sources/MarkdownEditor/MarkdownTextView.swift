@@ -878,6 +878,19 @@ public struct MarkdownEditorView: NSViewRepresentable {
             document.undoManager
         }
 
+        /// Keep the spell checker out of code and maths. Returning 0 clears the
+        /// spelling state for that range, so no misspelling underline is drawn.
+        ///
+        /// Necessary because the underline is the one part of a concealed block
+        /// the 0.1pt font does *not* shrink: a collapsed `$$…$$` rendered its
+        /// formula correctly and then painted a red squiggle above it, from the
+        /// LaTeX source nobody can see.
+        public func textView(_ textView: NSTextView,
+                             shouldSetSpellingState value: Int,
+                             range affectedCharRange: NSRange) -> Int {
+            document.isSourceOnly(affectedCharRange) ? 0 : value
+        }
+
         // MARK: Writing Tools session lifecycle — pause our restyling so it
         // never fights the session's own decorations; one catch-up restyle
         // at the end.

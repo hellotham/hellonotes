@@ -97,6 +97,37 @@ import AppKit
         #expect(headings.map(\.level) == [1, 2, 1])
     }
 
+    /// Code and maths must be exempt from spell checking. Beyond the noise,
+    /// a collapsed block's misspelling underline is drawn by the spell checker
+    /// and not scaled by the 0.1pt concealment font, so it survived as a red
+    /// dash above every rendered formula.
+    @Test func sourceOnlyRangesAreExemptFromSpellChecking() {
+        let text = """
+        Prose with a delibrate typo.
+
+        $$
+        \\int_0^\\infty e^{-x^2}\\,dx
+        $$
+
+        ```swift
+        let x = 1
+        ```
+
+            indented code
+
+        More prose.
+        """
+        let document = EditorDocument(text: text)
+        let ns = text as NSString
+        func at(_ needle: String) -> NSRange { ns.range(of: needle) }
+
+        #expect(document.isSourceOnly(at("\\int_0")))
+        #expect(document.isSourceOnly(at("let x = 1")))
+        #expect(document.isSourceOnly(at("indented code")))
+        #expect(!document.isSourceOnly(at("delibrate")))
+        #expect(!document.isSourceOnly(at("More prose")))
+    }
+
     /// The VoiceOver headings rotor's walk. Both platform views used to carry
     /// their own copy of this and neither honoured the rotor's search field.
     @Test func rotorHeadingWalksAndHonoursTheSearchField() {
