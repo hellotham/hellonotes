@@ -137,6 +137,11 @@ struct MacContentView: View {
     /// full panel and gets a button instead of a column.
     @State private var showGitPanel = false
 
+    /// How far the titlebar overlaps the content view (52pt with a toolbar).
+    /// The rail insets its rows past it so nothing of ours draws under the
+    /// window controls — see TitlebarInsetReader.
+    @State private var titlebarInset: CGFloat = 0
+
 
     // MARK: - Focused / selection helpers
 
@@ -370,10 +375,9 @@ struct MacContentView: View {
         // the editor's status bar and note list never collapse into vertical
         // text wrapping — and if the OS forces smaller anyway, the shell
         // degrades rather than erroring.
-        // Keeps the columns out of the titlebar band, so the toolbar is its own
-        // row with a rule under it. See TitlebarClearance — the mechanism was
-        // measured, not guessed.
-        .background(TitlebarClearance())
+        // Measures the titlebar band so the rail's own content can start below
+        // it. See TitlebarInsetReader for why the column itself cannot be moved.
+        .background(TitlebarInsetReader(inset: $titlebarInset))
         // Measures the titlebar/column overlap when HN_GEOM_LOG asks; a no-op
         // and zero-sized otherwise. See ChromeProbe.
         .background(ChromeProbe())
@@ -794,6 +798,7 @@ struct MacContentView: View {
             },
             onRevealCollection: { NSWorkspace.shared.activateFileViewerSelecting([$0.rootURL]) },
             onAddCollection: { showLauncher = true },
+            topInset: titlebarInset,
             footer: { gitFooter }
         )
         .navigationTitle("HelloNotes")

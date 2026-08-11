@@ -93,19 +93,26 @@ launching. Work around it rather than paying for it repeatedly:
 - **During the change**, use only what runs headless — `xcodebuild build` for
   both platforms, `swift test --package-path Packages/NotesEditor`, and the
   scratchpad harnesses below. None of these open a window.
-- **At the end**, run the app suite once. Scope it (`-only-testing:...`) so it
-  finishes in seconds rather than minutes: `ShellContractTests` alone is ~2s,
-  where the whole suite has been seen to sit for 20+ minutes.
-- **Always clean up afterwards**, whether it passed, failed or hung — leaving
-  test hosts running is what puts three copies of the app on the user's screen:
+- **At the end**, run it through the script, never `xcodebuild test` by hand:
 
   ```bash
-  pkill -f "xcodebuild test"; sleep 1; pkill -9 -f "HelloNotesTests.xctest"
+  ./scripts/run-tests.sh
   ```
 
-  A test *host* holds no unsaved user work, so killing it is safe. Do **not**
-  add `killall -9 HelloNotes` to that line — it would also hard-kill the user's
-  own running app and skip its autosave flush.
+  It quits the user's app first (gracefully — it may hold unsaved edits), runs
+  the suite, and kills any test host afterwards whatever the result. The whole
+  suite is ~2s and 119 tests; scope it with `-only-testing:` only if you have a
+  reason.
+
+- **Why by hand goes wrong.** The bundle is *injected* into the app, so the test
+  host's argv is the **app's** — nothing on its command line says `xctest`.
+  `pkill -f "HelloNotesTests.xctest"` therefore matches nothing: it looks like
+  cleanup and does nothing, which is how hosts kept surviving and appearing as
+  "the app launched over itself". The host's actual signature is
+  `-NSTreatUnknownArgumentsAsOpen`, which a normally-launched app never carries,
+  and that is what the script matches — so it can never hit the user's own app.
+- **Kill before, kill after. Don't leave anything you created.** A host running
+  while the user's app is up is a second HelloNotes on their screen.
 
 - **Never leave a test run in the background** across turns. If it hasn't
   finished, kill it and say so — an unattended run keeps a window open on

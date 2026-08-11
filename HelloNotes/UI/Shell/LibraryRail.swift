@@ -42,6 +42,12 @@ struct LibraryRail<Footer: View>: View {
     /// The "+" beneath the collections — open another collection or vault.
     var onAddCollection: () -> Void
 
+    /// How far the window's titlebar overlaps this column. The rows start below
+    /// it: the column is laid out full height by SwiftUI and cannot be moved
+    /// (see TitlebarInsetReader), so the first row's selection chip would
+    /// otherwise sit under the traffic lights.
+    var topInset: CGFloat = 0
+
     /// Pinned to the bottom, below a divider. The Mac puts Git here; iOS
     /// passes `EmptyView`.
     @ViewBuilder var footer: () -> Footer
@@ -85,6 +91,9 @@ struct LibraryRail<Footer: View>: View {
                 .listRowSeparator(.hidden)
             }
             .listStyle(.sidebar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: topInset)
+            }
             // S1: a rail is a viewport onto its rows, never sized by them.
             .frame(maxHeight: .infinity)
 

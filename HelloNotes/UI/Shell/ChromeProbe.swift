@@ -58,68 +58,44 @@ struct ChromeProbe: NSViewRepresentable {
                       context: Context) -> CGSize? { .zero }
 }
 
-/// Stops the split-view columns being laid out beneath the window's titlebar.
+/// Reports how far the titlebar overlaps the content view, so a column's own
+/// content can start below it.
 ///
-/// The probe measured the problem exactly: `contentLayoutRect` is 52pt shorter
-/// than the content view, and *every* column — rail, note list, editor,
-/// inspector — is full height, so all four paint those 52pt up under the
-/// titlebar. That is what "the sidebar background bleeds into the toolbar row"
-/// and "the rail's rounded border overlaps the window controls" both are. No
-/// background or toolbar modifier can undo it, because the columns really are
-/// up there; and taking `.fullSizeContentView` off the window changed nothing
-/// (measured: flag off, overlap still 52pt).
+/// Four attempts to stop the *columns* reaching under the titlebar all failed,
+/// and the probe says why in one line: `clearance controllers=0 items=0`.
+/// SwiftUI's `NavigationSplitView` on macOS 26 is not backed by
+/// `NSSplitViewController`, so there are no `NSSplitViewItem`s and
+/// `allowsFullHeightLayout` — the documented control for "may this item be laid
+/// out beneath the titlebar" — cannot be reached. Neither can the style mask
+/// (removing `.fullSizeContentView` measured no change), and no toolbar or
+/// background modifier applies, because the columns genuinely are up there.
 ///
-/// `NSSplitViewItem.allowsFullHeightLayout` is the actual control — "whether
-/// the split view item can be laid out beneath the window's titlebar" — and
-/// SwiftUI exposes no equivalent, which is why three attempts from that side
-/// all missed. `titlebarSeparatorStyle = .line` then draws the rule under the
-/// toolbar that makes it read as its own row.
-struct TitlebarClearance: NSViewRepresentable {
+/// A full-height sidebar *is* the standard macOS treatment (Finder, Mail), so
+/// the material behind the titlebar stays. What must not happen is our own
+/// content drawing into that band — a selection chip under the traffic lights
+/// is ours, not the platform's. This measures the band so the rail can inset
+/// past it.
+struct TitlebarInsetReader: NSViewRepresentable {
+    @Binding var inset: CGFloat
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        apply(from: view)
+        report(from: view)
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // SwiftUI rebuilds and re-styles its split view controllers, so this is
-        // re-asserted rather than assumed to have stuck the first time.
-        apply(from: nsView)
-    }
+    func updateNSView(_ nsView: NSView, context: Context) { report(from: nsView) }
 
     /// Zero-sized: an observer, never a participant in layout (S1/S2).
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView,
                       context: Context) -> CGSize? { .zero }
 
-    private func apply(from view: NSView) {
-        // A hop, because the window and the split view controllers do not exist
-        // yet on the first pass.
+    private func report(from view: NSView) {
         DispatchQueue.main.async { [weak view] in
             guard let window = view?.window, let content = window.contentView else { return }
-            window.titlebarSeparatorStyle = .line
-            for controller in splitViewControllers(in: content) {
-                for item in controller.splitViewItems where item.allowsFullHeightLayout {
-                    item.allowsFullHeightLayout = false
-                    item.titlebarSeparatorStyle = .line
-                }
-            }
+            let overlap = max(0, content.bounds.height - window.contentLayoutRect.height)
+            if abs(overlap - inset) > 0.5 { inset = overlap }
         }
-    }
-
-    /// Every `NSSplitViewController` in the window. Found through the split
-    /// views themselves, since SwiftUI does not hand its controllers over.
-    private func splitViewControllers(in view: NSView) -> [NSSplitViewController] {
-        var found: [NSSplitViewController] = []
-        func walk(_ v: NSView) {
-            if let split = v as? NSSplitView,
-               let controller = split.delegate as? NSSplitViewController,
-               !found.contains(where: { $0 === controller }) {
-                found.append(controller)
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(view)
-        return found
     }
 }
 
@@ -137,6 +113,14 @@ enum ChromeProbeLog {
                                       appropriateFor: nil, create: true))?
             .appendingPathComponent("hn-geom.log")
     }()
+
+    /// A one-line note in the same log, so a fix can say whether it did anything.
+    /// Always written when the probe is on, regardless of the geometry dump.
+    @MainActor
+    static func note(_ line: String) {
+        guard enabled else { return }
+        append("chrome[note] \(line)\n")
+    }
 
     @MainActor
     static func dump(window: NSWindow?, tag: String) {
