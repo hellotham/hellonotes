@@ -88,6 +88,12 @@
 
 ## 6 · Editor gaps
 
+- 🟡 **Concealed `$$` block leaves a coloured dot and a height gap** — found while shooting
+  the website screenshots. A rendered block formula is followed by a small coloured glyph and
+  roughly 90pt of empty space: the collapsed source is concealed by near-zero-size marker
+  fonts (§5) but still contributes a glyph and reserves line height. Cosmetic, but it is in
+  every note with display maths — and it is what blocks screenshot scene 2 (§8c).
+
 *The **iOS live editor** (`editor-M5`) is now **shipped**, including the fragment chrome — see [implemented.md §6](implemented.md#6--production-release-hardening). iOS has a live TextKit 2 editor with inline styling, caret-driven concealment, and the full block chrome (bullets, checkboxes, callouts, gutter bars, heading rules) via an overlay renderer; the `BlockRendering` chrome was ported to cross-platform CoreGraphics with no macOS regression.*
 
 - 🟡 **iOS block embeds / inline math aren't consumed** — the renderers (`PlatformImageKit`/`MathImageRenderer`/`TableImageRenderer`/Mermaid/transclusion) are now cross-platform and `iOSLiveEditor` wires a `BlockRenderAdapter` (§7), and code-syntax colours **do** render on iOS — but `EditorDocument`'s collapse + `RenderedBlockFragment` image path is still `#if canImport(AppKit)`, so the adapter is never invoked on iOS and embeds/`$…$` math show their Markdown source. **Fix:** port the block-image collapse to the iOS `ChromeOverlayView` (which today draws only fragment chrome, not block images).
@@ -172,11 +178,26 @@ decisions are not:
   runner architecture only.
 - 🔴 **The website screenshots predate the shell redesign** (2026-08-11). All five light/dark
   pairs in `website/src/lib/screens.ts` show the old wide left sidebar with its collection
-  card, quick-action buttons and bookmarks — a UI that no longer exists. The manual text has
-  been corrected; the images have not, because re-shooting them means driving the running app.
-  Re-shoot all five at 1470×923, light and dark, then re-run
-  [`scripts/make-screenshots.py`](../scripts/make-screenshots.py). **Blocks the next website
-  deploy** — the download page and the feature tour both lead with them.
+  card, quick-action buttons and bookmarks — a UI that no longer exists, and now two
+  redesigns stale. **Blocks the next website deploy** — the download page and the feature
+  tour both lead with them.
+
+  *Attempted 2026-08-11 with computer-use; the shoot found two bugs that had to be fixed
+  first (see implemented.md §19) and stopped on two remaining blockers:*
+  - **Shoot at 1470×852, not 1470×923.** 923 only fits with the Dock hidden; the compositor
+    scales to fit, so any consistent size works and the wider aspect fills the plate better.
+    Set the window with `System Events`, not by hand.
+  - **Scene 2 (maths + diagrams) is not shippable yet** — two cosmetic artifacts in the
+    editor's concealment layer: a stray coloured dot below a `$$` block, and ~90pt of dead
+    space between the rendered formula and the next paragraph (the collapsed source still
+    reserves height). Both pre-date the redesign; both are visible in a marketing shot.
+  - **Scene 5 (Ask Library) needs a configured provider** and a real question/answer, so it
+    cannot be shot without live keys — which is entangled with the `.env` rotation in §0.
+  - Procedure that *did* work, for whoever resumes: `⌘O` → Recent Collections → SampleVault,
+    right-click the real vault → Close Collection (the ⊗ on the group row does not respond to
+    a synthetic click; the context menu does), then `screencapture -l <windowID>` — which
+    captures the one window through the compositor and sidesteps the "Claude window floats
+    over a region capture" trap entirely.
 - 🟡 **Toolchain-sensitive code shapes** — two functions in `Core/VisionAlt.swift` are
   deliberately non-generic to dodge a SIL-inliner bug and carry comments saying so. If the
   Swift toolchain moves on, re-check before "simplifying" them back.

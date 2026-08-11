@@ -281,6 +281,24 @@ public final class EditorDocument {
     /// Applies in the same batch sizes as the background walker — separate
     /// processEditing passes are what settle NSTextStorage's lazy internal
     /// structures region by region (one mega-batch measurably does not).
+    /// The window switched between Light and Dark.
+    ///
+    /// Rendered blocks are *images*, so unlike text attributes they do not
+    /// follow the appearance on their own — they have to be drawn again in the
+    /// new one. Marking every block unstyled is what makes the styling pass
+    /// re-derive them; the caches now key on appearance, so the second render
+    /// is a genuine miss rather than a stale hit.
+    ///
+    /// - Returns: `true` if anything needed redrawing.
+    @discardableResult
+    public func appearanceDidChange(isDark: Bool) -> Bool {
+        guard isDark != isDarkAppearance else { return false }
+        isDarkAppearance = isDark
+        for i in styledBlocks.indices { styledBlocks[i] = false }
+        styleEverythingNow()
+        return true
+    }
+
     public func styleEverythingNow() {
         stylingTask?.cancel()
         var cursor = 0
@@ -708,8 +726,19 @@ public final class EditorDocument {
            ns.character(at: content.location + content.length - 1) == 0x0A { content.length -= 1 }
         guard content.length > 0, content.location + content.length <= ns.length else { return }
 
+        let maxWidth = renderMaxWidth
+        let dark = isDarkAppearance
+
+        // Appearance is part of the key, exactly as it is for inline math
+        // below. Keyed on `kind` alone, a block rendered in one appearance was
+        // served from the cache forever after: switch to Dark and the maths,
+        // Mermaid charts and tables kept their light-mode ink, which on a dark
+        // ground reads as washed-out and half-legible. Inline `$…$` on the very
+        // same line re-rendered correctly, which is what made the two disagree.
         var hasher = Hasher()
         hasher.combine(kind)
+        hasher.combine(dark)
+        hasher.combine(Int(maxWidth))
         let key = hasher.finalize()
 
         if let image = blockImageCache[key] {
@@ -719,8 +748,6 @@ public final class EditorDocument {
         guard !blockRendersInFlight.contains(key) else { return }
         blockRendersInFlight.insert(key)
 
-        let maxWidth = renderMaxWidth
-        let dark = isDarkAppearance
         Task { [weak self] in
             let image = await renderer.render(kind, maxWidth: maxWidth, darkMode: dark)
             guard let self else { return }

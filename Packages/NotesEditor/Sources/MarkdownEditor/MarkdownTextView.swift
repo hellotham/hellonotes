@@ -412,6 +412,17 @@ public final class MarkdownTextView: NSTextView {
         syncRenderMetrics()
     }
 
+    /// Light ↔ Dark. `syncRenderMetrics()` runs from `layout()`, and switching
+    /// appearance does not necessarily lay the view out again — so without this
+    /// the document kept the appearance it was born with, and every rendered
+    /// block (maths, Mermaid, tables, transclusion cards) stayed drawn in the
+    /// old theme's ink while the text around it changed.
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        document?.appearanceDidChange(isDark: isDark)
+    }
+
     /// Layout diagnostics, off unless deliberately switched on:
     ///
     ///     HN_GEOM_LOG=1 scripts/relaunch-debug.sh

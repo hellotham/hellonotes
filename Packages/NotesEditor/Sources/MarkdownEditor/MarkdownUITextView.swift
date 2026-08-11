@@ -149,6 +149,14 @@ public final class MarkdownUITextView: UITextView {
         document.isDarkAppearance = traitCollection.userInterfaceStyle == .dark
     }
 
+    /// Light ↔ Dark — the iOS half of the same problem the Mac has: rendered
+    /// blocks are images and do not follow the trait change by themselves.
+    public override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        guard traitCollection.userInterfaceStyle != previous?.userInterfaceStyle else { return }
+        document?.appearanceDidChange(isDark: traitCollection.userInterfaceStyle == .dark)
+    }
+
     public override func layoutSubviews() {
         super.layoutSubviews()
         syncRenderMetrics()

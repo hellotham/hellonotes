@@ -235,6 +235,25 @@ The capture is manual, and there are three traps:
 3. **Synthetic `click at` events do not register in this SwiftUI app.** Drive the
    UI with real clicks; AppleScript is fine for `set position`/`set size`.
 
+**Shoot at 1470×852**, not 1470×923: 923 only fits with the Dock hidden, and
+the compositor scales to fit, so any *consistent* size works — the wider aspect
+fills the plate slightly better. Set it without touching the mouse:
+
+```bash
+osascript -e 'tell application "System Events" to tell process "HelloNotes" \
+  to set size of window 1 to {1470, 923}'
+```
+
+Two more things learned driving it (2026-08-11):
+
+- **Capture with `screencapture -l <windowID>`**, not `-R`. It takes the one
+  window through the compositor, so trap 2 above disappears entirely — no app
+  needs hiding, and materials and vibrancy render truthfully.
+- **The ⊗ on a collection's group row ignores a synthetic click**; its
+  right-click menu ▸ Close Collection works. Same for opening: `⌘O` ▸ Recent
+  Collections. Restore the real vault afterwards — closing it is a change to the
+  user's library, not just to the shot.
+
 Capture each scene as `raw/{light,dark}_{1..5}.png`, then:
 
 ```bash

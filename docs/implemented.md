@@ -1095,3 +1095,56 @@ against a capture. The instrument matters as much as the checklist: judging any
 of this from `cacheDisplay` is what cost the session before this one, because it
 cannot render materials and paints them flat white.
 
+---
+
+## 19 · Two bugs the screenshot shoot found (2026-08-11)
+
+Re-shooting the website screenshots is a 🔴 in `unimplemented.md §8c`. Driving
+the real app to do it surfaced two defects that no test and no code reading had
+caught — both of which would have quietly ruined the deliverable.
+
+### The sidebar showed a library that no longer existed
+
+Opening a collection did not add it to the tree, and **Close Collection did
+nothing at all**. Both are the same fault: `outlineInputsKey` — the cheap
+fingerprint that decides whether the expensive tree rebuild runs — still
+described the world §18 replaced. It named *one* collection (whichever the old
+rail was standing in) plus the rail's place id. Once the tree held **every** open
+collection, opening or closing one changed no part of that key, so the cache
+served the previous tree forever.
+
+The key now names every collection and its revision, plus a bookmark count
+(bookmarking changes no revision but does change the pinned Recents/Bookmarks
+nodes above them). A refactor that widens what a view shows has to widen its
+cache key by the same amount — the two are one decision, and splitting them is
+how this survived a green build and 119 passing tests.
+
+### Rendered blocks kept the appearance they were born in
+
+Display maths rendered dim and washed out on a dark ground while the inline
+`$…$` on the very line above rendered crisp and white. Mermaid charts drew
+light-mode boxes into a dark editor.
+
+`blockImageCache` was keyed on the block's *kind* alone. Inline maths, in the
+same file, folds `isDarkAppearance` into its key — so one path re-rendered on a
+theme change and the other served a stale image forever. Two things were wrong
+and both are fixed:
+
+- the block key now includes the appearance **and** the render width, matching
+  what inline maths already did;
+- `isDarkAppearance` was only ever refreshed from `layout()`, and switching
+  appearance does not necessarily lay a view out again. `MarkdownTextView` now
+  overrides `viewDidChangeEffectiveAppearance()` and `MarkdownUITextView`
+  `traitCollectionDidChange(_:)`; both call a new
+  `EditorDocument.appearanceDidChange(isDark:)`, which marks every block
+  unstyled so the images are drawn again in the new theme.
+
+**Why this mattered more than it looked.** The whole point of the screenshots is
+a light/dark *pair* from the same vault, same window, same note, where only the
+app's theme differs. With images that never re-render, flipping the theme would
+have produced pairs whose maths, diagrams and tables silently disagreed with the
+text around them — a defect baked into the marketing rather than the app.
+
+**The lesson, and it is the same one as §18's:** a bug that only shows up when
+you drive the real product is invisible to a build, a test suite and a code
+read. Two of them were sitting in a "finished" feature.
