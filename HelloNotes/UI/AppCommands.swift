@@ -160,6 +160,16 @@ struct HelloNotesCommands: Commands {
             Button("Find…") { NotificationCenter.default.post(name: .hnEditorToggleFind, object: nil) }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(actions?.note == nil)
+
+            // ⌘F is find-*in-note*; searching the whole library is a different
+            // question and takes Apple Notes' shortcut for it. The band's search
+            // field is a plain `TextField` (shell-chrome.md D9) rather than
+            // `.searchable`, so unlike the system control it gets no keyboard
+            // route for free — this is that route.
+            Button("Search All Collections") {
+                NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .option])
         }
 
         // MARK: Note — everything that acts on the selected note.

@@ -23,6 +23,13 @@ import AppKit
 final class NoteOutlineItem {
     enum Kind {
         case collection(Collection)
+        /// A pinned cross-collection place — Recents, Bookmarks — drawn as a
+        /// group row above the collections (`shell-chrome.md` D4). It is a node
+        /// in *this* outline rather than a list of its own on purpose: two
+        /// stacked scroll surfaces halve each other at P2's window height, and
+        /// Apple Notes (`Quick Notes`, `Shared`) puts its pinned places in the
+        /// same list as the accounts below them.
+        case place(String, symbol: String)
         case folder(String)
         case note(Note, snippet: String?)
         case file(CollectionFile)
@@ -48,7 +55,15 @@ final class NoteOutlineItem {
     var note: Note? { if case .note(let n, _) = kind { return n }; return nil }
     var file: CollectionFile? { if case .file(let f) = kind { return f }; return nil }
     var collection: Collection? { if case .collection(let c) = kind { return c }; return nil }
-    var isGroup: Bool { if case .collection = kind { return true }; return false }
+    var isGroup: Bool {
+        switch kind {
+        case .collection, .place: return true
+        default: return false
+        }
+    }
+    /// A place owns no folder on disk, so nothing may be dropped into it and it
+    /// never answers "which collection is this node in?".
+    var isPlace: Bool { if case .place = kind { return true }; return false }
     var isSelectable: Bool { url != nil }
     var isExpandable: Bool { !children.isEmpty }
 }
@@ -179,8 +194,12 @@ struct NoteOutlineList: NSViewRepresentable {
         // MARK: Reload
 
         func reload(roots: [NoteOutlineItem], signature: String) {
-            // Default-expand any newly-seen collection group.
-            for root in roots where root.isGroup && !knownGroupIDs.contains(root.id) {
+            // Default-expand any newly-seen collection group. Pinned places
+            // start *collapsed*: they are a shortcut, not the thing you came
+            // for, and expanding them by default pushes the collections — which
+            // are the reason the sidebar exists — below the fold.
+            for root in roots where root.isGroup && !root.isPlace
+                                 && !knownGroupIDs.contains(root.id) {
                 knownGroupIDs.insert(root.id)
                 expandedIDs.insert(root.id)
             }
@@ -227,15 +246,26 @@ struct NoteOutlineList: NSViewRepresentable {
 
         /// Flatten the tree into a URL→item map so selection lookup is O(1)
         /// instead of a recursive O(N) walk on every SwiftUI update.
+        ///
+        /// A note can appear twice — once in its folder, once under Recents or
+        /// Bookmarks — and **the copy in the tree must win**. `applySelection`
+        /// resolves a URL to one item and calls `row(forItem:)`, which returns
+        /// -1 for anything inside a collapsed parent. Places start collapsed, so
+        /// indexing the place's copy would make selecting a note (from Open
+        /// Quickly, or after creating one) silently highlight nothing.
         private static func indexByURL(_ items: [NoteOutlineItem]) -> [URL: NoteOutlineItem] {
             var map: [URL: NoteOutlineItem] = [:]
-            func walk(_ items: [NoteOutlineItem]) {
+            func walk(_ items: [NoteOutlineItem], insidePlace: Bool) {
                 for item in items {
-                    if let url = item.url { map[url] = item }
-                    walk(item.children)
+                    let place = insidePlace || item.isPlace
+                    if let url = item.url, !(place && map[url] != nil) { map[url] = item }
+                    walk(item.children, insidePlace: place)
                 }
             }
-            walk(items)
+            // Two passes so order in `roots` cannot decide the winner: the tree
+            // claims every URL it owns, then places fill only what is left.
+            walk(items.filter { !$0.isPlace }, insidePlace: false)
+            walk(items.filter(\.isPlace), insidePlace: true)
             return map
         }
 
@@ -316,7 +346,10 @@ struct NoteOutlineList: NSViewRepresentable {
         /// cross-collection. There the rail already knows the answer.
         private func rootID(containing node: NoteOutlineItem) -> String? {
             if let group = roots.first(where: {
-                $0.isGroup && (node.id == $0.id || node.id.hasPrefix($0.id + "/"))
+                // Places are excluded: a note listed under Recents lives in
+                // whichever collection owns it, not in "Recents", and treating
+                // the place as its root would reject every drag out of it.
+                $0.isGroup && !$0.isPlace && (node.id == $0.id || node.id.hasPrefix($0.id + "/"))
             }) {
                 return group.id
             }
@@ -351,6 +384,7 @@ struct NoteOutlineList: NSViewRepresentable {
             guard let node = item as? NoteOutlineItem else { return nil }
             switch node.kind {
             case .collection(let collection): return groupCell(collection)
+            case .place(let title, let symbol): return placeCell(title, symbol: symbol)
             case .folder(let name): return labelCell(name, symbol: "folder", secondary: false)
             case .note(let note, let snippet): return noteCell(note, snippet: snippet)
             case .file(let file): return labelCell(file.name, symbol: file.kind.symbol, secondary: true)
@@ -380,6 +414,28 @@ struct NoteOutlineList: NSViewRepresentable {
             icon.contentTintColor = .secondaryLabelColor
             icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12 * parent.fontScale, weight: .regular)
             return icon
+        }
+
+        /// A pinned place: icon and title, and nothing else. A collection group
+        /// row carries a close button and a git dot because a collection can be
+        /// closed and can be dirty; Recents can be neither.
+        private func placeCell(_ title: String, symbol: String) -> NSView {
+            let container = NSTableCellView()
+            let row = NSStackView(views: [
+                symbolIcon(symbol),
+                label(title, font: .systemFont(ofSize: 11 * parent.fontScale, weight: .regular),
+                      color: .secondaryLabelColor),
+            ])
+            row.spacing = 5
+            row.orientation = .horizontal
+            row.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(row)
+            NSLayoutConstraint.activate([
+                row.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                row.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+                row.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            ])
+            return container
         }
 
         private func groupCell(_ collection: Collection) -> NSView {

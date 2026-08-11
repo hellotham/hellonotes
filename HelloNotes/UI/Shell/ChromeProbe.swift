@@ -206,67 +206,25 @@ enum ChromeProbeLog {
         append("chrome[note] \(line)\n")
     }
 
-    /// Samples rendered pixels in the titlebar band, per column.
-    ///
-    /// Every frame-based metric here disagreed with what the user could see —
-    /// a wrapper view can be full height with nothing of the column drawn in
-    /// the band, which is exactly what the bench proved. Pixels are the only
-    /// measurement that corresponds to the complaint. For each column region it
-    /// reports the colour *inside* the band and the colour just *below* it: the
-    /// same colour twice means that column's content is drawn up there.
-    @MainActor
-    static func samplePixels(window: NSWindow, tag: String) {
-        guard enabled, let content = window.contentView else { return }
-        let band = max(0, content.bounds.height - window.contentLayoutRect.height)
-        guard band > 2,
-              let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
-        content.cacheDisplay(in: content.bounds, to: rep)
-
-        // The rep is in *pixels*; everything else here is in points. On a
-        // Retina display that is a factor of two, and sampling point
-        // coordinates into a pixel buffer reads somewhere else entirely —
-        // which is how this probe came to report a clean rail while the
-        // window's own snapshot showed it white. Scale, or measure nothing.
-        let scale = CGFloat(rep.pixelsWide) / max(1, content.bounds.width)
-        func hex(_ xPoints: CGFloat, _ yPoints: CGFloat) -> String {
-            let x = Int(xPoints * scale), y = Int(yPoints * scale)
-            guard x >= 0, y >= 0, x < rep.pixelsWide, y < rep.pixelsHigh,
-                  let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return "----" }
-            return String(format: "%02X%02X%02X",
-                          Int(c.redComponent * 255), Int(c.greenComponent * 255),
-                          Int(c.blueComponent * 255))
-        }
-
-        // Column regions, by the widths the shell actually uses.
-        let width = content.bounds.width
-        let probes: [(String, CGFloat)] = [
-            ("rail", 32),
-            ("list", ShellMetrics.railWidth + 120),
-            ("editor", width * 0.5),
-            ("inspector", width - 60),
-        ]
-        let inBand = band / 2                      // middle of the band
-        let below = band + 12                      // just under it
-        let line = probes.filter { $0.1 < width }.map { name, x in
-            "\(name)=\(hex(x, inBand))/\(hex(x, below))"
-        }.joined(separator: " ")
-        append("chrome[\(tag)] pixels band=\(Int(band))pt (inBand/below) \(line)\n")
-    }
-
-    /// Writes the window's own rendered contents to a PNG beside the log.
-    /// Only this window, no screen-recording permission, nothing of anyone
-    /// else's screen — the app photographing itself.
-    @MainActor
-    static func snapshot(window: NSWindow?, tag: String) {
-        guard enabled, let window, let content = window.contentView,
-              let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
-        content.cacheDisplay(in: content.bounds, to: rep)
-        guard let data = rep.representation(using: .png, properties: [:]),
-              let url = logURL?.deletingLastPathComponent()
-                  .appendingPathComponent("hn-window-\(tag).png") else { return }
-        try? data.write(to: url)
-        append("chrome[\(tag)] snapshot written to \(url.path)\n")
-    }
+    // `samplePixels` and `snapshot` used to live here. Both went through
+    // `cacheDisplay(in:to:)`, and **that cannot render materials, vibrancy or
+    // Liquid Glass** — it paints them flat white. Those *are* the sidebar
+    // chrome, so the instrument was structurally blind to the only thing it was
+    // pointed at: it invented a "white capsule" that did not exist, and cost a
+    // session of eight fixes, two reverts and a shipped regression chasing it.
+    //
+    // The replacement is not a better in-process snapshot; it is a different
+    // mechanism entirely. `screencapture -l <windowID>` goes through the real
+    // compositor, needs no Screen Recording permission for an enumerable
+    // window, and captures that one window only:
+    //
+    //     swiftc -O scripts/winid.swift -o /tmp/winid && /tmp/winid
+    //     screencapture -l<id> -o -x /tmp/hn.png
+    //
+    // Validate an instrument before trusting it. One capture of any app with a
+    // normal sidebar would have exposed the flaw in seconds — and when a
+    // measurement disagrees with what the user can see, the measurement is the
+    // suspect.
 
     @MainActor
     static func dump(window: NSWindow?, tag: String) {
@@ -310,9 +268,10 @@ enum ChromeProbeLog {
                     + "underTitlebar=\(intrudes ? "YES (+\(round(f.maxY - layout.maxY))pt)" : "no")")
             }
         }
+        // Frames only. Anything that needs to know what was *drawn* uses
+        // `screencapture -l <windowID>` (see the note above) — never an
+        // in-process snapshot, which cannot render the materials in question.
         append(lines.joined(separator: "\n") + "\n")
-        samplePixels(window: window, tag: tag)
-        snapshot(window: window, tag: tag)
     }
 
     private static func collectSplitViews(in view: NSView, into found: inout [NSSplitView]) {

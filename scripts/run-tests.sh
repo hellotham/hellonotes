@@ -75,8 +75,11 @@ xcodebuild test \
   -destination 'platform=macOS' \
   -clonedSourcePackagesDirPath ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM \
   "${@:--only-testing:HelloNotesTests}"
-status=$?
+# NOT `status=$?`: in zsh `status` is a read-only alias for `$?`, so the
+# assignment fails and the later `exit $status` reports whatever *cleanup* did.
+# A failing suite would have exited 0 — the script would have lied.
+result=$?
 
 # 3. Clean up regardless of the result.
 cleanup_hosts
-exit $status
+exit $result

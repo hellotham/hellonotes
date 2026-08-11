@@ -16,6 +16,18 @@
 
 import SwiftUI
 
+/// Which place a shell's navigation is scoped to. `.library` means everything;
+/// `.collection` narrows to one.
+///
+/// The macOS shell no longer has a rail to switch between them — collections and
+/// their folders are one tree, so "where am I?" is answered by the selection in
+/// that tree (`docs/shell-chrome.md` D2). This survives for the compact iOS
+/// shell, whose bottom tab bar genuinely is a place switcher.
+enum RailPlace: Hashable, Sendable {
+    case library
+    case collection(Collection.ID)
+}
+
 struct LibraryPlace: View {
     /// A library-wide command. `id` is the title, so the array is a literal at
     /// the call site and still diffs stably.

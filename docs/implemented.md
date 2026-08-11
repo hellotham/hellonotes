@@ -1008,8 +1008,90 @@ scenes from a 320pt iPad slice to 3840x2160, plus a live resize sweep down to
 250pt and back, measured in a real toolbar window that is never ordered front.
 It asserts on viewports **and their ancestors**, never on scroll content — being
 a window onto something larger than itself is what a viewport is *for*. Thirteen
-tests, including the rail's fixed width and the pane estimate that must follow
-it, and the Library place's single-pass recents.
+tests, including the sidebar's width band and the pane estimate that must follow
+it, and the single-pass recents behind the pinned Recents node.
 
 The unreachable top-of-file was a layout fact, not a logic fact, so nothing in
 the codebase could have caught it. Now it fails the build.
+
+---
+
+## 18 · The shell chrome redesign — one sidebar, one row (2026-08-11)
+
+§17 decided the *arrangement* — how many columns, how wide, at what size. It
+never decided the **chrome**: what may be drawn in the titlebar band, which
+panels get a show/hide control, and where that control sits. Nothing having
+decided those, they were answered one at a time by taste, in the running app,
+over about twenty attempts, producing in turn a toggle floating mid-list, three
+inspector toggles with one buried under a `»`, a search field collapsed to a
+glyph, and a spurious row above the inspector.
+
+### The one fact underneath all of it
+
+**SwiftUI places a sidebar toggle for column one and no other column.** The old
+shell made a fixed-width collection *rail* column one, so the panel that
+actually needs collapsing — the folder tree, which a laptop writer hides to get
+width — was column two. Its control therefore had to be hand-placed, and every
+hand-placed variant was wrong in a different way.
+
+Measured in `scratchpad/ChromeLab`, which renders candidate shells as real
+`WindowGroup`s and captures them through the compositor: the three-column shape
+produces **no toggle at all**; folding the collapsible panel into column one
+produces the correct one, at that column's trailing edge, for free.
+
+So the fix was structural. Collections and folders became **one tree** —
+collections as top-level nodes, their folders nested, Recents and Bookmarks
+pinned above — which puts the collapsible panel in column one where the platform
+can place its control.
+
+### What the survey changed
+
+Five apps captured with `screencapture -l <windowID>` and measured, not
+remembered (`docs/shell-chrome.md` Part 2). Two findings overturned decisions
+that had been made from memory:
+
+- **Apple Notes** — a notes app by the authors of the HIG, with our exact data
+  shape — puts its sidebar toggle at **x≈197pt in a 220pt sidebar**, its own
+  trailing edge, with New Folder beside it. That is now our position, to the
+  point.
+- **Pages** draws its inspector's selectors (`Format`, `Document`) **in the
+  band, directly above the inspector**, with no chevron. So "nothing above the
+  inspector" was too strong: the rule is *only the inspector's own selectors*.
+  Our five tabs became five icon toggles there, which means the panel needs no
+  strip of its own — and that is what removed the spurious row at its root.
+- **VS Code** is commonly remembered as having sidebar *tabs*. It does not: its
+  switcher is a vertical activity bar, and what it stacks inside a container is
+  accordion sections. That settled the question against tabs, whose premise —
+  mutual exclusivity — does not hold for Recents versus a folder tree.
+
+### Two framework behaviours that were mistaken for our bugs
+
+- **`.searchable` collapses to a magnifier glyph at 860pt.** That is the
+  declared window minimum and the laptop writer's working width, so the control
+  vanished exactly where it mattered. Replaced with a plain 190pt `TextField` in
+  a leading toolbar item, which cannot collapse. ⌥⌘F (Edit ▸ Search All
+  Collections) restores the keyboard route the system control came with; ⌘F
+  stays find-in-note.
+- **`.inspector()` forces an unsuppressable `»` chevron**, which then swallows
+  toolbar items as the band tightens — the origin of "three toggles, one hidden
+  under »". The inspector is now an `HStack` sibling of the editor with a
+  divider, the mechanism finvestlens ships.
+
+The band also draws no window title (the window keeps one for the Window menu).
+At 860pt the title is the difference between one clean row and a `»` that
+swallows search *and* all five tabs — measured, not assumed.
+
+### How it is kept fixed
+
+`ShellContractTests` now asserts the two-column arrangement: that the sidebar is
+draggable between a floor and a cap rather than fixed, that **sidebar ideal +
+editor floor fits inside the declared window minimum** (which is why the sidebar
+is collapsible by choice at every size rather than forced shut below 960pt), and
+that the pane estimate subtracts exactly the columns actually shown.
+
+`docs/shell-chrome.md` Part 7 is the visual checklist, and it is run **in full**
+after every change rather than only on the item last reported — eight items,
+against a capture. The instrument matters as much as the checklist: judging any
+of this from `cacheDisplay` is what cost the session before this one, because it
+cannot render materials and paints them flat white.
+

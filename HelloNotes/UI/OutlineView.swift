@@ -13,6 +13,8 @@ extension Notification.Name {
     /// Host → engine: scroll to (and briefly highlight) the first match of a
     /// query in the editor's displayed text. Used for table-of-contents jumps.
     static let hnEditorFindQuery = Notification.Name("hn.editor.findQuery")
+    /// Put the caret in the band's library-search field (⌥⌘F).
+    static let hnFocusLibrarySearch = Notification.Name("hn.shell.focusLibrarySearch")
     /// The caret tried to leave the top of the document — put focus on the
     /// inline title, so title and body arrow like one flow.
     static let hnEditorCaretEscapedTop = Notification.Name("hn.editor.caretEscapedTop")

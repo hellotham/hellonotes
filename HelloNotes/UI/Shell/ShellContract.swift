@@ -19,52 +19,26 @@ import SwiftUI
 enum ShellMetrics {
     // Rails and columns
 
-    /// The library rail is a **switcher**, not a list: one icon per place —
-    /// the library itself, then each open collection. It holds a 44pt touch
-    /// target plus a one-line caption and nothing else, so there is nothing in
-    /// it to widen and floor == ideal == cap (the divider does not drag).
+    /// **One sidebar**: collections and their folders in a single tree, with
+    /// Recents and Bookmarks pinned above them (`docs/shell-chrome.md` D2/D4).
     ///
-    /// Why a rail at all: the left column used to be a grab bag — a collection
-    /// card, five command buttons, bookmarks and Git, all inside a `List`, so
-    /// three scrolling lists sat side by side. Commands are not places. The
-    /// only *places* on the left are the library and the collections, and a
-    /// switcher is what a place-picker looks like.
-    /// Wide enough to contain the window's traffic lights.
+    /// It replaced a fixed-width collection *rail* plus a separate folder-tree
+    /// column, and the reason is structural rather than aesthetic. SwiftUI hands
+    /// a correctly-placed sidebar toggle to **column one only**. With the rail
+    /// in that slot, the panel that actually needs collapsing — the tree, which
+    /// P2 hides to get width — was column two, so its control had to be
+    /// hand-placed. Every hand-placed variant failed the same way: buttons
+    /// floating mid-list, three inspector toggles, a `»` chevron. Measured in
+    /// `scratchpad/ChromeLab`: design 4 (three columns) produces **no toggle at
+    /// all**; design 10 (this shape) produces the free one at the sidebar's own
+    /// trailing edge, x≈245pt — Apple Notes' position to the point.
     ///
-    /// The lights span roughly x=16…73pt. At 64pt the rail's trailing divider
-    /// landed *inside the green button* — a rule drawn straight through a
-    /// window control. A first column that runs to the top of the window has to
-    /// be wider than the controls that sit in it; Mail's sidebar is far wider
-    /// for the same reason.
-    static let railWidth: CGFloat = 84
-
-    /// The band at the top of a full-height column that the window's traffic
-    /// lights and toolbar occupy — 52pt on a standard toolbar window.
-    ///
-    /// A column running to the very top is the macOS design (Mail, Xcode), and
-    /// what makes it read as deliberate is that this band is left *empty*, so
-    /// the window controls sit in the column rather than on top of its first
-    /// row. AppKit gives a source-list `List` this clearance automatically; a
-    /// hand-built rail or a custom inspector gets none, which is why the rail's
-    /// first icon sat under the close button.
-    ///
-    /// Verified in `scratchpad/ChromeLab` (`--design 2`) against a capture of
-    /// the real app, both taken with `screencapture` through the compositor —
-    /// the only rendering path that draws materials as they actually appear.
-    static let trafficLightClearance: CGFloat = 52
-
-    static let libraryFloor: CGFloat = railWidth
-    static let libraryIdeal: CGFloat = railWidth
-    static let libraryCap: CGFloat = railWidth
-
-    static let listFloor: CGFloat = 220
-    static let listIdeal: CGFloat = 280
-    /// Capped close to the ideal, not at a comfortable maximum. `NSSplitView`
-    /// hands slack to whichever column can still grow, and once the library
-    /// column became a fixed 64pt rail the note list was the only taker — so
-    /// the ~156pt the rail freed went into the *list*, which had just been made
-    /// the least interesting column on screen. The width belongs to the editor.
-    static let listCap: CGFloat = 340
+    /// Capped close to the ideal, not at a comfortable maximum: `NSSplitView`
+    /// hands slack to whichever column can still grow, and the width belongs to
+    /// the editor.
+    static let sidebarFloor: CGFloat = 220
+    static let sidebarIdeal: CGFloat = 280
+    static let sidebarCap: CGFloat = 340
 
     static let inspectorFloor: CGFloat = 220
     static let inspectorIdeal: CGFloat = 280
@@ -125,18 +99,25 @@ enum ShellKind: String, Equatable, Sendable {
     case compact
     /// Vertical room to spare: navigation bands across the top.
     case tall
-    /// List column only; the library retracts to an overlay (decision 12).
+    /// Sidebar + pane, no room for an inspector.
     case two
-    /// Left rail + list + pane.
+    /// Sidebar + pane.
     case wide
-    /// Left rail + list + pane + right inspector.
+    /// Sidebar + pane + right inspector.
     case wideInspector
 
-    /// Wide shells have horizontal room to spend on rails.
-    var hasLibraryRail: Bool { self == .wide || self == .wideInspector || self == .tall }
+    /// Every non-compact shell carries the sidebar; the user collapses it.
+    var hasSidebar: Bool { self != .compact }
 
-    /// Below 960pt the library is an overlay reached by ☰ (decision 12).
-    var libraryIsOverlay: Bool { self == .two || self == .compact }
+    /// Only compact has no sidebar column at all — its navigation is the bottom
+    /// tab bar, so there is something to reach for rather than nothing.
+    ///
+    /// Decision 12 used to retract the library below 960pt because *three*
+    /// columns did not fit there. Two do: a 280pt sidebar plus the 320pt editor
+    /// floor is 600pt, so at the 860pt window minimum both fit with room over.
+    /// Forcing it shut would leave P2 — who works at exactly that width — with
+    /// a locked toggle and no way to reach a collection.
+    var sidebarIsOverlay: Bool { self == .compact }
 
     /// Compact is the only shell that gives the editor the whole screen.
     var editorIsScreen: Bool { self == .compact }
@@ -254,7 +235,7 @@ struct ShellContext: Equatable, Sendable {
     var tabBarHeight: CGFloat { prefersTouch ? ShellMetrics.tabBarTouch : ShellMetrics.tabBarPointer }
 
     /// Decision 12 — below 960pt the library needs a ☰ affordance somewhere.
-    var needsLibraryAffordance: Bool { kind.libraryIsOverlay }
+    var needsLibraryAffordance: Bool { kind.sidebarIsOverlay }
 
     var maxPanes: Int { ShellMetrics.maxPanes(detailWidth: paneWidth) }
 }

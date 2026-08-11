@@ -68,6 +68,13 @@ struct iOSContentView: View {
     /// Launch splash overlay; fades out after a beat (or on tap).
     @State private var showSplash = true
 
+    /// Which inspector tab is showing. Owned here rather than by the panel,
+    /// because the toolbar is the panel's tab strip (`shell-chrome.md` D6).
+    @AppStorage("inspectorTab") private var inspectorTabRaw = InspectorTab.outline.rawValue
+    private var inspectorTab: InspectorTab {
+        InspectorTab(rawValue: inspectorTabRaw) ?? .outline
+    }
+
     private var focused: Collection? { library.focused }
 
     /// The collection the library rail is standing in, or `nil` on the Library
@@ -132,8 +139,7 @@ struct iOSContentView: View {
             // Touch sizing: 44pt targets, and the keyboard accessory bar
             // instead of a persistent format bar (decision 3).
             prefersTouch: true,
-            libraryRail: { libraryRail },
-            noteList: { noteList },
+            sidebar: { collectionTree },
             pane: { detail },
             inspector: { inspector },
             compact: { compactShell }
@@ -205,41 +211,66 @@ struct iOSContentView: View {
         }
     }
 
-    // MARK: - Column 1: the library rail
+    // MARK: - Column 1: the collection tree
 
-    /// The same switcher the Mac has: places only — the Library, then one row
-    /// per open collection. On iPhone the shell hands off to `CompactShell`
-    /// instead, where a 64pt rail beside a 375pt screen would be absurd; there
-    /// the collection list keeps its own tab (`collectionsList`).
-    private var libraryRail: some View {
-        LibraryRail(
-            collections: library.collections,
-            place: Binding(get: { railPlace }, set: { select($0) }),
-            accent: appearance.resolvedAccent,
-            onSelectCollection: { library.focus($0) },
-            onCloseCollection: { library.close($0) },
-            onAddCollection: { showImporter = true },
-            footer: {
-                VStack(spacing: 0) {
-                    Divider()
-                    Button {
-                        showSettings = true
-                    } label: {
-                        VStack(spacing: 2) {
-                            Image(systemName: "gearshape").font(.system(size: 15))
-                            Text("Settings").font(.system(size: 9)).lineLimit(1)
-                        }
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(.rect)
+    /// The same single sidebar the Mac has (`docs/shell-chrome.md` D2/D4):
+    /// Recents and Bookmarks pinned above one section per open collection.
+    ///
+    /// It replaced a rail plus a note-list column for the structural reason set
+    /// out in `ShellMetrics.sidebarIdeal` — the collapsible panel has to be
+    /// column one to get the platform's toggle. On iPhone the shell hands off to
+    /// `CompactShell` before reaching here, where a sidebar beside a 375pt
+    /// screen would be absurd; there the collection list keeps its own tab.
+    private var collectionTree: some View {
+        List(selection: $selectedNoteID) {
+            if !LibraryPlace.mostRecent(library.allNotes).isEmpty {
+                DisclosureGroup {
+                    ForEach(LibraryPlace.mostRecent(library.allNotes)) { note in
+                        Text(note.title).tag(note.id)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.vertical, 8)
-                    .accessibilityLabel("Settings")
+                } label: {
+                    Label("Recents", systemImage: "clock")
                 }
             }
-        )
-        .navigationTitle("Library")
+            if !bookmarkedNotes.isEmpty {
+                DisclosureGroup {
+                    ForEach(bookmarkedNotes) { note in
+                        Text(note.title).tag(note.id)
+                    }
+                } label: {
+                    Label("Bookmarks", systemImage: "bookmark")
+                }
+            }
+            ForEach(library.collections) { collection in
+                Section(collection.name) {
+                    ForEach(notes(in: collection)) { note in
+                        Text(note.title).tag(note.id)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Collections")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showImporter = true } label: {
+                    Label("Open Collection", systemImage: "plus")
+                }
+            }
+        }
+    }
+
+    private var bookmarkedNotes: [Note] {
+        library.collections.flatMap { $0.bookmarks.bookmarkedNotes(from: $0.notes) }
+    }
+
+    /// One collection's notes, narrowed by whatever filter is active. iPad has
+    /// never shown folders in this column, so this stays flat — merging the
+    /// *collections* into the tree is the change, not adding a folder level the
+    /// platform never had.
+    private func notes(in collection: Collection) -> [Note] {
+        if let selectedTag { return collection.search.notesTagged(selectedTag) }
+        guard !searchText.isEmpty else { return collection.notes }
+        return collection.notes.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
     /// Moving the rail is a navigation: it clears whatever was narrowing the
@@ -547,7 +578,8 @@ struct iOSContentView: View {
                 },
                 fileURL: editor.note?.fileURL,
                 git: collection.git,
-                onRestoreRevision: { editor.text = $0 }
+                onRestoreRevision: { editor.text = $0 },
+                tab: inspectorTab
             )
         } else {
             ContentUnavailableView("No Collection", systemImage: "sidebar.right",

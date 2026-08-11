@@ -16,7 +16,7 @@
 
 import SwiftUI
 
-struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
+struct AdaptiveShell<Sidebar: View, Pane: View,
                      Inspector: View, Compact: View>: View {
     /// Whether the inspector rail is showing. Bound so a toolbar item and the
     /// View menu can toggle it, and so it can be remembered (decision 10).
@@ -27,8 +27,9 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
     /// Touch sizing. Passed in rather than sniffed, so a test can drive it.
     var prefersTouch: Bool = false
 
-    @ViewBuilder var libraryRail: () -> LibraryRail
-    @ViewBuilder var noteList: () -> NoteList
+    /// Collections, their folders, and the pinned Recents/Bookmarks sections —
+    /// one tree, one column, and **the only collapsible panel** (D2/D3).
+    @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var pane: () -> Pane
     @ViewBuilder var inspector: () -> Inspector
     /// The whole compact presentation, supplied by the caller.
@@ -72,39 +73,32 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
     // MARK: - Wide / two: the native three-column shell plus an inspector
 
     private func columnShell(_ kind: ShellKind) -> some View {
-        NavigationSplitView(columnVisibility: columnBinding(kind)) {
-            libraryRail()
-                .navigationSplitViewColumnWidth(min: ShellMetrics.libraryFloor,
-                                                ideal: ShellMetrics.libraryIdeal,
-                                                max: ShellMetrics.libraryCap)
-        } content: {
-            noteList()
-                .navigationSplitViewColumnWidth(min: ShellMetrics.listFloor,
-                                                ideal: ShellMetrics.listIdeal,
-                                                max: ShellMetrics.listCap)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebar()
+                .navigationSplitViewColumnWidth(min: ShellMetrics.sidebarFloor,
+                                                ideal: ShellMetrics.sidebarIdeal,
+                                                max: ShellMetrics.sidebarCap)
         } detail: {
-            EditorPaneContainer { pane() }
-                .inspector(isPresented: inspectorBinding(kind)) {
+            // The inspector is a **sibling of the editor**, not `.inspector()`.
+            //
+            // `.inspector()` forces a `»` chevron into the toolbar that cannot
+            // be suppressed, and the chevron then swallows toolbar items when
+            // the band gets tight — which is where "three inspector toggles,
+            // one hidden under »" came from. An `HStack` sibling has no chrome
+            // of its own, so the five tab toggles in the band are the panel's
+            // only affordance (D6/D7). Proven in finvestlens `Views.swift:1293`
+            // and in `scratchpad/ChromeLab --design 10`.
+            HStack(spacing: 0) {
+                EditorPaneContainer { pane() }
+                if kind == .wideInspector && inspectorPresented {
+                    Divider()
                     inspector()
-                        .inspectorColumnWidth(min: ShellMetrics.inspectorFloor,
-                                              ideal: ShellMetrics.inspectorIdeal,
-                                              max: ShellMetrics.inspectorCap)
+                        .frame(minWidth: ShellMetrics.inspectorFloor,
+                               idealWidth: ShellMetrics.inspectorIdeal,
+                               maxWidth: ShellMetrics.inspectorCap)
                 }
+            }
         }
-    }
-
-    /// Decision 12 — below 960pt the library rail vanishes and opens as an
-    /// overlay. `NavigationSplitView` already gives that: force the two-column
-    /// visibility and the system keeps the sidebar one toggle away.
-    private func columnBinding(_ kind: ShellKind) -> Binding<NavigationSplitViewVisibility> {
-        kind.libraryIsOverlay
-            ? .constant(.doubleColumn)
-            : $columnVisibility
-    }
-
-    /// The inspector exists only where the contract says there is room for it.
-    private func inspectorBinding(_ kind: ShellKind) -> Binding<Bool> {
-        kind == .wideInspector ? $inspectorPresented : .constant(false)
     }
 
     // MARK: - Tall: navigation bands across the top
@@ -114,18 +108,14 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
     /// measure and spends the height that portrait has spare.
     private func tallShell(width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                // Each band cell needs its own navigation context. In the
-                // column shells `NavigationSplitView` provides one per column;
-                // here the shell must, or `.searchable`, `.navigationTitle`
-                // and every column toolbar button silently disappear.
-                NavigationStack { libraryRail() }
-                    .frame(width: ShellMetrics.libraryIdeal)
-                Divider()
-                NavigationStack { noteList() }
-            }
-            .frame(height: ShellMetrics.bandIdeal)
-            .accessibilityIdentifier("shell.band")
+            // The band needs its own navigation context. In the column shells
+            // `NavigationSplitView` provides one per column; here the shell
+            // must, or `.navigationTitle` and every toolbar button silently
+            // disappears. One cell now rather than two: collections and folders
+            // are a single tree (D2), so there is nothing to sit beside.
+            NavigationStack { sidebar() }
+                .frame(height: ShellMetrics.bandIdeal)
+                .accessibilityIdentifier("shell.band")
 
             Divider()
 
@@ -155,13 +145,10 @@ struct AdaptiveShell<LibraryRail: View, NoteList: View, Pane: View,
             return width >= ShellMetrics.tallRailMin
                 ? width - ShellMetrics.inspectorIdeal - divider
                 : width
-        case .two:
-            return width - ShellMetrics.listIdeal - divider
-        case .wide:
-            return width - ShellMetrics.libraryIdeal - ShellMetrics.listIdeal - 2 * divider
+        case .two, .wide:
+            return width - ShellMetrics.sidebarIdeal - divider
         case .wideInspector:
-            return width - ShellMetrics.libraryIdeal - ShellMetrics.listIdeal
-                 - ShellMetrics.inspectorIdeal - 3 * divider
+            return width - ShellMetrics.sidebarIdeal - ShellMetrics.inspectorIdeal - 2 * divider
         }
     }
 }

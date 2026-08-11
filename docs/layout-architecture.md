@@ -1,5 +1,8 @@
 ---
-status: PORTED (2026-08-11) — the sizing contract, the adaptive shell, both rails (including
+status: PORTED (2026-08-11), amended the same day by docs/shell-chrome.md, which
+replaced the left rail + note-list pair with a single collection tree (decision
+14, superseding 12 and 13). Everything about *sizing* below still holds.
+Originally: the sizing contract, the adaptive shell, both rails (including
 the 64pt library switcher and the Library place) and the width model are in the app on both
 platforms. Decisions 2, 3, 4 (persistence), 7 and 11 are not yet built; see
 docs/unimplemented.md §6b. Shipped detail: docs/implemented.md §17.
@@ -137,8 +140,7 @@ middle of a code editor, and a Markdown *editor* is no different. Editing uses t
 | **Prose — editing** | 320pt | full pane, left-aligned | pane | the pane *is* the workspace (VS Code) |
 | **Blocks** | — | full pane width | pane | tables and diagrams need room |
 | Editor pane (incl. chrome) | 320 | 560 | — | the measure above |
-| Note list | 220 | 280 | 400 | title + date + snippet |
-| Library rail (left) | 64 | 64 | 64 | a switcher: icon + caption, nothing to widen |
+| Sidebar (left) | 220 | 280 | 340 | collections + folders in one tree |
 | Inspector rail (right) | 220 | 280 | 360 | outline, tags, backlinks |
 | References (when inline) | — | 200 h | 280 h | 3–4 rows |
 | Format bar | 36 h | 36 h | 36 h | chrome, definite |
@@ -166,30 +168,33 @@ neither → the **editor is the whole screen**.
 |---|---|---|---|
 | `width < 600` | **Compact** | bottom tab bar + retracting mini-note | full screen |
 | `width ≥ 600 · height > width` | **Tall** | band across the top | full width, ≤ ruler |
-| `width 600–960 · landscape` | **Two** | list column, library retracted | rest |
-| `width ≥ 960` | **Wide** | left rail + list | panes |
-| `width ≥ 1400` | **Wide + inspector** | left rail + list + right inspector | panes |
+| `width 600–960 · landscape` | **Two** | sidebar (collapsible) | rest |
+| `width ≥ 960` | **Wide** | sidebar (collapsible) | panes |
+| `width ≥ 1400` | **Wide + inspector** | sidebar + right inspector | panes |
 
 One rule reads both platforms: a Mac window and an iPad at the same size get the same shell. Stage Manager
 makes device identity meaningless, so it is never consulted.
 
-### The two rails
+### The sidebar and the inspector
 
-| Rail | Question | Contents |
+| Panel | Question | Contents |
 |---|---|---|
-| **Left — library** | "Where is it?" | *places only*: the Library, then one row per open collection; Git pinned at the bottom |
-| **Right — inspector** | "What is this, and what touches it?" | tabbed: **Outline · Tags · Backlinks · Properties · Graph · History** |
+| **Left — sidebar** | "Where is it?" | Recents and Bookmarks pinned above one section per open collection, each expanding into its folder tree |
+| **Right — inspector** | "What is this, and what touches it?" | tabbed: **Outline · Tags · References · Properties · History** |
 
-**Tags live entirely in the inspector** (decided). The left rail is purely places; the right rail is the
-single cross-cutting surface. Selecting a tag there still filters the note list — the rails cooperate
-across the shell.
+**Tags live entirely in the inspector** (decided). The sidebar is purely places; the inspector is the
+single cross-cutting surface. Selecting a tag there still filters the notes — the two cooperate across
+the shell.
 
-**The left rail is a switcher, not a list** (decision 13). It holds the Library and the open collections
-and nothing else: commands are not places, and bookmarks and recents span collections while a list beside
-them shows one. Those move into the **Library place**, which occupies the note-list column when the rail
-is on Library. The consequence is that the rail **replaces the note list's collection level** — the tree
-roots at the *folders* of the selected collection. Collection group rows survive only in search, which is
-cross-collection and still has to say where each hit came from.
+**One sidebar, not a rail plus a list** (decision 14, superseding 12 and 13). Collections are top-level
+nodes and their folders nest beneath, Apple Notes' account-then-folders arrangement. The reason is
+structural rather than aesthetic: SwiftUI hands a correctly-placed sidebar toggle to **column one only**,
+so while a fixed-width rail held that slot, the panel that actually needs collapsing was column two and
+its control had to be hand-placed — which produced a button floating mid-list, three inspector toggles and
+a `»` chevron over twenty attempts. Measured in `scratchpad/ChromeLab`: the three-column shape produces
+**no toggle at all**. Recents and Bookmarks are pinned collapsible nodes rather than a separate place,
+because they span collections and so correspond to no folder on disk. Full reasoning, survey and
+wireframes: `docs/shell-chrome.md`.
 
 The inspector consolidates four surfaces scattered today — references beneath the note, outline in a
 popover, tags in the left sidebar, graph in a separate window. Below 1400pt they collapse back to
@@ -335,8 +340,9 @@ than the scene is a live S1/S2 violation.
 | 9 | **Declare a hard window minimum; if the OS forces smaller, degrade** — keep showing the editor with text below its floor rather than an error state. | Stage Manager may ignore minimums; never break, never show a warning instead of the note. |
 | 10 | **Inspector reopens on its last-used tab**, remembered globally. | Least surprise for a tool used in a rhythm. |
 | 11 | **Compact chrome retracts on scroll-down, returns on scroll-up**, and retracts when the keyboard appears. | The Safari/Apple Music gesture people already know. |
-| 13 | **The left rail is a 64pt switcher of places** — Library, then the open collections, Git pinned at the bottom. It replaces the note list's collection level, and the quick actions, bookmarks and recents move into the Library place. | The rail was a `List` holding a collection card, five command buttons, bookmarks and Git: three scrolling lists side by side, with commands dressed as destinations. A place-picker is what the left column is for. |
-| 12 | **The left rail vanishes below 960pt** and opens as an overlay (⌥⌘S or ☰) — no icon strip. | Every point goes to list and text at exactly the widths where they are tightest. |
+| ~~13~~ | ~~The left rail is a 64pt switcher of places.~~ **Superseded by 14** — the rail held column one, which is the only column the platform will place a toggle for. | |
+| ~~12~~ | ~~The left rail vanishes below 960pt and opens as an overlay.~~ **Superseded by 14** — that was forced by three columns not fitting; two fit at the 860pt window minimum with room over, so the sidebar is collapsible by *choice* at every size. | |
+| 14 | **Collections and folders are one collapsible sidebar**, with Recents and Bookmarks pinned above them; commands live in the toolbar, never in the sidebar. | The collapsible panel must be column one or its toggle cannot be placed by the platform. And P2 collapses the sidebar *while working*, so anything inside it disappears exactly when it is wanted. See `docs/shell-chrome.md`. |
 
 ### Consequences worth remembering
 

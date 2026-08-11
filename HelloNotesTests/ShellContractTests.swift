@@ -122,8 +122,7 @@ struct ShellContractTests {
     func chromeRules() {
         for scene in Self.scenes {
             let kind = shellKind(width: scene.width, height: scene.height)
-            let paneWidth = AdaptiveShell<EmptyView, EmptyView, EmptyView,
-                                          EmptyView, EmptyView>
+            let paneWidth = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView>
                 .estimatedPaneWidth(kind: kind, width: scene.width)
             let touch = ShellContext(kind: kind, size: CGSize(width: scene.width, height: scene.height),
                                      paneWidth: paneWidth, prefersTouch: true)
@@ -136,7 +135,7 @@ struct ShellContractTests {
                     "\(scene.name): pane \(Int(paneWidth))")
             #expect(touch.tabBarHeight >= 44, "\(scene.name): HIG touch target")
             // Decision 12 — below 960pt there must be a way back to the library.
-            #expect(pointer.needsLibraryAffordance == (kind == .two || kind == .compact),
+            #expect(pointer.needsLibraryAffordance == (kind == .compact),
                     "\(scene.name)")
         }
     }
@@ -152,33 +151,42 @@ struct ShellContractTests {
         #expect(ShellMetrics.maxPanes(detailWidth: 250) == 1)
     }
 
-    @Test("The library rail is a fixed-width switcher, and the pane pays for it")
-    func libraryRailIsFixedWidth() {
-        // A switcher holds an icon and a caption; there is nothing in it to
-        // widen, so the column cannot be dragged.
-        #expect(ShellMetrics.libraryFloor == ShellMetrics.railWidth)
-        #expect(ShellMetrics.libraryIdeal == ShellMetrics.railWidth)
-        #expect(ShellMetrics.libraryCap == ShellMetrics.railWidth)
-        // Wide enough for a 44pt touch target with room either side (HIG).
-        #expect(ShellMetrics.railWidth >= 44)
+    @Test("One sidebar, draggable between a floor and a cap, and the pane pays for it")
+    func sidebarIsTheOnlyCollapsibleColumn() {
+        // A tree of collections and folders holds names of every length, so
+        // unlike the fixed rail it replaced this column *is* draggable — but
+        // capped close to its ideal, because NSSplitView hands slack to
+        // whichever column can still grow and the width belongs to the editor.
+        #expect(ShellMetrics.sidebarFloor < ShellMetrics.sidebarIdeal)
+        #expect(ShellMetrics.sidebarIdeal < ShellMetrics.sidebarCap)
+        #expect(ShellMetrics.sidebarCap - ShellMetrics.sidebarIdeal <= 100)
 
-        // Every arrangement that shows the rail subtracts exactly its width —
+        // Both columns fit at the declared window minimum. This is what makes
+        // the sidebar collapsible-by-choice rather than forced shut at 860pt:
+        // three columns did not fit there, which is why the old shell retracted
+        // the library below 960 — and why its toggle ended up hand-placed.
+        #expect(ShellMetrics.sidebarIdeal + ShellMetrics.editorFloor
+                <= ShellMetrics.windowMinWidth)
+
+        // Every arrangement that shows the sidebar subtracts exactly its width —
         // this is what stops the pane estimate (and so the format-bar rule and
         // the reading measure) drifting from what the pane actually gets.
-        let wide = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView, EmptyView>
+        let wide = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView>
             .estimatedPaneWidth(kind: .wide, width: 1100)
-        #expect(wide == 1100 - ShellMetrics.railWidth - ShellMetrics.listIdeal - 2)
+        #expect(wide == 1100 - ShellMetrics.sidebarIdeal - 1)
 
-        let inspector = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView, EmptyView>
+        let inspector = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView>
             .estimatedPaneWidth(kind: .wideInspector, width: 1470)
-        #expect(inspector == 1470 - ShellMetrics.railWidth - ShellMetrics.listIdeal
-                                  - ShellMetrics.inspectorIdeal - 3)
+        #expect(inspector == 1470 - ShellMetrics.sidebarIdeal
+                                  - ShellMetrics.inspectorIdeal - 2)
 
-        // The rail is a place-switcher, so its two places are distinct and a
-        // collection's identity is what tells them apart.
-        #expect(RailPlace.library != RailPlace.collection("/a"))
-        #expect(RailPlace.collection("/a") != RailPlace.collection("/b"))
-        #expect(RailPlace.collection("/a") == RailPlace.collection("/a"))
+        // Only compact has no sidebar column at all; everywhere else the user
+        // decides, so nothing may lock the toggle.
+        for kind in [ShellKind.two, .wide, .wideInspector, .tall] {
+            #expect(kind.hasSidebar, "\(kind.rawValue) must carry the sidebar")
+            #expect(!kind.sidebarIsOverlay, "\(kind.rawValue) must not force it shut")
+        }
+        #expect(!ShellKind.compact.hasSidebar)
     }
 
     @Test("The Library place shows the most recent notes without sorting the vault")
@@ -247,8 +255,8 @@ struct ShellContractTests {
         AdaptiveShell(
             inspectorPresented: .constant(true),
             columnVisibility: .constant(.all),
-            libraryRail: { OversizedViewport(tag: "library", contentHeight: 3000) },
-            noteList: { OversizedViewport(tag: "list", contentHeight: 56_000) },  // 2,000 notes
+            // 2,000 notes' worth of tree in the one sidebar there now is.
+            sidebar: { OversizedViewport(tag: "sidebar", contentHeight: 56_000) },
             pane: { OversizedViewport(tag: "editor", contentHeight: 40_000) },
             inspector: { OversizedViewport(tag: "inspector", contentHeight: 2000) },
             compact: {

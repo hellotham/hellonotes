@@ -132,10 +132,24 @@ struct MacContentView: View {
 
     static let railPlaceUnset = "?"
 
-    /// The Git panel, reached from the rail's footer. A 64pt rail has no room
-    /// for a branch name, a commit button and a status line, so Git keeps its
-    /// full panel and gets a button instead of a column.
+    /// The Git panel, reached from the collection status bar. Git is
+    /// collection-level state, and the status bar already carries that.
     @State private var showGitPanel = false
+
+    /// Which inspector tab the band's five toggles select (D6). `@AppStorage`
+    /// rather than `@State`: reopening the inspector to a different tab than
+    /// you left it on is a small betrayal, and it used to live inside the panel.
+    @AppStorage("inspectorTab") private var inspectorTabRaw = InspectorTab.outline.rawValue
+
+    private var inspectorTab: InspectorTab {
+        get { InspectorTab(rawValue: inspectorTabRaw) ?? .outline }
+        nonmutating set { inspectorTabRaw = newValue.rawValue }
+    }
+
+    /// Focus for the band's search field. `.searchable` came with a keyboard
+    /// route; a plain field has to be handed focus explicitly, which
+    /// Edit ▸ Search All Collections (⌥⌘F) does over `hnFocusLibrarySearch`.
+    @FocusState private var searchFocused: Bool
 
 
     // MARK: - Focused / selection helpers
@@ -169,14 +183,6 @@ struct MacContentView: View {
 
     private var railPlace: RailPlace {
         railCollection.map { .collection($0.id) } ?? .library
-    }
-
-    /// The Library place owns the note-list column when the rail is on it —
-    /// except while searching, which is deliberately cross-collection and
-    /// overrides the rail's scope (a query is a question about the library, not
-    /// about wherever you happen to be standing).
-    private var showsLibraryPlace: Bool {
-        railPlace == .library && !isSearching && selectedTag == nil
     }
 
     /// The editor for the active tab (the selected note).
@@ -357,8 +363,7 @@ struct MacContentView: View {
         AdaptiveShell(
             inspectorPresented: $inspectorPresented,
             columnVisibility: $columnVisibility,
-            libraryRail: { libraryRail },
-            noteList: { noteList },
+            sidebar: { collectionTree },
             pane: { editorColumn },
             inspector: { inspector },
             // A Mac window declares an 860pt minimum, so the compact shell is
@@ -376,7 +381,23 @@ struct MacContentView: View {
         // — and left empty when there is none, which the same section allows:
         // "If titling a toolbar seems redundant, you can leave the title area
         // empty."
+        // HIG (Toolbars): "Don't title windows with your app name." The window
+        // is titled with where you are — the collection — for the Window menu
+        // and Mission Control…
         .navigationTitle(railCollection?.name ?? "")
+        // …but the *band* does not draw it (shell-chrome.md D10). Apple Notes
+        // shows no title there either, and at 860pt the title is the difference
+        // between one clean row and a `»` that swallows search and every
+        // inspector tab — measured in ChromeLab, designs 8 vs 10.
+        .toolbar(removing: .title)
+        .onReceive(NotificationCenter.default.publisher(for: .hnFocusLibrarySearch)) { _ in
+            // Opening the sidebar too: a search whose results land in a hidden
+            // panel is a dead end, and ⌥⌘F is a request to *look* for something.
+            if columnVisibility == .detailOnly {
+                withAnimation(.easeInOut(duration: 0.18)) { columnVisibility = .all }
+            }
+            searchFocused = true
+        }
         .frame(minWidth: ShellMetrics.windowMinWidth, minHeight: ShellMetrics.windowMinHeight)
         // S2 (docs/layout-architecture.md): a minimum is a floor, not a
         // ceiling. Without a maximum, any column child with a large ideal size
@@ -773,48 +794,25 @@ struct MacContentView: View {
         Task { await library.open(urls: toOpen) }
     }
 
-    // MARK: - Column 1: the library rail
+    // MARK: - Column 1: the collection tree
 
-    /// A switcher of *places*, not a list of everything. Tags deliberately do
-    /// not live here either: the left rail answers "where is it?" — the library
-    /// and the collections — while tags are cross-cutting and belong to the
-    /// inspector, which answers "what is this, and what touches it?"
-    /// (decision 1).
-    private var libraryRail: some View {
-        LibraryRail(
-            collections: library.collections,
-            place: Binding(get: { railPlace }, set: { select($0) }),
-            accent: appearance.resolvedAccent,
-            onSelectCollection: { library.focus($0) },
-            onCloseCollection: { collection in
-                if selectedNote.map({ library.collection(containing: $0.fileURL)?.id == collection.id }) ?? false {
-                    selectedNoteID = nil
-                }
-                library.close(collection)
-            },
-            onRevealCollection: { NSWorkspace.shared.activateFileViewerSelecting([$0.rootURL]) },
-            onAddCollection: { showLauncher = true },
-            // HIG (Sidebars): "Avoid putting critical information or actions at
-            // the bottom of a sidebar. People often relocate a window in a way
-            // that hides its bottom edge." Git moved to the collection status
-            // bar, which already carries collection-level state.
-            footer: { EmptyView() }
-        )
-        .navigationTitle("HelloNotes")
-    }
-
-    /// Moving the rail is a navigation, so it clears whatever was narrowing the
-    /// note list — otherwise switching collections lands you in the previous
-    /// one's tag filter with nothing in it.
-    private func select(_ place: RailPlace) {
-        selectedTag = nil
-        searchText = ""
-        switch place {
-        case .library:
-            railPlaceID = ""
-        case .collection(let id):
-            railPlaceID = id
-        }
+    /// **The** sidebar: Recents and Bookmarks pinned above every open
+    /// collection, each collection expanding into its own folder tree
+    /// (`docs/shell-chrome.md` D2/D4). Apple Notes' sidebar exactly — pinned
+    /// places, then a section per account, then that account's folders.
+    ///
+    /// It replaced a fixed-width collection rail *plus* a folder-tree column.
+    /// The reason is structural: SwiftUI gives a correctly-placed sidebar
+    /// toggle to column one only, so while the rail held that slot the panel
+    /// that actually needs collapsing had to have its control hand-placed —
+    /// which is where the button floating mid-list came from.
+    ///
+    /// Tags deliberately do not live here: the sidebar answers "where is it?",
+    /// while tags are cross-cutting and belong to the inspector, which answers
+    /// "what is this, and what touches it?" (decision 1).
+    private var collectionTree: some View {
+        outlineList
+            .overlay { noteListEmptyState }
     }
 
     /// Git, pinned to the bottom of the rail. Git is meaningless for a
@@ -894,7 +892,8 @@ struct MacContentView: View {
                 onPropertiesChanged: {},
                 fileURL: selectedNote?.fileURL,
                 git: collection.git,
-                onRestoreRevision: { restored in activeEditor?.text = restored }
+                onRestoreRevision: { restored in activeEditor?.text = restored },
+                tab: inspectorTab
             )
         } else {
             ContentUnavailableView("No Collection", systemImage: "sidebar.right",
@@ -1094,72 +1093,115 @@ struct MacContentView: View {
             .toolbar { editorToolbar }
     }
 
-    /// Sidebar toggles first, then the note commands. Both rails need a way in
-    /// and out; there was no affordance for either.
+    /// One row, in reading order: what acts on the sidebar, what acts on the
+    /// note, what acts on the inspector. `docs/shell-chrome.md` Part 5, and
+    /// every position in it is measured from `scratchpad/ChromeLab --design 10`
+    /// at both 1470pt and 860pt rather than judged by eye.
+    ///
+    /// Note what is *absent*. There is no sidebar-toggle button: the sidebar is
+    /// column one of a `NavigationSplitView`, so the platform supplies one and
+    /// pins it to that column's trailing edge — Apple Notes' position — and
+    /// relocates it beside the traffic lights when the sidebar hides. Every
+    /// hand-placed substitute landed somewhere wrong. Sort and Insert Template
+    /// are absent too: neither is used *while* writing, so both live in the menu
+    /// bar with their shortcuts (D9 of the priority rule).
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
-        // The platform's own affordances rather than hand-placed buttons:
-        // `toggleSidebar` at the leading edge, which the sidebar tracking
-        // separator pins to the sidebar's trailing edge, and the inspector
-        // toggle trailing. Where these land is AppKit's decision, not ours.
+        // Leading — the sidebar's own controls, which hide along with it.
         ToolbarItem(placement: .navigation) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    columnVisibility = columnVisibility == .doubleColumn ? .all : .doubleColumn
+            Menu {
+                Button("New Collection…") { showLauncher = true }
+                Button("New Folder…") {
+                    newFolderParent = nil
+                    newFolderCollection = focused
                 }
+                .disabled(focused == nil)
             } label: {
-                Label("Toggle Collections", systemImage: "sidebar.leading")
+                Label("Add", systemImage: "plus.rectangle.on.folder")
             }
-            .help("Show or hide the collections rail")
+            .help("Open a collection, or add a folder to this one")
         }
-        ToolbarItem {
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) { inspectorPresented.toggle() }
-            } label: {
-                Label("Inspector", systemImage: "sidebar.trailing")
+        // Search sits against the panel it searches — files and folders — which
+        // is where Xcode, VS Code and Obsidian put theirs. A plain field rather
+        // than `.searchable`, for two measured reasons: `.searchable` collapses
+        // to a magnifier glyph at 860pt (P2's laptop, the width where search
+        // matters most), and it always claims the trailing end of the band,
+        // which would push the inspector's tabs off the panel they belong to.
+        ToolbarItem(placement: .navigation) { searchField }
+
+        // Centred, so they sit over the *editor* and survive the sidebar being
+        // collapsed — which is exactly when P2 needs Open Quickly to navigate.
+        ToolbarItemGroup(placement: .principal) {
+            Button { newNote() } label: {
+                Label("New Note", systemImage: "square.and.pencil")
             }
-            .help("Show or hide the inspector")
+            .help("New Note (⌘N)")
+            .disabled(focused == nil)
+
+            Button { showOpenQuickly = true } label: {
+                Label("Open Quickly", systemImage: "arrow.forward.square")
+            }
+            .help("Open Quickly (⇧⌘O)")
+            .disabled(focused?.notes.isEmpty ?? true)
         }
-        // Centred, so they sit over the *editor*. Trailing items right-align to
-        // the window edge, which with an inspector open is over the inspector —
-        // Mail's toolbar looks like it is over the reading pane only because
-        // Mail has no right rail to land on.
-        ToolbarItem(placement: .principal) {
-            HStack(spacing: 12) {
-                Menu {
-                    Picker("Sort By", selection: $sortOrder) {
-                        ForEach(SortOrder.allCases) { order in
-                            Label(order.rawValue, systemImage: order.systemImage).tag(order)
-                        }
-                    }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
-                }
-                .disabled(library.isEmpty || isSearching || selectedTag != nil)
 
-                Menu {
-                    if templateNotes.isEmpty {
-                        Text("No templates in \(templatesFolder.isEmpty ? "—" : "\"\(templatesFolder)\"")")
-                    } else {
-                        ForEach(templateNotes) { template in
-                            Button(template.title) { insertTemplate(template) }
-                        }
-                    }
-                } label: {
-                    Label("Insert Template", systemImage: "doc.badge.plus")
-                }
-                .help("Insert a template into the current note")
-                .disabled(activeEditor == nil || templateNotes.isEmpty)
-
+        // Trailing — the inspector's five tabs, over the inspector, Pages'
+        // `Format`/`Document` scaled up. These *are* the tab strip: the panel
+        // itself carries none, which is what removes the spurious row inside it.
+        ToolbarItemGroup {
+            ForEach(InspectorTab.allCases) { tab in
                 Button {
-                    showOpenQuickly = true
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        // Pressing the tab you are already on closes the panel,
+                        // which is what Pages' Format button does.
+                        if inspectorPresented && inspectorTab == tab {
+                            inspectorPresented = false
+                        } else {
+                            inspectorTab = tab
+                            inspectorPresented = true
+                        }
+                    }
                 } label: {
-                    Label("Open Quickly", systemImage: "arrow.forward.square")
+                    Label(tab.title, systemImage: tab.systemImage)
                 }
-                .help("Open Quickly (⇧⌘O)")
-                .disabled(focused?.notes.isEmpty ?? true)
+                .help(tab.title)
+                .background(
+                    inspectorPresented && inspectorTab == tab
+                        ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
+                    in: RoundedRectangle(cornerRadius: 5)
+                )
             }
         }
+    }
+
+    /// Sized in points so it cannot collapse, and narrow enough that the whole
+    /// band still fits at the 860pt window minimum — verified by capture, where
+    /// a 240pt field overflowed search *and* all five inspector tabs into a `»`.
+    private var searchField: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search", text: $searchText)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+                .onSubmit { searchFocused = false }
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    searchFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .frame(width: 190)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityLabel("Search all collections")
     }
 
     @ViewBuilder
@@ -1311,71 +1353,6 @@ struct MacContentView: View {
         }
     }
 
-    // MARK: - Column 2: the note list, or the Library place
-
-    /// One column, two occupants. The rail decides which: a collection means
-    /// its folder tree, Library means the library-wide place. Search and a tag
-    /// filter override both, because a query is a question about the library
-    /// rather than about wherever you happen to be standing.
-    ///
-    /// The search field, the sort menu and the empty states live out here on
-    /// the container, so `.searchable` survives the swap — attached to the
-    /// occupant it would disappear along with it, taking the only way *out* of
-    /// the Library place with it.
-    private var noteList: some View {
-        noteListContent
-            .searchable(text: $searchText, placement: .sidebar, prompt: "Search all collections")
-            .navigationTitle(noteListTitle)
-            .overlay { noteListEmptyState }
-    }
-
-    private var noteListTitle: String {
-        if let selectedTag { return "#\(selectedTag)" }
-        if isSearching { return "Search" }
-        return railCollection?.name ?? "Library"
-    }
-
-    @ViewBuilder
-    private var noteListContent: some View {
-        if showsLibraryPlace {
-            LibraryPlace(
-                actions: libraryActions,
-                recents: LibraryPlace.mostRecent(library.allNotes),
-                bookmarks: library.collections.flatMap {
-                    $0.bookmarks.bookmarkedNotes(from: $0.notes)
-                },
-                selection: selectedNoteID,
-                accent: appearance.resolvedAccent,
-                onOpenNote: { note in
-                    selectedTag = nil
-                    searchText = ""
-                    selectedNoteID = note.id
-                },
-                onOpenLibrary: { showLauncher = true },
-                isEmptyLibrary: library.isEmpty
-            )
-        } else {
-            outlineList
-        }
-    }
-
-    /// Library-wide commands. They were in the left sidebar next to the
-    /// collection list, which was the mistake: every one of them acts on the
-    /// library or opens a window, none of them is a place.
-    private var libraryActions: [LibraryPlace.Action] {
-        [
-            .init(title: "New Note", symbol: "square.and.pencil",
-                  isEnabled: focused != nil) { newNote() },
-            .init(title: "Today's Note", symbol: "calendar",
-                  isEnabled: focused != nil) { openTodaysNote() },
-            .init(title: "Graph View", symbol: "point.3.connected.trianglepath.dotted",
-                  isEnabled: !(focused?.notes.isEmpty ?? true)) { openWindow(id: "graph") },
-            .init(title: "Ask Library", symbol: "sparkles.rectangle.stack",
-                  isEnabled: !library.allNotes.isEmpty) { openWindow(id: "askLibrary") },
-            .init(title: "Assistant", symbol: "sparkles") { openWindow(id: "assistant") },
-        ]
-    }
-
     private var outlineList: some View {
         NoteOutlineList(
             roots: cachedRoots,
@@ -1384,9 +1361,11 @@ struct MacContentView: View {
             focusedCollectionID: library.focusedID,
             accent: appearance.resolvedAccent,
             fontScale: appearance.textScale,
-            // Search shows collection group rows; every other mode is one
-            // collection's folder tree, and the rail is what says which.
-            scopedCollectionID: isSearching ? nil : railCollection?.id,
+            // Every mode now shows collection group rows — the tree holds all
+            // of them at once (D2) — so the owning collection is always read
+            // from the group a node hangs under. The one exception is a tag
+            // filter, whose rows are bare notes from the focused collection.
+            scopedCollectionID: selectedTag == nil ? nil : focused?.id,
             isBookmarked: { note in
                 library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
             },
@@ -1439,17 +1418,23 @@ struct MacContentView: View {
         )
     }
 
-    /// Empty states for the outline only — the Library place draws its own,
-    /// and an overlay over it would cover the quick actions it exists to show.
     @ViewBuilder
     private var noteListEmptyState: some View {
-        if showsLibraryPlace {
-            EmptyView()
+        if library.isEmpty {
+            ContentUnavailableView {
+                Label("No Collections", systemImage: "folder")
+            } description: {
+                Text("Open a collection, an Obsidian vault, or a saved library to begin.")
+            } actions: {
+                Button("Open…") { showLauncher = true }
+                    .buttonStyle(.borderedProminent)
+            }
         } else if isSearching {
             if searchResults.isEmpty && !isSearchInFlight {
                 ContentUnavailableView.search(text: searchText)
             }
-        } else if selectedTag == nil, let collection = railCollection, collection.notes.isEmpty {
+        } else if selectedTag == nil, let collection = focused, collection.notes.isEmpty,
+                  library.collections.count == 1 {
             ContentUnavailableView {
                 Label("No Notes", systemImage: "square.and.pencil")
             } description: {
@@ -1463,13 +1448,9 @@ struct MacContentView: View {
 
     // MARK: - Outline items (NSOutlineView data)
 
-    /// The outline tree for the current mode.
-    ///
-    /// The rail replaced the collection level: in the ordinary case the roots
-    /// are the *folders* of the collection the rail is standing in, not the
-    /// collections themselves. Group rows survive in exactly one place —
-    /// search, which is cross-collection by design and therefore still has to
-    /// say which collection each hit came from.
+    /// The outline tree for the current mode. Ordinarily the roots are the
+    /// pinned places followed by every open collection, each expanding into its
+    /// folders (D2) — search and a tag filter replace that with their results.
     private func buildOutlineRoots() -> [NoteOutlineItem] {
         if isSearching {
             return searchResults.map { group in
@@ -1482,15 +1463,53 @@ struct MacContentView: View {
             }
         } else if selectedTag != nil {
             // A tag filter is already scoped to one collection, so a group row
-            // above it would say nothing the rail hasn't said.
+            // above it would say nothing the selection hasn't said.
             return taggedRows.map {
                 NoteOutlineItem(id: $0.note.fileURL.path, kind: .note($0.note, snippet: nil))
             }
-        } else if let collection = railCollection {
-            return outlineItems(from: tree(for: collection), prefix: collection.id)
         } else {
-            return []
+            // One tree: the pinned places, then every open collection with its
+            // folders nested beneath it (shell-chrome.md D2/D4). Apple Notes'
+            // sidebar — `Quick Notes` and `Shared`, then a section per account.
+            return pinnedPlaces + library.collections.map { collection in
+                NoteOutlineItem(id: collection.id, kind: .collection(collection),
+                                children: outlineItems(from: tree(for: collection),
+                                                       prefix: collection.id))
+            }
         }
+    }
+
+    /// Recents and Bookmarks, above the collections. Both span every open
+    /// collection, which is exactly why they cannot be folders: there is no one
+    /// place on disk they correspond to.
+    ///
+    /// A place with nothing in it is omitted rather than shown empty — an
+    /// always-present "Bookmarks" that never opens teaches people to ignore it.
+    private var pinnedPlaces: [NoteOutlineItem] {
+        var places: [NoteOutlineItem] = []
+
+        let recents = LibraryPlace.mostRecent(library.allNotes)
+        if !recents.isEmpty {
+            places.append(NoteOutlineItem(
+                id: "hn:place:recents", kind: .place("Recents", symbol: "clock"),
+                children: recents.map {
+                    NoteOutlineItem(id: "hn:recents/" + $0.fileURL.path,
+                                    kind: .note($0, snippet: nil))
+                }))
+        }
+
+        let bookmarks = library.collections.flatMap {
+            $0.bookmarks.bookmarkedNotes(from: $0.notes)
+        }
+        if !bookmarks.isEmpty {
+            places.append(NoteOutlineItem(
+                id: "hn:place:bookmarks", kind: .place("Bookmarks", symbol: "bookmark"),
+                children: bookmarks.map {
+                    NoteOutlineItem(id: "hn:bookmarks/" + $0.fileURL.path,
+                                    kind: .note($0, snippet: nil))
+                }))
+        }
+        return places
     }
 
     /// `prefix` (the owning collection's id) namespaces folder ids so equal
@@ -1519,18 +1538,24 @@ struct MacContentView: View {
             mode = "s:\(searchResultsRevision)"
         } else if let selectedTag {
             mode = "t:\(selectedTag):\(focused?.id ?? "")"
-        } else if let collection = railCollection {
-            // Only the rail's collection is in the tree now, so only its
-            // revision can change it — opening or editing another collection no
-            // longer rebuilds this one's outline.
-            mode = "n:\(collection.id)#\(collection.revision)"
         } else {
-            mode = "n:-"
+            // **Every** open collection is in the tree now (D2), so the key has
+            // to name all of them. Keyed on one collection — which is what it
+            // did while a rail scoped the tree to a single one — opening or
+            // closing a collection left the key unchanged, so the outline never
+            // rebuilt: a newly-opened vault never appeared and Close Collection
+            // did nothing visible. Membership *and* each revision, because
+            // either can change the tree.
+            mode = "n:" + library.collections
+                .map { "\($0.id)#\($0.revision)" }
+                .joined(separator: ",")
         }
-        // The rail's place is part of the key: without it, switching
-        // collections leaves the previous collection's tree on screen until
-        // something else happens to change the key.
-        return "\(sortOrder.rawValue)|\(railPlaceID)|\(library.focusedID ?? "")|\(appearance.textScale)|\(mode)"
+        // Pinned Recents/Bookmarks hang above the collections and are derived
+        // from notes across all of them, so they ride the same revisions —
+        // except bookmarking, which changes no revision and is counted here.
+        let bookmarkCount = library.collections.reduce(0) { $0 + $1.bookmarks.paths.count }
+        return "\(sortOrder.rawValue)|b\(bookmarkCount)|\(library.focusedID ?? "")"
+             + "|\(appearance.textScale)|\(mode)"
     }
 
     /// Rebuild and cache the outline tree + its signature. Called only when

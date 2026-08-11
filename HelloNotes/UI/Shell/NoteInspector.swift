@@ -79,8 +79,14 @@ struct NoteInspector: View {
     let git: GitService
     var onRestoreRevision: (String) -> Void
 
+    /// Which tab is showing. Owned by the shell, because the *toolbar* is this
+    /// panel's tab strip (`shell-chrome.md` D6): the five icon toggles in the
+    /// band select the tab and, pressing the active one, close the panel —
+    /// Pages' `Format`/`Document` behaviour. The panel therefore draws no strip
+    /// of its own, which is what removed the spurious row inside it.
+    let tab: InspectorTab
+
     @Environment(AppearanceSettings.self) private var appearance
-    @AppStorage("inspectorTab") private var storedTab = InspectorTab.outline.rawValue
     /// The tag search. Not persisted — reopening the rail to a mysteriously
     /// narrowed result would be worse than retyping three letters.
     @State private var tagQuery = ""
@@ -96,16 +102,8 @@ struct NoteInspector: View {
     }
     @State private var suggestion: SuggestionState = .idle
 
-    private var tab: InspectorTab { InspectorTab(rawValue: storedTab) ?? .outline }
-
     var body: some View {
         VStack(spacing: 0) {
-            // The inspector column runs full height too, so its tab strip needs
-            // the same clearance — otherwise it is crammed into the corner
-            // underneath the window's toolbar buttons.
-            Color.clear.frame(height: ShellMetrics.trafficLightClearance)
-            picker
-            Divider()
             content
                 // S3 — the inspector's content is a viewport; it expands and
                 // scrolls, and never sizes the rail by what it holds.
@@ -118,20 +116,6 @@ struct NoteInspector: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private var picker: some View {
-        Picker("Inspector", selection: Binding(get: { tab }, set: { storedTab = $0.rawValue })) {
-            ForEach(InspectorTab.allCases) { tab in
-                Label(tab.title, systemImage: tab.systemImage)
-                    .labelStyle(.iconOnly)
-                    .help(tab.title)
-                    .tag(tab)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .padding(6)
     }
 
     @ViewBuilder

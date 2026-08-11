@@ -110,10 +110,22 @@ struct DesignApp: App {
         return n
     }
 
+    /// `--width 860` judges the chrome at P2's laptop, where the band is tight
+    /// enough to force the framework's own collapse decisions into the open.
+    static var width: CGFloat {
+        guard let i = CommandLine.arguments.firstIndex(of: "--width"),
+              i + 1 < CommandLine.arguments.count,
+              let n = Double(CommandLine.arguments[i + 1]) else { return 1470 }
+        return CGFloat(n)
+    }
+
     var body: some Scene {
         WindowGroup {
             candidate
-                .background(DesignSnapshot(name: "design-\(Self.index)"))
+                .background(DesignSnapshot(
+                    name: "design-\(Self.index)-\(Int(Self.width))",
+                    size: CGSize(width: Self.width, height: 860)
+                ))
         }
     }
 
@@ -166,8 +178,281 @@ struct DesignApp: App {
                     .toolbar { ToolbarItem { Image(systemName: "sparkles") } }
             }
 
+        case 4:
+            // Three columns, no custom toolbar items at all. Where does SwiftUI
+            // put its automatic sidebar toggle — column 1's edge, or nowhere?
+            NavigationSplitView {
+                DesignRail(topClearance: 52)
+                    .navigationSplitViewColumnWidth(min: 84, ideal: 84, max: 84)
+            } content: {
+                DesignList(inPanelTitle: false, topClearance: 0)
+                    .navigationTitle("My Vault")
+                    .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 340)
+            } detail: {
+                DesignEditor()
+                    .searchable(text: .constant(""), prompt: "Search all collections")
+            }
+
+        case 5:
+            // Two columns: rail folded into the list column as a leading strip,
+            // so the *collapsible* panel is column 1 and gets the free toggle at
+            // its trailing edge — the finvestlens position, which our three
+            // column shape cannot reach.
+            NavigationSplitView {
+                HStack(spacing: 0) {
+                    DesignRail(topClearance: 52).frame(width: 84)
+                    Divider()
+                    DesignList(inPanelTitle: false, topClearance: 0)
+                }
+                .navigationSplitViewColumnWidth(min: 304, ideal: 364, max: 424)
+            } detail: {
+                DesignEditor()
+                    .searchable(text: .constant(""), prompt: "Search all collections")
+            }
+
+        case 6:
+            // 6 — THE DECIDED DESIGN (docs/shell-chrome.md Part 4). Everything
+            //     the previous twenty attempts got wrong reduces to one thing:
+            //     the panel that collapses was not column one. Here it is.
+            //
+            //     Four claims are under test, and each has a defect it prevents:
+            //       a. the free toggle lands at the sidebar's trailing edge
+            //          → no hand-placed button floating mid-list;
+            //       b. a `.navigation`-placed action sits beside it, Notes-style
+            //          → New Folder has a home that hides with the sidebar;
+            //       c. five trailing toggles render over the inspector with NO
+            //          `»` chevron, because `.inspector()` is not used
+            //          → the three-toggles-and-a-chevron defect;
+            //       d. `.searchable` stays an expanded field
+            //          → the collapsed-glyph defect.
+            DesignDecided()
+
+        case 7:
+            // 7 — design 6 with the sidebar hidden: P2's working configuration,
+            //     and the state no earlier attempt ever checked. Two questions
+            //     only a capture answers: does the toggle relocate beside the
+            //     traffic lights (Mail/Notes behaviour), and does the
+            //     sidebar-scoped Add action go with it rather than stranding?
+            DesignDecided(columns: .detailOnly)
+
+        case 8:
+            // 8 — design 6 with `.searchable` replaced by an ordinary TextField
+            //     in a toolbar item. Two measured failures force this:
+            //
+            //       * at 860pt (P2's laptop) `.searchable` collapses to a
+            //         magnifier glyph — the exact UI-4 defect, produced by the
+            //         framework, not by us. A fixed-width field cannot collapse.
+            //       * `.searchable` always takes the trailing end of the band,
+            //         pushing the inspector's tabs left, over the *editor*.
+            //         Pages puts a panel's selectors above that panel.
+            //
+            //     Losing `.searchable` costs the free ⌘F binding and scopes;
+            //     both are cheap to restore, and neither is worth a control that
+            //     disappears at the width it is most needed.
+            DesignDecided(usesSystemSearchable: false)
+
+        case 9:
+            DesignDecided(columns: .detailOnly, usesSystemSearchable: false)
+
+        case 10:
+            // 10 — search at the LEADING edge, beside the sidebar it searches.
+            //      Two reasons, one from the user and one from the measurements:
+            //
+            //      * it reads correctly: search is about files and folders, and
+            //        it now sits against the panel that holds them (Xcode's
+            //        navigator filter, VS Code's search view, Obsidian's).
+            //      * design 8 at 860pt overflowed search AND all five tabs into
+            //        a `»`. The band is width-bound at P2's laptop, so the title
+            //        goes too — Apple Notes shows no window title in the band at
+            //        all, and the collection is already the sidebar's selection.
+            DesignDecided(usesSystemSearchable: false, searchLeading: true)
+
+        case 11:
+            DesignDecided(columns: .detailOnly, usesSystemSearchable: false, searchLeading: true)
+
         default:
             Text("no such design")
+        }
+    }
+}
+
+// MARK: - Design 6, the decided shell
+
+/// `.searchable` cannot be applied conditionally inline — the two branches have
+/// different types — so the choice becomes a modifier.
+struct MaybeSearchable: ViewModifier {
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled {
+            content.searchable(text: .constant(""), prompt: "Search all collections")
+        } else {
+            content
+        }
+    }
+}
+
+/// `.toolbar(removing: .title)` drops the title *from the band* while the window
+/// keeps it for the Window menu and Mission Control.
+struct MaybeTitleless: ViewModifier {
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled { content.toolbar(removing: .title) } else { content }
+    }
+}
+
+/// Collections and folders in one tree — Apple Notes' sidebar, which nests
+/// folders under an account section header. Recents and Bookmarks are pinned
+/// `DisclosureGroup`s above the collections rather than tabs: a writer scans
+/// recents *and* walks the tree in the same minute, so hiding one behind the
+/// other is a cost with no matching benefit (shell-chrome.md D4/D5).
+struct DesignCollectionTree: View {
+    @State private var recentsExpanded = false
+    @State private var bookmarksExpanded = false
+
+    var body: some View {
+        List(selection: .constant("1 Rupa")) {
+            DisclosureGroup(isExpanded: $recentsExpanded) {
+                ForEach(["Torrens", "Chef Kwon"], id: \.self) { Label($0, systemImage: "doc.text") }
+            } label: {
+                Label("Recents", systemImage: "clock")
+            }
+            DisclosureGroup(isExpanded: $bookmarksExpanded) {
+                ForEach(["Reading list"], id: \.self) { Label($0, systemImage: "doc.text") }
+            } label: {
+                Label("Bookmarks", systemImage: "bookmark")
+            }
+
+            // One `Section` per collection: the collection is a *header*, its
+            // folders are the rows. Notes does exactly this with "iCloud".
+            Section("My Vault") {
+                ForEach(["1 Rupa", "2 Sanna", "AI", "Analayo"], id: \.self) { folder in
+                    Label(folder, systemImage: "folder").tag(folder)
+                }
+            }
+            Section("Obsidian Vault") {
+                ForEach(["Daily", "Projects"], id: \.self) { folder in
+                    Label(folder, systemImage: "folder").tag(folder)
+                }
+            }
+        }
+    }
+}
+
+/// The inspector as an `HStack` sibling of the editor — **not** `.inspector()`,
+/// which forces a `»` chevron into the toolbar that cannot be suppressed. Its
+/// tab strip lives in the toolbar (see `inspectorTabs`), so the panel itself
+/// starts with content: no strip, no header row, nothing stacked.
+struct DesignInspector: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("STATISTICS").font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Words", value: "512")
+                LabeledContent("Read time", value: "2 min")
+                Divider()
+                Text("OUTLINE").font(.caption).foregroundStyle(.secondary)
+                Text("▸ Heading one")
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct DesignDecided: View {
+    /// Five tabs, so five toggles — Pages' `Format`/`Document` pattern scaled
+    /// up. Icon-only because five labelled items would not fit beside a search
+    /// field at P2's 860pt.
+    private static let tabs: [(String, String)] = [
+        ("Outline", "list.bullet.indent"), ("Tags", "number"), ("References", "link"),
+        ("Properties", "tag"), ("History", "clock.arrow.circlepath"),
+    ]
+    var columns: NavigationSplitViewVisibility = .automatic
+    var usesSystemSearchable = true
+    /// Leading placement also drops the window title from the band: at 860pt
+    /// the two cannot both fit, and Notes proves the title is expendable.
+    var searchLeading = false
+
+    @State private var activeTab = "Outline"
+    @State private var inspectorShown = true
+    @State private var visibility: NavigationSplitViewVisibility = .automatic
+    @State private var query = ""
+
+    /// A plain field, sized in points. `.searchable` was measured collapsing to
+    /// a glyph at 860pt — this cannot, which is the whole reason it exists.
+    private var searchField: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search", text: $query).textFieldStyle(.plain)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .frame(width: searchLeading ? 190 : 240)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $visibility) {
+            DesignCollectionTree()
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
+        } detail: {
+            HStack(spacing: 0) {
+                DesignEditor()
+                if inspectorShown {
+                    Divider()
+                    DesignInspector().frame(width: 260)
+                }
+            }
+            .modifier(MaybeSearchable(enabled: usesSystemSearchable))
+        }
+        .navigationTitle("My Vault")
+        .onAppear { visibility = columns }
+        // The window keeps its title (Window menu, Mission Control); the *band*
+        // does not draw it. Notes shows none, and at 860pt it is the difference
+        // between everything fitting and a `»`.
+        .modifier(MaybeTitleless(enabled: searchLeading))
+        .toolbar {
+            // (b) Beside the free toggle, hiding with the sidebar it acts on.
+            ToolbarItem(placement: .navigation) {
+                Menu {
+                    Button("New Collection…") {}
+                    Button("New Folder…") {}
+                } label: {
+                    Label("Add", systemImage: "plus.rectangle.on.folder")
+                }
+            }
+            if searchLeading {
+                ToolbarItem(placement: .navigation) { searchField }
+            }
+            // Commands over the editor: P2 collapses the sidebar while working,
+            // so anything inside it would vanish exactly when it is wanted.
+            ToolbarItemGroup(placement: .principal) {
+                Button { } label: { Label("New Note", systemImage: "square.and.pencil") }
+                Button { } label: { Label("Open Quickly", systemImage: "arrow.forward.square") }
+            }
+            // Search *before* the tabs, so the tabs keep the trailing end and
+            // land over the inspector (Pages). A plain field, sized in points,
+            // is the only version that survives 860pt without collapsing.
+            if !usesSystemSearchable && !searchLeading {
+                ToolbarItem { searchField }
+            }
+            // (c) The tab strip *is* the toolbar. Pressing the active tab closes
+            // the inspector, which is what Pages' Format button does.
+            ToolbarItemGroup {
+                ForEach(Self.tabs, id: \.0) { title, symbol in
+                    Button {
+                        if inspectorShown && activeTab == title { inspectorShown = false }
+                        else { activeTab = title; inspectorShown = true }
+                    } label: {
+                        Label(title, systemImage: symbol)
+                    }
+                    .background(
+                        inspectorShown && activeTab == title
+                            ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
+                        in: RoundedRectangle(cornerRadius: 5)
+                    )
+                }
+            }
         }
     }
 }
@@ -182,13 +467,19 @@ struct DesignApp: App {
 /// see. It captures this one window by id — nothing else on the display.
 struct DesignSnapshot: NSViewRepresentable {
     let name: String
+    /// Judge chrome at a width a persona actually uses. The default WindowGroup
+    /// size is 900pt, which is narrower than P2's laptop and *collapses
+    /// `.searchable` into a glyph* — a defect of the bench, not of the design.
+    var size: CGSize = CGSize(width: 1470, height: 860)
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak view] in
             MainActor.assumeIsolated {
                 guard let window = view?.window else { print("no window"); exit(2) }
+                window.setContentSize(size)
                 window.orderFrontRegardless()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.4))
                 // Let the compositor draw it before asking for the picture.
                 RunLoop.current.run(until: Date().addingTimeInterval(0.6))
 
