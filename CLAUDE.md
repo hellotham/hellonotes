@@ -8,6 +8,7 @@
 # HelloNotes Architecture Rules
 - Target Environment: macOS 15+ / Swift 5.10+ / Xcode 26
 - Multiplatform: One shell, `AdaptiveShell`, chosen by the *axis of abundance* (width/height), never by device — a Mac window and an iPad of the same size get the same layout. See `docs/layout-architecture.md`.
+- The left column is a **64pt rail of places** (Library, then one row per open collection), and its selection *replaces the note list's collection level* — the tree roots at that collection's folders. Anything keyed on a collection row (the outline cache key, drop targets, "New Note" at a root) must read the rail's selection instead. Library-wide things — quick actions, bookmarks, recents — live in the Library place, not beside the collections.
 - State: Use the `@Observable` macro exclusively. DO NOT use legacy `@ObservableObject` or `@StateObject`.
 - Data Source: No CoreData. The local file system directory is the absolute source of truth.
 - Git Operations: Use `SwiftGitX` (Import `SwiftGitX`) utilizing native Swift async/await concurrency.

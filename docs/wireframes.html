@@ -137,13 +137,18 @@ Stage Manager makes device identity meaningless, so it is never consulted.</p>
 <div class="tablewrap"><table>
 <thead><tr><th>Rail</th><th>Question it answers</th><th>Contents</th><th>Floor</th><th>Ideal</th><th>Cap</th></tr></thead>
 <tbody>
-<tr><td><b>Left — library</b></td><td>“Where is it?”</td><td>collections, folder tree, bookmarks, quick actions, Git panel as chrome</td><td class="num">160</td><td class="num">220</td><td class="num">320</td></tr>
+<tr><td><b>Left — library</b></td><td>“Where is it?”</td><td><i>places only</i>: a Library place, then one row per open collection; Git pinned at the bottom</td><td class="num">64</td><td class="num">64</td><td class="num">64</td></tr>
 <tr><td><b>Right — inspector</b></td><td>“What is this, and what touches it?”</td><td>tabbed: <b>Outline</b> · <b>Tags</b> · <b>Backlinks</b> · <b>Properties</b> · <b>Graph</b></td><td class="num">220</td><td class="num">280</td><td class="num">360</td></tr>
 </tbody></table></div>
 <p class="note">The inspector consolidates four surfaces that are scattered today — references panel under
 the note, outline in a popover, tags in the left sidebar, graph in a separate window. On a wide display they
 become tabs in one rail; below 1400pt they collapse back to on-demand popovers and the Graph window.
 <b>Selecting a tag still filters the note list</b> on the left — the rails cooperate.</p>
+<p class="note">The left rail is a <b>switcher</b>, not a list: commands are not places, and bookmarks and
+recents span collections while a list beside them shows one. Those live in the <b>Library place</b>, which
+occupies the note-list column when the rail is on Library. Because the rail names the collection, it
+<b>replaces the note list's collection level</b> — the tree roots at that collection's folders. Group rows
+survive only in search, which is cross-collection and still has to say where each hit came from.</p>
 
 
 <h2>3 · Reading is not editing <span>· the same note, two different demands</span></h2>

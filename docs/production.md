@@ -222,7 +222,7 @@ WRITE IN LIVE MARKDOWN
 CONNECT YOUR IDEAS
 • [[Wiki-links]] with autocomplete, including links straight to a heading
 • Backlinks and unlinked mentions, with one-click linking
-• #tags (nested) with autocomplete and a tag sidebar
+• #tags (nested) with autocomplete, searchable from the inspector
 • Note transclusion — embed a whole note or a single section
 • An interactive graph view of your whole vault
 

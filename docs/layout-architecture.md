@@ -1,7 +1,8 @@
 ---
-status: PORTED (2026-08-11) — the sizing contract, the adaptive shell, the inspector rail
-and the width model are in the app on both platforms. Decisions 2, 3, 4 (persistence),
-7 and 11 are not yet built; see docs/unimplemented.md §6b. Shipped detail: docs/implemented.md §17.
+status: PORTED (2026-08-11) — the sizing contract, the adaptive shell, both rails (including
+the 64pt library switcher and the Library place) and the width model are in the app on both
+platforms. Decisions 2, 3, 4 (persistence), 7 and 11 are not yet built; see
+docs/unimplemented.md §6b. Shipped detail: docs/implemented.md §17.
 Wireframes: docs/wireframes.html
 ---
 
@@ -137,7 +138,7 @@ middle of a code editor, and a Markdown *editor* is no different. Editing uses t
 | **Blocks** | — | full pane width | pane | tables and diagrams need room |
 | Editor pane (incl. chrome) | 320 | 560 | — | the measure above |
 | Note list | 220 | 280 | 400 | title + date + snippet |
-| Library rail (left) | 160 | 220 | 320 | folder + tag names |
+| Library rail (left) | 64 | 64 | 64 | a switcher: icon + caption, nothing to widen |
 | Inspector rail (right) | 220 | 280 | 360 | outline, tags, backlinks |
 | References (when inline) | — | 200 h | 280 h | 3–4 rows |
 | Format bar | 36 h | 36 h | 36 h | chrome, definite |
@@ -176,12 +177,19 @@ makes device identity meaningless, so it is never consulted.
 
 | Rail | Question | Contents |
 |---|---|---|
-| **Left — library** | "Where is it?" | collections, folder tree, bookmarks, quick actions, Git panel as chrome |
+| **Left — library** | "Where is it?" | *places only*: the Library, then one row per open collection; Git pinned at the bottom |
 | **Right — inspector** | "What is this, and what touches it?" | tabbed: **Outline · Tags · Backlinks · Properties · Graph · History** |
 
-**Tags live entirely in the inspector** (decided). The left rail is purely collections and folders; the
-right rail is the single cross-cutting surface. Selecting a tag there still filters the note list on the
-left — the rails cooperate across the shell.
+**Tags live entirely in the inspector** (decided). The left rail is purely places; the right rail is the
+single cross-cutting surface. Selecting a tag there still filters the note list — the rails cooperate
+across the shell.
+
+**The left rail is a switcher, not a list** (decision 13). It holds the Library and the open collections
+and nothing else: commands are not places, and bookmarks and recents span collections while a list beside
+them shows one. Those move into the **Library place**, which occupies the note-list column when the rail
+is on Library. The consequence is that the rail **replaces the note list's collection level** — the tree
+roots at the *folders* of the selected collection. Collection group rows survive only in search, which is
+cross-collection and still has to say where each hit came from.
 
 The inspector consolidates four surfaces scattered today — references beneath the note, outline in a
 popover, tags in the left sidebar, graph in a separate window. Below 1400pt they collapse back to
@@ -327,11 +335,15 @@ than the scene is a live S1/S2 violation.
 | 9 | **Declare a hard window minimum; if the OS forces smaller, degrade** — keep showing the editor with text below its floor rather than an error state. | Stage Manager may ignore minimums; never break, never show a warning instead of the note. |
 | 10 | **Inspector reopens on its last-used tab**, remembered globally. | Least surprise for a tool used in a rhythm. |
 | 11 | **Compact chrome retracts on scroll-down, returns on scroll-up**, and retracts when the keyboard appears. | The Safari/Apple Music gesture people already know. |
+| 13 | **The left rail is a 64pt switcher of places** — Library, then the open collections, Git pinned at the bottom. It replaces the note list's collection level, and the quick actions, bookmarks and recents move into the Library place. | The rail was a `List` holding a collection card, five command buttons, bookmarks and Git: three scrolling lists side by side, with commands dressed as destinations. A place-picker is what the left column is for. |
 | 12 | **The left rail vanishes below 960pt** and opens as an overlay (⌥⌘S or ☰) — no icon strip. | Every point goes to list and text at exactly the widths where they are tightest. |
 
 ### Consequences worth remembering
 
 - Decision 1 is **the biggest visible change**: tags leave the left sidebar, where they live today.
+- Decision 13 removes the collection level from the note list. Anything that keyed on a collection row —
+  the outline cache key, drop targets, "New Note" at a collection's root — has to read the rail's
+  selection instead; each of those is a real defect if missed.
 - Decision 2 means the two-pane plate in the wireframes shows a *capability*, not a default — a wide
   display opens with one pane until the user splits.
 - Decision 3 adds 36pt of permanent chrome per pane while editing; Reading mode gets it back.

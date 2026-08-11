@@ -9,6 +9,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 |---|---|
 | [docs/PRD.md](docs/PRD.md) | Product vision, users, feature requirements, success metrics |
 | [docs/architecture.md](docs/architecture.md) | Current 4-layer architecture + the Swift packages the app links |
+| [docs/layout-architecture.md](docs/layout-architecture.md) | The shell: the axis-of-abundance rule, component sizes, the sizing contract every viewport obeys, and the settled layout decisions ([wireframes](docs/wireframes.html)) |
 | [docs/unimplemented.md](docs/unimplemented.md) | Production-readiness register — release blockers, deferrals, bugs, tech debt, security, performance, usability & accessibility gaps (from a five-lane audit) |
 | [docs/native-roadmap.md](docs/native-roadmap.md) | Forward roadmap for deeper Apple-platform integration (App Intents, widgets, Spotlight…) |
 | [docs/cloud-native-roadmap.md](docs/cloud-native-roadmap.md) | Cloud storage: the File Provider path (on-demand files) and the direct-API providers, phase by phase |
@@ -38,7 +39,10 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - A directional **Graph** view (arrows, focus tracing, whole-collection or N-links-around-a-note scope) and a content-based **Mind Map** of a note's ideas (sections → branches, bullets → leaves, linked notes → jump-off chips).
 
 **Organise & find**
-- Full-text search with snippets, Open Quickly (⇧⌘O), nested `#tags` (with autocomplete), bookmarks, daily notes, and templates.
+- A **library rail** of places — the Library, then one row per open collection — scoping the note list to that collection's folder tree. The **Library place** gathers what is library-wide: quick actions, bookmarks and recent notes across every open collection.
+- An **inspector rail** answering "what is this, and what touches it?" — Outline · Tags · References · Properties · History, reopening on its last-used tab.
+- The note's title is shown **inline above the body as its H1** and renamed in place, which renames the file and rewrites every `[[wiki-link]]` to it; the caret crosses between title and body as one flow.
+- Full-text search with snippets (cross-collection, so it overrides the rail's scope), Open Quickly (⇧⌘O), nested `#tags` (with autocomplete), bookmarks, daily notes, and templates.
 
 **AI, on your terms**
 - On-device **Apple Intelligence** (summarise, suggest tags/links) and an **Ask Library** chat grounded in your notes, with citations.
@@ -47,7 +51,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 
 **Cloud storage — two ways, no lock-in**
 - **Open a cloud folder like any other** (recommended). Box, Dropbox, OneDrive (personal *and* business), Google Drive and iCloud Drive all surface through Apple's **File Provider** layer, so their folders are just paths — point HelloNotes at one and it works. Files stay **online-only until you open them**: all vault I/O is `NSFileCoordinator`-coordinated so a cloud file materialises on demand, and indexing deliberately **skips un-downloaded notes** rather than dragging your whole vault local. Online-only notes get a cloud badge, a "N online-only" status, per-note **Download / Remove Download**, and a provider label; Git is guarded on cloud folders (auto-commit off) since libgit2 needs real local objects.
-- **Or connect an account directly** — no provider app required. Built-in **Dropbox, Box, Google Drive and OneDrive** clients (plain `URLSession`, no vendor SDKs) browse and edit over the provider's own API, and **"Open as Collection"** promotes an account to a first-class collection in the sidebar: it mirrors into a local cache that reuses the entire normal pipeline (scan, index, backlinks, editor), and saves upload back automatically. OAuth uses PKCE where the provider supports it; tokens live in the Keychain and credentials stay in a git-ignored `Secrets.xcconfig`.
+- **Or connect an account directly** — no provider app required. Built-in **Dropbox, Box, Google Drive and OneDrive** clients (plain `URLSession`, no vendor SDKs) browse and edit over the provider's own API, and **"Open as Collection"** promotes an account to a first-class collection in the library rail: it mirrors into a local cache that reuses the entire normal pipeline (scan, index, backlinks, editor), and saves upload back automatically. OAuth uses PKCE where the provider supports it; tokens live in the Keychain and credentials stay in a git-ignored `Secrets.xcconfig`.
 
 **Seamless Git sync**
 - Repo status, init, local commits, opt-in debounced auto-commit (never auto-pushes), user-initiated push/fetch, per-note **version history** (browse & restore), **clone** (cancelable) and **create-remote** with HTTPS token auth, and an in-app git identity.
@@ -63,7 +67,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - Services menu ("New Note from Selection"), state restoration, TipKit hints, and an Icon Composer app icon.
 
 **Native app polish**
-- Full menu bar with keyboard shortcuts, native source-list sidebars, windowed Graph/Mind Map/Assistant/Ask Library surfaces, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, a **first-run welcome**, and an adaptive iOS/iPadOS companion.
+- Full menu bar with keyboard shortcuts, a native source-list note tree, windowed Graph/Mind Map/Assistant/Ask Library surfaces, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, a **first-run welcome**, and an adaptive iOS/iPadOS companion.
 - Accessibility: VoiceOver labels throughout, a **headings rotor** in the editor on both platforms, and Reduce Motion support.
 
 > WebView policy: the *editing path is 100% native TextKit 2*. A `WKWebView` appears only in read-only rendering surfaces — the macOS/iOS GFM **Preview** and the **Marp slides** preview — never in the editor itself.
@@ -73,7 +77,7 @@ A strict **4-layer architecture** keeps macOS and iOS sharing everything but the
 1. **Core / Domain** (pure Swift) — Markdown/front-matter/tag parsing, mention scanning, templates, graph & mind-map layout, statistics, export, Marp, Obsidian import, file watching, **coordinated file I/O** (`FileIO` — every vault read/write goes through `NSFileCoordinator`, so on-demand cloud files materialise instead of failing), and the **direct-API cloud clients** (`Core/Remote`). UI-agnostic, unit-tested.
 2. **State** — the `@Observable` macro *exclusively*: `Library` → `Collection`s (scan, CRUD, bookmarks, index cache), `EditorModel`/`EditorTabs`, `LinkGraph`, `CollectionSearchModel`, `GitService` (FIFO-serialized), `AppearanceSettings`, stores for recents/libraries/credentials.
 3. **Shared UI** — editor host, note tree, references panel, graph/mind map, assistant, viewers.
-4. **Platform shells** — `NavigationSplitView` for macOS and `NavigationStack` for iOS/iPadOS behind `#if os(...)`.
+4. **Platform shells** — one `AdaptiveShell` for both platforms, chosen by the **axis of abundance** (width and aspect) rather than device identity, so a Mac window and an iPad of the same size lay out identically and Stage Manager stops being a special case. It places four slots: a 64pt **library rail** of places, the note list, the editor pane, and the **inspector**. `MacContentView` and `iOSContentView` supply the slots. Every viewport in the tree obeys a **sizing contract** — a window onto content reports the size it is *offered*, never the size it *contains* — asserted by `ShellContractTests`. See [docs/layout-architecture.md](docs/layout-architecture.md).
 
 The **editor** is a separate local SPM package, [`Packages/NotesEditor`](Packages/NotesEditor) — `MarkdownCore` (incremental block/inline parser + style spec), `MarkdownEditor` (TextKit 2 `NSTextView`/`UITextView`), and `GFMRender` (cmark-gfm for the GitHub-identical Preview + spec/API parity).
 
@@ -156,8 +160,11 @@ HelloNotes/            App sources (synchronised Xcode group)
   │                     permissions, deep research), settings & chat stores
   ├─ UI/               Layer 3 — shared views (editor host, tree, references,
   │                     graph, mind map, slides, viewers, assistant, splash)
-  ├─ MacContentView    Layer 4 — macOS 3-column shell
-  ├─ iOSContentView    Layer 4 — iOS/iPadOS adaptive shell
+  │   └─ Shell/        Layer 4 — the layout contract (ShellContract), the
+  │                     arrangement (AdaptiveShell), the library rail and
+  │                     Library place, the inspector, the compact shell
+  ├─ MacContentView    Layer 4 — the macOS slots for AdaptiveShell
+  ├─ iOSContentView    Layer 4 — the iOS/iPadOS slots for the same shell
   └─ HelloNotesApp     App entry (main window + auxiliary window scenes)
 Packages/NotesEditor/  Live editor package (MarkdownCore, MarkdownEditor, GFMRender)
 website/               Product site — Astro 7 + Tailwind 4 → hellotham.com/hellonotes

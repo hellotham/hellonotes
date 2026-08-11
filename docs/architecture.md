@@ -13,8 +13,9 @@ HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Layer 4 — Platform Shells                                   │
-│    macOS: NavigationSplitView (3 columns) + window scenes    │
-│    iOS:   adaptive NavigationSplitView    [#if os(...)]       │
+│    AdaptiveShell — one arrangement rule, both platforms:      │
+│    library rail · note list · pane · inspector, chosen by     │
+│    the axis of abundance; Mac/iOS supply the slots + scenes   │
 ├─────────────────────────────────────────────────────────────┤
 │  Layer 3 — Shared UI Components                              │
 │    Editor host (NotesEditor pkg), note tree, references      │
@@ -209,8 +210,12 @@ Shared concerns live in `RemoteStore.swift`: Keychain token storage and a **sing
 | 3 UI | `UI/Assistant/*`, `UI/LibraryChatView.swift`, `UI/IntelligenceView.swift` | Assistant chat + edit approval + LLM settings; Ask Library; Intelligence sheet |
 | 3 UI | `UI/AppCommands.swift`, `UI/AppearanceSettingsView.swift`, `UI/GeneralSettingsView.swift`, `UI/GitSettingsView.swift`, `UI/CloneRepositoryView.swift`, `UI/NewRepositoryView.swift`, `UI/SplashScreenView.swift`, `UI/iOSSettingsView.swift` | Menu bar, preferences tabs, git identity/hosting, splash/About, iOS settings |
 | 4 Shell | `HelloNotesApp.swift` | App entry; main window + `NoteRef`/`MindMapRef` window groups + Graph/Ask/Assistant windows + Settings |
-| 4 Shell | `MacContentView.swift` | 3-column macOS shell |
-| 4 Shell | `iOSContentView.swift` | Adaptive `NavigationSplitView` (iPhone/iPad) |
+| 4 Shell | `UI/Shell/ShellContract.swift` | The layout contract as code — `ShellMetrics`, `shellKind(width:height:)`, the reading/editing width model, `ShellContext` |
+| 4 Shell | `UI/Shell/AdaptiveShell.swift` | The arrangement itself: four slots placed by the axis of abundance; `EditorPaneContainer` republishes the measured pane width |
+| 4 Shell | `UI/Shell/LibraryRail.swift`, `UI/Shell/LibraryPlace.swift` | The 64pt switcher of places, and the library-wide place it selects (quick actions, bookmarks, recents) |
+| 4 Shell | `UI/Shell/NoteInspector.swift`, `UI/Shell/CompactShell.swift` | The right rail's five tabs; the phone's bottom tab bar + mini-note strip |
+| 4 Shell | `MacContentView.swift` | macOS slots for `AdaptiveShell` — rail, outline, editor column, inspector |
+| 4 Shell | `iOSContentView.swift` | iOS/iPadOS slots for the same shell |
 
 ## 8. Testing strategy
 - **Core is unit-tested** without UI (52 tests across parsing, front matter, tags, mentions, templates, layouts, stats, export, git, Obsidian import, smart paste, agent tools, skills): vault scan on a temp directory, CRUD, parser link extraction, autosave round-trip (write → read → byte-compare).

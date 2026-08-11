@@ -34,20 +34,24 @@ import { href } from '../../lib/paths';
     already in the collection, which keeps them consistent.
   </p>
   <p>
-    Tags nest with slashes — <code>#project/website</code>, <code>#project/app</code> — and the
-    sidebar shows them as a tree you can expand and filter by. Selecting a tag filters the note list
-    to notes carrying it.
+    Tags nest with slashes — <code>#project/website</code>, <code>#project/app</code>. They live in
+    the inspector’s <strong>Tags</strong> tab, which opens on <em>this note’s</em> tags as chips,
+    because the usual reason to look at a tag is to find what else shares it. Below them, a search
+    field finds any tag in the collection and shows how many notes carry it — a count of 1 means
+    following it leads back here. Selecting a tag filters the note list.
   </p>
 
   <h2 id="bookmarks">Bookmarks</h2>
   <p>
-    <kbd>⇧⌘D</kbd> bookmarks the current note; bookmarks appear in the sidebar for one-click access.
-    They are stored per collection, so each project keeps its own shortlist.
+    <kbd>⇧⌘D</kbd> bookmarks the current note; bookmarks appear on the <strong>Library</strong>{' '}
+    place for one-click access. They are stored per collection, so each project keeps its own
+    shortlist, and the Library place shows them across every open collection at once.
   </p>
 
   <h2 id="daily">Daily notes</h2>
   <p>
-    <strong>Today’s Note</strong> in the sidebar opens (or creates) a note for today. Configure in{' '}
+    <strong>Today’s Note</strong> on the <strong>Library</strong> place opens (or creates) a note for
+    today. Configure in{' '}
     <strong>Settings ▸ General</strong>:
   </p>
   <ul>

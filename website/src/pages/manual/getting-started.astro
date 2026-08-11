@@ -22,36 +22,53 @@ import { href } from '../../lib/paths';
   </p>
 
   <h2 id="layout">The layout</h2>
-  <p>The window has three columns:</p>
+  <p>The window is a rail, two columns and a second rail:</p>
   <ul>
     <li>
-      <strong>Sidebar</strong> — your collections, quick actions (new note, today’s note, graph,
-      assistant), bookmarks and tags.
+      <strong>Library rail</strong> — a narrow switcher of <em>places</em>: <strong>Library</strong>{' '}
+      at the top, then one row per open collection, with Git at the bottom. Whichever you pick scopes
+      everything to its right.
     </li>
     <li>
-      <strong>Note list</strong> — the folder tree of the focused collection, or search results when
-      you are searching.
+      <strong>Note list</strong> — the folder tree of the collection you picked. On the{' '}
+      <strong>Library</strong> place it shows what belongs to the whole library instead: quick
+      actions (new note, today’s note, graph, assistant), your bookmarks and your recent notes across
+      every open collection.
     </li>
     <li><strong>Editor</strong> — the note itself, with a status bar along the bottom.</li>
+    <li>
+      <strong>Inspector</strong> — on a wide window, a right-hand rail with the note’s outline, tags,
+      references, properties and history. Toggle it from <strong>View</strong>.
+    </li>
   </ul>
   <p>
-    Several collections can be open at once; the one you last clicked is the <em>focused</em>{' '}
-    collection that new notes are created in.
+    Several collections can be open at once. Searching is deliberately <em>library-wide</em>: it
+    looks across every open collection and groups the results by collection, whichever place the rail
+    is on.
+  </p>
+  <p>
+    On a narrower window the library rail tucks away behind the sidebar toggle, and on an iPhone the
+    editor takes the whole screen with the places moving to a bottom tab bar. The layout follows the
+    space available, not the device.
   </p>
 
   <h2 id="first-note">Creating your first note</h2>
   <ol>
-    <li>Press <kbd>⌘N</kbd>, or click <strong>New Note</strong> in the sidebar.</li>
-    <li>A file is created in the focused collection and opened for editing.</li>
+    <li>
+      Press <kbd>⌘N</kbd>, or click <strong>New Note</strong> on the{' '}
+      <strong>Library</strong> place.
+    </li>
+    <li>A file is created in the collection the rail is on, and opened for editing.</li>
     <li>
       Type as you would in any Markdown editor. Formatting appears as you type — see{' '}
       <a href={href('/manual/editor')}>The editor</a>.
     </li>
   </ol>
   <p>
-    The first heading becomes the note’s title in the list. To rename the file itself, use{' '}
-    <strong>Note ▸ Rename…</strong> (<kbd>⇧⌘R</kbd>) — links to that note elsewhere in the
-    collection are rewritten for you.
+    A note’s title <em>is</em> its filename. It is shown above the body as a heading you can edit in
+    place: click it, type, and press <kbd>Return</kbd> to go back to the text. Renaming there renames
+    the file and rewrites every link to that note elsewhere in the collection — as does{' '}
+    <strong>Note ▸ Rename…</strong> (<kbd>⇧⌘R</kbd>).
   </p>
 
   <h2 id="saving">Saving</h2>

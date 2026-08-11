@@ -7,7 +7,7 @@ Google Drive, and iCloud Drive.*
 Status: **All phases complete** (2026-07-20/21; review-hardened 2026-07-25). The File-Provider
 path (0–3) covers Box, Dropbox, OneDrive, Google Drive & iCloud with no credentials at all.
 Phase 4 ships **four direct-API providers** — Dropbox, Box, Google Drive and OneDrive
-(personal *and* business) — each usable standalone *and* promotable to a first-class sidebar
+(personal *and* business) — each usable standalone *and* promotable to a first-class rail
 collection. Dropbox is proven end-to-end against a real account (real OAuth sign-in → real
 token → real `list_folder`); the other three are verified at the real authorize endpoint with
 the live client ids plus request-shape probes. A 10-finding review pass then hardened the
@@ -195,18 +195,20 @@ coordinated read — only the progress indicator is missing).
   context menu (cloud items only) and an iOS leading swipe action.
 - ✅ **Collection-level "N online-only"** status-bar indicator with an explanatory tooltip.
 - ✅ **Provider label** — `CloudProvider.name(for:)` maps a path to Dropbox / Google Drive /
-  OneDrive / Box / iCloud Drive; shown under the collection name in the macOS sidebar.
+  OneDrive / Box / iCloud Drive. Shown on the collection's row in the library rail (its icon
+  becomes the cloud glyph, its tooltip names the provider) and in the collection status bar.
+  *(It was under the collection name in the old sidebar card, which the rail replaced.)*
 - ✅ **Onboarding** copy mentions cloud folders.
 - ✅ **Materialize-on-open progress** — `EditorModel.isDownloading` drives a "Downloading from
   the cloud…" editor banner.
-- ✅ **Verified live:** sidebar shows "iCloud Drive"; status bar shows the online-only count
+- ✅ **Verified live:** the collection reports "iCloud Drive"; status bar shows the online-only count
   for an evicted note. (iCloud aggressively re-hydrates freshly-evicted files, so the row
   glyph itself couldn't be held on screen long — but it renders from the same verified flag.)
 - *Not done:* an explicit "search online files (downloads them)" action (search skips
   online-only by default, which is the safe behaviour).
 
 ### Phase 3 — Git-on-cloud guardrails ✅ **shipped** *(commit: Git-on-cloud guardrails)*
-- ✅ Orange **caution** in the sidebar Git section for a collection under a cloud provider
+- ✅ Orange **caution** in the Git panel (the rail's footer button) for a collection under a cloud provider
   ("In <provider>. Git works best when the folder is fully downloaded…"), in both the
   pre-Initialize and repo states.
 - ✅ **Auto-commit disabled** (toggle greyed + explained) for cloud collections, AND guarded at
@@ -263,13 +265,13 @@ Now a working feature, not just a library.
 - **Credentials** for all direct-API providers live in a git-ignored
   `Config/Secrets.xcconfig` (substituted into Info.plist at build time); a committed
   `Secrets.example.xcconfig` documents each provider's console setup.
-- ✅ **Promoted to a first-class sidebar collection** (beyond the original pilot). `RemoteMirror`
+- ✅ **Promoted to a first-class collection in the library rail** (beyond the original pilot). `RemoteMirror`
   mirrors a `RemoteStore` folder into a local cache that's opened as a normal `Collection`
   (reusing scan/index/editor/`FileIO` unchanged); `Collection.noteDidSave` uploads edits back.
-  "Open as Collection" in the browser adds it to the sidebar with a "<provider> (direct)" badge
-  (Git hidden). **Verified live** (macOS, mock store): open → sync (3 notes) → browse → edit in
+  "Open as Collection" in the browser adds it to the library rail with a network icon and a
+  "<provider> (direct)" label (Git hidden). **Verified live** (macOS, mock store): open → sync (3 notes) → browse → edit in
   the normal editor → upload, confirmed by re-reading the note from the store. Tested
-  (`RemoteMirrorTests`). iOS presents the browser; sidebar promotion is macOS for now.
+  (`RemoteMirrorTests`). iOS presents the browser; promotion to the rail is macOS for now.
 
 ---
 

@@ -884,6 +884,86 @@ line you can see, not a wrap point.
 parses and styles the whole note, and it used to happen again on every tab
 switch and every shell rearrangement — each time dropping the caret and scroll.
 
+### The left rail became a switcher
+
+The redesign's first pass left the left column as it was: a `List` holding a
+collection card, five command buttons, a bookmarks section and the Git panel —
+three scrolling lists side by side, with commands presented as though they were
+destinations. Commands are not places. The only *places* on the left are the
+library and the collections, so the column is now a **64pt vertical switcher**
+of exactly those, with Git as a pinned footer button opening the full panel in a
+popover.
+
+The consequence, decided with the user, is that the rail **replaces the note
+list's collection level**: the tree roots at the *folders* of the collection the
+rail is standing in, not at the collections. Collection group rows survive in one
+place only — search, which is cross-collection by design and still has to say
+where each hit came from.
+
+Everything that used to sit beside the collections moved into the **Library
+place**, shown in the note-list column when the rail is on Library: the quick
+actions (New Note, Today's Note, Graph, Ask Library, Assistant), bookmarks across
+every open collection, and the most recently edited notes.
+
+Three things that key on a collection row had to be rewired, each a real defect
+if missed:
+
+- The **outline cache key** must include the rail's place, or switching
+  collections leaves the previous tree on screen until something unrelated
+  happens to change the key.
+- `NoteOutlineList.rootID(containing:)` found a node's owning collection by
+  matching it against the roots. With *folder* roots that returns a folder path
+  as if it were a collection id, and a drag from one top-level folder into
+  another is then rejected as cross-collection. It now matches only group rows,
+  and otherwise asks the rail (`scopedCollectionID`) — which also restores
+  dropping onto empty space and the empty-space "New Note / New Folder", both of
+  which had been the collection row's job.
+- `ShellMetrics.railWidth` is the single source for the column width, so
+  `estimatedPaneWidth` and the tall shell follow it automatically. Floor ==
+  ideal == cap: a switcher has nothing in it to widen.
+
+### The note's title, inline
+
+A note appeared to start mid-content, because its title lives in the filename and
+the only place it was shown was the window title bar. It is now drawn above the
+body in the document's own H1 and renamed in place — which renames the file and
+rewrites every `[[wiki-link]]` to it.
+
+It is deliberately **not** part of the text storage. The editor's founding
+invariant is that raw Markdown *is* the text — one text, one coordinate system —
+so a title that lives in the filename cannot be a line in the buffer. It is
+chrome that renders as though it weren't, and the caret crosses the seam:
+arrowing up from the first character hands focus to the title with the caret at
+its end; Enter, Tab or arrowing down hands it back to the body.
+
+Both boundary behaviours needed AppKit, which is why the Mac owns the field
+editor (`InlineTitleField`) instead of using SwiftUI's `TextField`: programmatic
+focus makes the field editor **select all** (so arrowing up highlighted the whole
+title), and handing focus *away* leaves the text view first responder with no
+visible insertion point, because the blink timer only restarts when AppKit itself
+moves focus. iOS keeps a plain `TextField` — it has no proxy to hand the caret
+to, so there is no seam to correct.
+
+### 3,156 tags were really 223
+
+The Tags rail was unusable: thousands of entries, many of them nonsense like
+`#_bookmark0`. It was a **parsing** problem, not a presentation one. Three rules
+fixed it — a tag may not start mid-word (`(?<![\w/])`), link destinations are
+excluded (`#anchor` in `](file.md#anchor)` is not a tag), and an all-digit tag is
+a Markdown heading anchor or an issue number, not a tag. On the real vault: 3,156
+distinct tags → **223**. Of 2,027 indexed notes only 81 carry a tag at all, and
+only 40 tags appear in more than one note.
+
+`CollectionIndexCache.version` had to be bumped with it, which is the general
+rule: **a parser fix is a cache invalidation**. Without that the fix appeared to
+do nothing, because the old tags were served from disk.
+
+Measuring first also settled the design. With 223 tags and 40 of them shared, a
+ranked list or a tag cloud would have been apparatus over almost nothing, so the
+rail is **note-first**: this note's own tags as chips (the thing you actually
+want to pivot on), then a search field, then matching tags with note counts. No
+directory to scroll.
+
 ### Also fixed on the way
 
 Editing a note while Obsidian had the same iCloud vault open made the caret lag
@@ -911,6 +991,15 @@ and scroll).
   `.navigationTitle` and every column toolbar button silently vanish.
 - **`NoteHistoryView` was hard-coded to 720x480** — fine as a sheet, an overflow
   in a 280pt rail, which is the exact failure the redesign exists to stop.
+- **One more `onChange` tipped `MacContentView.body` into "unable to type-check
+  in reasonable time".** The body is one expression to the type checker; it is
+  now split into `shellCore` plus a `presentations(_:)` wrapper — two opaque
+  halves are two smaller problems.
+- **Two shared views reached into macOS-only code**, so the app built on the Mac
+  and failed on iOS: `InlineNoteTitle` referenced the AppKit `InlineTitleField`
+  unconditionally, and `WrapLayout` (used by the inspector on both platforms)
+  lived inside a `#if os(macOS)` file. Building only the platform you are
+  looking at is how both got in.
 
 ### How it is kept fixed
 
@@ -918,7 +1007,9 @@ and scroll).
 scenes from a 320pt iPad slice to 3840x2160, plus a live resize sweep down to
 250pt and back, measured in a real toolbar window that is never ordered front.
 It asserts on viewports **and their ancestors**, never on scroll content — being
-a window onto something larger than itself is what a viewport is *for*.
+a window onto something larger than itself is what a viewport is *for*. Thirteen
+tests, including the rail's fixed width and the pane estimate that must follow
+it, and the Library place's single-pass recents.
 
 The unreachable top-of-file was a layout fact, not a logic fact, so nothing in
 the codebase could have caught it. Now it fails the build.

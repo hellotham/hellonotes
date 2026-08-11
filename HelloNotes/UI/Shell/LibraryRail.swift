@@ -91,11 +91,27 @@ struct LibraryRail<Footer: View>: View {
     // MARK: - Rows
 
     private func collectionButton(_ collection: Collection) -> some View {
-        railButton(
-            symbol: collection.isRemote ? "network" : "folder.fill",
+        // Where a collection *lives* used to be on the sidebar's collection
+        // card. The rail has no room for a card, but a vault in Dropbox behaves
+        // differently enough — online-only files, Git guarded — that its icon
+        // and tooltip have to carry it.
+        let cloud = collection.isRemote ? nil : CloudProvider.name(for: collection.rootURL)
+        let symbol = collection.isRemote ? "network"
+            : (cloud != nil ? CloudProvider.symbol : "folder.fill")
+        let notes = "\(collection.notes.count) note\(collection.notes.count == 1 ? "" : "s")"
+        let where_: String
+        if let remote = collection.remote {
+            where_ = " — \(remote.store.providerName) (direct)"
+        } else if let cloud {
+            where_ = " — in \(cloud)"
+        } else {
+            where_ = ""
+        }
+        return railButton(
+            symbol: symbol,
             caption: collection.name,
             isSelected: place == .collection(collection.id),
-            help: "\(collection.name) — \(collection.notes.count) note\(collection.notes.count == 1 ? "" : "s")",
+            help: "\(collection.name) — \(notes)\(where_)",
             // An orange pip means "this collection has uncommitted changes",
             // the one thing about a collection worth knowing before you open it.
             badge: collection.git.status.isRepository && !collection.git.status.isClean

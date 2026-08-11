@@ -1092,6 +1092,21 @@ struct MacContentView: View {
                     Divider().frame(height: 11)
                     Text("\(tagCount) tag\(tagCount == 1 ? "" : "s")").foregroundStyle(.secondary)
                 }
+                // Where this collection actually lives. It used to be on the
+                // sidebar's collection card, which the rail replaced — and a
+                // vault in Dropbox behaves differently enough (online-only
+                // files, Git guarded) that it must be visible somewhere.
+                if let remote = focused.remote {
+                    Divider().frame(height: 11)
+                    Label("\(remote.store.providerName) (direct)", systemImage: "network")
+                        .foregroundStyle(.secondary)
+                        .help("A direct \(remote.store.providerName) collection over the provider's API. Edits sync back automatically.")
+                } else if let provider = CloudProvider.name(for: focused.rootURL) {
+                    Divider().frame(height: 11)
+                    Label(provider, systemImage: CloudProvider.symbol)
+                        .foregroundStyle(.secondary)
+                        .help("This collection is stored in \(provider). Online-only notes download on demand.")
+                }
                 let onlineOnly = focused.notes.lazy.filter(\.isOnlineOnly).count
                 if onlineOnly > 0 {
                     Divider().frame(height: 11)
