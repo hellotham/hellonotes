@@ -96,6 +96,60 @@
 
 ---
 
+## 6a · NEXT: the skinny collection rail *(decided, specified, not started)*
+
+Decided with the user 2026-08-11. Everything below is settled — build it, don't
+re-litigate it.
+
+**Shape.** The left rail becomes a narrow vertical switcher (~64pt): a
+**Library** place at the top, then one row per open collection, Git pinned at
+the bottom. The rail's selection scopes the note list.
+
+**Why.** The left rail was a grab bag — a collection card, five command
+buttons, bookmarks, Git — rendered as a `List`, which made three scrolling
+lists sit side by side. Commands are not places; the only *places* on the left
+are the library and the collections.
+
+**The consequence the user chose:** the collection switcher **replaces the
+tree's collection level**. `buildOutlineRoots()` currently roots at
+`.collection(Collection)` with folders beneath; it should root at *folders* of
+the selected collection instead.
+
+**Quick actions** (New Note, Today's Note, Graph, Ask Library, Assistant) live
+in the Library place, alongside recents and bookmarks — they are library-wide,
+not collection-specific, which is exactly why they don't belong beside a
+collection list.
+
+### Work items
+
+- `HelloNotes/UI/Shell/LibraryRail.swift` (new) — the switcher. Rows are
+  collections; the top row is Library. Context menu carries what the outline's
+  collection rows carry today: `onCloseCollection`, `onFocusCollection`.
+- `HelloNotes/UI/Shell/LibraryPlace.swift` (new) — quick actions, today's note,
+  recents, bookmarks. Shown in the **note-list column** when the rail's
+  selection is Library.
+- `MacContentView.sidebar` — replaced by `LibraryRail`. Delete the collection
+  card, the quick-action `Section`, and the bookmarks `Section` (they move to
+  the Library place). Keep `gitSection` pinned at the bottom.
+- `MacContentView.buildOutlineRoots()` / `outlineItems(from:prefix:)` — root at
+  folders of the selected collection, not at collections. `NoteOutlineItem.Kind
+  .collection` becomes unused for rows; check `isGroup`, `floatsGroupRows` and
+  the drop handling in `NoteOutlineList` before deleting the case.
+- `MacContentView.outlineInputsKey` / `cachedSignature` — **must include the
+  rail's selection**, or switching collections shows the previous tree.
+- `ShellMetrics` — add the rail width; `AdaptiveShell.estimatedPaneWidth` and
+  `ShellContractTests` both read the library-column width and must follow.
+
+### Decisions already taken (do not re-ask)
+
+- Search stays **cross-collection** and overrides the rail's scope while a query
+  is active — that is today's behaviour (`SearchGroup` groups hits by
+  collection) and it is the more useful default.
+- Below 960pt the rail still vanishes to an overlay (decision 12); it is a
+  narrower rail, not a different rule.
+
+---
+
 ## 6b · Layout architecture — the parts not yet built *(design: [layout-architecture.md](layout-architecture.md); shipped parts: implemented.md §17)*
 
 The sizing contract, the adaptive shell, the inspector rail and the width model
