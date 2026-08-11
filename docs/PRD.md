@@ -60,7 +60,7 @@ No tool today combines: **(a)** genuinely native macOS performance and feel, **(
 [Vellum](https://github.com/wzzc-dev/vellum) (a Rust/gpui Typora-style editor) is a strong reference for the *editing experience* we want to match natively. Features we draw from it:
 
 - Live WYSIWYG Markdown with a source ⇄ preview toggle.
-- File tree in the note-list column with sort options (name, natural, modified time), scoped by the library rail.
+- File tree in the sidebar with sort options (name, natural, modified time), rooted at each open collection.
 - Multi-tab editing in one window.
 - Workspace-wide search (incl. hashtags) and "Open Quickly" for files/headings.
 - Native Mermaid, math, code highlighting, tables, task lists, footnotes.
@@ -81,7 +81,7 @@ Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P
 > **Git:** repo status, init, local commit, opt-in auto-commit (never auto-pushes), push/fetch, per-note **version history** (browse + restore), **clone** + **create-remote** with HTTPS token auth (Keychain), in-app git identity.
 > **Platform:** macOS adaptive shell (width/aspect-driven; see layout-architecture.md) with full menu bar, windowed Graph/Mind Map/Assistant/Ask Library, appearance settings (theme/accent/text size), launch splash with build info; iOS/iPadOS runs the same shell sharing Core/State, with the full four view modes.
 > **System integration** *(added 2026-07-19/20 — [native-roadmap.md](native-roadmap.md))*: App Intents (`NoteEntity` + Siri/Shortcuts), Spotlight donation, a recent-notes **widget**, **Quick Look** preview + thumbnail extensions, menu-bar quick capture + global hotkey, `hellonotes://` URL scheme, Services menu, state restoration, TipKit, on-device dictation (SpeechAnalyzer) and Foundation Models `@Generable`.
-> **Cloud storage** *(added 2026-07-20/21 — [cloud-native-roadmap.md](cloud-native-roadmap.md))*: a vault folder may live in **Box, Dropbox, OneDrive (personal/business), Google Drive or iCloud** via Apple's File Provider layer, with files kept **online-only until opened** (coordinated I/O + dataless-aware indexing); or an account can be connected **directly over its own API** (four built-in clients, no vendor SDKs) and promoted to a first-class collection in the library rail.
+> **Cloud storage** *(added 2026-07-20/21 — [cloud-native-roadmap.md](cloud-native-roadmap.md))*: a vault folder may live in **Box, Dropbox, OneDrive (personal/business), Google Drive or iCloud** via Apple's File Provider layer, with files kept **online-only until opened** (coordinated I/O + dataless-aware indexing); or an account can be connected **directly over its own API** (four built-in clients, no vendor SDKs) and promoted to a first-class collection in the sidebar.
 > **Deferred** (engine walls / roadmap): create-on-miss from an in-editor muted link click, git pull/merge + conflict UI, richer iOS editor — see [unimplemented.md](unimplemented.md).
 
 ### 7.1 Vault & file management

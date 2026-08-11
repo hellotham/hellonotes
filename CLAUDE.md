@@ -8,7 +8,8 @@
 # HelloNotes Architecture Rules
 - Target Environment: macOS 15+ / Swift 5.10+ / Xcode 26
 - Multiplatform: One shell, `AdaptiveShell`, chosen by the *axis of abundance* (width/height), never by device — a Mac window and an iPad of the same size get the same layout. See `docs/layout-architecture.md`.
-- The left column is a **64pt rail of places** (Library, then one row per open collection), and its selection *replaces the note list's collection level* — the tree roots at that collection's folders. Anything keyed on a collection row (the outline cache key, drop targets, "New Note" at a root) must read the rail's selection instead. Library-wide things — quick actions, bookmarks, recents — live in the Library place, not beside the collections.
+- The window has **exactly one collapsible column**: a sidebar holding a *single tree* — Recents and Bookmarks pinned at the top, then one root per open collection, expanding into that collection's folders. SwiftUI only gives a correctly-placed sidebar toggle to column one, which is why everything navigational lives there and **no command may live inside it** (a hidden command is an unreachable command). Commands go in the toolbar: search leading, New Note / Open Quickly centre, the five inspector toggles trailing. See `docs/shell-chrome.md`.
+- Anything keyed on a collection (the outline cache key, drop targets, "New Note" at a root) reads the sidebar's selection. **A cache key must name everything the cached value depends on** — keying the outline on one collection made opening or closing another invisible.
 - State: Use the `@Observable` macro exclusively. DO NOT use legacy `@ObservableObject` or `@StateObject`.
 - Data Source: No CoreData. The local file system directory is the absolute source of truth.
 - Git Operations: Use `SwiftGitX` (Import `SwiftGitX`) utilizing native Swift async/await concurrency.

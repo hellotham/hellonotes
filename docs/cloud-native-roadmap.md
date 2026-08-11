@@ -195,7 +195,7 @@ coordinated read — only the progress indicator is missing).
   context menu (cloud items only) and an iOS leading swipe action.
 - ✅ **Collection-level "N online-only"** status-bar indicator with an explanatory tooltip.
 - ✅ **Provider label** — `CloudProvider.name(for:)` maps a path to Dropbox / Google Drive /
-  OneDrive / Box / iCloud Drive. Shown on the collection's row in the library rail (its icon
+  OneDrive / Box / iCloud Drive. Shown on the collection's row in the sidebar (its icon
   becomes the cloud glyph, its tooltip names the provider) and in the collection status bar.
   *(It was under the collection name in the old sidebar card, which the rail replaced.)*
 - ✅ **Onboarding** copy mentions cloud folders.
@@ -265,10 +265,10 @@ Now a working feature, not just a library.
 - **Credentials** for all direct-API providers live in a git-ignored
   `Config/Secrets.xcconfig` (substituted into Info.plist at build time); a committed
   `Secrets.example.xcconfig` documents each provider's console setup.
-- ✅ **Promoted to a first-class collection in the library rail** (beyond the original pilot). `RemoteMirror`
+- ✅ **Promoted to a first-class collection in the sidebar** (beyond the original pilot). `RemoteMirror`
   mirrors a `RemoteStore` folder into a local cache that's opened as a normal `Collection`
   (reusing scan/index/editor/`FileIO` unchanged); `Collection.noteDidSave` uploads edits back.
-  "Open as Collection" in the browser adds it to the library rail with a network icon and a
+  "Open as Collection" in the browser adds it to the sidebar with a network icon and a
   "<provider> (direct)" label (Git hidden). **Verified live** (macOS, mock store): open → sync (3 notes) → browse → edit in
   the normal editor → upload, confirmed by re-reading the note from the store. Tested
   (`RemoteMirrorTests`). iOS presents the browser; promotion to the rail is macOS for now.
