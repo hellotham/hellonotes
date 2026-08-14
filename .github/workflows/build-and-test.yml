@@ -42,27 +42,31 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+# Why macos-26 and no explicit Xcode selection: `setup-xcode: latest-stable`
+# put Xcode 26.3 (macOS 26.2 SDK) on a macos-15 host, and that mismatch failed
+# exactly one job — `platform=macOS`, the only destination that resolves the
+# *host* as a run destination. `generic/platform=macOS` and the iOS Simulator
+# both built fine on the same runner, which is what made it look like a flake.
+# The image's default toolchain is already Xcode 26, so aligning host and SDK
+# needs no action at all. (Same shape as the FinvestLens CI, which passes.)
 env:
-  SPM_CACHE: ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM
+  SPM_CACHE: ~/.cache/hellonotes-spm
 
 jobs:
   editor-package:
     # Fast and hermetic: no Xcode project, no simulator, no test host. Runs
     # first so an editor regression fails in ~2 minutes rather than ~40.
     name: Editor package tests
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: maxim-lobanov/setup-xcode@v1.7.0
-        with:
-          xcode-version: latest-stable
       - name: swift test
         run: swift test --package-path Packages/NotesEditor
 
   app:
     name: App — ${{ matrix.platform }}
-    runs-on: macos-15
+    runs-on: macos-26
     # Cold builds are 30–47 minutes across 74 targets (CLAUDE.md). A long
     # xcodebuild here is a cold build, not a hang.
     timeout-minutes: 90
@@ -79,14 +83,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: maxim-lobanov/setup-xcode@v1.7.0
-        with:
-          xcode-version: latest-stable
 
       - name: Cache resolved packages
         uses: actions/cache@v6
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM
+          path: ~/.cache/hellonotes-spm
           key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved', '**/project.pbxproj') }}
           restore-keys: spm-${{ runner.os }}-
 
@@ -110,6 +111,7 @@ jobs:
             -project HelloNotes.xcodeproj -scheme HelloNotes \
             -destination "$DESTINATION" -configuration Debug \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -derivedDataPath "$PWD/DerivedData" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
 
       # Separate from `test` on purpose: this is the step that compiles the test
@@ -124,6 +126,7 @@ jobs:
             -project HelloNotes.xcodeproj -scheme HelloNotes \
             -destination "$DESTINATION" -configuration Debug \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -derivedDataPath "$PWD/DerivedData" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
 
       - name: Test
@@ -136,6 +139,7 @@ jobs:
             -destination "$DESTINATION" -configuration Debug \
             -only-testing:HelloNotesTests \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -derivedDataPath "$PWD/DerivedData" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
 
   release:
@@ -145,17 +149,14 @@ jobs:
     # Runs only on main, because it is the slowest job here.
     name: Release build (macOS)
     if: github.event_name != 'pull_request'
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-      - uses: maxim-lobanov/setup-xcode@v1.7.0
-        with:
-          xcode-version: latest-stable
       - name: Cache resolved packages
         uses: actions/cache@v6
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM
+          path: ~/.cache/hellonotes-spm
           key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved', '**/project.pbxproj') }}
           restore-keys: spm-${{ runner.os }}-
       - name: Provide the secrets template
@@ -166,4 +167,5 @@ jobs:
             -project HelloNotes.xcodeproj -scheme HelloNotes \
             -destination 'generic/platform=macOS' -configuration Release \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -derivedDataPath "$PWD/DerivedData" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
