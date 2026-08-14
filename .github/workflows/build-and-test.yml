@@ -96,6 +96,12 @@ jobs:
       - name: Provide the secrets template
         run: cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
 
+      # The runner has no Developer ID certificate and no provisioning
+      # profiles, and cannot be given them: signing needs a private key. CI is
+      # here to prove the code *compiles* and the tests pass, so signing is
+      # switched off for every invocation below. The signed, notarised artefact
+      # is produced on a developer machine by the release runbook
+      # (docs/production.md Appendix A2), which is the only place it can be.
       - name: Build
         env:
           DESTINATION: ${{ matrix.destination }}
@@ -103,6 +109,7 @@ jobs:
           xcodebuild build \
             -project HelloNotes.xcodeproj -scheme HelloNotes \
             -destination "$DESTINATION" -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
 
       # Separate from `test` on purpose: this is the step that compiles the test
@@ -116,6 +123,7 @@ jobs:
           xcodebuild build-for-testing \
             -project HelloNotes.xcodeproj -scheme HelloNotes \
             -destination "$DESTINATION" -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
 
       - name: Test
@@ -127,6 +135,7 @@ jobs:
             -project HelloNotes.xcodeproj -scheme HelloNotes \
             -destination "$DESTINATION" -configuration Debug \
             -only-testing:HelloNotesTests \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
 
   release:
@@ -156,4 +165,5 @@ jobs:
           xcodebuild build \
             -project HelloNotes.xcodeproj -scheme HelloNotes \
             -destination 'generic/platform=macOS' -configuration Release \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
