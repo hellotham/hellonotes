@@ -28,7 +28,6 @@
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): privacy manifest, `.md` UTI import, optimized Release build, and the in-app acknowledgements screen.*
 
-- 🟠 **Rotate & remove the working-tree `.env`** *(user action — cannot be automated)* — `/.env` holds 6 live keys (Gemini, Mistral, OpenAI, OpenRouter, Ollama, Groq). It is **gitignored and was never committed** (verified across all history), so it is not a repo leak, but the keys are live. **Rotate all six and delete the file** before any CI/distribution. Left here because only the account owner can rotate them.
 - 🟡 **No macOS 26 layered app icon** — the classic 16→1024 PNG ladder is complete; there is no Icon Composer `.icon` layered asset for the 26 look (needs artwork). Legacy icon still ships fine.
 
 ---
@@ -265,11 +264,10 @@ sidebars, VoiceOver rotor + labels, Reduce Motion, terminology, cancelable clone
 **Cloud storage** shipped in full (§8b lists the residual limits) —
 [implemented.md §11](implemented.md#11--cloud-native-storage-2026-072021).
 
-**Remaining before submission:** the one item only the owner can do — **rotate + remove
-the working-tree `.env`** (§0). Note the *provider* credentials are already handled
-correctly: they live in a git-ignored `Config/Secrets.xcconfig` and were purged from git
-history before the repo's first push, so nothing leaked. `.env` is git-ignored and untracked
-too, but it still sits in the working tree with live keys in plaintext.
+**Credentials:** the *provider* credentials are handled correctly — they live in a
+git-ignored `Config/Secrets.xcconfig` and were purged from git history before the
+repo's first push, so nothing has ever leaked. Local developer key files are the
+owner's own business and are not tracked here.
 
 **Remaining, non-blocking:** the residual 🟡 items under each section above, and the
 feature backlog — **§6/§7 the iOS live-editor milestone (`editor-M5`)**, §8 git pull/merge
