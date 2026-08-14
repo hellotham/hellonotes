@@ -1,6 +1,6 @@
 # HelloNotes — Product Requirements Document
 
-> Product name: **HelloNotes** · Status: **v1.0 (shipped)** · Last updated: 2026-07-25 · Owner: Chris Tham
+> Product name: **HelloNotes** · Status: **v1.1 (shipped)** · Last updated: 2026-08-12 · Owner: Chris Tham
 
 ---
 
@@ -73,6 +73,10 @@ Where we **diverge**: HelloNotes adds the *knowledge-graph* layer (wiki-links + 
 Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P0–P2** across the board on macOS, plus the post-MVP feature areas in the status box (see [implemented.md](implemented.md) for the build history).
 
 > ### ✅ Implementation status — v1.0 (shipped)
+>
+> *v1.1 changed no feature scope.* It reshaped the shell — collections and
+> folders became one tree in a single collapsible sidebar — and fixed defects;
+> see [CHANGELOG.md](../CHANGELOG.md). The list below is still the feature set.
 > **Library & files:** a **multi-collection library** (several vaults open at once) with launcher, recents, and saved library sets; **Obsidian vault import**; persistent security-scoped bookmarks; Markdown indexing; create/rename (with link rewrite)/duplicate/delete (to Trash); nested folder tree with sort + **drag-and-drop moving** + empty-folder creation; external-change detection + conflict handling; image paste → `assets/`; **smart paste** (HTML → Markdown); non-Markdown attachments (PDF/image/CSV/other) in a native **file viewer**.
 > **Editor:** live TextKit 2 Markdown (bold/italic/code, headings, lists, task lists, quotes, tables, footnotes), **view modes** (Edit / native read-only Preview / Markdown source / Split), debounced atomic autosave + saved indicator, syntax-highlighted code, LaTeX math, **inline native Mermaid**, Obsidian-style **callouts** (collapsible, iconed) + `%%comments%%` + hidden front matter, **note transclusion** `![[Note]]`/`![[Note#heading]]`, **⌘F find & replace**, **scroll-to-heading** (outline, links, search), multi-tab editing, open-in-new-window, document statistics, outline, HTML/PDF export, editable typed **properties**, **Marp slide decks**, and a full **Format menu**.
 > **Knowledge graph:** `[[wiki-links]]` (clickable, create-on-miss) with **autocomplete**, **aliases**, **link-to-heading** completion, backlinks + **outgoing links** + **unlinked mentions** (one-click link), a directional **Graph** view (arrowed edges, click-to-trace focus, whole-collection or around-a-note scope), and a content-based **Mind Map** of a note's ideas.
