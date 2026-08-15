@@ -197,6 +197,10 @@ final class Collection: Identifiable {
     /// Debounced index refresh scheduled after an editor save (the note *set*
     /// is unchanged, so no re-scan is needed — only the content-derived index).
     private var deriveTask: Task<Void, Never>?
+
+    /// Coalesces `.git` churn into one status read (a checkout touches hundreds
+    /// of files in there).
+    private var gitRefreshTask: Task<Void, Never>?
     #endif
 
     private var securityScoped = false
@@ -441,8 +445,30 @@ final class Collection: Identifiable {
             reconcileSoon(onExternalChange: onExternalChange)
 
         case .itemsChanged(let paths):
+            // `.git` churn is not a *content* change — `hasExternalChanges`
+            // rightly filters it out, or every auto-commit would re-scan the
+            // vault. But it is still news: an external `git pull`, checkout or
+            // rebase moves the branch and the change count, and the status bar
+            // would otherwise go on asserting the old ones indefinitely.
+            if paths.contains(where: Self.isGitMetadata) { refreshGitSoon() }
             guard hasExternalChanges(in: paths) else { return }
             reconcileSoon(onExternalChange: onExternalChange)
+        }
+    }
+
+    private nonisolated static func isGitMetadata(_ path: String) -> Bool {
+        path.contains("/.git/") || path.hasSuffix("/.git")
+    }
+
+    /// Debounced Git status refresh. A checkout rewrites hundreds of files under
+    /// `.git`, and re-reading status for each would queue hundreds of libgit2
+    /// reads behind one another.
+    private func refreshGitSoon() {
+        gitRefreshTask?.cancel()
+        gitRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self else { return }
+            await self.git.refreshStatus()
         }
     }
 
@@ -460,6 +486,11 @@ final class Collection: Identifiable {
             guard !Task.isCancelled, let self else { return }
             await self.scanOffMain()
             self.refreshDerived()
+            // Files changed under a repository, so its change count did too.
+            // Without this the status bar kept asserting whatever it read at
+            // activate — including a branch name an external checkout had since
+            // moved on from.
+            if self.git.status.isRepository { await self.git.refreshStatus() }
             onExternalChange()
         }
     }

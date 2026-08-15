@@ -888,6 +888,75 @@ struct GitServiceTests {
         #expect(git.status.isClean)
     }
 
+    /// A collection opened at a *subfolder* of a clone — an entirely ordinary
+    /// thing to do with a monorepo — got no Git UI at all, because SwiftGitX
+    /// exposes only libgit2's no-search `git_repository_open`.
+    @Test @MainActor
+    func aSubfolderOfARepositoryIsRecognisedAsOne() async throws {
+        let repo = try copiedSampleVault()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let docs = repo.appendingPathComponent("Docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+        try write("# Note", to: docs.appendingPathComponent("Note.md"))
+
+        let outer = GitService()
+        outer.rootURL = repo
+        await outer.initializeRepository()
+        await outer.commitAll(message: "Import")
+
+        // The collection is the subfolder, not the repository root.
+        let git = GitService()
+        git.rootURL = docs
+        await git.refreshStatus()
+
+        #expect(git.status.isRepository, "a subfolder of a clone is still in a repository")
+        #expect(git.status.isSubdirectory)
+        #expect(git.status.repositoryRoot?.standardizedFileURL == repo.standardizedFileURL)
+    }
+
+    /// Committing from a subfolder must never reach outside it. Scoping is what
+    /// makes full Git UI safe to offer there at all.
+    @Test @MainActor
+    func committingFromASubfolderLeavesTheRestOfTheRepositoryAlone() async throws {
+        let repo = try copiedSampleVault()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let docs = repo.appendingPathComponent("Docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+
+        let outer = GitService()
+        outer.rootURL = repo
+        await outer.initializeRepository()
+        try write("# Doc", to: docs.appendingPathComponent("Doc.md"))
+        await outer.commitAll(message: "Import everything")
+        #expect(outer.status.isClean)
+
+        // Now change one file inside the collection and one outside it.
+        try write("# Doc edited", to: docs.appendingPathComponent("Doc.md"))
+        try write("# Outside edited", to: repo.appendingPathComponent("Welcome.md"))
+
+        let git = GitService()
+        git.rootURL = docs
+        await git.refreshStatus()
+        // The count describes this collection, not the whole repository.
+        #expect(git.status.changeCount == 1)
+
+        await git.commitAll(message: "Docs only")
+        #expect(git.lastError == nil)
+
+        // The outside edit is still uncommitted — it was never staged.
+        await outer.refreshStatus()
+        #expect(outer.status.changeCount == 1)
+    }
+
+    @Test func scopePrefixDescribesTheCollectionWithinItsRepository() {
+        let repo = URL(fileURLWithPath: "/tmp/repo")
+        #expect(GitService.scopePrefix(collectionRoot: repo, repositoryRoot: repo) == nil)
+        #expect(GitService.scopePrefix(collectionRoot: repo.appendingPathComponent("docs"),
+                                       repositoryRoot: repo) == "docs/")
+        #expect(GitService.scopePrefix(collectionRoot: repo.appendingPathComponent("a/b"),
+                                       repositoryRoot: repo) == "a/b/")
+    }
+
     @Test @MainActor
     func gitNoteHistoryTracksFileRevisions() async throws {
         let vault = try copiedSampleVault()

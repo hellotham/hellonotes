@@ -32,6 +32,13 @@ final class GitService {
         var branch: String?
         var changeCount = 0
         var remotes: [RemoteInfo] = []
+        /// Where the repository actually starts. Equal to the collection's own
+        /// folder in the ordinary case, an **ancestor** of it when a subfolder of
+        /// a clone was opened as a collection.
+        var repositoryRoot: URL?
+        /// True when the collection is only part of its repository. Everything
+        /// this service does is then confined to the collection's own paths.
+        var isSubdirectory = false
         var isClean: Bool { changeCount == 0 }
         var hasRemote: Bool { !remotes.isEmpty }
     }
@@ -43,6 +50,11 @@ final class GitService {
 
     /// The collection whose repository this service manages.
     var rootURL: URL?
+
+    /// The repository to act on. Equal to `rootURL` in the ordinary case; an
+    /// ancestor of it when a subfolder of a clone was opened as a collection.
+    /// Falls back to `rootURL` before the first status read has discovered one.
+    var repositoryRoot: URL? { status.repositoryRoot ?? rootURL }
 
     private var autoCommitTask: Task<Void, Never>?
 
@@ -79,14 +91,35 @@ final class GitService {
         }
     }
 
-    /// Stage all changes and create a local commit.
+    /// Commit this collection's changes.
+    ///
+    /// When the collection is a subdirectory of a larger repository, staging is
+    /// confined to its own paths — committing a monorepo's `src/` because you
+    /// saved a note in its `docs/` is not something to warn about, it is
+    /// something to make impossible.
+    ///
+    /// The one case scoping cannot cover on its own: `commit` writes the whole
+    /// index, so anything staged elsewhere *before* we ran would be swept in.
+    /// That is refused rather than silently included.
     func commitAll(message: String) async {
-        guard let url = rootURL else { return }
+        guard let collectionRoot = rootURL else { return }
+        let repositoryRoot = status.repositoryRoot ?? collectionRoot
+        let scope = Self.scopePrefix(collectionRoot: collectionRoot, repositoryRoot: repositoryRoot)
         await run(success: "Committed changes") {
-            let repo = try Repository.open(at: url)
+            let repo = try Repository.open(at: repositoryRoot)
             Self.ensureCommitIdentity(repo)
             let entries = try repo.status()
-            let paths = Set(entries.compactMap { $0.workingTree?.newFile.path ?? $0.index?.newFile.path })
+
+            if let scope {
+                let stagedOutside = entries.compactMap { $0.index?.newFile.path }
+                    .filter { !$0.hasPrefix(scope) }
+                guard stagedOutside.isEmpty else {
+                    throw GitServiceError.stagedOutsideCollection(count: stagedOutside.count)
+                }
+            }
+
+            var paths = Set(entries.compactMap { $0.workingTree?.newFile.path ?? $0.index?.newFile.path })
+            if let scope { paths = paths.filter { $0.hasPrefix(scope) } }
             guard !paths.isEmpty else { throw GitServiceError.nothingToCommit }
             for path in paths { try? repo.add(path: path) }
             _ = try repo.commit(message: message)
@@ -95,7 +128,7 @@ final class GitService {
 
     /// Push the current branch to its remote (user-initiated only).
     func push() async {
-        guard let url = rootURL else { return }
+        guard let url = repositoryRoot else { return }
         await run(success: "Pushed to remote") {
             let repo = try Repository.open(at: url)
             try await repo.push()
@@ -104,7 +137,7 @@ final class GitService {
 
     /// Fetch remote refs (SwiftGitX has no merge yet, so this doesn't pull).
     func fetch() async {
-        guard let url = rootURL else { return }
+        guard let url = repositoryRoot else { return }
         await run(success: "Fetched from remote") {
             let repo = try Repository.open(at: url)
             try await repo.fetch()
@@ -126,9 +159,10 @@ final class GitService {
     /// newest first. Empty when the collection isn't a repo or the file is untracked.
     /// Walks at most `scan` commits so large histories stay responsive.
     func history(for fileURL: URL, scan: Int = 300) async -> [NoteRevision] {
-        guard let rootURL, let relPath = Self.relativePath(of: fileURL, in: rootURL) else { return [] }
+        guard let repoRoot = repositoryRoot,
+              let relPath = Self.relativePath(of: fileURL, in: repoRoot) else { return [] }
         return await serializedRead {
-            guard let repo = try? Repository.open(at: rootURL),
+            guard let repo = try? Repository.open(at: repoRoot),
                   let commits = try? repo.log() else { return [] }
             let components = relPath.split(separator: "/").map(String.init)
 
@@ -166,9 +200,10 @@ final class GitService {
     /// The UTF-8 contents of `fileURL` as of commit `revisionID`, or nil if it
     /// can't be resolved.
     func content(ofRevision revisionID: String, for fileURL: URL) async -> String? {
-        guard let rootURL, let relPath = Self.relativePath(of: fileURL, in: rootURL) else { return nil }
+        guard let repoRoot = repositoryRoot,
+              let relPath = Self.relativePath(of: fileURL, in: repoRoot) else { return nil }
         return await serializedRead { () -> String? in
-            guard let repo = try? Repository.open(at: rootURL),
+            guard let repo = try? Repository.open(at: repoRoot),
                   let oid = try? OID(hex: revisionID),
                   let commit: Commit = try? repo.show(id: oid),
                   let tree = try? commit.tree else { return nil }
@@ -289,12 +324,49 @@ final class GitService {
         return await task.value
     }
 
-    private static func readStatus(at url: URL) async -> RepoStatus {
+    /// Find the repository `url` belongs to, which may be an ancestor of it.
+    ///
+    /// SwiftGitX exposes only `git_repository_open`, which is libgit2's
+    /// *no-search* variant: it opens a repository root and nothing else. So
+    /// opening `~/repo/docs` as a collection — an entirely ordinary thing to do
+    /// with a monorepo — reported "not a repository" and offered no Git UI at
+    /// all. This is the upward walk libgit2 would have done with
+    /// `git_repository_open_ext`.
+    ///
+    /// `.git` is tested with `fileExists` rather than `isDirectory` on purpose:
+    /// in a worktree or submodule it is a *file* pointing at the real gitdir.
+    nonisolated static func discoverRepositoryRoot(from url: URL) -> URL? {
+        var candidate = url.standardizedFileURL
+        while true {
+            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent(".git").path) {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent().standardizedFileURL
+            // Bounded by construction: `/` (and any volume root) is its own
+            // parent, so this terminates without a depth counter to tune.
+            if parent == candidate { return nil }
+            candidate = parent
+        }
+    }
+
+    /// Status for `collectionRoot`, read from whichever repository contains it.
+    ///
+    /// When the collection is a subdirectory, everything reported is **scoped to
+    /// it**: a change count that included the rest of the repo would say
+    /// "3 uncommitted changes" about files the user cannot see from here.
+    private static func readStatus(at collectionRoot: URL) async -> RepoStatus {
         await Task.detached(priority: .utility) {
-            guard let repo = try? Repository.open(at: url) else {
+            guard let repositoryRoot = discoverRepositoryRoot(from: collectionRoot),
+                  let repo = try? Repository.open(at: repositoryRoot) else {
                 return RepoStatus(isRepository: false)
             }
-            let entries = (try? repo.status()) ?? []
+            let scope = Self.scopePrefix(collectionRoot: collectionRoot, repositoryRoot: repositoryRoot)
+            let entries = ((try? repo.status()) ?? []).filter { entry in
+                guard let scope else { return true }
+                guard let path = entry.workingTree?.newFile.path ?? entry.index?.newFile.path
+                else { return false }
+                return path.hasPrefix(scope)
+            }
             let branch = try? repo.branch.current.name
             let remotes = ((try? repo.remote.list()) ?? []).map { remote in
                 RemoteInfo(
@@ -304,8 +376,21 @@ final class GitService {
                     hasEmbeddedCredentials: remote.url.password != nil
                 )
             }
-            return RepoStatus(isRepository: true, branch: branch, changeCount: entries.count, remotes: remotes)
+            return RepoStatus(isRepository: true, branch: branch,
+                              changeCount: entries.count, remotes: remotes,
+                              repositoryRoot: repositoryRoot, isSubdirectory: scope != nil)
         }.value
+    }
+
+    /// The repo-relative path prefix that confines this collection, or nil when
+    /// the collection *is* the repository root and nothing needs confining.
+    nonisolated static func scopePrefix(collectionRoot: URL, repositoryRoot: URL) -> String? {
+        let collection = collectionRoot.standardizedFileURL.path
+        let repository = repositoryRoot.standardizedFileURL.path
+        guard collection != repository, collection.hasPrefix(repository) else { return nil }
+        var relative = String(collection.dropFirst(repository.count))
+        while relative.hasPrefix("/") { relative.removeFirst() }
+        return relative.isEmpty ? nil : relative + "/"
     }
 
     // MARK: - Remotes
@@ -314,7 +399,7 @@ final class GitService {
     /// supplied for an HTTPS URL, the token is embedded so push/fetch authenticate.
     func connectRemote(urlString: String, name: String = "origin",
                        account: GitAccount? = nil, token: String? = nil) async {
-        guard let rootURL else { return }
+        guard let repoRoot = repositoryRoot else { return }
         let trimmed = urlString.trimmingCharacters(in: .whitespaces)
         guard let baseURL = URL(string: trimmed), baseURL.scheme != nil else {
             lastError = "Enter a valid remote URL (https://…)."
@@ -327,7 +412,7 @@ final class GitService {
             return baseURL
         }()
         await run(success: "Connected remote “\(name)”") {
-            let repo = try Repository.open(at: rootURL)
+            let repo = try Repository.open(at: repoRoot)
             if let existing = try? repo.remote.get(named: name) {
                 try repo.remote.remove(existing)
             }
@@ -342,13 +427,13 @@ final class GitService {
 
     /// Rewrite an existing remote's URL to embed credentials from an account.
     func authenticateRemote(_ name: String, account: GitAccount, token: String) async {
-        guard let rootURL else { return }
+        guard let repoRoot = repositoryRoot else { return }
         // Read the current remote URL through the FIFO read queue (off-main,
         // and never opening a second libgit2 handle concurrently with an
         // in-flight write), rather than opening the repo synchronously on the
         // main actor.
         let base: URL? = await serializedRead {
-            guard let repo = try? Repository.open(at: rootURL),
+            guard let repo = try? Repository.open(at: repoRoot),
                   let remote = try? repo.remote.get(named: name) else { return nil }
             return GitRemoteURL.sanitized(remote.url)
         }
@@ -357,9 +442,9 @@ final class GitService {
     }
 
     func removeRemote(_ name: String) async {
-        guard let rootURL else { return }
+        guard let repoRoot = repositoryRoot else { return }
         await run(success: "Removed remote “\(name)”") {
-            let repo = try Repository.open(at: rootURL)
+            let repo = try Repository.open(at: repoRoot)
             if let remote = try? repo.remote.get(named: name) {
                 try repo.remote.remove(remote)
             }
@@ -609,9 +694,19 @@ extension GitService {
 
 enum GitServiceError: LocalizedError {
     case nothingToCommit
+    /// Something outside this collection is already staged in the repository.
+    /// A commit sweeps up the whole index, so proceeding would quietly commit
+    /// files the user cannot even see from here.
+    case stagedOutsideCollection(count: Int)
+
     var errorDescription: String? {
         switch self {
-        case .nothingToCommit: return "Nothing to commit."
+        case .nothingToCommit:
+            return "Nothing to commit."
+        case .stagedOutsideCollection(let count):
+            return "\(count) file\(count == 1 ? " is" : "s are") staged elsewhere in this repository. "
+                + "Committing from here would include \(count == 1 ? "it" : "them"). "
+                + "Commit or unstage \(count == 1 ? "it" : "them") in your Git client first."
         }
     }
 }

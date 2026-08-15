@@ -533,9 +533,14 @@ struct MacContentView: View {
         .onChange(of: tabs.totalSavedRevision) { _, _ in
             guard let c = editorCollection else { return }
             // Never auto-commit a cloud-backed collection: libgit2 would churn
-            // the object store against online-only files. (The toggle is also
-            // disabled there, but honour a pre-existing enabled flag too.)
-            if autoCommit, CloudProvider.name(for: c.rootURL) == nil {
+            // the object store against online-only files. Nor a collection that
+            // is only *part* of a repository — commits there are scoped to this
+            // folder, but writing commits automatically into a repository
+            // someone is using for other work is not ours to decide.
+            // (Both are disabled in the toggle too; honour a pre-existing
+            // enabled flag as well.)
+            if autoCommit, CloudProvider.name(for: c.rootURL) == nil,
+               !c.git.status.isSubdirectory {
                 c.git.scheduleAutoCommit(message: autoCommitMessage)
             }
             // Debounce the status refresh — it fires on every autosave, so a
@@ -1012,6 +1017,18 @@ struct MacContentView: View {
                         .foregroundStyle(git.status.isClean ? Color.secondary : Color.orange)
                 }
 
+                // This collection is only part of its repository — say where the
+                // repository starts, and that everything here is confined to
+                // this folder. Offering full Git controls without naming the
+                // wider repo is how someone ends up surprised by what a commit
+                // contained.
+                if git.status.isSubdirectory, let repoRoot = git.status.repositoryRoot {
+                    Text("Inside the repository at \(repoRoot.path(percentEncoded: false)) — commits, counts and history cover only this folder.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 HStack {
                     Button {
                         Task { await git.commitAll(message: autoCommitMessage) }
@@ -1038,12 +1055,18 @@ struct MacContentView: View {
                 }
 
                 let cloudBacked = gitCollection.map { CloudProvider.name(for: $0.rootURL) != nil } ?? false
+                let partOfLargerRepo = git.status.isSubdirectory
                 Toggle("Auto-commit", isOn: $autoCommit)
                     .font(.caption)
                     .toggleStyle(.checkbox)
-                    .disabled(cloudBacked)
+                    .disabled(cloudBacked || partOfLargerRepo)
                 if cloudBacked {
                     Text("Auto-commit is off in cloud folders — commit manually once files are downloaded.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if partOfLargerRepo {
+                    Text("Auto-commit is off inside a larger repository — commit this folder yourself when you're ready.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
