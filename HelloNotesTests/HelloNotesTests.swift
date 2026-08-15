@@ -1075,6 +1075,31 @@ struct CollectionAvailabilityTests {
         #expect(Collection.unavailability(of: root) == .permissionDenied)
     }
 
+    /// A cancelled *rescan* holds only a subset of the folder. Publishing it
+    /// would drop notes from view for the same reason emptying an unreadable
+    /// collection would — so the older, complete picture stays until a scan
+    /// finishes.
+    @Test func cancellingARescanKeepsTheCompleteListRatherThanASubset() async throws {
+        let root = try vault()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            WalkCheckpointStore.remove(for: root.standardizedFileURL.path)
+        }
+        let collection = Collection(rootURL: root)
+        await collection.scanOffMain()
+        #expect(collection.notes.count == 2)
+        #expect(collection.state == .ready)
+
+        // Rescan, cancelled before it can see anything.
+        await Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            await collection.scanOffMain()
+        }.value
+
+        #expect(collection.notes.count == 2, "the complete list survives an interrupted rescan")
+        #expect(collection.hasIncompleteIndex, "and the index says it is behind")
+    }
+
     /// An edit made while the folder is gone must not be written into thin air —
     /// and must not be thrown away either. It stays in the buffer.
     @Test func savingIntoAnUnavailableCollectionIsRefusedAndTheEditKept() async throws {

@@ -229,7 +229,91 @@ final class Library {
 
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
-        Task { await open(urls: urls) }
+        Task { await openChecking(urls) }
+    }
+
+    /// Open `urls`, pausing to warn about any that look big enough to take a
+    /// while. Adding a huge folder is never *blocked* — it is the user's folder
+    /// and their call. The warning exists so the wait isn't a surprise, and so
+    /// the far more common intent ("I meant my Notes subfolder") has somewhere
+    /// to go.
+    private func openChecking(_ urls: [URL]) async {
+        for url in urls {
+            let estimate = await Self.estimateSize(of: url)
+            guard estimate.looksLarge else { await open(url: url); continue }
+            switch Self.confirmLargeFolder(url, estimate: estimate) {
+            case .addAnyway:
+                await open(url: url)
+            case .chooseSubfolder:
+                if let chosen = Self.chooseSubfolder(under: url) { await openChecking([chosen]) }
+            case .cancel:
+                continue
+            }
+        }
+    }
+
+    /// What a one-second look at a folder suggests about its size.
+    struct FolderSizeEstimate: Sendable {
+        var itemsSeen = 0
+        var directoriesRemaining = 0
+        /// The probe walked the *whole* tree inside its budget — so whatever it
+        /// counted is the real total, however large.
+        var isComplete = false
+
+        /// No magic threshold on a number we can't know in advance: the signal
+        /// is that a full second wasn't enough to finish *and* there is already
+        /// a lot here.
+        var looksLarge: Bool { !isComplete && itemsSeen >= 5_000 }
+    }
+
+    /// Walk for at most `budget` seconds and report what was found.
+    static func estimateSize(of url: URL, budget: TimeInterval = 1.0) async -> FolderSizeEstimate {
+        let source = LocalTreeSource(root: url)
+        let walk = Task.detached(priority: .userInitiated) {
+            await ResumableTreeWalk.run(source: source) { _ in }
+        }
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(budget))
+            walk.cancel()
+        }
+        let result = await walk.value
+        deadline.cancel()
+        return FolderSizeEstimate(itemsSeen: result.progress.itemsSeen,
+                                  directoriesRemaining: result.progress.directoriesRemaining,
+                                  isComplete: result.isComplete)
+    }
+
+    private enum LargeFolderChoice { case addAnyway, chooseSubfolder, cancel }
+
+    private static func confirmLargeFolder(_ url: URL,
+                                           estimate: FolderSizeEstimate) -> LargeFolderChoice {
+        let alert = NSAlert()
+        alert.messageText = "“\(url.lastPathComponent)” is a large folder"
+        alert.informativeText = """
+            It holds at least \(estimate.itemsSeen.formatted()) items, so scanning it may take a while.
+
+            You can keep working while it fills in, and stop it at any time — it picks up where it left off.
+            """
+        // First button is the default: the warning informs, it does not decide.
+        alert.addButton(withTitle: "Add Anyway")
+        alert.addButton(withTitle: "Choose a Subfolder…")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:  return .addAnyway
+        case .alertSecondButtonReturn: return .chooseSubfolder
+        default:                       return .cancel
+        }
+    }
+
+    private static func chooseSubfolder(under url: URL) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = url
+        panel.prompt = "Open"
+        panel.message = "Choose the folder inside “\(url.lastPathComponent)” to open."
+        return panel.runModal() == .OK ? panel.url : nil
     }
     #endif
 

@@ -485,6 +485,23 @@ struct NoteOutlineList: NSViewRepresentable {
             }()
             let icon = symbolIcon(unavailable == nil ? "books.vertical" : "exclamationmark.triangle")
             if unavailable != nil { icon.contentTintColor = .systemOrange }
+            // A long scan is visible on the row itself, not only in the status
+            // bar: the sidebar is where you notice a collection is still filling
+            // in. Indeterminate and self-animating, so it costs no redraws — the
+            // live counts stay in the status bar, where they can change without
+            // rebuilding the outline.
+            let spinner: NSProgressIndicator? = collection.showsScanProgress ? {
+                let indicator = NSProgressIndicator()
+                indicator.style = .spinning
+                indicator.controlSize = .small
+                indicator.isIndeterminate = true
+                indicator.startAnimation(nil)
+                indicator.setAccessibilityLabel("Scanning “\(collection.name)”")
+                indicator.translatesAutoresizingMaskIntoConstraints = false
+                indicator.widthAnchor.constraint(equalToConstant: 12).isActive = true
+                indicator.heightAnchor.constraint(equalToConstant: 12).isActive = true
+                return indicator
+            }() : nil
             let name = label(collection.name, font: .systemFont(ofSize: 11 * parent.fontScale,
                 weight: collection.id == focusedCollectionID ? .semibold : .regular),
                 color: unavailable == nil ? .secondaryLabelColor : .tertiaryLabelColor)
@@ -507,6 +524,7 @@ struct NoteOutlineList: NSViewRepresentable {
             let stack = NSStackView(views: [icon, name])
             stack.spacing = 5
             stack.orientation = .horizontal
+            if let spinner { stack.addArrangedSubview(spinner) }
 
             if collection.git.status.isRepository {
                 let dot = NSView()

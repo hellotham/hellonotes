@@ -30,6 +30,9 @@ enum CollectionState: Equatable {
         /// FSEvents dropped events; the change list is incomplete by its own
         /// admission, so only a full rescan can be trusted.
         case eventsDropped
+        /// A scan was interrupted — cancelled, suspended, or blocked by a folder
+        /// it couldn't read — so the note list is a subset of the folder.
+        case scanIncomplete
     }
 
     enum UnavailableReason: Equatable {
@@ -92,6 +95,25 @@ final class Collection: Identifiable {
     var hasIncompleteIndex: Bool {
         if case .stale = state { return true } else { return false }
     }
+
+    /// Whether non-Markdown files are collected at all. Gates the *walk*, not
+    /// the display: on a folder of a hundred thousand documents, not reading
+    /// their names is the entire point. (Phase 5 wires this to a menu item.)
+    var showsNonNoteFiles = true
+
+    /// Live counts while a scan is running, `nil` when idle.
+    private(set) var scanProgress: WalkProgress?
+
+    /// Whether the scan has been running long enough to be worth mentioning.
+    /// A vault that scans in 80 ms must look exactly as it did before any of
+    /// this existed — a progress bar that flashes is worse than none.
+    private(set) var showsScanProgress = false
+
+    private var currentScan: Task<WalkResult, Never>?
+
+    /// Stop the running scan. Whatever it found is kept, and the checkpoint it
+    /// leaves means resuming picks up where it stopped rather than starting over.
+    func cancelScan() { currentScan?.cancel() }
 
     /// Mark the folder unreadable **without touching anything derived from it**.
     /// The last good picture stays on screen, read-only, so a drive unplugged
@@ -211,6 +233,14 @@ final class Collection: Identifiable {
         ?? UTType(filenameExtension: "md")
         ?? .plainText
 
+    /// Whether `url` is a Markdown note. Takes the content type as a parameter
+    /// because the caller has usually just read it as part of a resource-values
+    /// fetch, and asking the filesystem again is a second `stat` per file.
+    nonisolated static func isMarkdown(_ url: URL, contentType: UTType?) -> Bool {
+        contentType?.conforms(to: markdownType) == true
+            || UTType(filenameExtension: url.pathExtension)?.conforms(to: markdownType) == true
+    }
+
     init(rootURL: URL) {
         self.rootURL = rootURL
         self.id = rootURL.standardizedFileURL.path
@@ -304,28 +334,130 @@ final class Collection: Identifiable {
     /// Scan off the main actor, then apply the results — used for startup and
     /// external-change reconciliation, where a main-thread directory walk of a
     /// large collection would otherwise freeze the UI.
+    /// Scan off the main actor, publishing as the walk proceeds.
+    ///
+    /// A `ResumableTreeWalk` rather than a `FileManager.enumerator`, because the
+    /// enumerator returns only when finished, cannot be checkpointed, and yields
+    /// nothing when cancelled. Everything below follows from that: results
+    /// appear as they are found, an interrupted scan resumes from where it
+    /// stopped, and one unreadable folder costs its subtree rather than the scan.
     func scanOffMain() async {
-        let root = rootURL
-        // `Task.detached` does not inherit cancellation, so the debounce task
-        // cancelling itself left its walk running to the end. Forward it.
-        //
-        // Readability is checked *inside* the walk, on the same executor and at
-        // the same moment as the enumeration: checking on the main actor first
-        // would race a folder that is unplugged in between, and the walk would
-        // then return an empty tree that looks exactly like a real one.
-        let walk = Task.detached(priority: .userInitiated) {
-            (unavailable: Self.unavailability(of: root), result: Self.enumerate(root))
+        let collectionID = id
+        let source = LocalTreeSource(root: rootURL, includesNonNoteFiles: showsNonNoteFiles)
+        let resume = Self.resumePoint(for: collectionID)
+
+        // The collection already has a picture of the folder. An interrupted
+        // rescan would only ever hold a *subset* of it, so replacing the old one
+        // as we go would lose notes from view — the same mistake as emptying a
+        // collection whose folder we couldn't read. Fill in live only when there
+        // is nothing to lose.
+        let isFirstPicture = notes.isEmpty && attachments.isEmpty
+
+        let reveal = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(750))
+            guard !Task.isCancelled else { return }
+            self?.showsScanProgress = true
         }
-        let outcome = await withTaskCancellationHandler {
-            await walk.value
+        defer {
+            reveal.cancel()
+            showsScanProgress = false
+            scanProgress = nil
+            currentScan = nil
+        }
+
+        let (batches, continuation) = AsyncStream<WalkBatch>.makeStream()
+        let walk = Task.detached(priority: .userInitiated) { () -> WalkResult in
+            defer { continuation.finish() }
+            return await ResumableTreeWalk.run(
+                source: source,
+                resuming: resume,
+                onCheckpoint: { WalkCheckpointStore.save($0, for: collectionID) },
+                onBatch: { continuation.yield($0) })
+        }
+        currentScan = walk
+
+        var found = ScanAccumulator()
+        let result = await withTaskCancellationHandler {
+            var lastPublished = Date.distantPast
+            for await batch in batches {
+                found.add(batch)
+                scanProgress = batch.progress
+                // Publishing rebuilds the outline, so throttle it rather than
+                // paying that per directory.
+                if isFirstPicture, Date().timeIntervalSince(lastPublished) > 0.15 {
+                    lastPublished = Date()
+                    publish(found)
+                }
+            }
+            return await walk.value
         } onCancel: {
+            // `Task.detached` does not inherit cancellation, so without this the
+            // walk would run on after we stopped listening — burning a full
+            // cloud-tree traversal nobody is waiting for.
             walk.cancel()
         }
-        // A cancelled walk returns early with partial results — applying them
-        // would empty the collection.
-        guard !Task.isCancelled else { return }
-        if let reason = outcome.unavailable { markUnavailable(reason); return }
-        apply(outcome.result)
+
+        if let reason = result.unavailable { markUnavailable(reason); return }
+
+        // **Our own cancellation outranks the walk's verdict.** Iterating an
+        // AsyncStream ends when the *consuming* task is cancelled, so the loop
+        // above can stop early while the detached walk goes on to finish and
+        // report `isComplete`. Publishing the accumulator then would replace the
+        // note list with however little arrived before we stopped listening —
+        // which is how a cancelled rescan emptied a collection outright.
+        let sawWholeTree = result.isComplete && !Task.isCancelled
+
+        if sawWholeTree {
+            publish(found)
+            state = isAvailable ? .ready : state
+            WalkCheckpointStore.rememberTotal(result.progress.directoriesVisited, for: collectionID)
+        } else {
+            // A partial pass. Show it only if there was nothing better, and say
+            // the list is a subset either way so search can disclose it.
+            if isFirstPicture { publish(found) }
+            markStale(.scanIncomplete)
+        }
+    }
+
+    /// Where to resume from, or a fresh start that still remembers how big the
+    /// tree was last time (which is what makes the second scan's bar real).
+    private static func resumePoint(for collectionID: String) -> WalkCheckpoint? {
+        guard let stored = WalkCheckpointStore.load(for: collectionID) else { return nil }
+        guard stored.frontier.isEmpty else { return stored }
+        return WalkCheckpoint(frontier: [""], directoriesVisited: 0, itemsSeen: 0,
+                              previousTotalDirectories: stored.previousTotalDirectories)
+    }
+
+    /// Accumulates a walk's batches into the collection's three lists.
+    private struct ScanAccumulator {
+        private var notes: [Note] = []
+        private var files: [CollectionFile] = []
+        private var folders: [URL] = []
+
+        mutating func add(_ batch: WalkBatch) {
+            for child in batch.children {
+                if child.isDirectory { folders.append(child.url); continue }
+                if child.isMarkdown {
+                    notes.append(Note(title: child.url.deletingPathExtension().lastPathComponent,
+                                      fileURL: child.url,
+                                      lastModified: child.modified,
+                                      fileSize: child.size,
+                                      isOnlineOnly: child.isOnlineOnly))
+                } else {
+                    files.append(CollectionFile(url: child.url, lastModified: child.modified))
+                }
+            }
+        }
+
+        var sorted: (notes: [Note], attachments: [CollectionFile], folders: [URL]) {
+            (notes.sorted { $0.lastModified > $1.lastModified },
+             files.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+             folders)
+        }
+    }
+
+    private func publish(_ found: ScanAccumulator) {
+        apply(found.sorted)
     }
 
     // MARK: - Lifecycle
@@ -563,15 +695,53 @@ final class Collection: Identifiable {
         }
     }
     #else
+    /// iOS's stand-in for the macOS file watcher.
+    private var presenter: DirectoryPresenter?
+    /// Coalesces a burst of coordinated change callbacks into one rescan.
+    private var externalReconcileTask: Task<Void, Never>?
+
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {
         securityScoped = rootURL.startAccessingSecurityScopedResource()
-        scan()
+        await scanOffMain()
         embedProvider.update(notes: notes)   // resolve `![[Note]]` transclusions
         Task { await search.refresh(from: notes) }
+        startPresenting(onExternalChange: onExternalChange)
     }
 
     func deactivate() {
+        presenter?.stop()
+        presenter = nil
         if securityScoped { rootURL.stopAccessingSecurityScopedResource(); securityScoped = false }
+    }
+
+    /// iOS has no FSEvents, so until now it had **no change detection at all**:
+    /// an iPad showing a vault edited on a Mac stayed stale until relaunch. A
+    /// file-coordination presenter is the portable substitute — coarser than
+    /// FSEvents (no flags, no path list), so it maps onto a plain debounced
+    /// rescan and claims nothing more.
+    private func startPresenting(onExternalChange: @escaping @MainActor () -> Void) {
+        presenter?.stop()
+        let presenter = DirectoryPresenter(root: rootURL) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.reconcileSoon(onExternalChange: onExternalChange)
+            }
+        }
+        presenter.start()
+        self.presenter = presenter
+    }
+
+    /// Debounced rescan, shared with the macOS watcher's reasoning: a device
+    /// syncing a vault down rewrites files in bursts, and one rescan per file
+    /// would spend the whole burst re-walking.
+    private func reconcileSoon(onExternalChange: @escaping @MainActor () -> Void) {
+        externalReconcileTask?.cancel()
+        externalReconcileTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self else { return }
+            await self.scanOffMain()
+            self.refreshDerived()
+            onExternalChange()
+        }
     }
 
     func refreshDerived() {

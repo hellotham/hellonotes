@@ -1320,6 +1320,25 @@ struct MacContentView: View {
                         .help("\(onlineOnly) note\(onlineOnly == 1 ? " is" : "s are") in the cloud but not downloaded. They appear in the list but aren't indexed until opened or downloaded.")
                 }
 
+                // A scan long enough to be worth mentioning. Nothing appears for
+                // an ordinary vault, which finishes in well under the threshold.
+                if focused.showsScanProgress, let scan = focused.scanProgress {
+                    Divider().frame(height: 11)
+                    if let fraction = scan.fraction {
+                        ProgressView(value: fraction)
+                            .progressViewStyle(.linear)
+                            .frame(width: 56)
+                    } else {
+                        ProgressView().controlSize(.small).scaleEffect(0.7)
+                    }
+                    Text("Scanning \(scan.itemsSeen) item\(scan.itemsSeen == 1 ? "" : "s")…")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    Button("Stop") { focused.cancelScan() }
+                        .buttonStyle(.link)
+                        .help("Stop scanning. What's been found is kept, and scanning resumes from here next time.")
+                }
+
                 // Say when the folder can't be read, and offer the two things
                 // that make sense: look again, or let it go. Removing is the
                 // user's call — a drive unplugged for an afternoon is not a
@@ -1612,7 +1631,7 @@ struct MacContentView: View {
             // re-scanned — that is the whole point), so without it the row would
             // keep looking healthy.
             mode = "n:" + library.collections
-                .map { "\($0.id)#\($0.revision)#\($0.state)" }
+                .map { "\($0.id)#\($0.revision)#\($0.state)#\($0.showsScanProgress)" }
                 .joined(separator: ",")
         }
         // Pinned Recents/Bookmarks hang above the collections and are derived
