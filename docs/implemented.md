@@ -1356,3 +1356,26 @@ Also: `scripts/clean-preview-stubs.sh`, because a test build leaves unsigned
 `__preview.dylib` stubs that make the *next* ordinary build die in CodeSign — an
 intermittent failure with no connection to the code just written, which cost a
 debugging detour twice.
+
+### Shipped as 1.2 (2026-08-15)
+
+| | |
+|---|---|
+| Version / build | `1.2` / `3` |
+| Artefact | `HelloNotes.dmg`, 37,472,715 bytes (35.7 MB) |
+| SHA-256 | `cb72851b5b951f454ce31162d43e45ec267990562a6a88eae10e141e82ad44a0` |
+| Release | <https://github.com/hellotham/hellonotes/releases/tag/v1.2> |
+
+Verified from the *mounted image*, not from the packaging script's own output:
+universal (`x86_64 arm64`), Gatekeeper `accepted` with
+`source=Notarized Developer ID`, ticket stapled so it validates offline, and
+`CFBundleShortVersionString` 1.2.
+
+The checksum was taken **after** stapling. Stapling rewrites the DMG, so a hash
+computed before it is one no user's `shasum` will ever reproduce — and the
+download page prints that hash for exactly the people who check. Confirmed by
+downloading the published asset back from
+`releases/latest/download/HelloNotes.dmg` and re-hashing it: identical.
+
+1.1's DMG was moved to `dist/HelloNotes-1.1.dmg` rather than overwritten;
+`package-dmg.sh` writes to a fixed path.
