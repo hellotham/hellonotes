@@ -21,7 +21,7 @@ import Foundation
 import Security
 
 /// A file tree hosted behind a provider's REST API.
-protocol RemoteStore: AnyObject {
+protocol RemoteStore: AnyObject, Sendable {
     /// Human-readable provider name (for UI).
     var providerName: String { get }
     /// Whether a usable access token is stored.

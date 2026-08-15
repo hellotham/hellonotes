@@ -28,19 +28,23 @@ final class LinkGraph {
     /// Rebuild the entire graph from the current notes. Reads every file off the
     /// main actor. (A future optimisation is incremental per-note updates.)
     func rebuild(from notes: [Note], texts sharedTexts: [URL: String]? = nil) async {
-        let items = notes.map { ($0.fileURL, $0.title) }
+        // Carry the online-only flag through: a mirror placeholder is a file
+        // that exists with no content, which `isMaterialized` alone calls
+        // available.
+        let items = notes.map { ($0.fileURL, $0.title, FileIO.hasContentAvailable($0)) }
         let result = await Task.detached(priority: .utility) { () -> (back: [URL: Set<URL>], out: [URL: [String]], resolve: [String: URL]) in
             // Pass 1: read files (or use the shared texts), register title + aliases.
             var resolve: [String: URL] = [:]
             var loaded: [(URL, String)] = []
-            for (url, title) in items {
+            for (url, title, hasContent) in items {
                 let text: String
                 if let sharedTexts {
                     guard let shared = sharedTexts[url] else { continue }
                     text = shared
                 } else {
-                    // Skip online-only files rather than download the vault.
-                    guard FileIO.isMaterialized(at: url),
+                    // Skip files whose content isn't local rather than download
+                    // the vault — or index a placeholder as an empty note.
+                    guard hasContent,
                           let read = try? FileIO.readString(at: url) else { continue }
                     text = read
                 }

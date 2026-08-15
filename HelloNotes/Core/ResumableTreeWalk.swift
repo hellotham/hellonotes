@@ -42,6 +42,8 @@ struct TreeChild: Sendable, Equatable {
     var size: Int = 0
     /// A cloud file whose contents are not local yet.
     var isOnlineOnly: Bool = false
+    /// The provider's revision id, for sources that have one.
+    var rev: String? = nil
 }
 
 /// A tree that can be listed one directory at a time.

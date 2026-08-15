@@ -32,7 +32,7 @@ import AppKit
 import UIKit
 #endif
 
-final class BoxStore: NSObject, RemoteStore {
+final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "Box"
     private static let tokenAccount = "box"
     private static let refreshAccount = "box-refresh"

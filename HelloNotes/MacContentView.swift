@@ -428,6 +428,9 @@ struct MacContentView: View {
             tabs.onNoteSaved = { @MainActor url, text in
                 library.collection(containing: url)?.noteDidSave(url, text: text)
             }
+            tabs.prepareToOpen = { @MainActor url in
+                await library.collection(containing: url)?.hydrateIfNeeded(url)
+            }
             // Never write into a folder that isn't there. The edit stays in the
             // buffer and lands as soon as the collection is readable again.
             tabs.saveBlocked = { @MainActor url in

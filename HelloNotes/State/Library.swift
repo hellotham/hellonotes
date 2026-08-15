@@ -187,7 +187,12 @@ final class Library {
         // point of revealing it is to prove the add worked while the sync runs.
         requestReveal(id)
 
-        let outcome = try await mirror.syncDown(progress: progress)
+        // Metadata first: the folder's *shape* arrives immediately and content
+        // is fetched when something needs it. `syncDown` downloaded every note
+        // before showing anything, which is fine for a notes vault and hopeless
+        // for an account of any size — and it skipped non-Markdown files
+        // entirely, so a folder of PDFs mirrored to an empty collection.
+        let outcome = try await mirror.syncMetadata(progress: progress)
         if let collection = collections.first(where: { $0.id == id }) {
             await collection.scanOffMain()
             collection.refreshDerived()

@@ -30,6 +30,10 @@ final class EditorTabs {
     /// blocks saves into a collection whose folder has gone missing.
     var saveBlocked: (@MainActor (URL) -> String?)?
 
+    /// Called before a note is loaded, so a direct-API collection can fetch the
+    /// real bytes for what is currently only a placeholder.
+    var prepareToOpen: (@MainActor (URL) async -> Void)?
+
     /// The notes currently open in tabs, in tab order.
     var openNotes: [Note] { editors.compactMap(\.note) }
 
@@ -50,6 +54,9 @@ final class EditorTabs {
             let model = EditorModel()
             model.onSaved = { [weak self] url, text in self?.onNoteSaved?(url, text) }
             model.saveBlockedReason = { [weak self] url in self?.saveBlocked?(url) }
+            // Fetch the content *before* the editor reads the file, or it would
+            // load a placeholder's emptiness as the note's text.
+            await self?.prepareToOpen?(note.fileURL)
             await model.open(note)
             if let self {
                 self.editors.append(model)

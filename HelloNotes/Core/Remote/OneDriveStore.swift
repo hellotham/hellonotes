@@ -31,7 +31,7 @@ import AppKit
 import UIKit
 #endif
 
-final class OneDriveStore: NSObject, RemoteStore {
+final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "OneDrive"
     private static let tokenAccount = "onedrive"
     private static let refreshAccount = "onedrive-refresh"

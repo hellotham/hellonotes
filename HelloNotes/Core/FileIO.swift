@@ -95,6 +95,21 @@ nonisolated enum FileIO {
         return status != .notDownloaded
     }
 
+    /// Whether a note's *content* is available to read right now.
+    ///
+    /// `isMaterialized` answers only for iCloud items and returns `true` for
+    /// everything else — including a direct-API mirror's zero-byte placeholder,
+    /// which is a file that exists and has no content. `Note.isOnlineOnly`
+    /// carries that second case (the scan sets it from the mirror's manifest),
+    /// so the two together are the real question every indexer means to ask.
+    ///
+    /// Getting this wrong is not a missing feature but a data-loss path: an
+    /// indexer that reads a placeholder records an empty note, and an editor
+    /// that opens one will upload the emptiness back over the original.
+    static func hasContentAvailable(_ note: Note) -> Bool {
+        !note.isOnlineOnly && isMaterialized(at: note.fileURL)
+    }
+
     // MARK: - Writes
 
     /// Coordinated atomic *replace*. On a cloud folder this hands the new bytes

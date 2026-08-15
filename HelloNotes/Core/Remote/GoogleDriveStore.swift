@@ -37,7 +37,7 @@ import AppKit
 import UIKit
 #endif
 
-final class GoogleDriveStore: NSObject, RemoteStore {
+final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "Google Drive"
     private static let tokenAccount = "gdrive"
     private static let refreshAccount = "gdrive-refresh"

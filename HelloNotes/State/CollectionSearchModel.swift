@@ -75,14 +75,14 @@ final class CollectionSearchModel {
         // the main actor — the editor thread never sees this work.
         let derived = await Task.detached(priority: .utility) { () -> Derived in
             let entries: [Entry] = urls.compactMap { url in
-                // Skip online-only files so metadata indexing never downloads a
-                // whole cloud vault; they're indexed once materialized (opened).
-                guard FileIO.isMaterialized(at: url),
+                // Skip files whose content isn't local so metadata indexing never
+                // downloads a whole cloud vault — and never mistakes a mirror
+                // placeholder for an empty note. They're indexed once hydrated.
+                guard let note = noteByURL[url], FileIO.hasContentAvailable(note),
                       let text = try? FileIO.readString(at: url) else { return nil }
                 let parsed = CollectionIndexCache.parse(text)
-                return noteByURL[url].map {
-                    Entry(note: $0, headings: parsed.headings, tags: parsed.tags, aliases: parsed.aliases)
-                }
+                return Entry(note: note, headings: parsed.headings,
+                             tags: parsed.tags, aliases: parsed.aliases)
             }
             return CollectionSearchModel.computeDerived(from: entries)
         }.value
@@ -288,13 +288,16 @@ final class CollectionSearchModel {
         }
         guard !urls.isEmpty else { return [] }
 
+        let notesByURL = Dictionary(entries.map { ($0.note.fileURL, $0.note) },
+                                    uniquingKeysWith: { first, _ in first })
         let found = await Task.detached(priority: .userInitiated) { () -> [(URL, String)] in
             var hits: [(URL, String)] = []
             for url in urls {
-                // Full-text search reads bodies; skip online-only files so a
-                // query never silently downloads the vault. Title/tag/alias
-                // search (metadata) still covers them.
-                guard FileIO.isMaterialized(at: url),
+                // Full-text search reads bodies; skip files whose content isn't
+                // local so a query never silently downloads the vault, nor
+                // matches nothing against a placeholder. Title/tag/alias search
+                // (metadata) still covers them.
+                guard let note = notesByURL[url], FileIO.hasContentAvailable(note),
                       let text = try? FileIO.readString(at: url),
                       let snippet = Self.snippet(of: text, matching: q) else { continue }
                 hits.append((url, snippet))

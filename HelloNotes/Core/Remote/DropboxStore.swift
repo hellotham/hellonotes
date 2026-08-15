@@ -29,7 +29,7 @@ import AppKit
 import UIKit
 #endif
 
-final class DropboxStore: NSObject, RemoteStore {
+final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "Dropbox"
     private static let tokenAccount = "dropbox"
     private static let refreshAccount = "dropbox-refresh"

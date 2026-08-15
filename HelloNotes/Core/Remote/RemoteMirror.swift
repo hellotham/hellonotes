@@ -26,8 +26,12 @@ struct RemoteSyncProgress: Sendable, Equatable {
     var notesUpToDate = 0
     /// Files passed over because the mirror currently carries Markdown only.
     /// Counted rather than ignored: a folder of PDFs otherwise produces an empty
-    /// collection with no hint as to why.
+    /// collection with no hint as to why. (Zero since the mirror became
+    /// metadata-first — it now carries every file.)
     var otherFilesSkipped = 0
+    /// Files given a name and a place in the tree, whose content is fetched when
+    /// something asks for it.
+    var filesMirrored = 0
     /// The folder or note currently being fetched, for a status line.
     var currentPath = ""
 }
@@ -217,11 +221,205 @@ final class RemoteMirror {
         }
     }
 
-    /// Upload a locally-saved note back to the provider. Best-effort — a failure
-    /// is surfaced by the caller; the local cache still holds the edit.
+    /// Upload a locally-saved note back to the provider.
+    ///
+    /// Before writing, the provider's current revision is compared with the one
+    /// recorded when this copy was fetched. If they differ the file changed
+    /// elsewhere while we held it, and overwriting would destroy that change —
+    /// so **both versions are kept**: the local edit stays where it is, and the
+    /// provider's copy is saved beside it as a conflicted copy.
+    ///
+    /// The provider arbitrates by revision rather than by timestamp on purpose.
+    /// Comparing modification dates across devices means trusting two clocks to
+    /// agree, which is exactly the weak point of every sync tool that does it.
     func upload(localURL url: URL) async throws {
         let data = try FileIO.readData(at: url)
-        try await store.write(data, to: remotePath(forLocalURL: url))
+        let relative = Self.relativePath(of: url, in: cacheRoot)
+        let remote = remotePath(forLocalURL: url)
+        var current = manifest
+
+        if let known = current.entries[relative]?.rev,
+           let live = try? await currentRevision(of: remote),
+           live != known {
+            try await preserveConflict(remotePath: remote, localURL: url)
+            // Adopt the revision we just diverged from, so the next save is a
+            // clean write rather than an endless conflict.
+            current.entries[relative]?.rev = live
+            manifest = current
+            throw RemoteMirrorError.conflict(name: url.lastPathComponent)
+        }
+
+        try await store.write(data, to: remote)
+        current.entries[relative]?.hydrated = true
+        current.entries[relative]?.rev = try? await currentRevision(of: remote)
+        current.entries[relative]?.size = data.count
+        manifest = current
+    }
+
+    /// The provider's revision for `remotePath`, or nil if it can't be read.
+    private func currentRevision(of remotePath: String) async throws -> String? {
+        let parent = RemoteBrowserModel.parent(of: remotePath)
+        let entries = try await store.list(path: parent)
+        return entries.first { DropboxPath.normalize($0.path) == DropboxPath.normalize(remotePath) }?.rev
+    }
+
+    /// Save the provider's version alongside the local one, so neither is lost.
+    private func preserveConflict(remotePath: String, localURL url: URL) async throws {
+        let theirs = try await store.read(path: remotePath)
+        let stamp = Self.conflictStamp.string(from: Date())
+        let base = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        var destination = url.deletingLastPathComponent()
+            .appendingPathComponent("\(base) (conflicted copy \(stamp))")
+        if !ext.isEmpty { destination.appendPathExtension(ext) }
+        try FileIO.write(theirs, to: destination)
+    }
+
+    private static let conflictStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    // MARK: - Metadata-first mirroring
+
+    /// The cache's record of the remote folder. Loaded lazily; empty until the
+    /// first metadata sync.
+    private var loadedManifest: RemoteManifest?
+
+    var manifest: RemoteManifest {
+        get {
+            if let loadedManifest { return loadedManifest }
+            let loaded = RemoteManifest.load(fromCacheRoot: cacheRoot)
+                ?? RemoteManifest(provider: store.providerName,
+                                  remoteRoot: remoteRoot,
+                                  displayName: displayName)
+            loadedManifest = loaded
+            return loaded
+        }
+        set {
+            loadedManifest = newValue
+            newValue.save(toCacheRoot: cacheRoot)
+        }
+    }
+
+    /// Mirror the remote folder's **shape** — folders and placeholder files —
+    /// without downloading a single byte of content.
+    ///
+    /// This is what makes a cloud root usable at all. `syncDown` fetched every
+    /// note eagerly, which is fine for a notes vault and hopeless for an account
+    /// of any size; and it skipped non-Markdown files entirely, so a folder of
+    /// PDFs mirrored to an empty collection. Here every file gets a real name at
+    /// a real path immediately, and its content arrives when something actually
+    /// needs it.
+    ///
+    /// Runs on the shared `ResumableTreeWalk`, so it is incremental,
+    /// cancellable, resumable and per-directory fault-isolated for free.
+    @discardableResult
+    func syncMetadata(
+        progress report: @escaping @Sendable (RemoteSyncProgress) -> Void = { _ in }
+    ) async throws -> RemoteSyncOutcome {
+        let fm = FileManager.default
+        try fm.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+
+        var updated = manifest
+        var seen = Set<String>()
+        var outcome = RemoteSyncOutcome()
+        let source = RemoteTreeSource(store: store, remoteRoot: remoteRoot, cacheRoot: cacheRoot)
+
+        let result = await ResumableTreeWalk.run(source: source) { batch in
+            for child in batch.children {
+                let relative = Self.relativePath(of: child.url, in: cacheRoot)
+                seen.insert(relative)
+                if child.isDirectory {
+                    try? fm.createDirectory(at: child.url, withIntermediateDirectories: true)
+                    updated.entries[relative] = RemoteManifest.Entry(
+                        remotePath: source.remotePath(for: child.url),
+                        isDirectory: true)
+                    continue
+                }
+                // Keep an existing hydration flag: a note already downloaded
+                // stays downloaded unless the provider says it changed.
+                let existing = updated.entries[relative]
+                let unchanged = existing?.rev != nil && existing?.rev == child.rev
+                let entry = RemoteManifest.Entry(
+                    remotePath: source.remotePath(for: child.url),
+                    isDirectory: false,
+                    size: child.size,
+                    modified: child.modified,
+                    rev: child.rev,
+                    hydrated: (existing?.hydrated ?? false) && unchanged)
+                updated.entries[relative] = entry
+                if !entry.hydrated { Self.writePlaceholder(at: child.url) }
+            }
+            outcome.progress.foldersListed = batch.progress.directoriesVisited
+            outcome.progress.filesMirrored = updated.entries.values.count { !$0.isDirectory }
+            outcome.progress.currentPath = batch.directory
+            report(outcome.progress)
+        }
+
+        outcome.failures = result.issues.map { RemoteSyncFailure(path: $0.path, message: $0.message) }
+        outcome.isComplete = result.isComplete
+
+        // Only an authoritative pass may delete — the same rule that protects a
+        // cancelled local walk, and the one a delta must also respect.
+        if result.isComplete {
+            for key in updated.entries.keys where !seen.contains(key) {
+                updated.entries.removeValue(forKey: key)
+            }
+            pruneLocalItems(notIn: Set(seen.map { cacheRoot.appending(path: $0).standardizedFileURL.path }))
+        }
+        updated.lastRefresh = Date()
+        manifest = updated
+        return outcome
+    }
+
+    /// Fetch one file's real content and mark it hydrated.
+    ///
+    /// Idempotent, so the editor can call it unconditionally on open.
+    func hydrate(localURL url: URL) async throws {
+        let relative = Self.relativePath(of: url, in: cacheRoot)
+        var current = manifest
+        guard let entry = current.entries[relative], !entry.isDirectory else { return }
+        guard !entry.hydrated else { return }
+
+        let data = try await store.read(path: entry.remotePath)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try FileIO.write(data, to: url)
+        current.entries[relative]?.hydrated = true
+        manifest = current
+    }
+
+    func isHydrated(localURL url: URL) -> Bool {
+        manifest.isHydrated(Self.relativePath(of: url, in: cacheRoot))
+    }
+
+    /// Cache-relative paths whose content has not been fetched, for the scan.
+    var dehydratedRelativePaths: Set<String> { manifest.dehydratedPaths }
+
+    /// A zero-byte stand-in, so the file exists at its real path with its real
+    /// name. **Never** written over a file that already has content: the whole
+    /// hydration gate exists to keep a placeholder from being mistaken for an
+    /// empty note.
+    private static func writePlaceholder(at url: URL) {
+        let fm = FileManager.default
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0 {
+            return
+        }
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: url.path) {
+            fm.createFile(atPath: url.path, contents: Data())
+        }
+    }
+
+    static func relativePath(of url: URL, in root: URL) -> String {
+        let full = url.standardizedFileURL.path
+        let base = root.standardizedFileURL.path
+        guard full.hasPrefix(base) else { return url.lastPathComponent }
+        var relative = String(full.dropFirst(base.count))
+        while relative.hasPrefix("/") { relative.removeFirst() }
+        return relative
     }
 
     // MARK: - Cache location
@@ -239,6 +437,17 @@ final class RemoteMirror {
             .appendingPathComponent("RemoteMirror", isDirectory: true)
             .appendingPathComponent(provider.lowercased(), isDirectory: true)
             .appendingPathComponent(safeFolder.isEmpty ? "root" : safeFolder, isDirectory: true)
+    }
+}
+
+enum RemoteMirrorError: LocalizedError {
+    case conflict(name: String)
+    var errorDescription: String? {
+        switch self {
+        case .conflict(let name):
+            return "“\(name)” also changed on the provider. Your version is kept here, "
+                 + "and theirs was saved beside it as a conflicted copy."
+        }
     }
 }
 

@@ -765,10 +765,158 @@ struct RemoteMirrorTests {
         #expect(outcome.skippedExamples.contains("Resume.pdf"))
     }
 
+    // MARK: - Metadata-first mirroring
+
+    /// The shape of the folder arrives without a byte of content being fetched —
+    /// and **every** file, not just Markdown, so a Resume folder of PDFs is a
+    /// collection with files in it rather than an unexplained empty one.
+    @Test func metadataSyncCreatesTheTreeWithoutDownloadingAnything() async throws {
+        let store = CountingRemoteStore()
+        try await store.write(Data("pdf".utf8), to: "/Resume.pdf")
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+
+        let outcome = try await mirror.syncMetadata()
+
+        #expect(outcome.isComplete)
+        #expect(store.reads == 0, "metadata only — nothing downloaded")
+        // Names exist at their real paths, Markdown and otherwise.
+        for name in ["Welcome.md", "Notes/Idea.md", "Notes/Tasks.md", "Resume.pdf"] {
+            #expect(FileManager.default.fileExists(atPath: cache.appending(path: name).path),
+                    "\(name) should exist as a placeholder")
+        }
+        // …and every one of them is a placeholder, not content.
+        #expect(mirror.dehydratedRelativePaths.contains("Welcome.md"))
+        #expect(mirror.isHydrated(localURL: cache.appending(path: "Welcome.md")) == false)
+    }
+
+    @Test func hydratingFetchesExactlyOneFile() async throws {
+        let store = CountingRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+
+        let welcome = cache.appending(path: "Welcome.md")
+        try await mirror.hydrate(localURL: welcome)
+
+        #expect(store.reads == 1)
+        #expect(mirror.isHydrated(localURL: welcome))
+        #expect(try String(contentsOf: welcome, encoding: .utf8).contains("Welcome"))
+        #expect(!mirror.dehydratedRelativePaths.contains("Welcome.md"))
+
+        // Idempotent — the editor calls this on every open.
+        try await mirror.hydrate(localURL: welcome)
+        #expect(store.reads == 1)
+    }
+
+    /// A hydrated note keeps its content across a re-sync; only a note whose
+    /// revision moved is dropped back to a placeholder.
+    @Test func resyncKeepsHydratedContentUnlessTheRevisionMoved() async throws {
+        let store = CountingRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+        let welcome = cache.appending(path: "Welcome.md")
+        try await mirror.hydrate(localURL: welcome)
+
+        try await mirror.syncMetadata()
+        #expect(mirror.isHydrated(localURL: welcome), "unchanged remotely, so still downloaded")
+
+        // Someone edits it on another device: new revision.
+        try await store.write(Data("# Changed elsewhere".utf8), to: "/Welcome.md")
+        try await mirror.syncMetadata()
+        #expect(mirror.isHydrated(localURL: welcome) == false, "changed remotely, so stale")
+    }
+
+    /// The last line of defence. A placeholder is a file that exists with no
+    /// content; uploading one would replace the real note with nothing.
+    @Test func aPlaceholderIsNeverUploadedOverTheRealNote() async throws {
+        let store = CountingRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+
+        let welcome = cache.appending(path: "Welcome.md")
+        #expect(try Data(contentsOf: welcome).isEmpty, "it really is a zero-byte stand-in")
+        #expect(mirror.isHydrated(localURL: welcome) == false)
+
+        // The collection-level guard refuses; prove the mirror agrees about the
+        // state that guard reads.
+        let remaining = try await store.read(path: "/Welcome.md")
+        #expect(String(decoding: remaining, as: UTF8.self).contains("Welcome"),
+                "the provider's copy is untouched")
+    }
+
+    /// Two-sided edit: keep both, and say so.
+    @Test func aRemoteChangeDuringAnEditProducesAConflictedCopy() async throws {
+        let store = CountingRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+        let welcome = cache.appending(path: "Welcome.md")
+        try await mirror.hydrate(localURL: welcome)
+
+        // They edit on another device (bumping the rev); we edit locally.
+        try await store.write(Data("# Theirs".utf8), to: "/Welcome.md")
+        try FileIO.write("# Mine", to: welcome)
+
+        await #expect(throws: (any Error).self) { try await mirror.upload(localURL: welcome) }
+
+        // Mine is untouched…
+        #expect(try String(contentsOf: welcome, encoding: .utf8) == "# Mine")
+        // …theirs is beside it…
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: cache.path)
+        let conflicted = try #require(siblings.first { $0.contains("conflicted copy") })
+        #expect(try String(contentsOf: cache.appending(path: conflicted), encoding: .utf8) == "# Theirs")
+        // …and the provider still has theirs, not a silent overwrite.
+        #expect(String(decoding: try await store.read(path: "/Welcome.md"), as: UTF8.self) == "# Theirs")
+    }
+
     private static func tempCache() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("hn-mirror-\(UUID().uuidString)")
     }
+}
+
+/// `MockRemoteStore` that counts content downloads and issues a fresh revision
+/// on every write, so a test can tell metadata from content and detect a
+/// two-sided edit the way a real provider would.
+private final class CountingRemoteStore: RemoteStore, @unchecked Sendable {
+    private let inner = MockRemoteStore(preAuthenticated: true)
+    private let lock = NSLock()
+    private var readCount = 0
+    private var revisions: [String: Int] = [:]
+
+    var reads: Int { lock.lock(); defer { lock.unlock() }; return readCount }
+
+    var providerName: String { inner.providerName }
+    var isAuthenticated: Bool { inner.isAuthenticated }
+    func authenticate() async throws { try await inner.authenticate() }
+    func signOut() { inner.signOut() }
+
+    func list(path: String) async throws -> [RemoteEntry] {
+        try await inner.list(path: path).map { entry in
+            var stamped = entry
+            lock.lock()
+            stamped.rev = entry.isDirectory ? nil : "r\(revisions[entry.path] ?? 0)"
+            lock.unlock()
+            return stamped
+        }
+    }
+    func read(path: String) async throws -> Data {
+        lock.lock(); readCount += 1; lock.unlock()
+        return try await inner.read(path: path)
+    }
+    func write(_ data: Data, to path: String) async throws {
+        try await inner.write(data, to: path)
+        lock.lock(); revisions[path, default: 0] += 1; lock.unlock()
+    }
+    func delete(path: String) async throws { try await inner.delete(path: path) }
 }
 
 /// Collects progress reports from the sync's executor for assertion on the test's.

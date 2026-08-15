@@ -495,8 +495,7 @@ struct RemoteBrowserView: View {
 
     private static func line(for progress: RemoteSyncProgress) -> String {
         var parts = ["\(progress.foldersListed) folder\(progress.foldersListed == 1 ? "" : "s")"]
-        if progress.notesDownloaded > 0 { parts.append("\(progress.notesDownloaded) downloaded") }
-        if progress.notesUpToDate > 0 { parts.append("\(progress.notesUpToDate) up to date") }
+        if progress.filesMirrored > 0 { parts.append("\(progress.filesMirrored) files") }
         if !progress.currentPath.isEmpty { parts.append(progress.currentPath) }
         return parts.joined(separator: " · ")
     }
@@ -506,19 +505,13 @@ struct RemoteBrowserView: View {
     /// and saying so is the difference between a trustworthy collection and one
     /// that quietly omits notes.
     private static func summary(for outcome: RemoteSyncOutcome) -> String {
-        let notes = outcome.progress.notesDownloaded + outcome.progress.notesUpToDate
-        var text = "\(notes) note\(notes == 1 ? "" : "s") in \(outcome.progress.foldersListed) folder\(outcome.progress.foldersListed == 1 ? "" : "s")."
-
-        // A folder of PDFs syncs to an empty collection. Saying so is the whole
-        // difference between "this is broken" and "this isn't supported yet".
-        let skipped = outcome.progress.otherFilesSkipped
-        if skipped > 0 {
-            let examples = outcome.skippedExamples.joined(separator: ", ")
-            let more = skipped > outcome.skippedExamples.count ? ", …" : ""
-            text += " \(skipped) non-Markdown file\(skipped == 1 ? "" : "s") skipped (\(examples)\(more))"
-            text += notes == 0
-                ? " — cloud collections carry Markdown only for now, so this one is empty."
-                : " — cloud collections carry Markdown only for now."
+        let files = outcome.progress.filesMirrored
+        let folders = outcome.progress.foldersListed
+        var text = "\(files) file\(files == 1 ? "" : "s") in \(folders) folder\(folders == 1 ? "" : "s")."
+        if files > 0 {
+            // Say what has and hasn't been fetched. The collection is usable
+            // now; the bytes arrive per file, on demand.
+            text += " Their contents download as you open them."
         }
 
         if !outcome.isComplete {

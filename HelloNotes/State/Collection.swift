@@ -402,6 +402,11 @@ final class Collection: Identifiable {
         currentScan = walk
 
         var found = ScanAccumulator()
+        if let remote {
+            found.cacheRoot = remote.cacheRoot
+            found.dehydrated = remote.dehydratedRelativePaths
+            found.trueSizes = remote.manifest.sizes
+        }
         let result = await withTaskCancellationHandler {
             var lastPublished = Date.distantPast
             for await batch in batches {
@@ -460,15 +465,36 @@ final class Collection: Identifiable {
         private var files: [CollectionFile] = []
         private var folders: [URL] = []
 
+        /// Cache-relative paths whose content has not been downloaded, from a
+        /// remote mirror's manifest. Empty for an ordinary local collection.
+        ///
+        /// This is the hydration gate. `FileIO.isMaterialized` answers only for
+        /// *iCloud* items and returns true for anything else — including a
+        /// mirror placeholder — so without this the indexers would read a
+        /// zero-byte stand-in as an empty note, cache that, and the editor would
+        /// then load "" and upload it over the real note on the provider.
+        var dehydrated: Set<String> = []
+        var trueSizes: [String: Int] = [:]
+        var cacheRoot: URL?
+
         mutating func add(_ batch: WalkBatch) {
             for child in batch.children {
                 if child.isDirectory { folders.append(child.url); continue }
+                var onlineOnly = child.isOnlineOnly
+                var size = child.size
+                if let cacheRoot {
+                    let relative = RemoteMirror.relativePath(of: child.url, in: cacheRoot)
+                    onlineOnly = dehydrated.contains(relative)
+                    // A placeholder is 0 bytes on disk; report what the file
+                    // actually weighs on the provider.
+                    if let real = trueSizes[relative], onlineOnly { size = real }
+                }
                 if child.isMarkdown {
                     notes.append(Note(title: child.url.deletingPathExtension().lastPathComponent,
                                       fileURL: child.url,
                                       lastModified: child.modified,
-                                      fileSize: child.size,
-                                      isOnlineOnly: child.isOnlineOnly))
+                                      fileSize: size,
+                                      isOnlineOnly: onlineOnly))
                 } else {
                     files.append(CollectionFile(url: child.url, lastModified: child.modified))
                 }
@@ -531,7 +557,7 @@ final class Collection: Identifiable {
                     let rel = CollectionIndexCache.relativePath(of: note.fileURL, in: root)
                     if let record = cached[rel], record.matches(note) {
                         pairs.append((note, record))
-                    } else if FileIO.isMaterialized(at: note.fileURL),
+                    } else if FileIO.hasContentAvailable(note),
                               let text = try? FileIO.readString(at: note.fileURL) {
                         pairs.append((note, CollectionIndexCache.record(for: note, relativeTo: root, text: text)))
                         reparsed += 1
@@ -682,6 +708,26 @@ final class Collection: Identifiable {
     /// search entry are patched incrementally (O(1 note)). A title/alias change
     /// can alter *other* notes' backlinks, so that falls back to a debounced
     /// full rebuild for correctness.
+    /// Fetch a remote note's real content if the cache only holds a placeholder.
+    /// Safe and cheap to call unconditionally — it returns immediately for a
+    /// local collection or an already-hydrated file.
+    func hydrateIfNeeded(_ url: URL) async {
+        guard let remote, !remote.isHydrated(localURL: url) else { return }
+        do {
+            try await remote.hydrate(localURL: url)
+            await scanOffMain()          // the note is no longer online-only
+            refreshDerived()             // and can now be indexed
+        } catch {
+            report("Couldn't download “\(url.lastPathComponent)” from \(remote.store.providerName): \(error.localizedDescription)")
+        }
+    }
+
+    /// Whether this note's bytes are actually present.
+    func hasContent(_ url: URL) -> Bool {
+        guard let remote else { return true }
+        return remote.isHydrated(localURL: url)
+    }
+
     func noteDidSave(_ url: URL, text: String) {
         recentSelfWrites[Self.normalize(url.path)] = Date()
         let title = url.deletingPathExtension().lastPathComponent
@@ -690,6 +736,16 @@ final class Collection: Identifiable {
         // provider. The local mirror already holds the edit, so a failed upload
         // is surfaced but never loses data.
         if let remote {
+            // **Never upload a file we never downloaded.** A dehydrated note is
+            // a zero-byte placeholder standing in for real content on the
+            // provider; writing it back would replace that content with nothing.
+            // The indexers are gated too, so reaching here means something got
+            // past them — which is exactly when a last line of defence earns its
+            // keep.
+            guard remote.isHydrated(localURL: url) else {
+                report("“\(title)” hasn't been downloaded from \(remote.store.providerName) yet, so it wasn't uploaded. Open it first.")
+                return
+            }
             Task {
                 do { try await remote.upload(localURL: url) }
                 catch { report("Couldn't upload “\(title)” to \(remote.store.providerName): \(error.localizedDescription)") }
