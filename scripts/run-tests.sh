@@ -86,7 +86,11 @@ if pgrep -x HelloNotes > /dev/null 2>&1; then
   echo "App quit."
 fi
 
-# 2. Run.
+# 2. Run — after clearing any stubs a *previous* run left behind. Cleaning only
+#    afterwards is not enough: this run's own build may re-sign the app, and it
+#    would then trip over the last run's leftovers before reaching the tests.
+cleanup_preview_dylibs
+
 xcodebuild test \
   -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'platform=macOS' \

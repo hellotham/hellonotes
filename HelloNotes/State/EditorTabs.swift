@@ -26,6 +26,10 @@ final class EditorTabs {
     /// the file watcher for its own write and refresh its index incrementally.
     var onNoteSaved: (@MainActor (URL, String) -> Void)?
 
+    /// Asked before every editor write: return a reason to refuse it. The shell
+    /// blocks saves into a collection whose folder has gone missing.
+    var saveBlocked: (@MainActor (URL) -> String?)?
+
     /// The notes currently open in tabs, in tab order.
     var openNotes: [Note] { editors.compactMap(\.note) }
 
@@ -45,6 +49,7 @@ final class EditorTabs {
         let task = Task { [weak self] () -> EditorModel in
             let model = EditorModel()
             model.onSaved = { [weak self] url, text in self?.onNoteSaved?(url, text) }
+            model.saveBlockedReason = { [weak self] url in self?.saveBlocked?(url) }
             await model.open(note)
             if let self {
                 self.editors.append(model)

@@ -475,9 +475,24 @@ struct NoteOutlineList: NSViewRepresentable {
 
         private func groupCell(_ collection: Collection) -> NSView {
             let container = NSTableCellView()
-            let icon = symbolIcon("books.vertical")
+            // An unreadable collection has to *look* unreadable. It keeps its
+            // notes listed — they are the last true picture of the folder — so
+            // without this the row is indistinguishable from a healthy one and
+            // the stale contents read as current.
+            let unavailable: CollectionState.UnavailableReason? = {
+                if case .unavailable(let reason) = collection.state { return reason }
+                return nil
+            }()
+            let icon = symbolIcon(unavailable == nil ? "books.vertical" : "exclamationmark.triangle")
+            if unavailable != nil { icon.contentTintColor = .systemOrange }
             let name = label(collection.name, font: .systemFont(ofSize: 11 * parent.fontScale,
-                weight: collection.id == focusedCollectionID ? .semibold : .regular), color: .secondaryLabelColor)
+                weight: collection.id == focusedCollectionID ? .semibold : .regular),
+                color: unavailable == nil ? .secondaryLabelColor : .tertiaryLabelColor)
+            if let unavailable {
+                name.toolTip = "\(unavailable.explanation) Its notes are shown as they were."
+            } else if collection.hasIncompleteIndex {
+                name.toolTip = "Re-indexing — search results may be incomplete until it finishes."
+            }
 
             let close = HoverButton()
             close.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "Close")

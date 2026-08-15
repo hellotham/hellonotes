@@ -42,6 +42,17 @@ final class EditorModel {
     /// watcher) and patch its index from memory without re-reading the vault.
     var onSaved: (@MainActor (URL, String) -> Void)?
 
+    /// Asked before every write; a non-nil return refuses the save and becomes
+    /// `saveError`. Set by the shell, which knows whether the note's collection
+    /// is still readable.
+    ///
+    /// Refusing matters more than it looks: the buffer stays dirty, so the edit
+    /// survives in memory and is written the moment the folder comes back. A
+    /// write attempted into a vanished folder would fail anyway — this makes it
+    /// fail *legibly*, and guarantees we never conjure a directory to hold a
+    /// note whose real home has gone.
+    var saveBlockedReason: (@MainActor (URL) -> String?)?
+
     /// Called at the start of every flush, before the buffer is persisted.
     /// The new-editor host uses this to push its document's latest text into
     /// `text` first, so a flush on note switch / quit never saves a snapshot
@@ -192,6 +203,11 @@ final class EditorModel {
         guard let url = note?.fileURL else { return }
         let snapshot = text
         guard snapshot != lastSavedText else { return }
+
+        if let reason = saveBlockedReason?(url) {
+            saveError = reason
+            return          // buffer stays dirty on purpose — the edit is not lost
+        }
 
         do {
             let data = Data(snapshot.utf8)

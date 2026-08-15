@@ -12,6 +12,41 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
+/// Where a collection stands with the folder it points at.
+///
+/// The distinction that matters is **empty versus unreadable**. Until this
+/// existed they looked identical on screen — a vault on an unplugged drive and a
+/// vault you had emptied both showed no notes — and they mean opposite things.
+/// A collection that cannot be read now says so and *keeps its last known
+/// contents*: nothing derived is discarded on the strength of a failed look.
+enum CollectionState: Equatable {
+    case ready
+    /// The index may be missing changes and a full rescan is owed. Anything
+    /// reading the index (search above all) must say its answers are partial.
+    case stale(StaleReason)
+    case unavailable(UnavailableReason)
+
+    enum StaleReason: Equatable {
+        /// FSEvents dropped events; the change list is incomplete by its own
+        /// admission, so only a full rescan can be trusted.
+        case eventsDropped
+    }
+
+    enum UnavailableReason: Equatable {
+        case missing            // moved, renamed, or deleted
+        case unmounted          // the volume went away
+        case permissionDenied   // the sandbox grant no longer holds
+
+        var explanation: String {
+            switch self {
+            case .missing:          return "This folder has been moved, renamed, or deleted."
+            case .unmounted:        return "The disk holding this folder isn’t connected."
+            case .permissionDenied: return "HelloNotes no longer has permission to read this folder."
+            }
+        }
+    }
+}
+
 /// One open collection: a local directory (the absolute source of truth) plus
 /// everything derived from it — its notes, attachments, `[[wiki-link]]` graph,
 /// search index, and its own Git repository and bookmarks. Collections are
@@ -34,8 +69,69 @@ final class Collection: Identifiable {
     var remote: RemoteMirror?
     var isRemote: Bool { remote != nil }
 
+    /// The security-scoped bookmark this collection was opened from, kept so it
+    /// can be re-resolved when the folder goes missing (a bookmark follows a
+    /// *moved* folder, which a path cannot) and re-minted when it goes stale.
+    var bookmarkData: Data?
+
     /// The collection's display name (the remote folder name, or its folder name).
     var name: String { remote?.displayName ?? rootURL.lastPathComponent }
+
+    /// Whether the folder is readable, and whether what we show is complete.
+    /// Only ever set through the helpers below, which are careful never to
+    /// discard `notes`, `attachments`, `folders` or the index cache.
+    private(set) var state: CollectionState = .ready
+
+    var isAvailable: Bool {
+        if case .unavailable = state { return false } else { return true }
+    }
+
+    /// True while the index is known to be behind the folder. Callers that
+    /// present derived answers — search most of all — must disclose this rather
+    /// than serve a confident subset.
+    var hasIncompleteIndex: Bool {
+        if case .stale = state { return true } else { return false }
+    }
+
+    /// Mark the folder unreadable **without touching anything derived from it**.
+    /// The last good picture stays on screen, read-only, so a drive unplugged
+    /// for a minute doesn't cost the user their notes list and index.
+    func markUnavailable(_ reason: CollectionState.UnavailableReason) {
+        guard state != .unavailable(reason) else { return }
+        state = .unavailable(reason)
+    }
+
+    /// Record that the index is behind the folder. Never overrides
+    /// unavailability: not being able to read the folder is the bigger news.
+    func markStale(_ reason: CollectionState.StaleReason) {
+        if case .unavailable = state { return }
+        state = .stale(reason)
+    }
+
+    /// Re-check a folder that went away, and pick it back up if it is there.
+    /// Returns whether the collection is now readable.
+    @discardableResult
+    func recheckAvailability() async -> Bool {
+        guard case .unavailable = state else { return true }
+        guard Self.unavailability(of: rootURL) == nil else { return false }
+        state = .ready
+        await scanOffMain()
+        refreshDerived()
+        return true
+    }
+
+    /// Why the folder can't be read, or `nil` when it can.
+    ///
+    /// `fileExists` alone answers the wrong question for a revoked sandbox
+    /// grant, where the path is present and the read is refused — so this
+    /// actually attempts the enumeration the scan is about to do.
+    nonisolated static func unavailability(of url: URL) -> CollectionState.UnavailableReason? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        guard (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil else {
+            return .permissionDenied
+        }
+        return nil
+    }
 
     /// The Markdown notes discovered inside the collection.
     var notes: [Note] = []
@@ -183,11 +279,22 @@ final class Collection: Identifiable {
     /// Scan synchronously (used by the infrequent, user-initiated file
     /// mutations that need the updated note immediately afterwards).
     func scan() {
-        let result = Self.enumerate(rootURL)
+        if let reason = Self.unavailability(of: rootURL) { markUnavailable(reason); return }
+        apply(Self.enumerate(rootURL))
+    }
+
+    /// Adopt a scan's results. The **only** place the note set is replaced, so
+    /// that "we looked and the folder was unreadable" can never be mistaken for
+    /// "we looked and the folder was empty".
+    private func apply(_ result: (notes: [Note], attachments: [CollectionFile], folders: [URL])) {
         notes = result.notes
         attachments = result.attachments
         folders = result.folders
         revision &+= 1
+        // A completed scan is by definition a complete picture, so it clears a
+        // stale index — but it must not overwrite an unavailability that the
+        // watcher reported while the walk was in flight.
+        if case .stale = state { state = .ready }
     }
 
     /// Scan off the main actor, then apply the results — used for startup and
@@ -197,8 +304,15 @@ final class Collection: Identifiable {
         let root = rootURL
         // `Task.detached` does not inherit cancellation, so the debounce task
         // cancelling itself left its walk running to the end. Forward it.
-        let walk = Task.detached(priority: .userInitiated) { Self.enumerate(root) }
-        let result = await withTaskCancellationHandler {
+        //
+        // Readability is checked *inside* the walk, on the same executor and at
+        // the same moment as the enumeration: checking on the main actor first
+        // would race a folder that is unplugged in between, and the walk would
+        // then return an empty tree that looks exactly like a real one.
+        let walk = Task.detached(priority: .userInitiated) {
+            (unavailable: Self.unavailability(of: root), result: Self.enumerate(root))
+        }
+        let outcome = await withTaskCancellationHandler {
             await walk.value
         } onCancel: {
             walk.cancel()
@@ -206,10 +320,8 @@ final class Collection: Identifiable {
         // A cancelled walk returns early with partial results — applying them
         // would empty the collection.
         guard !Task.isCancelled else { return }
-        notes = result.notes
-        attachments = result.attachments
-        folders = result.folders
-        revision &+= 1
+        if let reason = outcome.unavailable { markUnavailable(reason); return }
+        apply(outcome.result)
     }
 
     // MARK: - Lifecycle
@@ -293,27 +405,63 @@ final class Collection: Identifiable {
     }
 
     private func startWatching(onExternalChange: @escaping @MainActor () -> Void) {
-        let watcher = FileWatcher { [weak self] paths in
+        let watcher = FileWatcher { [weak self] event in
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard self.hasExternalChanges(in: paths) else { return }
-                // Debounce: a live co-editor (Obsidian) plus iCloud can rewrite
-                // files in rapid bursts. Without coalescing, each event drove a
-                // full off-main vault scan + index rebuild + editor reconcile —
-                // which, while the open note is being co-edited, stutters the UI
-                // and keeps resetting the editor's scroll position.
-                self.externalReconcileTask?.cancel()
-                self.externalReconcileTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .milliseconds(400))
-                    guard !Task.isCancelled, let self else { return }
-                    await self.scanOffMain()
-                    self.refreshDerived()
-                    onExternalChange()
-                }
+                self?.handle(event, onExternalChange: onExternalChange)
             }
         }
         watcher.start(url: rootURL)
         fileWatcher = watcher
+    }
+
+    /// Turn what FSEvents said into what the collection should do about it.
+    private func handle(_ event: FileWatcherEvent,
+                        onExternalChange: @escaping @MainActor () -> Void) {
+        switch event {
+        case .rootChanged:
+            // Moved, renamed, or deleted. Re-check rather than assume: a rename
+            // *back*, or an editor's atomic save-over of the folder, can raise
+            // this while leaving a perfectly readable directory behind.
+            if let reason = Self.unavailability(of: rootURL) {
+                markUnavailable(reason)
+                onExternalChange()
+            } else {
+                reconcileSoon(onExternalChange: onExternalChange)
+            }
+
+        case .unmounted:
+            markUnavailable(.unmounted)
+            onExternalChange()
+
+        case .eventsDropped:
+            // FSEvents is telling us its own change list is incomplete. Nothing
+            // short of a full rescan can be trusted after this, and until that
+            // lands the index is admittedly behind — which search must disclose.
+            markStale(.eventsDropped)
+            reconcileSoon(onExternalChange: onExternalChange)
+
+        case .itemsChanged(let paths):
+            guard hasExternalChanges(in: paths) else { return }
+            reconcileSoon(onExternalChange: onExternalChange)
+        }
+    }
+
+    /// Debounced rescan + reindex.
+    ///
+    /// A live co-editor (Obsidian) plus iCloud can rewrite files in rapid
+    /// bursts. Without coalescing, each event drove a full off-main vault scan +
+    /// index rebuild + editor reconcile — which, while the open note is being
+    /// co-edited, stutters the UI and keeps resetting the editor's scroll
+    /// position.
+    private func reconcileSoon(onExternalChange: @escaping @MainActor () -> Void) {
+        externalReconcileTask?.cancel()
+        externalReconcileTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self else { return }
+            await self.scanOffMain()
+            self.refreshDerived()
+            onExternalChange()
+        }
     }
 
     /// Whether `paths` contains a change we didn't cause. Filters out our own

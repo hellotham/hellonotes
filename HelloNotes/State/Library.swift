@@ -236,16 +236,23 @@ final class Library {
     // MARK: - Persistence (security-scoped bookmarks)
 
     private static let bookmarksKey = "collectionBookmarks"
+    /// Last-known paths, index-aligned with `bookmarksKey`. Kept purely so a
+    /// collection whose bookmark no longer resolves can still be *named* on
+    /// screen — otherwise the only honest thing left to say would be nothing,
+    /// which is what it used to say.
+    private static let pathsKey = "collectionPaths"
     private static let legacyKey = "vaultBookmark"
 
     /// Reopen the collections that were open at last quit. Call once at launch.
     func restore() async {
         let store = UserDefaults.standard
         var datas = (store.array(forKey: Self.bookmarksKey) as? [Data]) ?? []
+        var paths = (store.array(forKey: Self.pathsKey) as? [String]) ?? []
 
         // Migrate a single legacy vault bookmark into the new list.
         if datas.isEmpty, let legacy = store.data(forKey: Self.legacyKey) {
             datas = [legacy]
+            paths = []
             store.removeObject(forKey: Self.legacyKey)
         }
 
@@ -256,14 +263,38 @@ final class Library {
         // git.refreshStatus(), which frees the main actor for its siblings, so
         // the launch now costs the slowest scan rather than all of them.
         var restored: [Collection] = []
-        for data in datas {
-            guard let url = Bookmark.resolve(data) else { continue }
+        var refreshedBookmarks = false
+
+        for (index, data) in datas.enumerated() {
+            let lastKnownPath = index < paths.count ? paths[index] : nil
+
+            guard let resolved = Bookmark.resolveRefreshing(data) else {
+                // The bookmark is dead — the folder is gone, or its volume is.
+                // Dropping it here is what made collections silently disappear
+                // between launches. Keep it, say why, and let the user decide.
+                guard let lastKnownPath else { continue }   // pre-migration: nothing to show
+                let url = URL(fileURLWithPath: lastKnownPath)
+                let id = url.standardizedFileURL.path
+                guard !collections.contains(where: { $0.id == id }) else { continue }
+                let collection = Collection(rootURL: url)
+                collection.bookmarkData = data
+                collection.markUnavailable(Collection.unavailability(of: url) ?? .missing)
+                collections.append(collection)
+                continue
+            }
+            if resolved.refreshed != nil { refreshedBookmarks = true }
+
+            let url = resolved.url
             let id = url.standardizedFileURL.path
             guard !collections.contains(where: { $0.id == id }) else { continue }
             let collection = Collection(rootURL: url)
+            collection.bookmarkData = resolved.refreshed ?? data
             collections.append(collection)
             restored.append(collection)
         }
+
+        // A re-minted bookmark is only useful once it is written back.
+        if refreshedBookmarks { persist() }
         guard !restored.isEmpty else { return }
 
         let externalChange: @MainActor () -> Void = { [weak self] in self?.onExternalChange() }
@@ -283,7 +314,42 @@ final class Library {
     }
 
     private func persist() {
-        let datas: [Data] = collections.compactMap { Bookmark.data(for: $0.rootURL) }
+        // Keep the two arrays index-aligned, and keep an *unavailable*
+        // collection's existing bookmark rather than trying to re-mint one from
+        // a folder that isn't there — re-minting would fail and quietly drop it,
+        // which is the behaviour this whole path exists to end.
+        var datas: [Data] = []
+        var paths: [String] = []
+        for collection in collections {
+            guard let data = collection.bookmarkData ?? Bookmark.data(for: collection.rootURL)
+            else { continue }
+            collection.bookmarkData = data
+            datas.append(data)
+            paths.append(collection.rootURL.path)
+        }
         UserDefaults.standard.set(datas, forKey: Self.bookmarksKey)
+        UserDefaults.standard.set(paths, forKey: Self.pathsKey)
+    }
+
+    /// Try an unavailable collection again — the drive was plugged back in, or
+    /// the folder came out of the Trash. Re-resolves the bookmark first, so a
+    /// folder that *moved* is followed rather than reported missing forever.
+    @discardableResult
+    func retry(_ collection: Collection) async -> Bool {
+        if let data = collection.bookmarkData,
+           let resolved = Bookmark.resolveRefreshing(data) {
+            if let refreshed = resolved.refreshed { collection.bookmarkData = refreshed }
+            // Moved: the bookmark tracks the folder by identity, so it now points
+            // somewhere else. The collection's id *is* its path, so it has to be
+            // reopened there rather than mutated in place.
+            if resolved.url.standardizedFileURL.path != collection.id {
+                close(collection)
+                await open(url: resolved.url)
+                return true
+            }
+        }
+        let back = await collection.recheckAvailability()
+        if back { persist() }
+        return back
     }
 }

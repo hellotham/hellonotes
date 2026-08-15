@@ -916,4 +916,150 @@ struct GitServiceTests {
     }
 }
 
+/// A collection points at a folder the app does not control. It can be moved,
+/// unplugged, or have its permissions pulled at any moment, and the one thing
+/// that must never happen is for "I couldn't look" to be presented as "there is
+/// nothing there".
+@MainActor
+struct CollectionAvailabilityTests {
+
+    private func vault() throws -> URL {
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hn-avail-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        try FileIO.write("# One", to: dest.appendingPathComponent("One.md"))
+        try FileIO.write("# Two", to: dest.appendingPathComponent("Two.md"))
+        return dest
+    }
+
+    /// The invariant. A vault on an unplugged drive used to scan to zero notes
+    /// and look exactly like a vault you had emptied — and the index cache would
+    /// then be rewritten to match, so the damage outlived the disconnection.
+    @Test func aMissingFolderNeverEmptiesTheCollection() async throws {
+        let root = try vault()
+        let collection = Collection(rootURL: root)
+        collection.scan()
+        #expect(collection.notes.count == 2)
+        #expect(collection.state == .ready)
+
+        // The folder goes away — ejected disk, moved in Finder, deleted.
+        try FileManager.default.removeItem(at: root)
+        await collection.scanOffMain()
+
+        #expect(collection.state == .unavailable(.missing))
+        #expect(collection.isAvailable == false)
+        #expect(collection.notes.count == 2, "the last known contents must survive")
+    }
+
+    @Test func theCollectionPicksItselfUpWhenTheFolderReturns() async throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let collection = Collection(rootURL: root)
+        collection.scan()
+
+        let stashed = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hn-stash-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.moveItem(at: root, to: stashed)
+        await collection.scanOffMain()
+        #expect(collection.isAvailable == false)
+        #expect(await collection.recheckAvailability() == false)
+
+        try FileManager.default.moveItem(at: stashed, to: root)
+        #expect(await collection.recheckAvailability())
+        #expect(collection.state == .ready)
+        #expect(collection.notes.count == 2)
+    }
+
+    /// FSEvents admitting it dropped events makes the index a guess until a full
+    /// rescan lands; finishing one is what makes it trustworthy again.
+    @Test func aCompletedScanClearsAStaleIndex() async throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let collection = Collection(rootURL: root)
+        collection.markStale(.eventsDropped)
+        #expect(collection.hasIncompleteIndex)
+
+        await collection.scanOffMain()
+        #expect(collection.state == .ready)
+        #expect(collection.hasIncompleteIndex == false)
+    }
+
+    /// Not being able to read the folder outranks the index being behind.
+    @Test func unavailabilityOutranksStaleness() throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let collection = Collection(rootURL: root)
+        collection.markUnavailable(.unmounted)
+        collection.markStale(.eventsDropped)
+        #expect(collection.state == .unavailable(.unmounted))
+    }
+
+    /// A path that exists but cannot be listed is a different problem from one
+    /// that is gone, and the user needs to be told which.
+    @Test func anUnreadableFolderIsNotReportedAsMissing() throws {
+        let root = try vault()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        #expect(Collection.unavailability(of: root) == .permissionDenied)
+    }
+
+    /// An edit made while the folder is gone must not be written into thin air —
+    /// and must not be thrown away either. It stays in the buffer.
+    @Test func savingIntoAnUnavailableCollectionIsRefusedAndTheEditKept() async throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("One.md")
+        let note = Note(title: "One", fileURL: file, lastModified: .now)
+
+        let editor = EditorModel()
+        await editor.open(note)
+        editor.saveBlockedReason = { _ in "The disk holding this folder isn’t connected." }
+        editor.text = "# Edited while the drive was out"
+        await editor.flush()
+
+        #expect(editor.saveError != nil)
+        #expect(editor.isDirty, "the edit must survive in the buffer, not be dropped")
+        #expect(try String(contentsOf: file, encoding: .utf8) == "# One")
+    }
+}
+
+/// The FSEvents flags the watcher used to discard entirely.
+struct FileWatcherFlagTests {
+
+    @Test func plainItemEventsAreItems() {
+        #expect(FileWatcher.verdict(for: FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)) == .item)
+        #expect(FileWatcher.verdict(for: 0) == .item)
+    }
+
+    @Test func aMovedOrDeletedRootIsReported() {
+        #expect(FileWatcher.verdict(for: FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)) == .rootChanged)
+    }
+
+    @Test func anUnmountedVolumeIsReported() {
+        #expect(FileWatcher.verdict(for: FSEventStreamEventFlags(kFSEventStreamEventFlagUnmount)) == .unmounted)
+    }
+
+    /// All three "we lost events" flags mean the same thing to us: rescan.
+    @Test func everyDroppedEventFlagDemandsARescan() {
+        for flag in [kFSEventStreamEventFlagMustScanSubDirs,
+                     kFSEventStreamEventFlagUserDropped,
+                     kFSEventStreamEventFlagKernelDropped] {
+            #expect(FileWatcher.verdict(for: FSEventStreamEventFlags(flag)) == .eventsDropped)
+        }
+    }
+
+    /// A batch that admits it is incomplete cannot be trusted to have reported
+    /// the rest of itself, so dropping outranks everything it arrives with.
+    @Test func droppedEventsOutrankTheOtherFlags() {
+        let combined = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagMustScanSubDirs
+                | kFSEventStreamEventFlagRootChanged
+                | kFSEventStreamEventFlagItemModified)
+        #expect(FileWatcher.verdict(for: combined) == .eventsDropped)
+    }
+}
+
 #endif

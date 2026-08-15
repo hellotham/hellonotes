@@ -428,6 +428,14 @@ struct MacContentView: View {
             tabs.onNoteSaved = { @MainActor url, text in
                 library.collection(containing: url)?.noteDidSave(url, text: text)
             }
+            // Never write into a folder that isn't there. The edit stays in the
+            // buffer and lands as soon as the collection is readable again.
+            tabs.saveBlocked = { @MainActor url in
+                guard let collection = library.collection(containing: url),
+                      case .unavailable(let reason) = collection.state else { return nil }
+                let title = url.deletingPathExtension().lastPathComponent
+                return "Can’t save “\(title)” — \(reason.explanation) Your changes are kept here until it’s back."
+            }
             library.onOpened = { recents.record($0) }
             if library.isEmpty {
                 await library.restore()
@@ -827,8 +835,45 @@ struct MacContentView: View {
     /// while tags are cross-cutting and belong to the inspector, which answers
     /// "what is this, and what touches it?" (decision 1).
     private var collectionTree: some View {
-        outlineList
-            .overlay { noteListEmptyState }
+        VStack(spacing: 0) {
+            searchCompletenessNotice
+            outlineList
+                .overlay { noteListEmptyState }
+        }
+    }
+
+    /// Collections that can't answer a search truthfully right now: the index is
+    /// behind the folder, or the folder can't be read at all.
+    private var collectionsWithPartialAnswers: [Collection] {
+        library.collections.filter { !$0.isAvailable || $0.hasIncompleteIndex }
+    }
+
+    /// Say when search results are incomplete, at the point they are read.
+    ///
+    /// Marking the collection row alone would not do: a **false negative** is
+    /// the most damaging thing a knowledge tool can produce, because it is
+    /// invisible by construction — you cannot notice the note that didn't come
+    /// back. Someone searching a vault whose index is behind must be told here,
+    /// where they are about to conclude the note doesn't exist.
+    @ViewBuilder
+    private var searchCompletenessNotice: some View {
+        let affected = collectionsWithPartialAnswers
+        if isSearching, !affected.isEmpty {
+            let names = affected.map(\.name).joined(separator: ", ")
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.orange)
+                Text("These results may be incomplete — \(names) \(affected.count == 1 ? "is" : "are") not fully indexed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.quaternary.opacity(0.4))
+            Divider()
+        }
     }
 
     // MARK: - The inspector rail (right)
@@ -1251,6 +1296,26 @@ struct MacContentView: View {
                         .foregroundStyle(.secondary)
                         .help("\(onlineOnly) note\(onlineOnly == 1 ? " is" : "s are") in the cloud but not downloaded. They appear in the list but aren't indexed until opened or downloaded.")
                 }
+
+                // Say when the folder can't be read, and offer the two things
+                // that make sense: look again, or let it go. Removing is the
+                // user's call — a drive unplugged for an afternoon is not a
+                // reason for the app to forget a collection.
+                if case .unavailable(let reason) = focused.state {
+                    Divider().frame(height: 11)
+                    Label("Unavailable", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .help("\(reason.explanation) The notes listed are the last ones seen; edits are held until it's back.")
+                    Button("Try Again") { Task { await library.retry(focused) } }
+                        .buttonStyle(.link)
+                    Button("Remove") { library.close(focused) }
+                        .buttonStyle(.link)
+                } else if focused.hasIncompleteIndex {
+                    Divider().frame(height: 11)
+                    Label("Re-indexing", systemImage: "clock.arrow.circlepath")
+                        .foregroundStyle(.secondary)
+                        .help("The system reported that it dropped file-change notifications, so this collection is being re-scanned. Search results may be incomplete until it finishes.")
+                }
             }
 
             Spacer(minLength: 12)
@@ -1519,8 +1584,12 @@ struct MacContentView: View {
             // rebuilt: a newly-opened vault never appeared and Close Collection
             // did nothing visible. Membership *and* each revision, because
             // either can change the tree.
+            // The state rides along too: a collection going unavailable changes
+            // how its row is drawn without changing its `revision` (nothing was
+            // re-scanned — that is the whole point), so without it the row would
+            // keep looking healthy.
             mode = "n:" + library.collections
-                .map { "\($0.id)#\($0.revision)" }
+                .map { "\($0.id)#\($0.revision)#\($0.state)" }
                 .joined(separator: ",")
         }
         // Pinned Recents/Bookmarks hang above the collections and are derived

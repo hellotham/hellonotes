@@ -47,7 +47,7 @@ final class LibrariesStore {
 
     /// The collection URLs stored in `library` (skipping any that no longer resolve).
     func urls(for library: SavedLibrary) -> [URL] {
-        library.bookmarks.compactMap { Bookmark.resolve($0) }
+        library.bookmarks.compactMap { Bookmark.resolve($0)?.url }
     }
 
     // MARK: - Persistence

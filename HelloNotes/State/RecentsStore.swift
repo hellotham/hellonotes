@@ -21,7 +21,7 @@ final class RecentsStore {
         var lastOpened: Date
         var bookmark: Data
 
-        var url: URL? { Bookmark.resolve(bookmark) }
+        var url: URL? { Bookmark.resolve(bookmark)?.url }
     }
 
     private(set) var entries: [Entry] = []
