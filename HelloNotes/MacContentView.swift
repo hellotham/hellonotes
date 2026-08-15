@@ -755,7 +755,10 @@ struct MacContentView: View {
             setShowsNonNoteFiles: focused.map { collection in
                 { collection.showsNonNoteFiles = $0 }
             },
-            openCloudFolder: { library.requestOpenCloudFolder() }
+            openCloudFolder: { library.requestOpenCloudFolder() },
+            refreshCloudCollection: focused.flatMap { collection in
+                collection.isRemote ? { Task { await collection.refreshFromProvider() } } : nil
+            }
         )
     }
 
@@ -1285,9 +1288,62 @@ struct MacContentView: View {
         .accessibilityLabel("Search all collections")
     }
 
+    /// Collection-level conditions worth interrupting a reader for.
+    ///
+    /// The status bar carries these too, but only appears when *no* note is
+    /// selected — which is the minority of the time. A folder that has gone
+    /// missing, or an index known to be behind, must be visible while you are
+    /// actually reading. Silent when there is nothing to say, so ordinary work
+    /// gains no chrome.
+    @ViewBuilder
+    private var collectionConditionBar: some View {
+        if let focused, selectedNoteID != nil {
+            if case .unavailable(let reason) = focused.state {
+                conditionStrip("exclamationmark.triangle.fill", .orange,
+                               "\(focused.name) is unavailable — \(reason.explanation)") {
+                    Button("Try Again") { Task { await library.retry(focused) } }
+                        .buttonStyle(.link)
+                }
+            } else if focused.showsScanProgress, let scan = focused.scanProgress {
+                conditionStrip("clock.arrow.circlepath", .secondary,
+                               "Scanning \(focused.name) — \(scan.itemsSeen) items so far.") {
+                    Button("Stop") { focused.cancelScan() }.buttonStyle(.link)
+                }
+            } else if focused.hasIncompleteIndex {
+                conditionStrip("exclamationmark.circle.fill", .orange,
+                               "\(focused.name) is being re-indexed — search may be incomplete.") {
+                    EmptyView()
+                }
+            }
+        }
+    }
+
+    private func conditionStrip<Trailing: View>(
+        _ symbol: String, _ tint: Color, _ message: String,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).foregroundStyle(tint)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                trailing()
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.4))
+            Divider()
+        }
+    }
+
     @ViewBuilder
     private var editorPaneBody: some View {
         VStack(spacing: 0) {
+            collectionConditionBar
             if let attachment = selectedAttachment {
                 FileViewerView(
                     file: attachment,

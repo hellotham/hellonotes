@@ -560,16 +560,27 @@ final class Collection: Identifiable {
     /// rather than a choice. Reports how many were fetched.
     @discardableResult
     func downloadAllForSearch(progress: @MainActor (Int, Int) -> Void = { _, _ in }) async -> Int {
-        guard let remote else { return 0 }
-        let pending = notes.filter(\.isOnlineOnly).map(\.fileURL)
-            + attachments.map(\.url).filter { !remote.isHydrated(localURL: $0) }
+        let pending: [URL]
+        if let remote {
+            pending = notes.filter(\.isOnlineOnly).map(\.fileURL)
+                + attachments.map(\.url).filter { !remote.isHydrated(localURL: $0) }
+        } else {
+            pending = notes.filter(\.isOnlineOnly).map(\.fileURL)
+        }
         guard !pending.isEmpty else { return 0 }
 
         var fetched = 0
         for url in pending {
             if Task.isCancelled { break }
             do {
-                try await remote.hydrate(localURL: url)
+                if let remote {
+                    try await remote.hydrate(localURL: url)
+                } else {
+                    // A File-Provider item: ask the OS to materialise it, which
+                    // is the same thing opening the note would do.
+                    let target = url
+                    try await Task.detached(priority: .utility) { try FileIO.download(at: target) }.value
+                }
                 fetched += 1
                 progress(fetched, pending.count)
             } catch {
@@ -582,9 +593,15 @@ final class Collection: Identifiable {
     }
 
     /// How many of this collection's items a content search cannot see.
+    ///
+    /// Counts **both** kinds of "not here": a File-Provider note the OS is
+    /// holding online-only, and a direct-API placeholder. Counting only the
+    /// latter left the *recommended* path — a mounted cloud folder — with no
+    /// notice and no offer, which is exactly backwards.
     var notLocalCount: Int {
-        guard let remote else { return 0 }
-        return notes.filter(\.isOnlineOnly).count
+        let onlineOnlyNotes = notes.filter(\.isOnlineOnly).count
+        guard let remote else { return onlineOnlyNotes }
+        return onlineOnlyNotes
             + attachments.filter { !remote.isHydrated(localURL: $0.url) }.count
     }
 

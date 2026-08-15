@@ -13,9 +13,10 @@ import { href } from '../../lib/paths';
   <h2 id="folder">1. Open a cloud folder (recommended)</h2>
   <p>
     Box, Dropbox, OneDrive (personal and business), Google Drive and iCloud Drive all present their
-    storage to macOS as ordinary folders. If you have the provider’s app installed, just open that
-    folder as a collection — everything works exactly as it does locally, and syncing between your
-    devices is handled by the provider.
+    storage to macOS as ordinary folders. If you have the provider’s app installed, choose{' '}
+    <strong>File ▸ Open Cloud Folder…</strong> and pick the folder you want — no sign-in, because
+    the files are already on your Mac. Everything works exactly as it does locally, and syncing
+    between your devices is handled by the provider.
   </p>
   <p>
     Cloud files are often <strong>online-only</strong> until something opens them. HelloNotes
@@ -33,22 +34,17 @@ import { href } from '../../lib/paths';
     </li>
     <li>
       The status bar shows how many notes are still online-only, and each note has{' '}
-      <strong>Download</strong> and <strong>Remove Download</strong> in its context menu.
+      <strong>Download</strong> (when it isn't local) or <strong>Remove Download</strong> (when it is) in its context menu.
     </li>
   </ul>
   <p>
-    Full-text search covers downloaded notes; searching by title, tag or alias covers everything,
-    since that comes from the index rather than the file contents.
+    Search covers notes that are downloaded. A note that has never been downloaded still appears
+    in the list — its title comes from the filename — but it is not searchable until it is opened
+    or downloaded. When a search is affected, the sidebar says so and offers to fetch what it is
+    skipping.
   </p>
 
-  <h2 id="mounted">2. Open a folder from a provider you already use</h2>
-  <p>
-    If the provider’s app is installed, its files are already on your Mac and there is nothing to
-    sign in to. Choose <strong>File ▸ Open Cloud Folder…</strong> and pick the folder you want.
-    HelloNotes treats it as an ordinary collection — because that is what it is.
-  </p>
-
-  <h2 id="direct">3. Connect an account over the web</h2>
+  <h2 id="direct">2. Connect an account over the web</h2>
   <p>
     If you do not have the provider’s app installed — or do not want it — HelloNotes can talk to{' '}
     <strong>Dropbox, Box, Google Drive</strong> and <strong>OneDrive</strong> over their own APIs.
@@ -71,6 +67,11 @@ import { href } from '../../lib/paths';
   <p>
     Sign-in uses the provider’s standard OAuth flow. Tokens are stored in the macOS Keychain, and no
     credentials pass through us.
+  </p>
+  <p>
+    On iPhone and iPad the same thing lives in <strong>Settings ▸ Cloud (direct API)</strong>. Pick a
+    provider, browse to the folder, and <strong>Add as Collection</strong>. The progress, stop and
+    retry controls described below are on the Mac.
   </p>
 
   <h2 id="conflicts">Editing on more than one device</h2>

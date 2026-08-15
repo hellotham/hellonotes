@@ -1,6 +1,7 @@
 # Unimplemented, Deferred & Production Readiness
 
-> As of **v1.1** (register reconciled against the source 2026-08-11 — five entries
+> As of **v1.2** (register reconciled against the source 2026-08-15 — §8b's cloud entries
+> retired as implemented; five earlier entries
 > described gaps that had already been closed; see [implemented.md §20](implemented.md)). A single register of everything **not** shipped
 > or **not** production-hardened: gaps, deferrals, bugs, tech debt, usability, accessibility,
 > security, performance, and App-Store packaging. Compiled from a five-lane code audit

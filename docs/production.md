@@ -15,7 +15,7 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 | Bundle ID | `com.hellotham.HelloNotes` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.1`, `CURRENT_PROJECT_VERSION = 2` |
+| Version / build | `MARKETING_VERSION = 1.2`, `CURRENT_PROJECT_VERSION = 3` |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync) |
 | Min OS | **macOS 15.0** |
@@ -113,7 +113,7 @@ Target ▸ **Signing & Capabilities** ▸ **Release**:
 Nothing else to do — Xcode makes the cert/profile on first archive.
 
 ### 1f. Version & build number policy
-- First submission was `1.0` (build `1`); the repo now carries `1.1` (build `2`).
+- First submission was `1.0` (build `1`); the repo now carries `1.2` (build `3`).
 - **Every** upload needs a **unique, higher build number**. Bump
   `CURRENT_PROJECT_VERSION` (`1 → 2 → …`) for re‑uploads of the same version;
   bump `MARKETING_VERSION` (`1.0 → 1.1`) for a new public version.

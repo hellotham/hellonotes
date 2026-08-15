@@ -5,6 +5,87 @@ one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
+## 1.2 — 2026-08-15
+
+A collection points at a folder HelloNotes does not control. This release is
+about what happens when that folder is large, slow, in the cloud, inside a Git
+repository, or simply not there any more — and about the app saying so instead
+of guessing.
+
+### Cloud folders
+
+- **Use the folder you already have.** If Box, Dropbox, OneDrive or Google Drive
+  is installed on your Mac, **File ▸ Open Cloud Folder…** opens its folder
+  directly. No sign-in, no token, no second copy of your files. Connecting over
+  a provider's API moved to **File ▸ Connect Over the Web**, for accounts whose
+  app you don't have.
+- **Cloud collections open immediately.** Adding one used to download every note
+  first; now the folder's structure appears straight away and each file's
+  contents arrive the first time you open it. Every file comes across, not just
+  Markdown — PDFs, images and documents preview as usual.
+- **Cloud collections come back when you reopen the app**, from what is already
+  on disk, and then check the provider for changes.
+- **Refresh** in the collection's status bar asks the provider what has changed
+  since it last looked, rather than re-reading the whole folder.
+- **Edited in two places at once?** Both versions are kept. Yours stays where it
+  is and the other is saved beside it as a conflicted copy — decided by the
+  provider's own record of the file, not by comparing two devices' clocks.
+- **Add as Collection now works on iPhone and iPad**, not just the Mac.
+
+### Large folders
+
+- **Adding a big folder tells you it is big**, and offers to open a subfolder
+  instead. Adding it anyway is always allowed.
+- **Scanning shows progress and can be stopped.** What has been found is kept,
+  and scanning resumes from where it stopped rather than starting over — after a
+  cancel, a quit, or iOS suspending the app.
+- **Notes appear as they are found** instead of all at once at the end.
+- **Non-note files can be hidden** per collection (**View ▸ Show Non-Note
+  Files**), and the status bar says how many are hidden.
+
+### Folders that move, vanish, or change behind your back
+
+- **A folder that can't be read now says so** — moved, renamed, deleted, or on a
+  disk that isn't connected — and keeps showing its notes as they were, rather
+  than appearing empty. **Try Again** picks it back up; a folder that has moved
+  is followed. Removing it is your decision, not the app's.
+- **Editing continues while a folder is away.** Saving is refused rather than
+  written into nowhere, and your changes are held until it returns.
+- **Changes made by other apps are noticed more reliably.** When the system
+  reports that it lost track of file changes, the collection re-scans instead of
+  quietly serving a stale index — and says search results may be incomplete
+  until it finishes.
+- **iPad and iPhone notice changes at all now.** A vault edited on your Mac
+  previously stayed stale until you relaunched.
+- **Search says when it can't see everything**, and offers to download what it
+  is skipping — for both online-only cloud files and folders connected over the web.
+
+### Git
+
+- **A folder inside a repository is recognised as one.** Opening
+  `~/project/docs` as a collection previously offered no Git at all. It now has
+  the full Git panel, and everything it does — commits, change counts, history —
+  covers only that folder. Nothing outside your collection is ever committed.
+- **The branch and change count keep up with the terminal.** A `git pull` or
+  branch switch made outside the app is reflected instead of showing whatever
+  was true when the collection opened.
+
+### Fixed
+
+- **"Add as Collection" appeared to do nothing.** Failures were discarded
+  silently. It now shows progress, can be stopped, and reports what happened —
+  including what it couldn't read.
+- **A cloud browser opened with a saved sign-in showed an empty account.** It
+  never actually asked the provider for anything.
+- **An expired cloud sign-in now offers to sign in again** instead of looking
+  like an empty folder.
+- **Cancelling a scan no longer discards what it found.**
+- **A collection whose saved permission had aged out silently disappeared** on
+  the next launch. It is now kept, with an explanation.
+- **Large attachments upload to OneDrive** instead of failing past 4 MB.
+
+---
+
 ## 1.1 — 2026-08-11
 
 The window got simpler, the editor got several long-standing rendering faults

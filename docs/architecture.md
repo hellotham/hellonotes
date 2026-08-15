@@ -1,8 +1,8 @@
 # HelloNotes — Architecture & Technology Evaluation
 
-> Status: **v1.1 (shipped)** · Last updated: 2026-08-12 · Companion to [PRD.md](PRD.md) and [implemented.md](implemented.md)
+> Status: **v1.2 (shipped)** · Last updated: 2026-08-15 · Companion to [PRD.md](PRD.md) and [implemented.md](implemented.md)
 
-This document describes the software architecture of HelloNotes and evaluates the third-party Swift packages the app depends on. For each capability we consider the realistic alternatives, then give a recommendation. As of **v1.1**, all packages below are resolved **and linked**, and the 4-layer architecture is fully in place across macOS and iOS; this document reflects the shipped design. (The shell that sits on top of it changed in 1.1 — one collapsible sidebar holding a single tree — see [shell-chrome.md](shell-chrome.md).)
+This document describes the software architecture of HelloNotes and evaluates the third-party Swift packages the app depends on. For each capability we consider the realistic alternatives, then give a recommendation. As of **v1.2**, all packages below are resolved **and linked**, and the 4-layer architecture is fully in place across macOS and iOS; this document reflects the shipped design. (The shell that sits on top of it changed in 1.1 — one collapsible sidebar holding a single tree — see [shell-chrome.md](shell-chrome.md).)
 
 ---
 

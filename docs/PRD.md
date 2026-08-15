@@ -1,6 +1,6 @@
 # HelloNotes — Product Requirements Document
 
-> Product name: **HelloNotes** · Status: **v1.1 (shipped)** · Last updated: 2026-08-12 · Owner: Chris Tham
+> Product name: **HelloNotes** · Status: **v1.2 (shipped)** · Last updated: 2026-08-15 · Owner: Chris Tham
 
 ---
 

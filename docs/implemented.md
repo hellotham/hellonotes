@@ -6,7 +6,7 @@
 > notable fixes worth remembering. It consolidates the former `implementation-plan.md`,
 > `markdown-engine-strategy.md`, `editor-rewrite.md`, and `editor-parity.md`.
 
-**Current status:** v1.1 shipped (see [CHANGELOG.md](../CHANGELOG.md) for the user-facing
+**Current status:** v1.2 shipped (see [CHANGELOG.md](../CHANGELOG.md) for the user-facing
 notes and §20 below for the batch); v1.0 was Milestones 0–13, plus the deeper Apple-platform
 integration (§10 and [native-roadmap.md](native-roadmap.md)) and **cloud storage** (§11–12,
 [cloud-native-roadmap.md](cloud-native-roadmap.md)). Builds clean on macOS + iOS in **both
@@ -1235,7 +1235,7 @@ that already worked.
 
 ## 21 · Collections that survive the real world (2026-08-15)
 
-Reported: **"Add as Collection" does nothing** for Box and Dropbox. Four defects sat
+Released as **1.2**. Reported: **"Add as Collection" does nothing** for Box and Dropbox. Four defects sat
 behind that one symptom — and investigating them found that the same class of problem
 applied to **local folders and Git repos**, with nothing to do with cloud.
 

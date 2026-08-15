@@ -55,6 +55,10 @@ struct AppActions {
     /// Browse the File-Provider mounts for a folder to open directly — the
     /// no-authentication path for a provider whose client is installed.
     var openCloudFolder: (() -> Void)?
+    /// Ask a direct-API collection's provider what has changed. `nil` unless the
+    /// focused collection is one. A command, so it belongs in a menu rather than
+    /// only in a status bar that hides whenever a note is open.
+    var refreshCloudCollection: (() -> Void)?
 }
 
 /// Menu actions that act on the selected note.
@@ -156,6 +160,8 @@ struct HelloNotesCommands: Commands {
             // collection there needs no sign-in, no token and no cache at all.
             Button("Open Cloud Folder…") { actions?.openCloudFolder?() }
                 .disabled(actions?.openCloudFolder == nil)
+            Button("Refresh Cloud Collection") { actions?.refreshCloudCollection?() }
+                .disabled(actions?.refreshCloudCollection == nil)
 
             // Connecting over the provider's own API is the fallback, for an
             // account whose desktop client is not installed.

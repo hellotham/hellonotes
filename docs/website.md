@@ -188,7 +188,7 @@ site's metadata together:
 
 ```bash
 shasum -a 256 dist/HelloNotes.dmg          # → paste into DOWNLOAD.sha256
-gh release create v1.1 dist/HelloNotes.dmg --title "HelloNotes 1.1" --notes-file …
+gh release create v1.2 dist/HelloNotes.dmg --title "HelloNotes 1.2" --notes-file …
 ```
 
 `APP.version`, `DOWNLOAD.size` and `DOWNLOAD.sha256` in `src/lib/site.ts` are
