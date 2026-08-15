@@ -53,6 +53,18 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     private var folderIDs: [String: String] = ["": "root"]
     private var fileIDs: [String: String] = [:]
 
+    /// The path we know a Drive id by, if we have listed it.
+    ///
+    /// Drive's change feed reports ids and no paths, so this reverse lookup is
+    /// what places a change in the tree. An id we have never seen is something
+    /// in a folder we have not walked — a full sync finds it, and guessing would
+    /// be worse than waiting.
+    fileprivate func knownPath(forFileID id: String) -> String? {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        if let hit = fileIDs.first(where: { $0.value == id })?.key { return hit }
+        return folderIDs.first(where: { $0.value == id })?.key
+    }
+
     init(session: URLSession = .shared) {
         self.session = session
     }
@@ -101,6 +113,35 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             pageToken = page.nextPageToken
         } while pageToken != nil
         return all
+    }
+
+    func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? {
+        guard let cursor else {
+            // No token yet: take one, and let this round be a full sync.
+            let data = try await sendAuthed { Self.startPageTokenRequest(token: $0) }
+            return RemoteChangeSet(cursor: Self.parseStartPageToken(data))
+        }
+
+        var result = RemoteChangeSet()
+        var next: String? = cursor
+        while let token = next {
+            let data = try await sendAuthed { Self.changesRequest(pageToken: token, token: $0) }
+            let page = Self.parseChangesPage(data)
+            // Drive hands back ids, not paths. Only files we already know the
+            // path of can be placed; anything else is new somewhere we have not
+            // walked, and a full sync will find it.
+            for change in page.changed {
+                if let known = knownPath(forFileID: change.id) {
+                    var entry = change.entry
+                    entry.path = known
+                    result.changed.append(entry)
+                }
+            }
+            result.deleted += page.removed.compactMap { knownPath(forFileID: $0) }
+            if let newStart = page.newStart { result.cursor = newStart }
+            next = page.next
+        }
+        return result
     }
 
     func read(path: String) async throws -> Data {
@@ -246,6 +287,68 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     }
 
     // MARK: - Pure request builders (unit-tested)
+
+    /// A starting point for Drive's change feed.
+    static func startPageTokenRequest(token: String) -> URLRequest {
+        var r = URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/changes/startPageToken")!)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+
+    /// Everything that changed since `pageToken`.
+    static func changesRequest(pageToken: String, token: String) -> URLRequest {
+        var c = URLComponents(string: "https://www.googleapis.com/drive/v3/changes")!
+        c.queryItems = [
+            URLQueryItem(name: "pageToken", value: pageToken),
+            URLQueryItem(name: "pageSize", value: "1000"),
+            URLQueryItem(name: "fields",
+                         value: "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,modifiedTime,version,parents,trashed))"),
+        ]
+        var r = URLRequest(url: c.url!)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+
+    static func parseStartPageToken(_ data: Data) -> String? {
+        (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["startPageToken"] as? String
+    }
+
+    /// One page of `changes.list`.
+    ///
+    /// Drive is id-based and a change carries no path, so entries come back
+    /// keyed by **file id** in the `path` field; the store's own id caches map
+    /// them back. A change is a removal when `removed` is set or the file has
+    /// been trashed.
+    static func parseChangesPage(_ data: Data)
+        -> (changed: [(id: String, entry: RemoteEntry)], removed: [String],
+            next: String?, newStart: String?) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let changes = root["changes"] as? [[String: Any]] else { return ([], [], nil, nil) }
+        let formatter = ISO8601DateFormatter()
+        var changed: [(id: String, entry: RemoteEntry)] = []
+        var removed: [String] = []
+
+        for change in changes {
+            guard let fileID = change["fileId"] as? String else { continue }
+            let file = change["file"] as? [String: Any]
+            if change["removed"] as? Bool == true || file?["trashed"] as? Bool == true || file == nil {
+                removed.append(fileID)
+                continue
+            }
+            guard let file, let name = file["name"] as? String else { continue }
+            let mime = file["mimeType"] as? String ?? ""
+            changed.append((fileID, RemoteEntry(
+                path: fileID,                       // resolved to a path by the caller
+                name: name,
+                isDirectory: mime == folderMIME,
+                size: Int(file["size"] as? String ?? "") ?? 0,
+                modified: (file["modifiedTime"] as? String).flatMap { formatter.date(from: $0) },
+                rev: (file["version"] as? String) ?? (file["version"] as? NSNumber)?.stringValue)))
+        }
+        return (changed, removed,
+                root["nextPageToken"] as? String,
+                root["newStartPageToken"] as? String)
+    }
 
     static func listRequest(folderID: String, token: String, pageToken: String? = nil) -> URLRequest {
         var c = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!

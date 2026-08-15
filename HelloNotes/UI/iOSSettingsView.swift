@@ -16,6 +16,20 @@ import SwiftUI
 struct iOSSettingsView: View {
     @Bindable var settings: AppearanceSettings
     @Environment(\.dismiss) private var dismiss
+    /// So a browsed folder can be promoted to a sidebar collection here too —
+    /// the same action macOS has had. Without it the iOS browser could only ever
+    /// edit notes one at a time, in place.
+    @Environment(Library.self) private var library
+
+    /// Mirrors a browsed cloud folder into a sidebar collection. Captures the
+    /// library itself rather than `self`, which is a view struct.
+    private var addRemoteCollection: AddRemoteCollection {
+        let library = self.library
+        return { store, remoteRoot, displayName, progress in
+            try await library.openRemote(store: store, remoteRoot: remoteRoot,
+                                         displayName: displayName, progress: progress)
+        }
+    }
 
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
@@ -125,20 +139,20 @@ struct iOSSettingsView: View {
                 }
             }
             .sheet(isPresented: $showDropbox) {
-                NavigationStack { RemoteBrowserView(store: DropboxStore()) }
+                NavigationStack { RemoteBrowserView(store: DropboxStore(), onAddAsCollection: addRemoteCollection) }
             }
             .sheet(isPresented: $showBox) {
-                NavigationStack { RemoteBrowserView(store: BoxStore()) }
+                NavigationStack { RemoteBrowserView(store: BoxStore(), onAddAsCollection: addRemoteCollection) }
             }
             .sheet(isPresented: $showGoogleDrive) {
-                NavigationStack { RemoteBrowserView(store: GoogleDriveStore()) }
+                NavigationStack { RemoteBrowserView(store: GoogleDriveStore(), onAddAsCollection: addRemoteCollection) }
             }
             .sheet(isPresented: $showOneDrive) {
-                NavigationStack { RemoteBrowserView(store: OneDriveStore()) }
+                NavigationStack { RemoteBrowserView(store: OneDriveStore(), onAddAsCollection: addRemoteCollection) }
             }
             #if DEBUG
             .sheet(isPresented: $showCloudDemo) {
-                NavigationStack { RemoteBrowserView(store: MockRemoteStore()) }
+                NavigationStack { RemoteBrowserView(store: MockRemoteStore(), onAddAsCollection: addRemoteCollection) }
             }
             #endif
         }

@@ -949,6 +949,102 @@ struct RemoteMirrorTests {
         #expect(entries?.first?.name == "A.md")
     }
 
+    // MARK: - Bounding the cache
+
+    /// A lazy cache that never lets go is only a slower way of downloading
+    /// everything. Eviction returns content to placeholders — the names stay, so
+    /// nothing disappears from the collection.
+    @Test func evictionDropsTheLeastRecentlyUsedContentBackToPlaceholders() async throws {
+        let store = CountingRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+
+        let welcome = cache.appending(path: "Welcome.md")
+        let idea = cache.appending(path: "Notes/Idea.md")
+        try await mirror.hydrate(localURL: welcome)
+        try await mirror.hydrate(localURL: idea)
+        #expect(mirror.hydratedBytes > 0)
+
+        // Welcome was read long ago; Idea just now.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)], ofItemAtPath: welcome.path)
+
+        // A limit small enough to force one out, keeping what is on screen.
+        let evicted = mirror.evictIfNeeded(limit: 1, keeping: ["Notes/Idea.md"])
+
+        #expect(evicted == 1)
+        #expect(mirror.isHydrated(localURL: welcome) == false, "the stale one went")
+        #expect(mirror.isHydrated(localURL: idea), "the pinned one stayed")
+        #expect(FileManager.default.fileExists(atPath: welcome.path),
+                "its name must remain — the note may not vanish from the collection")
+        #expect(try Data(contentsOf: welcome).isEmpty)
+    }
+
+    @Test func evictionDoesNothingWhenTheCacheFits() async throws {
+        let store = CountingRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+        try await mirror.hydrate(localURL: cache.appending(path: "Welcome.md"))
+
+        #expect(mirror.evictIfNeeded(limit: 100 * 1024 * 1024) == 0)
+        #expect(mirror.isHydrated(localURL: cache.appending(path: "Welcome.md")))
+    }
+
+    /// The manifest describes the cache completely, so a mirror can be rebuilt
+    /// from the directory alone — which is what makes restoring on launch safe.
+    @Test func aMirrorCanBeRebuiltFromItsCacheDirectory() async throws {
+        let store = CountingRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let first = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await first.syncMetadata()
+        try await first.hydrate(localURL: cache.appending(path: "Welcome.md"))
+
+        // A fresh process: nothing but the directory on disk.
+        let manifest = try #require(RemoteManifest.load(fromCacheRoot: cache))
+        #expect(manifest.displayName == "Demo")
+        #expect(manifest.provider == store.providerName)
+
+        let rebuilt = RemoteMirror(store: store, cacheRoot: cache,
+                                   remoteRoot: manifest.remoteRoot,
+                                   displayName: manifest.displayName)
+        #expect(rebuilt.isHydrated(localURL: cache.appending(path: "Welcome.md")))
+        #expect(rebuilt.dehydratedRelativePaths.contains("Notes/Idea.md"))
+    }
+
+    /// Graph's simple PUT caps at 4 MB. Anything larger has to go through an
+    /// upload session, in byte ranges — and `Content-Range` is inclusive at both
+    /// ends, which is the detail most easily got wrong.
+    @Test func graphChunkRangesAreInclusiveAndCoverTheWholeFile() {
+        let url = URL(string: "https://graph/upload/session")!
+        let first = OneDriveStore.uploadChunkRequest(uploadURL: url, chunk: Data(count: 10),
+                                                     offset: 0, total: 25)
+        #expect(first.value(forHTTPHeaderField: "Content-Range") == "bytes 0-9/25")
+        #expect(first.httpMethod == "PUT")
+        // Pre-authorised session URL: sending a bearer token here is wrong.
+        #expect(first.value(forHTTPHeaderField: "Authorization") == nil)
+
+        let last = OneDriveStore.uploadChunkRequest(uploadURL: url, chunk: Data(count: 5),
+                                                    offset: 20, total: 25)
+        #expect(last.value(forHTTPHeaderField: "Content-Range") == "bytes 20-24/25")
+    }
+
+    @Test func graphChunksAreAMultipleOfTheRequiredSize() {
+        // Graph requires every chunk but the last to be a multiple of 320 KiB.
+        #expect(OneDriveStore.uploadChunkSize % (320 * 1024) == 0)
+        #expect(OneDriveStore.uploadChunkSize <= OneDriveStore.simpleUploadLimit)
+    }
+
+    @Test func graphUploadSessionURLIsParsed() {
+        let data = Data(#"{"uploadUrl":"https://graph/session/abc","expirationDateTime":"x"}"#.utf8)
+        #expect(OneDriveStore.parseUploadSessionURL(data)?.absoluteString == "https://graph/session/abc")
+        #expect(OneDriveStore.parseUploadSessionURL(Data("{}".utf8)) == nil)
+    }
+
     private static func tempCache() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("hn-mirror-\(UUID().uuidString)")
@@ -989,6 +1085,111 @@ private final class CountingRemoteStore: RemoteStore, @unchecked Sendable {
         lock.lock(); revisions[path, default: 0] += 1; lock.unlock()
     }
     func delete(path: String) async throws { try await inner.delete(path: path) }
+}
+
+/// Delta parsing for the three providers whose feeds cannot be exercised
+/// without a live account. Fixtures pin the shapes, per this file's convention
+/// for every other provider request and response.
+struct ProviderDeltaTests {
+
+    // MARK: OneDrive / Graph
+
+    @Test func graphDeltaRebuildsPathsAndSeparatesDeletions() {
+        let fixture = """
+        {"value":[
+          {"name":"Idea.md","size":42,"lastModifiedDateTime":"2026-08-15T00:00:00Z","eTag":"e1",
+           "parentReference":{"path":"/drive/root:/Notes"}},
+          {"name":"Sub","folder":{},"parentReference":{"path":"/drive/root:"}},
+          {"name":"Gone.md","deleted":{"state":"deleted"},
+           "parentReference":{"path":"/drive/root:/Notes"}}
+        ],"@odata.deltaLink":"https://graph/next"}
+        """
+        let page = OneDriveStore.parseDeltaPage(Data(fixture.utf8))
+
+        #expect(page.changed.count == 2)
+        #expect(page.changed[0].path == "/Notes/Idea.md")
+        #expect(page.changed[0].rev == "e1")
+        #expect(page.changed[1].path == "/Sub")
+        #expect(page.changed[1].isDirectory)
+        // A deletion must not arrive as an ordinary item, or a refresh would
+        // resurrect the very note that was deleted elsewhere.
+        #expect(page.deleted == ["/Notes/Gone.md"])
+        #expect(page.delta == "https://graph/next")
+    }
+
+    @Test func graphDeltaRequestTargetsTheMirroredFolder() {
+        let root = OneDriveStore.deltaRequest(path: "", token: "T")
+        #expect(root.url?.absoluteString == "https://graph.microsoft.com/v1.0/me/drive/root/delta")
+        #expect(root.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+
+        let sub = OneDriveStore.deltaRequest(path: "/Notes", token: "T")
+        #expect(sub.url?.absoluteString.contains("root:/Notes:/delta") == true)
+    }
+
+    // MARK: Box
+
+    @Test func boxEventsBuildPathsFromThePathCollection() {
+        let fixture = """
+        {"entries":[
+          {"event_type":"ITEM_UPLOAD","source":{"type":"file","name":"Idea.md","size":42,
+            "modified_at":"2026-08-15T00:00:00+00:00","etag":"7",
+            "path_collection":{"entries":[{"name":"All Files"},{"name":"Notes"}]}}},
+          {"event_type":"ITEM_TRASH","source":{"type":"file","name":"Old.md",
+            "path_collection":{"entries":[{"name":"All Files"}]}}}
+        ],"next_stream_position":12345}
+        """
+        let page = BoxStore.parseEvents(Data(fixture.utf8))
+
+        #expect(page.changed.count == 1)
+        #expect(page.changed[0].path == "/Notes/Idea.md", "the invisible All Files root is dropped")
+        #expect(page.changed[0].rev == "7")
+        #expect(page.deleted == ["/Old.md"])
+        #expect(page.position == "12345")
+    }
+
+    @Test func boxEventsRequestAsksTheChangesStream() {
+        let r = BoxStore.eventsRequest(streamPosition: "now", token: "T")
+        let url = r.url?.absoluteString ?? ""
+        #expect(url.hasPrefix("https://api.box.com/2.0/events"))
+        #expect(url.contains("stream_type=changes"))
+        #expect(url.contains("stream_position=now"))
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+    }
+
+    // MARK: Google Drive
+
+    @Test func driveChangesSeparateRemovalsFromEdits() {
+        let fixture = """
+        {"changes":[
+          {"fileId":"f1","file":{"id":"f1","name":"Idea.md","mimeType":"text/markdown",
+            "size":"42","modifiedTime":"2026-08-15T00:00:00Z","version":"9"}},
+          {"fileId":"f2","removed":true},
+          {"fileId":"f3","file":{"id":"f3","name":"Trashed.md","mimeType":"text/markdown","trashed":true}}
+        ],"newStartPageToken":"tok2"}
+        """
+        let page = GoogleDriveStore.parseChangesPage(Data(fixture.utf8))
+
+        #expect(page.changed.count == 1)
+        #expect(page.changed[0].id == "f1")
+        #expect(page.changed[0].entry.name == "Idea.md")
+        #expect(page.changed[0].entry.size == 42, "Drive reports sizes as strings")
+        // Trashed counts as removed — the file is gone from where it was.
+        #expect(Set(page.removed) == ["f2", "f3"])
+        #expect(page.newStart == "tok2")
+    }
+
+    @Test func driveChangesRequestCarriesTheTokenAndFields() {
+        let r = GoogleDriveStore.changesRequest(pageToken: "tok", token: "T")
+        let url = r.url?.absoluteString ?? ""
+        #expect(url.hasPrefix("https://www.googleapis.com/drive/v3/changes"))
+        #expect(url.contains("pageToken=tok"))
+        #expect(url.contains("newStartPageToken"))
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+    }
+
+    @Test func driveStartPageTokenIsParsed() {
+        #expect(GoogleDriveStore.parseStartPageToken(Data(#"{"startPageToken":"99"}"#.utf8)) == "99")
+    }
 }
 
 /// A store with a scriptable delta feed, so refresh behaviour can be tested

@@ -105,6 +105,26 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
         return all
     }
 
+    func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? {
+        // Without a position there is nothing to diff against; take one and let
+        // the caller do its full sync this round.
+        let position = cursor ?? "now"
+        let data = try await sendAuthed { Self.eventsRequest(streamPosition: position, token: $0) }
+        let page = Self.parseEvents(data)
+
+        var result = RemoteChangeSet(cursor: page.position)
+        guard cursor != nil else { return result }   // first call: cursor only
+
+        // Box reports the whole account, so confine it to what we mirror.
+        let scope = Self.normalizedPath(path)
+        func isOurs(_ candidate: String) -> Bool {
+            scope.isEmpty || candidate == scope || candidate.hasPrefix(scope + "/")
+        }
+        result.changed = page.changed.filter { isOurs($0.path) }
+        result.deleted = page.deleted.filter(isOurs)
+        return result
+    }
+
     func read(path: String) async throws -> Data {
         let id = try await resolveFileID(path: path)
         return try await sendAuthed { Self.downloadRequest(fileID: id, token: $0) }
@@ -267,6 +287,64 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
 
     /// Entries requested per page; the pager walks `offset` in these steps.
     static let pageSize = 1000
+
+    /// Box's user-events stream. `stream_position=now` asks only for a position
+    /// to start from; a real position returns what has happened since.
+    static func eventsRequest(streamPosition: String, token: String) -> URLRequest {
+        var c = URLComponents(string: "https://api.box.com/2.0/events")!
+        c.queryItems = [
+            URLQueryItem(name: "stream_type", value: "changes"),
+            URLQueryItem(name: "stream_position", value: streamPosition),
+            URLQueryItem(name: "limit", value: "500"),
+        ]
+        var r = URLRequest(url: c.url!)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+
+    /// One page of events.
+    ///
+    /// Box's feed is **account-wide** — it reports everything the user does,
+    /// anywhere — so the caller has to filter to the mirrored subtree. Events
+    /// also carry no path: the item's `path_collection` names its ancestors, and
+    /// the path is those names plus the item's own.
+    static func parseEvents(_ data: Data)
+        -> (changed: [RemoteEntry], deleted: [String], position: String?) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entries = root["entries"] as? [[String: Any]] else { return ([], [], nil) }
+        let formatter = ISO8601DateFormatter()
+        var changed: [RemoteEntry] = []
+        var deleted: [String] = []
+
+        for event in entries {
+            guard let type = event["event_type"] as? String,
+                  let source = event["source"] as? [String: Any],
+                  let name = source["name"] as? String,
+                  let kind = source["type"] as? String else { continue }
+
+            var ancestors: [String] = []
+            if let collection = (source["path_collection"] as? [String: Any])?["entries"] as? [[String: Any]] {
+                // The first entry is "All Files", Box's invisible root.
+                ancestors = collection.compactMap { $0["name"] as? String }.dropFirst().map { $0 }
+            }
+            let path = "/" + (ancestors + [name]).joined(separator: "/")
+
+            // Anything that removes an item from where it was.
+            if ["ITEM_TRASH", "ITEM_DELETE", "ITEM_MOVE", "ITEM_RENAME"].contains(type) {
+                deleted.append(path)
+                if type == "ITEM_TRASH" || type == "ITEM_DELETE" { continue }
+            }
+            changed.append(RemoteEntry(
+                path: path,
+                name: name,
+                isDirectory: kind == "folder",
+                size: source["size"] as? Int ?? 0,
+                modified: (source["modified_at"] as? String).flatMap { formatter.date(from: $0) },
+                rev: source["etag"] as? String))
+        }
+        return (changed, deleted, (root["next_stream_position"] as? NSNumber)?.stringValue
+                                   ?? root["next_stream_position"] as? String)
+    }
 
     static func listItemsRequest(folderID: String, token: String, offset: Int = 0) -> URLRequest {
         var c = URLComponents(string: "https://api.box.com/2.0/folders/\(folderID)/items")!

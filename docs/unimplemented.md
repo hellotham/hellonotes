@@ -143,27 +143,43 @@ decisions are not:
 
 ---
 
-## 8b · Cloud storage *(reworked 2026-08-15 — see [cloud-native-roadmap.md](cloud-native-roadmap.md) Phase 5; these are the known limits)*
+## 8b · Cloud storage *(reworked 2026-08-15 — see [cloud-native-roadmap.md](cloud-native-roadmap.md) Phase 5)*
 
-**Mounted providers are now the front door.** When a provider's desktop client is
-installed its storage is already at `~/Library/CloudStorage/<Provider>` as ordinary
-dataless files, so **File ▸ Open Cloud Folder…** needs no sign-in, no token, no cache
-and no sync engine at all. The direct API moved under **Connect Over the Web**, which
-is what it was always meant to be: the fallback for an account whose client is absent.
+**Mounted providers are the front door.** When a provider's desktop client is installed
+its storage is already at `~/Library/CloudStorage/<Provider>` as ordinary dataless files,
+so **File ▸ Open Cloud Folder…** needs no sign-in, no token, no cache and no sync engine.
+The direct API sits under **Connect Over the Web** — the fallback for an account whose
+client is absent. On iOS the Files picker covers the same ground.
 
-**File Provider path (Box/Dropbox/OneDrive/Google Drive/iCloud) — production-ready.** Gaps:
-- 🟡 **"Remove Download" is best-effort** — for a File Provider domain we don't own, eviction is the provider's call; we can trigger a download but can't force dehydration. Surfaced as a hint, not a guarantee.
-- 🟡 **Content search skips notes whose content isn't local** by design (so a query never downloads the vault). There is no explicit *"search online files too (downloads N)"* escape hatch yet — title/tag/alias search does cover them. Search now *discloses* when its answers are partial.
+Everything that was listed here as a gap has been implemented: metadata-first mirroring
+with on-demand hydration, delta refresh on all four providers, revision-based conflict
+detection with conflicted copies, restore-on-launch, a bounded cache with LRU eviction,
+chunked upload past the 4 MB simple-upload cap, collection promotion on iOS, and an
+explicit "download and search" escape hatch.
 
-**Direct-API providers (Dropbox, Box, Google Drive, OneDrive).** Gaps:
-- 🟠 **Interactive sign-in needs a signed build** — `ASWebAuthenticationSession` won't reliably present from an unsigned CLI build. Only Dropbox has been proven through a *complete* real sign-in→token→API round-trip; Box/Drive/OneDrive are verified at the authorize endpoint + request shapes (clean auth-only 401s) but their final interactive sign-in is unexercised. *(Does not apply to a mounted provider, which never signs in.)*
-- 🟠 **Delta refresh is Dropbox-only so far** — `RemoteStore.changes(since:path:)` returns `nil` by default, which correctly falls back to a full metadata sync, so refresh works everywhere. Box (`/events` + `stream_position`, account-wide so it needs subtree filtering), Graph (`/delta`, keyed by **id** not path) and Drive (`changes.list`) still take the slow path.
-- 🟡 **Uploads are single-shot** — Box/Drive/OneDrive/Dropbox simple uploads cap out (e.g. Graph ~4 MB); no chunked/resumable session. Irrelevant for Markdown, wrong for large attachments.
-- 🟡 **Sidebar promotion is macOS-only** — iOS presents the browser (edit-in-place); "Add as Collection" needs `Library` plumbed into the settings sheet. *(iOS reaches mounted providers through the Files picker, which needs none of this.)*
-- 🟡 **Remote collections aren't restored on launch** — the manifest and cursor now make a stale cache detectable, so the original objection is answered; the restore path itself is not wired up yet.
-- 🟡 **The hydrated cache is unbounded** — nothing evicts downloaded content back to a placeholder, so a long-lived collection grows to the size of what has been opened. Bounded by what the user actually reads, but not by anything else.
-- 🟡 **Box embeds a client secret** — Box has no PKCE public-client mode, so the secret ships in the app and is extractable. Fine for personal/dev use; a public release wants a backend proxy or Box JWT server-auth. *(Moot when Box Drive is installed.)*
-- 🟡 **Google "Testing" mode expires refresh tokens after 7 days** — an external, unverified consent screen means weekly re-sign-in. Publishing/verification (or Workspace-internal) removes it.
+What remains are **constraints of the providers and the platform**, not deferred work:
+
+- 🔒 **Box embeds a client secret.** Box has no PKCE public-client mode, so the secret ships
+  in the app and is extractable. Removing it requires a backend proxy or Box JWT
+  server-auth — i.e. a server to run, not code to write here. Moot when Box Drive is
+  installed, which is now the default path.
+- 🔒 **Google "Testing" mode expires refresh tokens after 7 days.** A property of an
+  unverified consent screen in the *owner's* Google console; publishing/verification (or
+  Workspace-internal distribution) removes it. Nothing in this codebase can.
+- 🔒 **Interactive sign-in needs a signed build.** `ASWebAuthenticationSession` won't
+  reliably present from an unsigned CLI build — a signing requirement, and irrelevant to a
+  mounted provider. Only Dropbox has been proven through a *complete* real
+  sign-in→token→API round-trip; the other three are verified at the authorize endpoint and
+  at request/response shapes.
+- 🔒 **"Remove Download" is best-effort.** For a File Provider domain we don't own,
+  dehydration is the provider's decision; we can trigger a download but not force the
+  reverse. Surfaced as a hint, not a guarantee. *(The direct-API mirror does evict its own
+  cache, because there it is our decision to make.)*
+- 🟡 **The three non-Dropbox delta feeds are fixture-tested, not live-tested.** Graph, Box
+  and Drive delta parsing is pinned by response fixtures the way every other provider
+  request in this codebase is, but none has been exercised against a live account. Box's
+  feed is account-wide and filtered to the subtree; Drive's is id-keyed, so a change to a
+  file in a folder never walked is left for the next full sync rather than guessed at.
 
 ---
 

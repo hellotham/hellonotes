@@ -487,6 +487,59 @@ final class RemoteMirror {
         return relative
     }
 
+    // MARK: - Bounding the cache
+
+    /// How much downloaded content a mirror may hold before the least recently
+    /// used bodies are dropped back to placeholders.
+    ///
+    /// A lazy cache that never lets go is only a slower version of downloading
+    /// everything: open enough of a large account and you have mirrored it in
+    /// full. Evicting costs nothing but a re-download on next open, which is the
+    /// same cost the file had before it was ever opened.
+    static let defaultCacheLimit = 256 * 1024 * 1024      // 256 MB
+
+    /// Total bytes of hydrated content.
+    var hydratedBytes: Int {
+        manifest.entries.values.reduce(0) { $0 + ($1.hydrated && !$1.isDirectory ? $1.size : 0) }
+    }
+
+    /// Drop least-recently-opened content until the cache fits `limit`.
+    ///
+    /// "Least recently used" is the filesystem's own access time, so a note read
+    /// five minutes ago outranks one opened a month ago without the mirror having
+    /// to keep its own log. `keeping` is never evicted — it is what the user is
+    /// looking at.
+    @discardableResult
+    func evictIfNeeded(limit: Int = RemoteMirror.defaultCacheLimit,
+                       keeping pinned: Set<String> = []) -> Int {
+        var current = manifest
+        var total = hydratedBytes
+        guard total > limit else { return 0 }
+
+        let candidates = current.entries
+            .filter { !$0.value.isDirectory && $0.value.hydrated && !pinned.contains($0.key) }
+            .map { (path: $0.key, entry: $0.value, used: Self.lastUsed(cacheRoot.appending(path: $0.key))) }
+            .sorted { $0.used < $1.used }          // oldest first
+
+        var evicted = 0
+        for candidate in candidates where total > limit {
+            let url = cacheRoot.appending(path: candidate.path)
+            // Back to a placeholder rather than gone: the name must stay, or the
+            // note would vanish from the collection entirely.
+            guard (try? Data().write(to: url, options: .atomic)) != nil else { continue }
+            current.entries[candidate.path]?.hydrated = false
+            total -= candidate.entry.size
+            evicted += 1
+        }
+        if evicted > 0 { manifest = current }
+        return evicted
+    }
+
+    private static func lastUsed(_ url: URL) -> Date {
+        let values = try? url.resourceValues(forKeys: [.contentAccessDateKey, .contentModificationDateKey])
+        return values?.contentAccessDate ?? values?.contentModificationDate ?? .distantPast
+    }
+
     // MARK: - Cache location
 
     /// A stable per-provider/per-folder cache directory in Application Support

@@ -146,9 +146,8 @@ final class Library {
 
     /// Open a cloud account (a `RemoteStore` folder) as a first-class collection:
     /// mirror it into a local cache, then open that cache with the normal
-    /// machinery. Saved edits upload back through `Collection.remote`. Not
-    /// persisted for restore — a remote collection is re-opened via its provider,
-    /// not a local bookmark whose cache could be stale.
+    /// machinery. Saved edits upload back through `Collection.remote`.
+    ///
     /// The collection is created and focused **before** the sync runs, not
     /// after. Waiting for a whole-account download to finish before showing
     /// anything is why "Add as Collection" looked dead: on a real account
@@ -186,6 +185,7 @@ final class Library {
         // Show it before the sync, not after: the collection exists now, and the
         // point of revealing it is to prove the add worked while the sync runs.
         requestReveal(id)
+        persist()
 
         // Metadata first: the folder's *shape* arrives immediately and content
         // is fetched when something needs it. `syncDown` downloaded every note
@@ -356,6 +356,8 @@ final class Library {
     // MARK: - Persistence (security-scoped bookmarks)
 
     private static let bookmarksKey = "collectionBookmarks"
+    /// Cache directories of direct-API collections, so they come back on launch.
+    private static let remoteCachesKey = "remoteCollectionCaches"
     /// Last-known paths, index-aligned with `bookmarksKey`. Kept purely so a
     /// collection whose bookmark no longer resolves can still be *named* on
     /// screen — otherwise the only honest thing left to say would be nothing,
@@ -415,6 +417,7 @@ final class Library {
 
         // A re-minted bookmark is only useful once it is written back.
         if refreshedBookmarks { persist() }
+        await restoreRemoteCollections()
         guard !restored.isEmpty else { return }
 
         let externalChange: @MainActor () -> Void = { [weak self] in self?.onExternalChange() }
@@ -449,6 +452,54 @@ final class Library {
         }
         UserDefaults.standard.set(datas, forKey: Self.bookmarksKey)
         UserDefaults.standard.set(paths, forKey: Self.pathsKey)
+
+        // Direct-API collections live in our own container, so they need no
+        // bookmark — just the cache directory, which the manifest inside it
+        // describes completely.
+        let remotes = collections.compactMap { $0.remote?.cacheRoot.path }
+        UserDefaults.standard.set(remotes, forKey: Self.remoteCachesKey)
+    }
+
+    /// Rebuild the direct-API collections that were open at last quit.
+    ///
+    /// Restoring these used to be refused on the grounds that a stale cache
+    /// shouldn't masquerade as a collection — which was right while staleness was
+    /// undetectable. The manifest changed that: it records a delta cursor, so the
+    /// collection comes back **instantly from cache** and then asks the provider
+    /// what has changed. The alternative was making the user reconnect every
+    /// session to see notes that were already on disk.
+    private func restoreRemoteCollections() async {
+        let caches = (UserDefaults.standard.array(forKey: Self.remoteCachesKey) as? [String]) ?? []
+        for path in caches {
+            let cacheRoot = URL(fileURLWithPath: path, isDirectory: true)
+            guard let manifest = RemoteManifest.load(fromCacheRoot: cacheRoot) else { continue }
+            guard let store = Self.makeStore(named: manifest.provider) else { continue }
+            let id = cacheRoot.standardizedFileURL.path
+            guard !collections.contains(where: { $0.id == id }) else { continue }
+
+            let mirror = RemoteMirror(store: store, cacheRoot: cacheRoot,
+                                      remoteRoot: manifest.remoteRoot,
+                                      displayName: manifest.displayName)
+            let collection = Collection(rootURL: cacheRoot)
+            collection.remote = mirror
+            collections.append(collection)
+            await collection.activate(onExternalChange: { [weak self] in self?.onExternalChange() })
+
+            // Then reconcile in the background — the cached notes are already on
+            // screen, so a slow provider costs nothing but freshness.
+            Task { [weak collection] in await collection?.refreshFromProvider() }
+        }
+    }
+
+    /// Recreate a provider client from the name its manifest recorded.
+    private static func makeStore(named provider: String) -> RemoteStore? {
+        switch provider {
+        case DropboxStore().providerName:     return DropboxStore()
+        case BoxStore().providerName:         return BoxStore()
+        case GoogleDriveStore().providerName: return GoogleDriveStore()
+        case OneDriveStore().providerName:    return OneDriveStore()
+        default:                              return nil
+        }
     }
 
     /// Try an unavailable collection again — the drive was plugged back in, or

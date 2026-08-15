@@ -861,6 +861,12 @@ struct MacContentView: View {
         library.collections.filter { !$0.isAvailable || $0.hasIncompleteIndex }
     }
 
+    /// Collections holding items whose content a search cannot read because it
+    /// has not been downloaded.
+    private var collectionsWithUnreadableContent: [Collection] {
+        library.collections.filter { $0.notLocalCount > 0 }
+    }
+
     /// Say when search results are incomplete, at the point they are read.
     ///
     /// Marking the collection row alone would not do: a **false negative** is
@@ -880,6 +886,33 @@ struct MacContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.quaternary.opacity(0.4))
+            Divider()
+        }
+
+        // Content search deliberately skips files that aren't downloaded, so a
+        // query never quietly pulls a whole account local. That default is
+        // right — but a default is not the same as the only option, and without
+        // a way past it the omission is a wall rather than a choice.
+        let notLocal = collectionsWithUnreadableContent
+        if isSearching, !notLocal.isEmpty {
+            let total = notLocal.reduce(0) { $0 + $1.notLocalCount }
+            HStack(spacing: 6) {
+                Image(systemName: "icloud.and.arrow.down")
+                    .foregroundStyle(.secondary)
+                Text("\(total) item\(total == 1 ? " isn't" : "s aren't") downloaded, so their contents aren't searched.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Download and Search") {
+                    Task { for collection in notLocal { await collection.downloadAllForSearch() } }
+                }
+                .font(.caption)
+                .buttonStyle(.link)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)

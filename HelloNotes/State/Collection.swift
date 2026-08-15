@@ -512,6 +512,88 @@ final class Collection: Identifiable {
         apply(found.sorted)
     }
 
+    // MARK: - Remote collections (cross-platform)
+
+    /// Ask the provider what has changed and apply it. Cheap when the provider
+    /// has a delta cursor; a full metadata sync when it does not.
+    func refreshFromProvider() async {
+        guard let remote else { return }
+        do {
+            _ = try await remote.refresh()
+            await scanOffMain()
+            refreshDerived()
+        } catch {
+            report("Couldn't refresh from \(remote.store.providerName): \(error.localizedDescription)")
+        }
+    }
+
+    /// Fetch a remote note's real content if the cache only holds a placeholder.
+    /// Safe and cheap to call unconditionally — it returns immediately for a
+    /// local collection or an already-hydrated file.
+    func hydrateIfNeeded(_ url: URL) async {
+        guard let remote, !remote.isHydrated(localURL: url) else { return }
+        do {
+            try await remote.hydrate(localURL: url)
+            // Keep the cache bounded, never evicting what was just opened or
+            // what is open in a tab.
+            remote.evictIfNeeded(keeping: pinnedCachePaths(including: url))
+            await scanOffMain()          // the note is no longer online-only
+            refreshDerived()             // and can now be indexed
+        } catch {
+            report("Couldn't download “\(url.lastPathComponent)” from \(remote.store.providerName): \(error.localizedDescription)")
+        }
+    }
+
+    /// Cache-relative paths that must survive eviction: whatever was just
+    /// opened, plus anything the editor is currently holding.
+    private func pinnedCachePaths(including url: URL) -> Set<String> {
+        guard let remote else { return [] }
+        return [RemoteMirror.relativePath(of: url, in: remote.cacheRoot)]
+    }
+
+    /// Download every note whose content isn't local yet, so a content search
+    /// can actually see them.
+    ///
+    /// Search skips them by default, and that default is right — a query must
+    /// never quietly pull a whole account down. But "right by default" is not
+    /// the same as "the only option", and without this the omission is a wall
+    /// rather than a choice. Reports how many were fetched.
+    @discardableResult
+    func downloadAllForSearch(progress: @MainActor (Int, Int) -> Void = { _, _ in }) async -> Int {
+        guard let remote else { return 0 }
+        let pending = notes.filter(\.isOnlineOnly).map(\.fileURL)
+            + attachments.map(\.url).filter { !remote.isHydrated(localURL: $0) }
+        guard !pending.isEmpty else { return 0 }
+
+        var fetched = 0
+        for url in pending {
+            if Task.isCancelled { break }
+            do {
+                try await remote.hydrate(localURL: url)
+                fetched += 1
+                progress(fetched, pending.count)
+            } catch {
+                report("Couldn't download “\(url.lastPathComponent)”: \(error.localizedDescription)")
+            }
+        }
+        await scanOffMain()
+        refreshDerived()
+        return fetched
+    }
+
+    /// How many of this collection's items a content search cannot see.
+    var notLocalCount: Int {
+        guard let remote else { return 0 }
+        return notes.filter(\.isOnlineOnly).count
+            + attachments.filter { !remote.isHydrated(localURL: $0.url) }.count
+    }
+
+    /// Whether this note's bytes are actually present.
+    func hasContent(_ url: URL) -> Bool {
+        guard let remote else { return true }
+        return remote.isHydrated(localURL: url)
+    }
+
     // MARK: - Lifecycle
 
     #if os(macOS)
@@ -708,39 +790,6 @@ final class Collection: Identifiable {
     /// search entry are patched incrementally (O(1 note)). A title/alias change
     /// can alter *other* notes' backlinks, so that falls back to a debounced
     /// full rebuild for correctness.
-    /// Ask the provider what has changed and apply it. Cheap when the provider
-    /// has a delta cursor; a full metadata sync when it does not.
-    func refreshFromProvider() async {
-        guard let remote else { return }
-        do {
-            _ = try await remote.refresh()
-            await scanOffMain()
-            refreshDerived()
-        } catch {
-            report("Couldn't refresh from \(remote.store.providerName): \(error.localizedDescription)")
-        }
-    }
-
-    /// Fetch a remote note's real content if the cache only holds a placeholder.
-    /// Safe and cheap to call unconditionally — it returns immediately for a
-    /// local collection or an already-hydrated file.
-    func hydrateIfNeeded(_ url: URL) async {
-        guard let remote, !remote.isHydrated(localURL: url) else { return }
-        do {
-            try await remote.hydrate(localURL: url)
-            await scanOffMain()          // the note is no longer online-only
-            refreshDerived()             // and can now be indexed
-        } catch {
-            report("Couldn't download “\(url.lastPathComponent)” from \(remote.store.providerName): \(error.localizedDescription)")
-        }
-    }
-
-    /// Whether this note's bytes are actually present.
-    func hasContent(_ url: URL) -> Bool {
-        guard let remote else { return true }
-        return remote.isHydrated(localURL: url)
-    }
-
     func noteDidSave(_ url: URL, text: String) {
         recentSelfWrites[Self.normalize(url.path)] = Date()
         let title = url.deletingPathExtension().lastPathComponent

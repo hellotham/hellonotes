@@ -83,12 +83,93 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return all
     }
 
+    func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? {
+        var result = RemoteChangeSet()
+        // The cursor *is* the next URL: Graph hands back a complete deltaLink
+        // rather than an opaque token to reassemble.
+        var next: URL? = cursor.flatMap(URL.init(string:))
+            ?? Self.deltaRequest(path: path, token: "").url
+
+        while let url = next {
+            let data: Data
+            do {
+                data = try await sendAuthed { Self.pageRequest(url: url, token: $0) }
+            } catch RemoteStoreError.http(let code, _) where code == 410 {
+                // resyncRequired — the delta token aged out.
+                return RemoteChangeSet(requiresFullResync: true)
+            }
+            let page = Self.parseDeltaPage(data)
+            result.changed += page.changed
+            result.deleted += page.deleted
+            if let delta = page.delta { result.cursor = delta }
+            next = page.next.flatMap(URL.init(string:))
+        }
+        return result
+    }
+
     func read(path: String) async throws -> Data {
         try await sendAuthed { Self.downloadRequest(path: path, token: $0) }
     }
 
+    /// Graph's simple `PUT` is capped at 4 MB. Anything larger goes through an
+    /// **upload session**: create one, then send the bytes as byte-range slices.
+    ///
+    /// Markdown never reaches this. Attachments do — an image pasted into a note
+    /// or a PDF dropped into the folder — and before this they failed at the cap
+    /// with a provider error rather than uploading.
+    static let simpleUploadLimit = 4 * 1024 * 1024
+    /// Graph requires every chunk but the last to be a multiple of 320 KiB.
+    static let uploadChunkSize = 320 * 1024 * 10      // 3.2 MB
+
     func write(_ data: Data, to path: String) async throws {
-        _ = try await sendAuthed { Self.uploadRequest(path: path, data: data, token: $0) }
+        guard data.count > Self.simpleUploadLimit else {
+            _ = try await sendAuthed { Self.uploadRequest(path: path, data: data, token: $0) }
+            return
+        }
+
+        let sessionData = try await sendAuthed { Self.createUploadSessionRequest(path: path, token: $0) }
+        guard let uploadURL = Self.parseUploadSessionURL(sessionData) else {
+            throw RemoteStoreError.decoding("createUploadSession uploadUrl")
+        }
+
+        var offset = 0
+        while offset < data.count {
+            let end = min(offset + Self.uploadChunkSize, data.count)
+            let slice = data[offset..<end]
+            // The session URL is pre-authorised, so these carry no bearer token.
+            _ = try await send(Self.uploadChunkRequest(uploadURL: uploadURL, chunk: Data(slice),
+                                                       offset: offset, total: data.count))
+            offset = end
+        }
+    }
+
+    static func createUploadSessionRequest(path: String, token: String) -> URLRequest {
+        var r = URLRequest(url: itemURL(path: path, suffix: "/createUploadSession"))
+        r.httpMethod = "POST"
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(
+            withJSONObject: ["item": ["@microsoft.graph.conflictBehavior": "replace"]])
+        return r
+    }
+
+    static func parseUploadSessionURL(_ data: Data) -> URL? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let string = root["uploadUrl"] as? String else { return nil }
+        return URL(string: string)
+    }
+
+    /// One byte-range slice. `Content-Range` is inclusive at both ends, which is
+    /// the detail most easily got wrong — `bytes 0-9/10` is a complete 10-byte
+    /// file, not `bytes 0-10/10`.
+    static func uploadChunkRequest(uploadURL: URL, chunk: Data, offset: Int, total: Int) -> URLRequest {
+        var r = URLRequest(url: uploadURL)
+        r.httpMethod = "PUT"
+        r.setValue("\(chunk.count)", forHTTPHeaderField: "Content-Length")
+        r.setValue("bytes \(offset)-\(offset + chunk.count - 1)/\(total)",
+                   forHTTPHeaderField: "Content-Range")
+        r.httpBody = chunk
+        return r
     }
 
     func delete(path: String) async throws {
@@ -188,6 +269,53 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     }
 
     /// Fetch a Graph continuation URL (`@odata.nextLink`) verbatim.
+    /// Graph's delta: `/delta` on a drive item issues an `@odata.deltaLink`, and
+    /// calling that link later returns everything that changed since.
+    static func deltaRequest(path: String, token: String) -> URLRequest {
+        pageRequest(url: itemURL(path: path, suffix: "/delta"), token: token)
+    }
+
+    /// One page of a delta response.
+    ///
+    /// Graph is **id-keyed**, not path-keyed: a rename arrives as the same id at
+    /// a new path, so the path has to be rebuilt from `parentReference.path`
+    /// (`/drive/root:/Notes`) plus the item's own name. A `deleted` facet marks
+    /// removals — they carry no other metadata, which is why they cannot simply
+    /// be parsed as items.
+    static func parseDeltaPage(_ data: Data)
+        -> (changed: [RemoteEntry], deleted: [String], next: String?, delta: String?) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = root["value"] as? [[String: Any]] else {
+            return ([], [], nil, nil)
+        }
+        let formatter = ISO8601DateFormatter()
+        var changed: [RemoteEntry] = []
+        var deleted: [String] = []
+
+        for item in items {
+            guard let name = item["name"] as? String else { continue }
+            let parent = (item["parentReference"] as? [String: Any])?["path"] as? String ?? ""
+            // "/drive/root:/Notes" -> "/Notes"; the root itself -> "".
+            let folder = parent.range(of: "root:").map { String(parent[$0.upperBound...]) } ?? ""
+            let path = folder.isEmpty ? "/" + name : folder + "/" + name
+
+            if item["deleted"] != nil {
+                deleted.append(path)
+                continue
+            }
+            changed.append(RemoteEntry(
+                path: path,
+                name: name,
+                isDirectory: item["folder"] != nil,
+                size: item["size"] as? Int ?? 0,
+                modified: (item["lastModifiedDateTime"] as? String).flatMap { formatter.date(from: $0) },
+                rev: (item["eTag"] as? String) ?? (item["cTag"] as? String)))
+        }
+        return (changed, deleted,
+                root["@odata.nextLink"] as? String,
+                root["@odata.deltaLink"] as? String)
+    }
+
     static func pageRequest(url: URL, token: String) -> URLRequest {
         var r = URLRequest(url: url)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
