@@ -1147,6 +1147,47 @@ struct CollectionAvailabilityTests {
     }
 }
 
+/// The sandbox returns the *container* from every Foundation home-directory API,
+/// which is why a browse hint built from one points at a path that has never
+/// existed. Decisive because the test host **is** the sandboxed app, so this is
+/// exactly what the shipping binary sees.
+struct RealHomeTests {
+
+    @Test func foundationReportsTheContainerAndGetpwuidReportsTheHome() {
+        // Only meaningful in a sandbox; outside one the two agree and there is
+        // nothing to prove.
+        guard RealHome.isSandboxed else { return }
+        let foundation = NSHomeDirectory()
+        #expect(foundation.contains("/Library/Containers/"))
+        #expect(!RealHome.directory.path.contains("/Library/Containers/"))
+        #expect(foundation.hasPrefix(RealHome.directory.path),
+                "the container lives inside the real home")
+    }
+
+    /// The browse hints exist to start the open panel somewhere useful. Built
+    /// from `homeDirectoryForCurrentUser` they resolved into the container,
+    /// where neither folder has ever existed — so the panel silently ignored
+    /// them.
+    @Test func browseHintsPointIntoTheRealHomeNotTheContainer() {
+        for url in [CloudProvider.cloudStorageDirectory,
+                    CloudProvider.iCloudDriveDirectory,
+                    ObsidianVault.defaultBrowseDirectory,
+                    ObsidianVault.iCloudObsidianDirectory] {
+            #expect(!url.path.contains("/Library/Containers/"), "\(url.path)")
+            #expect(url.path.hasPrefix(RealHome.directory.path), "\(url.path)")
+        }
+    }
+
+    /// Detecting an installed client is a LaunchServices lookup, which the
+    /// sandbox permits — unlike listing `~/Library/CloudStorage`, which it does
+    /// not, and which is why the open panel does that job instead.
+    @Test func installedClientDetectionRunsInsideTheSandbox() {
+        let installed = CloudProvider.installedClients()
+        #expect(installed.count <= CloudProvider.knownClients.count)
+        print("CLIENTS installed=\(installed.map(\.name))")
+    }
+}
+
 /// The FSEvents flags the watcher used to discard entirely.
 struct FileWatcherFlagTests {
 

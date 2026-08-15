@@ -232,6 +232,37 @@ final class Library {
         Task { await openChecking(urls) }
     }
 
+    /// Add a folder from a cloud provider that is already mounted on this Mac.
+    ///
+    /// This is the path that should be tried *first*, and it is the cheapest
+    /// thing in the whole cloud story: Box, Dropbox, OneDrive and Google Drive
+    /// mount their storage at `~/Library/CloudStorage/<Provider>` as ordinary
+    /// dataless files, so a collection there needs **no sign-in, no token, no
+    /// cache and no sync engine**. Everything that makes cloud files work —
+    /// coordinated reads that materialise on demand, online-only badges,
+    /// indexers that skip un-downloaded notes, Download / Remove Download —
+    /// already applies, because to the app it is simply a folder.
+    ///
+    /// The sandbox cannot *list* that directory, but the panel runs out of
+    /// process and can, and the user's selection is what grants access.
+    func requestOpenCloudFolder() {
+        let installed = CloudProvider.installedClients()
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Open"
+        panel.directoryURL = CloudProvider.cloudStorageDirectory
+        panel.message = installed.isEmpty
+            ? "Choose a folder from a cloud provider mounted on this Mac."
+            : "Choose a folder from \(installed.map(\.name).formatted(.list(type: .and))) "
+                + "— no sign-in needed, the files are already on this Mac."
+
+        guard panel.runModal() == .OK else { return }
+        let urls = panel.urls
+        Task { await openChecking(urls) }
+    }
+
     /// Open `urls`, pausing to warn about any that look big enough to take a
     /// while. Adding a huge folder is never *blocked* — it is the user's folder
     /// and their call. The warning exists so the wait isn't a surprise, and so

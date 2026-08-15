@@ -52,6 +52,9 @@ struct AppActions {
     /// `nil` when no collection is open.
     var showsNonNoteFiles: Bool?
     var setShowsNonNoteFiles: ((Bool) -> Void)?
+    /// Browse the File-Provider mounts for a folder to open directly — the
+    /// no-authentication path for a provider whose client is installed.
+    var openCloudFolder: (() -> Void)?
 }
 
 /// Menu actions that act on the selected note.
@@ -148,13 +151,24 @@ struct HelloNotesCommands: Commands {
             Button("Export as PDF…") { actions?.note?.exportPDF() }
                 .disabled(actions?.note == nil)
             Divider()
-            Button("Connect Dropbox…") { openWindow(id: "remoteBrowser") }
-            Button("Connect Box…") { openWindow(id: "remoteBrowserBox") }
-            Button("Connect Google Drive…") { openWindow(id: "remoteBrowserGDrive") }
-            Button("Connect OneDrive…") { openWindow(id: "remoteBrowserOneDrive") }
-            #if DEBUG
-            Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
-            #endif
+            // The cheap path first. When a provider's client is installed its
+            // files are already on this Mac as ordinary dataless paths, so a
+            // collection there needs no sign-in, no token and no cache at all.
+            Button("Open Cloud Folder…") { actions?.openCloudFolder?() }
+                .disabled(actions?.openCloudFolder == nil)
+
+            // Connecting over the provider's own API is the fallback, for an
+            // account whose desktop client is not installed.
+            Menu("Connect Over the Web") {
+                Button("Dropbox…") { openWindow(id: "remoteBrowser") }
+                Button("Box…") { openWindow(id: "remoteBrowserBox") }
+                Button("Google Drive…") { openWindow(id: "remoteBrowserGDrive") }
+                Button("OneDrive…") { openWindow(id: "remoteBrowserOneDrive") }
+                #if DEBUG
+                Divider()
+                Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
+                #endif
+            }
         }
 
         // MARK: File — Print (⌘P), the standard menu item a notes app must have.

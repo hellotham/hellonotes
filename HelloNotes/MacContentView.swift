@@ -751,7 +751,8 @@ struct MacContentView: View {
             showsNonNoteFiles: focused?.showsNonNoteFiles,
             setShowsNonNoteFiles: focused.map { collection in
                 { collection.showsNonNoteFiles = $0 }
-            }
+            },
+            openCloudFolder: { library.requestOpenCloudFolder() }
         )
     }
 

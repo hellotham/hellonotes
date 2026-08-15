@@ -45,9 +45,13 @@ enum ObsidianVault {
         return iCloudDriveDirectory
     }
 
+    /// The **real** home, not the container. `homeDirectoryForCurrentUser`
+    /// returns the sandbox container, so this used to build a path that had
+    /// never existed — `checkResourceIsReachable()` then failed, the fallback
+    /// was equally fictional, and the open panel quietly ignored the hint. See
+    /// `RealHome`.
     private static var homeMobileDocuments: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Mobile Documents", isDirectory: true)
+        RealHome.path("Library/Mobile Documents")
     }
     #endif
 
