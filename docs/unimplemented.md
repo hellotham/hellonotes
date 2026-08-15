@@ -143,20 +143,26 @@ decisions are not:
 
 ---
 
-## 8b · Cloud storage *(shipped 2026-07-21 — see [cloud-native-roadmap.md](cloud-native-roadmap.md); these are the known limits)*
+## 8b · Cloud storage *(reworked 2026-08-15 — see [cloud-native-roadmap.md](cloud-native-roadmap.md) Phase 5; these are the known limits)*
+
+**Mounted providers are now the front door.** When a provider's desktop client is
+installed its storage is already at `~/Library/CloudStorage/<Provider>` as ordinary
+dataless files, so **File ▸ Open Cloud Folder…** needs no sign-in, no token, no cache
+and no sync engine at all. The direct API moved under **Connect Over the Web**, which
+is what it was always meant to be: the fallback for an account whose client is absent.
 
 **File Provider path (Box/Dropbox/OneDrive/Google Drive/iCloud) — production-ready.** Gaps:
 - 🟡 **"Remove Download" is best-effort** — for a File Provider domain we don't own, eviction is the provider's call; we can trigger a download but can't force dehydration. Surfaced as a hint, not a guarantee.
-- 🟡 **Content search skips online-only notes** by design (so a query never downloads the vault). There is no explicit *"search online files too (downloads N)"* escape hatch yet — title/tag/alias search does cover them.
+- 🟡 **Content search skips notes whose content isn't local** by design (so a query never downloads the vault). There is no explicit *"search online files too (downloads N)"* escape hatch yet — title/tag/alias search does cover them. Search now *discloses* when its answers are partial.
 
 **Direct-API providers (Dropbox, Box, Google Drive, OneDrive).** Gaps:
-- 🟠 **Interactive sign-in needs a signed build** — `ASWebAuthenticationSession` won't reliably present from an unsigned CLI build. Only Dropbox has been proven through a *complete* real sign-in→token→API round-trip; Box/Drive/OneDrive are verified at the authorize endpoint + request shapes (clean auth-only 401s) but their final interactive sign-in is unexercised.
-- 🟠 **`RemoteMirror.syncDown` is eager and whole-folder** — it downloads every `.md` on open (fine for note vaults, wrong for huge ones) and has no delta/cursor sync. On-demand hydration for *remote* collections is the natural next step.
-- 🟠 **No conflict resolution on the remote path** — last-write-wins. `syncDown` won't clobber a newer local file and prunes remote deletions, but a genuine two-sided edit isn't detected (the local File-Provider path *does* have the conflict banner). `RemoteEntry.rev`/`modified` are already plumbed for this.
+- 🟠 **Interactive sign-in needs a signed build** — `ASWebAuthenticationSession` won't reliably present from an unsigned CLI build. Only Dropbox has been proven through a *complete* real sign-in→token→API round-trip; Box/Drive/OneDrive are verified at the authorize endpoint + request shapes (clean auth-only 401s) but their final interactive sign-in is unexercised. *(Does not apply to a mounted provider, which never signs in.)*
+- 🟠 **Delta refresh is Dropbox-only so far** — `RemoteStore.changes(since:path:)` returns `nil` by default, which correctly falls back to a full metadata sync, so refresh works everywhere. Box (`/events` + `stream_position`, account-wide so it needs subtree filtering), Graph (`/delta`, keyed by **id** not path) and Drive (`changes.list`) still take the slow path.
 - 🟡 **Uploads are single-shot** — Box/Drive/OneDrive/Dropbox simple uploads cap out (e.g. Graph ~4 MB); no chunked/resumable session. Irrelevant for Markdown, wrong for large attachments.
-- 🟡 **Sidebar promotion is macOS-only** — iOS presents the browser (edit-in-place); "Open as Collection" needs `Library` plumbed into the settings sheet.
-- 🟡 **Remote collections aren't restored on launch** — deliberate (a stale cache shouldn't masquerade as a collection), but it means re-connecting each session.
-- 🟡 **Box embeds a client secret** — Box has no PKCE public-client mode, so the secret ships in the app and is extractable. Fine for personal/dev use; a public release wants a backend proxy or Box JWT server-auth.
+- 🟡 **Sidebar promotion is macOS-only** — iOS presents the browser (edit-in-place); "Add as Collection" needs `Library` plumbed into the settings sheet. *(iOS reaches mounted providers through the Files picker, which needs none of this.)*
+- 🟡 **Remote collections aren't restored on launch** — the manifest and cursor now make a stale cache detectable, so the original objection is answered; the restore path itself is not wired up yet.
+- 🟡 **The hydrated cache is unbounded** — nothing evicts downloaded content back to a placeholder, so a long-lived collection grows to the size of what has been opened. Bounded by what the user actually reads, but not by anything else.
+- 🟡 **Box embeds a client secret** — Box has no PKCE public-client mode, so the secret ships in the app and is extractable. Fine for personal/dev use; a public release wants a backend proxy or Box JWT server-auth. *(Moot when Box Drive is installed.)*
 - 🟡 **Google "Testing" mode expires refresh tokens after 7 days** — an external, unverified consent screen means weekly re-sign-in. Publishing/verification (or Workspace-internal) removes it.
 
 ---

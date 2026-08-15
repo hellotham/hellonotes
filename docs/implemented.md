@@ -1230,3 +1230,129 @@ that already worked.
   task left its directory walk running and the replacement started a second one
   beside it. Cancellation is forwarded; partial results from a cancelled walk
   are discarded rather than applied (applying them would empty the collection).
+
+---
+
+## 21 · Collections that survive the real world (2026-08-15)
+
+Reported: **"Add as Collection" does nothing** for Box and Dropbox. Four defects sat
+behind that one symptom — and investigating them found that the same class of problem
+applied to **local folders and Git repos**, with nothing to do with cloud.
+
+A collection is a reference to *a folder we do not control*. It can be large, slow,
+full of non-documents, a Git repo, or gone. Cloud only makes the slow, large and
+absent cases common rather than rare. So cloud-ness, repo-ness and bigness became
+**attributes**, not modes, and the work was reordered by who was hurt rather than by
+subsystem.
+
+### The reported bug
+
+| Defect | Was |
+|---|---|
+| `Task { try? await library.openRemote(…) }`, five sites | A 403, a rate limit and a complete success were indistinguishable — and identical to a dead button |
+| Collection appended only *after* the whole download | Nothing appeared for minutes on a real account |
+| `syncDown` uncancellable, all-or-nothing | One failed request discarded even the folders that had synced |
+| Button had no state | No disabled state, no progress, no result |
+
+Two further silent failures surfaced while testing live, both the same defect in
+different clothes — presenting an absence of information as information:
+
+- **The browser never listed anything when a token was already stored.** `connect()`
+  was the only caller of `load("")`, and a window opened with a Keychain token skips
+  it, so it issued *zero* requests and then said "Empty folder".
+- **Non-Markdown files were skipped without a word**, so a Resume folder of PDFs
+  synced to an unexplained empty collection.
+
+### Availability, and honest change detection
+
+`FileWatcher` discarded `eventFlags` entirely and never set `WatchRoot`. So a moved
+or deleted root, an unmounted volume, and `MustScanSubDirs` — the kernel saying *"my
+queue overflowed, I dropped events"* — all arrived as silence. A big `git checkout`
+could silently desync the index while search went on returning a confident subset.
+
+`CollectionState` now distinguishes **empty from unreadable**, which looked identical
+on screen and mean opposite things. The rule: going unavailable **never** discards
+anything. A test proved the old path emptied the collection — `notes.count` went 2→0
+when a drive was unplugged, and the index cache was rewritten to match, so the damage
+outlived the disconnection.
+
+`Bookmark.resolve` had declared `isStale`, passed its address, and never read it —
+so bookmarks decayed until one failed outright and the collection vanished at launch
+with nothing said. Now re-minted, and an unresolvable bookmark **keeps** its
+collection, restored as unavailable with Try Again and Remove.
+
+### Git as an attribute
+
+SwiftGitX exposes only `git_repository_open`, libgit2's *no-search* variant, so
+opening `~/repo/docs` as a collection reported "not a repository" and offered no Git
+UI at all. Upward discovery fixes it, and full Git UI is made safe there by
+**pathspec scoping** rather than by a warning: status, counts, history and staging all
+confine themselves to the collection's own subtree. The one hole scoping cannot close
+— `commit` writes the whole index — is *refused* rather than silently included.
+
+External `git pull` also left the branch indicator lying, because `onExternalChange`
+never touched Git.
+
+### One walk, for everything
+
+`FileManager.enumerator` returns only when finished, cannot be checkpointed, and
+yields nothing when cancelled. Replaced by an explicit **frontier** — a queue of
+unvisited directories — behind a one-method `TreeSource`, so the same machinery
+serves a local folder and a provider's API.
+
+Benchmarked before it replaced anything, at the scale of the real 2,019-note vault:
+1,111 directories / 2,222 notes, **enumerator 0.340s vs walk 0.350s (ratio 1.03)**,
+identical note and folder counts. That equality is asserted in the benchmark so the
+two cannot drift while both exist.
+
+**A test caught a serious bug during integration.** Iterating an `AsyncStream` ends
+when the *consuming* task is cancelled — so the loop could stop early while the
+detached walk ran on to report `isComplete`, and publishing the accumulator then
+replaced the note list with however little had arrived. A cancelled rescan emptied the
+collection outright: the exact thing the availability work existed to prevent,
+reintroduced through a different door.
+
+iOS gained change detection **for the first time** (`DirectoryPresenter`,
+`NSFilePresenter`) — previously an iPad showing a vault edited on a Mac stayed stale
+until relaunch.
+
+### Cloud: the mounted provider first
+
+Phase 4 shipped four direct-API providers and quietly promoted the fallback to the
+front door. But Box and OneDrive were *already mounted* on the author's Mac at
+`~/Library/CloudStorage/`, needing no authentication whatsoever. **File ▸ Open Cloud
+Folder…** now comes first; the API browsers moved under "Connect Over the Web".
+
+This turned up a shipped bug: a browse hint only has to be *correct*, not readable,
+but `ObsidianVault` built one from `homeDirectoryForCurrentUser`, which inside the
+sandbox returns the **container** (measured from inside the shipping binary — the
+test host *is* the app). The hint pointed at a path that had never existed.
+`RealHome` uses `getpwuid_r`.
+
+### Metadata-first mirroring
+
+`syncMetadata` mirrors the folder's *shape* — every file, not just Markdown —
+without fetching a byte; content hydrates on open. The **hydration gate** is a
+data-loss guard, not a feature: `FileIO.isMaterialized` answers only for iCloud items
+and calls a zero-byte placeholder "available", so the indexers would have recorded an
+empty note and the editor would have uploaded that emptiness over the real one. All
+three indexers now share `FileIO.hasContentAvailable(note)`, and the save path
+refuses outright to upload a note that was never downloaded.
+
+Conflicts are settled by the provider's **revision**, not by comparing clocks across
+devices, and both versions are kept. Refresh uses the provider's delta cursor, with
+the invariant that **a delta may never prune** — it reports what changed, not what
+exists.
+
+### Verification
+
+169 tests (up from 128). Each new invariant was proven **red first**: the failed
+subfolder, the incomplete prune, the emptied collection, the unrecognised repo
+subfolder. Two bugs were found *by* those tests rather than by reasoning — the
+cancelled-rescan wipe above, and Dropbox `deleted` entries parsing as ordinary files,
+which would have resurrected every note deleted on another device.
+
+Also: `scripts/clean-preview-stubs.sh`, because a test build leaves unsigned
+`__preview.dylib` stubs that make the *next* ordinary build die in CodeSign — an
+intermittent failure with no connection to the code just written, which cost a
+debugging detour twice.

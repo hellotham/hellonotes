@@ -41,21 +41,33 @@ import { href } from '../../lib/paths';
     since that comes from the index rather than the file contents.
   </p>
 
-  <h2 id="direct">2. Connect an account directly</h2>
+  <h2 id="mounted">2. Open a folder from a provider you already use</h2>
+  <p>
+    If the provider’s app is installed, its files are already on your Mac and there is nothing to
+    sign in to. Choose <strong>File ▸ Open Cloud Folder…</strong> and pick the folder you want.
+    HelloNotes treats it as an ordinary collection — because that is what it is.
+  </p>
+
+  <h2 id="direct">3. Connect an account over the web</h2>
   <p>
     If you do not have the provider’s app installed — or do not want it — HelloNotes can talk to{' '}
     <strong>Dropbox, Box, Google Drive</strong> and <strong>OneDrive</strong> over their own APIs.
   </p>
   <ol>
-    <li>Choose <strong>File ▸ Connect Dropbox…</strong> (or Box, Google Drive, OneDrive).</li>
+    <li>Choose <strong>File ▸ Connect Over the Web ▸ Dropbox…</strong> (or Box, Google Drive, OneDrive).</li>
     <li>Sign in to your account in the window that appears.</li>
     <li>Browse your folders and open a note to read or edit it in place.</li>
     <li>
-      Or click <strong>Open as Collection</strong> to add the folder to the sidebar as a normal
+      Or click <strong>Add as Collection</strong> to add the folder to the sidebar as a normal
       collection — with search, links, backlinks and the editor all working as usual. Saves are
       uploaded back automatically.
     </li>
   </ol>
+  <p>
+    The folder’s structure appears straight away; each note’s contents download the first time you
+    open it, so adding a large account does not mean waiting for a large download. Use{' '}
+    <strong>Refresh</strong> in the status bar to ask the provider what has changed.
+  </p>
   <p>
     Sign-in uses the provider’s standard OAuth flow. Tokens are stored in the macOS Keychain, and no
     credentials pass through us.

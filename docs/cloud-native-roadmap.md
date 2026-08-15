@@ -4,7 +4,7 @@
 a whole vault to a local folder. Covers Box, Dropbox, OneDrive (personal + business),
 Google Drive, and iCloud Drive.*
 
-Status: **All phases complete** (2026-07-20/21; review-hardened 2026-07-25). The File-Provider
+Status: **All phases complete** (2026-07-20/21; review-hardened 2026-07-25; Phase 5 added 2026-08-15). The File-Provider
 path (0–3) covers Box, Dropbox, OneDrive, Google Drive & iCloud with no credentials at all.
 Phase 4 ships **four direct-API providers** — Dropbox, Box, Google Drive and OneDrive
 (personal *and* business) — each usable standalone *and* promotable to a first-class rail
@@ -272,6 +272,51 @@ Now a working feature, not just a library.
   "<provider> (direct)" label (Git hidden). **Verified live** (macOS, mock store): open → sync (3 notes) → browse → edit in
   the normal editor → upload, confirmed by re-reading the note from the store. Tested
   (`RemoteMirrorTests`). iOS presents the browser; promotion to the rail is macOS for now.
+
+### Phase 5 — Collections that survive the real world ✅ **shipped 2026-08-15**
+Investigating "Add as Collection does nothing" found four defects behind that one
+symptom — and that the same class of problem applied to **local folders and Git
+repos**, with nothing to do with cloud. A collection is a reference to a folder we
+do not control; cloud only makes the slow, large and absent cases common.
+
+- ✅ **The reported bug.** Five `Task { try? await … }` sites discarded every error;
+  the collection was appended only *after* the whole download; `syncDown` was
+  uncancellable and all-or-nothing; the button had no state. Two further silent
+  failures surfaced while testing: the browser never listed anything when a token was
+  already stored, and non-Markdown files were skipped without a word.
+- ✅ **Availability.** `CollectionState` distinguishes **empty from unreadable** —
+  previously identical on screen and opposite in meaning. Going unavailable never
+  discards notes or the index. `FileWatcher` now reads `eventFlags` and sets
+  `WatchRoot`, so a moved root, an unmounted volume and a dropped-events batch are
+  noticed at all; `Bookmark.resolve` honours `isStale` and re-mints. The editor
+  refuses to write into a folder that isn't there, keeping the edit in the buffer.
+- ✅ **Git as an attribute.** Upward repository discovery (SwiftGitX exposes only
+  libgit2's no-search `git_repository_open`, so a subfolder of a clone reported "not a
+  repository"), with everything **pathspec-scoped** to the collection's own subtree.
+  External `git pull` now moves the branch indicator.
+- ✅ **`ResumableTreeWalk`.** A frontier walk behind a one-method `TreeSource`,
+  replacing `FileManager.enumerator`: incremental, checkpointed, resumable,
+  cancel-keeps-results, per-directory fault isolation. Benchmarked at 1,111
+  directories / 2,222 notes — 0.34s vs 0.35s, ratio 1.03, identical counts. iOS gains
+  change detection for the first time via `DirectoryPresenter` (`NSFilePresenter`).
+- ✅ **Non-note files** can be hidden per collection, gating the *walk*; what is
+  hidden is counted and stated.
+- ✅ **Mounted providers first.** LaunchServices detects installed clients;
+  **File ▸ Open Cloud Folder…** opens a panel seeded at `~/Library/CloudStorage`
+  (via `RealHome`/`getpwuid_r` — Foundation's home APIs return the sandbox
+  *container*, which is why the old Obsidian browse hint pointed at a path that had
+  never existed). No authentication at all for a mounted provider.
+- ✅ **Metadata-first mirror.** `syncMetadata` mirrors the folder's shape — every
+  file, not just Markdown — without fetching a byte; content hydrates on open.
+  `RemoteManifest` records hydration, revisions and the delta cursor. The
+  **hydration gate** is a data-loss guard: `isMaterialized` is iCloud-only and calls a
+  zero-byte placeholder "available", so all three indexers now share
+  `FileIO.hasContentAvailable(note)` and the save path refuses to upload a note that
+  was never downloaded. Conflicts are settled by the provider's revision, keeping both
+  versions.
+- ✅ **Delta refresh** via `RemoteStore.changes(since:path:)` (Dropbox implemented;
+  others fall back to a full sync). **A delta may never prune** — it reports what
+  changed, not what exists.
 
 ---
 
