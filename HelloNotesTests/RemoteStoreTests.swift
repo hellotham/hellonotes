@@ -877,6 +877,20 @@ struct RemoteMirrorTests {
         #expect(String(decoding: try await store.read(path: "/Welcome.md"), as: UTF8.self) == "# Theirs")
     }
 
+    /// A full sync ends by taking a cursor, so the *first* refresh is already
+    /// the cheap path. Without this it re-listed the whole folder just to find
+    /// its place — a full traversal spent on bookkeeping.
+    @Test func aCompleteSyncEndsHoldingADeltaCursor() async throws {
+        let store = CursorRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+
+        #expect(mirror.manifest.deltaCursor == nil)
+        try await mirror.syncMetadata()
+        #expect(mirror.manifest.deltaCursor == "cursor-now")
+    }
+
     // MARK: - Refresh
 
     /// A delta reports what *changed*, not what exists, so an item absent from
@@ -1126,6 +1140,15 @@ struct ProviderDeltaTests {
         #expect(sub.url?.absoluteString.contains("root:/Notes:/delta") == true)
     }
 
+    @Test func dropboxAsksForACursorWithoutTransferringAnything() throws {
+        let r = DropboxStore.latestCursorRequest(path: "/Resume", token: "T")
+        #expect(r.url?.absoluteString == "https://api.dropboxapi.com/2/files/list_folder/get_latest_cursor")
+        let body = try #require(r.httpBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["path"] as? String == "/Resume")
+        #expect(json["recursive"] as? Bool == true, "a subtree cursor must cover the subtree")
+    }
+
     // MARK: Box
 
     @Test func boxEventsBuildPathsFromThePathCollection() {
@@ -1154,6 +1177,13 @@ struct ProviderDeltaTests {
         #expect(url.contains("stream_type=changes"))
         #expect(url.contains("stream_position=now"))
         #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+    }
+
+    @Test func graphAsksForACursorWithoutTransferringAnything() {
+        let r = OneDriveStore.latestDeltaRequest(path: "/Notes", token: "T")
+        let url = r.url?.absoluteString ?? ""
+        #expect(url.contains("root:/Notes:/delta"))
+        #expect(url.contains("token=latest"), "the point is to get a deltaLink and no data")
     }
 
     // MARK: Google Drive
@@ -1190,6 +1220,20 @@ struct ProviderDeltaTests {
     @Test func driveStartPageTokenIsParsed() {
         #expect(GoogleDriveStore.parseStartPageToken(Data(#"{"startPageToken":"99"}"#.utf8)) == "99")
     }
+}
+
+/// Reports a cursor the way every real provider's "give me a position" call does.
+private final class CursorRemoteStore: RemoteStore, @unchecked Sendable {
+    private let inner = MockRemoteStore(preAuthenticated: true)
+    var providerName: String { inner.providerName }
+    var isAuthenticated: Bool { inner.isAuthenticated }
+    func authenticate() async throws { try await inner.authenticate() }
+    func signOut() { inner.signOut() }
+    func list(path: String) async throws -> [RemoteEntry] { try await inner.list(path: path) }
+    func read(path: String) async throws -> Data { try await inner.read(path: path) }
+    func write(_ data: Data, to path: String) async throws { try await inner.write(data, to: path) }
+    func delete(path: String) async throws { try await inner.delete(path: path) }
+    func latestCursor(path: String) async throws -> String? { "cursor-now" }
 }
 
 /// A store with a scriptable delta feed, so refresh behaviour can be tested

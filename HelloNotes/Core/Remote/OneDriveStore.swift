@@ -107,6 +107,20 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return result
     }
 
+    func latestCursor(path: String) async throws -> String? {
+        let data = try await sendAuthed { Self.latestDeltaRequest(path: path, token: $0) }
+        return Self.parseDeltaPage(data).delta
+    }
+
+    /// `?token=latest` asks Graph for a deltaLink describing "now", with an
+    /// empty value array — the whole point being that it transfers nothing.
+    static func latestDeltaRequest(path: String, token: String) -> URLRequest {
+        var components = URLComponents(url: itemURL(path: path, suffix: "/delta"),
+                                       resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "token", value: "latest")]
+        return pageRequest(url: components.url!, token: token)
+    }
+
     func read(path: String) async throws -> Data {
         try await sendAuthed { Self.downloadRequest(path: path, token: $0) }
     }

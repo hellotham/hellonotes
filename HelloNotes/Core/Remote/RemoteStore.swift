@@ -52,10 +52,22 @@ protocol RemoteStore: AnyObject, Sendable {
     /// `changes.list` — which is what makes cursor-based refresh the right
     /// design rather than polling the tree.
     func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet?
+
+    /// A cursor marking "everything up to now", **without** fetching any data.
+    ///
+    /// Taken at the end of a full sync so the *first* refresh can already use
+    /// the cheap path. Without it the first refresh re-lists the whole folder
+    /// merely to obtain a position — a full traversal spent on bookkeeping.
+    ///
+    /// Every provider offers this directly: Dropbox `list_folder/get_latest_cursor`,
+    /// Graph `/delta?token=latest`, Box `/events?stream_position=now`, Drive
+    /// `changes/startPageToken`.
+    func latestCursor(path: String) async throws -> String?
 }
 
 extension RemoteStore {
     func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? { nil }
+    func latestCursor(path: String) async throws -> String? { nil }
 }
 
 /// What changed on the provider since a cursor was issued.

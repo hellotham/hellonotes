@@ -120,6 +120,18 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
         return result
     }
 
+    func latestCursor(path: String) async throws -> String? {
+        let data = try await sendAuthed { Self.latestCursorRequest(path: path, token: $0) }
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["cursor"] as? String
+    }
+
+    /// Dropbox's purpose-built "give me a cursor and no entries" endpoint.
+    static func latestCursorRequest(path: String, token: String) -> URLRequest {
+        jsonRequest(URL(string: "https://api.dropboxapi.com/2/files/list_folder/get_latest_cursor")!,
+                    token: token,
+                    body: ["path": normalizedPath(path), "recursive": true])
+    }
+
     /// `deleted` entries carry no metadata beyond their path, so
     /// `parseListFolderPage` (which needs a name and tag) drops them.
     static func parseDeletions(_ data: Data) -> [String] {

@@ -369,6 +369,13 @@ final class RemoteMirror {
             }
             pruneLocalItems(notIn: Set(seen.map { cacheRoot.appending(path: $0).standardizedFileURL.path }))
         }
+        // Take a cursor while we are here. A full sync has just seen the whole
+        // folder, so "everything up to now" is exactly what it describes — and
+        // acquiring it costs one metadata request instead of making the first
+        // refresh re-list the folder purely to find its place.
+        if result.isComplete, updated.deltaCursor == nil {
+            updated.deltaCursor = try? await store.latestCursor(path: remoteRoot)
+        }
         updated.lastRefresh = Date()
         manifest = updated
         return outcome

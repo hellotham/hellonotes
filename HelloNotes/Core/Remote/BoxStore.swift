@@ -125,6 +125,11 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
         return result
     }
 
+    func latestCursor(path: String) async throws -> String? {
+        let data = try await sendAuthed { Self.eventsRequest(streamPosition: "now", token: $0) }
+        return Self.parseEvents(data).position
+    }
+
     func read(path: String) async throws -> Data {
         let id = try await resolveFileID(path: path)
         return try await sendAuthed { Self.downloadRequest(fileID: id, token: $0) }

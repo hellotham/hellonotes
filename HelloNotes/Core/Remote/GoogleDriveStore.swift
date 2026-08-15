@@ -144,6 +144,11 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return result
     }
 
+    func latestCursor(path: String) async throws -> String? {
+        let data = try await sendAuthed { Self.startPageTokenRequest(token: $0) }
+        return Self.parseStartPageToken(data)
+    }
+
     func read(path: String) async throws -> Data {
         let id = try await resolveFileID(path: path)
         return try await sendAuthed { Self.downloadRequest(fileID: id, token: $0) }
