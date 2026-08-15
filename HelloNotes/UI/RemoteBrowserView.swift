@@ -13,10 +13,34 @@
 
 import SwiftUI
 
+/// Adds the browsed folder as a sidebar collection: reports progress while it
+/// works and returns what actually happened, so the browser can show a real
+/// result rather than leaving the user to guess.
+/// Deliberately **not** `@Sendable`: `RemoteBrowserModel` stores it and only ever
+/// calls it from its own `@MainActor` context, so the function value never
+/// crosses an isolation boundary. (Marking it `@Sendable` doesn't help anyway —
+/// under Swift 5 a function value read back out of a stored property loses the
+/// attribute, so the conversion warns no matter how it's declared. Keeping the
+/// closure inside the actor is the fix; the annotation was only a plaster.)
+///
+/// `progress` *is* `@Sendable`: it is called from the sync's own executor.
+typealias AddRemoteCollection = @MainActor (
+    _ store: RemoteStore,
+    _ remoteRoot: String,
+    _ displayName: String,
+    _ progress: @escaping @Sendable (RemoteSyncProgress) -> Void
+) async throws -> RemoteSyncOutcome
+
 @MainActor
 @Observable
 final class RemoteBrowserModel {
     let store: RemoteStore
+
+    /// Non-nil when this browser can promote a folder to a sidebar collection.
+    /// Held here rather than in the view so it never has to be handed across an
+    /// isolation boundary — see `AddRemoteCollection`.
+    private let onAdd: AddRemoteCollection?
+    var canAddAsCollection: Bool { onAdd != nil }
 
     var path = ""                       // current folder ("" = root)
     var entries: [RemoteEntry] = []
@@ -33,8 +57,9 @@ final class RemoteBrowserModel {
     /// trigger a SwiftUI update, since the store isn't @Observable.)
     private(set) var isAuthenticated: Bool
 
-    init(store: RemoteStore) {
+    init(store: RemoteStore, onAdd: AddRemoteCollection? = nil) {
         self.store = store
+        self.onAdd = onAdd
         self.isAuthenticated = store.isAuthenticated
     }
 
@@ -42,24 +67,69 @@ final class RemoteBrowserModel {
     var canGoUp: Bool { !path.isEmpty }
     var displayPath: String { path.isEmpty ? "/" : path }
 
+    /// Set when the provider rejects a request we thought was authenticated —
+    /// the stored token exists but is expired, revoked, or its refresh failed.
+    /// The browser then offers to sign in again instead of looking merely empty.
+    private(set) var needsReauthentication = false
+
+    /// Whether the root has been listed yet. A window opened with a token
+    /// already in the Keychain skips `connect()` entirely, so without this the
+    /// browser never issued a single request and showed an empty folder — signed
+    /// in, apparently, to nothing.
+    private var didLoadInitialFolder = false
+
+    func loadRootIfNeeded() async {
+        guard isAuthenticated, !didLoadInitialFolder else { return }
+        didLoadInitialFolder = true
+        await load("")
+    }
+
     func connect() async {
         error = nil
+        needsReauthentication = false
         do {
             try await store.authenticate()
             isAuthenticated = store.isAuthenticated
+            didLoadInitialFolder = true
             await load("")
         } catch {
             self.error = describe(error)
         }
     }
 
+    /// Discard the rejected token and start the sign-in flow again.
+    func reconnect() async {
+        store.signOut()
+        isAuthenticated = false
+        needsReauthentication = false
+        entries = []
+        path = ""
+        didLoadInitialFolder = false
+        await connect()
+    }
+
     func load(_ folder: String) async {
         path = folder
         isLoading = true
         error = nil
-        do { entries = try await store.list(path: folder) }
-        catch { self.error = describe(error); entries = [] }
+        do {
+            entries = try await store.list(path: folder)
+            needsReauthentication = false
+        } catch {
+            self.error = describe(error)
+            entries = []
+            needsReauthentication = Self.isAuthFailure(error)
+        }
         isLoading = false
+    }
+
+    /// A token the provider won't accept, as opposed to a folder we can't read.
+    private static func isAuthFailure(_ error: Error) -> Bool {
+        switch error as? RemoteStoreError {
+        case .notAuthenticated:      return true
+        case .http(let code, _):     return code == 401
+        default:                     return false
+        }
     }
 
     func refresh() async { await load(path) }
@@ -111,7 +181,87 @@ final class RemoteBrowserModel {
         entries = []
         openPath = nil
         path = ""
+        addState = .idle
+        didLoadInitialFolder = false
+        needsReauthentication = false
     }
+
+    // MARK: - Add as Collection
+
+    /// What the add action is doing.
+    ///
+    /// The action used to have no state at all: it called a closure whose body
+    /// was `try? await …`, so a permissions failure, a rate limit and a
+    /// complete success were indistinguishable — from each other and from the
+    /// button doing nothing.
+    enum AddState: Equatable {
+        case idle
+        case adding(RemoteSyncProgress)
+        case added(name: String, outcome: RemoteSyncOutcome)
+        case failed(String)
+    }
+
+    var addState: AddState = .idle
+    private var addTask: Task<Void, Never>?
+
+    var isAdding: Bool { if case .adding = addState { return true } else { return false } }
+
+    /// The name a collection added from the current folder would take.
+    var collectionName: String {
+        path.isEmpty
+            ? providerName
+            : String(path.split(separator: "/").last ?? Substring(providerName))
+    }
+
+    func addAsCollection() {
+        guard onAdd != nil, !isAdding else { return }
+        let store = self.store
+        let remoteRoot = self.path
+        let name = self.collectionName
+        addState = .adding(RemoteSyncProgress())
+
+        // Progress is reported from the sync's own executor, so it has to reach
+        // the main actor somehow. A stream does that without the callback
+        // capturing this model at all — which matters because a closure that
+        // hops by nesting a `Task` inside itself captures its enclosing weak
+        // binding as a `var`, a data race under Swift 6.
+        //
+        // `bufferingNewest(1)` also coalesces for free: a fast sync can report
+        // hundreds of times a second and only the latest count is worth drawing.
+        let (progressStream, continuation) = AsyncStream<RemoteSyncProgress>
+            .makeStream(bufferingPolicy: .bufferingNewest(1))
+        let report: @Sendable (RemoteSyncProgress) -> Void = { continuation.yield($0) }
+
+        // Both tasks are created here, at method scope, where `self` is the real
+        // model rather than another closure's captured binding.
+        let pump = Task { @MainActor [weak self] in
+            for await progress in progressStream {
+                guard let self, self.isAdding else { continue }
+                self.addState = .adding(progress)
+            }
+        }
+
+        addTask = Task { @MainActor [weak self] in
+            defer { continuation.finish(); pump.cancel() }
+            guard let self, let onAdd = self.onAdd else { return }
+            do {
+                let outcome = try await onAdd(store, remoteRoot, name, report)
+                // A cancelled sync returns what it managed rather than throwing,
+                // so the user still sees what arrived before they stopped it.
+                self.addState = .added(name: name, outcome: outcome)
+            } catch is CancellationError {
+                self.addState = .idle
+            } catch {
+                self.addState = .failed(self.describe(error))
+            }
+        }
+    }
+
+    /// Stop the sync. What already downloaded stays — the collection is in the
+    /// sidebar and keeps the notes it got.
+    func cancelAdd() { addTask?.cancel() }
+
+    func dismissAddResult() { addState = .idle }
 
     private func describe(_ e: Error) -> String {
         (e as? LocalizedError)?.errorDescription ?? e.localizedDescription
@@ -125,15 +275,13 @@ final class RemoteBrowserModel {
 
 struct RemoteBrowserView: View {
     @State private var model: RemoteBrowserModel
-    /// When set, the browser offers "Open as Collection", handing back the
-    /// (store, current remote path, display name) so the host can mirror it into
-    /// a first-class sidebar collection.
-    private let onOpenAsCollection: ((RemoteStore, String, String) -> Void)?
 
-    init(store: RemoteStore,
-         onOpenAsCollection: ((RemoteStore, String, String) -> Void)? = nil) {
-        _model = State(initialValue: RemoteBrowserModel(store: store))
-        self.onOpenAsCollection = onOpenAsCollection
+    /// `onAddAsCollection` — when set, the browser offers "Add as Collection",
+    /// handing the current folder to the host so it can mirror it into a
+    /// first-class sidebar collection, and reporting back what happened. It goes
+    /// straight into the model rather than being stored here; see the typealias.
+    init(store: RemoteStore, onAddAsCollection: AddRemoteCollection? = nil) {
+        _model = State(initialValue: RemoteBrowserModel(store: store, onAdd: onAddAsCollection))
     }
 
     var body: some View {
@@ -145,6 +293,9 @@ struct RemoteBrowserView: View {
             }
         }
         .frame(minWidth: 380, minHeight: 420)
+        // A window opened with a token already in the Keychain never runs
+        // `connect()`, so this is the only thing that lists the root for it.
+        .task { await model.loadRootIfNeeded() }
         .sheet(item: Binding(get: { model.openPath.map { OpenNote(path: $0) } },
                              set: { if $0 == nil { model.closeNote() } })) { _ in
             noteEditor
@@ -198,21 +349,20 @@ struct RemoteBrowserView: View {
                     .truncationMode(.head)
                 Spacer()
                 if model.isLoading { ProgressView().controlSize(.small) }
-                if let onOpenAsCollection {
-                    Button("Open as Collection") {
-                        let name = model.path.isEmpty
-                            ? model.providerName
-                            : String(model.path.split(separator: "/").last ?? Substring(model.providerName))
-                        onOpenAsCollection(model.store, model.path, name)
-                    }
+                if model.canAddAsCollection {
+                    Button("Add as Collection") { model.addAsCollection() }
                     .font(.caption)
-                    .help("Add this folder to the sidebar; edits sync back to \(model.providerName).")
+                    .disabled(model.isAdding)
+                    .help("Add “\(model.collectionName)” to the sidebar; edits sync back to \(model.providerName).")
                 }
                 Button("Sign Out") { model.signOut() }
                     .font(.caption)
+                    .disabled(model.isAdding)
             }
             .padding(10)
             Divider()
+
+            addStatus
 
             List(model.entries, id: \.path) { entry in
                 Button {
@@ -232,21 +382,155 @@ struct RemoteBrowserView: View {
                 .buttonStyle(.plain)
             }
             .overlay {
-                if model.entries.isEmpty && !model.isLoading {
+                // Only claim the folder is empty when we actually listed it.
+                // A failed listing showing "Empty folder" is the same lie as an
+                // unreachable vault showing no notes.
+                if model.entries.isEmpty && !model.isLoading && model.error == nil {
                     ContentUnavailableView("Empty folder", systemImage: "folder")
                 }
             }
 
             if let error = model.error {
                 Divider()
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                        if model.needsReauthentication {
+                            Text("The saved sign-in for \(model.providerName) is no longer valid.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    if model.needsReauthentication {
+                        Button("Sign In Again") { Task { await model.reconnect() } }
+                            .font(.caption)
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    // MARK: Add-as-collection status
+
+    /// Says what the add action is doing and what it achieved. Silent when
+    /// idle, so the browser looks exactly as it did before you pressed anything.
+    @ViewBuilder
+    private var addStatus: some View {
+        switch model.addState {
+        case .idle:
+            EmptyView()
+
+        case .adding(let progress):
+            statusStrip {
+                ProgressView().controlSize(.small)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Adding “\(model.collectionName)”…")
+                        .font(.caption.weight(.medium))
+                    Text(Self.line(for: progress))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer()
+                Button("Stop") { model.cancelAdd() }
+                    .font(.caption)
+                    .help("Stop syncing. Notes already downloaded stay in the collection.")
+            }
+
+        case .added(let name, let outcome):
+            statusStrip {
+                Image(systemName: outcome.isComplete ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .foregroundStyle(outcome.isComplete ? Color.green : Color.orange)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Added “\(name)” to the sidebar")
+                        .font(.caption.weight(.medium))
+                    Text(Self.summary(for: outcome))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                // Just an acknowledgement: the collection is already revealed in
+                // the main window, so there is nothing left to choose between.
+                Button("OK") { model.dismissAddResult() }
+                    .font(.caption)
+                    .keyboardShortcut(.defaultAction)
+            }
+
+        case .failed(let message):
+            statusStrip {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Couldn't add “\(model.collectionName)”")
+                        .font(.caption.weight(.medium))
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                Button("Dismiss") { model.dismissAddResult() }
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func statusStrip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8, content: content)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+        }
+        .background(.quaternary.opacity(0.4))
+    }
+
+    private static func line(for progress: RemoteSyncProgress) -> String {
+        var parts = ["\(progress.foldersListed) folder\(progress.foldersListed == 1 ? "" : "s")"]
+        if progress.notesDownloaded > 0 { parts.append("\(progress.notesDownloaded) downloaded") }
+        if progress.notesUpToDate > 0 { parts.append("\(progress.notesUpToDate) up to date") }
+        if !progress.currentPath.isEmpty { parts.append(progress.currentPath) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Deliberately states what was *not* done as well as what was. A sync that
+    /// stopped early or skipped folders has not seen the whole remote folder,
+    /// and saying so is the difference between a trustworthy collection and one
+    /// that quietly omits notes.
+    private static func summary(for outcome: RemoteSyncOutcome) -> String {
+        let notes = outcome.progress.notesDownloaded + outcome.progress.notesUpToDate
+        var text = "\(notes) note\(notes == 1 ? "" : "s") in \(outcome.progress.foldersListed) folder\(outcome.progress.foldersListed == 1 ? "" : "s")."
+
+        // A folder of PDFs syncs to an empty collection. Saying so is the whole
+        // difference between "this is broken" and "this isn't supported yet".
+        let skipped = outcome.progress.otherFilesSkipped
+        if skipped > 0 {
+            let examples = outcome.skippedExamples.joined(separator: ", ")
+            let more = skipped > outcome.skippedExamples.count ? ", …" : ""
+            text += " \(skipped) non-Markdown file\(skipped == 1 ? "" : "s") skipped (\(examples)\(more))"
+            text += notes == 0
+                ? " — cloud collections carry Markdown only for now, so this one is empty."
+                : " — cloud collections carry Markdown only for now."
+        }
+
+        if !outcome.isComplete {
+            if outcome.failures.isEmpty {
+                text += " Stopped before the whole folder was checked — use Add as Collection again to finish."
+            } else {
+                let failed = outcome.failures.count
+                text += " \(failed) item\(failed == 1 ? "" : "s") couldn't be read (\(outcome.failures[0].message))"
+                if failed > 1 { text += " and \(failed - 1) more." } else { text += "." }
+            }
+        }
+        return text
     }
 
     // MARK: Note editor

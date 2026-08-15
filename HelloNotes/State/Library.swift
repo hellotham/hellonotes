@@ -89,6 +89,15 @@ final class Library {
     /// Ask the main window to select and show `noteID`.
     func requestOpen(_ noteID: Note.ID) { pendingOpenNoteID = noteID }
 
+    /// A collection the main window has been asked to *show*. Unlike a change of
+    /// `focusedID`, this moves the sidebar even when it is parked on the Library
+    /// place, and scrolls the collection's row into view: it is set only when the
+    /// user did something that means "take me there" — adding a cloud folder,
+    /// say — and a collection added out of sight reads as one that wasn't added.
+    var pendingRevealCollectionID: Collection.ID?
+
+    func requestReveal(_ collectionID: Collection.ID) { pendingRevealCollectionID = collectionID }
+
     // MARK: - Focus
 
     func focus(_ collection: Collection) { focusedID = collection.id }
@@ -140,28 +149,50 @@ final class Library {
     /// machinery. Saved edits upload back through `Collection.remote`. Not
     /// persisted for restore — a remote collection is re-opened via its provider,
     /// not a local bookmark whose cache could be stale.
+    /// The collection is created and focused **before** the sync runs, not
+    /// after. Waiting for a whole-account download to finish before showing
+    /// anything is why "Add as Collection" looked dead: on a real account
+    /// nothing appeared for minutes, and one failed request then discarded even
+    /// the folders that had already synced. Now the collection is there
+    /// immediately and fills in as the sync proceeds (its own file watcher
+    /// picks up each downloaded note), and a failure leaves what did arrive.
     @discardableResult
-    func openRemote(store: RemoteStore, remoteRoot: String, displayName: String) async throws -> Collection {
+    func openRemote(
+        store: RemoteStore, remoteRoot: String, displayName: String,
+        progress: @escaping @Sendable (RemoteSyncProgress) -> Void = { _ in }
+    ) async throws -> RemoteSyncOutcome {
         let mirror = RemoteMirror(
             store: store,
             cacheRoot: RemoteMirror.cacheDirectory(provider: store.providerName,
                                                    folder: remoteRoot.isEmpty ? displayName : remoteRoot),
             remoteRoot: remoteRoot,
             displayName: displayName)
-        try await mirror.syncDown()
+        // The cache directory has to exist before a Collection can be opened on
+        // it; this also fails fast (and visibly) if the container is unwritable.
+        try FileManager.default.createDirectory(at: mirror.cacheRoot, withIntermediateDirectories: true)
 
         let id = mirror.cacheRoot.standardizedFileURL.path
         if let existing = collections.first(where: { $0.id == id }) {
             existing.remote = mirror
             focusedID = existing.id
-            return existing
+        } else {
+            let collection = Collection(rootURL: mirror.cacheRoot)
+            collection.remote = mirror
+            collections.append(collection)
+            focusedID = collection.id
+            await collection.activate(onExternalChange: { [weak self] in self?.onExternalChange() })
         }
-        let collection = Collection(rootURL: mirror.cacheRoot)
-        collection.remote = mirror
-        collections.append(collection)
-        focusedID = collection.id
-        await collection.activate(onExternalChange: { [weak self] in self?.onExternalChange() })
-        return collection
+
+        // Show it before the sync, not after: the collection exists now, and the
+        // point of revealing it is to prove the add worked while the sync runs.
+        requestReveal(id)
+
+        let outcome = try await mirror.syncDown(progress: progress)
+        if let collection = collections.first(where: { $0.id == id }) {
+            await collection.scanOffMain()
+            collection.refreshDerived()
+        }
+        return outcome
     }
 
     /// Close a collection: stop watching it, drop it, and update persistence.

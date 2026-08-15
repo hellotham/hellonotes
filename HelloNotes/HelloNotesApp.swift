@@ -34,6 +34,25 @@ struct HelloNotesApp: App {
         CloudPrefs.shared.start()   // mirror preference keys via iCloud KV
     }
 
+    #if os(macOS)
+    /// Mirrors a browsed cloud folder into a sidebar collection, handing
+    /// progress and failures back to the browser that asked for it.
+    ///
+    /// This was `Task { try? await library.openRemote(…) }` at five call sites:
+    /// the `try?` discarded every error, and nothing awaited or reported the
+    /// result — so an expired token, a 403 on a shared folder and a complete
+    /// success all looked identical, and identical to the button being dead.
+    private var addRemoteCollection: AddRemoteCollection {
+        // Capture the library itself, not `self` — the App struct holds property
+        // wrappers and has no business outliving this scene's body evaluation.
+        let library = self.library
+        return { store, remoteRoot, displayName, progress in
+            try await library.openRemote(store: store, remoteRoot: remoteRoot,
+                                         displayName: displayName, progress: progress)
+        }
+    }
+    #endif
+
     var body: some Scene {
         WindowGroup(id: "main") {
             #if os(macOS)
@@ -113,43 +132,33 @@ struct HelloNotesApp: App {
         // in Info.plist); a DEBUG-only demo window drives the same UI with an
         // in-memory MockRemoteStore.
         Window("Cloud Notes (Direct)", id: "remoteBrowser") {
-            RemoteBrowserView(store: DropboxStore(), onOpenAsCollection: { store, path, name in
-                Task { try? await library.openRemote(store: store, remoteRoot: path, displayName: name) }
-            })
-            .themedRoot(appearance)
+            RemoteBrowserView(store: DropboxStore(), onAddAsCollection: addRemoteCollection)
+                .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
         Window("Box (Direct)", id: "remoteBrowserBox") {
-            RemoteBrowserView(store: BoxStore(), onOpenAsCollection: { store, path, name in
-                Task { try? await library.openRemote(store: store, remoteRoot: path, displayName: name) }
-            })
-            .themedRoot(appearance)
+            RemoteBrowserView(store: BoxStore(), onAddAsCollection: addRemoteCollection)
+                .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
         Window("Google Drive (Direct)", id: "remoteBrowserGDrive") {
-            RemoteBrowserView(store: GoogleDriveStore(), onOpenAsCollection: { store, path, name in
-                Task { try? await library.openRemote(store: store, remoteRoot: path, displayName: name) }
-            })
-            .themedRoot(appearance)
+            RemoteBrowserView(store: GoogleDriveStore(), onAddAsCollection: addRemoteCollection)
+                .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
         Window("OneDrive (Direct)", id: "remoteBrowserOneDrive") {
-            RemoteBrowserView(store: OneDriveStore(), onOpenAsCollection: { store, path, name in
-                Task { try? await library.openRemote(store: store, remoteRoot: path, displayName: name) }
-            })
-            .themedRoot(appearance)
+            RemoteBrowserView(store: OneDriveStore(), onAddAsCollection: addRemoteCollection)
+                .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
         #if DEBUG
         Window("Cloud Demo", id: "remoteBrowserDemo") {
-            RemoteBrowserView(store: MockRemoteStore(), onOpenAsCollection: { store, path, name in
-                Task { try? await library.openRemote(store: store, remoteRoot: path, displayName: name) }
-            })
-            .themedRoot(appearance)
+            RemoteBrowserView(store: MockRemoteStore(), onAddAsCollection: addRemoteCollection)
+                .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
         #endif

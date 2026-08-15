@@ -171,6 +171,63 @@ struct RemoteBrowserModelTests {
         #expect(model.entries.isEmpty)
         #expect(model.error != nil)
     }
+
+    /// Opening the browser with a token already in the Keychain skips
+    /// `connect()` entirely. Nothing else listed the root, so the window came up
+    /// "signed in" and completely empty — no files, no error, nothing to act on.
+    @Test func anAlreadyAuthenticatedBrowserListsTheRootByItself() async {
+        let model = RemoteBrowserModel(store: MockRemoteStore(preAuthenticated: true))
+        #expect(model.isAuthenticated)
+        #expect(model.entries.isEmpty)      // nothing has been listed yet
+
+        await model.loadRootIfNeeded()
+
+        #expect(model.entries.contains { $0.name == "Welcome.md" })
+        #expect(model.error == nil)
+
+        // Idempotent: re-running (a re-entrant `.task`) must not re-list.
+        await model.loadRootIfNeeded()
+        #expect(model.entries.filter { $0.name == "Welcome.md" }.count == 1)
+    }
+
+    /// A stored token the provider rejects must offer a way back in, rather than
+    /// presenting as an empty account.
+    @Test func aRejectedTokenAsksToSignInAgain() async {
+        // `preAuthenticated: false` makes every call throw `.notAuthenticated`,
+        // standing in for an expired or revoked token.
+        let store = MockRemoteStore()
+        let model = RemoteBrowserModel(store: store)
+        await model.load("")
+
+        #expect(model.error != nil)
+        #expect(model.entries.isEmpty)
+        #expect(model.needsReauthentication)
+    }
+
+    /// …but an ordinary unreadable folder is not an auth problem, and must not
+    /// invite the user to sign in again for no reason.
+    @Test func aForbiddenFolderIsNotAnAuthFailure() async {
+        let store = ForbiddenFolderStore()
+        let model = RemoteBrowserModel(store: store)
+        await model.load("/Locked")
+
+        #expect(model.error != nil)
+        #expect(model.needsReauthentication == false)
+    }
+}
+
+/// Authenticates fine, but 403s every listing — a restricted shared folder.
+private final class ForbiddenFolderStore: RemoteStore, @unchecked Sendable {
+    let providerName = "Forbidden"
+    var isAuthenticated: Bool { true }
+    func authenticate() async throws {}
+    func signOut() {}
+    func list(path: String) async throws -> [RemoteEntry] {
+        throw RemoteStoreError.http(403, "access_denied")
+    }
+    func read(path: String) async throws -> Data { Data() }
+    func write(_ data: Data, to path: String) async throws {}
+    func delete(path: String) async throws {}
 }
 
 /// Pure-logic coverage for the Box provider. Box's API is folder/file-ID based;
@@ -581,4 +638,172 @@ struct RemoteMirrorTests {
         #expect(mirror.localURL(forRemotePath: "/Vault/Sub/Note.md").path == "/tmp/cacheRoot/Sub/Note.md")
         #expect(mirror.remotePath(forLocalURL: cache.appendingPathComponent("Sub/Note.md")) == "/Vault/Sub/Note.md")
     }
+
+    // MARK: - Partial syncs
+
+    /// One unreadable folder — a restricted share, a rate limit — used to abort
+    /// the whole sync and (because the caller discarded the error) leave the
+    /// user with nothing and no explanation. It must now cost only its own
+    /// subtree, and say so.
+    @Test func aFailedSubfolderCostsItsSubtreeNotTheWholeSync() async throws {
+        let store = FaultyRemoteStore()
+        store.failingFolders = ["/Notes"]
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        let outcome = try await mirror.syncDown()
+
+        #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Welcome.md").path))
+        #expect(!FileManager.default.fileExists(atPath: cache.appendingPathComponent("Notes/Idea.md").path))
+        #expect(outcome.isComplete == false)
+        #expect(outcome.failures.map(\.path) == ["/Notes"])
+    }
+
+    /// The invariant everything else rests on: **only a pass that saw the whole
+    /// remote tree may delete.** A note absent from a partial listing may simply
+    /// live in a subtree the sync never reached, and pruning it would destroy a
+    /// local copy the provider still has.
+    @Test func anIncompleteSyncPrunesNothing() async throws {
+        let store = FaultyRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+
+        // A complete pass first, so the cache holds the whole tree.
+        let full = try await mirror.syncDown()
+        #expect(full.isComplete)
+        let idea = cache.appendingPathComponent("Notes/Idea.md")
+        #expect(FileManager.default.fileExists(atPath: idea.path))
+
+        // Now the subfolder becomes unreadable. Its notes are missing from this
+        // pass's listing — but they are NOT deleted remotely, and must survive.
+        store.failingFolders = ["/Notes"]
+        let partial = try await mirror.syncDown()
+        #expect(partial.isComplete == false)
+        #expect(FileManager.default.fileExists(atPath: idea.path))
+        #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Notes/Tasks.md").path))
+    }
+
+    /// Cancellation returns what was fetched, marked incomplete — and, being
+    /// incomplete, deletes nothing.
+    @Test func aCancelledSyncIsIncompleteAndPrunesNothing() async throws {
+        let store = FaultyRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+
+        try await mirror.syncDown()
+        // A file the provider does not have: a *complete* sync would prune it.
+        let orphan = cache.appendingPathComponent("Orphan.md")
+        try FileIO.write("# left over", to: orphan)
+
+        let outcome = try await Task {
+            // Cancel before syncDown's first cancellation check, so the test is
+            // deterministic rather than a race with the network stub.
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await mirror.syncDown()
+        }.value
+
+        #expect(outcome.isComplete == false)
+        #expect(outcome.progress.foldersListed == 0)
+        #expect(FileManager.default.fileExists(atPath: orphan.path))
+    }
+
+    /// The root listing failing means we have nothing at all — an expired token
+    /// or a bad path. That has to reach the user as an error, not arrive as a
+    /// silently empty collection.
+    @Test func rootListingFailureIsFatalRatherThanAnEmptyCollection() async throws {
+        let store = FaultyRemoteStore(preAuthenticated: false)   // every call 401s
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+
+        await #expect(throws: RemoteStoreError.notAuthenticated) {
+            try await mirror.syncDown()
+        }
+    }
+
+    /// The action reported nothing at all while it ran. Progress has to be
+    /// observable, or a long sync is indistinguishable from a dead button.
+    @Test func syncDownReportsProgressAsItGoes() async throws {
+        let store = FaultyRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+
+        let collector = ProgressCollector()
+        let outcome = try await mirror.syncDown { collector.record($0) }
+
+        #expect(outcome.isComplete)
+        #expect(outcome.progress.foldersListed == 2)          // root + /Notes
+        #expect(outcome.progress.notesDownloaded == 3)
+        let seen = collector.values
+        #expect(seen.count >= 4)                              // 2 listings + 3 downloads
+        #expect(seen.last?.notesDownloaded == 3)
+        // Counts only ever climb — a progress bar that goes backwards is a lie.
+        #expect(zip(seen, seen.dropFirst()).allSatisfy { $0.notesDownloaded <= $1.notesDownloaded })
+    }
+
+    /// A folder with no Markdown in it syncs to an empty collection. The sync
+    /// has to say so — an unexplained empty collection reads as a broken app.
+    @Test func nonMarkdownFilesAreCountedNotSilentlyIgnored() async throws {
+        let store = FaultyRemoteStore()
+        // A "Resume" folder: real documents, not a note in sight.
+        try await store.write(Data("pdf".utf8), to: "/Resume/Resume.pdf")
+        try await store.write(Data("doc".utf8), to: "/Resume/Cover Letter.docx")
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+
+        let mirror = RemoteMirror(store: store, cacheRoot: cache,
+                                  remoteRoot: "/Resume", displayName: "Resume")
+        let outcome = try await mirror.syncDown()
+
+        #expect(outcome.isComplete)
+        #expect(outcome.progress.notesDownloaded == 0)
+        #expect(outcome.progress.otherFilesSkipped == 2)
+        #expect(outcome.skippedExamples.contains("Resume.pdf"))
+    }
+
+    private static func tempCache() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("hn-mirror-\(UUID().uuidString)")
+    }
+}
+
+/// Collects progress reports from the sync's executor for assertion on the test's.
+private final class ProgressCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [RemoteSyncProgress] = []
+    func record(_ p: RemoteSyncProgress) { lock.lock(); storage.append(p); lock.unlock() }
+    var values: [RemoteSyncProgress] { lock.lock(); defer { lock.unlock() }; return storage }
+}
+
+/// `MockRemoteStore` with the failure modes a real provider actually produces:
+/// a folder you may not list (403 on a restricted share) and a file that comes
+/// back rate-limited (429). The mirror has to survive both.
+private final class FaultyRemoteStore: RemoteStore, @unchecked Sendable {
+    private let inner: MockRemoteStore
+    var failingFolders: Set<String> = []
+    var failingFiles: Set<String> = []
+
+    init(preAuthenticated: Bool = true) {
+        inner = MockRemoteStore(preAuthenticated: preAuthenticated)
+    }
+
+    var providerName: String { inner.providerName }
+    var isAuthenticated: Bool { inner.isAuthenticated }
+    func authenticate() async throws { try await inner.authenticate() }
+    func signOut() { inner.signOut() }
+
+    func list(path: String) async throws -> [RemoteEntry] {
+        if failingFolders.contains(path) { throw RemoteStoreError.http(403, "access_denied") }
+        return try await inner.list(path: path)
+    }
+    func read(path: String) async throws -> Data {
+        if failingFiles.contains(path) { throw RemoteStoreError.http(429, "too_many_requests") }
+        return try await inner.read(path: path)
+    }
+    func write(_ data: Data, to path: String) async throws { try await inner.write(data, to: path) }
+    func delete(path: String) async throws { try await inner.delete(path: path) }
 }

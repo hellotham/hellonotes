@@ -76,6 +76,11 @@ struct NoteOutlineList: NSViewRepresentable {
     /// the outline only when needed (not on every unrelated SwiftUI update).
     var signature: String
     @Binding var selection: URL?
+    /// An outline-item id to expand and scroll into view, *without* touching the
+    /// note selection. Collection rows carry no URL, so `applySelection` can't
+    /// reach them — and a newly added collection is appended last, which on a
+    /// library of any size puts it below the fold. Cleared once applied.
+    @Binding var revealID: String?
     var focusedCollectionID: Collection.ID?
     var accent: Color
     /// Multiplies the row fonts and heights with the app's text-size setting.
@@ -161,6 +166,11 @@ struct NoteOutlineList: NSViewRepresentable {
         coord.reload(roots: roots, signature: signature)
         coord.refreshAccent()
         coord.applySelection(selection)
+        if let id = revealID, coord.reveal(id: id) {
+            // Clearing a binding during `updateNSView` would mutate state inside
+            // a view update; defer it to the next runloop turn.
+            DispatchQueue.main.async { revealID = nil }
+        }
     }
 
     /// Viewport sizing (S1). This one matters as much as the editor: an
@@ -242,6 +252,31 @@ struct NoteOutlineList: NSViewRepresentable {
             outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             outline.scrollRowToVisible(row)
             applyingSelection = false
+        }
+
+        /// Expand `id`'s row and scroll it into view. Returns false when the id
+        /// isn't in the tree yet, so the caller keeps the request pending until
+        /// a reload brings the row in rather than dropping it on the floor.
+        @discardableResult
+        func reveal(id: String) -> Bool {
+            guard let outline = outlineView,
+                  let item = Self.find(id: id, in: roots) else { return false }
+            if item.isExpandable {
+                expandedIDs.insert(item.id)
+                outline.expandItem(item)
+            }
+            let row = outline.row(forItem: item)
+            guard row >= 0 else { return false }
+            outline.scrollRowToVisible(row)
+            return true
+        }
+
+        private static func find(id: String, in items: [NoteOutlineItem]) -> NoteOutlineItem? {
+            for item in items {
+                if item.id == id { return item }
+                if let hit = find(id: id, in: item.children) { return hit }
+            }
+            return nil
         }
 
         /// Flatten the tree into a URL→item map so selection lookup is O(1)

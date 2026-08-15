@@ -132,6 +132,10 @@ struct MacContentView: View {
 
     static let railPlaceUnset = "?"
 
+    /// An outline row to scroll into view once, set when something asks the
+    /// window to *show* a collection (see `Library.pendingRevealCollectionID`).
+    @State private var revealOutlineID: String?
+
     /// The Git panel, reached from the collection status bar. Git is
     /// collection-level state, and the status bar already carries that.
     @State private var showGitPanel = false
@@ -468,6 +472,18 @@ struct MacContentView: View {
             // Opening the first collection should land you in it rather than
             // leaving you on the Library place looking at quick actions.
             if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
+        }
+        .onChange(of: library.pendingRevealCollectionID) { _, id in
+            // Something added a collection and asked us to show it. Unlike a
+            // passing focus change this moves the rail unconditionally — the
+            // user asked for this collection by name, so leaving them looking at
+            // a different tree makes a successful add look like a failed one.
+            guard let id else { return }
+            selectedTag = nil
+            library.focusedID = id
+            railPlaceID = id
+            revealOutlineID = id
+            library.pendingRevealCollectionID = nil
         }
         .onChange(of: library.pendingOpenNoteID) { _, id in
             // Another window (graph, mind map, assistant, chat) asked us to
@@ -1314,6 +1330,7 @@ struct MacContentView: View {
             roots: cachedRoots,
             signature: cachedSignature,
             selection: $selectedNoteID,
+            revealID: $revealOutlineID,
             focusedCollectionID: library.focusedID,
             accent: appearance.resolvedAccent,
             fontScale: appearance.textScale,

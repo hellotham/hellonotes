@@ -363,6 +363,7 @@ struct ShellContractTests {
                 roots: (0..<rows).map { NoteOutlineItem(id: "f\($0)", kind: .folder("Folder \($0)")) },
                 signature: "rows-\(rows)",
                 selection: .constant(nil),
+                revealID: .constant(nil),
                 accent: .accentColor,
                 isBookmarked: { _ in false },
                 onToggleBookmark: { _ in },
