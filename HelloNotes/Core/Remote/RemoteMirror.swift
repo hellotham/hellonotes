@@ -374,6 +374,71 @@ final class RemoteMirror {
         return outcome
     }
 
+    /// Bring the cache up to date with the provider.
+    ///
+    /// Uses the provider's own delta feed when it has one — one request for
+    /// "everything since this cursor" instead of re-walking a tree that may be
+    /// thousands of listings — and falls back to a full metadata sync otherwise,
+    /// or when the provider says the cursor has expired.
+    ///
+    /// **A delta may never prune.** It reports what changed, not what exists, so
+    /// an item absent from it is simply an item that did not change. Deletions
+    /// come from the feed's own explicit list; anything else is only removed by
+    /// a complete `syncMetadata`.
+    @discardableResult
+    func refresh() async throws -> RemoteSyncOutcome {
+        var current = manifest
+        guard let delta = try await store.changes(since: current.deltaCursor,
+                                                  path: remoteRoot) else {
+            return try await syncMetadata()
+        }
+        if delta.requiresFullResync {
+            current.deltaCursor = nil
+            manifest = current
+            return try await syncMetadata()
+        }
+
+        let source = RemoteTreeSource(store: store, remoteRoot: remoteRoot, cacheRoot: cacheRoot)
+        var outcome = RemoteSyncOutcome()
+
+        for entry in delta.changed {
+            let url = source.cacheURL(forRemotePath: entry.path)
+            let relative = Self.relativePath(of: url, in: cacheRoot)
+            guard !relative.isEmpty else { continue }
+            if entry.isDirectory {
+                try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                current.entries[relative] = RemoteManifest.Entry(remotePath: entry.path, isDirectory: true)
+                continue
+            }
+            let existing = current.entries[relative]
+            let unchanged = existing?.rev != nil && existing?.rev == entry.rev
+            current.entries[relative] = RemoteManifest.Entry(
+                remotePath: entry.path,
+                isDirectory: false,
+                size: entry.size,
+                modified: entry.modified,
+                rev: entry.rev,
+                hydrated: (existing?.hydrated ?? false) && unchanged)
+            if !unchanged { Self.writePlaceholder(at: url) }
+        }
+
+        for path in delta.deleted {
+            let url = source.cacheURL(forRemotePath: path)
+            let relative = Self.relativePath(of: url, in: cacheRoot)
+            guard !relative.isEmpty else { continue }
+            current.entries.removeValue(forKey: relative)
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        current.deltaCursor = delta.cursor
+        current.lastRefresh = Date()
+        manifest = current
+
+        outcome.isComplete = true
+        outcome.progress.filesMirrored = current.entries.values.count { !$0.isDirectory }
+        return outcome
+    }
+
     /// Fetch one file's real content and mark it hydrated.
     ///
     /// Idempotent, so the editor can call it unconditionally on open.

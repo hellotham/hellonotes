@@ -76,6 +76,61 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
         return all
     }
 
+    /// Dropbox's delta: a recursive `list_folder` issues a cursor, and
+    /// `list_folder/continue` returns everything that changed after it —
+    /// including deletions, which a plain re-list can only infer by absence.
+    ///
+    /// An expired cursor comes back as `409 reset`; that is reported as
+    /// `requiresFullResync` rather than thrown, because the caller's answer is
+    /// to re-list rather than to fail.
+    func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? {
+        var result = RemoteChangeSet()
+        var next = cursor
+
+        if next == nil {
+            // No cursor yet: take one from a recursive listing. The entries come
+            // back too, so the first refresh after connecting is not wasted.
+            var data = try await sendAuthed {
+                Self.listFolderRequest(path: path, token: $0, recursive: true)
+            }
+            var page = try Self.parseListFolderPage(data)
+            result.changed += page.entries
+            while page.hasMore, let cursor = page.cursor {
+                data = try await sendAuthed { Self.listFolderContinueRequest(cursor: cursor, token: $0) }
+                page = try Self.parseListFolderPage(data)
+                result.changed += page.entries
+            }
+            result.cursor = page.cursor
+            return result
+        }
+
+        while let cursor = next {
+            let data: Data
+            do {
+                data = try await sendAuthed { Self.listFolderContinueRequest(cursor: cursor, token: $0) }
+            } catch RemoteStoreError.http(let code, _) where code == 409 {
+                return RemoteChangeSet(requiresFullResync: true)
+            }
+            let page = try Self.parseListFolderPage(data)
+            result.changed += page.entries
+            result.deleted += Self.parseDeletions(data)
+            result.cursor = page.cursor
+            next = page.hasMore ? page.cursor : nil
+        }
+        return result
+    }
+
+    /// `deleted` entries carry no metadata beyond their path, so
+    /// `parseListFolderPage` (which needs a name and tag) drops them.
+    static func parseDeletions(_ data: Data) -> [String] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entries = root["entries"] as? [[String: Any]] else { return [] }
+        return entries.compactMap { entry in
+            guard entry[".tag"] as? String == "deleted" else { return nil }
+            return (entry["path_display"] as? String) ?? (entry["path_lower"] as? String)
+        }
+    }
+
     func read(path: String) async throws -> Data {
         try await sendAuthed { Self.downloadRequest(path: path, token: $0) }
     }
@@ -148,10 +203,11 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
         return r
     }
 
-    static func listFolderRequest(path: String, token: String) -> URLRequest {
+    static func listFolderRequest(path: String, token: String,
+                                  recursive: Bool = false) -> URLRequest {
         jsonRequest(URL(string: "https://api.dropboxapi.com/2/files/list_folder")!,
                     token: token,
-                    body: ["path": normalizedPath(path), "recursive": false])
+                    body: ["path": normalizedPath(path), "recursive": recursive])
     }
 
     /// Next page of a `list_folder` walk.
@@ -224,6 +280,12 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
                   let name = e["name"] as? String,
                   let path = (e["path_display"] as? String) ?? (e["path_lower"] as? String)
             else { return nil }
+            // A delta feed marks removals with `.tag == "deleted"`, and those
+            // carry a name and a path like any other entry. Without this they
+            // parse as ordinary *files* — so a refresh would resurrect every
+            // note that had just been deleted elsewhere. `parseDeletions` reads
+            // them for what they are.
+            guard tag != "deleted" else { return nil }
             return RemoteEntry(
                 path: path,
                 name: name,

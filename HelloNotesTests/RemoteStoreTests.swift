@@ -877,6 +877,78 @@ struct RemoteMirrorTests {
         #expect(String(decoding: try await store.read(path: "/Welcome.md"), as: UTF8.self) == "# Theirs")
     }
 
+    // MARK: - Refresh
+
+    /// A delta reports what *changed*, not what exists, so an item absent from
+    /// it is an item that did not change — never one that was deleted. Pruning
+    /// on a delta would remove the whole untouched vault.
+    @Test func aDeltaRefreshNeverPrunesWhatItDidNotMention() async throws {
+        let store = DeltaRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+        #expect(FileManager.default.fileExists(atPath: cache.appending(path: "Notes/Idea.md").path))
+
+        // The provider reports one changed file and nothing else.
+        store.nextChanges = RemoteChangeSet(
+            changed: [RemoteEntry(path: "/Welcome.md", name: "Welcome.md", isDirectory: false,
+                                  size: 9, modified: nil, rev: "r99")],
+            deleted: [], cursor: "c2")
+        try await mirror.refresh()
+
+        #expect(FileManager.default.fileExists(atPath: cache.appending(path: "Notes/Idea.md").path),
+                "an untouched note must survive a delta")
+        #expect(FileManager.default.fileExists(atPath: cache.appending(path: "Notes/Tasks.md").path))
+    }
+
+    /// Deletions come from the feed's own explicit list, and those *are* applied.
+    @Test func aDeltaAppliesTheDeletionsItDoesReport() async throws {
+        let store = DeltaRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+
+        store.nextChanges = RemoteChangeSet(changed: [], deleted: ["/Notes/Tasks.md"], cursor: "c2")
+        try await mirror.refresh()
+
+        #expect(!FileManager.default.fileExists(atPath: cache.appending(path: "Notes/Tasks.md").path))
+        #expect(FileManager.default.fileExists(atPath: cache.appending(path: "Notes/Idea.md").path))
+    }
+
+    /// An expired cursor is an instruction to start over, not a failure.
+    @Test func anExpiredCursorFallsBackToAFullSync() async throws {
+        let store = DeltaRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+
+        store.nextChanges = RemoteChangeSet(requiresFullResync: true)
+        let outcome = try await mirror.refresh()
+
+        #expect(outcome.isComplete)
+        #expect(FileManager.default.fileExists(atPath: cache.appending(path: "Welcome.md").path))
+    }
+
+    /// Dropbox marks removals with a `deleted` tag and no metadata, so the
+    /// entry parser drops them — they need reading separately or a delta would
+    /// silently never delete anything.
+    @Test func dropboxDeletionsAreParsedSeparatelyFromEntries() {
+        let fixture = """
+        {"entries":[
+          {".tag":"file","name":"A.md","path_display":"/A.md","size":1,"rev":"r1"},
+          {".tag":"deleted","name":"B.md","path_display":"/B.md"}
+        ],"cursor":"c","has_more":false}
+        """
+        let deleted = DropboxStore.parseDeletions(Data(fixture.utf8))
+        #expect(deleted == ["/B.md"])
+        let entries = try? DropboxStore.parseListFolder(Data(fixture.utf8))
+        #expect(entries?.count == 1)
+        #expect(entries?.first?.name == "A.md")
+    }
+
     private static func tempCache() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("hn-mirror-\(UUID().uuidString)")
@@ -917,6 +989,29 @@ private final class CountingRemoteStore: RemoteStore, @unchecked Sendable {
         lock.lock(); revisions[path, default: 0] += 1; lock.unlock()
     }
     func delete(path: String) async throws { try await inner.delete(path: path) }
+}
+
+/// A store with a scriptable delta feed, so refresh behaviour can be tested
+/// without a provider.
+private final class DeltaRemoteStore: RemoteStore, @unchecked Sendable {
+    private let inner = MockRemoteStore(preAuthenticated: true)
+    private let lock = NSLock()
+    private var scripted: RemoteChangeSet?
+
+    var nextChanges: RemoteChangeSet? {
+        get { lock.lock(); defer { lock.unlock() }; return scripted }
+        set { lock.lock(); scripted = newValue; lock.unlock() }
+    }
+
+    var providerName: String { inner.providerName }
+    var isAuthenticated: Bool { inner.isAuthenticated }
+    func authenticate() async throws { try await inner.authenticate() }
+    func signOut() { inner.signOut() }
+    func list(path: String) async throws -> [RemoteEntry] { try await inner.list(path: path) }
+    func read(path: String) async throws -> Data { try await inner.read(path: path) }
+    func write(_ data: Data, to path: String) async throws { try await inner.write(data, to: path) }
+    func delete(path: String) async throws { try await inner.delete(path: path) }
+    func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? { nextChanges }
 }
 
 /// Collects progress reports from the sync's executor for assertion on the test's.

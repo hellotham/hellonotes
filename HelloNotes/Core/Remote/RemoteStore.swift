@@ -40,6 +40,37 @@ protocol RemoteStore: AnyObject, Sendable {
     func write(_ data: Data, to path: String) async throws
     /// Delete a file or folder.
     func delete(path: String) async throws
+
+    /// Everything that changed under `path` since `cursor`.
+    ///
+    /// Returning `nil` means "this provider has no delta support wired up here"
+    /// and the caller should re-list. That default keeps the refresh mechanism
+    /// whole for every provider while the efficient path is added one at a time.
+    ///
+    /// Every provider *has* such a mechanism — Dropbox's `list_folder/continue`,
+    /// Box's `/events` stream position, Graph's `/delta`, Drive's
+    /// `changes.list` — which is what makes cursor-based refresh the right
+    /// design rather than polling the tree.
+    func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet?
+}
+
+extension RemoteStore {
+    func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? { nil }
+}
+
+/// What changed on the provider since a cursor was issued.
+struct RemoteChangeSet: Sendable {
+    /// Files and folders added or modified. For a delta feed this is the item's
+    /// *latest state*, not a log of each edit.
+    var changed: [RemoteEntry] = []
+    /// Provider-absolute paths that no longer exist.
+    var deleted: [String] = []
+    /// The cursor to pass next time.
+    var cursor: String?
+    /// The provider says start over — Dropbox `409 reset`, Graph
+    /// `410 resyncRequired`. A delta can never be treated as authoritative for
+    /// deletion, so this is the only path that may prune.
+    var requiresFullResync = false
 }
 
 /// One entry in a remote folder listing.

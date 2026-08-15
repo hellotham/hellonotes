@@ -49,22 +49,10 @@ cleanup_hosts() {
   fi
 }
 
-# Testing injects the bundle via a debug dylib, which leaves an *unsigned*
-# `__preview.dylib` inside the app and every appex. The next plain
-# `xcodebuild build` then dies in CodeSign with "code object is not signed at
-# all" — a build failure with nothing to do with the code you just wrote, and
-# no obvious connection to having run the tests. They regenerate on demand, so
-# remove them rather than leave that trap armed.
-# The glob has to expand into an *array*: zsh does not re-glob the result of a
-# parameter expansion, so a string variable reaches `find` with a literal `*`
-# and silently matches nothing. `(N)` is nullglob — no DerivedData, no error.
-cleanup_preview_dylibs() {
-  local -a products=(~/Library/Developer/Xcode/DerivedData/HelloNotes-*/Build/Products/Debug(N))
-  (( ${#products} )) || return 0
-  local n=$(find "${products[@]}" -name "__preview.dylib" -delete -print 2>/dev/null | wc -l | tr -d ' ')
-  [[ "$n" != "0" ]] && echo "Removed $n stale __preview.dylib stub(s) left by the test build."
-  return 0
-}
+# Testing injects the bundle via a debug dylib, which leaves unsigned
+# `__preview.dylib` stubs behind; see scripts/clean-preview-stubs.sh for why the
+# next ordinary build then dies in CodeSign.
+cleanup_preview_dylibs() { "$here/clean-preview-stubs.sh" }
 
 # Whatever happens — pass, fail, interrupt — do not leave a host behind.
 trap 'echo; cleanup_hosts; cleanup_preview_dylibs; exit 130' INT TERM

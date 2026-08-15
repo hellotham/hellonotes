@@ -708,6 +708,19 @@ final class Collection: Identifiable {
     /// search entry are patched incrementally (O(1 note)). A title/alias change
     /// can alter *other* notes' backlinks, so that falls back to a debounced
     /// full rebuild for correctness.
+    /// Ask the provider what has changed and apply it. Cheap when the provider
+    /// has a delta cursor; a full metadata sync when it does not.
+    func refreshFromProvider() async {
+        guard let remote else { return }
+        do {
+            _ = try await remote.refresh()
+            await scanOffMain()
+            refreshDerived()
+        } catch {
+            report("Couldn't refresh from \(remote.store.providerName): \(error.localizedDescription)")
+        }
+    }
+
     /// Fetch a remote note's real content if the cache only holds a placeholder.
     /// Safe and cheap to call unconditionally — it returns immediately for a
     /// local collection or an already-hydrated file.

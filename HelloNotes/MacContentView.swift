@@ -1313,7 +1313,12 @@ struct MacContentView: View {
                     Divider().frame(height: 11)
                     Label("\(remote.store.providerName) (direct)", systemImage: "network")
                         .foregroundStyle(.secondary)
-                        .help("A direct \(remote.store.providerName) collection over the provider's API. Edits sync back automatically.")
+                        .help("A direct \(remote.store.providerName) collection over the provider's API. Note contents download as you open them, and edits sync back automatically.")
+                    // A cache goes stale by definition, so asking is a command
+                    // the user must be able to reach.
+                    Button("Refresh") { Task { await focused.refreshFromProvider() } }
+                        .buttonStyle(.link)
+                        .help("Ask \(remote.store.providerName) what has changed since the last check.")
                 } else if let provider = CloudProvider.name(for: focused.rootURL) {
                     Divider().frame(height: 11)
                     Label(provider, systemImage: CloudProvider.symbol)
