@@ -276,6 +276,9 @@ final class RemoteBrowserModel {
 struct RemoteBrowserView: View {
     @State private var model: RemoteBrowserModel
 
+    /// Closes this browser — its own window on macOS, the settings sheet on iOS.
+    @Environment(\.dismiss) private var dismiss
+
     /// `onAddAsCollection` — when set, the browser offers "Add as Collection",
     /// handing the current folder to the host so it can mirror it into a
     /// first-class sidebar collection, and reporting back what happened. It goes
@@ -457,11 +460,16 @@ struct RemoteBrowserView: View {
                         .textSelection(.enabled)
                 }
                 Spacer()
-                // Just an acknowledgement: the collection is already revealed in
-                // the main window, so there is nothing left to choose between.
-                Button("OK") { model.dismissAddResult() }
-                    .font(.caption)
-                    .keyboardShortcut(.defaultAction)
+                // The job is done: the collection is in the sidebar and already
+                // scrolled into view. Leaving the browser sitting in front of it
+                // makes the user close a window to see what they just added, so
+                // OK finishes the whole errand rather than only the message.
+                Button("OK") {
+                    model.dismissAddResult()
+                    dismiss()
+                }
+                .font(.caption)
+                .keyboardShortcut(.defaultAction)
             }
 
         case .failed(let message):
@@ -476,6 +484,9 @@ struct RemoteBrowserView: View {
                         .textSelection(.enabled)
                 }
                 Spacer()
+                // Deliberately *not* closing the window: nothing was added, the
+                // message is the only record of why, and the next thing you want
+                // is probably to try again from here.
                 Button("Dismiss") { model.dismissAddResult() }
                     .font(.caption)
             }

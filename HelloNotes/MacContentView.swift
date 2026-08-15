@@ -1256,7 +1256,14 @@ struct MacContentView: View {
     private var editorPaneBody: some View {
         VStack(spacing: 0) {
             if let attachment = selectedAttachment {
-                FileViewerView(file: attachment)
+                FileViewerView(
+                    file: attachment,
+                    isPlaceholder: { url in
+                        library.collection(containing: url).map { !$0.hasContent(url) } ?? false
+                    },
+                    prepare: { url in
+                        await library.collection(containing: url)?.hydrateIfNeeded(url)
+                    })
             } else if let activeEditor, let c = editorCollection {
                 NoteEditorView(
                     editor: activeEditor,
