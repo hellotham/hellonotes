@@ -747,6 +747,10 @@ struct MacContentView: View {
             },
             rescan: focused.map { collection in
                 { collection.rescan() }
+            },
+            showsNonNoteFiles: focused?.showsNonNoteFiles,
+            setShowsNonNoteFiles: focused.map { collection in
+                { collection.showsNonNoteFiles = $0 }
             }
         )
     }
@@ -1352,6 +1356,12 @@ struct MacContentView: View {
                         .buttonStyle(.link)
                     Button("Remove") { library.close(focused) }
                         .buttonStyle(.link)
+                } else if !focused.showsNonNoteFiles, focused.hiddenFileCount > 0 {
+                    Divider().frame(height: 11)
+                    Label("\(focused.hiddenFileCount) file\(focused.hiddenFileCount == 1 ? "" : "s") hidden",
+                          systemImage: "eye.slash")
+                        .foregroundStyle(.secondary)
+                        .help("Non-note files (PDFs, images, documents) aren't listed in this collection. Turn them back on in View ▸ Show Non-Note Files.")
                 } else if focused.hasIncompleteIndex {
                     Divider().frame(height: 11)
                     Label("Re-indexing", systemImage: "clock.arrow.circlepath")

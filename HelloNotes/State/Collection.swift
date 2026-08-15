@@ -96,10 +96,31 @@ final class Collection: Identifiable {
         if case .stale = state { return true } else { return false }
     }
 
-    /// Whether non-Markdown files are collected at all. Gates the *walk*, not
-    /// the display: on a folder of a hundred thousand documents, not reading
-    /// their names is the entire point. (Phase 5 wires this to a menu item.)
-    var showsNonNoteFiles = true
+    /// Whether non-Markdown files are collected at all.
+    ///
+    /// Gates the **walk**, not the display. On a cloud folder holding a hundred
+    /// thousand documents, filtering them out afterwards would still have meant
+    /// reading every name; not collecting them is the entire point. Per
+    /// collection, because a mixed Box root and a clean notes vault want
+    /// different answers — and persisted, because re-deciding it every launch
+    /// would be its own small annoyance.
+    var showsNonNoteFiles: Bool {
+        didSet {
+            guard showsNonNoteFiles != oldValue else { return }
+            UserDefaults.standard.set(showsNonNoteFiles, forKey: Self.showFilesKey(id))
+            // The answer changes what the walk collects, so it has to walk again.
+            Task { await scanOffMain(); refreshDerived() }
+        }
+    }
+
+    nonisolated static func showFilesKey(_ id: String) -> String {
+        "showsNonNoteFiles:" + id
+    }
+
+    /// How many non-note files the last scan passed over. Stated rather than
+    /// merely hidden — an invisible omission is how someone concludes their PDFs
+    /// never imported.
+    private(set) var hiddenFileCount = 0
 
     /// Live counts while a scan is running, `nil` when idle.
     private(set) var scanProgress: WalkProgress?
@@ -244,6 +265,10 @@ final class Collection: Identifiable {
     init(rootURL: URL) {
         self.rootURL = rootURL
         self.id = rootURL.standardizedFileURL.path
+        // Default on: a collection that silently withheld half its contents on
+        // first open would be lying by omission before the user ever chose.
+        let key = Self.showFilesKey(rootURL.standardizedFileURL.path)
+        self.showsNonNoteFiles = UserDefaults.standard.object(forKey: key) as? Bool ?? true
         git.rootURL = rootURL
         bookmarks.load(rootURL: rootURL)
     }
@@ -382,6 +407,7 @@ final class Collection: Identifiable {
             for await batch in batches {
                 found.add(batch)
                 scanProgress = batch.progress
+                hiddenFileCount = batch.progress.filesOmitted
                 // Publishing rebuilds the outline, so throttle it rather than
                 // paying that per directory.
                 if isFirstPicture, Date().timeIntervalSince(lastPublished) > 0.15 {

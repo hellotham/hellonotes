@@ -48,6 +48,10 @@ struct AppActions {
     /// — the safety valve if the index ever looks stale. `nil` when no
     /// collection is open.
     var rescan: (() -> Void)?
+    /// Whether the focused collection lists non-note files, and a setter.
+    /// `nil` when no collection is open.
+    var showsNonNoteFiles: Bool?
+    var setShowsNonNoteFiles: ((Bool) -> Void)?
 }
 
 /// Menu actions that act on the selected note.
@@ -273,6 +277,17 @@ struct HelloNotesCommands: Commands {
             Button("Assistant") { actions?.assistant() }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(actions == nil)
+
+            Divider()
+
+            // Whether the collection lists PDFs, images and other documents
+            // alongside notes. A view choice, so it belongs in View — and a
+            // command, so it cannot live in the sidebar (shell-chrome.md).
+            Toggle("Show Non-Note Files", isOn: Binding(
+                get: { actions?.showsNonNoteFiles ?? true },
+                set: { actions?.setShowsNonNoteFiles?($0) }
+            ))
+            .disabled(actions?.showsNonNoteFiles == nil)
 
             Divider()
         }

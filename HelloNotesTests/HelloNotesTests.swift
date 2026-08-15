@@ -1075,6 +1075,33 @@ struct CollectionAvailabilityTests {
         #expect(Collection.unavailability(of: root) == .permissionDenied)
     }
 
+    /// Hiding non-note files must not hide the *fact* that they were hidden —
+    /// an unexplained absence is how someone concludes their PDFs didn't import.
+    @Test func hiddenNonNoteFilesAreCountedNotSilentlyDropped() async throws {
+        let root = try vault()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            WalkCheckpointStore.remove(for: root.standardizedFileURL.path)
+            UserDefaults.standard.removeObject(
+                forKey: Collection.showFilesKey(root.standardizedFileURL.path))
+        }
+        try Data("pdf".utf8).write(to: root.appendingPathComponent("Resume.pdf"))
+        try Data("csv".utf8).write(to: root.appendingPathComponent("Data.csv"))
+
+        let collection = Collection(rootURL: root)
+        await collection.scanOffMain()
+        #expect(collection.notes.count == 2)
+        #expect(collection.attachments.count == 2)
+        #expect(collection.hiddenFileCount == 0)
+
+        collection.showsNonNoteFiles = false
+        await collection.scanOffMain()
+
+        #expect(collection.attachments.isEmpty)
+        #expect(collection.notes.count == 2, "notes are unaffected")
+        #expect(collection.hiddenFileCount == 2, "and the app can say what it withheld")
+    }
+
     /// A cancelled *rescan* holds only a subset of the folder. Publishing it
     /// would drop notes from view for the same reason emptying an unreadable
     /// collection would — so the older, complete picture stays until a scan

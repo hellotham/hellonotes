@@ -57,7 +57,17 @@ protocol TreeSource: Sendable {
 
     /// The immediate children of `directory`, a root-relative path
     /// (`""` is the root itself).
-    func children(of directory: String) async throws -> [TreeChild]
+    func children(of directory: String) async throws -> DirectoryListing
+}
+
+/// One directory's contents.
+struct DirectoryListing: Sendable {
+    var children: [TreeChild] = []
+    /// Files the source declined to return because non-note files are excluded.
+    /// **Counted rather than simply dropped**: a folder of PDFs that shows as
+    /// empty is how someone concludes their documents failed to import. The
+    /// listing already had to look at them, so counting is free.
+    var omittedFiles: Int = 0
 }
 
 // MARK: - Progress, checkpoints, results
@@ -82,6 +92,8 @@ struct WalkProgress: Sendable, Equatable {
     var directoriesVisited = 0
     var directoriesRemaining = 0
     var itemsSeen = 0
+    /// Non-note files skipped because the collection is hiding them.
+    var filesOmitted = 0
     var currentPath = ""
     /// A real 0…1 only when a previous complete run told us the size.
     var fraction: Double?
@@ -148,6 +160,7 @@ enum ResumableTreeWalk {
         var head = 0
         var visited = checkpoint?.directoriesVisited ?? 0
         var itemsSeen = checkpoint?.itemsSeen ?? 0
+        var filesOmitted = 0
         let previousTotal = checkpoint?.previousTotalDirectories
         var issues: [WalkIssue] = []
         var sinceCheckpoint = 0
@@ -165,6 +178,7 @@ enum ResumableTreeWalk {
                 directoriesVisited: visited,
                 directoriesRemaining: remaining,
                 itemsSeen: itemsSeen,
+                filesOmitted: filesOmitted,
                 currentPath: path,
                 // Guarded against a tree that grew since the last run: a bar
                 // that reaches 100% and keeps going is worse than none.
@@ -185,9 +199,9 @@ enum ResumableTreeWalk {
             let directory = frontier[head]
             head += 1
 
-            let children: [TreeChild]
+            let listing: DirectoryListing
             do {
-                children = try await source.children(of: directory)
+                listing = try await source.children(of: directory)
             } catch {
                 // One unreadable directory costs its own subtree, not the walk.
                 issues.append(WalkIssue(path: directory,
@@ -197,12 +211,13 @@ enum ResumableTreeWalk {
             }
 
             visited += 1
-            itemsSeen += children.count
-            for child in children where child.isDirectory && !child.isPackage {
+            itemsSeen += listing.children.count
+            filesOmitted += listing.omittedFiles
+            for child in listing.children where child.isDirectory && !child.isPackage {
                 frontier.append(Self.join(directory, child.url.lastPathComponent))
             }
 
-            await onBatch(WalkBatch(directory: directory, children: children,
+            await onBatch(WalkBatch(directory: directory, children: listing.children,
                                     progress: progress(directory)))
 
             sinceCheckpoint += 1
@@ -243,26 +258,29 @@ struct LocalTreeSource: TreeSource {
         Collection.unavailability(of: root)
     }
 
-    func children(of directory: String) async throws -> [TreeChild] {
+    func children(of directory: String) async throws -> DirectoryListing {
         let url = directory.isEmpty ? root : root.appending(path: directory)
         let contents = try FileManager.default.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: Self.resourceKeys,
             options: [.skipsHiddenFiles])
 
-        var children: [TreeChild] = []
-        children.reserveCapacity(contents.count)
+        var listing = DirectoryListing()
+        listing.children.reserveCapacity(contents.count)
         for child in contents {
             guard let values = try? child.resourceValues(forKeys: Set(Self.resourceKeys)) else { continue }
             if values.isDirectory == true {
-                children.append(TreeChild(url: child, isDirectory: true,
-                                          isPackage: values.isPackage == true))
+                listing.children.append(TreeChild(url: child, isDirectory: true,
+                                                  isPackage: values.isPackage == true))
                 continue
             }
             guard values.isRegularFile == true else { continue }
             let isMarkdown = Collection.isMarkdown(child, contentType: values.contentType)
-            guard isMarkdown || includesNonNoteFiles else { continue }
-            children.append(TreeChild(
+            guard isMarkdown || includesNonNoteFiles else {
+                listing.omittedFiles += 1
+                continue
+            }
+            listing.children.append(TreeChild(
                 url: child,
                 isDirectory: false,
                 isMarkdown: isMarkdown,
@@ -271,7 +289,7 @@ struct LocalTreeSource: TreeSource {
                 isOnlineOnly: values.isUbiquitousItem == true
                     && values.ubiquitousItemDownloadingStatus == .notDownloaded))
         }
-        return children
+        return listing
     }
 }
 
