@@ -21,9 +21,11 @@ research arrive as a note instead of as a chat reply.
   tab that already holds that kind of information — the summary at the top of
   **Outline**, tags in **Tags**, suggested links in **References**, beside the
   backlinks they are about to join.
-- **A command palette**, <kbd>⇧⌘P</kbd>. Type a command's name to run it. It is built
-  from the same set of actions the menu bar is, rather than a hand-kept list of its
-  own — though a few menu commands have yet to be added to it.
+- **A command palette**, <kbd>⇧⌘P</kbd>. Type a command's name to run it — including
+  the ones with no shortcut worth memorising. It is built from the same set of
+  actions the menu bar is, rather than a hand-kept list of its own, and a command
+  that is unavailable right now is left out rather than shown greyed: everything you
+  can find in it, you can run.
 - **Select text and act on it.** The things the system's own Writing Tools cannot do,
   because they need your notes: link the phrase, find related notes, explain it using
   what you have written. On the Mac these appear in a small floating bar; on iPhone

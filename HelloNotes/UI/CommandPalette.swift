@@ -164,8 +164,37 @@ extension AppActions {
         add("refresh-cloud", "File", "Refresh Cloud Collection", "arrow.clockwise",
             run: refreshCloudCollection)
         add("rescan", "File", "Rescan Collection", "arrow.triangle.2.circlepath", run: rescan)
+        add("new-main-window", "File", "New Window", "macwindow",
+            shortcut: "⌥⌘N", run: newWindow)
+        add("close-tab", "File", "Close Tab", "xmark.square",
+            enabled: canCloseTab, run: closeTab)
+        for provider in CloudBrowser.allCases {
+            add("connect-\(provider.rawValue)", "File",
+                "Connect \(provider.displayName) Over the Web…", "cloud") {
+                connectOverWeb(provider)
+            }
+        }
+        // Deliberately no entry for the palette itself: a command that opens the
+        // thing you are already looking at is the one row nobody can want.
+
+        // Edit
+        add("find", "Edit", "Find in Note", "magnifyingglass", shortcut: "⌘F", run: find)
+        add("search-all", "Edit", "Search All Collections", "sparkle.magnifyingglass",
+            shortcut: "⌥⌘F", run: searchAllCollections)
+        if DictationController.shared.isSupported {
+            let recording = DictationController.shared.isRecording
+            add("dictate", "Edit", recording ? "Stop Dictation" : "Dictate to Daily Note",
+                recording ? "mic.slash" : "mic", shortcut: "⌃⌘D") {
+                DictationController.shared.toggle()
+            }
+        }
 
         // View
+        for mode in EditorMode.macCases where mode != editorMode {
+            add("mode-\(mode.rawValue)", "View", "\(mode.label) Mode", mode.symbol) {
+                setEditorMode(mode)
+            }
+        }
         add("graph", "View", "Graph View", "point.3.connected.trianglepath.dotted",
             shortcut: "⌘⇧G", enabled: canGraph, run: graphView)
         if let showsNonNoteFiles, let setShowsNonNoteFiles {

@@ -1543,8 +1543,9 @@ direction:
   the *intelligence* provider defaults to Apple; the chat provider is nominally OpenAI
   and inert until it is both enabled and keyed.
 - The palette "built from the same list the menu bar is, so nothing can be in one and
-  missing from the other" — it is built from the same `AppActions` *value*, which is
-  not the same guarantee: `CommandPalette.swift` omits eight menu commands today.
+  missing from the other" — it was built from the same `AppActions` *value*, which is
+  not the same guarantee: eight menu commands were missing from it. **Resolved rather
+  than reworded** — see below.
 - "**All of it** works on iPhone and iPad" — the palette is `#if os(macOS)`, and
   selection actions surface as the system edit menu rather than the floating bar.
 
@@ -1554,3 +1555,42 @@ the nine sit in a changelog section written for this release. The fact-checker c
 it on the re-run. That is the argument for re-checking corrections rather than trusting
 them: the second pass found an error the first pass could not have, because the error
 did not exist yet.
+
+### Closing the palette's gap, rather than documenting it
+
+The fact-check's most useful finding was not a wrong sentence — it was that the
+sentence had *become* wrong. The palette shipped in Phase 1 covering the command
+surface; eight commands had since arrived by other routes and were absent from it:
+Find…, Search All Collections, Close Tab, New Window, Connect Over the Web (four
+providers), Dictate to Daily Note, and the four editor-mode toggles.
+
+None of them were broken. Each worked, appeared in its menu, and was simply
+unfindable by name — which is the precise failure the palette was built to fix,
+reintroduced one command at a time. Rewording the changelog to promise less would
+have been the cheap fix and would have left the app worse.
+
+The cause was structural. `AppActions` was *most* of the command surface, and a menu
+item whose implementation was a notification post (`Find…`, `Search All Collections`),
+an `openWindow` call (`New Window`, the four cloud browsers) or an `@AppStorage`
+binding (the mode toggles) could reach the menu bar without going through it. The
+palette reads `AppActions`, so those were invisible to it — silently, because a
+missing row looks exactly like a row you have not scrolled to.
+
+- **Every command now goes through `AppActions`**, whatever its implementation. The
+  menu bar calls the same closures the palette does.
+- **`CloudBrowser`** replaces four window-id string literals that appeared in three
+  places — scene declarations, menu, and (about to be) the palette. A typo in one of
+  those opens nothing and reports nothing.
+- **The mode you are already in is not offered.** A palette row that does nothing is
+  the same broken promise in miniature.
+- **The palette does not offer to open the palette.** The one deliberate omission,
+  now a test rather than an oversight waiting to be "fixed".
+
+`CommandPaletteTests` pins it from the end that can actually be checked: SwiftUI menus
+cannot be enumerated, but both surfaces are built from one value, so the test asserts
+every action on a fully-populated `AppActions` produces an entry, that ids are unique
+(a duplicate silently breaks selection for both rows), and that commands needing a
+note, a collection or a provider are *absent* rather than present-and-failing — the
+palette greys nothing out, so unavailable has to mean invisible.
+
+272 tests in 31 suites.

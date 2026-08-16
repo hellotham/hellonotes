@@ -51,6 +51,9 @@ struct MacContentView: View {
 
     /// Opt-in background local auto-commit (never auto-pushes).
     @AppStorage("gitAutoCommit") private var autoCommit = false
+    /// The editor presentation mode. Published through `AppActions` so the View
+    /// menu, the palette and the editor's own picker all read one value.
+    @AppStorage("editorViewMode") private var editorModeRaw = EditorMode.edit.rawValue
 
     /// Daily-notes & templates configuration.
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
@@ -812,7 +815,19 @@ struct MacContentView: View {
             // Needs a collection to put the note in, but no note open and no
             // particular provider: the sheet itself says which modes can run,
             // which is more useful than a menu item that is simply absent.
-            composeNote: focused == nil ? nil : closingOpenQuickly { showCompose = true }
+            composeNote: focused == nil ? nil : closingOpenQuickly { showCompose = true },
+            newWindow: { openWindow(id: "main") },
+            // Find targets the note *behind* the palette, so it greys out while
+            // that is up rather than toggling a find bar nobody can see.
+            find: (showOpenQuickly || selectedNote == nil) ? nil : {
+                NotificationCenter.default.post(name: .hnEditorToggleFind, object: nil)
+            },
+            searchAllCollections: closingOpenQuickly {
+                NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
+            },
+            connectOverWeb: { provider in openWindow(id: provider.windowID) },
+            editorMode: EditorMode(rawValue: editorModeRaw) ?? .edit,
+            setEditorMode: { editorModeRaw = $0.rawValue }
         )
     }
 

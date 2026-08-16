@@ -131,25 +131,25 @@ struct HelloNotesApp: App {
         // edit notes without a sync folder. Uses DropboxStore (needs an app key
         // in Info.plist); a DEBUG-only demo window drives the same UI with an
         // in-memory MockRemoteStore.
-        Window("Cloud Notes (Direct)", id: "remoteBrowser") {
+        Window("Cloud Notes (Direct)", id: CloudBrowser.dropbox.windowID) {
             RemoteBrowserView(store: DropboxStore(), onAddAsCollection: addRemoteCollection)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
-        Window("Box (Direct)", id: "remoteBrowserBox") {
+        Window("Box (Direct)", id: CloudBrowser.box.windowID) {
             RemoteBrowserView(store: BoxStore(), onAddAsCollection: addRemoteCollection)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
-        Window("Google Drive (Direct)", id: "remoteBrowserGDrive") {
+        Window("Google Drive (Direct)", id: CloudBrowser.googleDrive.windowID) {
             RemoteBrowserView(store: GoogleDriveStore(), onAddAsCollection: addRemoteCollection)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
-        Window("OneDrive (Direct)", id: "remoteBrowserOneDrive") {
+        Window("OneDrive (Direct)", id: CloudBrowser.oneDrive.windowID) {
             RemoteBrowserView(store: OneDriveStore(), onAddAsCollection: addRemoteCollection)
                 .themedRoot(appearance)
         }

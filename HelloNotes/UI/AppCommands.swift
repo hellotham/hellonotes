@@ -22,7 +22,39 @@ enum FormatAction {
     case heading(Int)
 }
 
+/// The provider windows **Connect Over the Web** opens.
+///
+/// The four window ids were string literals in three places — the scene
+/// declarations, the menu, and (once the palette learned these commands) a
+/// third. Three copies of a string that must match exactly, where a typo opens
+/// nothing at all and reports nothing either.
+enum CloudBrowser: String, CaseIterable, Identifiable {
+    case dropbox = "remoteBrowser"
+    case box = "remoteBrowserBox"
+    case googleDrive = "remoteBrowserGDrive"
+    case oneDrive = "remoteBrowserOneDrive"
+
+    var id: String { rawValue }
+    var windowID: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .dropbox: "Dropbox"
+        case .box: "Box"
+        case .googleDrive: "Google Drive"
+        case .oneDrive: "OneDrive"
+        }
+    }
+}
+
 /// The actions a HelloNotes window offers to the menu bar.
+///
+/// **Every command belongs here**, including ones whose implementation is a
+/// notification post or an `openWindow` call. The command palette is generated
+/// from this value, so a command that reaches the menu bar by some other route
+/// is invisible to the palette — which is exactly the discoverability problem
+/// the palette exists to solve, reintroduced one command at a time. A
+/// fact-check found eight that had gone that way.
 struct AppActions {
     var canNewNote: Bool
     var newNote: () -> Void
@@ -76,6 +108,19 @@ struct AppActions {
     /// in File beside New Note, which is where someone goes when they want a
     /// note, rather than in a menu they only open once they already have one.
     var composeNote: (() -> Void)?
+    /// Open another main window.
+    var newWindow: () -> Void
+    /// Toggle the editor's find bar. `nil` when no note is open.
+    var find: (() -> Void)?
+    /// Focus the library-wide search field.
+    var searchAllCollections: () -> Void
+    /// Connect a provider over its own API, for an account whose desktop client
+    /// is not installed.
+    var connectOverWeb: (CloudBrowser) -> Void
+    /// The editor presentation mode, and a setter — both surfaces read one
+    /// value rather than each reaching for `@AppStorage` separately.
+    var editorMode: EditorMode
+    var setEditorMode: (EditorMode) -> Void
 }
 
 /// What the model can do *to the open note*.
@@ -151,8 +196,9 @@ struct HelloNotesCommands: Commands {
             Button("New Note") { actions?.newNote() }
                 .keyboardShortcut("n")
                 .disabled(!(actions?.canNewNote ?? false))
-            Button("New Window") { openWindow(id: "main") }
+            Button("New Window") { actions?.newWindow() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(actions == nil)
             Button("Today's Note") { actions?.todaysNote() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(!(actions?.canNewNote ?? false))
@@ -215,15 +261,17 @@ struct HelloNotesCommands: Commands {
             // Connecting over the provider's own API is the fallback, for an
             // account whose desktop client is not installed.
             Menu("Connect Over the Web") {
-                Button("Dropbox…") { openWindow(id: "remoteBrowser") }
-                Button("Box…") { openWindow(id: "remoteBrowserBox") }
-                Button("Google Drive…") { openWindow(id: "remoteBrowserGDrive") }
-                Button("OneDrive…") { openWindow(id: "remoteBrowserOneDrive") }
+                ForEach(CloudBrowser.allCases) { provider in
+                    Button("\(provider.displayName)…") { actions?.connectOverWeb(provider) }
+                }
                 #if DEBUG
                 Divider()
+                // Debug-only, so deliberately not a `CloudBrowser` case and not
+                // in the palette — it drives a mock store, not a real account.
                 Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
                 #endif
             }
+            .disabled(actions == nil)
         }
 
         // MARK: File — Print (⌘P), the standard menu item a notes app must have.
@@ -235,19 +283,18 @@ struct HelloNotesCommands: Commands {
 
         // Find (⌘F) belongs in the Edit menu (HIG), not only on the editor toolbar.
         CommandGroup(after: .textEditing) {
-            Button("Find…") { NotificationCenter.default.post(name: .hnEditorToggleFind, object: nil) }
+            Button("Find…") { actions?.find?() }
                 .keyboardShortcut("f", modifiers: .command)
-                .disabled(actions?.note == nil)
+                .disabled(actions?.find == nil)
 
             // ⌘F is find-*in-note*; searching the whole library is a different
             // question and takes Apple Notes' shortcut for it. The band's search
             // field is a plain `TextField` (shell-chrome.md D9) rather than
             // `.searchable`, so unlike the system control it gets no keyboard
             // route for free — this is that route.
-            Button("Search All Collections") {
-                NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
-            }
-            .keyboardShortcut("f", modifiers: [.command, .option])
+            Button("Search All Collections") { actions?.searchAllCollections() }
+                .keyboardShortcut("f", modifiers: [.command, .option])
+                .disabled(actions == nil)
         }
 
         // MARK: Note — everything that acts on the selected note.
@@ -346,10 +393,11 @@ struct HelloNotesCommands: Commands {
         CommandGroup(before: .toolbar) {
             ForEach(Array(EditorMode.macCases.enumerated()), id: \.element) { index, mode in
                 Toggle(mode.label, isOn: Binding(
-                    get: { editorMode == mode.rawValue },
-                    set: { if $0 { editorMode = mode.rawValue } }
+                    get: { actions?.editorMode == mode },
+                    set: { if $0 { actions?.setEditorMode(mode) } }
                 ))
                 .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
+                .disabled(actions == nil)
             }
 
             Divider()
