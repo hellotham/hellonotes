@@ -245,64 +245,30 @@ struct LibraryChatWindowView: View {
     @Environment(Library.self) private var library
     @Environment(LLMSettings.self) private var llmSettings
 
+    /// Taken once, as the window appears. Held in `@State` rather than read
+    /// from the library in `body`, because taking it *is* a mutation — a body
+    /// that re-evaluated would find it already gone.
+    @State private var seed: String?
+
     var body: some View {
         LibraryChatView(intelligence: IntelligenceService(settings: llmSettings),
                         notes: library.allNotes,
-                        searches: library.collections.map(\.search)) { note in
-            library.requestOpen(note.id)
-        }
+                        searches: library.collections.map(\.search),
+                        onOpenNote: { note in library.requestOpen(note.id) },
+                        initialQuestion: seed)
         .navigationTitle("Ask Library")
+        .task { seed = library.takePendingLibraryQuestion() }
     }
 }
 
 // MARK: - Assistant
 
-/// The agentic assistant, in its own window. Owns its model, permission
-/// broker, and skill store, and re-points them at whichever collection is
-/// focused — so it works independently of the main window's lifecycle.
+/// The agentic assistant, in its own window. The window is all this adds —
+/// everything it owns lives in `AssistantHost`, which iOS presents as a sheet.
 struct AssistantWindowView: View {
-    @Environment(Library.self) private var library
-    @Environment(LLMSettings.self) private var llmSettings
-
-    @State private var model: AssistantModel?
-    @State private var permissions = PermissionBroker()
-    @State private var skills = SkillStore()
-    @State private var showLLMSettings = false
-
     var body: some View {
-        Group {
-            if let model {
-                AssistantView(model: model) { showLLMSettings = true }
-            } else {
-                ProgressView()
-            }
-        }
-        .navigationTitle("Assistant")
-        .sheet(isPresented: $showLLMSettings) {
-            LLMSettingsView(settings: llmSettings)
-        }
-        .task {
-            if model == nil {
-                let m = AssistantModel(settings: llmSettings)
-                m.registry = ToolRegistry(tools: CollectionTools.all())
-                model = m
-            }
-            syncFocusedServices()
-        }
-        .onChange(of: library.focusedID) { _, _ in syncFocusedServices() }
-        .onChange(of: library.allNotes) { _, _ in
-            if let c = library.focused { skills.refresh(from: c.notes) }
-        }
-    }
-
-    /// Point the assistant's tools and chat store at the focused collection.
-    private func syncFocusedServices() {
-        guard let model, let c = library.focused else { return }
-        model.toolContext = ToolContext(
-            collection: c, search: c.search, git: c.git, permissions: permissions,
-            settings: llmSettings, skills: skills)
-        model.sessionStore = ChatSessionStore(collectionURL: c.rootURL)
-        skills.refresh(from: c.notes)
+        AssistantHost()
+            .navigationTitle("Assistant")
     }
 }
 #endif

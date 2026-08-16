@@ -9,7 +9,6 @@
 //  note's text and returns a summary, suggested tags, or suggested links.
 //
 
-#if os(macOS)
 import Foundation
 #if canImport(FoundationModels)
 import FoundationModels
@@ -21,14 +20,14 @@ enum IntelligenceAvailability {
     case unavailable(String)
 }
 
-@available(macOS 26.0, *)
+@available(macOS 26.0, iOS 26.0, *)
 @Generable
 struct SuggestedTags {
     @Guide(description: "3 to 6 short, lowercase, single-word topical tags with no '#'")
     var tags: [String]
 }
 
-@available(macOS 26.0, *)
+@available(macOS 26.0, iOS 26.0, *)
 @Generable
 struct SuggestedLinks {
     @Guide(description: "Titles, chosen only from the provided candidate list, of notes most related to this one")
@@ -40,16 +39,34 @@ struct SuggestedLinks {
 struct NoteIntelligence {
 
     /// Trim very long notes so a request stays within the model's context.
-    private static let maxInputChars = 6000
+    ///
+    /// Read from the on-device model's declared capabilities rather than fixed
+    /// here, so `ProviderCapabilities.appleOnDevice` is the *only* place the
+    /// on-device context is stated. A newer OS with a bigger window is then one
+    /// edit away from being used, instead of one edit away in each of four files
+    /// — three of which someone would eventually miss.
+    private static var maxInputChars: Int { ProviderCapabilities.appleOnDevice.inputBudget }
+
+    /// Why the on-device model isn't there on an OS that predates it. Named
+    /// after the version the *reader* would have to install, which differs by
+    /// platform — telling an iPad user they need macOS 26 is worse than saying
+    /// nothing.
+    static var tooOldMessage: String {
+        #if os(macOS)
+        "Requires macOS 26 or later."
+        #else
+        "Requires iOS 26 or later."
+        #endif
+    }
 
     static var availability: IntelligenceAvailability {
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, iOS 26.0, *) {
             switch SystemLanguageModel.default.availability {
             case .available:
                 return .available
             case .unavailable(.deviceNotEligible):
-                return .unavailable("This Mac doesn't support Apple Intelligence.")
+                return .unavailable("This device doesn't support Apple Intelligence.")
             case .unavailable(.appleIntelligenceNotEnabled):
                 return .unavailable("Turn on Apple Intelligence in System Settings to use this.")
             case .unavailable(.modelNotReady):
@@ -59,7 +76,7 @@ struct NoteIntelligence {
             }
         }
         #endif
-        return .unavailable("Requires macOS 26 or later.")
+        return .unavailable(Self.tooOldMessage)
     }
 
     static var isAvailable: Bool {
@@ -71,7 +88,7 @@ struct NoteIntelligence {
 
     static func summarize(_ noteText: String) async throws -> String {
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, iOS 26.0, *) {
             let session = LanguageModelSession(
                 instructions: "You summarize personal notes. Reply with 2–4 concise sentences capturing the key points. No preamble."
             )
@@ -84,7 +101,7 @@ struct NoteIntelligence {
 
     static func suggestTags(for noteText: String, existing: [String]) async throws -> [String] {
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, iOS 26.0, *) {
             let existingList = existing.isEmpty ? "none" : existing.joined(separator: ", ")
             let session = LanguageModelSession(
                 instructions: "You suggest topical tags for personal notes. Prefer reusing your existing tags when they fit."
@@ -107,7 +124,7 @@ struct NoteIntelligence {
     /// instruction says otherwise).
     static func rewrite(_ text: String, instruction: String) async throws -> String {
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, iOS 26.0, *) {
             let session = LanguageModelSession(
                 instructions: """
                 You rewrite passages from the user's Markdown notes. Follow the rewrite \
@@ -126,7 +143,7 @@ struct NoteIntelligence {
 
     static func expand(_ noteText: String) async throws -> String {
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, iOS 26.0, *) {
             let session = LanguageModelSession(
                 instructions: "You expand brief notes and outlines into clear, well-structured Markdown prose. Preserve the author's intent, headings, and any lists. Return only the expanded note, no preamble."
             )
@@ -140,7 +157,7 @@ struct NoteIntelligence {
     /// Answer a question grounded in the supplied collection notes, citing titles.
     static func answer(question: String, context: [(title: String, text: String)]) async throws -> String {
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, iOS 26.0, *) {
             let session = LanguageModelSession(
                 instructions: "You answer questions using ONLY the provided notes from the user's library. Cite the note titles you used, in brackets like [Title]. If the notes don't contain the answer, say you couldn't find it in the library."
             )
@@ -159,7 +176,7 @@ struct NoteIntelligence {
 
     static func suggestLinks(for noteText: String, candidates: [String]) async throws -> [String] {
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, iOS 26.0, *) {
             guard !candidates.isEmpty else { return [] }
             let session = LanguageModelSession(
                 instructions: "You recommend which other notes to link from the current note. Only choose from the candidate list."
@@ -201,4 +218,3 @@ struct NoteIntelligence {
 enum IntelligenceError: Error {
     case unavailable
 }
-#endif

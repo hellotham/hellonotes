@@ -10,8 +10,13 @@
 //  NoteIntelligence; every other provider runs a one-shot completion through the
 //  shared LLM layer and parses the result.
 //
+//  How much text each feature sends is decided by the provider's *declared*
+//  capabilities (`ProviderCapabilities`) rather than by one shared constant.
+//  A single 6,000-character cap was two wrong numbers at once: too much for the
+//  on-device model's context, and a fraction of what a frontier model would
+//  happily read for Ask Library.
+//
 
-#if os(macOS)
 import Foundation
 
 @MainActor
@@ -21,7 +26,14 @@ struct IntelligenceService {
     private var provider: ProviderKind { settings.intelligenceProvider }
     private var isApple: Bool { provider == .apple }
 
-    private static let maxInputChars = 6000
+    /// What the chosen provider can do. Read per call rather than stored: the
+    /// user can change providers in Settings while a panel is open.
+    var capabilities: ProviderCapabilities { provider.capabilities }
+
+    /// Whether `feature` can run on the chosen provider at all.
+    func can(_ feature: IntelligenceNeeds) -> Bool {
+        isAvailable && feature.satisfied(by: capabilities)
+    }
 
     // MARK: - Availability
 
@@ -44,19 +56,23 @@ struct IntelligenceService {
         if isApple { return try await NoteIntelligence.summarize(noteText) }
         return try await complete(
             system: "You summarize personal notes. Reply with 2–4 concise sentences capturing the key points. No preamble.",
-            user: "Summarize this note:\n\n\(clean(noteText))")
+            user: "Summarize this note:\n\n\(clean(noteText, for: .summarise))")
     }
 
     func expand(_ noteText: String) async throws -> String {
         if isApple { return try await NoteIntelligence.expand(noteText) }
         return try await complete(
             system: "You expand brief notes and outlines into clear, well-structured Markdown prose. Preserve the author's intent, headings and lists. Return only the expanded note, no preamble.",
-            user: "Expand and flesh out this note:\n\n\(clean(noteText))")
+            user: "Expand and flesh out this note:\n\n\(clean(noteText, for: .rewrite))")
     }
 
     func answer(question: String, context: [(title: String, text: String)]) async throws -> String {
         if isApple { return try await NoteIntelligence.answer(question: question, context: context) }
-        let perNote = max(400, Self.maxInputChars / max(context.count, 1))
+        // Share the provider's budget across the retrieved notes rather than a
+        // fixed cap: a frontier model can read four notes nearly whole, and
+        // truncating them to 1,500 characters each was throwing away most of
+        // the retrieval this feature exists to do.
+        let perNote = max(400, budget(for: .askLibrary) / max(context.count, 1))
         let contextText = context
             .map { "## \($0.title)\n\(String($0.text.prefix(perNote)))" }
             .joined(separator: "\n\n")
@@ -76,7 +92,7 @@ struct IntelligenceService {
             headings) intact unless the instruction says otherwise. Reply with ONLY \
             the rewritten text — no preamble, no quotes, no code fences.
             """,
-            user: "Instruction: \(instruction)\n\nText:\n\(String(text.prefix(Self.maxInputChars)))",
+            user: "Instruction: \(instruction)\n\nText:\n\(String(text.prefix(budget(for: .rewrite))))",
             temperature: 0.4)
     }
 
@@ -94,7 +110,7 @@ struct IntelligenceService {
         let existingList = existing.isEmpty ? "none" : existing.joined(separator: ", ")
         let reply = try await complete(
             system: "You suggest topical tags for personal notes. Prefer reusing your existing tags when they fit. Reply with ONLY 3–6 short, lowercase, single-word tags separated by commas — no '#', no other text.",
-            user: "Existing tags: \(existingList)\n\nNote:\n\(clean(noteText))")
+            user: "Existing tags: \(existingList)\n\nNote:\n\(clean(noteText, for: .suggestTags))")
         return normalizeTags(reply)
     }
 
@@ -103,7 +119,7 @@ struct IntelligenceService {
         if isApple { return try await NoteIntelligence.suggestLinks(for: noteText, candidates: candidates) }
         let reply = try await complete(
             system: "You recommend which other notes to link from the current note. Choose ONLY from the candidate list. Reply with one exact title per line and nothing else.",
-            user: "Candidate note titles:\n\(candidates.prefix(60).joined(separator: "\n"))\n\nCurrent note:\n\(clean(noteText))")
+            user: "Candidate note titles:\n\(candidates.prefix(60).joined(separator: "\n"))\n\nCurrent note:\n\(clean(noteText, for: .suggestLinks))")
         return matchTitles(reply, candidates: candidates)
     }
 
@@ -121,8 +137,16 @@ struct IntelligenceService {
 
     // MARK: - Helpers
 
-    private func clean(_ text: String) -> String {
-        String(FrontMatter.body(of: text).prefix(Self.maxInputChars))
+    /// How many characters of input `feature` may send to this provider: what
+    /// the feature would like, capped by what the provider can hold.
+    private func budget(for feature: IntelligenceNeeds) -> Int {
+        max(500, min(feature.inputBudget, capabilities.inputBudget))
+    }
+
+    /// The note's body (front matter is metadata, not content), trimmed to the
+    /// budget for `feature`.
+    private func clean(_ text: String, for feature: IntelligenceNeeds) -> String {
+        String(FrontMatter.body(of: text).prefix(budget(for: feature)))
     }
 
     private func normalizeTags(_ reply: String) -> [String] {
@@ -153,4 +177,3 @@ struct IntelligenceService {
             .filter { seen.insert($0).inserted }
     }
 }
-#endif

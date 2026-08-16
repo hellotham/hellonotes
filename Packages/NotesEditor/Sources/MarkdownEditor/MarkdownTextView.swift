@@ -565,6 +565,14 @@ public final class MarkdownTextView: NSTextView {
     /// context menu offers "Rewrite with AI…", delivering the selected range.
     var onRewriteSelection: ((NSRange) -> Void)?
 
+    /// Reports a settled non-empty selection and the rect of its end, so a host
+    /// can float a bar under it. An empty selection reports a zero-length range
+    /// and `.zero`, which is how the bar learns to go away.
+    ///
+    /// Fired only when `stillSelecting` is false: reporting mid-drag would make
+    /// the bar chase the pointer across the paragraph being selected.
+    var onSelectionChange: ((NSRange, CGRect) -> Void)?
+
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)
         if onRewriteSelection != nil, isEditable, selectedRange().length > 0 {
@@ -595,6 +603,7 @@ public final class MarkdownTextView: NSTextView {
         if !stillSelecting, let document {
             document.selectionDidChange(selectedRange())
             reportInlineContext()
+            reportSelection()
         }
     }
 
@@ -702,6 +711,41 @@ public final class MarkdownTextView: NSTextView {
         onInlineContextChange(context, caretRect(at: selection.location))
     }
 
+    func reportSelection() {
+        guard let onSelectionChange else { return }
+        let selection = selectedRange()
+        guard selection.length > 0 else {
+            onSelectionChange(NSRange(location: selection.location, length: 0), .zero)
+            return
+        }
+        onSelectionChange(selection, selectionEndRect(for: selection))
+    }
+
+    /// The rect of the selection's **last** line fragment, in the enclosing
+    /// scroll view's space.
+    ///
+    /// The last rather than the first because a bar anchored to the start of a
+    /// three-paragraph selection floats somewhere above the middle of it, over
+    /// text the user is still looking at. Anchored to the end it lands where a
+    /// drag finished, which is where the pointer already is.
+    private func selectionEndRect(for range: NSRange) -> CGRect {
+        guard let tlm = textLayoutManager,
+              let contentManager = tlm.textContentManager,
+              let start = contentManager.location(contentManager.documentRange.location,
+                                                  offsetBy: range.location),
+              let end = contentManager.location(start, offsetBy: range.length),
+              let textRange = NSTextRange(location: start, end: end)
+        else { return .zero }
+        var rect = CGRect.zero
+        tlm.enumerateTextSegments(in: textRange, type: .selection, options: [.rangeNotRequired]) { _, frame, _, _ in
+            rect = frame
+            return true    // keep going: we want the last fragment, not the first
+        }
+        rect = rect.offsetBy(dx: textContainerInset.width, dy: textContainerInset.height)
+        guard let scrollView = enclosingScrollView else { return rect }
+        return convert(rect, to: scrollView)
+    }
+
     /// The caret's rect in the enclosing scroll view's coordinate space —
     /// which is what a SwiftUI `.overlay` on the wrapper sees.
     private func caretRect(at location: Int) -> CGRect {
@@ -758,6 +802,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var onPasteMarkdown: ((NSPasteboard) -> String?)?
     private var onInlineContext: ((EditorDocument.InlineContext?, CGRect) -> Void)?
     private var onRewriteSelectionHandler: ((NSRange) -> Void)?
+    private var onSelectionChangeHandler: ((NSRange, CGRect) -> Void)?
     private var busDocumentId: String?
     private var editorProxy: EditorProxy?
     private var wrapGuideColumns = 0
@@ -823,6 +868,13 @@ public struct MarkdownEditorView: NSViewRepresentable {
         var copy = self; copy.onRewriteSelectionHandler = handler; return copy
     }
 
+    /// Settled-selection reporting, for a host that floats actions under the
+    /// selection. Delivers the range and the rect of its end in the wrapper's
+    /// coordinate space; a zero-length range means the selection is gone.
+    public func onSelectionChange(_ handler: @escaping (NSRange, CGRect) -> Void) -> Self {
+        var copy = self; copy.onSelectionChangeHandler = handler; return copy
+    }
+
     /// Join the app's per-document notification bus (Format menu commands,
     /// find bar queries, scroll-to-heading) under this document id.
     public func commandBus(documentId: String) -> Self {
@@ -854,6 +906,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.onPasteMarkdown = onPasteMarkdown
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
+        textView.onSelectionChange = onSelectionChangeHandler
         editorProxy?.textView = textView
         applyProperties(textView)
     }

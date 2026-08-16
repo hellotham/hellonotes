@@ -9,7 +9,6 @@
 //  live, and lets the user switch provider/model from the toolbar.
 //
 
-#if os(macOS)
 import SwiftUI
 
 struct AssistantView: View {
@@ -27,7 +26,7 @@ struct AssistantView: View {
             Divider()
             composer
         }
-        .frame(width: 620, height: 680)
+        .panelFrame(width: 620, height: 680)
         .onAppear { inputFocused = true }
         .overlay {
             if let broker = model.permissions, let prompt = broker.prompt {
@@ -240,4 +239,3 @@ private struct MessageBubble: View {
         message.role == .user ? .accentColor : .purple
     }
 }
-#endif

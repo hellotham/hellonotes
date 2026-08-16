@@ -10,6 +10,11 @@ import SwiftUI
 extension Notification.Name {
     /// Menu → editor: toggle the Find & Replace bar (the Edit ▸ Find command).
     static let hnEditorToggleFind = Notification.Name("hn.editor.toggleFind")
+    /// Menu → editor: open the rewrite sheet over the whole note (Note ▸ Rewrite
+    /// or Expand Note…). A notification for the same reason Find is one — the
+    /// sheet belongs to the editor, which owns the text and the replace path,
+    /// while the command belongs to the menu bar.
+    static let hnRewriteNote = Notification.Name("hn.editor.rewriteNote")
     /// Host → engine: scroll to (and briefly highlight) the first match of a
     /// query in the editor's displayed text. Used for table-of-contents jumps.
     static let hnEditorFindQuery = Notification.Name("hn.editor.findQuery")

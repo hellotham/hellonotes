@@ -23,6 +23,10 @@ struct iOSLiveEditor: View {
     let collection: Collection?
     let fontSize: CGFloat
     var onOpenWikiLink: (String) -> Void
+    /// What the collection can do with a selected phrase. Surfaced in the
+    /// system edit menu — see `SelectionActionBar.swift` for why there rather
+    /// than in a bar of our own.
+    var selectionActions: SelectionActions? = nil
 
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
     @Environment(\.colorScheme) private var colorScheme
@@ -31,6 +35,30 @@ struct iOSLiveEditor: View {
     /// every rotation would re-parse the note and drop the caret.
     @Environment(EditorDocumentStore.self) private var documents
     @State private var document: EditorDocument?
+
+    /// The vault-aware items added to the system edit menu for `selected`.
+    ///
+    /// Built per selection rather than once, so **Link** appears only when a
+    /// note actually matches — an item that cannot apply is worse than a
+    /// missing one, because you have to tap it to find out.
+    private func selectionMenu(for selected: String) -> [EditorMenuItem] {
+        guard let actions = selectionActions else { return [] }
+        var items: [EditorMenuItem] = []
+        if SelectionActions.isLinkable(selected), let target = actions.linkTarget(selected) {
+            items.append(EditorMenuItem(title: "Link to “\(target)”", systemImage: "link.badge.plus") { phrase in
+                NoteEdits.wikiLink(to: target, shownAs: phrase)
+            })
+        }
+        items.append(EditorMenuItem(title: "Find Related", systemImage: "text.magnifyingglass") { phrase in
+            actions.findRelated(phrase)
+            return nil       // read-only: the note is not touched
+        })
+        items.append(EditorMenuItem(title: "Ask Your Library", systemImage: "sparkles.rectangle.stack") { phrase in
+            actions.explain(phrase)
+            return nil
+        })
+        return items
+    }
 
     var body: some View {
         Group {
@@ -43,6 +71,7 @@ struct iOSLiveEditor: View {
                         case .url(let url): UIApplication.shared.open(url)
                         }
                     }
+                    .selectionMenuItems { selected in selectionMenu(for: selected) }
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

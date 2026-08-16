@@ -11,10 +11,15 @@
 //  provider choice and free-form instructions.
 //
 
-#if os(macOS)
 import SwiftUI
 
 struct RewriteSelectionView: View {
+    /// What is being rewritten. A whole note also offers **Expand**, which has
+    /// its own prompt path in the provider rather than being one more
+    /// instruction — and the commit buttons have to say "Note", because
+    /// "Replace Selection" over a whole note describes the wrong blast radius.
+    enum Subject { case selection, wholeNote }
+
     let intelligence: IntelligenceService
     /// The selected text being rewritten.
     let original: String
@@ -22,6 +27,7 @@ struct RewriteSelectionView: View {
     let onReplace: (String) -> Void
     /// Insert the rewrite on a new paragraph after the selection.
     let onInsertBelow: (String) -> Void
+    var subject: Subject = .selection
 
     @Environment(\.dismiss) private var dismiss
 
@@ -45,7 +51,8 @@ struct RewriteSelectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Label("Rewrite Selection", systemImage: "sparkles")
+                Label(subject == .wholeNote ? "Rewrite Note" : "Rewrite Selection",
+                      systemImage: "sparkles")
                     .font(.headline)
                 Spacer()
                 Text(intelligence.providerName)
@@ -74,10 +81,15 @@ struct RewriteSelectionView: View {
                         .padding(10)
                         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
 
-                    // Canned tasks.
-                    FlowLayoutish(items: Self.tasks.map(\.label)) { label in
-                        guard let task = Self.tasks.first(where: { $0.label == label }) else { return }
-                        run(task.instruction)
+                    // Canned tasks. Expand leads for a whole note, because
+                    // "turn this outline into prose" is the thing people
+                    // actually want from a note-length rewrite.
+                    FlowLayoutish(items: chipLabels) { label in
+                        if label == Self.expandLabel {
+                            runExpand()
+                        } else if let task = Self.tasks.first(where: { $0.label == label }) {
+                            run(task.instruction)
+                        }
                     }
                     .disabled(busy || !intelligence.isAvailable)
 
@@ -111,7 +123,7 @@ struct RewriteSelectionView: View {
                             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
 
                         HStack {
-                            Button("Replace Selection") {
+                            Button(subject == .wholeNote ? "Replace Note" : "Replace Selection") {
                                 onReplace(result)
                                 dismiss()
                             }
@@ -127,7 +139,38 @@ struct RewriteSelectionView: View {
                 .padding()
             }
         }
-        .frame(width: 520, height: 480)
+        .panelFrame(width: 520, height: 480)
+    }
+
+    /// Expand is not one of the saved instructions — it routes to the
+    /// provider's own expansion path, which on Apple Intelligence is a
+    /// different structured call rather than a differently-worded prompt.
+    private static let expandLabel = "Expand"
+
+    private var chipLabels: [String] {
+        subject == .wholeNote
+            ? [Self.expandLabel] + Self.tasks.map(\.label)
+            : Self.tasks.map(\.label)
+    }
+
+    private func runExpand() {
+        guard intelligence.isAvailable else { return }
+        runTask?.cancel()
+        busy = true
+        errorText = nil
+        result = nil
+        runTask = Task {
+            do {
+                let expanded = try await intelligence.expand(original)
+                guard !Task.isCancelled else { return }
+                result = expanded.isEmpty ? nil : expanded
+                if expanded.isEmpty { errorText = "The model returned nothing." }
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorText = "Couldn't expand that. \(error.localizedDescription)"
+            }
+            busy = false
+        }
     }
 
     private func runCustom() {
@@ -180,4 +223,3 @@ private struct FlowLayoutish: View {
         }
     }
 }
-#endif

@@ -5,7 +5,6 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
 import SwiftUI
 
 /// "Ask your library": retrieves the most relevant notes for a question across
@@ -19,6 +18,10 @@ struct LibraryChatView: View {
     /// One search index per open collection (retrieval spans the whole library).
     let searches: [CollectionSearchModel]
     var onOpenNote: (Note) -> Void
+    /// A question to open pre-filled and asked immediately — set when the window
+    /// was raised by "Ask your library about this" on a selection, where making
+    /// the user press Ask again would only ask them to confirm what they just did.
+    var initialQuestion: String? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -79,14 +82,25 @@ struct LibraryChatView: View {
                             Button { onOpenNote(note) } label: {
                                 Label(note.title, systemImage: "doc.text")
                             }
-                            .buttonStyle(.link)
+                            // `.link` is macOS-only; `.plain` with the accent
+                            // reads the same on both and keeps one code path.
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.tint)
                         }
                     }
                 }
                 .padding()
             }
         }
-        .frame(width: 520, height: 560)
+        .panelFrame(width: 520, height: 560)
+        // `.task(id:)` rather than `.onAppear`: the window takes its pending
+        // question from the library *after* the first render, so an appear-only
+        // hook would run while there was still nothing to ask.
+        .task(id: initialQuestion) {
+            guard let initialQuestion, question.isEmpty else { return }
+            question = initialQuestion
+            ask()
+        }
     }
 
     private func ask() {
@@ -163,4 +177,3 @@ struct LibraryChatView: View {
         return Array(scored.prefix(4).map(\.0))
     }
 }
-#endif

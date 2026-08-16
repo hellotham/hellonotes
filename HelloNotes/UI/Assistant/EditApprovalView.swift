@@ -9,7 +9,6 @@
 //  inside the assistant window (avoids nested sheets).
 //
 
-#if os(macOS)
 import SwiftUI
 
 struct EditApprovalView: View {
@@ -42,7 +41,7 @@ struct EditApprovalView: View {
                 }
             }
             .padding(18)
-            .frame(width: 460)
+            .frame(maxWidth: 460)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
             .shadow(radius: 20)
@@ -102,4 +101,3 @@ struct EditApprovalView: View {
 private extension String {
     var lines: [String] { isEmpty ? [] : components(separatedBy: "\n") }
 }
-#endif

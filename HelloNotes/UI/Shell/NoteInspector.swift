@@ -15,6 +15,7 @@
 //
 
 import SwiftUI
+import TipKit
 
 /// The inspector's tabs, in the order they appear. Persisted so the rail
 /// reopens where the user left it (decision 10) — least surprise for a tool
@@ -45,10 +46,39 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     }
 }
 
+/// A menu command asking the rail to run one of its model-backed suggestions.
+///
+/// The command lives in the menu bar and the palette, where it can be found;
+/// its answer lands in the tab that owns that kind of information. Something has
+/// to carry the request across that gap, and this is it.
+///
+/// `token` is a counter rather than a `Bool` because running Summarise twice in
+/// a row is a perfectly ordinary thing to want, and a flag can only be raised
+/// once. The host bumps it; the rail watches the whole value for a change.
+struct InspectorRequest: Equatable {
+    enum Kind { case summarize, suggestTags, suggestLinks }
+    var kind: Kind
+    var token: Int
+
+    /// The tab that shows this request's answer, so the host can reveal it.
+    var tab: InspectorTab {
+        switch kind {
+        case .summarize: .outline
+        case .suggestTags: .tags
+        case .suggestLinks: .references
+        }
+    }
+}
+
 struct NoteInspector: View {
     // Outline
     let noteText: String
     var onSelectHeading: (DocumentHeading) -> Void
+    /// Summarise the note. `nil` hides the affordance — no provider, nothing to
+    /// offer, and an always-visible button that always fails is worse than none.
+    var summarize: ((String) async throws -> String)? = nil
+    /// Write the summary into the note as a callout. `nil` leaves it read-only.
+    var onInsertSummary: ((String) -> Void)? = nil
 
     // Tags — selecting one filters the note list in the *other* rail.
     /// Every tag in the collection. Never listed wholesale; searched.
@@ -69,6 +99,13 @@ struct NoteInspector: View {
     let unlinkedMentions: [Note]
     var onOpenNote: (Note) -> Void
     var onLinkMention: (Note) -> Void
+    /// Every note title the collection can be linked to — the pool a suggestion
+    /// is drawn from.
+    var linkCandidates: [String] = []
+    /// Ask the model which of those this note should link to. `nil` hides it.
+    var suggestLinks: ((String, [String]) async throws -> [String])? = nil
+    /// Write an accepted suggestion into the note as a `[[link]]`.
+    var onInsertLink: ((String) -> Void)? = nil
 
     // Properties (front matter)
     @Binding var properties: [Property]
@@ -86,6 +123,9 @@ struct NoteInspector: View {
     /// of its own, which is what removed the spurious row inside it.
     let tab: InspectorTab
 
+    /// A pending menu-command request. See `InspectorRequest`.
+    var request: InspectorRequest? = nil
+
     @Environment(AppearanceSettings.self) private var appearance
     /// The tag search. Not persisted — reopening the rail to a mysteriously
     /// narrowed result would be worse than retyping three letters.
@@ -101,6 +141,18 @@ struct NoteInspector: View {
         case failed(String)
     }
     @State private var suggestion: SuggestionState = .idle
+    /// Suggested links, in the same three-answer shape as tags.
+    @State private var linkSuggestion: SuggestionState = .idle
+
+    /// The summary. Its own type because "here it is" carries a string, which
+    /// `SuggestionState`'s `[String]` would only pretend to hold.
+    enum SummaryState: Equatable {
+        case idle
+        case loading
+        case ready(String)
+        case failed(String)
+    }
+    @State private var summary: SummaryState = .idle
 
     var body: some View {
         VStack(spacing: 0) {
@@ -116,13 +168,37 @@ struct NoteInspector: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Both of these live on the root rather than inside a tab, and that is
+        // not a style choice. `content` is a `switch`: the References tab does
+        // not exist as a view until it is selected, and a subview that appears
+        // *already holding* the new value never fires `onChange` for it. A menu
+        // command that switches the tab and asks for a suggestion in the same
+        // update would therefore be silently dropped by a per-tab observer.
+        .onChange(of: request) { _, new in
+            guard let new else { return }
+            switch new.kind {
+            case .summarize: runSummarize()
+            case .suggestTags: runSuggestTags(existing: MarkdownParsing.tags(in: noteText))
+            case .suggestLinks: runSuggestLinks()
+            }
+        }
+        // Suggestions belong to the note they were derived from. Keyed on the
+        // file rather than on how much the text changed: the old heuristic
+        // ("the length moved by more than 40 characters") could not tell a
+        // switched note from a pasted paragraph, so it both cleared suggestions
+        // mid-edit and kept them across a selection change.
+        .onChange(of: fileURL) { _, _ in
+            suggestion = .idle
+            linkSuggestion = .idle
+            summary = .idle
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         switch tab {
         case .outline:
-            OutlineView(text: noteText, onSelectHeading: onSelectHeading)
+            outlineTab
         case .tags:
             tagsTab
         case .references:
@@ -131,6 +207,108 @@ struct NoteInspector: View {
             propertiesTab
         case .history:
             historyTab
+        }
+    }
+
+    // MARK: - Outline
+    //
+    // A summary is an outline at another resolution: the headings say how the
+    // note is shaped, the summary says what it says. Putting them in one tab is
+    // why there is no longer an "Intelligence" panel — the answer belongs with
+    // the question it answers, not with the machinery that produced it.
+
+    private var outlineTab: some View {
+        VStack(spacing: 0) {
+            if summarize != nil {
+                summarySection
+                Divider()
+            }
+            OutlineView(text: noteText, onSelectHeading: onSelectHeading)
+        }
+    }
+
+    /// The summary strip. Its header row is always there when a provider is —
+    /// that permanently visible "Summarise" is the discoverability, and it is
+    /// cheap because nothing runs until it is pressed.
+    @ViewBuilder
+    private var summarySection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("SUMMARY")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                Button(action: runSummarize) {
+                    if summary == .loading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label(summaryIsReady ? "Again" : "Summarise", systemImage: "sparkles")
+                            .font(.caption2)
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(summary == .loading || noteText.isEmpty)
+                .help("Summarise this note")
+            }
+
+            switch summary {
+            case .idle:
+                Text("Summarise this note to see what it says, not just how it is shaped.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .loading:
+                EmptyView()
+            case .failed(let message):
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+                    .help(message)
+            case .ready(let text):
+                Text(text)
+                    .font(.caption)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+                if onInsertSummary != nil {
+                    Button {
+                        onInsertSummary?(text)
+                        // It is in the note now; offering to add it again would
+                        // quietly produce two summary callouts.
+                        summary = .idle
+                    } label: {
+                        Label("Insert as Callout", systemImage: "plus")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add the summary to the top of the note as a > [!summary] callout")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+    }
+
+    private var summaryIsReady: Bool {
+        if case .ready = summary { return true }
+        return false
+    }
+
+    private func runSummarize() {
+        guard let summarize, !noteText.isEmpty else { return }
+        summary = .loading
+        Task {
+            do {
+                let text = try await summarize(noteText)
+                summary = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? .failed("The model returned nothing.")
+                    : .ready(text)
+            } catch {
+                summary = .failed(error.localizedDescription)
+            }
         }
     }
 
@@ -188,12 +366,6 @@ struct NoteInspector: View {
 
             Spacer(minLength: 0)
         }
-        // Suggestions belong to one note; carrying them to the next one would
-        // offer tags derived from text that is no longer on screen.
-        .onChange(of: noteText) { old, new in
-            // Not on every keystroke — only when the *note* changed under us.
-            if suggestion != .idle, abs(old.count - new.count) > 40 { suggestion = .idle }
-        }
     }
 
     /// What this note is tagged — the question the inspector is open to answer.
@@ -235,20 +407,7 @@ struct NoteInspector: View {
     /// tokens (or, on a local model, seconds) every time the selection changes.
     private func suggestButton(existing: [String]) -> some View {
         Button {
-            guard let suggestTags else { return }
-            suggestion = .loading
-            Task {
-                do {
-                    let tags = try await suggestTags(noteText, existing)
-                    // Anything the note already carries is not a suggestion.
-                    let fresh = tags.filter { tag in
-                        !existing.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
-                    }
-                    suggestion = fresh.isEmpty ? .none : .ready(fresh)
-                } catch {
-                    suggestion = .failed(error.localizedDescription)
-                }
-            }
+            runSuggestTags(existing: existing)
         } label: {
             if case .loading = suggestion {
                 ProgressView().controlSize(.small)
@@ -259,6 +418,25 @@ struct NoteInspector: View {
         .buttonStyle(.borderless)
         .disabled(suggestion == .loading || noteText.isEmpty)
         .help("Suggest tags from this note's content")
+    }
+
+    /// Shared by the button and by the **Note ▸ Suggest Tags** command, so the
+    /// two routes cannot drift into behaving differently.
+    private func runSuggestTags(existing: [String]) {
+        guard let suggestTags, !noteText.isEmpty else { return }
+        suggestion = .loading
+        Task {
+            do {
+                let tags = try await suggestTags(noteText, existing)
+                // Anything the note already carries is not a suggestion.
+                let fresh = tags.filter { tag in
+                    !existing.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
+                }
+                suggestion = fresh.isEmpty ? .none : .ready(fresh)
+            } catch {
+                suggestion = .failed(error.localizedDescription)
+            }
+        }
     }
 
     @ViewBuilder
@@ -381,26 +559,126 @@ struct NoteInspector: View {
         !outgoingLinks.isEmpty || !backlinks.isEmpty || !unlinkedMentions.isEmpty
     }
 
-    @ViewBuilder
     private var referencesTab: some View {
-        if !hasReferences {
-            emptyState("No References", "link",
-                       "Nothing links to this note yet, and it links nowhere.")
-        } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if !outgoingLinks.isEmpty {
-                        section("Outgoing Links", systemImage: "arrow.up.forward", notes: outgoingLinks)
-                    }
-                    if !backlinks.isEmpty {
-                        section("Linked Mentions", systemImage: "link", notes: backlinks)
-                    }
-                    if !unlinkedMentions.isEmpty {
-                        unlinkedSection
+        // Deliberately not an early return to an empty state when there are no
+        // references. A note with nothing linking to it is exactly the note
+        // most worth suggesting links for, and the old empty state replaced the
+        // whole tab — hiding the one action that could fix the emptiness it was
+        // reporting.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if suggestLinks != nil { suggestedLinksSection }
+
+                if !outgoingLinks.isEmpty {
+                    section("Outgoing Links", systemImage: "arrow.up.forward", notes: outgoingLinks)
+                }
+                if !backlinks.isEmpty {
+                    section("Linked Mentions", systemImage: "link", notes: backlinks)
+                }
+                if !unlinkedMentions.isEmpty {
+                    unlinkedSection
+                }
+                if !hasReferences {
+                    Text("Nothing links to this note yet, and it links nowhere.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Suggested links
+    //
+    // These are references you don't have yet, so they sit above the ones you
+    // do — same tab, same rhythm, same vocabulary. Accepting one turns it into
+    // an outgoing link a few rows below, which is the clearest possible account
+    // of what the button did.
+
+    @ViewBuilder
+    private var suggestedLinksSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("SUGGESTED")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                Button(action: runSuggestLinks) {
+                    if linkSuggestion == .loading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Suggest", systemImage: "sparkles").font(.caption2)
                     }
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.borderless)
+                .disabled(linkSuggestion == .loading || noteText.isEmpty || linkCandidates.isEmpty)
+                .help("Find notes in this collection worth linking to")
+                // Only once there is somewhere to link to — a tip about
+                // linking, shown to someone with a single note, teaches nothing
+                // and spends the one time TipKit will interrupt them.
+                .popoverTip(linkCandidates.count > 3 ? SuggestLinksTip() : nil)
+            }
+
+            switch linkSuggestion {
+            case .idle:
+                EmptyView()
+            case .loading:
+                EmptyView()
+            case .none:
+                Text("No links suggested.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            case .failed(let message):
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+                    .help(message)
+            case .ready(let titles):
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(titles, id: \.self) { title in
+                        Button {
+                            onInsertLink?(title)
+                            // Accepted, so it is a real link now — leaving it in
+                            // the list would invite adding it twice.
+                            if case .ready(let current) = linkSuggestion {
+                                let left = current.filter { $0 != title }
+                                linkSuggestion = left.isEmpty ? .none : .ready(left)
+                            }
+                        } label: {
+                            Label("[[\(title)]]", systemImage: "plus")
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(onInsertLink == nil)
+                        .help("Link this note to “\(title)”")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Shared by the button and the **Note ▸ Suggest Links** command.
+    private func runSuggestLinks() {
+        guard let suggestLinks, !noteText.isEmpty, !linkCandidates.isEmpty else { return }
+        linkSuggestion = .loading
+        Task {
+            do {
+                let titles = try await suggestLinks(noteText, linkCandidates)
+                // A note the text already links to is not a suggestion — and
+                // neither is this note, which a model handed its own title
+                // among the candidates will cheerfully propose.
+                var taken = Set(MarkdownParsing.wikiLinkTargets(in: noteText).map { $0.lowercased() })
+                if let own = fileURL?.deletingPathExtension().lastPathComponent {
+                    taken.insert(own.lowercased())
+                }
+                let fresh = titles.filter { !taken.contains($0.lowercased()) }
+                linkSuggestion = fresh.isEmpty ? .none : .ready(fresh)
+            } catch {
+                linkSuggestion = .failed(error.localizedDescription)
             }
         }
     }

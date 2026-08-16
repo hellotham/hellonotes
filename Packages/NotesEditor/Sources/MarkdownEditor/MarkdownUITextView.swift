@@ -225,12 +225,34 @@ final class ChromeOverlayView: UIView {
     }
 }
 
+/// A host-supplied action offered on a text selection.
+///
+/// Delivered into the **system** edit menu rather than a bar of our own. iOS
+/// already floats a menu over a selection, and a second one competing for the
+/// same few hundred points is the kind of thing that reads as a bug: the OS's
+/// menu is where a reader's hand already goes.
+public struct EditorMenuItem {
+    public let title: String
+    public let systemImage: String?
+    /// Given the selected text, return replacement text — or `nil` to act
+    /// without touching the document (search, ask, anything read-only).
+    public let perform: (String) -> String?
+
+    public init(title: String, systemImage: String? = nil,
+                perform: @escaping (String) -> String?) {
+        self.title = title
+        self.systemImage = systemImage
+        self.perform = perform
+    }
+}
+
 /// SwiftUI host for the iOS Markdown editor. Same public surface (`init`,
 /// `editable`, `onLinkTap`) as the macOS `MarkdownEditorView`.
 public struct MarkdownEditorView: UIViewRepresentable {
     private let document: EditorDocument
     private var isEditable = true
     private var onLinkTap: ((EditorLinkTap) -> Void)?
+    private var selectionMenuItems: ((String) -> [EditorMenuItem])?
 
     public init(document: EditorDocument) { self.document = document }
 
@@ -252,6 +274,14 @@ public struct MarkdownEditorView: UIViewRepresentable {
         var copy = self; copy.onLinkTap = handler; return copy
     }
 
+    /// Host actions added to the selection's edit menu. Called with the selected
+    /// text each time the menu is built, so the host can decide per selection
+    /// which items make sense — an item that cannot apply is better absent than
+    /// present and inert.
+    public func selectionMenuItems(_ build: @escaping (String) -> [EditorMenuItem]) -> Self {
+        var copy = self; copy.selectionMenuItems = build; return copy
+    }
+
     public func makeUIView(context: Context) -> MarkdownUITextView {
         let tv = MarkdownUITextView.make(document: document)
         tv.isEditable = isEditable
@@ -271,13 +301,40 @@ public struct MarkdownEditorView: UIViewRepresentable {
     public func updateUIView(_ tv: MarkdownUITextView, context: Context) {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
+        context.coordinator.selectionMenuItems = selectionMenuItems
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(document: document) }
 
     public final class Coordinator: NSObject, UITextViewDelegate {
         let document: EditorDocument
+        var selectionMenuItems: ((String) -> [EditorMenuItem])?
         init(document: EditorDocument) { self.document = document }
+
+        public func textView(_ textView: UITextView,
+                             editMenuForTextIn range: NSRange,
+                             suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let selectionMenuItems, range.length > 0 else { return nil }
+            let selected = (textView.text as NSString).substring(with: range)
+            let items = selectionMenuItems(selected)
+            guard !items.isEmpty else { return nil }
+
+            let actions = items.map { item in
+                UIAction(title: item.title,
+                         image: item.systemImage.flatMap(UIImage.init(systemName:))) { _ in
+                    guard let replacement = item.perform(selected) else { return }
+                    // Through `UITextInput`, not the storage: that is the path
+                    // typing takes, so the edit lands in the undo stack and the
+                    // document's change notifications fire as usual.
+                    guard let textRange = textView.selectedTextRange else { return }
+                    textView.replace(textRange, withText: replacement)
+                }
+            }
+            // Ours first, then everything the system offered — Writing Tools
+            // included. Ours are the vault-aware ones and cannot be reached any
+            // other way; the system's are one submenu away wherever they sit.
+            return UIMenu(children: actions + suggestedActions)
+        }
 
         public func textViewDidChangeSelection(_ textView: UITextView) {
             document.selectionDidChange(textView.selectedRange)

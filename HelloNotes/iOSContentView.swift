@@ -20,6 +20,7 @@ import UniformTypeIdentifiers
 struct iOSContentView: View {
     @Environment(Library.self) private var library
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(LLMSettings.self) private var llmSettings
     @Environment(\.scenePhase) private var scenePhase
 
     /// How the editor presents the note (live Markdown / Preview / Split).
@@ -67,6 +68,16 @@ struct iOSContentView: View {
 
     /// Launch splash overlay; fades out after a beat (or on tap).
     @State private var showSplash = true
+    /// The whole-note rewrite sheet, raised from the editor's toolbar menu.
+    @State private var showRewriteNote = false
+    /// Ask Library, and the question it should open with (`nil` = ask fresh).
+    @State private var showLibraryChat = false
+    @State private var chatSeed: String?
+    /// The agentic assistant, and the provider/key settings it needs. Both were
+    /// macOS-only until 1.3 — and without the second, an iPad had no way to
+    /// enter an API key at all, so every provider but Apple was unreachable.
+    @State private var showAssistant = false
+    @State private var showLLMSettings = false
 
     /// Which inspector tab is showing. Owned here rather than by the panel,
     /// because the toolbar is the panel's tab strip (`shell-chrome.md` D6).
@@ -74,6 +85,10 @@ struct iOSContentView: View {
     private var inspectorTab: InspectorTab {
         InspectorTab(rawValue: inspectorTabRaw) ?? .outline
     }
+
+    /// The last AI request routed to the inspector from the editor's toolbar
+    /// menu. Same mechanism as the Mac's menu bar — see `InspectorRequest`.
+    @State private var inspectorRequest: InspectorRequest?
 
     private var focused: Collection? { library.focused }
 
@@ -151,6 +166,30 @@ struct iOSContentView: View {
         }
         .sheet(isPresented: $showSettings) {
             iOSSettingsView(settings: appearance)
+        }
+        // Ask Library, which iOS simply did not have. The Mac gives it a window;
+        // a sheet is the same thing on a platform with one window.
+        .sheet(isPresented: $showLibraryChat, onDismiss: { chatSeed = nil }) {
+            NavigationStack {
+                LibraryChatView(intelligence: IntelligenceService(settings: llmSettings),
+                                notes: library.allNotes,
+                                searches: library.collections.map(\.search),
+                                onOpenNote: { note in
+                                    showLibraryChat = false
+                                    selectedNoteID = note.id
+                                },
+                                initialQuestion: chatSeed)
+            }
+        }
+        .sheet(isPresented: $showAssistant) {
+            NavigationStack {
+                AssistantHost().navigationTitle("Assistant")
+            }
+        }
+        .sheet(isPresented: $showLLMSettings) {
+            NavigationStack {
+                LLMSettingsView(settings: llmSettings)
+            }
         }
         .sheet(isPresented: $showWelcome, onDismiss: { hasSeenWelcome = true }) {
             WelcomeView(
@@ -495,6 +534,17 @@ struct iOSContentView: View {
                 Task { if let note = await scope.createNote() { selectedNoteID = note.id } }
             },
             .init(title: "Open Collection", symbol: "folder.badge.plus") { showImporter = true },
+            // Reachable deliberately, not only by selecting a phrase — the
+            // question you want to ask your notes usually isn't already in one.
+            .init(title: "Ask Your Library", symbol: "sparkles.rectangle.stack",
+                  isEnabled: !library.allNotes.isEmpty) {
+                chatSeed = nil
+                showLibraryChat = true
+            },
+            .init(title: "Assistant", symbol: "sparkles", isEnabled: scope != nil) {
+                showAssistant = true
+            },
+            .init(title: "AI Settings…", symbol: "brain") { showLLMSettings = true },
             .init(title: "Settings…", symbol: "gearshape") { showSettings = true },
         ]
     }
@@ -555,12 +605,21 @@ struct iOSContentView: View {
             NoteInspector(
                 noteText: editor.text,
                 onSelectHeading: { scrollToHeading($0.title) },
+                summarize: { text in
+                    try await IntelligenceService(settings: llmSettings).summarize(text)
+                },
+                onInsertSummary: { editor.text = NoteEdits.insertingSummaryCallout($0, into: editor.text) },
                 allTags: collection.search.allTags(),
                 noteCount: { collection.search.notesTagged($0).count },
                 selectedTag: Binding(
                     get: { selectedTag },
                     set: { selectedTag = $0; if $0 != nil { searchText = "" } }
                 ),
+                suggestTags: { text, existing in
+                    try await IntelligenceService(settings: llmSettings)
+                        .suggestTags(for: text, existing: existing)
+                },
+                onInsertTag: { editor.text = NoteEdits.addingTag($0, to: editor.text) },
                 backlinks: editor.note.map {
                     collection.linkGraph.backlinks(for: $0, in: collection.notes)
                 } ?? [],
@@ -572,6 +631,12 @@ struct iOSContentView: View {
                 unlinkedMentions: [],
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: { _ in },
+                linkCandidates: collection.search.linkTargets(),
+                suggestLinks: { text, candidates in
+                    try await IntelligenceService(settings: llmSettings)
+                        .suggestLinks(for: text, candidates: candidates)
+                },
+                onInsertLink: { editor.text = NoteEdits.addingRelatedLink($0, to: editor.text) },
                 properties: $properties,
                 onPropertiesChanged: {
                     editor.text = FrontMatter.applying(properties, to: editor.text)
@@ -579,7 +644,8 @@ struct iOSContentView: View {
                 fileURL: editor.note?.fileURL,
                 git: collection.git,
                 onRestoreRevision: { editor.text = $0 },
-                tab: inspectorTab
+                tab: inspectorTab,
+                request: inspectorRequest
             )
         } else {
             ContentUnavailableView("No Collection", systemImage: "sidebar.right",
@@ -655,7 +721,21 @@ struct iOSContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    aiMenu
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     modePicker
+                }
+            }
+            .sheet(isPresented: $showRewriteNote) {
+                NavigationStack {
+                    RewriteSelectionView(
+                        intelligence: IntelligenceService(settings: llmSettings),
+                        original: FrontMatter.body(of: editor.text),
+                        onReplace: { replaceBody(with: $0) },
+                        onInsertBelow: { editor.text = editor.text.trimmingTrailingNewlines() + "\n\n\($0)\n" },
+                        subject: .wholeNote
+                    )
                 }
             }
         } else {
@@ -667,6 +747,50 @@ struct iOSContentView: View {
         }
     }
 
+    // MARK: - AI on the open note
+    //
+    // iOS has no menu bar, so the toolbar is the *only* fixed place a command
+    // can live. Same four actions as the Mac, landing in the same inspector
+    // tabs — the answer belongs with the thing it is about on both platforms,
+    // and only the route to it differs.
+
+    @ViewBuilder
+    private var aiMenu: some View {
+        let intelligence = IntelligenceService(settings: llmSettings)
+        if intelligence.isAvailable {
+            Menu {
+                Button("Summarise Note", systemImage: "text.append") { askInspector(.summarize) }
+                Button("Suggest Tags", systemImage: "number") { askInspector(.suggestTags) }
+                Button("Suggest Links", systemImage: "link.badge.plus") { askInspector(.suggestLinks) }
+                Divider()
+                Button("Rewrite or Expand Note…", systemImage: "wand.and.stars") { showRewriteNote = true }
+                Divider()
+                Text("via \(intelligence.providerName)")
+            } label: {
+                Image(systemName: "sparkles")
+            }
+        }
+    }
+
+    /// Reveal the tab that shows this kind of answer, then ask for it.
+    ///
+    /// The reveal matters more here than on the Mac: the iOS rail defaults to
+    /// *closed*, so without it every one of these commands would appear to do
+    /// nothing at all.
+    private func askInspector(_ kind: InspectorRequest.Kind) {
+        let request = InspectorRequest(kind: kind, token: (inspectorRequest?.token ?? 0) + 1)
+        inspectorTabRaw = request.tab.rawValue
+        inspectorPresented = true
+        inspectorRequest = request
+    }
+
+    /// Replace the note's body, keeping any front matter.
+    private func replaceBody(with text: String) {
+        let full = editor.text
+        let body = FrontMatter.body(of: full)
+        editor.text = body.count < full.count ? String(full.dropLast(body.count)) + text : text
+    }
+
     /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,
     /// list bullets, callouts, heading rules, checkboxes).
     private func liveEditor(_ note: Note) -> some View {
@@ -675,7 +799,37 @@ struct iOSContentView: View {
             note: note,
             collection: focused,
             fontSize: appearance.editorFontSize,
-            onOpenWikiLink: { openWikiLink($0) }
+            onOpenWikiLink: { openWikiLink($0) },
+            selectionActions: focused.map(selectionActions(in:))
+        )
+    }
+
+    /// What the collection can do with a selected phrase — the same three the
+    /// Mac offers, reached through the system edit menu.
+    private func selectionActions(in collection: Collection) -> SelectionActions {
+        SelectionActions(
+            linkTarget: { phrase in
+                // Exact and case-insensitive, nothing looser: a wrong link
+                // corrupts the graph silently. Meaning-based candidates belong
+                // behind a review step, not behind one tap.
+                let phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !phrase.isEmpty else { return nil }
+                return collection.search.linkTargets().first {
+                    $0.caseInsensitiveCompare(phrase) == .orderedSame
+                }
+            },
+            findRelated: { phrase in
+                selectedTag = nil
+                searchText = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+                // The phone hides the list behind the editor, so a search whose
+                // results are on another screen has to bring you to that screen.
+                place = .search
+                noteIsExpanded = false
+            },
+            explain: { phrase in
+                chatSeed = "Explain this, using my notes: \(phrase)"
+                showLibraryChat = true
+            }
         )
     }
 

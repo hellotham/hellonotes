@@ -98,6 +98,19 @@ final class Library {
 
     func requestReveal(_ collectionID: Collection.ID) { pendingRevealCollectionID = collectionID }
 
+    /// A question the Ask Library window should open pre-filled with — set when
+    /// someone selects a phrase and asks the library about it. Consumed once,
+    /// by the window, so reopening it later doesn't re-ask a stale question.
+    var pendingLibraryQuestion: String?
+
+    func requestAsk(_ question: String) { pendingLibraryQuestion = question }
+
+    /// Take the pending question, if any, clearing it.
+    func takePendingLibraryQuestion() -> String? {
+        defer { pendingLibraryQuestion = nil }
+        return pendingLibraryQuestion
+    }
+
     // MARK: - Focus
 
     func focus(_ collection: Collection) { focusedID = collection.id }

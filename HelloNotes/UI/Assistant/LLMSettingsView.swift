@@ -8,7 +8,6 @@
 //  URLs for local servers, and choose the model per provider.
 //
 
-#if os(macOS)
 import SwiftUI
 
 /// The Assistant's own settings sheet (opened from the Assistant window). Wraps
@@ -30,7 +29,7 @@ struct LLMSettingsView: View {
 
             LLMSettingsForm(settings: settings)
         }
-        .frame(width: 560, height: 680)
+        .panelFrame(width: 560, height: 680)
     }
 }
 
@@ -38,6 +37,36 @@ struct LLMSettingsView: View {
 /// and the Preferences "AI" tab.
 struct LLMSettingsForm: View {
     @Bindable var settings: LLMSettings
+
+    /// What the chosen intelligence provider can actually do, and which feature
+    /// that rules out.
+    ///
+    /// Worth showing because the honest answer is not flattering and users
+    /// deserve it anyway: an on-device model reads a few thousand characters,
+    /// so "Ask your library" over a long note is a different experience there
+    /// than on a frontier model. Saying so beats letting someone conclude the
+    /// feature is bad.
+    @ViewBuilder
+    private var capabilitySummary: some View {
+        let caps = settings.intelligenceProvider.capabilities
+        let blocked = [
+            ("Ask Library", IntelligenceNeeds.askLibrary),
+            ("Deep research", IntelligenceNeeds.deepResearch),
+        ].filter { !$0.1.satisfied(by: caps) }.map(\.0)
+
+        VStack(alignment: .leading, spacing: 2) {
+            Label(caps.onDevice
+                  ? "Runs on this device — nothing leaves it, and there is no per-use cost."
+                  : "Runs in the cloud — note text is sent to \(settings.intelligenceProvider.displayName).",
+                  systemImage: caps.onDevice ? "lock.laptopcomputer" : "cloud")
+            Text("Reads up to about \(caps.inputBudget.formatted()) characters of a note at a time.")
+            if !blocked.isEmpty {
+                Text("\(blocked.joined(separator: " and ")) work better on a provider with a larger context.")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
 
     var body: some View {
         Form {
@@ -50,6 +79,7 @@ struct LLMSettingsForm: View {
                 }
                 Text("“Intelligence provider” powers Summarize, Suggest Tags/Links, Expand and Ask Library. Defaults to on-device Apple Intelligence.")
                     .font(.caption).foregroundStyle(.secondary)
+                capabilitySummary
                 HStack {
                     Text("Creativity")
                     Slider(value: $settings.temperature, in: 0...1)
@@ -148,4 +178,3 @@ private struct ProviderSection: View {
         }
     }
 }
-#endif

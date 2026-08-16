@@ -10,7 +10,6 @@
 //  native tools need compile-time types, not our dynamic tool registry).
 //
 
-#if os(macOS)
 import Foundation
 #if canImport(FoundationModels)
 import FoundationModels
@@ -21,7 +20,7 @@ struct FoundationModelsProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             let task = Task {
                 #if canImport(FoundationModels)
-                if #available(macOS 26.0, *) {
+                if #available(macOS 26.0, iOS 26.0, *) {
                     do {
                         let instructions = context.systemPrompt
                             ?? "You are the HelloNotes assistant. Be concise and helpful."
@@ -52,10 +51,9 @@ struct FoundationModelsProvider: LLMProvider {
                 }
                 #endif
                 continuation.finish(throwing: LLMError.unsupported(
-                    "Apple Intelligence requires macOS 26 on a supported Mac."))
+                    NoteIntelligence.tooOldMessage))
             }
             continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
-#endif

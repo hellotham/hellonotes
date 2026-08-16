@@ -3,9 +3,9 @@
 //  HelloNotes
 //
 //  A flow layout, shared by everything that lays out chips: the inspector's
-//  tag rail, the intelligence suggestions. It lived inside IntelligenceView,
-//  which is `#if os(macOS)` — so the inspector compiled on the Mac and failed
-//  on iOS, where the same rail ships.
+//  tag rail, its suggested tags. It used to live inside the (now dissolved)
+//  Intelligence panel, which was `#if os(macOS)` — so the inspector compiled on
+//  the Mac and failed on iOS, where the same rail ships.
 //
 
 import SwiftUI

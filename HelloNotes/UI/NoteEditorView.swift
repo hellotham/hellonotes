@@ -55,6 +55,13 @@ struct NoteEditorView: View {
     var onRenameNote: (String) -> Void = { _ in }
     var onShowMindMap: () -> Void = { }
 
+    /// The window's AI commands, so the bottom bar can offer them where a
+    /// writer's eyes already are. `nil` when there is no working provider.
+    var ai: AIActions? = nil
+
+    /// What the collection can do with a selected phrase — the floating bar.
+    var selectionActions: SelectionActions? = nil
+
     @Environment(\.openWindow) private var openWindow
     @Environment(LLMSettings.self) private var llmSettings
     @Environment(AppearanceSettings.self) private var appearance
@@ -81,7 +88,10 @@ struct NoteEditorView: View {
     @State private var showSlides = false
     @State private var showOutline = false
     @State private var showHistory = false
-    @State private var showIntelligence = false
+    /// The whole-note rewrite sheet (Note ▸ Rewrite or Expand Note…). Raised by
+    /// a notification, like Find, because the command lives in the menu bar but
+    /// the text and the replace path live here.
+    @State private var showRewriteNote = false
 
     // Editable front-matter properties, seeded per note.
     @State private var properties: [Property] = []
@@ -347,16 +357,18 @@ struct NoteEditorView: View {
                         baseURL: editor.note?.fileURL.deletingLastPathComponent()
                     )
                 }
-                .sheet(isPresented: $showIntelligence) {
-                    IntelligenceView(
+                .onReceive(NotificationCenter.default.publisher(for: .hnRewriteNote)) { _ in
+                    showRewriteNote = true
+                }
+                .sheet(isPresented: $showRewriteNote) {
+                    RewriteSelectionView(
                         intelligence: intelligence,
-                        noteText: editor.text,
-                        existingTags: tagCandidates,
-                        linkCandidates: linkCandidates,
-                        onInsertSummary: insertSummaryCallout,
-                        onAddTags: addTags,
-                        onAddLinks: addLinks,
-                        onReplaceBody: replaceBody
+                        // The body, not the file: rewriting a note should not
+                        // hand the model its own front matter to reword.
+                        original: FrontMatter.body(of: editor.text),
+                        onReplace: replaceBody,
+                        onInsertBelow: { editor.text = editor.text.trimmingTrailingNewlines() + "\n\n\($0)\n" },
+                        subject: .wholeNote
                     )
                 }
                 .sheet(isPresented: $showHistory) {
@@ -487,6 +499,7 @@ struct NoteEditorView: View {
                 pasteImage(pasteboard) ?? smartPaste(pasteboard)
             },
             intelligence: intelligence,
+            selectionActions: selectionActions,
             blockRenderer: blockRenderAdapter
         )
     }
@@ -585,36 +598,13 @@ struct NoteEditorView: View {
     }
 
     // MARK: - Intelligence apply handlers
+    //
+    // Only the whole-note replace lives here now. Summaries, tags and links are
+    // applied by the shell, because their *review* happens in the inspector —
+    // and an apply handler that lives away from the thing offering it is how
+    // the same operation ends up implemented twice, slightly differently.
 
-    /// Insert an AI summary as a `> [!summary]` callout at the top of the body
-    /// (after any front matter).
-    private func insertSummaryCallout(_ text: String) {
-        let quoted = text
-            .components(separatedBy: "\n")
-            .map { "> \($0)" }
-            .joined(separator: "\n")
-        let callout = "> [!summary] Summary\n\(quoted)\n\n"
-
-        let full = editor.text
-        let body = FrontMatter.body(of: full)
-        if body.count < full.count {
-            let frontMatter = String(full.dropLast(body.count))
-            editor.text = frontMatter + callout + body
-        } else {
-            editor.text = callout + full
-        }
-    }
-
-    /// Append suggested `#tags` not already present in the note.
-    private func addTags(_ tags: [String]) {
-        let present = Set(MarkdownParsing.tags(in: editor.text).map { $0.lowercased() })
-        let fresh = tags.filter { !present.contains($0.lowercased()) }
-        guard !fresh.isEmpty else { return }
-        let line = fresh.map { "#\($0)" }.joined(separator: " ")
-        editor.text = editor.text.trimmingTrailingNewlines() + "\n\n" + line + "\n"
-    }
-
-    /// Replace the note body (keeping front matter) with an expanded version.
+    /// Replace the note body (keeping front matter) with a rewritten version.
     private func replaceBody(_ text: String) {
         let full = editor.text
         let body = FrontMatter.body(of: full)
@@ -624,16 +614,6 @@ struct NoteEditorView: View {
         } else {
             editor.text = text
         }
-    }
-
-    /// Append suggested `[[links]]` under a "Related" heading.
-    private func addLinks(_ titles: [String]) {
-        guard !titles.isEmpty else { return }
-        let existing = Set(MarkdownParsing.wikiLinkTargets(in: editor.text).map { $0.lowercased() })
-        let fresh = titles.filter { !existing.contains($0.lowercased()) }
-        guard !fresh.isEmpty else { return }
-        let links = fresh.map { "- [[\($0)]]" }.joined(separator: "\n")
-        editor.text = editor.text.trimmingTrailingNewlines() + "\n\n## Related\n\(links)\n"
     }
 
     // MARK: - Find & replace
@@ -924,8 +904,25 @@ struct NoteEditorView: View {
             if docStats.hasMermaid {
                 barButton("Preview Mermaid diagrams", "chart.xyaxis.line") { showMermaid = true }
             }
-            if intelligence.isAvailable {
-                barButton("Summarize & suggest (\(intelligence.providerName))", "sparkles") { showIntelligence = true }
+            // The AI actions, as a menu rather than a panel. Every item names
+            // where its answer will appear, so pressing one teaches the rail
+            // instead of replacing it — which is what the old Intelligence
+            // sheet did, and why nobody found their way back to it.
+            if let ai {
+                Menu {
+                    Button("Summarise Note", systemImage: "text.append", action: ai.summarize)
+                    Button("Suggest Tags", systemImage: "number", action: ai.suggestTags)
+                    Button("Suggest Links", systemImage: "link.badge.plus", action: ai.suggestLinks)
+                    Divider()
+                    Button("Rewrite or Expand Note…", systemImage: "wand.and.stars", action: ai.rewriteNote)
+                    Divider()
+                    Text("via \(ai.providerName)")
+                } label: {
+                    Image(systemName: "sparkles")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Summarise, suggest and rewrite with \(ai.providerName)")
             }
             if git.status.isRepository {
                 barButton("Version history (Git)", "clock.arrow.circlepath") { showHistory = true }
@@ -983,11 +980,4 @@ struct NoteEditorView: View {
     }
 }
 
-private extension String {
-    func trimmingTrailingNewlines() -> String {
-        var s = self
-        while let last = s.last, last == "\n" || last == "\r" { s.removeLast() }
-        return s
-    }
-}
 #endif

@@ -28,6 +28,15 @@ struct TransclusionTip: Tip {
     var image: Image? { Image(systemName: "doc.on.doc") }
 }
 
+/// The one tip aimed at a *disappearance*: the Intelligence panel is gone and
+/// its actions moved next to what they act on, so the first time a note has
+/// somewhere to link to, say where linking now lives.
+struct SuggestLinksTip: Tip {
+    var title: Text { Text("Let the model find links") }
+    var message: Text? { Text("Suggest proposes notes worth linking to. Accept one and it becomes an outgoing link below.") }
+    var image: Image? { Image(systemName: "link.badge.plus") }
+}
+
 struct GraphTip: Tip {
     var title: Text { Text("See the graph") }
     var message: Text? { Text("Open the Graph to explore how your notes link together.") }

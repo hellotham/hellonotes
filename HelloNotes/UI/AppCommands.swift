@@ -59,6 +59,34 @@ struct AppActions {
     /// focused collection is one. A command, so it belongs in a menu rather than
     /// only in a status bar that hides whenever a note is open.
     var refreshCloudCollection: (() -> Void)?
+    /// Show the command palette (⌘⇧P).
+    var commandPalette: (() -> Void)?
+    /// AI actions on the open note. `nil` when there is no note or no working
+    /// provider — the menu greys out and the palette omits them entirely.
+    var ai: AIActions?
+}
+
+/// What the model can do *to the open note*.
+///
+/// These are note operations, so they live in the Note menu beside Rename and
+/// Duplicate rather than in an "Intelligence" panel of their own. Each one's
+/// **result** lands in the inspector tab that already owns that kind of
+/// information — a summary in Outline, tags in Tags, links in References — so
+/// the command is findable in one fixed place and its output is where you would
+/// have gone looking for it anyway. That pairing is the whole point: an "AI
+/// panel" is organised by which technology produced the answer, which is the one
+/// fact a reader does not care about.
+struct AIActions {
+    /// Who is doing the work, so the menu can say so rather than implying magic.
+    var providerName: String
+    /// Summarise the note; lands at the top of the Outline tab.
+    var summarize: () -> Void
+    /// Suggest tags the note's content implies; lands in the Tags tab.
+    var suggestTags: () -> Void
+    /// Suggest notes worth linking to; lands in the References tab.
+    var suggestLinks: () -> Void
+    /// Rewrite or expand the whole note, reviewed before it replaces anything.
+    var rewriteNote: () -> Void
 }
 
 /// Menu actions that act on the selected note.
@@ -158,6 +186,10 @@ struct HelloNotesCommands: Commands {
             // The cheap path first. When a provider's client is installed its
             // files are already on this Mac as ordinary dataless paths, so a
             // collection there needs no sign-in, no token and no cache at all.
+            Button("Command Palette…") { actions?.commandPalette?() }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .disabled(actions?.commandPalette == nil)
+            Divider()
             Button("Open Cloud Folder…") { actions?.openCloudFolder?() }
                 .disabled(actions?.openCloudFolder == nil)
             Button("Refresh Cloud Collection") { actions?.refreshCloudCollection?() }
@@ -214,6 +246,20 @@ struct HelloNotesCommands: Commands {
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])   // ⇧⌘D (⌘D is Duplicate)
             .disabled(actions?.note == nil)
+
+            Divider()
+
+            // The AI actions, in the menu that owns the note rather than in a
+            // panel of their own. Each names where its answer will appear, so
+            // the menu teaches the inspector rather than replacing it.
+            Button("Summarise Note") { actions?.ai?.summarize() }
+                .disabled(actions?.ai == nil)
+            Button("Suggest Tags") { actions?.ai?.suggestTags() }
+                .disabled(actions?.ai == nil)
+            Button("Suggest Links") { actions?.ai?.suggestLinks() }
+                .disabled(actions?.ai == nil)
+            Button("Rewrite or Expand Note…") { actions?.ai?.rewriteNote() }
+                .disabled(actions?.ai == nil)
 
             Divider()
 

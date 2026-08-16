@@ -94,6 +94,8 @@ struct MacContentView: View {
     @State private var gitStatusTask: Task<Void, Never>?
 
     @State private var showOpenQuickly = false
+    /// ⌘⇧P — every command, findable by name. See `CommandPalette.swift`.
+    @State private var showCommandPalette = false
 
     /// Rename-note prompt state (set via the context menu or the Note menu).
     @State private var renameTarget: Note?
@@ -149,6 +151,11 @@ struct MacContentView: View {
         get { InspectorTab(rawValue: inspectorTabRaw) ?? .outline }
         nonmutating set { inspectorTabRaw = newValue.rawValue }
     }
+
+    /// The last AI request sent to the inspector from a menu command or the
+    /// palette. See `InspectorRequest` — the counter inside it is what lets the
+    /// same command run twice.
+    @State private var inspectorRequest: InspectorRequest?
 
     /// Focus for the band's search field. `.searchable` came with a keyboard
     /// route; a plain field has to be handed focus explicitly, which
@@ -572,6 +579,9 @@ struct MacContentView: View {
     /// the split described in `body`.
     private func presentations<V: View>(_ content: V) -> some View {
         content
+        .sheet(isPresented: $showCommandPalette) {
+            CommandPaletteView(commands: appActions.paletteCommands)
+        }
         .sheet(isPresented: $showOpenQuickly) {
             if let c = focused {
                 OpenQuicklyView(search: c.search) { selectedNoteID = $0.id }
@@ -758,8 +768,71 @@ struct MacContentView: View {
             openCloudFolder: { library.requestOpenCloudFolder() },
             refreshCloudCollection: focused.flatMap { collection in
                 collection.isRemote ? { Task { await collection.refreshFromProvider() } } : nil
+            },
+            commandPalette: { showCommandPalette = true },
+            ai: aiActions
+        )
+    }
+
+    /// The AI commands, or `nil` when they would only disappoint — no note
+    /// open, or no provider that can actually answer. A greyed-out menu item
+    /// says "not now"; an enabled one that always errors says "this app is
+    /// broken", and the second is the lie.
+    private var aiActions: AIActions? {
+        guard !showOpenQuickly, selectedNote != nil else { return nil }
+        let intelligence = IntelligenceService(settings: llmSettings)
+        guard intelligence.isAvailable else { return nil }
+        return AIActions(
+            providerName: intelligence.providerName,
+            summarize: { askInspector(.summarize) },
+            suggestTags: { askInspector(.suggestTags) },
+            suggestLinks: { askInspector(.suggestLinks) },
+            rewriteNote: { NotificationCenter.default.post(name: .hnRewriteNote, object: nil) }
+        )
+    }
+
+    /// What the floating bar offers over a selection in `collection`.
+    ///
+    /// All three are things Writing Tools structurally cannot do, because they
+    /// are about this vault rather than about this sentence.
+    private func selectionActions(in collection: Collection) -> SelectionActions {
+        SelectionActions(
+            linkTarget: { phrase in
+                // Exact, case-insensitive, and nothing looser. A fuzzy match
+                // here would confidently link "second brain" to a note called
+                // "Second Screen", and a wrong link is worse than no link: it
+                // corrupts the graph silently and nobody re-reads a link they
+                // accepted. Meaning-based candidates are the semantic index's
+                // job, behind a review step, not a one-click button.
+                let phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !phrase.isEmpty else { return nil }
+                return collection.search.linkTargets().first {
+                    $0.caseInsensitiveCompare(phrase) == .orderedSame
+                }
+            },
+            findRelated: { phrase in
+                // Into the note list's search, where results already have rows,
+                // snippets and selection — the same reasoning as following a tag.
+                selectedTag = nil
+                searchText = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+            },
+            explain: { phrase in
+                library.requestAsk("Explain this, using my notes: \(phrase)")
+                openWindow(id: "askLibrary")
             }
         )
+    }
+
+    /// Reveal the tab that shows this kind of answer, then ask for it.
+    ///
+    /// Revealing first is the point: a command whose result appears in a panel
+    /// you cannot see has not been made findable, it has been made invisible
+    /// twice over.
+    private func askInspector(_ kind: InspectorRequest.Kind) {
+        let request = InspectorRequest(kind: kind, token: (inspectorRequest?.token ?? 0) + 1)
+        inspectorTab = request.tab
+        inspectorPresented = true
+        inspectorRequest = request
     }
 
     /// Open the rename prompt pre-filled with the note's current title.
@@ -935,6 +1008,10 @@ struct MacContentView: View {
             NoteInspector(
                 noteText: activeEditor?.text ?? "",
                 onSelectHeading: { scrollToHeading($0.title) },
+                summarize: { text in
+                    try await IntelligenceService(settings: llmSettings).summarize(text)
+                },
+                onInsertSummary: { insertSummaryCallout($0) },
                 allTags: collection.search.allTags(),
                 noteCount: { collection.search.notesTagged($0).count },
                 selectedTag: Binding(
@@ -954,12 +1031,19 @@ struct MacContentView: View {
                 unlinkedMentions: references.unlinkedMentions,
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: linkMention,
+                linkCandidates: collection.search.linkTargets(),
+                suggestLinks: { text, candidates in
+                    try await IntelligenceService(settings: llmSettings)
+                        .suggestLinks(for: text, candidates: candidates)
+                },
+                onInsertLink: { insertLink($0) },
                 properties: propertiesBinding,
                 onPropertiesChanged: {},
                 fileURL: selectedNote?.fileURL,
                 git: collection.git,
                 onRestoreRevision: { restored in activeEditor?.text = restored },
-                tab: inspectorTab
+                tab: inspectorTab,
+                request: inspectorRequest
             )
         } else {
             ContentUnavailableView("No Collection", systemImage: "sidebar.right",
@@ -967,26 +1051,22 @@ struct MacContentView: View {
         }
     }
 
-    /// Write a suggested tag into the open note.
-    ///
-    /// Appended as plain `#tag` text rather than pushed into front matter: the
-    /// note's own tags are parsed from its body (`MarkdownParsing.tags`), so
-    /// that is where a tag has to be for the rail to show it back. Joins the
-    /// last line when that line is already nothing but tags, so accepting three
-    /// suggestions gives one tag line rather than three.
+    /// Write a suggested tag into the open note. See `NoteEdits`.
     private func insertTag(_ tag: String) {
         guard let editor = activeEditor else { return }
-        let text = editor.text
-        let lastLine = text.split(separator: "\n", omittingEmptySubsequences: false).last ?? ""
-        let isTagLine = !lastLine.isEmpty && lastLine.split(separator: " ").allSatisfy {
-            $0.hasPrefix("#") && $0.count > 1
-        }
-        if isTagLine {
-            editor.text = text + " #\(tag)"
-        } else {
-            let separator = text.isEmpty ? "" : (text.hasSuffix("\n") ? "\n" : "\n\n")
-            editor.text = text + separator + "#\(tag)"
-        }
+        editor.text = NoteEdits.addingTag(tag, to: editor.text)
+    }
+
+    /// Write an accepted link suggestion into the open note. See `NoteEdits`.
+    private func insertLink(_ title: String) {
+        guard let editor = activeEditor else { return }
+        editor.text = NoteEdits.addingRelatedLink(title, to: editor.text)
+    }
+
+    /// Insert a summary as a `> [!summary]` callout at the top of the body.
+    private func insertSummaryCallout(_ text: String) {
+        guard let editor = activeEditor else { return }
+        editor.text = NoteEdits.insertingSummaryCallout(text, into: editor.text)
     }
 
     /// Front matter, read from and written straight through the note buffer.
@@ -1370,7 +1450,9 @@ struct MacContentView: View {
                     onRenameNote: { renameSelectedNote(to: $0) },
                     onShowMindMap: {
                         if let url = selectedNote?.fileURL { openWindow(value: MindMapRef(url)) }
-                    }
+                    },
+                    ai: aiActions,
+                    selectionActions: selectionActions(in: c)
                 )
             } else {
                 ContentUnavailableView(
