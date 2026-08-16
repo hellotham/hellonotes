@@ -1594,3 +1594,30 @@ note, a collection or a provider are *absent* rather than present-and-failing �
 palette greys nothing out, so unavailable has to mean invisible.
 
 272 tests in 31 suites.
+
+### Shipped as 1.3 (2026-08-16)
+
+| | |
+|---|---|
+| Version / build | `1.3` / `4` |
+| Artefact | `HelloNotes.dmg`, 37,978,417 bytes (36.2 MB) |
+| SHA-256 | `00143e2ff407b5b3cf6cd4a376d7aea0387657094d6ab6ec10887dddce10b394` |
+| Release | <https://github.com/hellotham/hellonotes/releases/tag/v1.3> |
+| Notarization | app `0016c7a3-7403-49e5-9028-cc39f0417409`, DMG `afa18644-99e7-44e8-b9be-7235c0943cab` — both Accepted |
+
+Verified from the **mounted image** rather than the packaging script's own
+output: universal (`x86_64 arm64`), Gatekeeper `accepted` with
+`source=Notarized Developer ID` for the app *and* the disk image, ticket stapled
+so it validates with no network, and `CFBundleShortVersionString` 1.3.
+
+The checksum was taken **after** stapling, which rewrites the DMG — the same
+trap 1.2 recorded, and the reason a hash computed a step earlier is one no
+user's `shasum` can reproduce. Then closed the loop the way 1.2 did: downloaded
+the published asset back from `releases/latest/download/HelloNotes.dmg`, re-hashed
+it, and compared against the rendered `download.html` rather than the source
+constant. Identical.
+
+1.2's DMG was moved to `dist/HelloNotes-1.2.dmg` before packaging — its hash was
+confirmed against this file's 1.2 record first, so what was preserved is provably
+the published artefact and not a stale local build. `package-dmg.sh` writes to a
+fixed path and would have overwritten it.
