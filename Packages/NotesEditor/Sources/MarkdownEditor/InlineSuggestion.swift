@@ -1,0 +1,275 @@
+//
+//  InlineSuggestion.swift
+//  MarkdownEditor
+//
+//  Ghost text: a completion drawn after the caret that is **not in the
+//  document**.
+//
+//  The whole feature rests on that one sentence, and it is an architectural
+//  claim rather than a careful one. The suggestion lives in a stored property
+//  on the view and is painted in `draw(_:)`. It is never inserted into the text
+//  storage, so it cannot reach a reparse, a style pass, an autosave, the search
+//  index, the link graph, or a Git diff — not because each of those was checked,
+//  but because there is no code path from a property the drawing code reads to
+//  the storage those systems read. The only thing that ever writes it is
+//  `acceptInlineSuggestion()`, and at that moment it is the user's text, typed
+//  through the same undoable path as every other edit.
+//
+//  It is drawn only at the **end of a line**, and only as a single line. That
+//  is a real restriction, taken deliberately: ghost text drawn in front of
+//  existing characters has to reflow text it does not own, in a TextKit 2 view
+//  whose layout this app has been burned by before (implemented.md §17). One
+//  line at the end of one line needs no reflow at all — it paints into space
+//  that is already empty. What does not fit is trimmed off the *suggestion*, at
+//  a word boundary, so that what you see is exactly what accepting inserts. A
+//  ghost that accepts more than it shows would be the same lie as an invented
+//  link, told faster.
+//
+
+import Foundation
+
+/// A completion offered after the caret. Display-only until accepted.
+public struct InlineSuggestion: Equatable, Sendable {
+    /// The caret offset this was computed for.
+    ///
+    /// Carried so acceptance can refuse a suggestion whose document moved
+    /// underneath it. The request is asynchronous and the user keeps typing;
+    /// without this, a late reply inserts a completion for a sentence that no
+    /// longer exists at a caret that has moved on.
+    public let location: Int
+    public let text: String
+
+    public init(location: Int, text: String) {
+        self.location = location
+        self.text = text
+    }
+
+    /// Normalise a model's reply into something drawable, or `nil` if there is
+    /// nothing usable left.
+    ///
+    /// Models return continuations wrapped in quotes, prefixed with the words
+    /// they were asked to continue, or spanning paragraphs. Only the first line
+    /// is ever shown, so trimming to it here means the drawn text and the
+    /// accepted text are the same string by construction rather than by two
+    /// pieces of code agreeing.
+    public static func sanitise(_ reply: String, maxCharacters: Int = 160) -> String? {
+        var text = reply
+        // A whole-reply quote is the model narrating; a leading fence is it
+        // deciding this was a code question.
+        if text.hasPrefix("```") { return nil }
+        text = text.replacingOccurrences(of: "\r\n", with: "\n")
+        guard let firstLine = text.split(separator: "\n", omittingEmptySubsequences: false).first
+        else { return nil }
+        text = String(firstLine)
+        if text.count >= 2, text.hasPrefix("\""), text.hasSuffix("\"") {
+            text = String(text.dropFirst().dropLast())
+        }
+        // Trailing whitespace only: a completion legitimately *starts* with a
+        // space, and eating it is how ghost text ends up glued to the word
+        // before it.
+        while let last = text.last, last.isWhitespace { text.removeLast() }
+        guard !text.isEmpty else { return nil }
+        return String(text.prefix(maxCharacters))
+    }
+}
+
+/// What the host needs in order to complete: where the caret is, and enough
+/// text on either side of it to write something that fits.
+public struct InlineCompletionContext: Sendable, Equatable {
+    public let location: Int
+    /// Text immediately before the caret, bounded.
+    public let prefix: String
+    /// Text immediately after it, bounded — so a completion doesn't duplicate
+    /// what the next paragraph already says.
+    public let suffix: String
+}
+
+#if canImport(AppKit)
+import AppKit
+
+extension MarkdownTextView {
+
+    // MARK: - Offering
+
+    /// The suggestion, if one is genuinely live.
+    ///
+    /// Validated on read rather than invalidated on change, and that is the
+    /// load-bearing decision in this file. Clearing on caret movement means
+    /// finding *every* path that moves a caret — arrow keys, clicks, drags,
+    /// find-bar jumps, programmatic selection, AppKit's own funnel points,
+    /// which do not all pass through the one override you picked. Miss one and
+    /// a stale suggestion is not merely drawn in the wrong place: it can be
+    /// accepted, inserting a completion for a sentence the caret has left.
+    /// Recomputing against the current caret cannot miss a path, because there
+    /// is no path to miss.
+    var inlineSuggestion: InlineSuggestion? {
+        guard let stored = storedInlineSuggestion else { return nil }
+        let selection = selectedRange()
+        guard selection.length == 0, selection.location == stored.location else { return nil }
+        return stored
+    }
+
+    /// Show `suggestion`, or clear it. Refused unless it describes the caret as
+    /// it is right now, and a place ghost text can honestly be drawn.
+    func showInlineSuggestion(_ suggestion: InlineSuggestion?) {
+        let previous = storedInlineSuggestion
+        guard previous != suggestion else { return }
+        if let suggestion {
+            let selection = selectedRange()
+            guard selection.length == 0,
+                  selection.location == suggestion.location,
+                  isEditable,
+                  canOfferSuggestion(at: selection.location)
+            else {
+                storedInlineSuggestion = nil
+                if previous != nil { invalidateSuggestionArea(for: previous) }
+                return
+            }
+        }
+        storedInlineSuggestion = suggestion
+        invalidateSuggestionArea(for: previous ?? suggestion)
+    }
+
+    func clearInlineSuggestion() {
+        guard let previous = storedInlineSuggestion else { return }
+        storedInlineSuggestion = nil
+        invalidateSuggestionArea(for: previous)
+    }
+
+    /// Ghost text is offered only where it can be drawn honestly: an empty
+    /// selection sitting at the end of a line, with no `[[link` or `#tag`
+    /// autocomplete already open at the caret. Two completion UIs on the same
+    /// character, competing for the same Escape and the same Tab, is one more
+    /// than anybody wants.
+    func canOfferSuggestion(at location: Int) -> Bool {
+        let ns = string as NSString
+        guard location >= 0, location <= ns.length else { return false }
+        guard document?.inlineContext(at: location) == nil else { return false }
+        guard location < ns.length else { return true }   // end of document
+        return ns.character(at: location) == 10           // newline
+    }
+
+    /// Redraw generously — the caret line, full width. Ghost text is at most
+    /// one line, and being exact here would trade a real class of stale-pixel
+    /// bug for nothing measurable.
+    private func invalidateSuggestionArea(for suggestion: InlineSuggestion?) {
+        guard let suggestion else { needsDisplay = true; return }
+        var rect = caretRectInView(at: suggestion.location)
+        guard rect != .zero else { needsDisplay = true; return }
+        rect.origin.x = 0
+        rect.size.width = bounds.width
+        setNeedsDisplay(rect.insetBy(dx: 0, dy: -4))
+    }
+
+    // MARK: - Drawing
+
+    /// Paint the ghost. Called from `draw(_:)` after `super`.
+    func drawInlineSuggestion() {
+        guard let suggestion = inlineSuggestion, let document else { return }
+        let caret = caretRectInView(at: suggestion.location)
+        guard caret != .zero else { return }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: document.theme.body,
+            .foregroundColor: document.theme.text.withAlphaComponent(0.38),
+        ]
+        let available = bounds.width - caret.maxX
+            - textContainerInset.width - (textContainer?.lineFragmentPadding ?? 0)
+        guard available > 12 else { return }
+
+        let drawn = suggestion.text.fitting(width: available, attributes: attributes)
+        guard !drawn.isEmpty else { return }
+
+        // Baseline-align with the caret's line rather than filling its rect:
+        // the caret rect is the *line* height, and drawing at its origin sits
+        // the ghost a couple of points above the text it continues.
+        let string = NSAttributedString(string: drawn, attributes: attributes)
+        let size = string.size()
+        let y = caret.midY - size.height / 2
+        string.draw(at: CGPoint(x: caret.maxX, y: y))
+    }
+
+    /// The caret rect in this view's own coordinates.
+    ///
+    /// Distinct from the private `caretRect(at:)`, which converts into the
+    /// enclosing scroll view for SwiftUI overlays. Drawing happens here, in
+    /// view space, and converting twice is how ghost text ends up a scroll
+    /// offset away from the caret.
+    func caretRectInView(at location: Int) -> CGRect {
+        guard let tlm = textLayoutManager,
+              let contentManager = tlm.textContentManager,
+              let start = contentManager.location(contentManager.documentRange.location,
+                                                  offsetBy: location)
+        else { return .zero }
+        var rect = CGRect.zero
+        tlm.enumerateTextSegments(in: NSTextRange(location: start),
+                                  type: .selection, options: [.rangeNotRequired]) { _, frame, _, _ in
+            rect = frame
+            return false
+        }
+        guard rect != .zero else { return .zero }
+        return rect.offsetBy(dx: textContainerInset.width, dy: textContainerInset.height)
+    }
+
+    // MARK: - Accepting
+
+    /// Insert the suggestion at the caret. The **only** path from ghost text to
+    /// the document, and it goes through `performEdit` — the same undoable
+    /// route typing takes, so an accepted completion is undone with one ⌘Z and
+    /// is indistinguishable from text the user wrote, because by then it is.
+    @discardableResult
+    public func acceptInlineSuggestion() -> Bool {
+        // `inlineSuggestion` is nil unless it still matches the caret, so a
+        // reply that arrived for a sentence the user has moved on from cannot
+        // be accepted at all.
+        guard let suggestion = inlineSuggestion else {
+            clearInlineSuggestion()
+            return false
+        }
+        clearInlineSuggestion()
+        return performEdit(replacing: NSRange(location: suggestion.location, length: 0),
+                           with: suggestion.text)
+    }
+
+    // MARK: - Requesting
+
+    /// Ask the host for a completion at the caret, if one could be shown here.
+    func requestInlineCompletion() {
+        guard isEditable, let onInlineCompletionRequest else { return }
+        let selection = selectedRange()
+        guard selection.length == 0, canOfferSuggestion(at: selection.location) else {
+            clearInlineSuggestion()
+            return
+        }
+        let ns = string as NSString
+        let budget = 1_200
+        let start = max(0, selection.location - budget)
+        let after = min(ns.length - selection.location, 400)
+        onInlineCompletionRequest(InlineCompletionContext(
+            location: selection.location,
+            prefix: ns.substring(with: NSRange(location: start, length: selection.location - start)),
+            suffix: ns.substring(with: NSRange(location: selection.location, length: after))))
+    }
+}
+
+private extension String {
+    /// The longest prefix of this string that fits `width`, cut at a word
+    /// boundary. Empty when even the first word doesn't fit.
+    ///
+    /// Truncating the *suggestion* rather than clipping the drawing is the
+    /// point: the drawn text and the accepted text must be the same string.
+    func fitting(width: CGFloat, attributes: [NSAttributedString.Key: Any]) -> String {
+        guard width > 0 else { return "" }
+        if (self as NSString).size(withAttributes: attributes).width <= width { return self }
+
+        var candidate = ""
+        var result = ""
+        for piece in split(separator: " ", omittingEmptySubsequences: false) {
+            candidate += (candidate.isEmpty ? "" : " ") + piece
+            if (candidate as NSString).size(withAttributes: attributes).width > width { break }
+            result = candidate
+        }
+        return result
+    }
+}
+#endif

@@ -47,6 +47,9 @@ struct NewEditorHost: View {
     @State private var document: EditorDocument?
     @State private var proxy = EditorProxy()
     @State private var syncTask: Task<Void, Never>?
+    /// Ghost text. Owned per editor host so switching notes cancels whatever
+    /// was in flight for the note you left.
+    @State private var inlineCompletions = InlineCompletionModel()
 
     // The note the current `document` was built for, and the EditorModel
     // loadRevision already reflected in it. An external reload of that *same*
@@ -107,6 +110,12 @@ struct NewEditorHost: View {
                     }
                     .onRewriteSelection { range in
                         if intelligence != nil { rewriteRange = range }
+                    }
+                    // Ghost text. The editor asks whenever the caret settles
+                    // somewhere a completion could be drawn; the debounce, the
+                    // provider check and the cancellation all live host-side.
+                    .onInlineCompletionRequest { context in
+                        inlineCompletions.request(context, intelligence: intelligence, proxy: proxy)
                     }
                     // Stays in the builder chain (these return the
                     // representable, not `some View`) — a SwiftUI modifier

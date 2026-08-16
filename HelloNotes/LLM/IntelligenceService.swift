@@ -59,6 +59,20 @@ struct IntelligenceService {
             user: "Summarize this note:\n\n\(clean(noteText, for: .summarise))")
     }
 
+    /// Continue the text before the caret (ghost text).
+    ///
+    /// No `clean()` here: the caller already sliced a bounded window ending
+    /// exactly at the caret, and front matter is not stripped because the
+    /// caret may well be *in* it. Trimming either end would move the point the
+    /// completion is supposed to continue from.
+    func completeInline(prefix: String, suffix: String) async throws -> String {
+        if isApple { return try await NoteIntelligence.completeInline(prefix: prefix, suffix: suffix) }
+        return try await complete(
+            system: InlineCompletionPrompt.instructions,
+            user: InlineCompletionPrompt.user(prefix: prefix, suffix: suffix),
+            temperature: 0.2, trimming: false)
+    }
+
     /// Write a new note from a prompt, offering `relatedTitles` as link targets.
     func compose(prompt: String, relatedTitles: [String]) async throws -> String {
         if isApple { return try await NoteIntelligence.compose(prompt: prompt, relatedTitles: relatedTitles) }
@@ -135,14 +149,20 @@ struct IntelligenceService {
 
     // MARK: - Generic provider path
 
-    private func complete(system: String, user: String, temperature: Double = 0.3) async throws -> String {
+    /// - Parameter trimming: strip surrounding whitespace from the reply.
+    ///   Every feature wants this except inline completion, where a **leading
+    ///   space is part of the answer** — it is what joins the continuation to
+    ///   the word before it, and eating it renders the ghost glued to the text
+    ///   it is continuing.
+    private func complete(system: String, user: String, temperature: Double = 0.3,
+                          trimming: Bool = true) async throws -> String {
         let (llm, model) = try ProviderFactory.make(for: provider, settings: settings)
         let ctx = LLMContext(systemPrompt: system, messages: [LLMMessage(role: .user, text: user)])
         var output = ""
         for try await event in llm.stream(ctx, model: model, options: LLMRequestOptions(temperature: temperature)) {
             if case .textDelta(let delta) = event { output += delta }
         }
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimming ? output.trimmingCharacters(in: .whitespacesAndNewlines) : output
     }
 
     // MARK: - Helpers

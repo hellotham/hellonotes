@@ -95,6 +95,38 @@ public final class EditorProxy {
         tv.document?.selectionDidChange(clamped)
     }
 
+    /// Offer ghost text at `location`, or clear it with `nil`.
+    ///
+    /// Pushed through the proxy rather than through a SwiftUI binding on
+    /// purpose: this changes on a debounce timer while someone is typing, and
+    /// routing it through `updateNSView` would re-run the representable's
+    /// update on every suggestion — for a value that only ever reaches one
+    /// stored property on one view.
+    ///
+    /// The view refuses anything that no longer describes the current caret,
+    /// so a reply that arrives late is dropped rather than shown.
+    public func showInlineSuggestion(_ text: String?, at location: Int) {
+        guard let tv = textView else { return }
+        guard let text, !text.isEmpty else {
+            tv.clearInlineSuggestion()
+            return
+        }
+        tv.showInlineSuggestion(InlineSuggestion(location: location, text: text))
+    }
+
+    public func clearInlineSuggestion() { textView?.clearInlineSuggestion() }
+
+    /// Insert the showing suggestion. Returns false when there is none, or
+    /// when the document moved under it.
+    @discardableResult
+    public func acceptInlineSuggestion() -> Bool {
+        textView?.acceptInlineSuggestion() ?? false
+    }
+
+    /// Whether ghost text is on screen right now — for a host that wants to
+    /// show an "⌥⇥ to accept" hint, and for tests.
+    public var hasInlineSuggestion: Bool { textView?.inlineSuggestion != nil }
+
     /// Wrap an AI-driven mutation so the document pauses its styling while
     /// the transform streams in, then restyles once at the end.
     public func performAITransform(_ body: (EditorProxy) -> Void) {
@@ -337,6 +369,7 @@ public final class MarkdownTextView: NSTextView {
 
     public override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        drawInlineSuggestion()
         guard let x = wrapGuideX else { return }
         NSColor.separatorColor.withAlphaComponent(0.55).setFill()
         // Hairline at the current backing scale, so it stays one pixel.
@@ -573,6 +606,73 @@ public final class MarkdownTextView: NSTextView {
     /// the bar chase the pointer across the paragraph being selected.
     var onSelectionChange: ((NSRange, CGRect) -> Void)?
 
+    /// Ghost text, drawn after the caret and **never** in the text storage.
+    /// See `InlineSuggestion.swift` — the invariant is the feature.
+    ///
+    /// Read it through the computed `inlineSuggestion`, which re-checks the
+    /// caret. This is the raw value and may be stale.
+    var storedInlineSuggestion: InlineSuggestion?
+    /// Asks the host for a completion. Debouncing and the model live there;
+    /// this view only knows where the caret is and what is around it.
+    var onInlineCompletionRequest: ((InlineCompletionContext) -> Void)?
+
+    // MARK: - Inline completion keys
+
+    /// ⌥⇥ accepts.
+    ///
+    /// Not ⇥, which indents and outdents lists; not ⌃⇥, which macOS uses for
+    /// tab cycling and this app has editor tabs. ⌥⇥ is bound nowhere else, is
+    /// not a standard `NSTextView` binding, and — unlike ⌥+letter — produces no
+    /// character, so intercepting it cannot swallow someone's typing.
+    public override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 48, modifiers == .option, inlineSuggestion != nil {
+            if acceptInlineSuggestion() { return }
+        }
+        super.keyDown(with: event)
+    }
+
+    /// → accepts while a suggestion shows: the caret moves *into* the ghost,
+    /// which is what the ghost looks like it is inviting. Safe to consume only
+    /// because suggestions are offered at end-of-line, where → would otherwise
+    /// just wrap to the next line.
+    public override func moveRight(_ sender: Any?) {
+        if inlineSuggestion != nil, acceptInlineSuggestion() { return }
+        super.moveRight(sender)
+    }
+
+    /// Esc dismisses — but only when there is something to dismiss, so the
+    /// wiki-link autocomplete and the find bar keep their Escape.
+    public override func cancelOperation(_ sender: Any?) {
+        if inlineSuggestion != nil {
+            clearInlineSuggestion()
+            return
+        }
+        super.cancelOperation(sender)
+    }
+
+    /// macOS binds `complete:` to ⌥Esc and F5 in every text view, so asking for
+    /// a suggestion on demand costs nothing. Falls back to AppKit's own word
+    /// completion when no host is offering completions, rather than removing a
+    /// standard behaviour in exchange for nothing.
+    public override func complete(_ sender: Any?) {
+        guard onInlineCompletionRequest != nil else {
+            super.complete(sender)
+            return
+        }
+        requestInlineCompletion()
+    }
+
+    public override func didChangeText() {
+        super.didChangeText()
+        clearInlineSuggestion()
+        // Next runloop turn on purpose: `performEdit` calls this *before* it
+        // moves the caret, so asking now would describe the caret's old
+        // position and the host's reply would be rejected as stale. The host
+        // debounces anyway, so the hop is free.
+        DispatchQueue.main.async { [weak self] in self?.requestInlineCompletion() }
+    }
+
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)
         if onRewriteSelection != nil, isEditable, selectedRange().length > 0 {
@@ -604,6 +704,10 @@ public final class MarkdownTextView: NSTextView {
             document.selectionDidChange(selectedRange())
             reportInlineContext()
             reportSelection()
+            // Moving the caret is not typing, so this clears without asking for
+            // a new one — a suggestion that followed the caret around would be
+            // answering a question nobody asked.
+            clearInlineSuggestion()
         }
     }
 
@@ -807,6 +911,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var editorProxy: EditorProxy?
     private var wrapGuideColumns = 0
     private var onCaretEscapeTopHandler: ((CaretEscape) -> Void)?
+    private var onInlineCompletionRequestHandler: ((InlineCompletionContext) -> Void)?
 
     public init(document: EditorDocument) {
         self.document = document
@@ -886,6 +991,13 @@ public struct MarkdownEditorView: NSViewRepresentable {
         var copy = self; copy.editorProxy = proxy; return copy
     }
 
+    /// Ghost-text hook: the editor asks here when the caret settles somewhere a
+    /// completion could be shown; answer through the proxy's
+    /// `showInlineSuggestion`. Installing it also takes over ⌥Esc / F5.
+    public func onInlineCompletionRequest(_ handler: @escaping (InlineCompletionContext) -> Void) -> Self {
+        var copy = self; copy.onInlineCompletionRequestHandler = handler; return copy
+    }
+
     public func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.scrollableEditor(document: document)
         textView.delegate = context.coordinator
@@ -907,6 +1019,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
         textView.onSelectionChange = onSelectionChangeHandler
+        textView.onInlineCompletionRequest = onInlineCompletionRequestHandler
         editorProxy?.textView = textView
         applyProperties(textView)
     }

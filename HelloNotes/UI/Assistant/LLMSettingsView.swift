@@ -38,6 +38,16 @@ struct LLMSettingsView: View {
 struct LLMSettingsForm: View {
     @Bindable var settings: LLMSettings
 
+    #if os(macOS)
+    /// Same key `InlineCompletionModel` reads, so the toggle takes effect in
+    /// editors that are already open.
+    @AppStorage(InlineCompletionModel.enabledKey) private var inlineCompletion = false
+
+    private var ghostTextUnavailable: String? {
+        InlineCompletionModel.unavailableReason(IntelligenceService(settings: settings))
+    }
+    #endif
+
     /// What the chosen intelligence provider can actually do, and which feature
     /// that rules out.
     ///
@@ -89,6 +99,24 @@ struct LLMSettingsForm: View {
                 Text("Lower is more focused and predictable; higher is more varied and creative.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+
+            #if os(macOS)
+            Section("Inline completion") {
+                Toggle("Suggest as I type", isOn: $inlineCompletion)
+                    .disabled(ghostTextUnavailable != nil)
+                if let ghostTextUnavailable {
+                    // The toggle is off *and* disabled here, and without this
+                    // line those look identical to a toggle that simply does
+                    // nothing.
+                    Label(ghostTextUnavailable, systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Grey text appears after the cursor when you pause at the end of a line. ⌥⇥ or → accepts it; Esc dismisses it. Nothing is added to the note until you accept.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            #endif
 
             ForEach(ProviderKind.allCases) { kind in
                 ProviderSection(settings: settings, kind: kind)

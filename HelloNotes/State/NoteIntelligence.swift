@@ -141,6 +141,19 @@ struct NoteIntelligence {
         throw IntelligenceError.unavailable
     }
 
+    /// Continue the text before the caret. Ghost text — see `InlineSuggestion`.
+    static func completeInline(prefix: String, suffix: String) async throws -> String {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, iOS 26.0, *) {
+            let session = LanguageModelSession(instructions: InlineCompletionPrompt.instructions)
+            let response = try await session.respond(
+                to: InlineCompletionPrompt.user(prefix: prefix, suffix: suffix))
+            return response.content
+        }
+        #endif
+        throw IntelligenceError.unavailable
+    }
+
     /// Write a new note from a prompt, linking the offered titles where they fit.
     static func compose(prompt: String, relatedTitles: [String]) async throws -> String {
         #if canImport(FoundationModels)
