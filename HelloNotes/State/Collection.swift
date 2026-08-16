@@ -271,6 +271,80 @@ final class Collection: Identifiable {
         relatedness = nil
     }
 
+    // MARK: Link proposals
+
+    /// "Never propose that link again", remembered per collection.
+    ///
+    /// `@ObservationIgnored` because `@Observable` rewrites stored properties
+    /// into computed ones, and `lazy` cannot survive that — and because nothing
+    /// observes this: it is consulted when proposals are generated, never
+    /// rendered.
+    @ObservationIgnored private lazy var declinedLinks = DeclinedLinkStore(collectionRoot: rootURL)
+
+    /// Every note that could be linked to, with its aliases.
+    private var linkCandidates: [LinkCandidate] {
+        notes.map { LinkCandidate(title: $0.title, url: $0.fileURL,
+                                  aliases: search.aliases(of: $0.fileURL)) }
+    }
+
+    /// Links this note's text names but does not make, best candidates only.
+    ///
+    /// **Two signals, intersected, because neither is a link on its own.** A
+    /// title mention says "these words appear here" — and on the measured vault
+    /// that alone yields ~15 proposals per note of which 0.8% match a link the
+    /// author independently chose to make, which is a wall of noise rather than
+    /// a feature. Relatedness says "these two notes are about the same things".
+    /// A note you *named* and are *demonstrably writing about* is much closer to
+    /// something worth linking.
+    ///
+    /// Measured (`docs/semantic-retrieval-benchmark.md`): keeping the ten
+    /// most-related mentions retains 93% of the author's own links while cutting
+    /// the proposal count by more than half. The cap matters more than the
+    /// ordering — with ten shown in reading order, stopping early is cheap.
+    ///
+    /// Low proposal precision costs *review time*, never correctness: nothing is
+    /// written without confirmation. That is the whole reason this feature is a
+    /// review rather than a pass.
+    func linkProposals(in text: String, for noteURL: URL?, limit: Int = 10) async -> [LinkProposal] {
+        let candidates = linkCandidates
+        let declined = declinedLinks.all
+        let found = await Task.detached(priority: .userInitiated) {
+            LinkProposals.proposals(in: text, candidates: candidates,
+                                    declined: declined, excludingNoteAt: noteURL)
+        }.value
+        guard found.count > limit else { return found }
+
+        // Rank by relatedness, keep the best, then restore reading order — the
+        // review shows each proposal in its own context, so document order is
+        // what makes a sequence of them feel like reading the note.
+        let neighbours = await relatedNotes(to: text, excluding: noteURL, limit: 200)
+        var rank: [URL: Int] = [:]
+        for (position, neighbour) in neighbours.enumerated() { rank[neighbour.url] = position }
+        return found
+            .sorted { (rank[$0.targetURL] ?? .max) < (rank[$1.targetURL] ?? .max) }
+            .prefix(limit)
+            .sorted { $0.range.location < $1.range.location }
+    }
+
+    func declineLink(_ proposal: LinkProposal) {
+        declinedLinks.decline(
+            LinkProposals.declineKey(phrase: proposal.phrase, target: proposal.targetTitle))
+    }
+
+    /// Forget every "never" — the only way back for a decision made in haste.
+    func resetDeclinedLinks() { declinedLinks.reset() }
+
+    /// The opening of a note, for judging a proposed link without leaving the
+    /// review. Front matter stripped: it is metadata, and it is what the top of
+    /// the file actually holds.
+    func openingLines(of url: URL, limit: Int = 400) -> String {
+        guard let raw = try? FileIO.readString(at: url) else {
+            return "Couldn't read that note."
+        }
+        let body = FrontMatter.body(of: raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? "This note is empty." : String(body.prefix(limit))
+    }
+
     // MARK: Per-collection subsystems (isolated to this collection)
 
     /// The collection's `[[wiki-link]]` / backlink index.

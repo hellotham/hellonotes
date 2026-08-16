@@ -173,6 +173,81 @@ decides.
   was actually looked at. Any chunker that ships needs this, plus a sub-split for
   single "words" longer than the ceiling (converted notes contain base64 blobs).
 
+---
+
+## Auto-linking (1.3 §4): what the same vault says about proposals
+
+The retrieval index was built to serve link suggestion, so the same harness was
+turned on the link proposals themselves. It changed the design twice.
+
+### Volume
+
+Scanning for notes whose *title* appears verbatim in another note:
+
+| | notes with ≥1 proposal | median | p90 | max |
+|---|---:|---:|---:|---:|
+| Every title mention | 1,830 of 2,007 (91%) | 8 | 40 | 114 |
+
+Median 8 is a reviewable list. A p90 of 40 and a max of 114 is not, one click at
+a time — so a cut-off was needed.
+
+### Precision, and why suppression was the wrong tool
+
+Measured as *agreement with links the author independently made*. This is a
+**lower bound**, and an unusually loose one: a proposal the author never made is
+not necessarily wrong, since finding unmade links is the entire feature. Read it
+as "how often does this proposal match demonstrated behaviour", not "how often is
+it right".
+
+| Title length | proposals | are real links | precision |
+|---|---:|---:|---:|
+| 1 word | 26,725 | 169 | 0.6% |
+| 2 words | 1,363 | 18 | 1.3% |
+| 3 words | 138 | 6 | **4.3%** |
+| 4+ words | 1,307 | 40 | 3.1% |
+
+Specificity predicts — a three-word title is seven times likelier to match than a
+one-word one — which suggested suppressing common single-word titles. **The sweep
+killed that idea:**
+
+| Drop single-word titles above | titles dropped | median | p90 | true links lost |
+|---|---:|---:|---:|---:|
+| 5% of notes | 48 | 1 | 10 | **182 of 520** |
+| 10% | 41 | 1 | 11 | 175 of 520 |
+| 20% | 33 | 2 | 15 | 137 of 520 |
+| 33% | 13 | 4 | 30 | 95 of 520 |
+| 50% | 2 | 7 | 38 | 42 of 520 |
+
+Every threshold costs real links, because the "common" titles in this vault —
+`INDEX`, `BIBLIOGRAPHY`, `Abbreviations`, `China` — are ones the author links to
+constantly and on purpose. A rule that cuts noise eightfold by discarding a third
+of the true positives is the wrong trade for a feature whose job is finding
+links.
+
+### What shipped instead: two signals, intersected
+
+A title mention says *these words appear here*. Relatedness says *these notes are
+about the same things*. Neither is a link; a note you **named** and are
+**demonstrably writing about** is much closer to one.
+
+| Candidate rule | proposals | are real links | precision |
+|---|---:|---:|---:|
+| Every title mention | 29,533 | 233 | 0.8% |
+| Mention, top 50 by relatedness | 28,652 | 233 | 0.8% |
+| Mention, top 20 by relatedness | 20,291 | 227 | 1.1% |
+| **Mention, top 10 by relatedness** | **13,179** | **216** | **1.6%** |
+
+Top ten keeps **93% of the author's own links** while cutting proposals by more
+than half, so that is the shipping default — capped at ten per note, then
+restored to reading order, since the review shows each proposal in its own
+context and document order is what makes a sequence feel like reading the note.
+
+**Why a low number is acceptable here, and where it would not be.** Nothing is
+written without confirmation, so weak proposal precision costs *review time*,
+never correctness — which is exactly why this is a review and not a pass. The
+same numbers would rule out an unattended collection-wide auto-link, and that is
+not built.
+
 ## Limits of this measurement
 
 - **One vault, one domain.** A vault of conceptual essays rather than

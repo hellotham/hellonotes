@@ -188,6 +188,9 @@ extension AppActions {
             add("ai-rewrite", "Note", "Rewrite or Expand Note…", "wand.and.stars", run: ai.rewriteNote)
         }
 
+        add("review-links", "Note", "Review Links…", "link.badge.plus",
+            shortcut: "⌘⇧L", run: reviewLinks)
+
         // Note — only when one is selected, which is exactly when they mean anything.
         if let note {
             add("rename", "Note", "Rename Note", "pencil", run: note.rename)

@@ -70,6 +70,14 @@ struct iOSContentView: View {
     @State private var showSplash = true
     /// The whole-note rewrite sheet, raised from the editor's toolbar menu.
     @State private var showRewriteNote = false
+
+    /// An in-progress link review, carrying the text its ranges describe.
+    private struct LinkReviewRequest: Identifiable {
+        let id = UUID()
+        let proposals: [LinkProposal]
+        let noteText: String
+    }
+    @State private var linkReview: LinkReviewRequest?
     /// Ask Library, and the question it should open with (`nil` = ask fresh).
     @State private var showLibraryChat = false
     @State private var chatSeed: String?
@@ -727,10 +735,24 @@ struct iOSContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    reviewLinksButton
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     aiMenu
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     modePicker
+                }
+            }
+            .sheet(item: $linkReview) { review in
+                NavigationStack {
+                    ReviewLinksView(
+                        proposals: review.proposals,
+                        noteText: review.noteText,
+                        preview: { focused?.openingLines(of: $0) ?? "" },
+                        onFinish: { applyAcceptedLinks($0, reviewedText: review.noteText) },
+                        onDecline: { focused?.declineLink($0) }
+                    )
                 }
             }
             .sheet(isPresented: $showRewriteNote) {
@@ -776,6 +798,40 @@ struct iOSContentView: View {
                 Image(systemName: "sparkles")
             }
         }
+    }
+
+    /// Review Links is its own toolbar button rather than an item in the AI
+    /// menu: it is an exact text scan and works with no provider configured, so
+    /// burying it under a sparkles icon would hide a working feature behind a
+    /// setting it does not need.
+    @ViewBuilder
+    private var reviewLinksButton: some View {
+        if editor.note != nil, focused != nil {
+            Button { beginLinkReview() } label: {
+                Image(systemName: "link.badge.plus")
+            }
+            .help("Find links this note names but doesn't make")
+        }
+    }
+
+    /// See the Mac's `beginLinkReview()` — proposals are generated once, up
+    /// front, because every range is an offset into the text as it is now.
+    private func beginLinkReview() {
+        guard let collection = focused else { return }
+        let text = editor.text
+        Task {
+            let found = await collection.linkProposals(in: text, for: editor.note?.fileURL)
+            linkReview = LinkReviewRequest(proposals: found, noteText: text)
+        }
+    }
+
+    private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
+        guard !accepted.isEmpty else { return }
+        guard editor.text == reviewedText else {
+            focused?.lastError = "The note changed while you were reviewing, so no links were added. Run Review Links again."
+            return
+        }
+        editor.text = LinkProposals.apply(accepted, to: editor.text)
     }
 
     /// Reveal the tab that shows this kind of answer, then ask for it.

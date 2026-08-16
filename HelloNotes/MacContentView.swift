@@ -97,6 +97,15 @@ struct MacContentView: View {
     /// ⌘⇧P — every command, findable by name. See `CommandPalette.swift`.
     @State private var showCommandPalette = false
 
+    /// An in-progress link review, with the text the proposals were generated
+    /// against so stale ranges can be detected rather than applied.
+    private struct LinkReview: Identifiable {
+        let id = UUID()
+        let proposals: [LinkProposal]
+        let noteText: String
+    }
+    @State private var linkReview: LinkReview?
+
     /// Rename-note prompt state (set via the context menu or the Note menu).
     @State private var renameTarget: Note?
     @State private var renameTitle = ""
@@ -582,6 +591,15 @@ struct MacContentView: View {
         .sheet(isPresented: $showCommandPalette) {
             CommandPaletteView(commands: appActions.paletteCommands)
         }
+        .sheet(item: $linkReview) { review in
+            ReviewLinksView(
+                proposals: review.proposals,
+                noteText: review.noteText,
+                preview: { focused?.openingLines(of: $0) ?? "" },
+                onFinish: { applyAcceptedLinks($0, reviewedText: review.noteText) },
+                onDecline: { focused?.declineLink($0) }
+            )
+        }
         .sheet(isPresented: $showOpenQuickly) {
             if let c = focused {
                 OpenQuicklyView(search: c.search) { selectedNoteID = $0.id }
@@ -770,8 +788,38 @@ struct MacContentView: View {
                 collection.isRemote ? { Task { await collection.refreshFromProvider() } } : nil
             },
             commandPalette: { showCommandPalette = true },
-            ai: aiActions
+            ai: aiActions,
+            reviewLinks: (!showOpenQuickly && selectedNote != nil && focused != nil)
+                ? { beginLinkReview() } : nil
         )
+    }
+
+    /// Gather this note's unmade links, then hand them to the review sheet.
+    ///
+    /// Generated once, up front, rather than lazily per step: every proposal's
+    /// range is an offset into the text as it is *now*, so a set generated
+    /// piecemeal while the note changed underneath would apply at the wrong
+    /// offsets. Nothing is written until the review finishes.
+    private func beginLinkReview() {
+        guard let collection = focused, let editor = activeEditor else { return }
+        let text = editor.text
+        Task {
+            let found = await collection.linkProposals(in: text, for: selectedNote?.fileURL)
+            linkReview = LinkReview(proposals: found, noteText: text)
+        }
+    }
+
+    /// Apply the accepted links as one edit.
+    private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
+        guard !accepted.isEmpty, let editor = activeEditor else { return }
+        // If the note changed while the sheet was open, the ranges no longer
+        // describe it. Re-deriving would silently link different words, so this
+        // says so instead — the review is cheap to repeat, a wrong link is not.
+        guard editor.text == reviewedText else {
+            focused?.lastError = "The note changed while you were reviewing, so no links were added. Run Review Links again."
+            return
+        }
+        editor.text = LinkProposals.apply(accepted, to: editor.text)
     }
 
     /// The AI commands, or `nil` when they would only disappoint — no note

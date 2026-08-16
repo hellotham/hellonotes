@@ -64,6 +64,12 @@ struct AppActions {
     /// AI actions on the open note. `nil` when there is no note or no working
     /// provider — the menu greys out and the palette omits them entirely.
     var ai: AIActions?
+    /// Walk this note's unmade links one at a time — Link / Skip / Never.
+    ///
+    /// Deliberately **not** inside `ai`: this is an exact text scan, so it works
+    /// with no provider configured at all. Filing it with the AI actions would
+    /// hide a working feature behind a setting it does not need.
+    var reviewLinks: (() -> Void)?
 }
 
 /// What the model can do *to the open note*.
@@ -260,6 +266,9 @@ struct HelloNotesCommands: Commands {
                 .disabled(actions?.ai == nil)
             Button("Rewrite or Expand Note…") { actions?.ai?.rewriteNote() }
                 .disabled(actions?.ai == nil)
+            Button("Review Links…") { actions?.reviewLinks?() }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .disabled(actions?.reviewLinks == nil)
 
             Divider()
 

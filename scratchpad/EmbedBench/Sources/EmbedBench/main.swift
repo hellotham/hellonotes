@@ -235,6 +235,238 @@ are the pairs a retrieval method has to earn.
 
 """)
 
+// How many links would Review Links actually propose?
+//
+// Precision is not the only thing that decides whether auto-linking is loved or
+// hated — *volume* does too. Three proposals is a review; three hundred is a
+// wall the user closes. This counts, per note, how many other notes' titles
+// appear in it as whole words and are not already linked, which is an upper
+// bound on what the shipping generator proposes (its exclusion zones only ever
+// remove candidates).
+//
+// Done by *word index*, not by 2,000 × 2,000 substring searches over 43 million
+// characters — the naive version does not finish. Each title is keyed on its
+// first word; a note's words are walked once, and only titles whose first word
+// is present are checked at all.
+var titlesByFirstWord: [String: [(index: Int, words: [String])]] = [:]
+for (i, note) in notes.enumerated() {
+    let words = note.title.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    guard let first = words.first, note.title.count >= 3 else { continue }
+    titlesByFirstWord[first, default: []].append((i, words))
+}
+
+var proposalCounts: [Int] = []
+for (i, note) in notes.enumerated() {
+    let words = note.text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    var hits = Set<Int>()
+    for (position, word) in words.enumerated() {
+        guard let candidates = titlesByFirstWord[word] else { continue }
+        for (j, titleWords) in candidates where j != i && !note.links.contains(j) && !hits.contains(j) {
+            guard position + titleWords.count <= words.count else { continue }
+            if Array(words[position..<(position + titleWords.count)]) == titleWords {
+                hits.insert(j)
+            }
+        }
+    }
+    proposalCounts.append(hits.count)
+}
+// Would a common-word guard help?
+//
+// This vault contains notes titled "Press", "texts" and "Buddha". A single
+// common word as a title matches constantly, and each match is a proposal the
+// user has to reject — precision lost, one click at a time. The candidate rule:
+// drop a *single-word* title whose word appears in more than 5% of notes.
+var wordDocumentFrequency: [String: Int] = [:]
+for note in notes {
+    for word in Set(note.text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)) {
+        wordDocumentFrequency[word, default: 0] += 1
+    }
+}
+// Sweep the threshold rather than picking one. At 5% the guard cuts noise 8×
+// and throws away a third of the real links, which is the wrong trade for a
+// feature whose entire job is finding links — so the question is whether any
+// threshold buys quiet without that cost.
+// Suppression is the wrong tool — every threshold above costs real links. The
+// alternative is to keep everything and *order* it, so a user who stops after
+// ten has seen the best ten. This measures whether title specificity predicts a
+// true link, which is the precision question the plan actually asked.
+do {
+    var byWordCount: [Int: (proposed: Int, real: Int)] = [:]
+    for (i, note) in notes.enumerated() {
+        let words = note.text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        var hits = Set<Int>()
+        for (position, word) in words.enumerated() {
+            guard let candidates = titlesByFirstWord[word] else { continue }
+            for (j, titleWords) in candidates where j != i && !hits.contains(j) {
+                guard position + titleWords.count <= words.count else { continue }
+                if Array(words[position..<(position + titleWords.count)]) == titleWords { hits.insert(j) }
+            }
+        }
+        for j in hits {
+            let bucket = min(notes[j].title.split(separator: " ").count, 4)
+            byWordCount[bucket, default: (0, 0)].proposed += 1
+            if note.links.contains(j) { byWordCount[bucket, default: (0, 0)].real += 1 }
+        }
+    }
+    print("## Does title specificity predict a real link?\n")
+    print("| Title length | proposals | are real links | precision |")
+    print("|---|---:|---:|---:|")
+    for words in byWordCount.keys.sorted() {
+        let (proposed, real) = byWordCount[words]!
+        let label = words >= 4 ? "4+ words" : "\(words) word\(words == 1 ? "" : "s")"
+        print("| \(label) | \(proposed) | \(real) | \(String(format: "%.1f%%", Double(real) / Double(max(proposed, 1)) * 100)) |")
+    }
+    print("")
+}
+
+// The fix the two systems make possible together.
+//
+// A title mention says "these words appear here". Retrieval says "these two
+// notes are about the same things". Neither alone is a link; the *intersection*
+// is a note you named AND are demonstrably writing about, which is much closer
+// to what a link means. Measured, because the whole point of this file is not
+// asserting things like that.
+do {
+    let capped = notes.map { chunks(of: $0.text).joined(separator: " ") }
+    let model = TFIDFEmbedder()
+    model.fit(documents: capped)
+    var vectors: [Int: [Float]] = [:]
+    for i in notes.indices { vectors[i] = model.vector(for: capped[i]) }
+
+    print("## Mention ∧ retrieval: precision at each cut-off\n")
+    print("| Candidate rule | proposals | are real links | precision |")
+    print("|---|---:|---:|---:|")
+
+    for topK in [0, 50, 20, 10] {
+        var proposed = 0, real = 0
+        for (i, note) in notes.enumerated() {
+            let words = note.text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+            var hits = Set<Int>()
+            for (position, word) in words.enumerated() {
+                guard let candidates = titlesByFirstWord[word] else { continue }
+                for (j, titleWords) in candidates where j != i && !hits.contains(j) {
+                    guard position + titleWords.count <= words.count else { continue }
+                    if Array(words[position..<(position + titleWords.count)]) == titleWords { hits.insert(j) }
+                }
+            }
+            if topK > 0, let qv = vectors[i] {
+                var scored: [(Int, Float)] = []
+                for j in hits {
+                    guard let v = vectors[j] else { continue }
+                    var d: Float = 0
+                    vDSP_dotpr(qv, 1, v, 1, &d, vDSP_Length(qv.count))
+                    scored.append((j, d))
+                }
+                hits = Set(scored.sorted { $0.1 > $1.1 }.prefix(topK).map(\.0))
+            }
+            proposed += hits.count
+            real += hits.filter { note.links.contains($0) }.count
+        }
+        let label = topK == 0 ? "every title mention (today)" : "mention, top \(topK) by relatedness"
+        print("| \(label) | \(proposed) | \(real) | \(String(format: "%.1f%%", Double(real) / Double(max(proposed, 1)) * 100)) |")
+    }
+    print("")
+}
+
+print("## Common-word guard: threshold sweep\n")
+print("| Drop single-word titles above | titles dropped | median | p90 | true links lost |")
+print("|---|---:|---:|---:|---:|")
+for percent in [5, 10, 20, 33, 50] {
+    let threshold = max(2, notes.count * percent / 100)
+    let dropped = Set(notes.indices.filter { i in
+        let words = notes[i].title.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        guard words.count == 1, let w = words.first else { return false }
+        return (wordDocumentFrequency[w] ?? 0) > threshold
+    })
+    var counts: [Int] = []
+    for (i, note) in notes.enumerated() {
+        let words = note.text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        var hits = Set<Int>()
+        for (position, word) in words.enumerated() {
+            guard let candidates = titlesByFirstWord[word] else { continue }
+            for (j, titleWords) in candidates
+            where j != i && !note.links.contains(j) && !hits.contains(j) && !dropped.contains(j) {
+                guard position + titleWords.count <= words.count else { continue }
+                if Array(words[position..<(position + titleWords.count)]) == titleWords { hits.insert(j) }
+            }
+        }
+        counts.append(hits.count)
+    }
+    counts.sort()
+    let lost = linked.reduce(0) { $0 + notes[$1].links.filter { dropped.contains($0) }.count }
+    print("| \(percent)% of notes | \(dropped.count) | \(counts[counts.count/2]) | \(counts[counts.count*9/10]) | \(lost) of \(linkPairs) |")
+}
+print("")
+
+let commonThreshold = max(2, notes.count / 20)
+var suppressedTitles: [String] = []
+var guardedCounts: [Int] = []
+for (i, note) in notes.enumerated() {
+    let words = note.text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    var hits = Set<Int>()
+    for (position, word) in words.enumerated() {
+        guard let candidates = titlesByFirstWord[word] else { continue }
+        for (j, titleWords) in candidates where j != i && !note.links.contains(j) && !hits.contains(j) {
+            if titleWords.count == 1, (wordDocumentFrequency[titleWords[0]] ?? 0) > commonThreshold {
+                continue
+            }
+            guard position + titleWords.count <= words.count else { continue }
+            if Array(words[position..<(position + titleWords.count)]) == titleWords { hits.insert(j) }
+        }
+    }
+    guardedCounts.append(hits.count)
+}
+for (i, note) in notes.enumerated() {
+    let words = note.title.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    if words.count == 1, let w = words.first, (wordDocumentFrequency[w] ?? 0) > commonThreshold {
+        suppressedTitles.append(notes[i].title)
+    }
+}
+// Does the guard throw away links the author actually made?
+//
+// The decisive question. A rule that cuts noise by 8× is worthless if it also
+// cuts the true positives — so count the ground-truth pairs whose *target* the
+// guard would suppress.
+let suppressedIndices = Set(notes.indices.filter { i in
+    let words = notes[i].title.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    guard words.count == 1, let w = words.first else { return false }
+    return (wordDocumentFrequency[w] ?? 0) > commonThreshold
+})
+var truePositivesLost = 0
+for q in linked {
+    for target in notes[q].links where suppressedIndices.contains(target) { truePositivesLost += 1 }
+}
+
+let guardedSorted = guardedCounts.sorted()
+
+let sortedCounts = proposalCounts.sorted()
+let withAny = proposalCounts.filter { $0 > 0 }.count
+print("""
+## Review Links volume
+
+Notes that would show at least one proposal: \(withAny) of \(notes.count) \
+(\(String(format: "%.0f%%", Double(withAny) / Double(max(notes.count, 1)) * 100))).
+Per note — median \(sortedCounts[sortedCounts.count / 2]), \
+p90 \(sortedCounts[sortedCounts.count * 9 / 10]), \
+max \(sortedCounts.last ?? 0).
+
+A median in single digits is a reviewable list. A long tail is expected — an
+index or map-of-contents note names many others by design — and is the case the
+review UI has to stay usable for.
+
+With a common-word guard (drop single-word titles whose word appears in more
+than 5% of notes — \(suppressedTitles.count) titles here, e.g. \
+\(suppressedTitles.prefix(6).joined(separator: ", "))):
+median \(guardedSorted[guardedSorted.count / 2]), \
+p90 \(guardedSorted[guardedSorted.count * 9 / 10]), \
+max \(guardedSorted.last ?? 0), \
+notes with any proposal \(guardedCounts.filter { $0 > 0 }.count).
+
+Cost of the guard: \(truePositivesLost) of \(linkPairs) author-made links point at a
+suppressed title and would no longer be proposed.
+
+""")
+
 if dryRun { exit(0) }
 
 // MARK: - Metrics
