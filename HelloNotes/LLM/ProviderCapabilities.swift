@@ -84,6 +84,9 @@ extension IntelligenceNeeds {
     /// remembering to answer in the requested shape.
     static let suggestTags = IntelligenceNeeds(inputBudget: 4_000)
     static let suggestLinks = IntelligenceNeeds(inputBudget: 6_000)
+    /// Composing a note sends a prompt and a list of note titles to link, and
+    /// gets prose back. The budget is for the titles, not the prompt.
+    static let compose = IntelligenceNeeds(inputBudget: 4_000)
     /// Ask Library stuffs several whole notes into one prompt.
     static let askLibrary = IntelligenceNeeds(inputBudget: 12_000)
     /// Deep research decomposes a question, runs sub-agents and cites them.

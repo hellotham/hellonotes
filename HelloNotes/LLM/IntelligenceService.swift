@@ -59,6 +59,16 @@ struct IntelligenceService {
             user: "Summarize this note:\n\n\(clean(noteText, for: .summarise))")
     }
 
+    /// Write a new note from a prompt, offering `relatedTitles` as link targets.
+    func compose(prompt: String, relatedTitles: [String]) async throws -> String {
+        if isApple { return try await NoteIntelligence.compose(prompt: prompt, relatedTitles: relatedTitles) }
+        return try await complete(
+            system: ComposePrompt.instructions,
+            user: ComposePrompt.user(prompt: prompt, titles: relatedTitles,
+                                     budget: budget(for: .compose)),
+            temperature: 0.5)
+    }
+
     func expand(_ noteText: String) async throws -> String {
         if isApple { return try await NoteIntelligence.expand(noteText) }
         return try await complete(

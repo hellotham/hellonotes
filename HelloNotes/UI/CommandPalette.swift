@@ -155,6 +155,8 @@ extension AppActions {
         add("new-note", "File", "New Note", "square.and.pencil",
             shortcut: "⌘N", enabled: canNewNote, run: newNote)
         add("todays-note", "File", "Today's Note", "calendar", run: todaysNote)
+        add("compose-note", "File", "New Note from a Prompt…", "sparkles.square.filled.on.square",
+            shortcut: "⌃⌘N", run: composeNote)
         add("open-quickly", "File", "Open Quickly", "magnifyingglass",
             shortcut: "⌘O", enabled: canOpenQuickly, run: openQuickly)
         add("launcher", "File", "Open Collection", "folder", run: openLauncher)

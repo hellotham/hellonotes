@@ -70,6 +70,12 @@ struct AppActions {
     /// with no provider configured at all. Filing it with the AI actions would
     /// hide a working feature behind a setting it does not need.
     var reviewLinks: (() -> Void)?
+    /// Write or research a **new** note. Also not inside `ai` — but for the
+    /// opposite reason to `reviewLinks`: every action in there operates on the
+    /// note you have open, and this one is how a note comes to exist. It sits
+    /// in File beside New Note, which is where someone goes when they want a
+    /// note, rather than in a menu they only open once they already have one.
+    var composeNote: (() -> Void)?
 }
 
 /// What the model can do *to the open note*.
@@ -150,6 +156,11 @@ struct HelloNotesCommands: Commands {
             Button("Today's Note") { actions?.todaysNote() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(!(actions?.canNewNote ?? false))
+            // ⌃⌘N — the New Note family, one modifier further out. ⌥⌘N is
+            // already New Window.
+            Button("New Note from a Prompt…") { actions?.composeNote?() }
+                .keyboardShortcut("n", modifiers: [.command, .control])
+                .disabled(actions?.composeNote == nil)
 
             Divider()
 

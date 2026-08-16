@@ -29,7 +29,15 @@ struct DeepResearchTool: AgentTool {
         guard let question = arguments.string("question") else { throw ToolError.badArguments("`question` is required.") }
         guard let settings = context.settings else { throw ToolError.failed("Research is unavailable (no provider configured).") }
         let kind = settings.activeProvider
-        guard kind.supportsTools else { throw ToolError.failed("Deep research needs a tool-capable provider; \(kind.displayName) can't call tools.") }
+        // Ask what the provider *can do*, not which provider it is. The two
+        // answers used to differ: `supportsTools` reads the wire format, so it
+        // said yes for a search-backed provider whose own retrieval is the
+        // point and which cannot drive ours — and the run then failed several
+        // sub-agents in, looking like broken research rather than a provider
+        // that was never suitable for it.
+        if let reason = NoteComposer.unavailableReason(for: .research, settings: settings) {
+            throw ToolError.failed(reason)
+        }
         let (provider, model): (LLMProvider, String)
         do { (provider, model) = try ProviderFactory.make(for: kind, settings: settings) }
         catch { throw ToolError.failed(error.localizedDescription) }

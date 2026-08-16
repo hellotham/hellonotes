@@ -78,6 +78,15 @@ struct iOSContentView: View {
         let noteText: String
     }
     @State private var linkReview: LinkReviewRequest?
+
+    /// Write or research a new note — the Mac's ⌃⌘N, which on iOS lives beside
+    /// New Note in the Library actions because that is the only fixed place a
+    /// command about *creating* a note can be found.
+    @State private var composer = NoteComposer()
+    @State private var showCompose = false
+    /// Research calls only read-only tools, so this is never consulted; it
+    /// exists because `ToolContext` requires one.
+    @State private var composePermissions = PermissionBroker()
     /// Ask Library, and the question it should open with (`nil` = ask fresh).
     @State private var showLibraryChat = false
     @State private var chatSeed: String?
@@ -192,6 +201,23 @@ struct iOSContentView: View {
         .sheet(isPresented: $showAssistant) {
             NavigationStack {
                 AssistantHost().navigationTitle("Assistant")
+            }
+        }
+        .sheet(isPresented: $showCompose, onDismiss: { composer.reset() }) {
+            NavigationStack {
+                ComposeNoteView(
+                    composer: composer,
+                    availability: { NoteComposer.unavailableReason(for: $0, settings: llmSettings) },
+                    onRun: { prompt, mode, depth in runCompose(prompt, mode: mode, depth: depth) },
+                    onCreate: { draft in
+                        guard let scope = railCollection ?? focused else { return }
+                        Task {
+                            if let note = await composer.create(draft, in: scope) {
+                                selectedNoteID = note.id
+                                place = .notes
+                            }
+                        }
+                    })
             }
         }
         .sheet(isPresented: $showLLMSettings) {
@@ -541,6 +567,8 @@ struct iOSContentView: View {
                 guard let scope else { return }
                 Task { if let note = await scope.createNote() { selectedNoteID = note.id } }
             },
+            .init(title: "New Note from a Prompt…", symbol: "sparkles.square.filled.on.square",
+                  isEnabled: scope != nil) { showCompose = true },
             .init(title: "Open Collection", symbol: "folder.badge.plus") { showImporter = true },
             // Reachable deliberately, not only by selecting a phrase — the
             // question you want to ask your notes usually isn't already in one.
@@ -811,6 +839,21 @@ struct iOSContentView: View {
                 Image(systemName: "link.badge.plus")
             }
             .help("Find links this note names but doesn't make")
+        }
+    }
+
+    /// Start a composition run against the collection the rail is showing.
+    private func runCompose(_ prompt: String, mode: NoteComposer.Mode, depth: Int) {
+        guard let scope = railCollection ?? focused else { return }
+        switch mode {
+        case .write:
+            composer.compose(prompt: prompt, in: scope, settings: llmSettings)
+        case .research:
+            composer.research(
+                question: prompt, depth: depth,
+                context: ToolContext(collection: scope, search: scope.search, git: scope.git,
+                                     permissions: composePermissions, settings: llmSettings),
+                settings: llmSettings)
         }
     }
 

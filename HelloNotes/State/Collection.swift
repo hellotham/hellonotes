@@ -1060,6 +1060,28 @@ final class Collection: Identifiable {
         embedProvider.update(notes: notes)
         Task { await search.refresh(from: notes) }
     }
+
+    /// Fold one note's new contents into the derived indexes.
+    ///
+    /// iOS reaches its indexes the slow way: a coordinated write wakes the
+    /// `DirectoryPresenter`, which debounces 400ms and then rescans. That is
+    /// fine for the editor, whose saves are already debounced and whose note is
+    /// already on screen — but not for a note the app has just *created*, which
+    /// is selected immediately and would spend that window absent from search,
+    /// backlinks and relatedness while looking perfectly present.
+    ///
+    /// Deliberately the narrow version of its macOS namesake: no watcher
+    /// bookkeeping (there is no watcher) and no title-change fallback, because
+    /// the only caller creates a note whose title nothing else can link to yet.
+    func noteDidSave(_ url: URL, text: String) {
+        guard let note = notes.first(where: { $0.fileURL == url }) else { return }
+        let title = url.deletingPathExtension().lastPathComponent
+        linkGraph.updateNote(url: url, title: title, text: text)
+        search.updateNote(note, text: text)
+        updateRelatedness(url: url, title: title, text: text)
+        embedProvider.update(notes: notes)
+        derivedRevision &+= 1
+    }
     #endif
 
     // MARK: - File operations

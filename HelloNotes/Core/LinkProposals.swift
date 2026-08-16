@@ -167,19 +167,31 @@ nonisolated enum LinkProposals {
 nonisolated enum ExclusionZones {
 
     static func ranges(in text: String) -> [NSRange] {
-        let ns = text as NSString
-        let whole = NSRange(location: 0, length: ns.length)
-        var zones: [NSRange] = []
-
-        for pattern in patterns {
-            zones += pattern.matches(in: text, range: whole).map(\.range)
-        }
-        zones += indentedCodeRanges(in: text)
-        return zones
+        matches(of: verbatimPatterns + navigationalPatterns, in: text)
+            + indentedCodeRanges(in: text)
     }
 
-    /// Compiled once. Order does not matter — every match is excluded.
-    private static let patterns: [NSRegularExpression] = [
+    /// Only the spans that are **verbatim** — code, math and front matter.
+    ///
+    /// The difference from `ranges` is deliberate. That set also excludes
+    /// headings, existing links and URLs, because a *new* proposal must not land
+    /// in them. A caller that is inspecting the links already present needs the
+    /// opposite: it has to see them in order to judge them, and must only avoid
+    /// the regions where `[[…]]` is not link syntax at all. Sharing one set for
+    /// both jobs would mean the link-validating caller could never see a single
+    /// link.
+    static func verbatimRanges(in text: String) -> [NSRange] {
+        matches(of: verbatimPatterns, in: text) + indentedCodeRanges(in: text)
+    }
+
+    private static func matches(of patterns: [NSRegularExpression], in text: String) -> [NSRange] {
+        let whole = NSRange(location: 0, length: (text as NSString).length)
+        return patterns.flatMap { $0.matches(in: text, range: whole).map(\.range) }
+    }
+
+    /// Spans where Markdown syntax is not in force. Compiled once; order does
+    /// not matter — every match is excluded.
+    private static let verbatimPatterns: [NSRegularExpression] = [
         // Front matter, but only at the very start of the file.
         try! NSRegularExpression(pattern: #"\A---\r?\n.*?\r?\n---"#,
                                  options: [.dotMatchesLineSeparators]),
@@ -192,6 +204,11 @@ nonisolated enum ExclusionZones {
         try! NSRegularExpression(pattern: #"(?<!\$)\$[^\$\r\n]+\$(?!\$)"#),
         // Inline code.
         try! NSRegularExpression(pattern: "`[^`\r\n]+`"),
+    ]
+
+    /// Spans that are already navigational, so a new link would be redundant,
+    /// nested, or would break the structure it landed in.
+    private static let navigationalPatterns: [NSRegularExpression] = [
         // Headings — a link in a heading breaks the outline and the anchor.
         try! NSRegularExpression(pattern: #"(?m)^[ \t]{0,3}#{1,6}[ \t].*$"#),
         // Existing links, whole: `[[target|display]]`, `[text](url)`, and bare

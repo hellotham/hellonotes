@@ -141,6 +141,19 @@ struct NoteIntelligence {
         throw IntelligenceError.unavailable
     }
 
+    /// Write a new note from a prompt, linking the offered titles where they fit.
+    static func compose(prompt: String, relatedTitles: [String]) async throws -> String {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, iOS 26.0, *) {
+            let session = LanguageModelSession(instructions: ComposePrompt.instructions)
+            let response = try await session.respond(
+                to: ComposePrompt.user(prompt: prompt, titles: relatedTitles, budget: maxInputChars))
+            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        #endif
+        throw IntelligenceError.unavailable
+    }
+
     static func expand(_ noteText: String) async throws -> String {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, iOS 26.0, *) {

@@ -106,6 +106,14 @@ struct MacContentView: View {
     }
     @State private var linkReview: LinkReview?
 
+    /// ⌃⌘N — write or research a new note. The composer owns the run so that
+    /// closing the sheet mid-research cancels it rather than orphaning it.
+    @State private var composer = NoteComposer()
+    @State private var showCompose = false
+    /// Research only calls read-only tools, so this broker is never consulted;
+    /// it exists because `ToolContext` requires one.
+    @State private var composePermissions = PermissionBroker()
+
     /// Rename-note prompt state (set via the context menu or the Note menu).
     @State private var renameTarget: Note?
     @State private var renameTitle = ""
@@ -600,6 +608,16 @@ struct MacContentView: View {
                 onDecline: { focused?.declineLink($0) }
             )
         }
+        .sheet(isPresented: $showCompose, onDismiss: { composer.reset() }) {
+            ComposeNoteView(
+                composer: composer,
+                availability: { NoteComposer.unavailableReason(for: $0, settings: llmSettings) },
+                onRun: { prompt, mode, depth in runCompose(prompt, mode: mode, depth: depth) },
+                onCreate: { draft in
+                    guard let c = focused else { return }
+                    Task { if let note = await composer.create(draft, in: c) { selectedNoteID = note.id } }
+                })
+        }
         .sheet(isPresented: $showOpenQuickly) {
             if let c = focused {
                 OpenQuicklyView(search: c.search) { selectedNoteID = $0.id }
@@ -790,8 +808,27 @@ struct MacContentView: View {
             commandPalette: { showCommandPalette = true },
             ai: aiActions,
             reviewLinks: (!showOpenQuickly && selectedNote != nil && focused != nil)
-                ? { beginLinkReview() } : nil
+                ? { beginLinkReview() } : nil,
+            // Needs a collection to put the note in, but no note open and no
+            // particular provider: the sheet itself says which modes can run,
+            // which is more useful than a menu item that is simply absent.
+            composeNote: focused == nil ? nil : closingOpenQuickly { showCompose = true }
         )
+    }
+
+    /// Start a composition run against the focused collection.
+    private func runCompose(_ prompt: String, mode: NoteComposer.Mode, depth: Int) {
+        guard let c = focused else { return }
+        switch mode {
+        case .write:
+            composer.compose(prompt: prompt, in: c, settings: llmSettings)
+        case .research:
+            composer.research(
+                question: prompt, depth: depth,
+                context: ToolContext(collection: c, search: c.search, git: c.git,
+                                     permissions: composePermissions, settings: llmSettings),
+                settings: llmSettings)
+        }
     }
 
     /// Gather this note's unmade links, then hand them to the review sheet.
