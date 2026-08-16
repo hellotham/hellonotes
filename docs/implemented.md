@@ -1379,3 +1379,178 @@ downloading the published asset back from
 
 1.1's DMG was moved to `dist/HelloNotes-1.1.dmg` rather than overwritten;
 `package-dmg.sh` writes to a fixed path.
+
+---
+
+## 22 · The AI release — making it findable, and making it connect (2026-08-16)
+
+Planned as 1.3, "the AI release". Surveying the code first changed what the release
+was: **most of the AI already existed.** Summarise, Suggest Tags, Suggest Links,
+Rewrite, Ask Library, the tool-using agent with approval gating, and a deep-research
+tool that decomposes a question and returns a cited synthesis — all shipped, all
+working, and all but unused. They were organised by *the fact that a model produced
+them* rather than by what they act on, and they lived in an "Intelligence" panel and
+an "Assistant" window that nobody had a reason to open.
+
+So the release became three jobs: make what exists findable, add the one thing
+genuinely missing (link discovery, which needs retrieval), and be ready for a better
+on-device model without betting on its specifics.
+
+### The finding that reordered everything
+
+The plan called for an embedding index. The benchmark said otherwise — full numbers
+and method in [semantic-retrieval-benchmark.md](semantic-retrieval-benchmark.md), on
+the real 2,027-note vault with 520 link pairs as ground truth:
+
+| Backend | recall@5 | recall@10 | MRR | build |
+|---|---|---|---|---|
+| **TF-IDF, hashed, length-capped** | **42.9%** | **52.1%** | **0.324** | **2.4s** |
+| `NLContextualEmbedding` | 30.2% | 38.3% | 0.221 | 951s |
+| `NLEmbedding.sentenceEmbedding` | 20.1% | 28.1% | 0.181 | 2,090s |
+
+The instrument was checked before the result was believed: on six hand-built
+paraphrase triples both neural models scored 6/6 and TF-IDF 5/6. The models work.
+They lose *on this vault*, whose links run on rare proper nouns — the exact case IDF
+is strongest at and sentence embeddings smooth away. A second round killed two more
+assumptions: BM25 lost (25.3%) because it is built for short queries, not
+document-to-document similarity; and capping a note's length scored the same as
+per-chunk normalisation, which meant the *cap* carried the win and one sparse vector
+per note was enough.
+
+Recorded rather than quietly dropped, because the honest scope of the result is
+narrow: it is one vault, and a future failure of
+`paraphraseWithoutSharedTermsIsNotFound` is the signal to re-run the benchmark, not
+to delete the test. `RelatednessIndex` is a protocol (`Actor`, so "never tokenise on
+the main actor" is structural) with a `schemeID`, so swapping the scheme later costs
+a rebuild, not a rewrite — which matters because second-brain frameworks are coming
+and may want framework-specific indexing.
+
+### Auto-linking: the measurement that shaped the feature
+
+Two designs died to data before anything shipped.
+
+| Measurement | Result |
+|---|---|
+| Volume | 91% of notes get proposals; median 8, p90 40, max 114 |
+| Precision by title length | 1 word 0.6% · 2 words 1.3% · 3 words 4.3% · 4+ words 3.1% |
+| Common-word suppression | **Every** threshold loses real links — at 5%, 182 of 520 |
+| Mention ∧ top-10 by relatedness | Keeps 216 of 233 real links, cuts proposals 29,533 → 13,179 |
+
+The suppression result was the surprise: the "too common to link" titles in a real
+vault are `INDEX`, `BIBLIOGRAPHY`, `Abbreviations`, `China` — linked constantly and
+*on purpose*. Suppression was rejected outright. The intersection shipped as the
+default cap.
+
+The same numbers rule out an **unattended collection-wide auto-link pass**, which the
+plan had mentioned. At these precisions it would corrupt a graph silently, so it was
+not built. Low proposal precision costs review time and never correctness — but only
+because nothing is written without confirmation, which is what makes that trade
+legitimate rather than an excuse.
+
+### What shipped
+
+| Phase | Work |
+|---|---|
+| 1 · Findable | AI actions into the **Note** menu, each landing in the inspector tab that already owns that kind of answer — summary → Outline, tags → Tags, links → References. `IntelligenceView` deleted. Command palette (⇧⌘P). Floating selection bar carrying only what the OS cannot do. |
+| 2 · iOS parity | Every AI feature was `#if os(macOS)`. Lifted: intelligence actions, rewrite, Ask Library, the Assistant, selection actions via the native edit menu. |
+| 3 · Retrieval | `Core/RelatednessIndex.swift` — sparse hashed TF-IDF, FNV-1a (Swift's `hashValue` is per-process seeded), built lazily off-main on first use, patched per save. |
+| 4 · Review Links | ⇧⌘L. Spell-check walk: **Link / Skip / Never**, showing the phrase in its sentence *and* the target's opening lines. "Never" persists per collection, outside the vault — a decline belongs to you, not to your collaborators' Git history. |
+| 5 · Compose & research | New Note from a Prompt… (⌃⌘N), Write or Research. Research lands `DeepResearchTool`'s cited synthesis **as a note**, with provenance front matter and gathered sources. |
+| 6 · Capability seam | `LLM/ProviderCapabilities.swift` — features declare needs, providers declare capabilities. `appleOnDevice` is the single property a new OS moves. |
+| 7 · Ghost text | Inline completion, macOS only, on-device only, off by default. |
+
+### Three invariants, each pinned by a test
+
+1. **A composed note's links are verified, not trusted.** A model told which notes
+   exist will still name ones that do not, and `[[Memex]]` renders identically to a
+   real link — it just quietly adds a node the graph and backlinks take at face
+   value. `ComposedNote.resolveWikiLinks` keeps only links naming a real note,
+   unwraps the rest to plain text, and *reports* what it dropped. A research note is
+   the one kind nobody proofreads.
+2. **Ghost text is never in the document.** It lives in a stored property and is
+   painted in `draw`; there is no code path from what the drawing reads to the
+   storage that autosave, the index, the link graph and Git all read. Proven by
+   deliberately breaking it: with a one-line insert into storage, every assertion in
+   `aShownSuggestionIsNotInTheDocument` fails.
+3. **A suggestion cannot outlive the caret it was computed for.** The first version
+   cleared on caret movement and a test caught it *not* clearing — `setSelectedRange`
+   did not reach the override it relied on. Chasing the funnel would mean finding
+   every path that moves a caret; missing one leaves a suggestion that is not merely
+   drawn in the wrong place but can be **accepted**, inserting a completion for a
+   sentence the caret has left. It is now validated on read, so there is no path to
+   miss.
+
+### Bugs found on the way
+
+- **`std::bad_alloc` at chunk 26,000 — twice, at the same index.** Blamed on an
+  autorelease pool and "fixed"; the second run died identically. A deterministic
+  failure at a fixed point is a specific input, not accumulation — and the chunk
+  histogram said so in one line: median 839, p99 900, **max 327,680**. A
+  PDF-converted note with no sentence-ending punctuation made `NLTokenizer` return
+  the whole note as one "sentence". The pool fix was correct and kept; it was just
+  never the bug. The shell reported exit 0 throughout, because the abort belonged to
+  the program.
+- **Ground truth was 45% short.** Matching raw link targets against titles missed
+  every `[[Folder/Note]]` — which in this vault were the only links that resolved.
+  295 → 520 pairs.
+- **A composed title starting with a dot vanished.** Sanitising `../Escaped` yields
+  `..-Escaped`; the scanner skips dotfiles. The file was written successfully and the
+  note never appeared — file exists, note does not, nothing reports a failure. Found
+  by a test written for path escape, not for this.
+- **`DeepResearchTool` gated on the wrong question.** `kind.supportsTools` reads the
+  wire format, so it said yes for a search-backed provider that cannot drive our
+  tools; the run then failed several sub-agents in, looking like broken research
+  rather than an unsuitable provider. It now shares one answer with the compose
+  sheet.
+- **`ExclusionZones` had to split.** Link *proposals* must avoid existing links;
+  link *validation* has to see them. One shared set meant the validator could never
+  see a link.
+- **iOS had no `noteDidSave`.** Its saves reach the indexes via a 400ms debounced
+  presenter rescan — fine for the editor, not for a note created and selected
+  immediately, which would spend that window absent from search and backlinks while
+  looking present.
+
+### Verification
+
+267 app tests in 30 suites (from 185 at the start of the release), 106 editor-package
+tests in 11 suites (from 91). macOS Debug, **macOS Release** and iOS Debug all clean;
+the website builds (16 pages).
+
+Release was run as its own gate rather than assumed from Debug, because §13 is the
+Release-only SIL optimizer crash that broke every archive while Debug stayed green
+throughout.
+
+The user-facing copy went through the `docs-fact-checker` agent, which checked 107
+claims and found **nine wrong** — every one now corrected. **Six were written for this
+release; at most three predated it** (the `shortcuts.astro` rows). The worst of the
+three inherited ones is `⌥⌘1 … ⌥⌘6` for heading levels when the app binds
+`ForEach(1...3)`: three shortcuts that had never existed, in the same file where 1.2
+shipped two invented ones.
+
+The six new ones are worth naming, because they share one failure mode — describing
+what the design *intended* rather than what the code does, always in the flattering
+direction:
+
+- "Related notes are found by **meaning**" — the shipped index is lexical, and
+  `paraphraseWithoutSharedTermsIsNotFound` asserts precisely the opposite. The example
+  given (*Zettelkasten* surfacing for "second brain") is the exact case the benchmark
+  measured and rejected, written up as if it had been delivered.
+- "A phrase is only proposed when it names another note **and** the two are about the
+  same things", in two places — `Collection.linkProposals` returns early at or below
+  the cap (`guard found.count > limit`), so relatedness ranks and caps rather than
+  filters. The measurement was of the intersection; the shipped behaviour is the cap.
+- "Both default to on-device Apple Intelligence" — `activeProvider ?? .openai`. Only
+  the *intelligence* provider defaults to Apple; the chat provider is nominally OpenAI
+  and inert until it is both enabled and keyed.
+- The palette "built from the same list the menu bar is, so nothing can be in one and
+  missing from the other" — it is built from the same `AppActions` *value*, which is
+  not the same guarantee: `CommandPalette.swift` omits eight menu commands today.
+- "**All of it** works on iPhone and iPad" — the palette is `#if os(macOS)`, and
+  selection actions surface as the system edit menu rather than the floating bar.
+
+A seventh was introduced *while correcting the other six*: this very paragraph first
+claimed three were mine and six predated the release — self-undermining, since four of
+the nine sit in a changelog section written for this release. The fact-checker caught
+it on the re-run. That is the argument for re-checking corrections rather than trusting
+them: the second pass found an error the first pass could not have, because the error
+did not exist yet.

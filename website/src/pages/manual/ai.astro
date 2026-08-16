@@ -6,26 +6,110 @@ import { href } from '../../lib/paths';
 <ManualLayout slug="ai">
   <h2 id="on-device">On-device by default</h2>
   <p>
-    The intelligence features use <strong>Apple Intelligence</strong>, running on your Mac. Your
-    notes are processed locally and are not sent to us or to any third party. These features appear
-    only on hardware where Apple Intelligence is available and enabled in System Settings.
+    The intelligence features use <strong>Apple Intelligence</strong>, running on your own device —
+    Mac, iPhone or iPad. Your notes are processed locally and are not sent to us or to any third
+    party. These features appear only on hardware where Apple Intelligence is available and enabled
+    in System Settings.
   </p>
   <p>
     Everything else in HelloNotes works without them — the AI is an addition, never a requirement.
   </p>
 
   <h2 id="note-actions">Note actions</h2>
+  <p>
+    These live in the <strong>Note</strong> menu, beside Rename and Duplicate — not in a panel of
+    their own. Each answer appears in the inspector tab that already holds that kind of
+    information, so you find it where you would have gone looking anyway. On iPhone and iPad they
+    are in the <span aria-hidden="true">✨</span> menu in the toolbar above the note.
+  </p>
   <ul>
-    <li><strong>Summarise</strong> — a short summary of the current note.</li>
-    <li><strong>Suggest tags</strong> — proposes tags based on the content; you choose which to keep.</li>
-    <li><strong>Suggest links</strong> — finds notes that are plausibly related and offers to link them.</li>
-    <li><strong>Expand</strong> — fleshes out a stub or bullet into prose.</li>
     <li>
-      <strong>Rewrite selection</strong> — improve, shorten, simplify or restructure the selected
-      text. You see the result and choose <em>Replace</em> or <em>Insert below</em>; nothing changes
-      until you do.
+      <strong>Summarise Note</strong> — a short summary of the current note, shown at the top of
+      the <strong>Outline</strong> tab. A summary is an outline at a different resolution.
+    </li>
+    <li>
+      <strong>Suggest Tags</strong> — proposes tags based on the content, in the{' '}
+      <strong>Tags</strong> tab; you choose which to keep.
+    </li>
+    <li>
+      <strong>Suggest Links</strong> — finds notes that are plausibly related, in the{' '}
+      <strong>References</strong> tab beside the backlinks they would join.
+    </li>
+    <li>
+      <strong>Rewrite or Expand Note…</strong> — improve, shorten, simplify, restructure or flesh
+      out the note. You see the result and choose <em>Replace Note</em> or <em>Insert Below</em>;
+      nothing changes until you do.
     </li>
   </ul>
+  <p>
+    Selecting text gives you the actions that need your notes to make sense — link the phrase, find
+    related notes, explain it using what you have written. On the Mac they appear in a small
+    floating bar; on iPhone and iPad they join the standard selection menu. General rewriting is
+    left to <strong>Writing Tools</strong>, which the system already puts in every text view.
+  </p>
+  <p>
+    Can’t remember where a command lives? On the Mac, <kbd>⇧⌘P</kbd> opens a
+    <strong>command palette</strong>: type a command’s name to run it.
+  </p>
+
+  <h2 id="review-links">Review links</h2>
+  <p>
+    <strong>Note ▸ Review Links…</strong> (<kbd>⇧⌘L</kbd>) walks the note phrase by phrase the way
+    a spell check does — <strong>Link</strong>, <strong>Skip</strong> or <strong>Never</strong>. You
+    see the phrase in its own sentence and the opening lines of the note it would point at, because
+    the same phrase can deserve a link in one paragraph and not the next.
+  </p>
+  <ul>
+    <li>
+      Every phrase that names another note is a candidate. When a note turns up more than ten, the
+      ten whose targets are most related to what you are writing are the ones shown — a long note
+      can otherwise produce dozens, and a list nobody finishes reading is a list that gets skipped.
+    </li>
+    <li>
+      <strong>Never</strong> is remembered for that collection, so a phrase you have rejected stops
+      coming back. It is kept on your device rather than in your notes — a decision you made is not
+      something to commit to a shared repository.
+    </li>
+    <li>Nothing is written until you finish, and the whole set undoes in one step.</li>
+  </ul>
+  <p>
+    This one needs no AI provider at all: it is an exact scan of your own text.
+  </p>
+
+  <h2 id="compose">New note from a prompt</h2>
+  <p>
+    <strong>File ▸ New Note from a Prompt…</strong> (<kbd>⌃⌘N</kbd>) writes a new note, in two
+    modes. <strong>Write</strong> composes one from a description.{' '}
+    <strong>Research</strong> investigates a question on the web across several angles and lands the answer as a note, with
+    its sources gathered at the end and a record of the question it came from.
+  </p>
+  <p>
+    Either way the draft is connected to what you already have: notes you own on the topic are
+    offered as link targets, and <strong>every link that comes back is checked against your
+    collection</strong>. Anything naming a note that does not exist is turned back into ordinary
+    text, and the draft says so. A link that looks real but points nowhere is worse than no link.
+  </p>
+  <p>
+    You read the whole draft — title and body, both editable — before anything is created. Cancel
+    leaves nothing behind. The button is <strong>Create Note</strong>.
+  </p>
+
+  <h2 id="ghost-text">Suggest as I type</h2>
+  <p>
+    Grey text appears after the cursor when you pause at the end of a line. <kbd>⌥⇥</kbd> or{' '}
+    <kbd>→</kbd> accepts it; <kbd>Esc</kbd> dismisses it.
+  </p>
+  <blockquote>
+    <p>
+      <strong>The suggestion is not part of your note until you accept it.</strong> It is drawn on
+      screen and nothing more — it cannot reach a save, a search result, your links or a Git diff.
+    </p>
+  </blockquote>
+  <p>
+    It runs <strong>on your device only</strong>: a suggestion that has to cross the network arrives
+    after you have already typed past it. Off until you turn it on, in{' '}
+    <strong>Assistant Settings ▸ Inline completion</strong>. Mac only for now.
+  </p>
 
   <h2 id="ask">Ask your library</h2>
   <p>
@@ -83,9 +167,19 @@ import { href } from '../../lib/paths';
 
   <h2 id="settings">Choosing where each feature runs</h2>
   <p>
-    Settings ▸ AI has two separate choices: the <strong>chat provider</strong> (Assistant and Ask
-    Library) and the <strong>intelligence provider</strong> (Summarise, Suggest, Expand). Both
-    default to on-device Apple Intelligence. <strong>Creativity</strong> controls how varied the
-    output is — lower is more focused and predictable.
+    Settings ▸ AI has two separate choices: the <strong>chat provider</strong> (the Assistant, and
+    the research behind New Note from a Prompt) and the <strong>intelligence provider</strong>
+    (Summarise, Suggest Tags/Links, Rewrite, Ask Library and typing suggestions). The intelligence
+    provider defaults to on-device Apple Intelligence. The chat provider is set to OpenAI, but like
+    every cloud provider it stays switched off until you enable it and add a key — so no note text is
+    sent to a model until you choose a cloud provider and set it up. <strong>Creativity</strong> controls how varied
+    the output is — lower is more focused and predictable.
+  </p>
+  <p>
+    The same settings say what your chosen model can actually do: whether it runs on your device or
+    in the cloud, roughly how much of a note it can read at once, and which features would work
+    better on a model with more room. An on-device model reads a few thousand characters, so Ask
+    Library over a long note is a different experience there than on a large cloud model — worth
+    knowing before concluding the feature is poor.
   </p>
 </ManualLayout>

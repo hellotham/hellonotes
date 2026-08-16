@@ -5,6 +5,93 @@ one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
+## 1.3 — unreleased
+
+HelloNotes already had most of this. It was just filed under "AI" — in a panel and a
+window organised around the fact that a model was involved, which is the one thing
+you are least likely to be thinking about when you want a summary. So this release is
+mostly about putting each of these next to the thing it acts on, and then adding the
+two that were genuinely missing: finding the links you meant to make, and letting
+research arrive as a note instead of as a chat reply.
+
+### Where the AI lives now
+
+- **The Note menu.** Summarise Note, Suggest Tags, Suggest Links and Rewrite or
+  Expand Note… sit beside Rename and Duplicate. Each answer lands in the inspector
+  tab that already holds that kind of information — the summary at the top of
+  **Outline**, tags in **Tags**, suggested links in **References**, beside the
+  backlinks they are about to join.
+- **A command palette**, <kbd>⇧⌘P</kbd>. Type a command's name to run it. It is built
+  from the same set of actions the menu bar is, rather than a hand-kept list of its
+  own — though a few menu commands have yet to be added to it.
+- **Select text and act on it.** The things the system's own Writing Tools cannot do,
+  because they need your notes: link the phrase, find related notes, explain it using
+  what you have written. On the Mac these appear in a small floating bar; on iPhone
+  and iPad they join the standard selection menu. Ordinary rewriting is left to
+  Writing Tools, which is already in every text view.
+- **The AI features now work on iPhone and iPad**, where previously none of them did —
+  the note actions, rewriting, Ask Library, the Assistant, Review Links and New Note
+  from a Prompt. The command palette remains Mac-only.
+
+### Review Links
+
+- **Review Links…** (<kbd>⇧⌘L</kbd>) walks a note phrase by phrase, the way a spell
+  check does: **Link**, **Skip**, or **Never**. You see the phrase in its own
+  sentence and the opening lines of the note it would point at, because the same
+  phrase can deserve a link in one paragraph and not the next.
+- **"Never" is remembered** for that collection, so a phrase you have already
+  rejected stops coming back. It is stored on your device, not in your notes — a
+  decision you made is not something to commit to a shared repository.
+- **Nothing is written until you finish**, and the whole set applies as one change
+  you can undo in one step.
+- Every phrase that **names** another note is a candidate. When a note turns up more
+  than ten, the ten whose targets are most related to what you have written are the
+  ones you are shown — which on a real collection cut the list by more than half
+  while keeping almost every link people had genuinely made.
+
+### New Note from a Prompt
+
+- <kbd>⌃⌘N</kbd>, or **File ▸ New Note from a Prompt…**, in two modes.
+- **Write** composes a note from a description.
+- **Research** investigates a question on the web across several angles and lands the
+  answer *as a note* — with its sources gathered at the bottom and a record of the
+  question it came from, so a note you did not write can still be recognised as one
+  later.
+- **Both connect to what you already have.** Notes you own on the topic are offered
+  to the model as links, and every link that comes back is checked against your
+  collection: anything naming a note that does not exist is turned back into ordinary
+  text, and the draft tells you it happened. Research arrives joined up instead of
+  as an island.
+- **You read the whole draft before it exists.** Title and body are editable, and no
+  file is created until you press **Create Note**.
+
+### Suggest as I type *(Mac only, off by default)*
+
+- Grey text appears after the cursor when you pause at the end of a line.
+  <kbd>⌥⇥</kbd> or <kbd>→</kbd> accepts it, <kbd>Esc</kbd> dismisses it.
+- **The suggestion is never part of your note until you accept it.** It is drawn on
+  screen and nothing more — it cannot reach a save, a search result, your links, or a
+  Git diff.
+- Runs **on your device only**. A suggestion that has to cross the network arrives
+  after you have already typed past it, so this is offered only where the model is
+  local. Turn it on in **Assistant Settings ▸ Inline completion**.
+
+### Smaller things
+
+- **Related notes are found by the whole text, not just the title** — by the
+  distinctive words two notes share, so an unusual name or term that appears in both
+  counts for far more than a common one. It reads your notes the first time something
+  needs it rather than at launch, and keeps up as you save. It matches wording rather
+  than meaning: two notes on the same subject that share no vocabulary will not find
+  each other.
+- **Assistant Settings now says what your chosen model can and cannot do** — whether
+  it runs on your device or in the cloud, roughly how much of a note it reads, and
+  which features would work better on a larger one.
+- Deep research now declines up front on a provider that cannot drive its tools,
+  instead of failing part-way through and looking like broken research.
+
+---
+
 ## 1.2 — 2026-08-15
 
 A collection points at a folder HelloNotes does not control. This release is
