@@ -196,6 +196,81 @@ final class Collection: Identifiable {
     /// it actually changed rather than on every render.
     private(set) var derivedRevision = 0
 
+    // MARK: Relatedness
+
+    /// "Which other notes is this about the same things as?" — see
+    /// `Core/RelatednessIndex.swift` and `docs/semantic-retrieval-benchmark.md`.
+    ///
+    /// Built **on first use, not on launch**. Building reads every note once,
+    /// which on the measured 2,027-note iCloud vault is ~12 seconds of
+    /// coordinated I/O — an unacceptable launch tax for a feature a given
+    /// session may never touch. It is pure derived data, so building late costs
+    /// nothing but the first call.
+    private var relatedness: TermVectorRelatednessIndex?
+    private var relatednessBuild: Task<TermVectorRelatednessIndex, Never>?
+
+    /// Whether the index is already built, so UI can offer "Suggest" without
+    /// implying it is instant.
+    var hasRelatednessIndex: Bool { relatedness != nil }
+
+    /// The `limit` notes most related to `text`. Builds the index on first call.
+    func relatedNotes(to text: String, excluding: URL?, limit: Int = 10) async -> [RelatedNote] {
+        let index = await relatednessIndex()
+        return await index.related(to: text, excluding: excluding, limit: limit)
+    }
+
+    /// The index, building it if necessary.
+    ///
+    /// The in-flight `Task` is held so that two callers arriving together — the
+    /// References tab and a menu command, say — share one build instead of
+    /// reading the whole vault twice.
+    private func relatednessIndex() async -> TermVectorRelatednessIndex {
+        if let relatedness { return relatedness }
+        if let relatednessBuild { return await relatednessBuild.value }
+
+        let notes = self.notes
+        let build = Task.detached(priority: .userInitiated) { () -> TermVectorRelatednessIndex in
+            // Reading and preparing happens off the main actor; so does the
+            // tokenising inside `rebuild`, because the index is an actor.
+            let documents: [RelatednessDocument] = notes.compactMap { note in
+                guard let raw = try? FileIO.readString(at: note.fileURL) else { return nil }
+                let text = RetrievalText.prepare(raw)
+                guard text.count >= 80 else { return nil }
+                return RelatednessDocument(url: note.fileURL, title: note.title, text: text)
+            }
+            let index = TermVectorRelatednessIndex()
+            await index.rebuild(with: documents)
+            return index
+        }
+        relatednessBuild = build
+        let index = await build.value
+        relatedness = index
+        relatednessBuild = nil
+        return index
+    }
+
+    /// Keep the index current for one note. Cheap — one note's terms — and a
+    /// no-op until something has actually built the index.
+    private func updateRelatedness(url: URL, title: String, text: String) {
+        guard let relatedness else { return }
+        let document = RelatednessDocument(url: url, title: title,
+                                           text: RetrievalText.prepare(text))
+        Task { await relatedness.update(document) }
+    }
+
+    private func removeFromRelatedness(_ url: URL) {
+        guard let relatedness else { return }
+        Task { await relatedness.remove(url) }
+    }
+
+    /// Drop the index so the next use rebuilds it. Used when the whole
+    /// collection is re-read and per-note patching cannot be trusted.
+    private func invalidateRelatedness() {
+        relatednessBuild?.cancel()
+        relatednessBuild = nil
+        relatedness = nil
+    }
+
     // MARK: Per-collection subsystems (isolated to this collection)
 
     /// The collection's `[[wiki-link]]` / backlink index.
@@ -685,6 +760,7 @@ final class Collection: Identifiable {
     /// valve for when the index ever looks wrong.
     func rescan() {
         CollectionIndexCache.remove(for: rootURL)
+        invalidateRelatedness()
         Task {
             await scanOffMain()
             refreshDerived(force: true)
@@ -839,6 +915,7 @@ final class Collection: Identifiable {
             deriveTask?.cancel()
             linkGraph.updateNote(url: url, title: title, text: text)
             search.updateNote(note, text: text)
+            updateRelatedness(url: url, title: title, text: text)
             embedProvider.update(notes: notes)   // bump so transclusions re-render
             derivedRevision &+= 1
         } else {
@@ -1115,6 +1192,7 @@ final class Collection: Identifiable {
             do { try await remote.store.delete(path: remotePath) }
             catch { report("Couldn't delete “\(note.title)” on \(remote.store.providerName): \(error.localizedDescription)") }
         }
+        removeFromRelatedness(note.fileURL)
         await scanOffMain()
         refreshDerived()
     }

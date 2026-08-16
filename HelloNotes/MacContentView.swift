@@ -1032,9 +1032,14 @@ struct MacContentView: View {
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: linkMention,
                 linkCandidates: collection.search.linkTargets(),
-                suggestLinks: { text, candidates in
-                    try await IntelligenceService(settings: llmSettings)
-                        .suggestLinks(for: text, candidates: candidates)
+                suggestLinks: { text, _ in
+                    // Candidates come from the retrieval index, not from the
+                    // full title list. Handing a model 2,000 titles does not fit
+                    // any context window, and the ones that *did* fit were
+                    // whichever happened to sort first — so the feature quietly
+                    // got worse as a vault grew, which is the opposite of what
+                    // a link suggester is for.
+                    try await suggestLinks(for: text, in: collection)
                 },
                 onInsertLink: { insertLink($0) },
                 properties: propertiesBinding,
@@ -1049,6 +1054,22 @@ struct MacContentView: View {
             ContentUnavailableView("No Collection", systemImage: "sidebar.right",
                                    description: Text("Open a collection to inspect its notes."))
         }
+    }
+
+    /// Ask the model which of the *retrieved* neighbours this note should link
+    /// to — retrieval narrows thousands of notes to a shortlist, the model
+    /// judges the shortlist.
+    ///
+    /// The two-stage shape is what makes this scale, and it is also honest about
+    /// what each stage is good at: the index finds notes sharing distinctive
+    /// vocabulary (measured: 52.1% recall@10, `docs/semantic-retrieval-benchmark.md`),
+    /// and the model decides which of those a reader would actually want linked.
+    private func suggestLinks(for text: String, in collection: Collection) async throws -> [String] {
+        let neighbours = await collection.relatedNotes(
+            to: text, excluding: selectedNote?.fileURL, limit: 40)
+        guard !neighbours.isEmpty else { return [] }
+        return try await IntelligenceService(settings: llmSettings)
+            .suggestLinks(for: text, candidates: neighbours.map(\.title))
     }
 
     /// Write a suggested tag into the open note. See `NoteEdits`.

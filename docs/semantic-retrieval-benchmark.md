@@ -94,6 +94,37 @@ Extrapolated to a 10,000-note vault: TF-IDF **0.2 min**, `NLContextualEmbedding`
    proper nouns into the background. The instrument check shows the models
    capture paraphrase; this vault's links mostly are not paraphrase.
 
+### Round two: which lexical scheme, and how simple can it be
+
+The first round had exactly one lexical entrant, which only proves it beat the
+neural ones — not that it was the best lexical scheme. Two follow-ups, both cheap
+because the lexical path builds in seconds:
+
+| Scheme | recall@5 | recall@10 | MRR | build |
+|---|---:|---:|---:|---:|
+| **TF-IDF, capped note, one vector per note** | **43.2%** | 51.0% | 0.320 | 7.6s |
+| TF-IDF, mean of chunk vectors | 42.9% | **52.1%** | **0.324** | 2.6s |
+| TF-IDF, whole note, uncapped | 40.3% | 50.4% | 0.307 | 44.3s |
+| TF-IDF, max over chunk vectors | 38.4% | 48.9% | 0.287 | 2.6s |
+| BM25, note-level | 25.3% | 36.7% | 0.207 | 20.0s |
+
+**BM25 loses badly, which is worth explaining** because it is the textbook
+choice and would have been shipped on that reputation. BM25 is built for *short
+queries*: its term saturation and asymmetric query/document treatment assume a
+handful of query terms scored against many documents. Here the "query" is an
+entire note — thousands of terms — and those assumptions stop paying. Cosine
+between two normalised document vectors is the right tool for document-to-document
+similarity, and the measurement says so by 17 points.
+
+**Chunking does not earn its complexity.** Capped-note and mean-of-chunks are
+statistically indistinguishable (43.2%/51.0% against 42.9%/52.1%). Splitting the
+two effects apart shows why: mean-of-chunks was doing *two* things — capping how
+much of a note is read, and normalising each chunk — and it is the **cap** that
+carries the win, since uncapped whole-note loses 2.6 points and takes 6× longer
+to build. So the shipping index stores **one sparse vector per note** and no
+per-chunk state at all, which matters enormously for an index that has to update
+incrementally.
+
 ### How much needs an index at all
 
 Of the 520 pairs, **209 (40%) already have the target's title verbatim in the
@@ -104,15 +135,35 @@ already-built mention scan *first* and spend retrieval only on the rest.
 
 ---
 
-## What to build instead
+## What was built
 
-- **An IDF-weighted, note-level lexical index.** The app's current retrieval
-  counts raw substring occurrences with no term weighting, which is the weakest
-  form of the thing that just won. Adding IDF is cheap and should lift Ask
-  Library retrieval as a side effect.
-- **Keep the `Embedder` protocol seam.** It costs nothing and pairs with
+`Core/RelatednessIndex.swift` — TF-IDF over hashed terms, **one L2-normalised
+sparse vector per note**, ranked by cosine over an inverted index. An `actor`,
+because building it reads and tokenises every note and none of that may run on
+the main actor. `Core/RetrievalText.swift` holds the text preparation, including
+the length cap that the measurement showed carries the win.
+
+Built **lazily, on first use** rather than at launch: building reads every note
+once, which is ~12 seconds of coordinated I/O on the measured iCloud vault, and
+a session may never ask for a suggestion. It is pure derived data, so building
+late costs nothing but the first call.
+
+The first payoff is link suggestion. It previously handed the model *every* note
+title, so it silently degraded as a vault grew — past a context window the
+candidates were whichever titles happened to sort first. It now retrieves the 40
+nearest notes and asks the model to judge those: retrieval narrows, the model
+decides.
+
+- **`RelatednessIndex` is a protocol, and that is load-bearing.** Second-brain
+  frameworks are coming, and a Zettelkasten collection does not mean the same
+  thing by "related" as a PARA one — that is a different scorer over the same
+  corpus, chosen per collection. It also pairs with
   `LLM/ProviderCapabilities.swift`: when a better on-device model ships, re-run
   this harness. The decision becomes a re-measurement, not a rewrite.
+- **The paraphrase limitation is pinned by a test**, not left as folklore.
+  `paraphraseWithoutSharedTermsIsNotFound` asserts what this scheme genuinely
+  cannot do. If a future model changes that, the test starts failing — and that
+  failure is the signal to re-run the benchmark, not to delete the test.
 - **A hard character ceiling on chunks, enforced after tokenisation.** Not
   defensive padding — load-bearing. A PDF-converted note in this vault contains
   no sentence-ending punctuation, so `NLTokenizer` returns the whole note as one

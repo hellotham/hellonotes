@@ -1,0 +1,47 @@
+• loading My Vault…
+• chunk chars — median 839, p99 900, max 900
+• embedding with TF-IDF (hashed, baseline)…
+•   TF-IDF (hashed, baseline): 2000/29668
+•   TF-IDF (hashed, baseline): 4000/29668
+•   TF-IDF (hashed, baseline): 6000/29668
+•   TF-IDF (hashed, baseline): 8000/29668
+•   TF-IDF (hashed, baseline): 10000/29668
+•   TF-IDF (hashed, baseline): 12000/29668
+•   TF-IDF (hashed, baseline): 14000/29668
+•   TF-IDF (hashed, baseline): 16000/29668
+•   TF-IDF (hashed, baseline): 18000/29668
+•   TF-IDF (hashed, baseline): 20000/29668
+•   TF-IDF (hashed, baseline): 22000/29668
+•   TF-IDF (hashed, baseline): 24000/29668
+•   TF-IDF (hashed, baseline): 26000/29668
+•   TF-IDF (hashed, baseline): 28000/29668
+• embedding with NLEmbedding.sentenceEmbedding…
+•   NLEmbedding.sentenceEmbedding: 2000/29668
+•   NLEmbedding.sentenceEmbedding: 4000/29668
+•   NLEmbedding.sentenceEmbedding: 6000/29668
+•   NLEmbedding.sentenceEmbedding: 8000/29668
+•   NLEmbedding.sentenceEmbedding: 10000/29668
+•   NLEmbedding.sentenceEmbedding: 12000/29668
+•   NLEmbedding.sentenceEmbedding: 14000/29668
+•   NLEmbedding.sentenceEmbedding: 16000/29668
+•   NLEmbedding.sentenceEmbedding: 18000/29668
+•   NLEmbedding.sentenceEmbedding: 20000/29668
+•   NLEmbedding.sentenceEmbedding: 22000/29668
+•   NLEmbedding.sentenceEmbedding: 24000/29668
+•   NLEmbedding.sentenceEmbedding: 26000/29668
+•   NLEmbedding.sentenceEmbedding: 28000/29668
+• embedding with NLContextualEmbedding…
+•   NLContextualEmbedding: 2000/29668
+•   NLContextualEmbedding: 4000/29668
+•   NLContextualEmbedding: 6000/29668
+•   NLContextualEmbedding: 8000/29668
+•   NLContextualEmbedding: 10000/29668
+•   NLContextualEmbedding: 12000/29668
+•   NLContextualEmbedding: 14000/29668
+•   NLContextualEmbedding: 16000/29668
+•   NLContextualEmbedding: 18000/29668
+•   NLContextualEmbedding: 20000/29668
+•   NLContextualEmbedding: 22000/29668
+•   NLContextualEmbedding: 24000/29668
+•   NLContextualEmbedding: 26000/29668
+•   NLContextualEmbedding: 28000/29668

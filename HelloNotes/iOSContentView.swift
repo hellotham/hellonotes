@@ -632,9 +632,15 @@ struct iOSContentView: View {
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: { _ in },
                 linkCandidates: collection.search.linkTargets(),
-                suggestLinks: { text, candidates in
-                    try await IntelligenceService(settings: llmSettings)
-                        .suggestLinks(for: text, candidates: candidates)
+                suggestLinks: { text, _ in
+                    // Retrieval first, model second — see the Mac's
+                    // `suggestLinks(for:in:)` for why the full title list is
+                    // the wrong candidate set.
+                    let neighbours = await collection.relatedNotes(
+                        to: text, excluding: editor.note?.fileURL, limit: 40)
+                    guard !neighbours.isEmpty else { return [] }
+                    return try await IntelligenceService(settings: llmSettings)
+                        .suggestLinks(for: text, candidates: neighbours.map(\.title))
                 },
                 onInsertLink: { editor.text = NoteEdits.addingRelatedLink($0, to: editor.text) },
                 properties: $properties,
