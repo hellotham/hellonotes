@@ -112,6 +112,24 @@ struct CommandPaletteTests {
         #expect(ids.contains("mode-split"))
     }
 
+    /// Formatting is routed to the editor over a notification bus that only
+    /// `MarkdownTextView` installs — and that view is mounted in Edit mode
+    /// alone. In Preview, Markdown and Split nothing is listening, so a
+    /// "Bold" row would appear and silently do nothing. The menu had always
+    /// checked the mode; the palette had not, and the first version of this
+    /// suite could not see it because `fullActions()` pins `.edit`.
+    @Test func formattingIsOfferedOnlyInEditMode() {
+        var actions = fullActions()
+        #expect(actions.paletteCommands.contains { $0.id == "format-bold" })
+
+        for mode in [EditorMode.preview, .markdown, .split] {
+            actions.editorMode = mode
+            let ids = Set(actions.paletteCommands.map(\.id))
+            #expect(!ids.contains("format-bold"), "format commands leak in \(mode.label) mode")
+            #expect(!ids.contains("format-h1"), "heading commands leak in \(mode.label) mode")
+        }
+    }
+
     /// Commands that need a note, a collection or a provider must disappear
     /// rather than appear and fail — the palette greys nothing out, so an
     /// unavailable command has to be absent.
@@ -126,7 +144,7 @@ struct CommandPaletteTests {
             editorMode: .edit, setEditorMode: { _ in })
         let ids = Set(bare.paletteCommands.map(\.id))
 
-        for absent in ["new-note", "open-quickly", "graph", "ask-library", "close-tab",
+        for absent in ["new-note", "todays-note", "open-quickly", "graph", "ask-library", "close-tab",
                        "rescan", "refresh-cloud", "find", "review-links", "compose-note",
                        "ai-summarize", "rename", "print", "format-bold"] {
             #expect(!ids.contains(absent), "\(absent) should be absent with nothing open")

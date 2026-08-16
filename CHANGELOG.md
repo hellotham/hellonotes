@@ -5,7 +5,7 @@ one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
-## 1.3 — unreleased
+## 1.3 — 2026-08-16
 
 HelloNotes already had most of this. It was just filed under "AI" — in a panel and a
 window organised around the fact that a model was involved, which is the one thing

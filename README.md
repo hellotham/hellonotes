@@ -1,6 +1,6 @@
 # HelloNotes
 
-> **Version 1.2** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
+> **Version 1.3** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
 
 HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps like Obsidian and cross-platform editors like Typora. It's built strictly on modern Swift — **AppKit + TextKit 2 + SwiftUI** — prioritising high-FPS text rendering, plain `.md` files as the absolute source of truth, and seamless background Git synchronisation. **No proprietary database. Your files in Finder *are* the database** — and those files can live locally *or* in Box, Dropbox, OneDrive, Google Drive or iCloud, opened on demand without pulling the whole vault down.
 
@@ -20,7 +20,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, in user-facing terms |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
-## ✨ Features (v1.2)
+## ✨ Features (v1.3)
 
 **Local-first, multi-collection**
 - No CoreData/SwiftData/iCloud store; your `.md` files are the truth. Open **several collections at once** as a *library*, with a launcher, recents, and saved library sets.
@@ -45,10 +45,14 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - The note's title is shown **inline above the body as its H1** and renamed in place, which renames the file and rewrites every `[[wiki-link]]` to it; the caret crosses between title and body as one flow.
 - Full-text search with snippets (cross-collection by design, from an always-expanded field beside the sidebar — ⌥⌘F), Open Quickly (⇧⌘O), nested `#tags` (with autocomplete), bookmarks, daily notes, and templates.
 
-**AI, on your terms**
-- On-device **Apple Intelligence** (summarise, suggest tags/links) and an **Ask Library** chat grounded in your notes, with citations.
-- An agentic **Assistant** with tools (search, read, edit-with-approval, web search/fetch), skills, and deep research.
-- Bring your own model: **local** (Apple Foundation Models, MLX, Ollama, LM Studio) or **your own cloud API key** — Anthropic, Gemini, OpenAI, Mistral, Groq, OpenRouter, xAI (Grok), DeepSeek, Cerebras, Together AI, Perplexity, and Ollama Cloud. Keys live in the Keychain; cloud providers are off until you configure one.
+**AI, on your terms — and where you'd look for it**
+- **Filed by what it acts on, not by the fact a model made it.** Summarise Note, Suggest Tags, Suggest Links and Rewrite live in the **Note** menu beside Rename and Duplicate, and each answer lands in the inspector tab that already owns that kind of information — summary in Outline, tags in Tags, links in References. A **command palette** (⇧⌘P) runs anything by name, generated from the same command surface the menu bar is, so a command that goes missing from it is a test failure.
+- **Review Links** (⇧⌘L) walks a note's unmade links one at a time — **Link / Skip / Never** — showing the phrase in its sentence and the target's opening lines. "Never" persists per collection, stored outside the vault so it never reaches a shared repo. Needs no AI provider at all: it is an exact scan of your own text.
+- **New Note from a Prompt** (⌃⌘N) writes a note, or researches a question on the web and lands the cited synthesis *as a note* — connected to what you already have, since every `[[link]]` the model returns is verified against the collection and the invented ones are unwrapped to plain text. You read the whole draft before the file exists.
+- **Suggest as I type** *(Mac, off by default)* — ghost text after the cursor, ⌥⇥ to accept. On-device only, and never part of the note until accepted: it is drawn, never stored, so it cannot reach a save, the index or a Git diff.
+- **Ask Library** — retrieval chat grounded in your notes, with citations you can jump to. An agentic **Assistant** with tools (search, read, edit-with-approval, web search/fetch), skills and deep research.
+- **All of the above run on iPhone and iPad too**, except the palette and typing suggestions.
+- Bring your own model: **local** (Apple Foundation Models, MLX, Ollama, LM Studio) or **your own cloud API key** — Anthropic, Gemini, OpenAI, Mistral, Groq, OpenRouter, xAI (Grok), DeepSeek, Cerebras, Together AI, Perplexity, and Ollama Cloud. Keys live in the Keychain; cloud providers are off until you configure one. Features declare what they *need* and providers declare what they *offer*, so Settings can say plainly which model is doing what and what it cannot hold.
 
 **Cloud storage — two ways, no lock-in**
 - **Open a cloud folder like any other** (recommended). Box, Dropbox, OneDrive (personal *and* business), Google Drive and iCloud Drive all surface through Apple's **File Provider** layer, so their folders are just paths — point HelloNotes at one and it works. Files stay **online-only until you open them**: all vault I/O is `NSFileCoordinator`-coordinated so a cloud file materialises on demand, and indexing deliberately **skips un-downloaded notes** rather than dragging your whole vault local. Online-only notes get a cloud badge, a "N online-only" status, per-note **Download / Remove Download**, and a provider label; Git is guarded on cloud folders (auto-commit off) since libgit2 needs real local objects.
@@ -62,7 +66,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **Spotlight** — notes are *donated* to the system index, so ⌘Space finds them and deep-links straight back (stale entries are retracted on rename/delete).
 - **Widgets** — a recent-notes widget in all three sizes, fed by an App Group snapshot; every row deep-links to its note.
 - **Quick Look** — native `.md` preview *and* thumbnail extensions, so Markdown renders in Finder's Space-bar preview and as file icons.
-- **Menu-bar quick capture** — a `MenuBarExtra` jots a line into today's daily note without switching apps, plus a system-wide **⌃⌥⌘N** hotkey.
+- **Menu-bar quick capture** — a `MenuBarExtra` jots a line into today's daily note without switching apps, plus a system-wide **⌃⌥⌘N** that brings HelloNotes forward on a new note.
 - **URL scheme** — `hellonotes://note?…` / `collection` / `search` / `new` / `daily`, the shared entry point behind Shortcuts, Spotlight and widget taps.
 - **Dictation** — on-device `SpeechAnalyzer` transcription straight into the daily note; **Writing Tools** and inline prediction are wired into the editor (plain-text only, so rewrites can't corrupt Markdown).
 - Services menu ("New Note from Selection"), state restoration, TipKit hints, and an Icon Composer app icon.

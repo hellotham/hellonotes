@@ -154,7 +154,8 @@ extension AppActions {
         // File
         add("new-note", "File", "New Note", "square.and.pencil",
             shortcut: "⌘N", enabled: canNewNote, run: newNote)
-        add("todays-note", "File", "Today's Note", "calendar", run: todaysNote)
+        add("todays-note", "File", "Today's Note", "calendar",
+            enabled: canNewNote, run: todaysNote)
         add("compose-note", "File", "New Note from a Prompt…", "sparkles.square.filled.on.square",
             shortcut: "⌃⌘N", run: composeNote)
         add("open-quickly", "File", "Open Quickly", "magnifyingglass",
@@ -238,8 +239,14 @@ extension AppActions {
             add("trash", "Note", "Move to Trash", "trash", run: note.moveToTrash)
         }
 
-        // Format — only with an editable note focused.
-        if let format {
+        // Format — an editable note focused, **and the editor actually on
+        // screen**. The formatting bus is installed by `MarkdownTextView` via
+        // `.commandBus(documentId:)`, and that view is only mounted in Edit
+        // mode: in Preview, Markdown and Split there is nothing listening, so
+        // "Bold" would appear and silently do nothing. The menu has always
+        // checked the mode; the palette did not, which is the same promise
+        // broken in the surface that makes the promise.
+        if let format, editorMode == .edit {
             let actions: [(String, String, String, FormatAction)] = [
                 ("bold", "Bold", "bold", .bold),
                 ("italic", "Italic", "italic", .italic),

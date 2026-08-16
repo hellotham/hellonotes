@@ -1,8 +1,12 @@
 # Unimplemented, Deferred & Production Readiness
 
-> As of **v1.2** (register reconciled against the source 2026-08-15 — §8b's cloud entries
-> retired as implemented; five earlier entries
-> described gaps that had already been closed; see [implemented.md §20](implemented.md)). A single register of everything **not** shipped
+> As of **v1.3** (reconciled against the source 2026-08-16: §7's iOS entries revised
+> where 1.3 closed them — the AI stack is no longer macOS-only — and inline completion
+> added as the one 1.3 feature that did *not* reach iOS. The previous pass, 2026-08-15
+> for v1.2, retired §8b's cloud entries and five earlier ones describing gaps that had
+> already been closed; see [implemented.md §20](implemented.md).)
+>
+> A single register of everything **not** shipped
 > or **not** production-hardened: gaps, deferrals, bugs, tech debt, usability, accessibility,
 > security, performance, and App-Store packaging. Compiled from a five-lane code audit
 > (correctness · release/packaging · data-safety/concurrency/AI · usability/a11y · perf/scale).

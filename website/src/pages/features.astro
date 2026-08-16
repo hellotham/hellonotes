@@ -61,14 +61,17 @@ const sections = [
   {
     id: 'ai',
     eyebrow: 'Intelligence',
-    title: 'AI that runs on your Mac',
+    title: 'AI where you would look for it',
     screen: byId('ask'),
     body: [
-      'Summarise a note, suggest tags or links, expand a stub, or ask a question across your whole library and get an answer with citations back to the notes it came from. By default this runs on-device with Apple Intelligence — your notes are not sent anywhere.',
+      'Summarise a note, suggest tags or links, rewrite a passage, or ask a question across your whole library and get an answer with citations back to the notes it came from. By default this runs on-device with Apple Intelligence — your notes are not sent anywhere.',
+      'None of it lives in an “AI panel”. Each action sits in the menu that owns the thing it acts on, and its answer appears in the inspector tab that already holds that kind of information — a summary with the outline, tags with the tags, suggested links beside the backlinks. Review Links walks a note\'s unmade links one at a time, and New Note from a Prompt can research a question on the web and land the cited answer as a note, already linked into what you have.',
       'If you would rather use a different model, bring your own: local runtimes like Ollama, LM Studio and MLX, or your own API key for a cloud provider. Keys live in the Keychain, and cloud providers stay switched off until you configure one.',
     ],
     bullets: [
-      'On-device summarise, suggest tags/links, expand',
+      'Summarise, suggest tags and links, rewrite — in the Note menu, answers in the inspector',
+      'Review Links: Link / Skip / Never, one phrase at a time, nothing written until you finish',
+      'New Note from a Prompt — write, or research on the web and land it as a linked note',
       'Ask Library — retrieval chat grounded in your notes, with citations',
       'An agentic Assistant whose edits require your explicit approval',
       'Bring your own model: Apple, MLX, Ollama, LM Studio, or a cloud key',

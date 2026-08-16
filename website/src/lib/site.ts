@@ -46,7 +46,7 @@ export const MANUAL = [
   { slug: 'editor', title: 'The editor', blurb: 'Live Markdown, view modes, maths, diagrams, callouts and properties.' },
   { slug: 'links-and-graph', title: 'Links & the graph', blurb: 'Wiki-links, aliases, backlinks, transclusion, graph and mind map.' },
   { slug: 'organising', title: 'Organising notes', blurb: 'Search, Open Quickly, tags, bookmarks, daily notes and templates.' },
-  { slug: 'ai', title: 'AI & intelligence', blurb: 'On-device Apple Intelligence, Ask Library, the Assistant and providers.' },
+  { slug: 'ai', title: 'AI & intelligence', blurb: 'Where each AI action lives, Review Links, New Note from a Prompt, typing suggestions, Ask Library and providers.' },
   { slug: 'cloud', title: 'Cloud storage', blurb: 'Use iCloud, Dropbox, Box, OneDrive or Google Drive — two ways.' },
   { slug: 'git', title: 'Version history with Git', blurb: 'Initialise a repo, commit, sync to a remote, browse and restore.' },
   { slug: 'shortcuts', title: 'Keyboard shortcuts', blurb: 'The full shortcut reference.' },

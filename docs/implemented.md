@@ -6,7 +6,7 @@
 > notable fixes worth remembering. It consolidates the former `implementation-plan.md`,
 > `markdown-engine-strategy.md`, `editor-rewrite.md`, and `editor-parity.md`.
 
-**Current status:** v1.2 shipped (see [CHANGELOG.md](../CHANGELOG.md) for the user-facing
+**Current status:** v1.3 (§22); v1.2 shipped 2026-08-15 (see [CHANGELOG.md](../CHANGELOG.md) for the user-facing
 notes and §20 below for the batch); v1.0 was Milestones 0–13, plus the deeper Apple-platform
 integration (§10 and [native-roadmap.md](native-roadmap.md)) and **cloud storage** (§11–12,
 [cloud-native-roadmap.md](cloud-native-roadmap.md)). Builds clean on macOS + iOS in **both
