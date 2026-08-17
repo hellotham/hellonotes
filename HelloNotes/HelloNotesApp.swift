@@ -27,6 +27,9 @@ struct HelloNotesApp: App {
     #endif
 
     init() {
+        // First, so it is watching before anything else has a chance to block
+        // the main actor. No-op unless HN_STALL_LOG is set on a Debug build.
+        MainActorWatchdog.start()
         let lib = Library()
         _library = State(initialValue: lib)
         _router = State(initialValue: NavigationRouter(library: lib))
