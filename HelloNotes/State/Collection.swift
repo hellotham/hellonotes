@@ -519,6 +519,17 @@ final class Collection: Identifiable {
         let collectionID = id
         let source = LocalTreeSource(root: rootURL, includesNonNoteFiles: showsNonNoteFiles)
         let resume = Self.resumePoint(for: collectionID)
+        /// Whether this pass will visit the whole tree, and may therefore
+        /// *define* the collection rather than merely add to it.
+        ///
+        /// Not `resume == nil`: after a completed walk `resumePoint` returns a
+        /// synthetic checkpoint whose frontier is the root, purely to carry the
+        /// previous directory total for the progress bar. A first attempt at
+        /// this guard read that as "resumed" and sent almost every scan down
+        /// the merge path — which never removes anything, so hiding non-note
+        /// files stopped hiding them. The question is not whether there was a
+        /// checkpoint; it is whether the walk starts at the root.
+        let startedFromRoot = resume.map { $0.frontier.isEmpty || $0.frontier == [""] } ?? true
 
         // The collection already has a picture of the folder. An interrupted
         // rescan would only ever hold a *subset* of it, so replacing the old one
@@ -588,7 +599,21 @@ final class Collection: Identifiable {
         let sawWholeTree = result.isComplete && !Task.isCancelled
 
         if sawWholeTree {
-            publish(found)
+            // **"Complete" means the walk finished, not that it saw everything.**
+            // A resumed walk starts at a stored frontier and accumulates only
+            // the directories still ahead of it, then reports `isComplete` —
+            // which is true of the *walk* and false of the *tree*. Publishing
+            // that as authoritative replaced the note list with the tail of the
+            // vault, and notes the user was looking at simply vanished.
+            //
+            // So a resumed pass merges into what is already known, and only a
+            // pass that began at the root is allowed to define the whole
+            // picture (which is also what lets it remove deleted notes).
+            if startedFromRoot {
+                publish(found)
+            } else {
+                publishMerging(found)
+            }
             state = isAvailable ? .ready : state
             WalkCheckpointStore.rememberTotal(result.progress.directoriesVisited, for: collectionID)
         } else {
@@ -659,6 +684,28 @@ final class Collection: Identifiable {
 
     private func publish(_ found: ScanAccumulator) {
         apply(found.sorted)
+    }
+
+    /// Fold a **partial** pass into the current picture instead of replacing it.
+    ///
+    /// Freshly-walked entries win, and anything the pass did not reach is kept.
+    /// The trade is deliberate and one-directional: a note deleted outside the
+    /// app while a resumed pass was running lingers in the list until the next
+    /// pass that starts from the root. Showing a note that has gone is a
+    /// correction; hiding a note that exists is a scare, and this app has now
+    /// done the second to its own author.
+    private func publishMerging(_ found: ScanAccumulator) {
+        let fresh = found.sorted
+        let walkedNotes = Set(fresh.notes.map(\.fileURL))
+        let walkedFiles = Set(fresh.attachments.map(\.url))
+
+        let mergedNotes = (notes.filter { !walkedNotes.contains($0.fileURL) } + fresh.notes)
+            .sorted { $0.lastModified > $1.lastModified }
+        let mergedFiles = (attachments.filter { !walkedFiles.contains($0.url) } + fresh.attachments)
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let mergedFolders = Array(Set(folders).union(fresh.folders))
+
+        apply((notes: mergedNotes, attachments: mergedFiles, folders: mergedFolders))
     }
 
     // MARK: - Remote collections (cross-platform)
@@ -834,6 +881,12 @@ final class Collection: Identifiable {
     /// valve for when the index ever looks wrong.
     func rescan() {
         CollectionIndexCache.remove(for: rootURL)
+        // **Drop the walk checkpoint too.** Without this, "rebuild everything
+        // from scratch" quietly resumed from a stored frontier and walked only
+        // part of the tree — so the one command offered as the escape hatch for
+        // a wrong index reproduced the wrong index, and there was no way out of
+        // the state from inside the app at all.
+        WalkCheckpointStore.remove(for: id)
         invalidateRelatedness()
         Task {
             await scanOffMain()
@@ -1120,10 +1173,68 @@ final class Collection: Identifiable {
             report("Couldn't create the note: \(error.localizedDescription)")
             return nil
         }
+        return adopt(createdAt: candidate)
+    }
 
-        await scanOffMain()
-        refreshDerived()
-        return notes.first { $0.fileURL.standardizedFileURL == candidate.standardizedFileURL }
+    /// Take a just-created file into the in-memory picture, without re-walking
+    /// the folder.
+    ///
+    /// Creating a note changes **one** entry. This used to `await scanOffMain()`
+    /// — an O(folder) walk — and the caller awaits *this*, so on a large vault
+    /// the new note did not appear, and could not be selected or typed into,
+    /// until the entire tree had been re-read. The walk was already off the main
+    /// actor, so nothing was blocked in the CPU sense; the person was blocked,
+    /// which is the only sense that counts.
+    ///
+    /// Then it happened twice. The write was never recorded in
+    /// `recentSelfWrites`, so FSEvents reported our own new file as an external
+    /// change and `reconcileSoon` ran a *second* full walk 400ms later — which
+    /// republishes the whole note list and rebuilds the sidebar and outline
+    /// underneath whoever is mid-way through typing the title.
+    private func adopt(createdAt url: URL) -> Note? {
+        // Register before anything can observe the file, so the watcher knows
+        // this one was ours. `renameNote` and `append` already did this; create
+        // and delete were the two that did not.
+        #if os(macOS)
+        recentSelfWrites[Self.normalize(url.path)] = Date()
+        #endif
+
+        let note = Note(title: url.deletingPathExtension().lastPathComponent,
+                        fileURL: url,
+                        lastModified: Date(),
+                        fileSize: 0)
+        notes.removeAll { $0.fileURL.standardizedFileURL == url.standardizedFileURL }
+        notes.append(note)
+        // Same order `ScanAccumulator.sorted` uses, so an inserted note sits
+        // exactly where a scan would have put it — newest first.
+        notes.sort { $0.lastModified > $1.lastModified }
+        revision &+= 1
+
+        // The derived indexes take the same O(1) path a save does. The note is
+        // empty, so there is nothing to parse and no file to read.
+        linkGraph.updateNote(url: url, title: note.title, text: "")
+        search.updateNote(note, text: "")
+        embedProvider.update(notes: notes)
+        derivedRevision &+= 1
+        return note
+    }
+
+    /// Drop a note we just removed from the in-memory picture. See `adopt`.
+    private func forget(_ note: Note) {
+        #if os(macOS)
+        recentSelfWrites[Self.normalize(note.fileURL.path)] = Date()
+        #endif
+        notes.removeAll { $0.fileURL == note.fileURL }
+        revision &+= 1
+        removeFromRelatedness(note.fileURL)
+        embedProvider.update(notes: notes)
+        derivedRevision &+= 1
+
+        // The link graph and search index still hold the deleted note, and
+        // neither offers a single-entry removal. Rebuilding is cheap (it reads
+        // the cache, not the vault) — but it must not be awaited, or deleting a
+        // note stalls exactly the way creating one used to.
+        Task { @MainActor [weak self] in self?.refreshDerived() }
     }
 
     /// Rename a note's file to `newTitle` and rewrite every `[[wiki-link]]`
@@ -1158,9 +1269,51 @@ final class Collection: Identifiable {
 
         bookmarks.updatePath(from: note.fileURL, to: destination)   // keep the pin
         await rewriteWikiLinks(from: note.title, to: title, renamed: note.fileURL, movedTo: destination)
-        await scanOffMain()
-        refreshDerived()
-        return notes.first { $0.fileURL.standardizedFileURL == destination.standardizedFileURL }
+        return adopt(renamed: note, to: destination, title: title)
+    }
+
+    /// Move a renamed note within the in-memory picture, without re-walking.
+    ///
+    /// This is the one that hurt most in practice. A new note opens with its
+    /// title focused, so *naming* a note is a rename — and a rename moved the
+    /// file, registered neither the old path nor the new one, then awaited a
+    /// full walk while FSEvents queued a second one for the two paths it had
+    /// not been told about. Naming a note in a large vault therefore re-read
+    /// the entire vault twice, the second time landing mid-keystroke.
+    private func adopt(renamed note: Note, to destination: URL, title: String) -> Note? {
+        #if os(macOS)
+        let now = Date()
+        recentSelfWrites[Self.normalize(note.fileURL.path)] = now      // the file that left
+        recentSelfWrites[Self.normalize(destination.path)] = now       // and the one that arrived
+        #endif
+
+        // Keep `lastModified` — a move preserves it, and inventing a new one
+        // would jump the note to the top of a list sorted by it, on nothing
+        // more than a rename.
+        let moved = Note(title: title, fileURL: destination,
+                         lastModified: note.lastModified, fileSize: note.fileSize,
+                         isOnlineOnly: note.isOnlineOnly)
+        notes.removeAll { $0.fileURL == note.fileURL || $0.fileURL == destination }
+        notes.append(moved)
+        notes.sort { $0.lastModified > $1.lastModified }
+        revision &+= 1
+        embedProvider.update(notes: notes)
+        derivedRevision &+= 1
+
+        // A rename rewrites `[[links]]` in *other* notes, so the graph and
+        // search index do need rebuilding — but off the caller's back. The
+        // rebuild reads the index cache, not the vault.
+        reindexSoon()
+        return moved
+    }
+
+    /// Rebuild the derived indexes without making anyone wait for it.
+    ///
+    /// Deliberately not `await`ed anywhere: every caller is a user action that
+    /// has already happened on disk, and none of them should be gated on
+    /// re-deriving an index.
+    private func reindexSoon() {
+        Task { @MainActor [weak self] in self?.refreshDerived() }
     }
 
     /// Duplicate a note beside the original ("Title copy.md", disambiguated)
@@ -1181,9 +1334,11 @@ final class Collection: Identifiable {
             report("Couldn't duplicate the note: \(error.localizedDescription)")
             return nil
         }
-        await scanOffMain()
-        refreshDerived()
-        return notes.first { $0.fileURL.standardizedFileURL == candidate.standardizedFileURL }
+        // The copy carries content, so unlike a fresh note it needs indexing —
+        // but in the background, like every other one-file change here.
+        let copy = adopt(createdAt: candidate)
+        reindexSoon()
+        return copy
     }
 
     /// Rewrite `[[oldTitle]]`, `[[oldTitle|alias]]`, `[[oldTitle#heading]]` and
@@ -1288,9 +1443,7 @@ final class Collection: Identifiable {
             do { try await remote.store.delete(path: remotePath) }
             catch { report("Couldn't delete “\(note.title)” on \(remote.store.providerName): \(error.localizedDescription)") }
         }
-        removeFromRelatedness(note.fileURL)
-        await scanOffMain()
-        refreshDerived()
+        forget(note)
     }
 
     /// Create an empty folder inside `parent` (defaults to the root), with the
