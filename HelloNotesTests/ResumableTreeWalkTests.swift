@@ -309,7 +309,10 @@ struct TreeWalkBenchmark {
         try build(root, 3)
 
         var start = Date()
-        let old = Collection.enumerate(root)
+        // `enumerate` returns nil only when its task was cancelled — not the
+        // case here, and a benchmark comparing against nothing would silently
+        // pass.
+        let old = try #require(Collection.enumerate(root))
         let enumeratorSeconds = Date().timeIntervalSince(start)
 
         var notesFound = 0

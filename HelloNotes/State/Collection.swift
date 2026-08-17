@@ -424,10 +424,22 @@ final class Collection: Identifiable {
 
     // MARK: - Scanning
 
-    /// Enumerate `rootURL` into notes / attachments / folders. `nonisolated` and
-    /// pure so it can run on a background executor — a full directory walk of a
-    /// large collection is thousands of `stat` calls that shouldn't block the UI.
-    nonisolated static func enumerate(_ rootURL: URL) -> (notes: [Note], attachments: [CollectionFile], folders: [URL]) {
+    /// Enumerate `rootURL` into notes / attachments / folders, or **`nil` if the
+    /// walk was cancelled**.
+    ///
+    /// The optional is the whole point. This used to return `([], [], [])` on
+    /// cancellation — indistinguishable from a genuinely empty folder — and
+    /// `scan()` handed that straight to `apply`, emptying the collection and
+    /// then clearing `.stale`, so the app asserted a complete and correct
+    /// picture of nothing. A comment two dozen lines down said "the caller
+    /// discards a cancelled walk's partial results"; one caller did and the
+    /// other did not. A type the compiler checks beats a comment the next
+    /// caller does not read.
+    ///
+    /// `nonisolated` and pure so it can run on a background executor — a full
+    /// directory walk of a large collection is thousands of `stat` calls that
+    /// shouldn't block the UI.
+    nonisolated static func enumerate(_ rootURL: URL) -> (notes: [Note], attachments: [CollectionFile], folders: [URL])? {
         let fileManager = FileManager.default
         let resourceKeys: [URLResourceKey] = [.contentModificationDateKey, .contentTypeKey, .isRegularFileKey, .isDirectoryKey, .fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
 
@@ -448,7 +460,7 @@ final class Collection: Identifiable {
             // the one that replaced it: a bulk `git checkout` fires several
             // watcher batches, and each used to put another full walk on the
             // disk. The caller discards a cancelled walk's partial results.
-            if Task.isCancelled { return ([], [], []) }
+            if Task.isCancelled { return nil }
             guard let resourceValues = try? fileURL.resourceValues(forKeys: Set(resourceKeys)) else {
                 continue
             }
@@ -486,9 +498,12 @@ final class Collection: Identifiable {
 
     /// Scan synchronously (used by the infrequent, user-initiated file
     /// mutations that need the updated note immediately afterwards).
+    ///
+    /// A cancelled walk is **discarded**, never applied.
     func scan() {
         if let reason = Self.unavailability(of: rootURL) { markUnavailable(reason); return }
-        apply(Self.enumerate(rootURL))
+        guard let result = Self.enumerate(rootURL) else { return }
+        apply(result)
     }
 
     /// Adopt a scan's results. The **only** place the note set is replaced, so

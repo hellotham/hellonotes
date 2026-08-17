@@ -492,10 +492,7 @@ struct MacContentView: View {
         }
         .onChange(of: selectedNoteID) { _, newID in
             restoredNotePath = newID?.path ?? ""
-            if let note = library.allNotes.first(where: { $0.id == newID }) {
-                library.focusCollection(containing: note.fileURL)
-                Task { await tabs.editor(for: note) }
-            }
+            openSelectedNote(newID)
         }
         .onChange(of: library.focusedID) { _, newID in
             restoredCollectionID = newID ?? ""
@@ -973,6 +970,40 @@ struct MacContentView: View {
     }
 
     /// Drop the selection if the note (or attachment) it pointed at is gone.
+    /// Open the selected note — and **never fail silently**.
+    ///
+    /// This is the only path from a sidebar click to an open editor, and it used
+    /// to be a bare `if let` over `library.allNotes` with no `else`. When the id
+    /// was not in that list the selection was written and nothing else happened:
+    /// no tab, no message, no log. The detail column fell through to "No Note
+    /// Selected" and the app looked dead — a populated sidebar where every click
+    /// did nothing, with an idle main thread and no way to tell why.
+    ///
+    /// Any mismatch between what the sidebar draws and what `allNotes` holds
+    /// arrived at the user as that symptom. So the fallback opens the file the
+    /// row actually names, and if even that is impossible it says so rather than
+    /// shrugging.
+    private func openSelectedNote(_ newID: URL?) {
+        guard let newID else { return }
+        if let note = library.allNotes.first(where: { $0.id == newID }) {
+            library.focusCollection(containing: note.fileURL)
+            Task { await tabs.editor(for: note) }
+            return
+        }
+        // The sidebar named a note the list does not have. The file is usually
+        // still there — a stale row, or two spellings of the same URL — so open
+        // it by URL rather than discarding the click.
+        guard FileManager.default.fileExists(atPath: newID.path) else {
+            focused?.lastError = "“\(newID.lastPathComponent)” is no longer in this collection."
+            return
+        }
+        library.focusCollection(containing: newID)
+        let note = Note(title: newID.deletingPathExtension().lastPathComponent,
+                        fileURL: newID,
+                        lastModified: (try? FileManager.default.attributesOfItem(atPath: newID.path)[.modificationDate] as? Date) ?? Date())
+        Task { await tabs.editor(for: note) }
+    }
+
     private func revalidateSelection() {
         let stillValid = selectedNoteID.map { id in
             library.allNotes.contains { $0.id == id }
@@ -1931,11 +1962,21 @@ struct MacContentView: View {
     /// O(collections), not O(notes): computed every render, but the expensive
     /// `buildOutlineRoots()` only re-runs when this key actually changes.
     private var outlineInputsKey: String {
+        // Every branch must name each collection's `revision`. Search and tag
+        // mode used to key on the query alone — so while a filter was active, a
+        // rescan that changed the note set never rebuilt the outline. The
+        // sidebar went on drawing rows for notes that were no longer in
+        // `library.allNotes`, and clicking one silently did nothing, because
+        // that is what an unmatched id used to mean. Populated sidebar, dead
+        // clicks, idle main thread.
+        let collectionRevisions = library.collections
+            .map { "\($0.id)#\($0.revision)" }
+            .joined(separator: "|")
         let mode: String
         if isSearching {
-            mode = "s:\(searchResultsRevision)"
+            mode = "s:\(searchResultsRevision):\(collectionRevisions)"
         } else if let selectedTag {
-            mode = "t:\(selectedTag):\(focused?.id ?? "")"
+            mode = "t:\(selectedTag):\(focused?.id ?? ""):\(collectionRevisions)"
         } else {
             // **Every** open collection is in the tree now (D2), so the key has
             // to name all of them. Keyed on one collection — which is what it

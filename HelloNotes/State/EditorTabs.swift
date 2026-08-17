@@ -93,10 +93,25 @@ final class EditorTabs {
     }
 
     /// Drop tabs whose note no longer exists (deleted / renamed externally).
+    ///
+    /// **Never drops unsaved work.** This used to `removeAll` outright, while
+    /// `close(_:)` two dozen lines up carefully awaited `flush()` — so the tidy-up
+    /// path discarded what the deliberate path preserved. It runs from
+    /// `.onChange(of: library.allNotes)`, and `Note` is `Hashable` over
+    /// `lastModified`, so it fires on *any* mtime change to *any* note: a note
+    /// that momentarily left the list took the user's pending keystrokes with it,
+    /// silently, in a notes app.
+    ///
+    /// An editor with unsaved changes is now **kept** rather than flushed-and-
+    /// dropped. A note missing from the list is usually a scan under-reporting,
+    /// not a deletion, and the file it is editing is still on disk — the golden
+    /// rule is that nothing outside the editor may close the file being typed
+    /// into. A genuine deletion goes through `close(_:)`.
     func prune(keeping ids: Set<Note.ID>) {
         editors.removeAll { editor in
             guard let id = editor.note?.id else { return true }
-            return !ids.contains(id)
+            if ids.contains(id) { return false }
+            return !editor.isDirty
         }
     }
 }
