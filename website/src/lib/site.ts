@@ -6,7 +6,7 @@
 export const APP = {
   name: 'HelloNotes',
   tagline: 'Think in plain Markdown.',
-  version: '1.3',
+  version: '1.3.1',
   minOS: 'macOS 15 or later',
   /** Universal binary — verified with `lipo -info` on the shipped DMG. */
   architectures: 'Apple silicon & Intel',
@@ -27,8 +27,8 @@ export const DOWNLOAD = {
   url: `${REPO}/releases/latest/download/HelloNotes.dmg`,
   releasesPage: `${REPO}/releases/latest`,
   fileName: 'HelloNotes.dmg',
-  size: '36.2 MB',
-  sha256: '00143e2ff407b5b3cf6cd4a376d7aea0387657094d6ab6ec10887dddce10b394',
+  size: '38.6 MB',
+  sha256: '7e56b66f158c5a83f67289f51690cfed53c8d9325ec44c92e6c7334d3dc82a7b',
 } as const;
 
 /** Primary nav. Secondary/legal links live in the footer. */
