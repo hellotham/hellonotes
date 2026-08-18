@@ -216,9 +216,7 @@ struct MindMapWindowView: View {
         .frame(minWidth: 480, minHeight: 360)
         .task(id: rootURL) {
             let url = rootURL
-            text = await Task.detached(priority: .userInitiated) {
-                try? FileIO.readString(at: url)
-            }.value
+            text = await offMain { try? FileIO.readString(at: url) }
         }
     }
 

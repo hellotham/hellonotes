@@ -114,12 +114,12 @@ struct LibraryChatView: View {
             // keeps content in memory), so it runs off the main actor.
             let retrieved = await retrieve(q)
             sources = retrieved
-            let context = await Task.detached(priority: .userInitiated) {
+            let context = await offMain {
                 retrieved.map { note in
                     (title: note.title,
                      text: (try? FileIO.readString(at: note.fileURL)) ?? "")
                 }
-            }.value
+            }
             do {
                 if context.isEmpty {
                     answer = "I couldn't find any notes related to that."
@@ -159,7 +159,7 @@ struct LibraryChatView: View {
         }
 
         let candidates = notes
-        let scored = await Task.detached(priority: .userInitiated) { () -> [(Note, Int)] in
+        let scored = await offMain { () -> [(Note, Int)] in
             candidates.compactMap { note in
                 guard let text = (try? FileIO.readString(at: note.fileURL))?.lowercased()
                 else { return nil }
@@ -169,7 +169,7 @@ struct LibraryChatView: View {
                 return score > 0 ? (note, score) : nil
             }
             .sorted { $0.1 > $1.1 }
-        }.value
+        }
 
         if scored.isEmpty {
             return await Array(fullText(q).prefix(4))

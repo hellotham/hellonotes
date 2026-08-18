@@ -367,13 +367,13 @@ struct MacContentView: View {
                 && !excluded.contains($0.fileURL)
         }
 
-        let mentions = await Task.detached(priority: .userInitiated) { () -> [Note] in
+        let mentions = await offMain { () -> [Note] in
             candidates.compactMap { candidate in
                 guard let text = try? FileIO.readString(at: candidate.fileURL),
                       MentionScanner.containsMention(of: names, in: text) else { return nil }
                 return candidate
             }
-        }.value
+        }
         guard !Task.isCancelled else { return }
         references = ReferencesData(backlinks: back, outgoingLinks: out, unlinkedMentions: mentions)
     }
@@ -620,7 +620,7 @@ struct MacContentView: View {
             ReviewLinksView(
                 proposals: review.proposals,
                 noteText: review.noteText,
-                preview: { focused?.openingLines(of: $0) ?? "" },
+                preview: { await focused?.openingLines(of: $0) ?? "" },
                 onFinish: { applyAcceptedLinks($0, reviewedText: review.noteText) },
                 onDecline: { focused?.declineLink($0) }
             )
@@ -2030,13 +2030,25 @@ struct MacContentView: View {
     /// Turn the first plain-text mention of the open note (by title) in `note`
     /// into a `[[link]]`, writing the change to disk and re-indexing.
     private func linkMention(_ note: Note) {
-        guard let target = selectedNote, let c = editorCollection,
-              let text = try? FileIO.readString(at: note.fileURL),
-              let updated = MentionScanner.linkingFirstMention(of: target.title, in: text) else { return }
-        try? FileIO.write(Data(updated.utf8), to: note.fileURL)
-        // The note set is unchanged (only one note's content), so no re-scan:
-        // patch the index incrementally and suppress the watcher for our write.
-        c.noteDidSave(note.fileURL, text: updated)
+        guard let target = selectedNote, let c = editorCollection else { return }
+        let title = target.title
+        // The read *and* the write go off the main actor: both are coordinated,
+        // and a coordinated call against a File Provider blocks for as long as
+        // the provider takes. This runs from a button in the inspector, so the
+        // window would freeze with it.
+        Task {
+            let updated = await offMain { () -> String? in
+                guard let text = try? FileIO.readString(at: note.fileURL),
+                      let updated = MentionScanner.linkingFirstMention(of: title, in: text)
+                else { return nil }
+                try? FileIO.write(Data(updated.utf8), to: note.fileURL)
+                return updated
+            }
+            guard let updated else { return }
+            // The note set is unchanged (only one note's content), so no re-scan:
+            // patch the index incrementally and suppress the watcher for our write.
+            c.noteDidSave(note.fileURL, text: updated)
+        }
     }
 
     private func newNote() {
@@ -2071,10 +2083,14 @@ struct MacContentView: View {
 
     /// Append a template's expanded contents to the active note.
     private func insertTemplate(_ template: Note) {
-        guard let editor = activeEditor,
-              let raw = try? FileIO.readString(at: template.fileURL) else { return }
-        let expanded = TemplateExpander.expand(raw, title: editor.note?.title ?? "", date: .now)
-        editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
+        guard let editor = activeEditor else { return }
+        let title = editor.note?.title ?? ""
+        Task {
+            let raw = await offMain { try? FileIO.readString(at: template.fileURL) }
+            guard let raw else { return }
+            let expanded = TemplateExpander.expand(raw, title: title, date: .now)
+            editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
+        }
     }
 
     private func delete(_ note: Note, in collection: Collection) {

@@ -73,7 +73,7 @@ final class CollectionSearchModel {
 
         // Read the files AND fold them into the derived aggregates entirely off
         // the main actor — the editor thread never sees this work.
-        let derived = await Task.detached(priority: .utility) { () -> Derived in
+        let derived = await offMain { () -> Derived in
             let entries: [Entry] = urls.compactMap { url in
                 // Skip files whose content isn't local so metadata indexing never
                 // downloads a whole cloud vault — and never mistakes a mirror
@@ -85,7 +85,7 @@ final class CollectionSearchModel {
                              tags: parsed.tags, aliases: parsed.aliases)
             }
             return CollectionSearchModel.computeDerived(from: entries)
-        }.value
+        }
 
         apply(derived, replacingEntries: true)
     }

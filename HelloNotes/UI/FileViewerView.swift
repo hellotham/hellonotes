@@ -179,19 +179,31 @@ private struct CSVTableView: View {
                 }
             }
         }
-        .task(id: url) { load() }
+        .task(id: url) { await load() }
     }
 
-    private func load() {
+    /// Read and parse off the main actor. A coordinated read of a file that
+    /// isn't local yet blocks for as long as its provider takes, and parsing a
+    /// large CSV is not free either — neither belongs on the thread drawing the
+    /// window.
+    private func load() async {
         rows = []; truncated = false; error = nil
-        guard let text = try? FileIO.readString(at: url) else {
+        let url = self.url
+        let cap = rowCap
+        let parsed = await offMain { () -> (rows: [[String]], truncated: Bool)? in
+            guard let text = try? FileIO.readString(at: url) else { return nil }
+            let delimiter: Character = url.pathExtension.lowercased() == "tsv" ? "\t" : ","
+            var rows = CSVParser.parse(text, delimiter: delimiter)
+            let truncated = rows.count > cap
+            if truncated { rows = Array(rows.prefix(cap)) }
+            return (rows, truncated)
+        }
+        guard let parsed else {
             error = "The file isn't valid UTF-8 text."
             return
         }
-        let delimiter: Character = url.pathExtension.lowercased() == "tsv" ? "\t" : ","
-        var parsed = CSVParser.parse(text, delimiter: delimiter)
-        if parsed.count > rowCap { parsed = Array(parsed.prefix(rowCap)); truncated = true }
-        rows = parsed
+        rows = parsed.rows
+        truncated = parsed.truncated
     }
 }
 

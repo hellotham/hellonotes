@@ -792,7 +792,7 @@ struct iOSContentView: View {
                     ReviewLinksView(
                         proposals: review.proposals,
                         noteText: review.noteText,
-                        preview: { focused?.openingLines(of: $0) ?? "" },
+                        preview: { await focused?.openingLines(of: $0) ?? "" },
                         onFinish: { applyAcceptedLinks($0, reviewedText: review.noteText) },
                         onDecline: { focused?.declineLink($0) }
                     )

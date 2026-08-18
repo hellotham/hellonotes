@@ -337,12 +337,14 @@ final class Collection: Identifiable {
     /// The opening of a note, for judging a proposed link without leaving the
     /// review. Front matter stripped: it is metadata, and it is what the top of
     /// the file actually holds.
-    func openingLines(of url: URL, limit: Int = 400) -> String {
-        guard let raw = try? FileIO.readString(at: url) else {
-            return "Couldn't read that note."
+    func openingLines(of url: URL, limit: Int = 400) async -> String {
+        await offMain {
+            guard let raw = try? FileIO.readString(at: url) else {
+                return "Couldn't read that note."
+            }
+            let body = FrontMatter.body(of: raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            return body.isEmpty ? "This note is empty." : String(body.prefix(limit))
         }
-        let body = FrontMatter.body(of: raw).trimmingCharacters(in: .whitespacesAndNewlines)
-        return body.isEmpty ? "This note is empty." : String(body.prefix(limit))
     }
 
     // MARK: Per-collection subsystems (isolated to this collection)
@@ -1654,15 +1656,31 @@ final class Collection: Identifiable {
 
     /// Append `text` to a note's file on disk (quick-capture / daily-note intents).
     func append(_ text: String, to note: Note) async {
-        guard let existing = try? FileIO.readString(at: note.fileURL) else { return }
-        let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
-        do { try FileIO.write(Data((existing + separator + text).utf8), to: note.fileURL) }
-        catch { report("Couldn't append to “\(note.title)”: \(error.localizedDescription)"); return }
+        // Read, join and write in one hop off the main actor — both file calls
+        // are coordinated, so both can block on a provider.
+        let url = note.fileURL
+        let outcome = await offMain { () -> Result<String, Error>? in
+            guard let existing = try? FileIO.readString(at: url) else { return nil }
+            let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
+            let updated = existing + separator + text
+            do { try FileIO.write(Data(updated.utf8), to: url); return .success(updated) }
+            catch { return .failure(error) }
+        }
+        guard let outcome else { return }
+        let updated: String
+        switch outcome {
+        case .success(let value): updated = value
+        case .failure(let error):
+            report("Couldn't append to “\(note.title)”: \(error.localizedDescription)")
+            return
+        }
         #if os(macOS)
-        recentSelfWrites[Self.normalize(note.fileURL.path)] = Date()
+        recentSelfWrites[Self.normalize(url.path)] = Date()
         #endif
-        await scanOffMain()
-        refreshDerived()
+        // **One note's content changed, so no walk.** This used to
+        // `await scanOffMain()`, which made a one-file append cost a re-read of
+        // the whole folder — and appending is what quick-capture does.
+        noteDidSave(url, text: updated)
     }
 
     /// Move a note to the Trash (never a hard delete) and re-index.

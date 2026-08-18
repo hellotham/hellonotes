@@ -26,7 +26,12 @@ struct ReviewLinksView: View {
     /// The note being reviewed, for showing each phrase in its sentence.
     let noteText: String
     /// The opening lines of a target note, for judging whether the link is apt.
-    var preview: (URL) -> String
+    ///
+    /// `async`, because it reads the file. As a synchronous closure it was
+    /// called from inside `body` — a *coordinated read on the main actor, on
+    /// every body evaluation*, which against a File Provider can block the
+    /// window for as long as the provider takes, repeatedly.
+    var preview: (URL) async -> String
     /// Accepted proposals, applied by the host as one edit.
     var onFinish: ([LinkProposal]) -> Void
     /// "Never propose this again", persisted per collection.
@@ -35,6 +40,8 @@ struct ReviewLinksView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var position = 0
     @State private var accepted: [LinkProposal] = []
+    /// Loaded previews, keyed by target. Read once per note, not once per draw.
+    @State private var previews: [URL: String] = [:]
 
     private var current: LinkProposal? {
         position < proposals.count ? proposals[position] : nil
@@ -91,11 +98,15 @@ struct ReviewLinksView: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Text(proposal.targetTitle).font(.headline)
-                Text(preview(proposal.targetURL))
+                Text(previews[proposal.targetURL] ?? "Loading…")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .task(id: proposal.targetURL) {
+                        guard previews[proposal.targetURL] == nil else { return }
+                        previews[proposal.targetURL] = await preview(proposal.targetURL)
+                    }
             }
 
             Spacer(minLength: 0)
