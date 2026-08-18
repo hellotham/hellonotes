@@ -43,6 +43,11 @@ struct iOSContentView: View {
     /// First-run onboarding, shown once on a brand-new install.
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @State private var searchText = ""
+    /// The note being renamed, and the text field's contents. iOS had no rename
+    /// anywhere except the inline title, which is a *setting* — turn it off and
+    /// notes became unrenameable.
+    @State private var renameTarget: Note?
+    @State private var renameText = ""
     @State private var selectedNoteID: Note.ID?
     @State private var selectedTag: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -191,6 +196,19 @@ struct iOSContentView: View {
                 Task { await openPicked(urls) }
             }
             .ignoresSafeArea()
+        }
+        .alert("Rename Note", isPresented: Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } })
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+            Button("Rename") {
+                if let note = renameTarget { renameNote(note, to: renameText) }
+                renameTarget = nil
+            }
+        } message: {
+            Text("Renaming updates [[links]] in notes that point at it.")
         }
         .sheet(isPresented: $showSettings) {
             iOSSettingsView(settings: appearance)
@@ -358,10 +376,13 @@ struct iOSContentView: View {
                     if isFiltering {
                         ForEach(notes(in: collection)) { note in
                             Text(note.title).tag(note.id)
+                                .contextMenu { noteActions(note) }
                         }
                     } else {
                         ForEach(tree(for: collection)) { node in
-                            CollectionTreeRow(node: node)
+                            CollectionTreeRow(node: node) { note in
+                                AnyView(noteActions(note))
+                            }
                         }
                     }
                 } header: {
@@ -443,6 +464,47 @@ struct iOSContentView: View {
         } label: {
             Label("Close Collection", systemImage: "xmark.circle")
         }
+    }
+
+    /// Everything you can do to a note, in one place, used by both the sidebar
+    /// tree and the note list.
+    ///
+    /// Before this, an iPad could create a note and then neither rename,
+    /// duplicate, bookmark nor delete it: `deleteNote` had no caller on iOS at
+    /// all, and rename existed only through the inline title — which is behind
+    /// an appearance setting, so turning that off removed the only route.
+    @ViewBuilder
+    private func noteActions(_ note: Note) -> some View {
+        Button {
+            renameText = note.title
+            renameTarget = note
+        } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
+        Button {
+            guard let c = library.collection(containing: note.fileURL) else { return }
+            Task { await c.duplicateNote(note) }
+        } label: {
+            Label("Duplicate", systemImage: "plus.square.on.square")
+        }
+        Button {
+            library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
+        } label: {
+            Label(isBookmarked(note) ? "Remove Bookmark" : "Bookmark",
+                  systemImage: isBookmarked(note) ? "bookmark.slash" : "bookmark")
+        }
+        Divider()
+        Button(role: .destructive) {
+            guard let c = library.collection(containing: note.fileURL) else { return }
+            if selectedNoteID == note.id { selectedNoteID = nil }
+            Task { await c.deleteNote(note) }
+        } label: {
+            Label("Move to Trash", systemImage: "trash")
+        }
+    }
+
+    private func isBookmarked(_ note: Note) -> Bool {
+        library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
     }
 
     /// Whether a search or tag filter is narrowing the list.
@@ -1144,14 +1206,19 @@ struct iOSContentView: View {
 /// with no sense of where anything lives.
 private struct CollectionTreeRow: View {
     let node: CollectionTreeNode
+    /// The actions menu for a note row. `AnyView` because the closure is stored
+    /// and the row recurses; the alternative is a generic parameter that has to
+    /// be threaded through every level of the tree for no benefit.
+    let actions: (Note) -> AnyView
 
     var body: some View {
         if let note = node.note {
             Text(note.title).tag(note.id)
+                .contextMenu { actions(note) }
         } else if node.isFolder {
             DisclosureGroup {
                 ForEach(node.children ?? []) { child in
-                    CollectionTreeRow(node: child)
+                    CollectionTreeRow(node: child, actions: actions)
                 }
             } label: {
                 Label(node.name, systemImage: "folder")

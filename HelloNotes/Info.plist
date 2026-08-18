@@ -15,7 +15,37 @@
 				<string>public.plain-text</string>
 			</array>
 		</dict>
+		<dict>
+			<!-- **A folder is a document this app opens, and it has to say so.**
+
+			     `LSSupportsOpeningDocumentsInPlace` declares that the app edits
+			     documents where they live; this array declares *which kinds*. Without
+			     `public.folder` here, the system treats a folder as something
+			     HelloNotes cannot open, and third-party File Providers (OneDrive,
+			     Box, Dropbox, Google Drive) refuse to vend one to the document
+			     picker — you can browse into them and never select a folder. iCloud
+			     Drive, the system's own provider, does not enforce it, which is why
+			     the failure looked provider-specific instead of self-inflicted. -->
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.folder</string>
+			</array>
+		</dict>
 	</array>
+	<!-- Open folders and notes *in place* from any file provider.
+
+	     Without this the system treats the app as unable to edit documents where
+	     they live, and third-party File Providers (OneDrive, Box, Google Drive,
+	     Dropbox) refuse to hand over a security-scoped folder — while iCloud
+	     Drive, the system's own provider, keeps working. The symptom is
+	     "the picker browses into OneDrive but the folder can't be selected",
+	     and nothing in the code looks wrong, because nothing in the code is. -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>DropboxAppKey</key>
