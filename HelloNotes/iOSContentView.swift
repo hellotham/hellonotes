@@ -101,6 +101,9 @@ struct iOSContentView: View {
     /// enter an API key at all, so every provider but Apple was unreachable.
     @State private var showAssistant = false
     @State private var showLLMSettings = false
+    @State private var showOpenQuickly = false
+    @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
+    @AppStorage("dailyDateFormat") private var dailyDateFormat = "yyyy-MM-dd"
 
     /// Which inspector tab is showing. Owned here rather than by the panel,
     /// because the toolbar is the panel's tab strip (`shell-chrome.md` D6).
@@ -209,6 +212,16 @@ struct iOSContentView: View {
             }
         } message: {
             Text("Renaming updates [[links]] in notes that point at it.")
+        }
+        .sheet(isPresented: $showOpenQuickly) {
+            NavigationStack {
+                OpenQuicklyList(notes: (railCollection ?? focused)?.notes ?? []) { note in
+                    showOpenQuickly = false
+                    selectedTag = nil
+                    searchText = ""
+                    selectedNoteID = note.id
+                }
+            }
         }
         .sheet(isPresented: $showSettings) {
             iOSSettingsView(settings: appearance)
@@ -445,6 +458,27 @@ struct iOSContentView: View {
                     } label: {
                         Label("Open Obsidian Vault…", systemImage: "shippingbox")
                     }
+                    if !library.isEmpty {
+                        Divider()
+                        Button {
+                            openTodaysNote()
+                        } label: {
+                            Label("Today's Note", systemImage: "calendar")
+                        }
+                        Button {
+                            showOpenQuickly = true
+                        } label: {
+                            Label("Open Quickly…", systemImage: "magnifyingglass")
+                        }
+                        Button {
+                            // The Library place is where search spans every
+                            // collection; iOS has no separate search field to
+                            // focus, so going there *is* the command.
+                            select(.library)
+                        } label: {
+                            Label("Search All Collections", systemImage: "text.magnifyingglass")
+                        }
+                    }
                 } label: {
                     Label("Open Collection", systemImage: "plus")
                 }
@@ -459,6 +493,25 @@ struct iOSContentView: View {
     /// compact list's deliberately grey (not red) swipe action.
     @ViewBuilder
     private func collectionMenuItems(_ collection: Collection) -> some View {
+        Button {
+            collection.showsNonNoteFiles.toggle()
+        } label: {
+            Label(collection.showsNonNoteFiles ? "Hide Non-Note Files" : "Show Non-Note Files",
+                  systemImage: collection.showsNonNoteFiles ? "eye.slash" : "eye")
+        }
+        Button {
+            collection.rescan()
+        } label: {
+            Label("Rescan Collection", systemImage: "arrow.clockwise")
+        }
+        if collection.isRemote {
+            Button {
+                Task { await collection.refreshFromProvider() }
+            } label: {
+                Label("Refresh Cloud Collection", systemImage: "cloud")
+            }
+        }
+        Divider()
         Button {
             library.close(collection)
         } label: {
@@ -493,6 +546,36 @@ struct iOSContentView: View {
             Label(isBookmarked(note) ? "Remove Bookmark" : "Bookmark",
                   systemImage: isBookmarked(note) ? "bookmark.slash" : "bookmark")
         }
+        Button {
+            UIPasteboard.general.string = "[[\(note.title)]]"
+        } label: {
+            Label("Copy Wiki Link", systemImage: "link")
+        }
+        // Only for the note that is actually open: the existing review flow
+        // reads the live editor buffer, and proposals are offsets into *that*
+        // text — running it against some other note would apply ranges to the
+        // wrong document.
+        if editor.note?.fileURL == note.fileURL {
+            Button {
+                beginLinkReview()
+            } label: {
+                Label("Review Links…", systemImage: "link.badge.plus")
+            }
+        }
+        Divider()
+        Menu {
+            Button {
+                iOSEditorExport.exportHTML(markdown: textFor(note), title: note.title)
+            } label: { Label("Export as HTML…", systemImage: "doc.richtext") }
+            Button {
+                iOSEditorExport.exportPDF(markdown: textFor(note), title: note.title)
+            } label: { Label("Export as PDF…", systemImage: "doc.text") }
+            Button {
+                iOSEditorExport.printNote(markdown: textFor(note), title: note.title)
+            } label: { Label("Print…", systemImage: "printer") }
+        } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }
         Divider()
         Button(role: .destructive) {
             guard let c = library.collection(containing: note.fileURL) else { return }
@@ -503,8 +586,29 @@ struct iOSContentView: View {
         }
     }
 
+    /// The note's text: the live buffer when it is the one open (so an export
+    /// reflects unsaved edits, as it does on the Mac), otherwise from disk.
+    private func textFor(_ note: Note) -> String {
+        if editor.note?.fileURL == note.fileURL { return editor.text }
+        return (try? FileIO.readString(at: note.fileURL)) ?? ""
+    }
+
     private func isBookmarked(_ note: Note) -> Bool {
         library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
+    }
+
+    /// Open (creating if needed) today's daily note.
+    private func openTodaysNote() {
+        let name = TemplateExpander.dailyNoteName(for: .now, format: dailyDateFormat)
+        let rel = dailyNoteFolder.isEmpty ? "\(name).md" : "\(dailyNoteFolder)/\(name).md"
+        guard let c = railCollection ?? focused else { return }
+        Task {
+            if let note = await c.note(atRelativePath: rel, creatingWith: "# \(name)\n\n") {
+                selectedTag = nil
+                searchText = ""
+                selectedNoteID = note.id
+            }
+        }
     }
 
     /// Whether a search or tag filter is narrowing the list.
@@ -1271,6 +1375,46 @@ private struct FolderPicker: UIViewControllerRepresentable {
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             onPick([])
+        }
+    }
+}
+
+
+/// Jump to a note by name — the iPad's Open Quickly.
+///
+/// A plain searchable list rather than the Mac's fuzzy-scored sheet: on a
+/// touch device the keyboard is already the slow part, and a list you can also
+/// *scroll* is more use than one you can only type at.
+private struct OpenQuicklyList: View {
+    let notes: [Note]
+    let onOpen: (Note) -> Void
+
+    @State private var query = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var matches: [Note] {
+        guard !query.isEmpty else { return Array(notes.prefix(50)) }
+        return notes.filter { $0.title.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        List(matches) { note in
+            Button { onOpen(note) } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(note.title)
+                    Text(note.lastModified, format: .dateTime.year().month().day())
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .foregroundStyle(.primary)
+        }
+        .searchable(text: $query, prompt: "Open Quickly")
+        .navigationTitle("Open Quickly")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+            }
         }
     }
 }

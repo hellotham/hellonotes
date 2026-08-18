@@ -14,14 +14,6 @@
 import SwiftUI
 import AppKit
 
-/// A Markdown formatting command the Format menu can send to the focused
-/// editor (routed to the editor through its notification bus).
-enum FormatAction {
-    case bold, italic, strikethrough, highlight, inlineCode
-    case blockquote, unorderedList, orderedList
-    case heading(Int)
-}
-
 /// The provider windows **Connect Over the Web** opens.
 ///
 /// The four window ids were string literals in three places — the scene
@@ -441,30 +433,6 @@ extension Notification.Name {
     /// The per-document notification name for a formatting request. Scoped by
     /// `documentId` so a Format command reaches only the focused editor, never
     /// the same note open in another window.
-    static func hnFormat(_ kind: String, documentId: String) -> Notification.Name {
-        Notification.Name("hnEditorFormat.\(kind).\(documentId)")
-    }
 }
 
-extension FormatAction {
-    /// The bus-name suffix and optional userInfo for this action.
-    var kind: String {
-        switch self {
-        case .bold: "bold"
-        case .italic: "italic"
-        case .strikethrough: "strikethrough"
-        case .highlight: "highlight"
-        case .inlineCode: "inlineCode"
-        case .blockquote: "blockquote"
-        case .unorderedList: "unorderedList"
-        case .orderedList: "orderedList"
-        case .heading: "heading"
-        }
-    }
-
-    var userInfo: [String: Any]? {
-        if case .heading(let level) = self { return ["level": level] }
-        return nil
-    }
-}
 #endif

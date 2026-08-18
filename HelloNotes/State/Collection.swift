@@ -1340,6 +1340,24 @@ final class Collection: Identifiable {
         Task { await search.refresh(from: notes) }
     }
 
+    /// Rebuild everything from scratch, ignoring the index cache — the safety
+    /// valve for when the index looks wrong.
+    ///
+    /// iOS's own copy, because the macOS one lives inside `#if os(macOS)` and
+    /// calls `refreshDerived(force:)`, which only exists there. Without it an
+    /// iPad had no way to force a re-index at all: if the list went stale, the
+    /// only remedy was closing and reopening the collection.
+    func rescan() {
+        CollectionIndexCache.remove(for: rootURL)
+        // Drop the walk checkpoint too, or "rebuild from scratch" quietly
+        // resumes from a stored frontier and reproduces the wrong index.
+        WalkCheckpointStore.remove(for: id)
+        Task {
+            await scanOffMain()
+            refreshDerived()
+        }
+    }
+
     /// Fold one note's new contents into the derived indexes.
     ///
     /// iOS reaches its indexes the slow way: a coordinated write wakes the

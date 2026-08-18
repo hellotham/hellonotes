@@ -18,6 +18,9 @@ import MarkdownCore
 public final class MarkdownUITextView: UITextView {
 
     private(set) weak var document: EditorDocument?
+    /// Format-bus observers, and the id they are bound to.
+    fileprivate var busTokens: [NSObjectProtocol] = []
+    fileprivate var busDocumentId: String?
     /// Retains the layout delegate that vends chrome-drawing fragments.
     /// `lazy`, not a stored default: `init(usingTextLayoutManager:)` is an
     /// inherited convenience initializer that skips the subclass's stored-
@@ -249,6 +252,8 @@ public struct EditorMenuItem {
 /// SwiftUI host for the iOS Markdown editor. Same public surface (`init`,
 /// `editable`, `onLinkTap`) as the macOS `MarkdownEditorView`.
 public struct MarkdownEditorView: UIViewRepresentable {
+    /// Document id for the format command bus, if the host wants one.
+    private var busDocumentId: String?
     private let document: EditorDocument
     private var isEditable = true
     private var onLinkTap: ((EditorLinkTap) -> Void)?
@@ -264,6 +269,16 @@ public struct MarkdownEditorView: UIViewRepresentable {
                              uiView: MarkdownUITextView,
                              context: Context) -> CGSize? {
         viewportSizeThatFits(proposal)
+    }
+
+    /// Listen for formatting commands addressed to `documentId`.
+    ///
+    /// The same bus the Mac's Format menu posts on. iOS needs it for the
+    /// keyboard accessory bar: the bar is a SwiftUI view with no handle on the
+    /// text view, exactly as the Mac's menu bar has none, and the answer that
+    /// already worked there works here.
+    public func commandBus(documentId: String) -> Self {
+        var copy = self; copy.busDocumentId = documentId; return copy
     }
 
     public func editable(_ flag: Bool) -> Self {
@@ -287,6 +302,12 @@ public struct MarkdownEditorView: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         tv.delegate = context.coordinator
+        tv.subscribeToFormatBus(documentId: busDocumentId)
+        // The system find bar — ⌘F on a hardware keyboard, and the "Find…"
+        // item in the edit menu. iOS has had this since 16 and it is better
+        // than porting the Mac's bespoke find bar: it brings find-and-replace,
+        // the standard shortcuts, and the accessibility behaviour with it.
+        tv.isFindInteractionEnabled = true
         // Small/medium notes: style the whole document once up front (proven
         // path). Large notes: rely on the document's synchronous prefix styling
         // (done in init) plus its idle background pass, so opening never blocks
@@ -351,4 +372,74 @@ public struct MarkdownEditorView: UIViewRepresentable {
         }
     }
 }
+
+// MARK: - Formatting
+
+extension MarkdownUITextView: MarkdownFormatting {
+
+    public var formattingText: String { text ?? "" }
+    public func formattingSelection() -> NSRange { selectedRange }
+    public func setFormattingSelection(_ range: NSRange) { selectedRange = range }
+
+    /// Replace `range` with `text`, undoably.
+    ///
+    /// `replace(_:withText:)` rather than poking `textStorage`: it is the
+    /// `UITextInput` path, so it registers undo, notifies the delegate, and
+    /// therefore reaches the document's incremental reparse — the same route a
+    /// keystroke takes. Writing to the storage directly would format the text
+    /// and leave the parse, the undo stack and the delegate all behind.
+    @discardableResult
+    public func performEdit(replacing range: NSRange, with text: String) -> Bool {
+        guard let start = position(from: beginningOfDocument, offset: range.location),
+              let end = position(from: start, offset: range.length),
+              let textRange = textRange(from: start, to: end)
+        else { return false }
+        replace(textRange, withText: text)
+        selectedRange = NSRange(location: range.location + (text as NSString).length, length: 0)
+        return true
+    }
+}
+
+
+// MARK: - Format command bus
+
+extension MarkdownUITextView {
+
+    /// Observe formatting commands addressed to `documentId`.
+    ///
+    /// Registered on the view rather than the coordinator so the tokens die
+    /// with the view; re-binding is a no-op while the id is unchanged, so this
+    /// is safe to call from `makeUIView` and `updateUIView` alike.
+    func subscribeToFormatBus(documentId: String?) {
+        guard busDocumentId != documentId else { return }
+        for token in busTokens { NotificationCenter.default.removeObserver(token) }
+        busTokens.removeAll()
+        busDocumentId = documentId
+        guard let documentId else { return }
+
+        let center = NotificationCenter.default
+        let formats: [(String, EditorFormatCommand)] = [
+            ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),
+            ("highlight", .highlight), ("inlineCode", .inlineCode),
+            ("blockquote", .blockquote), ("unorderedList", .unorderedList),
+            ("orderedList", .orderedList),
+        ]
+        for (kind, command) in formats {
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hnEditorFormat.\(kind).\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.apply(command) }
+            })
+        }
+        busTokens.append(center.addObserver(
+            forName: Notification.Name("hnEditorFormat.heading.\(documentId)"),
+            object: nil, queue: .main
+        ) { [weak self] note in
+            let level = note.userInfo?["level"] as? Int ?? 1
+            MainActor.assumeIsolated { [level] in self?.apply(.heading(level)) }
+        })
+    }
+}
+
 #endif

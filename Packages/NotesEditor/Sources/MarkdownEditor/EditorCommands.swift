@@ -8,9 +8,13 @@
 //  document's incremental reparse/restyle — the same path typing takes.
 //
 
+import Foundation
+import MarkdownCore
 #if canImport(AppKit)
 import AppKit
-import MarkdownCore
+#elseif canImport(UIKit)
+import UIKit
+#endif
 
 /// A formatting command the host can send (Format menu, toolbar, AI).
 public enum EditorFormatCommand: Sendable, Equatable {
@@ -21,21 +25,30 @@ public enum EditorFormatCommand: Sendable, Equatable {
     case orderedList
 }
 
-extension MarkdownTextView {
-
-    // MARK: - Programmatic edits (the one true mutation path)
-
-    /// Replace `range` with `text`, undoably, moving the caret to the end
-    /// of the replacement. This is also the AI seam: Writing-Tools-style
-    /// rewrites and provider-driven transforms land through here.
+/// What a Markdown formatting command needs from an editor view.
+///
+/// These commands used to be an extension on `MarkdownTextView` — the *macOS*
+/// `NSTextView` — inside a file gated on `canImport(AppKit)`. So iPad had no
+/// formatting whatsoever: no bold, no headings, no lists, and nothing to reach
+/// them from. The logic never needed a platform, only the text, the selection,
+/// and an undoable way to replace a range. Naming those makes the commands
+/// shared rather than duplicated, which is what stops the two platforms
+/// drifting on what "toggle a heading" means.
+@MainActor
+public protocol MarkdownFormatting: AnyObject {
+    /// The whole document's text.
+    var formattingText: String { get }
+    /// The current selection.
+    func formattingSelection() -> NSRange
+    /// Move or extend the selection.
+    func setFormattingSelection(_ range: NSRange)
+    /// Replace `range` with `text`, undoably, leaving the caret after it.
     @discardableResult
-    public func performEdit(replacing range: NSRange, with text: String) -> Bool {
-        guard shouldChangeText(in: range, replacementString: text) else { return false }
-        textStorage?.replaceCharacters(in: range, with: text)
-        didChangeText()
-        setSelectedRange(NSRange(location: range.location + (text as NSString).length, length: 0))
-        return true
-    }
+    func performEdit(replacing range: NSRange, with text: String) -> Bool
+}
+
+extension MarkdownFormatting {
+
 
     // MARK: - Formatting
 
@@ -57,16 +70,16 @@ extension MarkdownTextView {
     /// wrapped (inside or immediately around the selection). With an empty
     /// selection, insert a marker pair and park the caret inside.
     private func toggleInline(marker: String) {
-        let ns = string as NSString
+        let ns = formattingText as NSString
         let m = marker as NSString
-        var sel = selectedRange()
+        var sel = formattingSelection()
 
         if sel.length == 0 {
+            // Insert an empty pair and park the caret between the markers —
+            // `performEdit` would leave it after them.
             let insertion = "\(marker)\(marker)"
-            guard shouldChangeText(in: sel, replacementString: insertion) else { return }
-            textStorage?.replaceCharacters(in: sel, with: insertion)
-            didChangeText()
-            setSelectedRange(NSRange(location: sel.location + m.length, length: 0))
+            guard performEdit(replacing: sel, with: insertion) else { return }
+            setFormattingSelection(NSRange(location: sel.location + m.length, length: 0))
             return
         }
 
@@ -75,7 +88,7 @@ extension MarkdownTextView {
         if inner.hasPrefix(marker), inner.hasSuffix(marker), sel.length >= 2 * m.length {
             let stripped = String(inner.dropFirst(marker.count).dropLast(marker.count))
             if performEdit(replacing: sel, with: stripped) {
-                setSelectedRange(NSRange(location: sel.location, length: (stripped as NSString).length))
+                setFormattingSelection(NSRange(location: sel.location, length: (stripped as NSString).length))
             }
             return
         }
@@ -86,16 +99,16 @@ extension MarkdownTextView {
             if before == marker, after == marker {
                 let outer = NSRange(location: sel.location - m.length, length: sel.length + 2 * m.length)
                 if performEdit(replacing: outer, with: inner) {
-                    setSelectedRange(NSRange(location: outer.location, length: sel.length))
+                    setFormattingSelection(NSRange(location: outer.location, length: sel.length))
                 }
                 return
             }
         }
         // Wrap.
-        sel = selectedRange()
+        sel = formattingSelection()
         let wrapped = "\(marker)\(inner)\(marker)"
         if performEdit(replacing: sel, with: wrapped) {
-            setSelectedRange(NSRange(location: sel.location + m.length, length: sel.length))
+            setFormattingSelection(NSRange(location: sel.location + m.length, length: sel.length))
         }
     }
 
@@ -119,7 +132,7 @@ extension MarkdownTextView {
     }
 
     private func toggleOrderedList() {
-        let ns = string as NSString
+        let ns = formattingText as NSString
         let lines = selectedLineRange()
         let text = ns.substring(with: lines)
         let split = text.components(separatedBy: "\n")
@@ -139,7 +152,7 @@ extension MarkdownTextView {
 
     /// Transform each selected line; preserves the trailing-newline shape.
     private func mapSelectedLines(togglingAll: Bool = false, _ transform: (String) -> String) {
-        let ns = string as NSString
+        let ns = formattingText as NSString
         let lines = selectedLineRange()
         let text = ns.substring(with: lines)
         let mapped = text
@@ -152,10 +165,33 @@ extension MarkdownTextView {
 
     /// The full line range of the selection, without its trailing newline.
     private func selectedLineRange() -> NSRange {
-        let ns = string as NSString
-        var r = ns.lineRange(for: selectedRange())
+        let ns = formattingText as NSString
+        var r = ns.lineRange(for: formattingSelection())
         if r.length > 0, ns.character(at: r.location + r.length - 1) == 0x0A { r.length -= 1 }
         return r
+    }
+
+}
+
+#if canImport(AppKit)
+extension MarkdownTextView: MarkdownFormatting {
+
+    public var formattingText: String { string }
+    public func formattingSelection() -> NSRange { selectedRange() }
+    public func setFormattingSelection(_ range: NSRange) { setSelectedRange(range) }
+
+    // MARK: - Programmatic edits (the one true mutation path)
+
+    /// Replace `range` with `text`, undoably, moving the caret to the end
+    /// of the replacement. This is also the AI seam: Writing-Tools-style
+    /// rewrites and provider-driven transforms land through here.
+    @discardableResult
+    public func performEdit(replacing range: NSRange, with text: String) -> Bool {
+        guard shouldChangeText(in: range, replacementString: text) else { return false }
+        textStorage?.replaceCharacters(in: range, with: text)
+        didChangeText()
+        setSelectedRange(NSRange(location: range.location + (text as NSString).length, length: 0))
+        return true
     }
 
     // MARK: - Find & navigation

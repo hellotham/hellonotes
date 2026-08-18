@@ -64,6 +64,7 @@ struct iOSLiveEditor: View {
         Group {
             if let document {
                 MarkdownEditorView(document: document)
+                    .commandBus(documentId: editor.note?.fileURL.path ?? "")
                     .editable(true)
                     .onLinkTap { tap in
                         switch tap {
@@ -73,6 +74,7 @@ struct iOSLiveEditor: View {
                     }
                     .selectionMenuItems { selected in selectionMenu(for: selected) }
                     .ignoresSafeArea(.container, edges: .bottom)
+                    .toolbar { formatBar }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -165,4 +167,59 @@ struct iOSLiveEditor: View {
         "\(note.fileURL.path)|\(editor.loadRevision)|\(Int(fontSize))|\(colorScheme == .dark ? "d" : "l")"
     }
 }
+
+extension iOSLiveEditor {
+
+    /// The keyboard accessory bar: the Mac's Format menu, for a device with no
+    /// menu bar.
+    ///
+    /// iOS had **no formatting at all** — a comment in `iOSContentView`
+    /// described "the keyboard accessory bar instead of a persistent format
+    /// bar" as though it existed, and nothing did. Every command here posts on
+    /// the same bus the Mac's Format menu posts on, so the two surfaces cannot
+    /// drift in what they do.
+    @ToolbarContentBuilder
+    var formatBar: some ToolbarContent {
+        ToolbarItemGroup(placement: .keyboard) {
+            formatButton("bold", .bold, "Bold")
+            formatButton("italic", .italic, "Italic")
+            formatButton("chevron.left.forwardslash.chevron.right", .inlineCode, "Code")
+            Menu {
+                // Applying the same level again removes the heading, which is
+                // the editor's own semantics — so there is no separate "Body"
+                // item to get wrong. (Sending level 0 would turn an H2 into an
+                // H1 rather than clearing it.)
+                ForEach(1...3, id: \.self) { level in
+                    Button("Heading \(level)") { send(.heading(level)) }
+                }
+            } label: {
+                Image(systemName: "textformat.size")
+            }
+            formatButton("list.bullet", .unorderedList, "Bulleted List")
+            formatButton("list.number", .orderedList, "Numbered List")
+            formatButton("text.quote", .blockquote, "Blockquote")
+            Spacer()
+            Button {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                                to: nil, from: nil, for: nil)
+            } label: {
+                Image(systemName: "keyboard.chevron.compact.down")
+            }
+            .accessibilityLabel("Hide Keyboard")
+        }
+    }
+
+    private func formatButton(_ symbol: String, _ action: FormatAction, _ label: String) -> some View {
+        Button { send(action) } label: { Image(systemName: symbol) }
+            .accessibilityLabel(label)
+    }
+
+    /// Post a formatting command to the open note's editor.
+    private func send(_ action: FormatAction) {
+        guard let path = editor.note?.fileURL.path else { return }
+        NotificationCenter.default.post(name: .hnFormat(action.kind, documentId: path),
+                                        object: nil, userInfo: action.userInfo)
+    }
+}
+
 #endif
