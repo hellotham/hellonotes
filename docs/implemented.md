@@ -1733,3 +1733,30 @@ for four hours before that was understood).
 - `MainActorBudgetTests` is skipped unless `TEST_RUNNER_HN_BUDGET_TESTS=1` and
   run alone. It failed on every full run, and a suite that always fails is a
   suite everyone learns to ignore.
+
+### Shipped as 1.3.1 (2026-08-18)
+
+| | |
+|---|---|
+| Version / build | `1.3.1` / `5` |
+| Artefact | `HelloNotes.dmg`, 38,606,928 bytes (38.6 MB) |
+| SHA-256 | `7e56b66f158c5a83f67289f51690cfed53c8d9325ec44c92e6c7334d3dc82a7b` |
+| Release | <https://github.com/hellotham/hellonotes/releases/tag/v1.3.1> |
+| Notarization | app `d09ef462-9498-4fe0-8a56-dbd11ee43e62`, DMG `ecc977b4-7320-461b-8db8-adc5cdf48c32` — both Accepted |
+
+Verified from the **mounted image** rather than the packaging script's own
+output: universal (`x86_64 arm64`), Gatekeeper `accepted` with
+`source=Notarized Developer ID` for the app *and* the disk image, ticket stapled
+so it validates with no network, and `CFBundleShortVersionString` 1.3.1.
+
+The checksum was taken **after** stapling, which rewrites the DMG — the trap
+1.2 and 1.3 both recorded. Then the loop was closed as before: the published
+asset was downloaded from the exact URL the site's button uses
+(`releases/latest/download/HelloNotes.dmg`, HTTP 200) and hashed, and it matches
+the value the download page prints byte for byte. `website/dist` was checked to
+carry no stale 1.3 hash or size.
+
+A patch release, and the whole of it is §23 above: the editor is no longer
+blocked by folder scans, saves, renames or transclusion reads; a partial scan
+can no longer remove notes; and Markdown reveal moved from per-block to per-line
+so a multi-line blockquote keeps its bars while you edit inside it.
