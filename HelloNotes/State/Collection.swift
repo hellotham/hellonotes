@@ -565,34 +565,77 @@ final class Collection: Identifiable {
             currentScan = nil
         }
 
-        let (batches, continuation) = AsyncStream<WalkBatch>.makeStream()
+        // **Everything below the walk runs off the main actor.**
+        //
+        // It used to be the other way round: only the *producer* was detached,
+        // and the main actor ran the consumer loop — accumulating each batch,
+        // writing two `@Observable` progress properties per directory, and every
+        // 150ms sorting the whole accumulated note list and rebuilding the
+        // sidebar outline. On a 2,000-note vault that measured **2.3 seconds**
+        // of blocked main actor (`MainActorBudgetTests`), which is the editor
+        // freezing for the length of the scan.
+        //
+        // Now one detached task walks, accumulates and sorts, and hands back
+        // finished, already-sorted pictures. The main actor's entire job is to
+        // assign one value, at most a few times a second.
+        let remoteState: (cacheRoot: URL, dehydrated: Set<String>, trueSizes: [String: Int])? =
+            remote.map { ($0.cacheRoot, $0.dehydratedRelativePaths, $0.manifest.sizes) }
+
+        // Bounded, so a fast filesystem cannot pile work onto a slow consumer.
+        // The old stream was unbounded with no backpressure, which is why a
+        // cloud vault's burst listings saturated the main actor.
+        let (updates, continuation) = AsyncStream<ScanUpdate>.makeStream(
+            bufferingPolicy: .bufferingNewest(2))
+
         let walk = Task.detached(priority: .userInitiated) { () -> WalkResult in
             defer { continuation.finish() }
-            return await ResumableTreeWalk.run(
+            var found = ScanAccumulator()
+            if let remoteState {
+                found.cacheRoot = remoteState.cacheRoot
+                found.dehydrated = remoteState.dehydrated
+                found.trueSizes = remoteState.trueSizes
+            }
+            var lastEmit = ContinuousClock.now
+
+            let result = await ResumableTreeWalk.run(
                 source: source,
                 resuming: resume,
                 onCheckpoint: { WalkCheckpointStore.save($0, for: collectionID) },
-                onBatch: { continuation.yield($0) })
+                onBatch: { batch in
+                    found.add(batch)
+                    // Coalesce. Between emissions nothing crosses to the main
+                    // actor at all — not even progress, which used to invalidate
+                    // every observing view once per directory.
+                    guard ContinuousClock.now - lastEmit > .milliseconds(250) else { return }
+                    lastEmit = ContinuousClock.now
+                    continuation.yield(.inProgress(
+                        picture: isFirstPicture ? found.sorted : nil,
+                        progress: batch.progress))
+                })
+
+            // The final picture is sorted here too, off the main actor. It
+            // carries the progress as well: a collection small enough to finish
+            // inside one coalescing window emits no `.inProgress` update at all,
+            // and the first version of this dropped `hiddenFileCount` on the
+            // floor for every such collection — caught by
+            // `hiddenNonNoteFilesAreCountedNotSilentlyDropped`, which is the
+            // second time that test has caught a coalescing mistake.
+            continuation.yield(.finished(picture: found.sorted, result: result))
+            return result
         }
         currentScan = walk
 
-        var found = ScanAccumulator()
-        if let remote {
-            found.cacheRoot = remote.cacheRoot
-            found.dehydrated = remote.dehydratedRelativePaths
-            found.trueSizes = remote.manifest.sizes
-        }
+        var finalPicture: ScanPicture?
         let result = await withTaskCancellationHandler {
-            var lastPublished = Date.distantPast
-            for await batch in batches {
-                found.add(batch)
-                scanProgress = batch.progress
-                hiddenFileCount = batch.progress.filesOmitted
-                // Publishing rebuilds the outline, so throttle it rather than
-                // paying that per directory.
-                if isFirstPicture, Date().timeIntervalSince(lastPublished) > 0.15 {
-                    lastPublished = Date()
-                    publish(found)
+            for await update in updates {
+                switch update {
+                case .inProgress(let picture, let progress):
+                    scanProgress = progress
+                    hiddenFileCount = progress.filesOmitted
+                    if let picture { apply(picture) }   // already sorted
+                case .finished(let picture, let walkResult):
+                    finalPicture = picture
+                    hiddenFileCount = walkResult.progress.filesOmitted
                 }
             }
             return await walk.value
@@ -604,6 +647,13 @@ final class Collection: Identifiable {
         }
 
         if let reason = result.unavailable { markUnavailable(reason); return }
+        guard let found = finalPicture else {
+            // The stream ended without a final picture: the walk was cancelled
+            // before it finished. Publish nothing — the previous picture is
+            // better than a subset, which is the mistake that lost a note.
+            markStale(.scanIncomplete)
+            return
+        }
 
         // **Our own cancellation outranks the walk's verdict.** Iterating an
         // AsyncStream ends when the *consuming* task is cancelled, so the loop
@@ -625,18 +675,27 @@ final class Collection: Identifiable {
             // pass that began at the root is allowed to define the whole
             // picture (which is also what lets it remove deleted notes).
             if startedFromRoot {
-                publish(found)
+                apply(found)
             } else {
-                publishMerging(found)
+                applyMerging(found)
             }
             state = isAvailable ? .ready : state
             WalkCheckpointStore.rememberTotal(result.progress.directoriesVisited, for: collectionID)
         } else {
             // A partial pass. Show it only if there was nothing better, and say
             // the list is a subset either way so search can disclose it.
-            if isFirstPicture { publish(found) }
+            if isFirstPicture { apply(found) }
             markStale(.scanIncomplete)
         }
+    }
+
+    /// One coalesced update from a scan running off the main actor.
+    ///
+    /// The picture is already sorted when it arrives — sorting is the expensive
+    /// part and it belongs to the walk's task, not to the actor that draws.
+    private enum ScanUpdate: Sendable {
+        case inProgress(picture: ScanPicture?, progress: WalkProgress)
+        case finished(picture: ScanPicture, result: WalkResult)
     }
 
     /// Where to resume from, or a fresh start that still remembers how big the
@@ -648,8 +707,16 @@ final class Collection: Identifiable {
                               previousTotalDirectories: stored.previousTotalDirectories)
     }
 
+    /// A finished, already-sorted picture of the folder.
+    ///
+    /// Named rather than an anonymous tuple because it now crosses an isolation
+    /// boundary: the walk's task produces it and the main actor consumes it, so
+    /// it has to be `Sendable` and it has to be obvious at every call site that
+    /// the sorting has already happened somewhere else.
+    typealias ScanPicture = (notes: [Note], attachments: [CollectionFile], folders: [URL])
+
     /// Accumulates a walk's batches into the collection's three lists.
-    private struct ScanAccumulator {
+    private struct ScanAccumulator: Sendable {
         private var notes: [Note] = []
         private var files: [CollectionFile] = []
         private var folders: [URL] = []
@@ -690,16 +757,14 @@ final class Collection: Identifiable {
             }
         }
 
-        var sorted: (notes: [Note], attachments: [CollectionFile], folders: [URL]) {
+        var sorted: ScanPicture {
             (notes.sorted { $0.lastModified > $1.lastModified },
              files.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
              folders)
         }
     }
 
-    private func publish(_ found: ScanAccumulator) {
-        apply(found.sorted)
-    }
+
 
     /// Fold a **partial** pass into the current picture instead of replacing it.
     ///
@@ -709,8 +774,7 @@ final class Collection: Identifiable {
     /// pass that starts from the root. Showing a note that has gone is a
     /// correction; hiding a note that exists is a scare, and this app has now
     /// done the second to its own author.
-    private func publishMerging(_ found: ScanAccumulator) {
-        let fresh = found.sorted
+    private func applyMerging(_ fresh: ScanPicture) {
         let walkedNotes = Set(fresh.notes.map(\.fileURL))
         let walkedFiles = Set(fresh.attachments.map(\.url))
 
