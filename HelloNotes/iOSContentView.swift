@@ -351,7 +351,7 @@ struct iOSContentView: View {
                 }
             }
             ForEach(library.collections) { collection in
-                Section(collection.name) {
+                Section {
                     // A filter flattens the tree on purpose: when you are
                     // searching or filtering by tag, what matters is the hits,
                     // not where they live.
@@ -364,16 +364,84 @@ struct iOSContentView: View {
                             CollectionTreeRow(node: node)
                         }
                     }
+                } header: {
+                    // **Closing a collection has to be reachable here.** It was
+                    // only ever offered as a swipe on the compact shell's
+                    // collections list — a view the iPad never shows at regular
+                    // width — so on iPad a collection could be opened and never
+                    // closed again.
+                    //
+                    // A *visible* control, not just a long-press context menu:
+                    // the Mac can afford a hidden right-click because right-click
+                    // is where Mac users look, but the bug reported here was
+                    // "there is no way to close a collection", and answering
+                    // that with another hidden gesture answers it badly. The
+                    // context menu is kept as well, for the long-pressers.
+                    HStack {
+                        Text(collection.name)
+                        Spacer()
+                        Menu {
+                            collectionMenuItems(collection)
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .imageScale(.large)
+                                .accessibilityLabel("\(collection.name) actions")
+                        }
+                        // 44pt: this sits in a section header, which is short.
+                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                    }
+                    .contextMenu { collectionMenuItems(collection) }
                 }
             }
         }
         .navigationTitle("Collections")
+        .overlay {
+            // **Closing the last collection must not be a dead end.** The way
+            // back in lived only in the Library place's menu, which the iPad
+            // sidebar is not, so closing everything left a blank column and a
+            // lone "+" whose meaning you had to already know.
+            if library.isEmpty {
+                ContentUnavailableView {
+                    Label("No Collections", systemImage: "books.vertical")
+                } description: {
+                    Text("Open a folder of Markdown notes, or an Obsidian vault, to get started.")
+                } actions: {
+                    Button("Open Collection…") { showImporter = true }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showImporter = true } label: {
+                Menu {
+                    Button {
+                        showImporter = true
+                    } label: {
+                        Label("Open Collection…", systemImage: "folder.badge.plus")
+                    }
+                    Button {
+                        showImporter = true
+                    } label: {
+                        Label("Open Obsidian Vault…", systemImage: "shippingbox")
+                    }
+                } label: {
                     Label("Open Collection", systemImage: "plus")
                 }
             }
+        }
+    }
+
+    /// What you can do to an open collection from the sidebar.
+    ///
+    /// Closing loses no data — the folder stays exactly where it is and only
+    /// stops being listed — so it is not marked destructive, matching the
+    /// compact list's deliberately grey (not red) swipe action.
+    @ViewBuilder
+    private func collectionMenuItems(_ collection: Collection) -> some View {
+        Button {
+            library.close(collection)
+        } label: {
+            Label("Close Collection", systemImage: "xmark.circle")
         }
     }
 
@@ -1107,7 +1175,12 @@ private struct FolderPicker: UIViewControllerRepresentable {
     let onPick: ([URL]) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder],
+        // `.folder` *and* `.directory`: providers differ in which of the two they
+        // vend, and a provider whose folders match neither leaves them
+        // unselectable — you can browse in but never choose. `.directory` is
+        // the broader of the pair, so accepting both costs nothing and admits
+        // providers that only declare the base type.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder, .directory],
                                                     asCopy: false)
         picker.allowsMultipleSelection = true
         // A hint the picker resolves out of process; harmless if it cannot.
