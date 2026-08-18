@@ -22,6 +22,27 @@ nonisolated enum ObsidianVault {
         return FileManager.default.fileExists(atPath: config.path, isDirectory: &isDir) && isDir.boolValue
     }
 
+    #if os(iOS)
+    /// Where the Files picker should open when adding a collection.
+    ///
+    /// Obsidian's iOS app keeps its vaults in its own iCloud Drive folder, and
+    /// that is where almost every "open my vault" journey ends. The picker used
+    /// to open wherever Files last was, so a person with one obvious
+    /// destination had to navigate to it by hand every time — the app knows the
+    /// answer and was not saying it.
+    ///
+    /// A *hint*, not an access grant: this app cannot read another app's
+    /// ubiquity container, and does not try. The picker runs out of process and
+    /// resolves the location itself; if it cannot, it opens at its default and
+    /// nothing is worse than before. That is why the path is built literally
+    /// rather than through `FileManager` — there is nothing here for us to
+    /// resolve, and pretending otherwise would just fail differently.
+    static var pickerStartDirectory: URL? {
+        URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/iCloud~md~obsidian/Documents",
+            isDirectory: true)
+    }
+    #endif
+
     #if os(macOS)
     /// Obsidian's own iCloud Drive folder (`iCloud Drive/Obsidian`), where the
     /// iOS/iPadOS app stores vaults by default. Returned unconditionally as a

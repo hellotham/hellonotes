@@ -9,6 +9,7 @@
 import SwiftUI
 import MarkdownEditor
 import UniformTypeIdentifiers
+import UIKit
 
 /// The iOS / iPadOS shell, arranged by `AdaptiveShell` exactly as macOS is: a
 /// narrow library rail of *places*, the note list (or the Library place), the
@@ -176,10 +177,20 @@ struct iOSContentView: View {
             inspector: { inspector },
             compact: { compactShell }
         )
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
-            if case let .success(urls) = result {
+        .sheet(isPresented: $showImporter) {
+            // `UIDocumentPickerViewController`, not SwiftUI's `.fileImporter`.
+            //
+            // `.fileImporter` has no way to choose where the browser opens, and
+            // the note in `ObsidianVault` claiming the Files picker "can't be
+            // seeded with a start directory" was simply wrong: the UIKit picker
+            // has had `directoryURL` since iOS 13. So the picker now opens in
+            // Obsidian's iCloud folder instead of wherever Files was last.
+            FolderPicker(startingAt: ObsidianVault.pickerStartDirectory) { urls in
+                showImporter = false
+                guard !urls.isEmpty else { return }
                 Task { await openPicked(urls) }
             }
+            .ignoresSafeArea()
         }
         .sheet(isPresented: $showSettings) {
             iOSSettingsView(settings: appearance)
@@ -235,6 +246,16 @@ struct iOSContentView: View {
         .task {
             // Not under a test host — see TestEnvironment.
             guard !TestEnvironment.isRunningTests else { return }
+            // **External changes reach the editor.** `Library.onExternalChange`
+            // defaults to a no-op and only macOS ever set it, so on iOS a note
+            // edited elsewhere — Obsidian on another device, a sync landing —
+            // updated the note list while the open editor kept showing the old
+            // text, and a selection pointing at a note that had gone was never
+            // re-checked.
+            library.onExternalChange = { @MainActor in
+                Task { await editor.reconcileWithDisk() }
+                revalidateSelection()
+            }
             if library.isEmpty {
                 await library.restore()
                 if library.isEmpty && !hasSeenWelcome { pendingWelcome = true }
@@ -331,8 +352,17 @@ struct iOSContentView: View {
             }
             ForEach(library.collections) { collection in
                 Section(collection.name) {
-                    ForEach(notes(in: collection)) { note in
-                        Text(note.title).tag(note.id)
+                    // A filter flattens the tree on purpose: when you are
+                    // searching or filtering by tag, what matters is the hits,
+                    // not where they live.
+                    if isFiltering {
+                        ForEach(notes(in: collection)) { note in
+                            Text(note.title).tag(note.id)
+                        }
+                    } else {
+                        ForEach(tree(for: collection)) { node in
+                            CollectionTreeRow(node: node)
+                        }
                     }
                 }
             }
@@ -347,14 +377,37 @@ struct iOSContentView: View {
         }
     }
 
+    /// Whether a search or tag filter is narrowing the list.
+    private var isFiltering: Bool { selectedTag != nil || !searchText.isEmpty }
+
+    /// The folder tree for `collection`, built by the same shared builder the
+    /// Mac uses — so the two platforms cannot drift in what a folder contains
+    /// or how it is ordered.
+    private func tree(for collection: Collection) -> [CollectionTreeNode] {
+        CollectionTree.build(from: collection.notes, attachments: collection.attachments,
+                             folders: collection.folders, rootURL: collection.rootURL,
+                             sort: .modified)
+    }
+
+    /// Re-check the selection after the note set changed underneath it.
+    ///
+    /// Deliberately conservative: a selection that still resolves is left
+    /// exactly as it is, and one that no longer resolves is *kept* rather than
+    /// cleared, because clearing it would close the note the user is reading on
+    /// the strength of a scan. Only the editor's content is refreshed.
+    private func revalidateSelection() {
+        guard let selectedNoteID else { return }
+        guard library.allNotes.contains(where: { $0.id == selectedNoteID }) else { return }
+        Task { await editor.reconcileWithDisk() }
+    }
+
     private var bookmarkedNotes: [Note] {
         library.collections.flatMap { $0.bookmarks.bookmarkedNotes(from: $0.notes) }
     }
 
-    /// One collection's notes, narrowed by whatever filter is active. iPad has
-    /// never shown folders in this column, so this stays flat — merging the
-    /// *collections* into the tree is the change, not adding a folder level the
-    /// platform never had.
+    /// One collection's notes, narrowed by whatever filter is active. Used for
+    /// the *filtered* sidebar and the compact note list; the unfiltered sidebar
+    /// shows the folder tree instead.
     private func notes(in collection: Collection) -> [Note] {
         if let selectedTag { return collection.search.notesTagged(selectedTag) }
         guard !searchText.isEmpty else { return collection.notes }
@@ -1009,4 +1062,77 @@ struct iOSContentView: View {
         .labelsHidden()
     }
 }
+
+/// One node of the sidebar's folder tree: a disclosure group for a folder, a
+/// selectable row for a note.
+///
+/// A `struct` rather than a `@ViewBuilder` function because it recurses, and a
+/// function returning `some View` cannot: the opaque type would end up defined
+/// in terms of itself. A nominal type has no such problem.
+///
+/// The sidebar is meant to hold *one tree* expanding into each collection's
+/// folders (`docs/shell-chrome.md`). iOS never did — it listed every note in the
+/// collection flat, which on a 2,000-note vault is an unusable wall of titles
+/// with no sense of where anything lives.
+private struct CollectionTreeRow: View {
+    let node: CollectionTreeNode
+
+    var body: some View {
+        if let note = node.note {
+            Text(note.title).tag(note.id)
+        } else if node.isFolder {
+            DisclosureGroup {
+                ForEach(node.children ?? []) { child in
+                    CollectionTreeRow(node: child)
+                }
+            } label: {
+                Label(node.name, systemImage: "folder")
+            }
+        } else if let file = node.file {
+            // Non-note files appear but are not selectable as notes.
+            Label(file.name, systemImage: "doc")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+
+/// The system folder picker, opened at a chosen directory.
+///
+/// SwiftUI's `.fileImporter` cannot do that, which is the whole reason this
+/// exists. Folders only, multiple selection allowed, and the picked URLs stay
+/// security-scoped for the caller to open.
+private struct FolderPicker: UIViewControllerRepresentable {
+    let startingAt: URL?
+    let onPick: ([URL]) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder],
+                                                    asCopy: false)
+        picker.allowsMultipleSelection = true
+        // A hint the picker resolves out of process; harmless if it cannot.
+        picker.directoryURL = startingAt
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private let onPick: ([URL]) -> Void
+        init(onPick: @escaping ([URL]) -> Void) { self.onPick = onPick }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController,
+                            didPickDocumentsAt urls: [URL]) {
+            onPick(urls)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onPick([])
+        }
+    }
+}
+
 #endif

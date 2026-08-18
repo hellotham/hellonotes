@@ -431,9 +431,21 @@ final class Collection: Identifiable {
     }
 
     init(rootURL: URL) {
-        let rootURL = Self.canonical(rootURL)
+        // **`rootURL` is stored exactly as granted, never canonicalised.**
+        //
+        // On iOS a security-scoped URL grants access to *that exact URL*, so
+        // rewriting it — `resolvingSymlinksInPath()` turns `/var/…` into
+        // `/private/var/…` — hands back a path the grant does not cover:
+        // `startAccessingSecurityScopedResource()` then returns false and every
+        // read of the collection fails. The note list still appears (it was
+        // built while the picker's own scope was held) but opening a note shows
+        // nothing, which is precisely what an iPad reported.
+        //
+        // Canonical form is for *identity* — `id`, and comparisons — not for the
+        // URL the app actually reads through. `recentSelfWrites` already
+        // normalises on both write and read, so it never needed this either.
         self.rootURL = rootURL
-        self.id = rootURL.path
+        self.id = Self.canonical(rootURL).path
         // Default on: a collection that silently withheld half its contents on
         // first open would be lying by omission before the user ever chose.
         let key = Self.showFilesKey(rootURL.standardizedFileURL.path)
