@@ -27,15 +27,26 @@ nonisolated enum StyleApplier {
     /// Wiki-link existence resolution, injected by the app.
     typealias WikiResolver = @Sendable (String) -> Bool
 
-    /// Restyle `blocks` of `parse` in `target`. `revealed` holds the block
-    /// indices whose syntax should stay visible (caret inside).
+    /// Restyle `blocks` of `parse` in `target`.
+    ///
+    /// Reveal works at two granularities, deliberately:
+    ///
+    ///  * `revealedLines` drives **inline syntax** — a marker is shown raw only
+    ///    on the line the caret is on, the way Bear and Obsidian behave. Block
+    ///    granularity was wrong here: a blockquote is one block, so a caret
+    ///    anywhere in a five-line quote revealed `>` on all five lines and
+    ///    dropped every gutter bar, which reads as the formatting breaking.
+    ///  * whole-block presentation — folds, and the embeds that replace a block
+    ///    with a rendered image (tables, math, transclusions) — stays block-
+    ///    scoped and is handled by `EditorDocument`, because it has no per-line
+    ///    meaning: you reveal the source of a rendered table, not one row of it.
     static func apply(
         blockIndices: some Sequence<Int>,
         parse: ParseResult,
         text: NSString,
         to target: NSMutableAttributedString,
         theme: EditorTheme,
-        revealed: Set<Int>,
+        revealedLines: Set<Int>,
         resolveWiki: WikiResolver?,
         gfmRuns: [StyleRun] = []
     ) {
@@ -46,9 +57,12 @@ nonisolated enum StyleApplier {
                   block.range.location + block.range.length <= target.length else { continue }
             applyBase(for: block, to: target, theme: theme)
             let runs = StyleSpec.runs(for: block, text: text, lines: parse.lines)
-            let isRevealed = revealed.contains(index)
+            /// Is this run on a line the caret is on?
+            func revealsRun(_ run: StyleRun) -> Bool {
+                revealedLines.contains(parse.lines.lineNumber(at: run.range.location))
+            }
             for run in runs {
-                apply(run, to: target, theme: theme, revealed: isRevealed, resolveWiki: resolveWiki)
+                apply(run, to: target, theme: theme, revealed: revealsRun(run), resolveWiki: resolveWiki)
             }
             // Overlay spec-accurate GFM inline styling from cmark-gfm — the same
             // engine the Preview renders with — so emphasis/links/code match the
@@ -65,14 +79,15 @@ nonisolated enum StyleApplier {
                 for run in gfmRuns
                 where run.range.location >= block.range.location
                    && run.range.location + run.range.length <= blockEnd {
-                    apply(run, to: target, theme: theme, revealed: isRevealed, resolveWiki: resolveWiki)
+                    apply(run, to: target, theme: theme, revealed: revealsRun(run), resolveWiki: resolveWiki)
                 }
             }
-            // Plain-blockquote gutter bars are per-line (nesting depth); only
-            // when concealed — editing reveals the raw `>` at natural indent.
-            if !isRevealed {
-                applyQuoteBars(for: block, lines: parse.lines, text: text, to: target, theme: theme)
-            }
+            // Plain-blockquote gutter bars are per-line (nesting depth), and so
+            // is the decision to draw them: a line showing its raw `>` sits at
+            // its natural indent with no bar, while every other line of the same
+            // quote keeps its bar.
+            applyQuoteBars(for: block, lines: parse.lines, text: text,
+                           to: target, theme: theme, revealedLines: revealedLines)
         }
         target.endEditing()
     }
@@ -149,11 +164,12 @@ nonisolated enum StyleApplier {
     /// the main loop, which has the line index.
     static func applyQuoteBars(
         for block: Block, lines: LineIndex, text: NSString,
-        to target: NSMutableAttributedString, theme: EditorTheme
+        to target: NSMutableAttributedString, theme: EditorTheme,
+        revealedLines: Set<Int> = []
     ) {
         guard case .blockquote(nil) = block.kind else { return }
         let first = block.firstLine, last = block.firstLine + block.lineCount - 1
-        for lineNo in first...last {
+        for lineNo in first...last where !revealedLines.contains(lineNo) {
             let line = lines.contentRange(lineNo, in: text)
             // Count `>` markers on this line = nesting depth.
             var i = line.location

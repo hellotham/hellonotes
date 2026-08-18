@@ -103,6 +103,18 @@ public final class EditorDocument {
     /// Range-level edit notification, fired after reparse + restyle.
     @ObservationIgnored public var onEdit: ((TextEdit) -> Void)?
 
+    /// Fired after a restyle, with the character range whose styling changed.
+    ///
+    /// Styling is not purely a matter of attributes here: block decorations —
+    /// a blockquote's gutter bar, a callout's band — are painted by the layout
+    /// *fragment*, which only repaints when TextKit re-lays out that range. The
+    /// background styling pass already calls `invalidateLayout` for exactly this
+    /// reason (`ensureVisibleRangeStyled`), but the caret-driven path did not,
+    /// so a block that gained a decoration while the caret sat in it could keep
+    /// the old rendering after the caret left: the `>` concealed in the model,
+    /// no bar on screen.
+    @ObservationIgnored public var onRestyle: ((NSRange) -> Void)?
+
     /// The block structure (read-only; used for outline, caret context…).
     public var blocks: [Block] { parse.blocks }
 
@@ -134,6 +146,10 @@ public final class EditorDocument {
     private(set) var parse: ParseResult
     private let services: EditorServices
     private var revealedBlocks: Set<Int> = []
+    /// Lines whose raw Markdown is showing — the caret's line, and the boundary
+    /// lines of a selection. Inline syntax reveals per *line* (Bear/Obsidian
+    /// behaviour); only folds and rendered-block embeds reveal per block.
+    private var revealedLines: Set<Int> = []
     private var isApplyingStyles = false
     private let storageDelegate = StorageDelegate()
 
@@ -193,6 +209,7 @@ public final class EditorDocument {
         isApplyingStyles = false
         styledBlocks = Array(repeating: false, count: parse.blocks.count)
         revealedBlocks = []
+        revealedLines = []
         // Invalidate the whole-document GFM-run cache BEFORE styling the new
         // text: `revision` isn't bumped until the end of this method, so an
         // unreset cache (stamped equal by a prior caret move) would make
@@ -228,7 +245,7 @@ public final class EditorDocument {
             pending.append(i)
         }
         guard !pending.isEmpty else { return nil }
-        restyle(blockIndices: Set(pending), revealed: revealedBlocks)
+        restyle(blockIndices: Set(pending), revealed: revealedBlocks, revealedLines: revealedLines)
         for i in pending where styledBlocks.indices.contains(i) { styledBlocks[i] = true }
         let lowBlock = parse.blocks[pending.min()!].range
         let highBlock = parse.blocks[pending.max()!].range
@@ -253,7 +270,7 @@ public final class EditorDocument {
                 guard let next = self.styledBlocks[cursor...].firstIndex(of: false) else { break }
                 let batchEnd = min(next + 250, self.styledBlocks.count)
                 let indices = Set((next..<batchEnd).filter { !self.styledBlocks[$0] })
-                self.restyle(blockIndices: indices, revealed: self.revealedBlocks)
+                self.restyle(blockIndices: indices, revealed: self.revealedBlocks, revealedLines: self.revealedLines)
                 for i in indices { self.styledBlocks[i] = true }
                 cursor = batchEnd
                 await Task.yield()
@@ -306,7 +323,7 @@ public final class EditorDocument {
             guard let next = styledBlocks[cursor...].firstIndex(of: false) else { break }
             let batchEnd = min(next + 250, styledBlocks.count)
             let indices = Set((next..<batchEnd).filter { !styledBlocks[$0] })
-            restyle(blockIndices: indices, revealed: revealedBlocks)
+            restyle(blockIndices: indices, revealed: revealedBlocks, revealedLines: revealedLines)
             for i in indices { styledBlocks[i] = true }
             cursor = batchEnd
         }
@@ -358,8 +375,13 @@ public final class EditorDocument {
             // remember the damage and restyle when it ends.
             externalSessionDamage.formUnion(damaged)
         } else {
+            // While typing, reveal the *lines* being edited — not every line of
+            // every damaged block, which would strip the bars off a whole
+            // blockquote the moment you touched any line of it.
+            let editedLines = lineNumbers(coveringCharactersIn: edit.newRange)
             let stillRevealed = damaged.union(revealedBlocks)
-            restyle(blockIndices: damaged, revealed: stillRevealed)
+            restyle(blockIndices: damaged, revealed: stillRevealed,
+                    revealedLines: editedLines.union(revealedLines))
             if !hadPendingStyling {
                 for i in damaged where styledBlocks.indices.contains(i) { styledBlocks[i] = true }
             }
@@ -393,8 +415,19 @@ public final class EditorDocument {
         let hi = min(parse.blocks.count - 1, (externalSessionDamage.max() ?? 0) + 2)
         externalSessionDamage = []
         if lo <= hi {
-            restyle(blockIndices: Set(lo...hi), revealed: revealedBlocks)
+            restyle(blockIndices: Set(lo...hi), revealed: revealedBlocks, revealedLines: revealedLines)
         }
+    }
+
+    /// The line numbers a character range touches (a caret touches one).
+    private func lineNumbers(coveringCharactersIn range: NSRange) -> Set<Int> {
+        guard storage.length > 0 else { return [0] }
+        let start = min(max(0, range.location), max(0, storage.length - 1))
+        let end = min(max(start, range.location + range.length), max(0, storage.length - 1))
+        let first = parse.lines.lineNumber(at: start)
+        let last = parse.lines.lineNumber(at: end)
+        guard first <= last else { return [first] }
+        return Set(first...last)
     }
 
     // MARK: - Caret-driven syntax reveal
@@ -415,10 +448,20 @@ public final class EditorDocument {
                 newRevealed.insert(hi)
             }
         }
-        guard newRevealed != revealedBlocks else { return }
-        let changed = newRevealed.symmetricDifference(revealedBlocks)
+        let newRevealedLines = lineNumbers(coveringCharactersIn: selection)
+        guard newRevealed != revealedBlocks || newRevealedLines != revealedLines else { return }
+        // Blocks whose reveal state flipped, plus — when the caret merely moved
+        // to another line of the same block — that block, since its per-line
+        // concealment changed even though the block set did not.
+        var changed = newRevealed.symmetricDifference(revealedBlocks)
+        if newRevealedLines != revealedLines {
+            changed.formUnion(newRevealed)
+            changed.formUnion(revealedBlocks)
+        }
         revealedBlocks = newRevealed
-        restyle(blockIndices: changed, revealed: newRevealed)
+        revealedLines = newRevealedLines
+        guard !changed.isEmpty else { return }
+        restyle(blockIndices: changed, revealed: newRevealed, revealedLines: newRevealedLines)
     }
 
     // MARK: - Queries
@@ -594,7 +637,21 @@ public final class EditorDocument {
         return gfmRunsCache
     }
 
-    private func restyle(blockIndices: Set<Int>, revealed: Set<Int>) {
+    /// Tell the view which characters were restyled, so the layout fragments
+    /// covering them repaint their decorations.
+    private func notifyRestyled(_ blockIndices: Set<Int>) {
+        guard onRestyle != nil else { return }
+        var lo = Int.max, hi = 0
+        for index in blockIndices where parse.blocks.indices.contains(index) {
+            let range = parse.blocks[index].range
+            lo = min(lo, range.location)
+            hi = max(hi, range.location + range.length)
+        }
+        guard lo < hi else { return }
+        onRestyle?(NSRange(location: lo, length: hi - lo))
+    }
+
+    private func restyle(blockIndices: Set<Int>, revealed: Set<Int>, revealedLines: Set<Int>) {
         guard !blockIndices.isEmpty else { return }
         isApplyingStyles = true
         StyleApplier.apply(
@@ -603,11 +660,12 @@ public final class EditorDocument {
             text: storage.mutableString,
             to: storage,
             theme: theme,
-            revealed: revealed,
+            revealedLines: revealedLines,
             resolveWiki: services.wikiLinkExists,
             gfmRuns: currentGFMRuns()
         )
         isApplyingStyles = false
+        notifyRestyled(blockIndices)
         if services.codeHighlighter != nil {
             for index in blockIndices {
                 refreshHighlight(blockIndex: index, revealed: revealed.contains(index))
@@ -960,7 +1018,7 @@ public final class EditorDocument {
         guard case .blockquote(.some) = block.kind, block.lineCount > 1 else { return nil }
         let key = block.range.location
         if foldedCallouts.contains(key) { foldedCallouts.remove(key) } else { foldedCallouts.insert(key) }
-        restyle(blockIndices: [idx], revealed: revealedBlocks)
+        restyle(blockIndices: [idx], revealed: revealedBlocks, revealedLines: revealedLines)
         return block.range
     }
 

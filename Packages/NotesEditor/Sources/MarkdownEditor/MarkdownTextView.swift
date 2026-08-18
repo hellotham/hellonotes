@@ -403,6 +403,12 @@ public final class MarkdownTextView: NSTextView {
 
     func bind(to document: EditorDocument) {
         self.document = document
+        // Block decorations (a blockquote's gutter bar, a callout's band) are
+        // painted by the layout fragment, so a restyle that adds or removes one
+        // has to re-lay out that range or the old rendering stays on screen.
+        document.onRestyle = { [weak self] range in
+            self?.textLayoutManager?.invalidateLayout(charactersIn: range)
+        }
         // Setting `font` applies it to the **whole text storage attached right
         // now**, so it must be done while no real document is in place. Two
         // separate hazards, and only the first was handled before:
