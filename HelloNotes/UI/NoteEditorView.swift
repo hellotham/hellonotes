@@ -152,7 +152,7 @@ struct NoteEditorView: View {
             renderTransclusion: { target, isDark in
                 // The app's embed provider renders `![[Note]]` to a titled
                 // card (main-actor: it draws with the platform graphics context).
-                await MainActor.run { embed.image(forName: target, isDark: isDark) }
+                await embed.image(forName: target, isDark: isDark)
             },
             renderTable: { [fontSize = appearance.editorFontSize] source, maxWidth, isDark in
                 await MainActor.run { TableImageRenderer.image(source: source, maxWidth: maxWidth, fontSize: fontSize, isDark: isDark) }

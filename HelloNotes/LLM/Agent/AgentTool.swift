@@ -77,8 +77,14 @@ struct ToolContext {
     }
 
     /// Re-index the collection after a mutation and refresh search + git status.
+    ///
+    /// `scanOffMain`, never `scan`: the synchronous version walks the whole
+    /// vault on the main actor with a resource fetch per file, and this runs
+    /// after *every* assistant file mutation. On a cloud vault that is a
+    /// blocking XPC round-trip per directory, on the thread the user is typing
+    /// on.
     func refreshAfterMutation() async {
-        collection.scan()
+        await collection.scanOffMain()
         collection.refreshDerived()
         await search.refresh(from: collection.notes)
         await git.refreshStatus()

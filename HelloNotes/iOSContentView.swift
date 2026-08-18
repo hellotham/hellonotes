@@ -251,10 +251,19 @@ struct iOSContentView: View {
             }
         }
         .onChange(of: library.focusedID) { _, newID in
-            // Switching collections resets the in-collection filter/selection.
+            // Switching collections resets the in-collection filter.
             selectedTag = nil
             searchText = ""
-            selectedNoteID = nil
+            // **Only deselect a note that the new focus doesn't contain.**
+            // This used to clear the selection unconditionally, so any focus
+            // change — including one the app made itself while opening a note
+            // in another collection — closed whatever was on screen. Nothing
+            // outside the editor may close the file being edited.
+            if let selectedNoteID,
+               !library.allNotes.contains(where: { $0.id == selectedNoteID
+                   && library.collection(containing: $0.fileURL)?.id == newID }) {
+                self.selectedNoteID = nil
+            }
             // The rail follows the focus while it is standing in a collection;
             // on the Library place it stays put — you went there on purpose.
             if railPlace != .library, let newID { railPlaceID = newID }
@@ -263,7 +272,13 @@ struct iOSContentView: View {
             if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
         }
         .onChange(of: selectedNoteID) { _, newID in
-            let note = library.allNotes.first { $0.id == newID }
+            // A selection that resolves to nothing must not blank the editor.
+            // The same bare lookup on macOS was the "populated sidebar, clicks
+            // do nothing" bug; here the failure is worse, because opening `nil`
+            // actively closes the open note. Deselecting is the one case where
+            // clearing is what was asked for.
+            guard let newID else { Task { await editor.open(nil) }; return }
+            guard let note = library.allNotes.first(where: { $0.id == newID }) else { return }
             Task { await editor.open(note) }
         }
         .onChange(of: scenePhase) { _, phase in

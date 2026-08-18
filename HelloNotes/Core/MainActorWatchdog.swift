@@ -189,7 +189,7 @@ nonisolated enum MainActorWatchdog {
     // MARK: - Where, not just when
 
     /// A stall over this gets its stack captured as well as its duration.
-    private static let stackThreshold: Duration = .milliseconds(500)
+    private static let stackThreshold: Duration = .milliseconds(300)
 
     /// How many stacks one stall may contribute. Capturing suspends the main
     /// thread for the length of a register read and a pointer walk, so a few is

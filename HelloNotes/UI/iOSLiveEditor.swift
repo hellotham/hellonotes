@@ -145,7 +145,7 @@ struct iOSLiveEditor: View {
                 await MainActor.run { NoteTranscluder.blockLatexImage(source: source, isDark: isDark) }
             },
             renderTransclusion: { target, isDark in
-                await MainActor.run { embed?.image(forName: target, isDark: isDark) }
+                await embed?.image(forName: target, isDark: isDark)
             },
             renderTable: { source, maxWidth, isDark in
                 await MainActor.run { TableImageRenderer.image(source: source, maxWidth: maxWidth, fontSize: fontSize, isDark: isDark) }

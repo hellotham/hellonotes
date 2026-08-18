@@ -411,9 +411,27 @@ final class Collection: Identifiable {
             || UTType(filenameExtension: url.pathExtension)?.conforms(to: markdownType) == true
     }
 
+    /// **The** canonical form of a file URL in this app.
+    ///
+    /// Identity here is not cosmetic: `Note.id` *is* its file URL, the sidebar's
+    /// selection is a URL, and a self-write is recognised by comparing paths. So
+    /// two spellings of the same file mean a selected note that cannot be found
+    /// (a click that does nothing) or an autosave mistaken for someone else's
+    /// edit (a spurious rescan). The audit found four different normalisations
+    /// across `Collection.id`, scanned URLs, `recentSelfWrites` and
+    /// `AgentTool.isWithinRoot` — on a `/var`- or symlink-rooted vault those
+    /// disagree, and the app treats its own writes as external changes.
+    ///
+    /// Applied to `rootURL` at init, so every URL the scan derives from it is
+    /// already canonical and no per-note conversion is needed.
+    nonisolated static func canonical(_ url: URL) -> URL {
+        url.resolvingSymlinksInPath().standardizedFileURL
+    }
+
     init(rootURL: URL) {
+        let rootURL = Self.canonical(rootURL)
         self.rootURL = rootURL
-        self.id = rootURL.standardizedFileURL.path
+        self.id = rootURL.path
         // Default on: a collection that silently withheld half its contents on
         // first open would be lying by omission before the user ever chose.
         let key = Self.showFilesKey(rootURL.standardizedFileURL.path)
@@ -500,6 +518,13 @@ final class Collection: Identifiable {
     /// mutations that need the updated note immediately afterwards).
     ///
     /// A cancelled walk is **discarded**, never applied.
+    /// Synchronous whole-folder scan. **Tests only.**
+    ///
+    /// It walks the entire tree on the main actor, so on anything larger than a
+    /// fixture it blocks the editor for the length of the walk — and on a cloud
+    /// folder each listing is a blocking XPC call to the File Provider. Every
+    /// production path uses `scanOffMain()`. Kept because it makes the test
+    /// suite readable, and dangerous enough to say so here.
     func scan() {
         if let reason = Self.unavailability(of: rootURL) { markUnavailable(reason); return }
         guard let result = Self.enumerate(rootURL) else { return }
@@ -818,11 +843,30 @@ final class Collection: Identifiable {
             // Keep the cache bounded, never evicting what was just opened or
             // what is open in a tab.
             remote.evictIfNeeded(keeping: pinnedCachePaths(including: url))
-            await scanOffMain()          // the note is no longer online-only
-            refreshDerived()             // and can now be indexed
+            // **One note changed, so update one note.** This used to
+            // `await scanOffMain()` here, and `hydrateIfNeeded` is wired as
+            // `tabs.prepareToOpen` — so *selecting* a note in a cloud collection
+            // waited on a walk of the whole folder before the editor could open
+            // it, and a walk that republished the list could deselect the note
+            // it was opening. Downloading the bytes is work the editor genuinely
+            // needs; re-reading the folder is not.
+            adopt(hydrated: url)
+            reindexSoon()
         } catch {
             report("Couldn't download “\(url.lastPathComponent)” from \(remote.store.providerName): \(error.localizedDescription)")
         }
+    }
+
+    /// Mark a just-downloaded note as local, without re-walking the folder.
+    private func adopt(hydrated url: URL) {
+        guard let index = notes.firstIndex(where: { $0.fileURL == url }) else { return }
+        let note = notes[index]
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        notes[index] = Note(title: note.title, fileURL: note.fileURL,
+                            lastModified: values?.contentModificationDate ?? note.lastModified,
+                            fileSize: values?.fileSize ?? note.fileSize,
+                            isOnlineOnly: false)
+        revision &+= 1
     }
 
     /// Cache-relative paths that must survive eviction: whatever was just
@@ -901,7 +945,12 @@ final class Collection: Identifiable {
         securityScoped = rootURL.startAccessingSecurityScopedResource()
         await scanOffMain()
         refreshDerived()
-        await git.refreshStatus()
+        // **Not awaited.** Git operations run on a FIFO queue, so `refreshStatus`
+        // queues behind whatever is already in flight — and a push to a slow
+        // remote can take a minute. Awaiting it here made *opening a collection*
+        // wait on an unrelated network operation. The status is a badge; it can
+        // arrive when it arrives.
+        Task { await git.refreshStatus() }
         startWatching(onExternalChange: onExternalChange)
     }
 
@@ -1088,7 +1137,7 @@ final class Collection: Identifiable {
     /// Normalise a path for comparison — resolves symlinks and the `/private`
     /// prefix so FSEvents paths and our own write paths match.
     private nonisolated static func normalize(_ path: String) -> String {
-        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        canonical(URL(fileURLWithPath: path)).path
     }
 
     /// Record that the editor just saved `url`, and refresh the content-derived

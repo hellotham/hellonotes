@@ -29,6 +29,13 @@ import Foundation
 ///       -destination 'platform=macOS' \
 ///       -only-testing:HelloNotesTests/MainActorBudgetTests
 ///
+/// It is **skipped unless `HN_BUDGET_TESTS` is set**, because it cannot give a
+/// true answer inside a full run and a suite that always fails is a suite
+/// everyone learns to ignore:
+///
+///     HN_BUDGET_TESTS=1 ./scripts/run-tests.sh \
+///       -only-testing:HelloNotesTests/MainActorBudgetTests
+///
 /// It measures main-thread CPU, and the main thread is shared. Swift Testing
 /// runs tests concurrently and every test in this target is `@MainActor`, so a
 /// measurement taken during a normal run also counts whatever *other* tests
@@ -38,7 +45,8 @@ import Foundation
 ///
 /// This is the fourth instrument for this measurement and the third to be caught
 /// by its own control. The controls stay first in the file for that reason.
-@Suite(.serialized)
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["HN_BUDGET_TESTS"] != nil,
+                             "measures main-thread CPU; set HN_BUDGET_TESTS=1 and run this suite alone"))
 @MainActor
 struct MainActorBudgetTests {
 
