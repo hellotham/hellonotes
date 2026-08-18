@@ -5,6 +5,69 @@ one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
+## 1.3.1 — 2026-08-18
+
+A bug-fix release. On a large vault kept in iCloud Drive the editor froze:
+naming a note could lock the window for thirteen seconds, saving could set the
+whole folder re-reading, and a note being edited could disappear from the
+sidebar.
+
+### The editor is never blocked
+
+Work the code carefully sent to a background thread was running on the main one
+anyway — a project setting made every unannotated type main-actor, so
+`Task.detached` detached the work's priority and cancellation but not its
+*thread*. Harmless on a local folder; on an iCloud one every directory listing
+became a blocking call to the sync daemon, on the thread drawing the window.
+Measured on a 2,000-note vault: naming a note 13.4 s → 0.003 s, scanning
+0.24 s → 0.002 s of blocked editor, worst freeze 5.9 s → nothing above 0.5 s.
+
+- **Naming a note is instant.** A rename rewrote `[[links]]` in every note in the
+  vault before returning, and a new note opens with its title focused — so that
+  was the cost of typing a name. It now rewrites only the notes that link to it,
+  and does so after the rename rather than before.
+- **Saving never re-reads the folder.** A save whose note had briefly left the
+  list triggered a full rescan — which is what made notes leave the list.
+- **Opening a note no longer waits for a scan**; creating, appending to and
+  deleting one change a single entry.
+- **Transclusions, link previews and the file viewer** read off the main thread.
+- **Quitting can't hang.** A wedged sync daemon gets five seconds, then the app
+  exits — rather than waiting forever and being force-quit, which discards the
+  saves that wait exists to protect.
+
+### Notes stay put
+
+- **A partial scan can no longer remove notes.** A scan resuming mid-folder
+  reports success having seen only the rest of the tree; publishing that as
+  authoritative replaced the note list with its tail.
+- **A cancelled scan leaves the collection alone** instead of emptying it.
+- **Unsaved edits survive a background refresh** — closing an editor didn't flush
+  it first.
+- **A sidebar click always opens the note**; when it couldn't be resolved the
+  click did nothing at all, silently.
+- iPhone and iPad: switching collections no longer closes the open note, and a
+  selection resolving to nothing leaves the editor alone.
+
+### Blockquotes in the editor
+
+- **Markdown reveals per line, not per block.** A blockquote is one block however
+  many lines it spans, so a cursor inside one showed the raw `>` on every line
+  and dropped every vertical bar. The line you are on now shows its markers
+  while the rest keep their formatting, as in Bear and Obsidian. Applies to
+  headings and emphasis too.
+- **A paragraph turned into a blockquote gets its bar immediately**, rather than
+  whenever that line next happened to be redrawn.
+
+### Under the hood
+
+The "never block the editor" rule is now enforced rather than remembered: work
+that must stay off the main thread goes through a helper that makes touching
+main-thread state a *compile error*, and a test fails the build if the folder
+scanner regains main-actor isolation. The app can also catch a freeze while it
+is happening and record what caused it.
+
+---
+
 ## 1.3 — 2026-08-16
 
 HelloNotes already had most of this. It was just filed under "AI" — in a panel and a
