@@ -56,27 +56,38 @@ struct HelloNotesApp: App {
     }
     #endif
 
+    /// Every app-wide observable, injected in one place.
+    ///
+    /// The macOS and iOS scenes used to carry their own lists, and the iOS one
+    /// was missing `llmSettings` — so **every iOS launch died** in SwiftUI's
+    /// environment lookup (`No Observable object of type LLMSettings found`)
+    /// the moment `iOSContentView` read it. Nothing caught it: both platforms
+    /// compile, the macOS app is unaffected, and the crash only appears when
+    /// the app is actually run on a device.
+    ///
+    /// Two parallel lists that must agree is the defect; one list is the fix.
+    /// Windows that need only a subset get the extras harmlessly, and in
+    /// exchange can never crash by reading something the scene forgot.
+    private func rooted(_ content: some View) -> some View {
+        content
+            .environment(library)
+            .environment(router)
+            .environment(llmSettings)
+            .environment(appearance)
+            .environment(documents)
+            .themedRoot(appearance)
+    }
+
     var body: some Scene {
         WindowGroup(id: "main") {
             #if os(macOS)
-            MacContentView()
-                .environment(library)
-                .environment(router)
-                .environment(llmSettings)
-                .environment(appearance)
-                .environment(documents)
-                .themedRoot(appearance)
+            rooted(MacContentView())
                 .onOpenURL { router.handle($0) }
             #else
             // iOS, iPadOS, and visionOS (all configured platforms) share the
             // UIKit-backed content view — without this, a visionOS build would
             // render an empty WindowGroup body.
-            iOSContentView()
-                .environment(library)
-                .environment(router)
-                .environment(appearance)
-                .environment(documents)
-                .themedRoot(appearance)
+            rooted(iOSContentView())
                 .onOpenURL { router.handle($0) }
             #endif
         }
@@ -90,43 +101,24 @@ struct HelloNotesApp: App {
         // NoteRef (not URL) keeps macOS from treating this as a document scene.
         WindowGroup(for: NoteRef.self) { $ref in
             if let ref {
-                NoteWindowView(fileURL: ref.url)
-                    .environment(library)
-                    .environment(llmSettings)
-                    .environment(appearance)
-                    .environment(documents)
-                    .themedRoot(appearance)
+                rooted(NoteWindowView(fileURL: ref.url))
             }
         }
 
         // Exploration / reference surfaces live in windows, not sheets, so
         // they can stay open beside the notes they describe.
         Window("Graph", id: "graph") {
-            GraphWindowView()
-                .environment(library)
-                .environment(appearance)
-                .environment(documents)
-                .themedRoot(appearance)
+            rooted(GraphWindowView())
         }
         .defaultSize(width: 760, height: 560)
 
         Window("Ask Library", id: "askLibrary") {
-            LibraryChatWindowView()
-                .environment(library)
-                .environment(llmSettings)
-                .environment(appearance)
-                .environment(documents)
-                .themedRoot(appearance)
+            rooted(LibraryChatWindowView())
         }
         .defaultSize(width: 560, height: 640)
 
         Window("Assistant", id: "assistant") {
-            AssistantWindowView()
-                .environment(library)
-                .environment(llmSettings)
-                .environment(appearance)
-                .environment(documents)
-                .themedRoot(appearance)
+            rooted(AssistantWindowView())
         }
         .defaultSize(width: 560, height: 680)
 
@@ -168,11 +160,7 @@ struct HelloNotesApp: App {
 
         WindowGroup(for: MindMapRef.self) { $ref in
             if let ref {
-                MindMapWindowView(rootURL: ref.url)
-                    .environment(library)
-                    .environment(appearance)
-                    .environment(documents)
-                    .themedRoot(appearance)
+                rooted(MindMapWindowView(rootURL: ref.url))
             }
         }
         .defaultSize(width: 720, height: 540)
