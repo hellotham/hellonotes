@@ -17,7 +17,7 @@ import Foundation
 import AppKit
 #endif
 
-enum CloudProvider {
+nonisolated enum CloudProvider {
 
     /// A human-readable provider name for a file/collection URL, or `nil` for an
     /// ordinary local folder.

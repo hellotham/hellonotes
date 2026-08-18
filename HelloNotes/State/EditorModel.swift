@@ -214,9 +214,7 @@ final class EditorModel {
             // Atomic write (temp file + rename) so a crash mid-write can never
             // leave a truncated note on disk. Offloaded so large notes don't
             // stall the main actor.
-            try await Task.detached(priority: .utility) {
-                try FileIO.write(data, to: url)
-            }.value
+            try await offMain { try FileIO.write(data, to: url) }
             lastSavedText = snapshot
             isDirty = (text != lastSavedText)
             saveError = nil

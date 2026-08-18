@@ -23,7 +23,7 @@
 
 import Foundation
 
-enum TestEnvironment {
+nonisolated enum TestEnvironment {
     /// True when this process was launched to host a test bundle.
     ///
     /// `XCTestConfigurationFilePath` is set by the test runner in the host's

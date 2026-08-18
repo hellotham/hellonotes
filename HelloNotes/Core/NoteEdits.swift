@@ -16,7 +16,7 @@
 
 import Foundation
 
-enum NoteEdits {
+nonisolated enum NoteEdits {
     /// The note with `tag` appended as a plain `#tag`.
     ///
     /// Plain body text rather than front matter, because a note's own tags are

@@ -31,7 +31,23 @@ import UniformTypeIdentifiers
 ///
 /// `isMarkdown` is decided by the source rather than the caller: the source is
 /// already holding the resource values, and asking twice is a second `stat`.
-struct TreeChild: Sendable, Equatable {
+// **Everything in this file is `nonisolated`, and that is load-bearing.**
+//
+// The app target builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so an
+// unannotated type is `@MainActor`. That made `LocalTreeSource` main-actor
+// isolated, so `await source.children(of:)` hopped the walk *onto* the main
+// actor from inside the very `Task.detached` that existed to keep it off —
+// "detached" governs priority, task-locals and cancellation, not isolation.
+//
+// The cost was invisible on a local folder and severe on a cloud one: on the
+// reported 2,000-note iCloud vault every directory listing became a synchronous
+// XPC round-trip to `fileproviderd` (`FPDaemonConnection valuesForAttributes:`)
+// on the main thread, and the watchdog caught the editor blocked for five
+// seconds at a time with exactly that stack. Two earlier fixes reasoned about
+// which code was "off the main actor", were locally right, and changed nothing,
+// because the isolation was decided by a build setting rather than by the code.
+
+nonisolated struct TreeChild: Sendable, Equatable {
     var url: URL
     var isDirectory: Bool
     /// A bundle presented as a single item (`.rtfd`, `.app`). Never descended
@@ -51,7 +67,7 @@ struct TreeChild: Sendable, Equatable {
 /// The one operation that differs between a local folder and a provider's API.
 /// Everything else — frontier, checkpointing, progress, cancellation, resumption,
 /// error isolation — is written once, above this.
-protocol TreeSource: Sendable {
+nonisolated protocol TreeSource: Sendable {
     /// Why the tree can't be read at all right now, or `nil` when it can.
     /// Checked by the walk itself so an unreadable root is never mistaken for an
     /// empty one.
@@ -63,7 +79,7 @@ protocol TreeSource: Sendable {
 }
 
 /// One directory's contents.
-struct DirectoryListing: Sendable {
+nonisolated struct DirectoryListing: Sendable {
     var children: [TreeChild] = []
     /// Files the source declined to return because non-note files are excluded.
     /// **Counted rather than simply dropped**: a folder of PDFs that shows as
@@ -76,7 +92,7 @@ struct DirectoryListing: Sendable {
 
 /// Where a walk had got to. Small enough to write often, complete enough to
 /// resume from exactly.
-struct WalkCheckpoint: Codable, Sendable, Equatable {
+nonisolated struct WalkCheckpoint: Codable, Sendable, Equatable {
     /// Directories listed but not yet visited, root-relative.
     var frontier: [String]
     var directoriesVisited: Int
@@ -90,7 +106,7 @@ struct WalkCheckpoint: Codable, Sendable, Equatable {
 }
 
 /// Live counts, emitted per directory.
-struct WalkProgress: Sendable, Equatable {
+nonisolated struct WalkProgress: Sendable, Equatable {
     var directoriesVisited = 0
     var directoriesRemaining = 0
     var itemsSeen = 0
@@ -102,13 +118,13 @@ struct WalkProgress: Sendable, Equatable {
 }
 
 /// One directory's worth of results.
-struct WalkBatch: Sendable {
+nonisolated struct WalkBatch: Sendable {
     var directory: String
     var children: [TreeChild]
     var progress: WalkProgress
 }
 
-struct WalkIssue: Sendable, Equatable {
+nonisolated struct WalkIssue: Sendable, Equatable {
     var path: String
     var message: String
 }
@@ -119,7 +135,7 @@ struct WalkIssue: Sendable, Equatable {
 /// delete anything.** A walk that was cancelled, suspended, or that skipped a
 /// directory it could not read has not seen the whole tree, so an item missing
 /// from it may simply live somewhere the walk never reached.
-struct WalkResult: Sendable {
+nonisolated struct WalkResult: Sendable {
     var isComplete = false
     var issues: [WalkIssue] = []
     var progress = WalkProgress()
@@ -131,7 +147,7 @@ struct WalkResult: Sendable {
 
 // MARK: - The walk
 
-enum ResumableTreeWalk {
+nonisolated enum ResumableTreeWalk {
 
     /// Walk `source`, emitting each directory as it is listed.
     ///
@@ -243,18 +259,35 @@ enum ResumableTreeWalk {
 // MARK: - Local source
 
 /// A folder on disk, listed one level at a time.
-struct LocalTreeSource: TreeSource {
+nonisolated struct LocalTreeSource: TreeSource {
     let root: URL
     /// When false, non-Markdown files are dropped during the listing rather than
     /// collected and filtered later — the difference between reading and
     /// discarding a hundred thousand names, and ignoring them.
     var includesNonNoteFiles: Bool = true
 
+    /// What the walk asks about every child.
+    ///
+    /// **`.contentTypeKey` is deliberately absent, and that is a fix, not an
+    /// oversight.** Asking for it materialises a LaunchServices record per file,
+    /// and LaunchServices tears those records down on the *main thread*
+    /// (`Record::detachRecordsOnMainThread`). So a walk that is correctly off
+    /// the main actor still posted thousands of main-thread releases as a side
+    /// effect — measured at **3.5 seconds** of blocked main thread on a
+    /// 2,000-note vault, caught by the watchdog with that symbol at the top of
+    /// the stack. `Collection.isMarkdown` falls back to the filename extension,
+    /// which resolves one `UTType` per distinct extension instead of one record
+    /// per file.
     static let resourceKeys: [URLResourceKey] = [
-        .contentModificationDateKey, .contentTypeKey, .isRegularFileKey,
-        .isDirectoryKey, .isPackageKey, .fileSizeKey,
+        .contentModificationDateKey, .isRegularFileKey,
+        .isDirectoryKey, .fileSizeKey,
         .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
     ]
+
+    /// Asked only of directories, because `.isPackageKey` goes through
+    /// LaunchServices too and a vault has orders of magnitude fewer folders
+    /// than files.
+    static let directoryKeys: Set<URLResourceKey> = [.isPackageKey]
 
     func unavailability() -> CollectionState.UnavailableReason? {
         Collection.unavailability(of: root)
@@ -272,12 +305,13 @@ struct LocalTreeSource: TreeSource {
         for child in contents {
             guard let values = try? child.resourceValues(forKeys: Set(Self.resourceKeys)) else { continue }
             if values.isDirectory == true {
+                let isPackage = (try? child.resourceValues(forKeys: Self.directoryKeys))?.isPackage == true
                 listing.children.append(TreeChild(url: child, isDirectory: true,
-                                                  isPackage: values.isPackage == true))
+                                                  isPackage: isPackage))
                 continue
             }
             guard values.isRegularFile == true else { continue }
-            let isMarkdown = Collection.isMarkdown(child, contentType: values.contentType)
+            let isMarkdown = Collection.isMarkdown(child, contentType: nil)
             guard isMarkdown || includesNonNoteFiles else {
                 listing.omittedFiles += 1
                 continue
@@ -301,7 +335,7 @@ struct LocalTreeSource: TreeSource {
 ///
 /// Application Support rather than Caches: the system may purge Caches at any
 /// time, and losing a checkpoint means a 100k-item walk starts from zero.
-enum WalkCheckpointStore {
+nonisolated enum WalkCheckpointStore {
 
     static func save(_ checkpoint: WalkCheckpoint, for collectionID: String) {
         guard let url = fileURL(for: collectionID),

@@ -31,7 +31,7 @@
 
 import Foundation
 
-enum RealHome {
+nonisolated enum RealHome {
 
     /// The user's home directory, whether or not we are sandboxed.
     ///

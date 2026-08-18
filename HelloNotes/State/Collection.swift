@@ -510,6 +510,7 @@ final class Collection: Identifiable {
     /// that "we looked and the folder was unreadable" can never be mistaken for
     /// "we looked and the folder was empty".
     private func apply(_ result: (notes: [Note], attachments: [CollectionFile], folders: [URL])) {
+        MainActorWatchdog.note("apply(\(result.notes.count) notes) — observers now invalidated")
         notes = result.notes
         attachments = result.attachments
         folders = result.folders
@@ -716,7 +717,12 @@ final class Collection: Identifiable {
     typealias ScanPicture = (notes: [Note], attachments: [CollectionFile], folders: [URL])
 
     /// Accumulates a walk's batches into the collection's three lists.
-    private struct ScanAccumulator: Sendable {
+    /// `nonisolated` because it is nested inside a `@MainActor` class, which
+    /// would otherwise make it main-actor too — and the walk's task calls
+    /// `add` per directory and `sorted` at the end, so a main-actor accumulator
+    /// drags the whole walk back onto the main thread. See the header of
+    /// `ResumableTreeWalk.swift`.
+    nonisolated private struct ScanAccumulator: Sendable {
         private var notes: [Note] = []
         private var files: [CollectionFile] = []
         private var folders: [URL] = []
@@ -950,9 +956,13 @@ final class Collection: Identifiable {
             }.value
             guard !Task.isCancelled else { return }
 
-            linkGraph.load(pairs: pairs)
+            MainActorWatchdog.measure("linkGraph.load(\(pairs.count) records)") {
+                linkGraph.load(pairs: pairs)
+            }
             await search.load(pairs: pairs)
-            derivedRevision &+= 1
+            MainActorWatchdog.measure("derivedRevision bump → observers") {
+                derivedRevision &+= 1
+            }
         }
     }
 
@@ -1113,30 +1123,68 @@ final class Collection: Identifiable {
             }
         }
 
-        if let note = notes.first(where: { $0.fileURL == url }),
-           MarkdownParsing.aliases(in: text) == search.aliases(of: url) {
+        // A save may never re-read the vault.
+        //
+        // This branch used to end in `scanOffMain()` whenever the saved note was
+        // absent from the picture or its aliases had changed, and the watchdog
+        // caught it happening for real: *"noteDidSave → FULL RESCAN: saved url
+        // not found in notes"*. That made the failure self-amplifying — a note
+        // briefly leaves the list, its next autosave re-walks 2,000 files, and
+        // the walk is what makes notes leave the list. Neither condition
+        // actually needs the disk re-read:
+        //
+        //  * absent from the picture — the file is *right there*; it was just
+        //    written. Adopt it, which is O(1).
+        //  * aliases changed — that alters how *other* notes' links resolve, so
+        //    the derived indexes do need rebuilding. But they rebuild from
+        //    index records, not from a folder walk.
+        let parsedAliases = MarkdownParsing.aliases(in: text)
+        let aliasesChanged = parsedAliases != search.aliases(of: url)
+
+        guard let note = notes.first(where: { $0.fileURL == url }) ?? adopt(createdAt: url) else { return }
+
+        MainActorWatchdog.measure("noteDidSave.incremental") {
             // Cancel any in-flight debounced rebuild: it reads cache-first from a
             // pre-save mtime, so if it lands after this in-place patch it would
             // revert the just-saved note's links/tags in the index.
             deriveTask?.cancel()
-            linkGraph.updateNote(url: url, title: title, text: text)
-            search.updateNote(note, text: text)
-            updateRelatedness(url: url, title: title, text: text)
-            embedProvider.update(notes: notes)   // bump so transclusions re-render
-            derivedRevision &+= 1
-        } else {
-            deriveTask?.cancel()
-            deriveTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(800))
-                guard !Task.isCancelled, let self else { return }
-                // Re-stat first: the cache diff compares against each note's
-                // scanned mtime/size, and this save just changed them on disk —
-                // without a fresh scan the edited note would look unchanged and
-                // its stale cached metadata would reload.
-                await self.scanOffMain()
-                self.refreshDerived()
+            MainActorWatchdog.measure("linkGraph.updateNote") {
+                linkGraph.updateNote(url: url, title: title, text: text)
             }
+            MainActorWatchdog.measure("search.updateNote") {
+                search.updateNote(note, text: text)
+            }
+            updateRelatedness(url: url, title: title, text: text)
+            MainActorWatchdog.measure("embedProvider.update(\(notes.count) notes)") {
+                embedProvider.update(notes: notes)   // bump so transclusions re-render
+            }
+            derivedRevision &+= 1
         }
+
+        guard aliasesChanged else { return }
+        MainActorWatchdog.note("noteDidSave: aliases changed — rebuilding derived indexes from records")
+        // Make this note's stat current so the cache diff re-parses *it* and
+        // reloads everything else from cache. Without this the record still
+        // matches the pre-save mtime and the rebuild would restore the aliases
+        // that were just removed. Only done here, not on every save: `notes` is
+        // sorted by modification date, and re-stating on each keystroke would
+        // make rows jump about under the cursor.
+        restat(note, savedByteCount: text.utf8.count)
+        deriveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled, let self else { return }
+            self.refreshDerived()
+        }
+    }
+
+    /// Update one note's size and modification date in place, without a walk.
+    private func restat(_ note: Note, savedByteCount: Int) {
+        guard let index = notes.firstIndex(where: { $0.fileURL == note.fileURL }) else { return }
+        notes[index] = Note(title: note.title, fileURL: note.fileURL,
+                            lastModified: Date(), fileSize: savedByteCount,
+                            isOnlineOnly: note.isOnlineOnly)
+        notes.sort { $0.lastModified > $1.lastModified }
+        revision &+= 1
     }
     #else
     /// iOS's stand-in for the macOS file watcher.
@@ -1347,8 +1395,34 @@ final class Collection: Identifiable {
         }
 
         bookmarks.updatePath(from: note.fileURL, to: destination)   // keep the pin
-        await rewriteWikiLinks(from: note.title, to: title, renamed: note.fileURL, movedTo: destination)
-        return adopt(renamed: note, to: destination, title: title)
+
+        // Which notes actually mention this one — asked *before* adopting, while
+        // the graph still keys the note by its old URL.
+        let candidates = wikiLinkRewriteCandidates(for: note.fileURL, movedTo: destination)
+        let moved = adopt(renamed: note, to: destination, title: title)
+
+        // The rename is complete the moment the file has moved and the picture
+        // has adopted it. Rewriting other notes' `[[links]]` is bookkeeping that
+        // follows, and the user must not be made to wait for it: on a 2,000-note
+        // vault this call took **13.3 seconds** measured end-to-end, and naming
+        // a new note *is* a rename, so that was the cost of typing a title.
+        Task { [weak self] in
+            await self?.rewriteWikiLinks(from: note.title, to: title, in: candidates)
+        }
+        return moved
+    }
+
+    /// The notes whose `[[links]]` a rename of `oldURL` could invalidate.
+    ///
+    /// The link graph already knows this exactly — it is the backlink set — so
+    /// the rewrite reads a handful of files instead of the whole vault. If the
+    /// graph has not been built yet there is nothing to ask, and correctness
+    /// beats speed: fall back to every note.
+    private func wikiLinkRewriteCandidates(for oldURL: URL, movedTo newURL: URL) -> [URL] {
+        guard !linkGraph.outgoingByURL.isEmpty else {
+            return notes.map { $0.fileURL == oldURL ? newURL : $0.fileURL }
+        }
+        return (linkGraph.backlinksByURL[oldURL] ?? []).map { $0 == oldURL ? newURL : $0 }
     }
 
     /// Move a renamed note within the in-memory picture, without re-walking.
@@ -1425,13 +1499,12 @@ final class Collection: Identifiable {
     /// renamed note itself, whose file has already moved to `movedTo`.
     /// Case-insensitive and whitespace-tolerant; aliases and headings survive.
     private func rewriteWikiLinks(from oldTitle: String, to newTitle: String,
-                                  renamed oldURL: URL, movedTo newURL: URL) async {
-        // `notes` is pre-rescan, so the renamed note still lists its old URL.
-        let urls = notes.map { $0.fileURL == oldURL ? newURL : $0.fileURL }
-        // Read + rewrite every note off the main actor — it's O(N) file I/O.
+                                  in urls: [URL]) async {
+        guard !urls.isEmpty else { return }
+        // Read + rewrite the candidates off the main actor — it's file I/O.
         // Collect the notes we couldn't rewrite so the shell can tell the user
         // exactly which links may now be stale, rather than failing silently.
-        let outcome: (written: [URL], failed: [String]) = await Task.detached(priority: .userInitiated) {
+        let outcome: (written: [URL], failed: [String]) = await offMain {
             let escaped = NSRegularExpression.escapedPattern(for: oldTitle)
             guard let regex = try? NSRegularExpression(
                 pattern: #"(\[\[)\s*"# + escaped + #"\s*(?=[#|\]])"#,
@@ -1455,7 +1528,7 @@ final class Collection: Identifiable {
                 }
             }
             return (written, failed)
-        }.value
+        }
 
         // Register these writes as our own so the file watcher doesn't re-scan
         // them as external changes (a spurious reconcile + double re-index).

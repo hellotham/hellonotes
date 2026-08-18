@@ -11,7 +11,7 @@ import Foundation
 /// from the target's `MARKETING_VERSION`; the git commit and build date are
 /// stamped into the built product's Info.plist by the "Stamp Build Info"
 /// build phase (so a source checkout always describes exactly what it built).
-enum BuildInfo {
+nonisolated enum BuildInfo {
     private static func info(_ key: String) -> String? {
         Bundle.main.object(forInfoDictionaryKey: key) as? String
     }

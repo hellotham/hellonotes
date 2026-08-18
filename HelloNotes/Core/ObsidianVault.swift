@@ -14,7 +14,7 @@
 
 import Foundation
 
-enum ObsidianVault {
+nonisolated enum ObsidianVault {
     /// The `.obsidian` config folder marks a directory as an Obsidian vault.
     static func isVault(_ url: URL) -> Bool {
         var isDir: ObjCBool = false

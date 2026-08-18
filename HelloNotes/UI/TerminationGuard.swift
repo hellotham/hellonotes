@@ -48,11 +48,33 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
         flushHooks.removeValue(forKey: ObjectIdentifier(owner))
     }
 
+    /// How long the quit handshake will wait for pending writes.
+    ///
+    /// A flush ends in a *coordinated* write, and a coordinated write against a
+    /// File Provider that is wedged can block for as long as the provider takes
+    /// — which is unbounded. Without a deadline, `.terminateLater` then makes
+    /// the app unquittable, and the user's only way out is a force-quit that
+    /// discards the very edits this class exists to protect: the safety
+    /// mechanism becomes the data-loss mechanism. Five seconds is far longer
+    /// than a local write needs and far shorter than a person will wait before
+    /// reaching for Force Quit.
+    private static let flushDeadline: Duration = .seconds(5)
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !flushHooks.isEmpty else { return .terminateNow }
         let hooks = Array(flushHooks.values)
         Task { @MainActor in
-            for hook in hooks { await hook() }
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    for hook in hooks { await hook() }
+                }
+                group.addTask {
+                    try? await Task.sleep(for: Self.flushDeadline)
+                }
+                // Whichever finishes first decides; the loser is cancelled.
+                await group.next()
+                group.cancelAll()
+            }
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

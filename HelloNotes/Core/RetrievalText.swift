@@ -23,7 +23,7 @@
 
 import Foundation
 
-enum RetrievalText {
+nonisolated enum RetrievalText {
 
     /// How much of a note the index reads. From the benchmark: the cap is worth
     /// ~3 points of recall@5 *and* an order of magnitude of build time, because

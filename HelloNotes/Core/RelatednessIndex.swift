@@ -33,7 +33,7 @@
 import Foundation
 
 /// One ranked neighbour.
-struct RelatedNote: Equatable, Sendable {
+nonisolated struct RelatedNote: Equatable, Sendable {
     let url: URL
     let title: String
     /// Cosine similarity in [0, 1]. Comparable *within* one query's results;

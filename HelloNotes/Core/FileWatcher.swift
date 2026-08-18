@@ -16,7 +16,7 @@ import CoreServices
 /// out from under it, that its volume went away, or that the kernel dropped
 /// events and the index is now a guess. Discarding `eventFlags` meant every one
 /// of those arrived as silence.
-enum FileWatcherEvent: Equatable, Sendable {
+nonisolated enum FileWatcherEvent: Equatable, Sendable {
     /// Ordinary changes to items inside the watched tree.
     case itemsChanged([String])
     /// The watched root itself was renamed, moved, or deleted. Requires

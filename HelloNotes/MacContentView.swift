@@ -343,11 +343,16 @@ struct MacContentView: View {
     /// read and verified with the word-boundary scanner. On a volume without
     /// a Spotlight index the panel degrades to backlinks + outgoing links.
     private func computeReferences() async {
+        MainActorWatchdog.note("computeReferences started")
         guard let note = selectedNote, let c = editorCollection else {
             references = ReferencesData(); return
         }
-        let back = c.linkGraph.backlinks(for: note, in: c.notes)
-        let out = c.linkGraph.outgoingLinks(for: note, in: c.notes)
+        let back = MainActorWatchdog.measure("linkGraph.backlinks(\(c.notes.count) notes)") {
+            c.linkGraph.backlinks(for: note, in: c.notes)
+        }
+        let out = MainActorWatchdog.measure("linkGraph.outgoingLinks(\(c.notes.count) notes)") {
+            c.linkGraph.outgoingLinks(for: note, in: c.notes)
+        }
         let names = currentNoteNames
         let excluded = Set(back.map(\.fileURL)).union([note.fileURL])
 
@@ -480,6 +485,15 @@ struct MacContentView: View {
                library.collections.contains(where: { $0.id == restoredCollectionID }) {
                 library.focusedID = restoredCollectionID
             }
+            // Unattended diagnostics: drive the reported-slow paths against the
+            // real vault, with the real views observing, and log what happens.
+            // Inert unless HN_SELFTEST is set on a Debug build.
+            if DiagnosticSelfTest.isEnabled, let collection = library.focused ?? library.collections.first {
+                let hooks = DiagnosticSelfTest.Hooks(
+                    select: { selectedNoteID = $0 },
+                    editor: { await tabs.editor(for: $0) })
+                Task { await DiagnosticSelfTest.run(on: collection, hooks: hooks) }
+            }
             if !restoredNotePath.isEmpty {
                 let url = URL(fileURLWithPath: restoredNotePath)
                 if library.allNotes.contains(where: { $0.id == url }) { selectedNoteID = url }
@@ -553,7 +567,9 @@ struct MacContentView: View {
         }
         // Rebuild the (cached) note-list outline only when its structural inputs
         // change — not on every unrelated body re-eval (selection, git, accent).
-        .onChange(of: outlineInputsKey, initial: true) { _, _ in rebuildOutline() }
+        .onChange(of: outlineInputsKey, initial: true) { _, _ in
+            MainActorWatchdog.measure("rebuildOutline") { rebuildOutline() }
+        }
         // Recompute the references panel off-main when the selection or index
         // changes — never inline in the body (would scan all notes on selection).
         .task(id: referencesKey) { await computeReferences() }
