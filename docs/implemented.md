@@ -1621,3 +1621,115 @@ constant. Identical.
 confirmed against this file's 1.2 record first, so what was preserved is provably
 the published artefact and not a stale local build. `package-dmg.sh` writes to a
 fixed path and would have overwritten it.
+
+## 23 · The editor is never blocked — and a build setting that said otherwise (2026-08-18)
+
+Reported on a real 2,012-note Obsidian vault in iCloud Drive: the editor locked
+during scans, creating a note reindexed the folder, *naming* one reindexed it
+again mid-keystroke, and a note being edited vanished from the sidebar. Two
+previous fixes had reasoned carefully about which code ran on which thread, been
+locally correct, and changed nothing.
+
+### The cause was not in the code's logic
+
+The app target sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so **every
+unannotated declaration and closure in the module is `@MainActor`**.
+`LocalTreeSource` was unannotated. So `await source.children(of:)` hopped the
+folder walk *onto* the main actor from inside the very `Task.detached` written
+to keep it off — `detached` governs priority, task-locals and cancellation,
+never isolation.
+
+On a local folder that is merely wasteful. On a File Provider vault each
+directory listing becomes a **synchronous XPC round-trip to `fileproviderd`**
+(`FPDaemonConnection valuesForAttributes:`) on the main thread, which is why the
+bug reproduced only on the user's real vault and never on a synthetic one.
+
+Measured on that vault, before → after:
+
+| | before | after |
+|---|---|---|
+| `renameNote` | **13.35 s** | 0.003 s |
+| walk-only (2,000 notes) | 0.179 s | 0.0004 s |
+| `scan` (2,000 notes) | 0.243 s | 0.0019 s |
+| worst main-actor stall | 5.9 s | 0.48 s (SwiftUI first render) |
+
+### What changed
+
+- `ResumableTreeWalk.swift` is `nonisolated` throughout, as is `Collection`'s
+  nested `ScanAccumulator` — nested in a `@MainActor` class, it inherited that
+  isolation and dragged the walk back on its own.
+- `offMain(_:)` (`Core/OffMain.swift`) replaces `Task.detached` for work that
+  must not block the editor. Its `body` is a *nonisolated* `@Sendable` function
+  type, so a closure that touches main-actor state is a **compile error**
+  instead of a silent hop. The rule no longer depends on remembering it.
+- The walk stopped asking for `.contentTypeKey`: it materialises a
+  LaunchServices record per file, and LaunchServices tears those down on the
+  main thread, so an off-main walk was posting 3.5 s of main-thread releases.
+  `.isPackageKey` is asked only of directories.
+- `renameNote` no longer awaits `rewriteWikiLinks`, and the rewrite reads the
+  **backlink set** rather than every note. Naming a new note is a rename, so
+  this was the cost of typing a title.
+- `noteDidSave` can no longer reach a rescan. A save whose note is missing from
+  the picture adopts it (O(1)); an alias change rebuilds derived indexes from
+  records. The old path was caught live: *"noteDidSave → FULL RESCAN"*.
+- `CollectionEmbedProvider.image` is `async`, with the `stat` and coordinated
+  read off-main — it ran per `![[transclusion]]` during editor layout.
+- `hydrateIfNeeded` no longer awaits a walk (it is `tabs.prepareToOpen`, so
+  *selecting* a note waited on one); `AgentTool.refreshAfterMutation` uses
+  `scanOffMain`; `activate` no longer awaits `git.refreshStatus()`, which
+  queued behind any in-flight push.
+- One canonical URL form, applied to `rootURL` at init. `Note.id` *is* its file
+  URL, so two spellings meant a click that did nothing or an autosave mistaken
+  for an external edit.
+- `scanOffMain` has a re-entrancy guard: a second caller joins the walk in
+  flight rather than racing it over the shared checkpoint, and cancellation is
+  forwarded explicitly (an unstructured `Task` does not inherit it).
+- iOS editor autonomy: a `focusedID` change deselects only a note the new
+  collection does not contain, and a selection that resolves to nothing leaves
+  the editor alone instead of opening `nil`.
+- `TerminationGuard` bounds its quit flush at 5 s, so a wedged File Provider
+  cannot make the app unquittable — forcing a quit that discards the very edits
+  the guard exists to protect.
+
+### The instruments, which failed six times
+
+This is the lasting lesson. Every wrong answer this cycle came from an
+instrument that was perturbed by what it measured:
+
+1. `sample` taken *after* the freeze — read an idle stack as "nothing wrong".
+2. A latency probe on the cooperative pool — measured its own starvation.
+3. The same probe on a real `Thread` — the test harness parks the main runloop,
+   so an idle main actor read as 2.9 s.
+4. Main-thread CPU — contaminated by other `@MainActor` tests running
+   concurrently; an idle control read 3.38 s.
+5. `MainActorWatchdog.note(…)` placed *inside* the walk — a `@MainActor` call
+   makes its enclosing closure `@MainActor`, so the probe **created** the defect
+   it reported, and nearly justified refactoring the whole app.
+6. The watchdog's own logging took a lock and did file I/O inline; it caught the
+   main thread stalled six seconds inside `MainActorWatchdog.log`.
+
+What finally worked was an instrument entirely outside the measured code:
+`MainActorWatchdog` suspends the main thread, walks its frame pointers into a
+**pre-allocated** buffer (allocating while the main thread holds the malloc lock
+would deadlock the process), resumes, and only then symbolicates — sampling
+**while still blocked** rather than after the wait returns. It printed the
+`fileproviderd` stack, and the argument was over.
+
+`DiagnosticSelfTest` (`HN_SELFTEST=1`, Debug only) drives the real app against
+the real vault unattended — select, type 40 keystrokes, create, rename, delete —
+so this no longer requires a person at the keyboard. It quits via
+`RunLoop.perform`: `terminate:` spins a nested loop that does not drain the main
+queue, so quitting from a main-queue block deadlocks forever (it wedged the app
+for four hours before that was understood).
+
+### Guarantees, checked
+
+- `OffMainActorInvariantTests` — one test is `@concurrent` and `nonisolated`, so
+  if any walk type regains main-actor isolation **the build fails**. Runtime
+  probes live in the test's own closures, where they cannot perturb.
+- `ScanCoverageTests` — a resumed pass may add but never remove; a whole-tree
+  pass still removes deletions. Verified to *fail* when the guard is removed
+  (6 notes → 2, the tail of the vault: the vanished-note bug exactly).
+- `MainActorBudgetTests` is skipped unless `TEST_RUNNER_HN_BUDGET_TESTS=1` and
+  run alone. It failed on every full run, and a suite that always fails is a
+  suite everyone learns to ignore.

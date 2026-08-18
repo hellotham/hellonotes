@@ -491,7 +491,8 @@ struct MacContentView: View {
             if DiagnosticSelfTest.isEnabled, let collection = library.focused ?? library.collections.first {
                 let hooks = DiagnosticSelfTest.Hooks(
                     select: { selectedNoteID = $0 },
-                    editor: { await tabs.editor(for: $0) })
+                    editor: { await tabs.editor(for: $0) },
+                    close: { _ = await tabs.close($0) })
                 Task { await DiagnosticSelfTest.run(on: collection, hooks: hooks) }
             }
             if !restoredNotePath.isEmpty {

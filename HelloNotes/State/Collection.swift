@@ -557,6 +557,42 @@ final class Collection: Identifiable {
     /// appear as they are found, an interrupted scan resumes from where it
     /// stopped, and one unreadable folder costs its subtree rather than the scan.
     func scanOffMain() async {
+        // **One walk at a time.** Concurrent scans of the same collection share
+        // a single checkpoint file, so two overlapping passes race over which
+        // one's frontier is authoritative — and the loser's partial frontier can
+        // be the one that survives, which is how a resumed pass ends up
+        // publishing the tail of a vault. A second caller therefore joins the
+        // walk already running instead of starting a rival, and asks for one
+        // more pass afterwards so nothing that changed mid-walk is missed.
+        if let inFlight = scanInFlight {
+            rescanWhenIdle = true
+            await inFlight.value
+            return
+        }
+        let scan = Task { @MainActor [weak self] in await self?.performScan() ?? () }
+        scanInFlight = scan
+        // **Forward the caller's cancellation.** An unstructured `Task` inherits
+        // priority and task-locals but *not* cancellation, so without this the
+        // guard silently un-cancels every scan — and a scan that cannot be
+        // cancelled goes on to publish a picture nobody is waiting for, which is
+        // how a cancelled rescan emptied a collection.
+        await withTaskCancellationHandler {
+            await scan.value
+        } onCancel: {
+            scan.cancel()
+        }
+        scanInFlight = nil
+        if rescanWhenIdle {
+            rescanWhenIdle = false
+            await scanOffMain()
+        }
+    }
+
+    /// Whether a walk is running, and whether another was asked for while it was.
+    private var scanInFlight: Task<Void, Never>?
+    private var rescanWhenIdle = false
+
+    private func performScan() async {
         let collectionID = id
         let source = LocalTreeSource(root: rootURL, includesNonNoteFiles: showsNonNoteFiles)
         let resume = Self.resumePoint(for: collectionID)

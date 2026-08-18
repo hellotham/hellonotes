@@ -40,6 +40,9 @@ enum DiagnosticSelfTest {
         var select: (URL?) -> Void
         /// Resolve the editor the shell would open for a note.
         var editor: (Note) async -> EditorModel
+        /// Close a note's editor, flushing it, so nothing can write the file
+        /// back after the note has been deleted.
+        var close: (Note.ID) async -> Void
     }
 
     static var isEnabled: Bool {
@@ -83,7 +86,6 @@ enum DiagnosticSelfTest {
             MainActorWatchdog.note("SELFTEST abort — could not create the scratch note")
             return
         }
-        defer { Task { await cleanUp(scratch, in: collection, hooks: hooks) } }
 
         // 1 · Selecting it, which is the click the user reported as dead.
         let selectStarted = ContinuousClock.now
@@ -112,6 +114,8 @@ enum DiagnosticSelfTest {
 
         // Let the final debounce and everything it triggers run to completion.
         try? await Task.sleep(for: .seconds(3))
+
+        await cleanUp(scratch, in: collection, hooks: hooks)
     }
 
     /// Creating and deleting a note — both reported as forcing a reindex.
@@ -124,9 +128,13 @@ enum DiagnosticSelfTest {
         let after = await collection.renameNote(note, to: "\(scratchTitle) Renamed")
         MainActorWatchdog.note("SELFTEST renameNote: \(ContinuousClock.now - renamed)")
 
+        let target = after ?? note
         let deleted = ContinuousClock.now
-        await collection.deleteNote(after ?? note)
+        await collection.deleteNote(target)
         MainActorWatchdog.note("SELFTEST deleteNote: \(ContinuousClock.now - deleted)")
+        if FileManager.default.fileExists(atPath: target.fileURL.path) {
+            try? FileManager.default.removeItem(at: target.fileURL)
+        }
     }
 
     // MARK: - Leave nothing behind
@@ -134,9 +142,24 @@ enum DiagnosticSelfTest {
     private static let scratchTitle = "HelloNotes Self-Test"
 
     private static func cleanUp(_ note: Note, in collection: Collection, hooks: Hooks) async {
+        // Order matters, and getting it wrong left thirteen empty notes in the
+        // user's vault across thirteen runs.
+        //
+        // Deselecting is not enough: the editor still holds the buffer, and the
+        // quit handshake flushes every open editor — which writes the file back
+        // *after* it was deleted. So the editor is closed (which flushes and
+        // forgets it) before the note is removed, and the file is verified gone
+        // afterwards rather than assumed.
         hooks.select(nil)
+        await hooks.close(note.id)
         await collection.deleteNote(note)
-        MainActorWatchdog.note("SELFTEST cleaned up \(note.fileURL.lastPathComponent)")
+
+        if FileManager.default.fileExists(atPath: note.fileURL.path) {
+            MainActorWatchdog.note("SELFTEST cleanup — file survived deleteNote, removing it")
+            try? FileManager.default.removeItem(at: note.fileURL)
+        }
+        let gone = !FileManager.default.fileExists(atPath: note.fileURL.path)
+        MainActorWatchdog.note("SELFTEST cleaned up \(note.fileURL.lastPathComponent) — removed=\(gone)")
     }
 
     /// Quit, but never from inside this task.
