@@ -18,9 +18,6 @@ import MarkdownCore
 public final class MarkdownUITextView: UITextView {
 
     private(set) weak var document: EditorDocument?
-    /// Format-bus observers, and the id they are bound to.
-    fileprivate var busTokens: [NSObjectProtocol] = []
-    fileprivate var busDocumentId: String?
     /// Retains the layout delegate that vends chrome-drawing fragments.
     /// `lazy`, not a stored default: `init(usingTextLayoutManager:)` is an
     /// inherited convenience initializer that skips the subclass's stored-
@@ -302,7 +299,7 @@ public struct MarkdownEditorView: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         tv.delegate = context.coordinator
-        tv.subscribeToFormatBus(documentId: busDocumentId)
+        context.coordinator.subscribeToFormatBus(documentId: busDocumentId, view: tv)
         // The system find bar — ⌘F on a hardware keyboard, and the "Find…"
         // item in the edit menu. iOS has had this since 16 and it is better
         // than porting the Mac's bespoke find bar: it brings find-and-replace,
@@ -323,6 +320,11 @@ public struct MarkdownEditorView: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         context.coordinator.selectionMenuItems = selectionMenuItems
+        // Re-bind on update as well as creation: switching notes changes the
+        // document id while SwiftUI may reuse the view, and a bus still
+        // addressed to the previous note would format nothing. The subscribe
+        // guard makes an unchanged id a no-op.
+        context.coordinator.subscribeToFormatBus(documentId: busDocumentId, view: tv)
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(document: document) }
@@ -331,6 +333,60 @@ public struct MarkdownEditorView: UIViewRepresentable {
         let document: EditorDocument
         var selectionMenuItems: ((String) -> [EditorMenuItem])?
         init(document: EditorDocument) { self.document = document }
+
+        /// Format-bus observers, and the id they are bound to.
+        ///
+        /// **On the coordinator, not the text view** — the same place macOS
+        /// keeps them, and for a reason that bites specifically here:
+        /// `MarkdownUITextView` is built through the inherited convenience
+        /// initialiser `init(usingTextLayoutManager:)`, which does not run a
+        /// subclass's stored-property synthesis. A plain `var tokens: [X] = []`
+        /// on the view is therefore never initialised, and appending to it
+        /// crashes the moment a note is opened. A coordinator is an ordinary
+        /// Swift class with ordinary initialisation.
+        private var busTokens: [NSObjectProtocol] = []
+        private var busDocumentId: String?
+        private weak var busView: MarkdownUITextView?
+
+        // No `deinit` cleanup: reading the token array from a nonisolated
+        // `deinit` is not allowed (it is not `Sendable`), and it is not needed
+        // — `NotificationCenter` has held its observers weakly since iOS 9, so
+        // they die with the coordinator. Re-binding still removes them
+        // explicitly, because there the array *is* reachable and leaving stale
+        // observers on a live coordinator would format the wrong document.
+
+        /// Observe formatting commands addressed to `documentId`.
+        func subscribeToFormatBus(documentId: String?, view: MarkdownUITextView) {
+            busView = view
+            guard busDocumentId != documentId else { return }
+            for token in busTokens { NotificationCenter.default.removeObserver(token) }
+            busTokens.removeAll()
+            busDocumentId = documentId
+            guard let documentId, !documentId.isEmpty else { return }
+
+            let center = NotificationCenter.default
+            let formats: [(String, EditorFormatCommand)] = [
+                ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),
+                ("highlight", .highlight), ("inlineCode", .inlineCode),
+                ("blockquote", .blockquote), ("unorderedList", .unorderedList),
+                ("orderedList", .orderedList),
+            ]
+            for (kind, command) in formats {
+                busTokens.append(center.addObserver(
+                    forName: Notification.Name("hnEditorFormat.\(kind).\(documentId)"),
+                    object: nil, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.busView?.apply(command) }
+                })
+            }
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hnEditorFormat.heading.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let level = note.userInfo?["level"] as? Int ?? 1
+                MainActor.assumeIsolated { [level] in self?.busView?.apply(.heading(level)) }
+            })
+        }
 
         public func textView(_ textView: UITextView,
                              editMenuForTextIn range: NSRange,
@@ -400,46 +456,5 @@ extension MarkdownUITextView: MarkdownFormatting {
     }
 }
 
-
-// MARK: - Format command bus
-
-extension MarkdownUITextView {
-
-    /// Observe formatting commands addressed to `documentId`.
-    ///
-    /// Registered on the view rather than the coordinator so the tokens die
-    /// with the view; re-binding is a no-op while the id is unchanged, so this
-    /// is safe to call from `makeUIView` and `updateUIView` alike.
-    func subscribeToFormatBus(documentId: String?) {
-        guard busDocumentId != documentId else { return }
-        for token in busTokens { NotificationCenter.default.removeObserver(token) }
-        busTokens.removeAll()
-        busDocumentId = documentId
-        guard let documentId else { return }
-
-        let center = NotificationCenter.default
-        let formats: [(String, EditorFormatCommand)] = [
-            ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),
-            ("highlight", .highlight), ("inlineCode", .inlineCode),
-            ("blockquote", .blockquote), ("unorderedList", .unorderedList),
-            ("orderedList", .orderedList),
-        ]
-        for (kind, command) in formats {
-            busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorFormat.\(kind).\(documentId)"),
-                object: nil, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.apply(command) }
-            })
-        }
-        busTokens.append(center.addObserver(
-            forName: Notification.Name("hnEditorFormat.heading.\(documentId)"),
-            object: nil, queue: .main
-        ) { [weak self] note in
-            let level = note.userInfo?["level"] as? Int ?? 1
-            MainActor.assumeIsolated { [level] in self?.apply(.heading(level)) }
-        })
-    }
-}
 
 #endif
