@@ -152,5 +152,28 @@ import Testing
         }
     }
 
+
+    /// The link tap must never compete with the text view's own caret tap.
+    /// Without a delegate permitting simultaneous recognition, ours wins, does
+    /// nothing (most taps are not on a link), and the tap is eaten — a note you
+    /// can scroll and cannot type into.
+    @Test func theLinkTapDoesNotStealTheCaretTap() {
+        let (tv, _) = hosted(EditorDocument(text: "plain [[Link]] line\n"))
+        let tap = tv.linkTapRecognizer
+        #expect(tap != nil)
+        // Its delegate must not be the text view: UIKit already uses the view
+        // as the delegate of its own recognisers, so answering for all of them
+        // would replace UIKit's arbitration rather than add to ours.
+        #expect(tap?.delegate != nil)
+        #expect(tap?.delegate !== tv)
+
+        guard let tap, let delegate = tap.delegate else { return }
+        let others = (tv.gestureRecognizers ?? []).filter { $0 !== tap }
+        #expect(!others.isEmpty)
+        for other in others {
+            #expect(delegate.gestureRecognizer?(tap, shouldRecognizeSimultaneouslyWith: other) == true)
+        }
+    }
+
 }
 #endif

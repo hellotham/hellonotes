@@ -28,6 +28,14 @@ public final class MarkdownUITextView: UITextView {
     /// bars, heading rules) — UITextView doesn't invoke custom fragments' draw.
     private lazy var chromeOverlay = ChromeOverlayView()
     var onLinkTap: ((EditorLinkTap) -> Void)?
+    /// Keeps the link tap from competing with the text view's own caret tap.
+    /// A separate object, deliberately: `UITextView` is already the delegate of
+    /// its own recognisers, so making the view the delegate would replace
+    /// UIKit's arbitration for all of them, not just add to ours. `delegate` is
+    /// weak, so the view has to hold it.
+    private lazy var linkTapDelegate = LinkTapDelegate()
+    /// The link tap, exposed so its arbitration can be asserted.
+    private(set) var linkTapRecognizer: UITapGestureRecognizer?
 
     /// The formatting bar above the keyboard.
     ///
@@ -154,9 +162,21 @@ public final class MarkdownUITextView: UITextView {
 
         // Tap-to-navigate wiki links / URLs (an editable text view otherwise
         // just moves the caret).
+        //
+        // The delegate is not optional here. A `UITextView` places its caret
+        // with a tap recogniser of its own, and two recognisers that both
+        // recognise a single tap are mutually exclusive unless a delegate says
+        // otherwise — so ours won, `handleTap` returned without doing anything
+        // (there is no link under most taps), and the tap was simply eaten.
+        // Scrolling still worked, which is what made it look like the editor
+        // was fine and the keyboard was broken. `cancelsTouchesInView = false`
+        // does not help: it governs touch *delivery* to the view, not gesture
+        // *arbitration* between recognisers.
         let tap = UITapGestureRecognizer(target: tv, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
+        tap.delegate = tv.linkTapDelegate
         tv.addGestureRecognizer(tap)
+        tv.linkTapRecognizer = tap
 
         // Overlay that paints the fragment chrome over the text (scrolls with
         // the content as a subview of the scroll view).
@@ -287,6 +307,23 @@ public final class MarkdownUITextView: UITextView {
             if let url = link as? URL { onLinkTap?(.url(url)) }
             else if let s = link as? String, let url = URL(string: s) { onLinkTap?(.url(url)) }
         }
+    }
+}
+
+
+/// Lets the link tap coexist with the caret tap.
+///
+/// Two recognisers that both recognise a single tap are mutually exclusive
+/// unless a delegate says otherwise, and UIKit asks *both* delegates — so this
+/// one saying yes is enough. Without it the link tap won, `handleTap` returned
+/// having found no link under the finger, and the tap was eaten: a note you
+/// could scroll and could not type into.
+private final class LinkTapDelegate: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 }
 
