@@ -126,5 +126,31 @@ import Testing
         #expect(document.text.hasPrefix("> **plain**"))
     }
 
+
+    /// Tapping into a note has to start editing: become first responder, show a
+    /// caret, and bring up the keyboard (which is what carries the format bar).
+    @Test func tappingIntoTheNoteStartsEditing() {
+        let (tv, _) = hosted(EditorDocument(text: "plain line\n"))
+        #expect(tv.isEditable)
+        #expect(tv.canBecomeFirstResponder)
+        #expect(tv.becomeFirstResponder())
+        #expect(tv.isFirstResponder)
+        #expect(tv.inputAccessoryView?.frame.height == 44)
+        // A zero-width accessory view is laid out by the keyboard, not by us,
+        // and an empty one can take the keyboard presentation down with it.
+        #expect((tv.inputAccessoryView?.frame.width ?? 0) > 0)
+
+        // The caret itself: UIKit's selection machinery has to be installed on
+        // a text view built around a container we made, or there is a document
+        // on screen and no way to type into it.
+        let range = tv.selectedTextRange
+        #expect(range != nil)
+        if let start = range?.start {
+            let caret = tv.caretRect(for: start)
+            #expect(caret.height > 0)
+            #expect(caret.origin.x.isFinite && caret.origin.y.isFinite)
+        }
+    }
+
 }
 #endif

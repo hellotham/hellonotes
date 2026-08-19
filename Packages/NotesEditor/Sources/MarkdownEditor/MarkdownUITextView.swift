@@ -42,7 +42,12 @@ public final class MarkdownUITextView: UITextView {
     private lazy var formatAccessory: UIToolbar = makeFormatAccessory()
 
     private func makeFormatAccessory() -> UIToolbar {
-        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
+        // Width matters. An `inputAccessoryView` is laid out *by the keyboard*,
+        // and a zero-width one is not merely invisible — it can take the input
+        // session down with it, leaving a note on screen with no caret and no
+        // keyboard. `sizeToFit()` below gives it the screen's width; the
+        // autoresizing mask keeps it right across rotation and split view.
+        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
         bar.autoresizingMask = .flexibleWidth
 
         func button(_ symbol: String, _ label: String,
@@ -81,6 +86,7 @@ public final class MarkdownUITextView: UITextView {
             UIBarButtonItem(systemItem: .flexibleSpace),
             hide,
         ]
+        bar.sizeToFit()
         return bar
     }
 
