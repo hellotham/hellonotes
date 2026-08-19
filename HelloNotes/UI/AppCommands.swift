@@ -10,9 +10,17 @@
 //  discoverability surface: every major feature lives here with its shortcut.
 //
 
-#if os(macOS)
+//  **Cross-platform.** This file was `#if os(macOS)` end to end. iPadOS builds
+//  its menu bar from a scene's `.commands` exactly as macOS does, so gating the
+//  file gated the iPad's entire menu bar *and* every keyboard shortcut with it:
+//  no ⌘B, no ⌘F, no View menu. What is genuinely Mac-only — windows, the
+//  Finder, NSWorkspace — is gated item by item instead, so an iPad never shows
+//  a command it cannot honour.
+
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 /// The provider windows **Connect Over the Web** opens.
 ///
@@ -101,14 +109,14 @@ struct AppActions {
     /// note, rather than in a menu they only open once they already have one.
     var composeNote: (() -> Void)?
     /// Open another main window.
-    var newWindow: () -> Void
+    var newWindow: (() -> Void)?
     /// Toggle the editor's find bar. `nil` when no note is open.
     var find: (() -> Void)?
     /// Focus the library-wide search field.
     var searchAllCollections: () -> Void
     /// Connect a provider over its own API, for an account whose desktop client
     /// is not installed.
-    var connectOverWeb: (CloudBrowser) -> Void
+    var connectOverWeb: ((CloudBrowser) -> Void)?
     /// The editor presentation mode, and a setter — both surfaces read one
     /// value rather than each reaching for `@AppStorage` separately.
     var editorMode: EditorMode
@@ -145,8 +153,8 @@ struct NoteMenuActions {
     var duplicate: () -> Void
     var toggleBookmark: () -> Void
     var copyWikiLink: () -> Void
-    var revealInFinder: () -> Void
-    var openInNewWindow: () -> Void
+    var revealInFinder: (() -> Void)?
+    var openInNewWindow: (() -> Void)?
     var exportHTML: () -> Void
     var exportPDF: () -> Void
     var printNote: () -> Void
@@ -162,8 +170,14 @@ struct HelloNotesCommands: Commands {
     @FocusedValue(\.appActions) private var actions
     @Environment(\.openWindow) private var openWindow
 
-    /// The editor view mode, shared with the editor's bottom-bar picker.
+    /// The editor view mode, shared with the editor's own picker. The two
+    /// platforms persist it under different keys, and reading the Mac's on iPad
+    /// silently disabled every Format command.
+    #if os(macOS)
     @AppStorage("editorViewMode") private var editorMode = EditorMode.edit.rawValue
+    #else
+    @AppStorage("iosEditorViewMode") private var editorMode = EditorMode.edit.rawValue
+    #endif
 
     /// Formatting applies only in the live-editing mode with a note focused.
     private var canFormat: Bool {
@@ -178,9 +192,11 @@ struct HelloNotesCommands: Commands {
     var body: some Commands {
         // MARK: App — About shows the splash (it carries the version, build,
         // and credits), staying up until clicked.
+        #if os(macOS)
         CommandGroup(replacing: .appInfo) {
             Button("About HelloNotes") { SplashWindow.show(autoDismiss: false) }
         }
+        #endif
 
         // MARK: File — creation and opening. ⌘N makes a note (the app's
         // primary object, the Mail convention); New Window moves to ⌥⌘N.
@@ -188,9 +204,12 @@ struct HelloNotesCommands: Commands {
             Button("New Note") { actions?.newNote() }
                 .keyboardShortcut("n")
                 .disabled(!(actions?.canNewNote ?? false))
-            Button("New Window") { actions?.newWindow() }
+            #if os(macOS)
+            // No second window to open on iPad.
+            Button("New Window") { actions?.newWindow?() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
                 .disabled(actions == nil)
+            #endif
             Button("Today's Note") { actions?.todaysNote() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(!(actions?.canNewNote ?? false))
@@ -227,8 +246,11 @@ struct HelloNotesCommands: Commands {
             // shortcuts beat menu items), so ⌘W closes the tab then and the
             // window otherwise — the Safari/Xcode convention. This item is the
             // discoverable, clickable counterpart.
+            #if os(macOS)
+            // iPad has no editor tab bar.
             Button("Close Tab") { actions?.closeTab() }
                 .disabled(!(actions?.canCloseTab ?? false))
+            #endif
         }
 
         // MARK: File — export lives where macOS users expect it.
@@ -250,6 +272,7 @@ struct HelloNotesCommands: Commands {
             Button("Refresh Cloud Collection") { actions?.refreshCloudCollection?() }
                 .disabled(actions?.refreshCloudCollection == nil)
 
+            #if os(macOS)
             // Connecting over the provider's own API is the fallback, for an
             // account whose desktop client is not installed.
             Menu("Connect Over the Web") {
@@ -264,6 +287,7 @@ struct HelloNotesCommands: Commands {
                 #endif
             }
             .disabled(actions == nil)
+            #endif
         }
 
         // MARK: File — Print (⌘P), the standard menu item a notes app must have.
@@ -324,10 +348,13 @@ struct HelloNotesCommands: Commands {
 
             Button("Copy Wiki Link") { actions?.note?.copyWikiLink() }
                 .disabled(actions?.note == nil)
-            Button("Open in New Window") { actions?.note?.openInNewWindow() }
+            #if os(macOS)
+            // Both are Mac desktop concepts.
+            Button("Open in New Window") { actions?.note?.openInNewWindow?() }
                 .disabled(actions?.note == nil)
-            Button("Reveal in Finder") { actions?.note?.revealInFinder() }
+            Button("Reveal in Finder") { actions?.note?.revealInFinder?() }
                 .disabled(actions?.note == nil)
+            #endif
 
             Divider()
 
@@ -383,7 +410,7 @@ struct HelloNotesCommands: Commands {
 
         // MARK: View — editor presentation and the app's overview surfaces.
         CommandGroup(before: .toolbar) {
-            ForEach(Array(EditorMode.macCases.enumerated()), id: \.element) { index, mode in
+            ForEach(Array(EditorMode.platformCases.enumerated()), id: \.element) { index, mode in
                 Toggle(mode.label, isOn: Binding(
                     get: { actions?.editorMode == mode },
                     set: { if $0 { actions?.setEditorMode(mode) } }
@@ -419,11 +446,13 @@ struct HelloNotesCommands: Commands {
         }
 
         // MARK: Help — point the stock stub somewhere real.
+        #if os(macOS)
         CommandGroup(replacing: .help) {
             Button("HelloNotes Help") {
                 if let helpURL { NSWorkspace.shared.open(helpURL) }
             }
         }
+        #endif
     }
 }
 
@@ -434,5 +463,3 @@ extension Notification.Name {
     /// `documentId` so a Format command reaches only the focused editor, never
     /// the same note open in another window.
 }
-
-#endif

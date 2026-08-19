@@ -379,29 +379,66 @@ public struct EditorMenuItem {
 
 /// SwiftUI host for the iOS Markdown editor. Same public surface (`init`,
 /// `editable`, `onLinkTap`) as the macOS `MarkdownEditorView`.
-public struct MarkdownEditorView: UIViewRepresentable {
-    private let document: EditorDocument
+///
+/// A `View` wrapping the representable rather than the representable itself,
+/// so it can give the text view an **identity tied to the document**.
+///
+/// SwiftUI reuses a `UIViewRepresentable`'s view across updates, and a
+/// `UITextView` built around one document's storage cannot be handed another:
+/// re-binding means swapping the storage on a live view, which is the crash
+/// this file exists to document. AppKit re-binds in `updateNSView`; here the
+/// answer is to build a new view instead, and `.id` is what makes SwiftUI do
+/// that. Without it, selecting a second note changed the title and left the
+/// first note's text on screen — and, because the stale document's `onEdit`
+/// still fed the model, typing into it would have saved the old note's
+/// contents over the new file.
+public struct MarkdownEditorView: View {
+    private var representable: MarkdownEditorRepresentable
+
+    public init(document: EditorDocument) {
+        representable = MarkdownEditorRepresentable(document: document)
+    }
+
+    public var body: some View {
+        representable.id(ObjectIdentifier(representable.document))
+    }
+
+    public func editable(_ flag: Bool) -> Self {
+        var copy = self; copy.representable = representable.editable(flag); return copy
+    }
+
+    public func onLinkTap(_ handler: @escaping (EditorLinkTap) -> Void) -> Self {
+        var copy = self; copy.representable = representable.onLinkTap(handler); return copy
+    }
+
+    public func selectionMenuItems(_ build: @escaping (String) -> [EditorMenuItem]) -> Self {
+        var copy = self; copy.representable = representable.selectionMenuItems(build); return copy
+    }
+}
+
+struct MarkdownEditorRepresentable: UIViewRepresentable {
+    let document: EditorDocument
     private var isEditable = true
     private var onLinkTap: ((EditorLinkTap) -> Void)?
     private var selectionMenuItems: ((String) -> [EditorMenuItem])?
 
-    public init(document: EditorDocument) { self.document = document }
+    init(document: EditorDocument) { self.document = document }
 
     /// Take exactly the space offered — never the note's own height (S1).
     /// Returning nil here falls back to the text view's content size, which
     /// propagates up as an ideal and inflates every ancestor. See
     /// `viewportSizeThatFits` and docs/layout-architecture.md.
-    public func sizeThatFits(_ proposal: ProposedViewSize,
-                             uiView: MarkdownUITextView,
-                             context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize,
+                      uiView: MarkdownUITextView,
+                      context: Context) -> CGSize? {
         viewportSizeThatFits(proposal)
     }
 
-    public func editable(_ flag: Bool) -> Self {
+    func editable(_ flag: Bool) -> Self {
         var copy = self; copy.isEditable = flag; return copy
     }
 
-    public func onLinkTap(_ handler: @escaping (EditorLinkTap) -> Void) -> Self {
+    func onLinkTap(_ handler: @escaping (EditorLinkTap) -> Void) -> Self {
         var copy = self; copy.onLinkTap = handler; return copy
     }
 
@@ -409,11 +446,11 @@ public struct MarkdownEditorView: UIViewRepresentable {
     /// text each time the menu is built, so the host can decide per selection
     /// which items make sense — an item that cannot apply is better absent than
     /// present and inert.
-    public func selectionMenuItems(_ build: @escaping (String) -> [EditorMenuItem]) -> Self {
+    func selectionMenuItems(_ build: @escaping (String) -> [EditorMenuItem]) -> Self {
         var copy = self; copy.selectionMenuItems = build; return copy
     }
 
-    public func makeUIView(context: Context) -> MarkdownUITextView {
+    func makeUIView(context: Context) -> MarkdownUITextView {
         let tv = MarkdownUITextView.make(document: document)
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
@@ -429,13 +466,18 @@ public struct MarkdownEditorView: UIViewRepresentable {
         return tv
     }
 
-    public func updateUIView(_ tv: MarkdownUITextView, context: Context) {
+    func updateUIView(_ tv: MarkdownUITextView, context: Context) {
+        // The wrapper's `.id` guarantees this; assert it rather than trust it,
+        // because the failure is silent and destructive — a stale document
+        // whose `onEdit` still feeds the model writes the wrong note to disk.
+        assert(tv.document === document,
+               "the text view is showing a different document than it was handed")
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         context.coordinator.selectionMenuItems = selectionMenuItems
     }
 
-    public func makeCoordinator() -> Coordinator { Coordinator(document: document) }
+    func makeCoordinator() -> Coordinator { Coordinator(document: document) }
 
     public final class Coordinator: NSObject, UITextViewDelegate {
         let document: EditorDocument

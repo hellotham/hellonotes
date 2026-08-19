@@ -1073,6 +1073,15 @@ struct iOSContentView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     modePicker
                 }
+                // Trailing — the inspector's five tabs, over the inspector,
+                // exactly as on the Mac. These *are* the tab strip: the panel
+                // carries none. iPad had no route to the inspector at all —
+                // `inspectorPresented` was set only by the AI commands, so
+                // Outline, Tags, References, Properties and History existed and
+                // could not be opened by hand.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    inspectorToggles
+                }
             }
             .sheet(item: $linkReview) { review in
                 NavigationStack {
@@ -1196,6 +1205,31 @@ struct iOSContentView: View {
         let full = editor.text
         let body = FrontMatter.body(of: full)
         editor.text = body.count < full.count ? String(full.dropLast(body.count)) + text : text
+    }
+
+    /// The inspector's tab strip, which doubles as its disclosure control.
+    ///
+    /// Hidden by default (`inspectorPresented` starts false), so the note has
+    /// the width until you ask for the panel. Pressing the tab you are already
+    /// on closes it again — Pages' Format button, and the Mac's behaviour here.
+    @ViewBuilder
+    private var inspectorToggles: some View {
+        ForEach(InspectorTab.allCases) { tab in
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    if inspectorPresented && inspectorTab == tab {
+                        inspectorPresented = false
+                    } else {
+                        inspectorTabRaw = tab.rawValue
+                        inspectorPresented = true
+                    }
+                }
+            } label: {
+                Label(tab.title, systemImage: tab.systemImage)
+            }
+            .accessibilityLabel(tab.title)
+            .tint(inspectorPresented && inspectorTab == tab ? Color.accentColor : nil)
+        }
     }
 
     /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,

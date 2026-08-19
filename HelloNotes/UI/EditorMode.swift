@@ -46,4 +46,14 @@ enum EditorMode: String, CaseIterable, Identifiable {
 
     /// The cases offered on iOS — no live WYSIWYG editor there.
     static let iOSCases: [EditorMode] = [.edit, .preview, .markdown, .split]
+
+    /// The cases this platform offers. One name, so the shared menu code does
+    /// not have to know which platform it is compiled for.
+    static var platformCases: [EditorMode] {
+        #if os(macOS)
+        macCases
+        #else
+        iOSCases
+        #endif
+    }
 }
