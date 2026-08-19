@@ -28,7 +28,9 @@ public extension GFMRenderer {
 
     /// A complete HTML page rendering `markdown` exactly as GitHub would.
     /// `baseURL` (the note's folder) lets relative image `src`s resolve.
-    static func page(_ markdown: String) -> String {
+    /// - Parameter fontScale: the app's text-scale setting, applied at the
+    ///   root so GitHub's own type scale stays proportional.
+    static func page(_ markdown: String, fontScale: Double = 1) -> String {
         // GitHub-mode: hard line breaks, matching api.github.com/markdown.
         let body = html(markdown, hardBreaks: true)
         return """
@@ -44,7 +46,7 @@ public extension GFMRenderer {
         <style>@media (prefers-color-scheme: light) { \(highlightCSSLight) }</style>
         <style>@media (prefers-color-scheme: dark) { \(highlightCSSDark) }</style>
         <style>
-        html { -webkit-text-size-adjust: 100%; }
+        html { -webkit-text-size-adjust: 100%; font-size: \(Int((fontScale * 100).rounded()))%; }
         body { margin: 0; background: var(--bgColor-default, var(--color-canvas-default, transparent)); }
         .markdown-body {
           box-sizing: border-box;

@@ -11,6 +11,7 @@
 
 #if os(iOS)
 import SwiftUI
+import GFMRender
 import MarkdownEditor
 import WebKit
 
@@ -54,7 +55,19 @@ struct MarkdownWebView: UIViewRepresentable {
             let key = "\(scale)\n\(markdown)"
             guard key != lastKey else { return }
             lastKey = key
-            let html = MarkdownExport.html(from: markdown, title: title, fontScale: scale)
+            // `GFMRenderer.page`, not `MarkdownExport.html`.
+            //
+            // GitHub fidelity is the requirement (implemented.md §4: "both the
+            // Preview *and* the live editor provably GitHub-faithful, using
+            // GitHub's own engine"), and the package ships exactly that —
+            // cmark-gfm through github-markdown-css, with 648/648 spec tests
+            // and byte-parity against api.github.com/markdown behind it. The
+            // Preview was calling the *export* renderer instead: a small
+            // hand-written stylesheet over a different formatter. So the live
+            // editor styled from cmark's AST while the Preview beside it did
+            // not, on both platforms, which is why Edit and Preview disagreed
+            // about tables, headings and type.
+            let html = GFMRenderer.page(markdown, fontScale: scale)
             // Load in-memory with the note's folder as the base so relative
             // image paths resolve where WebKit permits it.
             view.loadHTMLString(html, baseURL: baseURL)
