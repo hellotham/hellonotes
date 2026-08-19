@@ -421,6 +421,15 @@ public struct MarkdownEditorView: View {
         representable.id(ObjectIdentifier(representable.document))
     }
 
+    /// Listen for formatting and find commands addressed to `documentId`.
+    ///
+    /// Removed earlier in the day as dead weight — correctly, at the time:
+    /// nothing on iOS posted on it, because the keyboard toolbar that was meant
+    /// to never rendered. The iPad menu bar is the poster it was waiting for.
+    public func commandBus(documentId: String) -> Self {
+        var copy = self; copy.representable = representable.commandBus(documentId: documentId); return copy
+    }
+
     public func editable(_ flag: Bool) -> Self {
         var copy = self; copy.representable = representable.editable(flag); return copy
     }
@@ -435,6 +444,8 @@ public struct MarkdownEditorView: View {
 }
 
 struct MarkdownEditorRepresentable: UIViewRepresentable {
+    /// Document id for the command bus, if the host wants one.
+    private var busDocumentId: String?
     let document: EditorDocument
     private var isEditable = true
     private var onLinkTap: ((EditorLinkTap) -> Void)?
@@ -450,6 +461,10 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                       uiView: MarkdownUITextView,
                       context: Context) -> CGSize? {
         viewportSizeThatFits(proposal)
+    }
+
+    func commandBus(documentId: String) -> Self {
+        var copy = self; copy.busDocumentId = documentId; return copy
     }
 
     func editable(_ flag: Bool) -> Self {
@@ -473,6 +488,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         tv.delegate = context.coordinator
+        context.coordinator.subscribe(documentId: busDocumentId, view: tv)
         // Small/medium notes: style the whole document once up front (proven
         // path). Large notes: rely on the document's synchronous prefix styling
         // (done in init) plus its idle background pass, so opening never blocks
@@ -493,6 +509,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         context.coordinator.selectionMenuItems = selectionMenuItems
+        context.coordinator.subscribe(documentId: busDocumentId, view: tv)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document) }
@@ -501,6 +518,60 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         let document: EditorDocument
         var selectionMenuItems: ((String) -> [EditorMenuItem])?
         init(document: EditorDocument) { self.document = document }
+
+        /// Command-bus observers, and the id they are bound to. On the
+        /// coordinator, never on the view: `MarkdownUITextView` is built
+        /// through an initialiser that does not run subclass stored-property
+        /// synthesis, so an array property there is never initialised and
+        /// appending to it crashes on the first note opened.
+        private var busTokens: [NSObjectProtocol] = []
+        private var busDocumentId: String?
+        private weak var busView: MarkdownUITextView?
+
+        /// Observe formatting and find commands addressed to `documentId`.
+        func subscribe(documentId: String?, view: MarkdownUITextView) {
+            busView = view
+            guard busDocumentId != documentId else { return }
+            for token in busTokens { NotificationCenter.default.removeObserver(token) }
+            busTokens.removeAll()
+            busDocumentId = documentId
+            guard let documentId, !documentId.isEmpty else { return }
+
+            let center = NotificationCenter.default
+            let formats: [(String, EditorFormatCommand)] = [
+                ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),
+                ("highlight", .highlight), ("inlineCode", .inlineCode),
+                ("blockquote", .blockquote), ("unorderedList", .unorderedList),
+                ("orderedList", .orderedList),
+            ]
+            for (kind, command) in formats {
+                busTokens.append(center.addObserver(
+                    forName: Notification.Name("hnEditorFormat.\(kind).\(documentId)"),
+                    object: nil, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.busView?.apply(command) }
+                })
+            }
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hnEditorFormat.heading.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let level = note.userInfo?["level"] as? Int ?? 1
+                MainActor.assumeIsolated { [level] in self?.busView?.apply(.heading(level)) }
+            })
+            // ⌘F. The system find bar is the text view's own, so the only thing
+            // a menu item needs is a way to reach the view that owns it.
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hnEditorFind.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let view = self?.busView else { return }
+                    view.becomeFirstResponder()
+                    view.findInteraction?.presentFindNavigator(showingReplace: false)
+                }
+            })
+        }
 
         public func textView(_ textView: UITextView,
                              editMenuForTextIn range: NSRange,

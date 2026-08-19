@@ -338,6 +338,7 @@ struct iOSContentView: View {
         .onChange(of: library.collections.count) { was, now in
             if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
         }
+        .focusedSceneValue(\.appActions, appActions)
         .onChange(of: selectedNoteID) { _, newID in
             // A selection that resolves to nothing must not blank the editor.
             // The same bare lookup on macOS was the "populated sidebar, clicks
@@ -1314,6 +1315,95 @@ struct iOSContentView: View {
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 8)
+    }
+
+    /// The AI commands, or nil when there is nothing they could do.
+    ///
+    /// A greyed item says "not now"; an enabled one that always errors says
+    /// "this app is broken", and the second is the lie. Same gate as the Mac.
+    private var aiActions: AIActions? {
+        guard editor.note != nil else { return nil }
+        let intelligence = IntelligenceService(settings: llmSettings)
+        guard intelligence.isAvailable else { return nil }
+        return AIActions(
+            providerName: intelligence.providerName,
+            summarize: { askInspector(.summarize) },
+            suggestTags: { askInspector(.suggestTags) },
+            suggestLinks: { askInspector(.suggestLinks) },
+            rewriteNote: { showRewriteNote = true })
+    }
+
+    /// What this window offers the menu bar.
+    ///
+    /// The same value the Mac publishes, so both platforms drive one command
+    /// set and cannot drift on what a command means. Anything iPad has no
+    /// answer for stays `nil` and the menu item disables itself — which is why
+    /// the type's optionals exist, and better than an item that is present and
+    /// inert.
+    private var appActions: AppActions {
+        let scope = railCollection ?? focused
+        return AppActions(
+            canNewNote: scope != nil,
+            newNote: {
+                guard let scope else { return }
+                Task { if let note = await scope.createNote() { selectedNoteID = note.id } }
+            },
+            todaysNote: { openTodaysNote() },
+            openLauncher: { showImporter = true },
+            canOpenQuickly: !(scope?.notes.isEmpty ?? true),
+            openQuickly: { showOpenQuickly = true },
+            canGraph: false,
+            graphView: {},
+            canAsk: scope != nil,
+            askLibrary: { showLibraryChat = true },
+            assistant: { showAssistant = true },
+            canCloseTab: false,
+            closeTab: {},
+            format: editor.note.map { note in
+                { (action: FormatAction) in
+                    NotificationCenter.default.post(
+                        name: .hnFormat(action.kind, documentId: note.fileURL.path),
+                        object: nil, userInfo: action.userInfo)
+                }
+            },
+            note: editor.note.map { note in
+                NoteMenuActions(
+                    isBookmarked: isBookmarked(note),
+                    rename: { renameText = note.title; renameTarget = note },
+                    duplicate: {
+                        guard let c = library.collection(containing: note.fileURL) else { return }
+                        Task { await c.duplicateNote(note) }
+                    },
+                    toggleBookmark: {
+                        library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
+                    },
+                    copyWikiLink: { UIPasteboard.general.string = "[[\(note.title)]]" },
+                    exportHTML: { iOSEditorExport.exportHTML(markdown: textFor(note), title: note.title) },
+                    exportPDF: { iOSEditorExport.exportPDF(markdown: textFor(note), title: note.title) },
+                    printNote: { iOSEditorExport.printNote(markdown: textFor(note), title: note.title) },
+                    moveToTrash: {
+                        guard let c = library.collection(containing: note.fileURL) else { return }
+                        if selectedNoteID == note.id { selectedNoteID = nil }
+                        Task { await c.deleteNote(note) }
+                    })
+            },
+            rescan: scope.map { c in { c.rescan() } },
+            showsNonNoteFiles: scope?.showsNonNoteFiles,
+            setShowsNonNoteFiles: scope.map { c in { (on: Bool) in c.showsNonNoteFiles = on } },
+            openCloudFolder: { showImporter = true },
+            refreshCloudCollection: (scope?.isRemote ?? false)
+                ? { Task { await scope?.refreshFromProvider() } } : nil,
+            commandPalette: nil,
+            ai: aiActions,
+            reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
+            composeNote: { showCompose = true },
+            find: editor.note.map { note in
+                { NotificationCenter.default.post(name: .hnFind(documentId: note.fileURL.path), object: nil) }
+            },
+            searchAllCollections: { select(.library) },
+            editorMode: mode,
+            setEditorMode: { storedMode = $0.rawValue }
+        )
     }
 
     /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,

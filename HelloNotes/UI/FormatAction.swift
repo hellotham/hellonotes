@@ -29,6 +29,13 @@ extension Notification.Name {
     static func hnFormat(_ kind: String, documentId: String) -> Notification.Name {
         Notification.Name("hnEditorFormat.\(kind).\(documentId)")
     }
+
+    /// Open the editor's find bar. Same shape as the formatting bus: the find
+    /// bar belongs to the text view, so a menu item needs a way to reach the
+    /// one showing this document.
+    static func hnFind(documentId: String) -> Notification.Name {
+        Notification.Name("hnEditorFind.\(documentId)")
+    }
 }
 
 extension FormatAction {

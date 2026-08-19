@@ -95,8 +95,11 @@ struct HelloNotesApp: App {
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 720)   // roomy first launch (not the 860pt min floor)
-        .commands { HelloNotesCommands() }
         #endif
+        // iPadOS builds its menu bar from a scene's `.commands` exactly as
+        // macOS does. Gating this was gating the iPad's whole menu bar and
+        // every keyboard shortcut with it — no ⌘B, no ⌘F, no View menu.
+        .commands { HelloNotesCommands() }
 
         #if os(macOS)
         // Standalone single-note windows, opened via `openWindow(value: NoteRef(url))`.

@@ -64,6 +64,7 @@ struct iOSLiveEditor: View {
         Group {
             if let document {
                 MarkdownEditorView(document: document)
+                    .commandBus(documentId: note.fileURL.path)
                     .editable(true)
                     .onLinkTap { tap in
                         switch tap {
