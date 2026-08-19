@@ -187,7 +187,10 @@ struct iOSContentView: View {
 
     var body: some View {
         AdaptiveShell(
-            inspectorPresented: $inspectorPresented,
+            // Never a third column on iPad: the inspector is an overlay over
+            // the note (below), which is what Obsidian does and what makes it
+            // work in portrait, where no shell here is wide enough for a rail.
+            inspectorPresented: .constant(false),
             columnVisibility: $columnVisibility,
             // Touch sizing: 44pt targets, and the keyboard accessory bar
             // instead of a persistent format bar (decision 3).
@@ -952,25 +955,7 @@ struct iOSContentView: View {
     @ViewBuilder
     private var inspector: some View {
         if let collection = focused {
-            VStack(spacing: 0) {
-                // On the Mac the toolbar is this panel's tab strip (D6). On
-                // iPad the toolbar has no room, so the strip lives here.
-                Picker("Inspector tab", selection: Binding(
-                    get: { inspectorTab },
-                    set: { inspectorTabRaw = $0.rawValue }
-                )) {
-                    ForEach(InspectorTab.allCases) { tab in
-                        Image(systemName: tab.systemImage)
-                            .accessibilityLabel(tab.title)
-                            .tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                Divider()
-                NoteInspector(
+            NoteInspector(
                 noteText: editor.text,
                 onSelectHeading: { scrollToHeading($0.title) },
                 summarize: { text in
@@ -1021,7 +1006,6 @@ struct iOSContentView: View {
                 tab: inspectorTab,
                 request: inspectorRequest
             )
-            }
         } else {
             ContentUnavailableView("No Collection", systemImage: "sidebar.right",
                                    description: Text("Open a collection to inspect its notes."))
@@ -1092,6 +1076,7 @@ struct iOSContentView: View {
             // Without the clamp the editor's or preview's ideal height sizes
             // the column, and the split view follows it past the screen.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .trailing) { inspectorOverlay }
             .navigationTitle(note.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1253,6 +1238,70 @@ struct iOSContentView: View {
                   ? "sidebar.trailing" : "sidebar.right")
         }
         .accessibilityLabel(inspectorPresented ? "Hide Inspector" : "Show Inspector")
+    }
+
+    /// The inspector, over the note rather than beside it.
+    ///
+    /// A column needs width the iPad does not reliably have — 1400pt for a
+    /// third column, and 834pt in portrait is not close. An overlay is
+    /// width-independent, so the panel behaves the same in both orientations,
+    /// and it is what Obsidian does here.
+    @ViewBuilder
+    private var inspectorOverlay: some View {
+        if inspectorPresented {
+            ZStack(alignment: .trailing) {
+                // Tap anywhere on the note to dismiss — the panel is modal over
+                // the note, so there is no reason to hunt for the close button.
+                Color.black.opacity(0.12)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) { inspectorPresented = false }
+                    }
+                VStack(spacing: 0) {
+                    inspectorHeader
+                    Divider()
+                    inspector
+                }
+                .frame(width: 360)
+                .background(.regularMaterial)
+                .overlay(alignment: .leading) { Divider() }
+                .transition(.move(edge: .trailing))
+            }
+        }
+    }
+
+    /// The panel's own chrome: a dropdown naming the tab, and a way out.
+    /// The Mac uses five toolbar toggles as the tab strip; there is no room for
+    /// that on an iPad toolbar that already carries the mode picker.
+    private var inspectorHeader: some View {
+        HStack {
+            Menu {
+                Picker("Tab", selection: Binding(
+                    get: { inspectorTab },
+                    set: { inspectorTabRaw = $0.rawValue }
+                )) {
+                    ForEach(InspectorTab.allCases) { tab in
+                        Label(tab.title, systemImage: tab.systemImage).tag(tab)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Label(inspectorTab.title, systemImage: inspectorTab.systemImage)
+                    Image(systemName: "chevron.down").font(.caption2)
+                }
+                .font(.headline)
+            }
+            Spacer()
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { inspectorPresented = false }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Close Inspector")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 
     /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,
