@@ -47,53 +47,29 @@ public final class MarkdownUITextView: UITextView {
     /// on, so it also needs no bus to reach the text.
     ///
     /// `lazy`, like the other view-owned properties here — see `chromeOverlay`.
-    private lazy var formatAccessory: UIToolbar = makeFormatAccessory()
+    private lazy var formatAccessory: UIView = makeFormatAccessory()
 
-    private func makeFormatAccessory() -> UIToolbar {
-        // Width matters. An `inputAccessoryView` is laid out *by the keyboard*,
-        // and a zero-width one is not merely invisible — it can take the input
-        // session down with it, leaving a note on screen with no caret and no
-        // keyboard. `sizeToFit()` below gives it the screen's width; the
-        // autoresizing mask keeps it right across rotation and split view.
-        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+    private func makeFormatAccessory() -> UIView {
+        let bar = FormatAccessoryView(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
         bar.autoresizingMask = .flexibleWidth
-
-        func button(_ symbol: String, _ label: String,
-                    _ command: EditorFormatCommand) -> UIBarButtonItem {
-            let item = UIBarButtonItem(
-                image: UIImage(systemName: symbol),
-                primaryAction: UIAction { [weak self] _ in self?.apply(command) })
-            item.accessibilityLabel = label
-            return item
-        }
-
-        // Applying the same level again removes the heading — the editor's own
-        // semantics, so there is no separate "Body" item to get wrong.
-        let heading = UIBarButtonItem(
-            image: UIImage(systemName: "textformat.size"),
-            menu: UIMenu(children: (1...3).map { level in
-                UIAction(title: "Heading \(level)") { [weak self] _ in
-                    self?.apply(.heading(level))
-                }
-            }))
-        heading.accessibilityLabel = "Heading"
-
-        let hide = UIBarButtonItem(
-            image: UIImage(systemName: "keyboard.chevron.compact.down"),
-            primaryAction: UIAction { [weak self] _ in self?.resignFirstResponder() })
-        hide.accessibilityLabel = "Hide Keyboard"
-
-        bar.items = [
-            button("bold", "Bold", .bold),
-            button("italic", "Italic", .italic),
-            button("chevron.left.forwardslash.chevron.right", "Code", .inlineCode),
-            heading,
-            button("list.bullet", "Bulleted List", .unorderedList),
-            button("list.number", "Numbered List", .orderedList),
-            button("text.quote", "Blockquote", .blockquote),
-            UIBarButtonItem(systemItem: .flexibleSpace),
-            hide,
-        ]
+        bar.configure(
+            commands: [
+                ("bold", "Bold", .bold),
+                ("italic", "Italic", .italic),
+                ("strikethrough", "Strikethrough", .strikethrough),
+                ("highlighter", "Highlight", .highlight),
+                ("chevron.left.forwardslash.chevron.right", "Code", .inlineCode),
+                ("text.quote", "Blockquote", .blockquote),
+                ("list.bullet", "Bulleted List", .unorderedList),
+                ("list.number", "Numbered List", .orderedList),
+                ("1.square", "Heading 1", .heading(1)),
+                ("2.square", "Heading 2", .heading(2)),
+                ("3.square", "Heading 3", .heading(3)),
+            ],
+            apply: { [weak self] command in self?.apply(command) },
+            undo: { [weak self] in self?.undoManager?.undo() },
+            redo: { [weak self] in self?.undoManager?.redo() },
+            dismiss: { [weak self] in self?.resignFirstResponder() })
         bar.sizeToFit()
         return bar
     }
@@ -319,6 +295,82 @@ public final class MarkdownUITextView: UITextView {
     }
 }
 
+
+/// The formatting bar above the keyboard.
+///
+/// A scrolling row of evenly weighted buttons, not a `UIToolbar`. The toolbar
+/// version spread seven items across the width with a flexible space, so the
+/// spacing changed with the device, nothing was grouped, and there was no room
+/// for a twelfth command without crowding the rest. Scrolling decouples the
+/// number of commands from the width of the screen, which is the property that
+/// makes a bar like this work on a phone and an iPad alike.
+///
+/// Undo, redo and dismiss are pinned outside the scroll view: they are the
+/// controls you reach for without looking, so they must not move.
+final class FormatAccessoryView: UIView {
+
+    private let scroller = UIScrollView()
+    private let row = UIStackView()
+    private let fixed = UIStackView()
+
+    func configure(commands: [(String, String, EditorFormatCommand)],
+                   apply: @escaping (EditorFormatCommand) -> Void,
+                   undo: @escaping () -> Void,
+                   redo: @escaping () -> Void,
+                   dismiss: @escaping () -> Void) {
+        backgroundColor = .secondarySystemBackground
+
+        func button(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> UIButton {
+            var config = UIButton.Configuration.plain()
+            config.image = UIImage(systemName: symbol,
+                                   withConfiguration: UIImage.SymbolConfiguration(pointSize: 17,
+                                                                                  weight: .regular))
+            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10)
+            let b = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+            b.accessibilityLabel = label
+            b.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+            return b
+        }
+
+        row.axis = .horizontal
+        for (symbol, label, command) in commands {
+            row.addArrangedSubview(button(symbol, label) { apply(command) })
+        }
+
+        scroller.showsHorizontalScrollIndicator = false
+        scroller.addSubview(row)
+
+        fixed.axis = .horizontal
+        fixed.addArrangedSubview(button("arrow.uturn.backward", "Undo", undo))
+        fixed.addArrangedSubview(button("arrow.uturn.forward", "Redo", redo))
+        fixed.addArrangedSubview(button("keyboard.chevron.compact.down", "Hide Keyboard", dismiss))
+
+        for v in [scroller, row, fixed] { v.translatesAutoresizingMaskIntoConstraints = false }
+        addSubview(scroller)
+        addSubview(fixed)
+
+        NSLayoutConstraint.activate([
+            scroller.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroller.topAnchor.constraint(equalTo: topAnchor),
+            scroller.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scroller.trailingAnchor.constraint(equalTo: fixed.leadingAnchor),
+
+            row.leadingAnchor.constraint(equalTo: scroller.contentLayoutGuide.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: scroller.contentLayoutGuide.trailingAnchor),
+            row.topAnchor.constraint(equalTo: scroller.contentLayoutGuide.topAnchor),
+            row.bottomAnchor.constraint(equalTo: scroller.contentLayoutGuide.bottomAnchor),
+            row.heightAnchor.constraint(equalTo: scroller.frameLayoutGuide.heightAnchor),
+
+            fixed.trailingAnchor.constraint(equalTo: trailingAnchor),
+            fixed.topAnchor.constraint(equalTo: topAnchor),
+            fixed.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 44)
+    }
+}
 
 /// Lets the link tap coexist with the caret tap.
 ///

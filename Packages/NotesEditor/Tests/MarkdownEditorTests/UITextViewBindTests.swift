@@ -100,14 +100,22 @@ import Testing
     /// was simply unreachable, which is the failure this test exists to catch.
     @Test func theKeyboardBarIsAttachedWithTheFormattingCommands() {
         let (tv, _) = hosted(EditorDocument(text: "plain line\n"))
-        let bar = tv.inputAccessoryView as? UIToolbar
-        let labels = (bar?.items ?? []).compactMap(\.accessibilityLabel)
-        #expect(labels.contains("Bold"))
-        #expect(labels.contains("Italic"))
-        #expect(labels.contains("Heading"))
-        #expect(labels.contains("Bulleted List"))
-        #expect(labels.contains("Blockquote"))
-        #expect(labels.contains("Hide Keyboard"))
+        let bar = try? #require(tv.inputAccessoryView)
+        let labels = Set(bar.map(allAccessibilityLabels) ?? [])
+        for command in ["Bold", "Italic", "Strikethrough", "Highlight", "Code",
+                        "Blockquote", "Bulleted List", "Numbered List",
+                        "Heading 1", "Heading 2", "Heading 3",
+                        "Undo", "Redo", "Hide Keyboard"] {
+            #expect(labels.contains(command), "the keyboard bar is missing \(command)")
+        }
+    }
+
+    /// Every accessibility label in a view tree. The bar is a scrolling stack
+    /// of buttons rather than a `UIToolbar`, so its commands are descendants,
+    /// not `items`.
+    private func allAccessibilityLabels(_ view: UIView) -> [String] {
+        (view.accessibilityLabel.map { [$0] } ?? [])
+            + view.subviews.flatMap(allAccessibilityLabels)
     }
 
     /// The other half: the commands the bar sends have to reach the document.
