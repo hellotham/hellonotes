@@ -12,6 +12,8 @@ import Foundation
 import Testing
 #if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 @testable import MarkdownEditor
 @testable import MarkdownCore
@@ -526,6 +528,11 @@ import AppKit
     }
 
     // MARK: - Block embeds
+    // Block embeds render to a PlatformImage and collapse the source, and
+    // that whole path is `#if canImport(AppKit)` in EditorDocument — the iOS
+    // view still shows the Markdown source (docs/unimplemented.md §6). The
+    // tests follow the feature.
+    #if canImport(AppKit)
 
     private struct StubBlockRenderer: BlockRenderer {
         let image: PlatformImage
@@ -712,6 +719,7 @@ import AppKit
         }
         #expect(pink == 0, "highlighter repainted \(pink) concealed characters")
     }
+    #endif
 
     // MARK: - Latency at the p99-note scale
 

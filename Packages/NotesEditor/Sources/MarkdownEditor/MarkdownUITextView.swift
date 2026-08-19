@@ -30,7 +30,35 @@ public final class MarkdownUITextView: UITextView {
     var onLinkTap: ((EditorLinkTap) -> Void)?
 
     public static func make(document: EditorDocument) -> MarkdownUITextView {
-        let tv = MarkdownUITextView(usingTextLayoutManager: true)
+        // Build the TextKit 2 stack around the document's storage *first*, and
+        // hand the finished container to the initialiser.
+        //
+        // The alternative — construct the view, then assign
+        // `textContentStorage.textStorage` — is what AppKit's half does, and it
+        // does not work here. A TextKit 2 `UITextView` keeps two references to
+        // the document: the content storage the layout manager reads, and its
+        // own `textStorage`. Replacing the first leaves the second pointing at
+        // whatever storage the initialiser made, so the view reports
+        // `textStorage.length == 0` and `text == ""` for a 19,450-character
+        // note while its layout manager lays out all 19,450. UIKit then takes a
+        // range from one and reads attributes from the other:
+        //
+        //     NSRangeException: -[NSConcreteTextStorage
+        //     attribute:atIndex:longestEffectiveRange:inRange:]
+        //
+        // thrown from inside UIKit with no app frames on the stack, on any tap
+        // or selection past the start of the document. Harmless while notes
+        // were empty; fatal the moment they had content.
+        // `UITextViewBindTests` holds the invariant.
+        let contentStorage = NSTextContentStorage()
+        contentStorage.textStorage = document.storage
+        let layoutManager = NSTextLayoutManager()
+        contentStorage.addTextLayoutManager(layoutManager)
+        let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        layoutManager.textContainer = container
+
+        let tv = MarkdownUITextView(frame: .zero, textContainer: container)
         tv.bind(to: document)
         tv.isEditable = true
         tv.isScrollEnabled = true
@@ -52,6 +80,15 @@ public final class MarkdownUITextView: UITextView {
         tv.smartInsertDeleteType = .no
         tv.spellCheckingType = .default
         tv.keyboardDismissMode = .interactive
+
+        // The system find bar — ⌘F on a hardware keyboard, and "Find…" in the
+        // edit menu. This was switched off for a while on the theory that
+        // `UIFindInteraction` walked the storage over stale ranges of its own.
+        // It did not: it walked the *empty* `UITextView.textStorage` described
+        // above, which is why turning it off did not stop the crash. With the
+        // view built around the document's storage it searches the note it is
+        // showing.
+        tv.isFindInteractionEnabled = true
 
         // Tap-to-navigate wiki links / URLs (an editable text view otherwise
         // just moves the caret).
@@ -116,27 +153,22 @@ public final class MarkdownUITextView: UITextView {
         // rather than let UITextView insert a foreign attachment into storage.
     }
 
+    /// Adopt `document`, whose storage the caller has *already* built this view
+    /// around. Nothing here touches the storage.
+    ///
+    /// In particular there is no `font = document.theme.body`. On AppKit that
+    /// assignment is a hazard handled by ordering it against the storage swap;
+    /// here there is no swap to order it against, and it would be pure damage:
+    /// `font` applies to the whole attached storage, flattening the per-run
+    /// concealed 0.1pt fonts the document has already applied. It is also
+    /// unnecessary — `EditorDocument.init` writes the theme's body font and
+    /// colour across the entire string before any view exists.
     private func bind(to document: EditorDocument) {
         self.document = document
-        // Mirrors macOS: `font` applies to the storage attached *right now*, so
-        // it must land neither on the new document (flattening its concealed
-        // runs) nor on a previously attached one (flattening the note just
-        // left). Only `make(document:)` calls this today, so there is never a
-        // previous storage — the throwaway keeps that from becoming a trap if
-        // this ever gets called twice.
-        if let contentStorage = textLayoutManager?.textContentManager as? NSTextContentStorage {
-            contentStorage.textStorage = NSTextStorage()
-        }
-        font = document.theme.body
         typingAttributes = [
             .font: document.theme.body,
             .foregroundColor: document.theme.text,
         ]
-        if let contentStorage = textLayoutManager?.textContentManager as? NSTextContentStorage {
-            contentStorage.textStorage = document.storage
-        }
-        // Set the fragment-vending delegate AFTER attaching storage — attaching a
-        // new text storage can re-seat the layout manager on iOS.
         textLayoutManager?.delegate = blockLayoutDelegate
         syncRenderMetrics()
     }
@@ -300,11 +332,6 @@ public struct MarkdownEditorView: UIViewRepresentable {
         tv.onLinkTap = onLinkTap
         tv.delegate = context.coordinator
         context.coordinator.subscribeToFormatBus(documentId: busDocumentId, view: tv)
-        // The system find bar — ⌘F on a hardware keyboard, and the "Find…"
-        // item in the edit menu. iOS has had this since 16 and it is better
-        // than porting the Mac's bespoke find bar: it brings find-and-replace,
-        // the standard shortcuts, and the accessibility behaviour with it.
-        tv.isFindInteractionEnabled = true
         // Small/medium notes: style the whole document once up front (proven
         // path). Large notes: rely on the document's synchronous prefix styling
         // (done in init) plus its idle background pass, so opening never blocks

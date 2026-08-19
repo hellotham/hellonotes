@@ -12,6 +12,10 @@
 //  systems has already been lied to.
 //
 
+// AppKit-only: this suite drives `MarkdownTextView`, the NSTextView half
+// of the editor. The package builds for iOS too, and the tests have to
+// compile there.
+#if canImport(AppKit)
 import Foundation
 import Testing
 #if canImport(AppKit)
@@ -174,4 +178,5 @@ import AppKit
         #expect(InlineSuggestion.sanitise("   \n  ") == nil)
     }
 }
+#endif
 #endif

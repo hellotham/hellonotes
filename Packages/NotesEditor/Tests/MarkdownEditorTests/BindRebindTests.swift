@@ -9,6 +9,10 @@
 //  outlive their views, so the damage stuck.
 //
 
+// AppKit-only: this suite drives `MarkdownTextView`, the NSTextView half
+// of the editor. The package builds for iOS too, and the tests have to
+// compile there.
+#if canImport(AppKit)
 import Foundation
 import Testing
 #if canImport(AppKit)
@@ -50,3 +54,4 @@ import AppKit
         #expect(fm < 1, "binding another document un-concealed the first document's front matter")
     }
 }
+#endif
