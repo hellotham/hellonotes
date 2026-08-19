@@ -671,6 +671,11 @@ public final class EditorDocument {
                 refreshHighlight(blockIndex: index, revealed: revealed.contains(index))
             }
         }
+        if services.blockRenderer != nil {
+            for index in blockIndices {
+                refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index))
+            }
+        }
         #if canImport(AppKit)
         for index in blockIndices {
             refreshFrontMatterFold(blockIndex: index, revealed: revealed.contains(index))
@@ -678,7 +683,6 @@ public final class EditorDocument {
         }
         if services.blockRenderer != nil {
             for index in blockIndices {
-                refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index))
                 refreshInlineMath(blockIndex: index, revealed: revealed.contains(index))
             }
         }
@@ -700,14 +704,12 @@ public final class EditorDocument {
         let block = parse.blocks[blockIndex]
         guard case .fencedCode(let info, let closed) = block.kind, !info.isEmpty else { return }
 
-        #if canImport(AppKit)
         // A Mermaid fence is both a highlightable code block and a rendered
         // embed. Once collapsed, its source is concealed at 0.1pt with a clear
         // color — painting syntax colors back over it (this runs async, so it
         // lands *after* the collapse) turns the invisible source into a
         // scattering of coloured specks under the diagram.
         if !revealed, blockEmbedKind(at: blockIndex) != nil { return }
-        #endif
 
         // The code body: lines between the fences.
         let bodyFirst = block.firstLine + 1
@@ -780,10 +782,13 @@ public final class EditorDocument {
     /// Whether the host is in dark appearance (host updates on change).
     @ObservationIgnored public var isDarkAppearance = false
 
-    #if canImport(AppKit)
+    // Block embeds are cross-platform. The renderers and `RenderedBlockFragment`
+    // already were; only this collapse-and-band step was gated, so iOS wired
+    // a `BlockRenderAdapter` that was never invoked and a table stayed as
+    // pipes and dashes. docs/unimplemented.md §6.
     /// Rendered image per (kind) content hash. Cached so a restyle re-applies
     /// the collapse+image synchronously (no flash on caret enter/leave).
-    @ObservationIgnored private var blockImageCache: [Int: NSImage] = [:]
+    @ObservationIgnored private var blockImageCache: [Int: PlatformImage] = [:]
     @ObservationIgnored private var blockRendersInFlight: Set<Int> = []
 
     /// The renderable embed a block represents, or nil. A standalone image
@@ -901,7 +906,7 @@ public final class EditorDocument {
     /// Collapse a block's source to near-zero height and reserve the image's
     /// height below it (drawn by RenderedBlockFragment). Source stays in the
     /// storage — concealed, not deleted.
-    private func collapse(range: NSRange, to image: NSImage) {
+    private func collapse(range: NSRange, to image: PlatformImage) {
         guard range.location + range.length <= storage.length else { return }
         let ns: NSString = storage.mutableString
 
@@ -948,6 +953,10 @@ public final class EditorDocument {
     /// the editor body starts at the first real content — the app's dedicated
     /// Properties panel is the front-matter editing surface. The source stays
     /// byte-pure in storage; caret entry (e.g. arrowing up into it) reveals
+    // Folds and inline math are still AppKit-only — they need the
+    // fold/replacement machinery, not just an image band. Tables,
+    // Mermaid, display maths and transclusions need only the band.
+    #if canImport(AppKit)
     /// the raw YAML for direct editing.
     private func refreshFrontMatterFold(blockIndex: Int, revealed: Bool) {
         guard blockIndex >= 0, blockIndex < parse.blocks.count else { return }

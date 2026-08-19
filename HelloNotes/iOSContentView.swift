@@ -48,6 +48,18 @@ struct iOSContentView: View {
     /// notes became unrenameable.
     @State private var renameTarget: Note?
     @State private var renameText = ""
+    /// Which sidebar folders are open, by node id.
+    ///
+    /// `DisclosureGroup` with no `isExpanded` binding is collapsed on every
+    /// appearance, so the tree forgot where you were each launch — on a vault
+    /// with nested folders that means re-navigating from the root every time.
+    @SceneStorage("iosExpandedFolders") private var expandedFolderIDs = ""
+    private var expandedFolders: Binding<Set<String>> {
+        Binding(
+            get: { Set(expandedFolderIDs.split(separator: "\n").map(String.init)) },
+            set: { expandedFolderIDs = $0.sorted().joined(separator: "\n") }
+        )
+    }
     @State private var selectedNoteID: Note.ID?
     @State private var selectedTag: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -393,7 +405,7 @@ struct iOSContentView: View {
                         }
                     } else {
                         ForEach(tree(for: collection)) { node in
-                            CollectionTreeRow(node: node) { note in
+                            CollectionTreeRow(node: node, expanded: expandedFolders) { note in
                                 AnyView(noteActions(note))
                             }
                         }
@@ -1349,6 +1361,9 @@ struct iOSContentView: View {
 /// with no sense of where anything lives.
 private struct CollectionTreeRow: View {
     let node: CollectionTreeNode
+    /// The open folders, shared by the whole tree so the state survives the
+    /// rows being rebuilt (which happens on every rescan).
+    @Binding var expanded: Set<String>
     /// The actions menu for a note row. `AnyView` because the closure is stored
     /// and the row recurses; the alternative is a generic parameter that has to
     /// be threaded through every level of the tree for no benefit.
@@ -1359,9 +1374,12 @@ private struct CollectionTreeRow: View {
             Text(note.title).tag(note.id)
                 .contextMenu { actions(note) }
         } else if node.isFolder {
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: Binding(
+                get: { expanded.contains(node.id) },
+                set: { if $0 { expanded.insert(node.id) } else { expanded.remove(node.id) } }
+            )) {
                 ForEach(node.children ?? []) { child in
-                    CollectionTreeRow(node: child, actions: actions)
+                    CollectionTreeRow(node: child, expanded: $expanded, actions: actions)
                 }
             } label: {
                 Label(node.name, systemImage: "folder")

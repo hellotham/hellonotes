@@ -127,6 +127,12 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         drawHeadingRule(at: point, in: context)
         drawInlineImages(at: point, in: context)
 
+        drawBlockImage(at: point, in: context)
+    }
+
+    /// The rendered table / diagram / display-maths image, in the band that
+    /// `EditorDocument.collapse(range:to:)` reserved for it.
+    private nonisolated func drawBlockImage(at point: CGPoint, in context: CGContext) {
         guard let (image, bandTop) = blockImage(), let cg = PlatformDraw.cgImage(image) else { return }
         let leftInset = point.x - layoutFragmentFrame.origin.x
             + (textLayoutManager?.textContainer?.lineFragmentPadding ?? 0)
@@ -135,15 +141,21 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         PlatformDraw.image(cg, in: rect, context: context)
     }
 
-    /// Draw only the chrome (no text, no block-embed image) at `point`. Used by
-    /// the iOS overlay renderer, since `UITextView` doesn't invoke a custom
-    /// fragment's `draw(at:in:)` the way `NSTextView` does.
+    /// Draw everything except the text at `point` — chrome *and* the block
+    /// image. Used by the iOS overlay renderer, since `UITextView` doesn't
+    /// invoke a custom fragment's `draw(at:in:)` the way `NSTextView` does.
+    ///
+    /// The block image belongs here, not only in `draw`: leaving it out is why
+    /// a table on iPad stayed as pipes and dashes. The source is concealed and
+    /// a band is reserved for the image either way, so omitting the draw left
+    /// an empty band rather than a table.
     nonisolated func drawChromeOnly(at point: CGPoint, in context: CGContext) {
         drawCalloutBands(at: point, in: context)
         drawTaskCheckboxes(at: point, in: context)
         drawListBullets(at: point, in: context)
         drawHeadingRule(at: point, in: context)
         drawInlineImages(at: point, in: context)
+        drawBlockImage(at: point, in: context)
     }
 
     // MARK: - Task checkboxes
