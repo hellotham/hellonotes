@@ -5,6 +5,68 @@ one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
+## 1.3.2 — 2026-08-20
+
+HelloNotes runs on iPad properly rather than nominally, and one rendering fix
+turns out to have affected the Mac just as much.
+
+**Minimum is now macOS 26.5 and iOS/iPadOS 26.5.** The Intelligence features are
+built on Foundation Models, which is 26-only, and the Quick Look extensions
+already required 26.5 while the app claimed 15.0 — an app cannot promise an OS
+its own embedded extensions refuse to run on.
+
+### The iPad editor works
+
+Four defects, each hidden behind the one in front of it.
+
+- **Tapping in a note crashed the app.** A `UITextView` keeps two references to
+  the document it shows and only one was being replaced, so the view reported an
+  empty document while its layout engine laid out the whole note. AppKit
+  tolerates that storage swap; UIKit does not.
+- **There was no cursor.** The wiki-link tap recogniser had no delegate, so it
+  competed with the text view's own caret tap and won — then did nothing,
+  because most taps are not on a link. Scrolling worked throughout, which is
+  what disguised it.
+- **The format bar never rendered.** Built as a SwiftUI keyboard toolbar, which
+  attaches only to views SwiftUI manages. Now a real keyboard accessory: a
+  scrolling row of fourteen commands, with undo, redo and dismiss pinned.
+- **Switching notes kept the previous note's text** — and the stale document was
+  still wired to the model, so typing would have saved the old note over the new
+  file.
+
+### Rendering
+
+- **Tables, Mermaid diagrams, display maths and `![[Note]]` transclusions render
+  on iPad.** They were parsed, styled and given a band to sit in; one step
+  between the renderer and the page was macOS-only, so the adapter was never
+  called.
+- **Preview matches the editor, on both platforms.** Preview called a small
+  hand-written stylesheet rather than the GitHub-identical renderer the app is
+  built on — so the editor styled from GitHub's parse tree and the Preview did
+  not. Export and Print were on the same wrong path. One renderer remains, so
+  they cannot drift apart again.
+- **Rendered text is no longer serif.** A malformed CSS property meant every
+  preview, exported HTML file and printed page fell back to Times.
+- **Markdown mode stopped rewriting your Markdown.** Typing `---` under a table
+  header produced an em dash and the table quietly stopped being one.
+
+### Reaching things on iPad
+
+- **A menu bar**, and the shortcuts that come with it: ⌘B, ⌘F, Find, View.
+- **File tabs**, sharing the Mac's tab model rather than a second one.
+- **The inspector** over the note, with a button to open it. Previously
+  unreachable — the control needed a screen wider than an iPad.
+- **Rename, duplicate, bookmark, export and delete**, and a sidebar folder tree
+  that remembers what you left open.
+
+### Internal
+
+- The editor package's tests had only ever run on macOS despite the package
+  declaring iOS support. They run on both now — that gap is why four defects in
+  the UIKit half went unnoticed.
+
+---
+
 ## 1.3.1 — 2026-08-18
 
 A bug-fix release. On a large vault kept in iCloud Drive the editor froze:

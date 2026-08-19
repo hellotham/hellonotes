@@ -1,6 +1,6 @@
 # HelloNotes
 
-> **Version 1.3.1** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
+> **Version 1.3.2** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
 
 HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps like Obsidian and cross-platform editors like Typora. It's built strictly on modern Swift — **AppKit + TextKit 2 + SwiftUI** — prioritising high-FPS text rendering, plain `.md` files as the absolute source of truth, and seamless background Git synchronisation. **No proprietary database. Your files in Finder *are* the database** — and those files can live locally *or* in Box, Dropbox, OneDrive, Google Drive or iCloud, opened on demand without pulling the whole vault down.
 
@@ -20,7 +20,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, in user-facing terms |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
-## ✨ Features (v1.3.1)
+## ✨ Features (v1.3.2)
 
 **Local-first, multi-collection**
 - No CoreData/SwiftData/iCloud store; your `.md` files are the truth. Open **several collections at once** as a *library*, with a launcher, recents, and saved library sets.
@@ -52,6 +52,9 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **Suggest as I type** *(Mac, off by default)* — ghost text after the cursor, ⌥⇥ to accept. On-device only, and never part of the note until accepted: it is drawn, never stored, so it cannot reach a save, the index or a Git diff.
 - **Ask Library** — retrieval chat grounded in your notes, with citations you can jump to. An agentic **Assistant** with tools (search, read, edit-with-approval, web search/fetch), skills and deep research.
 - **All of the above run on iPhone and iPad too**, except the palette and typing suggestions.
+  iPad carries the menu bar and its shortcuts, file tabs, a keyboard format bar, and the
+  inspector over the note rather than beside it — an iPad is never wide enough for a third
+  column, and a threshold that decides whether a panel *may* open is a threshold that hides it.
 - Bring your own model: **local** (Apple Foundation Models, MLX, Ollama, LM Studio) or **your own cloud API key** — Anthropic, Gemini, OpenAI, Mistral, Groq, OpenRouter, xAI (Grok), DeepSeek, Cerebras, Together AI, Perplexity, and Ollama Cloud. Keys live in the Keychain; cloud providers are off until you configure one. Features declare what they *need* and providers declare what they *offer*, so Settings can say plainly which model is doing what and what it cannot hold.
 
 **Cloud storage — two ways, no lock-in**
@@ -110,7 +113,7 @@ Swift Package Manager, native Apple frameworks first.
 | [OpenAI](https://github.com/MacPaw/OpenAI) | OpenAI-compatible provider transport |
 
 ## 🚀 Build & run
-Requirements: **macOS 15+**, **Xcode 26+** (Swift 5.10+).
+Requirements: **macOS 26.5+**, **Xcode 26+** (Swift 5.10+). iOS/iPadOS **26.5+**.
 
 ```bash
 git clone https://github.com/hellotham/hellonotes.git
@@ -229,7 +232,7 @@ only the live site is wrong). See [docs/website.md](docs/website.md):
   newline between text and an inline `<a>` eats the space. 28 of these shipped; use `{' '}`.
 
 ## 🤝 Contributing / working rules
-Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 15+ / Swift 5.10+ / Xcode 26; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.
+Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 26.5+ / iOS 26.5+ / Swift 5.10+ / Xcode 26; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.
 
 ## 📄 License
 See [LICENSE](LICENSE).

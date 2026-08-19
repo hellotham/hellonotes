@@ -1760,3 +1760,97 @@ A patch release, and the whole of it is §23 above: the editor is no longer
 blocked by folder scans, saves, renames or transclusion reads; a partial scan
 can no longer remove notes; and Markdown reveal moved from per-block to per-line
 so a multi-line blockquote keeps its bars while you edit inside it.
+
+
+## 24 · The iPad, actually usable (2026-08-20)
+
+The iOS app had shipped for months and almost nothing in it could be reached.
+Four defects sat on top of one another in the UIKit editor, each hidden behind
+the one in front, and the root cause of all four surviving was a testing gap:
+`swift test --package-path Packages/NotesEditor` **only ever builds the package
+for macOS**, so the UIKit half of an editor whose package declares
+`.iOS(.v18)` had never had a single test run against it.
+
+### The four, in the order they were unstacked
+
+**A text view showing a document it believed was empty.** `NSRangeException` from
+`attribute:atIndex:longestEffectiveRange:inRange:`, with no app frames in the
+stack, on any tap past the first character. Two suspects were eliminated by
+bisect and neither was the cause; three lines of assertion found it:
+
+    tv.textStorage.length                          → 0
+    document.storage.length                        → 19450
+    tv.offset(beginningOfDocument → endOfDocument) → 19450
+
+A TextKit 2 `UITextView` holds two references to the document — the content
+storage its layout manager reads, and its own `textStorage`. `bind(to:)`
+replaced only the first, so UIKit took ranges from one and read attributes from
+the other. AppKit supports that swap; it is why the same code is correct in
+`MarkdownTextView`. The fix is to build the content storage, layout manager and
+container around the document *first* and hand the finished container to
+`UITextView(frame:textContainer:)`.
+
+**A link tap that ate the caret tap.** `make(document:)` adds a
+`UITapGestureRecognizer` for wiki links with no delegate. Two recognisers that
+both recognise a single tap are mutually exclusive unless a delegate says
+otherwise, so ours won, found no link under the finger, and returned — tap
+consumed, caret never placed. `cancelsTouchesInView = false` reads as though it
+covers this and does not: it governs touch *delivery*, not arbitration. The
+delegate must be a separate object; `UITextView` is already the delegate of its
+own six recognisers.
+
+**A format bar that never rendered**, because `ToolbarItemGroup(placement:
+.keyboard)` attaches only to responders SwiftUI manages, and then a replacement
+that was zero-width — an `inputAccessoryView` is laid out by the keyboard, and
+an empty one can take the input session down with it.
+
+**A stale document on note switch.** `updateUIView` never rebound; AppKit's half
+does (`if textView.document !== document`). It could not simply copy that line,
+because rebinding on iOS *is* the storage swap above. The answer is identity:
+`MarkdownEditorView` wraps the representable and gives it
+`.id(ObjectIdentifier(document))`, so a different document is a different view.
+This was not cosmetic — the stale document's `onEdit` still fed the model, so
+typing into what looked like the old note would have written it over the new
+file.
+
+### Rendering: one engine, and it was not the one in use
+
+`docs/implemented.md` §4 records the Preview as GitHub-identical — cmark-gfm into
+github-markdown-css, 648/648 GFM spec tests, byte-parity against
+`api.github.com/markdown`. The package ships `GFMPreview`, whose init is
+`GFMRenderer.page(markdown)`. **Nothing in the app called it.**
+`MarkdownWebView` — the Preview on both platforms — called `MarkdownExport.html`,
+a different formatter under forty lines of hand-written CSS. The live editor
+styled from cmark's AST while the Preview beside it did not.
+
+Preview, Export and Print now all render `GFMRenderer.page`, and
+`MarkdownExport` is deleted rather than left unused: its existence is how this
+drifted, because it was the easier thing to reach. That also fixed a serif bug
+present since the file was written — `font: -apple-system-body, system-ui,
+sans-serif` is not a legal `font` shorthand, so WebKit dropped the declaration
+and fell back to Times in every preview, export and printed page.
+
+Block embeds became cross-platform in the same pass: `EditorDocument`'s
+collapse-and-band step was `#if canImport(AppKit)`, so iOS wired a
+`BlockRenderAdapter` that was never invoked and a table stayed as pipes. The
+overlay then had to draw it — and to *skip fragments TextKit has not laid out*,
+which report a `.zero` frame and were being painted at the top of the document.
+
+### Reachability
+
+The iPad now has a menu bar (iPadOS builds one from a scene's `.commands`
+exactly as macOS does; the call was inside `#if os(macOS)`, which gated every
+keyboard shortcut with it), file tabs backed by the Mac's `EditorTabs`, the
+inspector as an overlay, and a folder tree that remembers what is open.
+
+The inspector deserves a note: it was unreachable because `shellKind` requires
+1400pt for a third column and an 11-inch iPad is 1194pt landscape, 834pt
+portrait. Every fix in that direction was an argument about thresholds. An
+overlay has no threshold to lose.
+
+### Minimum OS
+
+Raised to **26.5** on both platforms. The Intelligence features are built on
+Foundation Models, and the Quick Look extensions already required 26.5 while the
+app claimed macOS 15.0 — an app cannot promise an OS its own embedded extensions
+refuse to run on.

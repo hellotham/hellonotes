@@ -5,6 +5,8 @@
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Markdown Document</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>
@@ -26,6 +28,8 @@
 			     picker — you can browse into them and never select a folder. iCloud
 			     Drive, the system's own provider, does not enforce it, which is why
 			     the failure looked provider-specific instead of self-inflicted. -->
+			<key>CFBundleTypeName</key>
+			<string>Folder</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>

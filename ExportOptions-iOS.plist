@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- TestFlight and the App Store are the same distribution method. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>RPL5R637DS</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- Let Xcode strip and re-sign the Swift runtime as the store expects. -->
+	<key>uploadSymbols</key>
+	<true/>
+	<!-- Bitcode is gone from the toolchain; naming it fails the export. -->
+	<key>destination</key>
+	<string>export</string>
+</dict>
+</plist>

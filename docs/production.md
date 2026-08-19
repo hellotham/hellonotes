@@ -18,7 +18,7 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 | Version / build | `MARKETING_VERSION = 1.3`, `CURRENT_PROJECT_VERSION = 4` |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync) |
-| Min OS | **macOS 15.0** |
+| Min OS | **macOS 26.5** |
 | Website | <https://hellotham.com/hellonotes/> (Privacy · Support live) |
 
 ---
@@ -42,7 +42,7 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 
 ## 1 · Project hardening (pre‑flight) — do these before archiving
 
-> **✅ Already done in this repo:** §1a (min OS → **macOS 15.0**), §1b (Git remote
+> **✅ Already done in this repo:** §1a (min OS → **macOS 26.5**), §1b (Git remote
 > sync entitlement), §1c (Info.plist cleaned), §1d (`ITSAppUsesNonExemptEncryption`),
 > plus the app icon and screenshots. **Left for you:** §1e–§1h (confirm signing,
 > version policy, optional dependency pin, and the final build).
@@ -50,10 +50,17 @@ to an approved Mac App Store release. Copy‑paste values are given for every fi
 Work through each; several are genuine blockers or reviewer red flags.
 
 ### 1a. ✅ Minimum macOS version — done
-Lowered to **`MACOSX_DEPLOYMENT_TARGET = 15.0`** so the app installs on macOS 15+
-(Release build verified clean). On‑device Apple Intelligence stays guarded with
-`#available(macOS 26.0, *)`, so it degrades gracefully on older systems. Raise or
-lower further via Xcode ▸ target ▸ **General** ▸ *Minimum Deployments* if you wish.
+**`MACOSX_DEPLOYMENT_TARGET = 26.5`**, matching iOS.
+
+It sat at 15.0 for 1.3.1, which was wrong in a way nothing caught: the Widgets,
+Preview and Thumbnail extensions were already 26.5, so the app promised an OS its
+own embedded extensions refused to run on. App Store validation is entitled to
+reject that, and on a macOS 15 machine the extensions simply would not load.
+
+Raised rather than lowered because the Intelligence features are built on
+Foundation Models, which is 26-only. The `#available(macOS 26.0, *)` guards stay
+— they cost nothing and they document the boundary — but they are no longer
+load-bearing.
 
 ### 1b. ✅ Git remote sync — enabled
 The app now ships an explicit entitlements file
