@@ -166,13 +166,13 @@ extension AppActions {
             run: refreshCloudCollection)
         add("rescan", "File", "Rescan Collection", "arrow.triangle.2.circlepath", run: rescan)
         add("new-main-window", "File", "New Window", "macwindow",
-            shortcut: "⌥⌘N", run: newWindow)
+            shortcut: "⌥⌘N") { newWindow?() }
         add("close-tab", "File", "Close Tab", "xmark.square",
             enabled: canCloseTab, run: closeTab)
         for provider in CloudBrowser.allCases {
             add("connect-\(provider.rawValue)", "File",
                 "Connect \(provider.displayName) Over the Web…", "cloud") {
-                connectOverWeb(provider)
+                connectOverWeb?(provider)
             }
         }
         // Deliberately no entry for the palette itself: a command that opens the

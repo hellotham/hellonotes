@@ -10,6 +10,7 @@ import Foundation
 #if canImport(AppKit)
 import AppKit
 #endif
+import GFMRender
 @testable import HelloNotes
 
 @MainActor
@@ -530,12 +531,17 @@ struct HelloNotesTests {
         #expect(DocumentAnalyzer.analyze("").readingMinutes == 0)
     }
 
+    /// Export, Print and Preview all render through the same GitHub-identical
+    /// engine. The point of the assertion is the *renderer*, not the markup:
+    /// a second HTML path for notes is what let Preview drift onto a
+    /// hand-written stylesheet while the editor styled from cmark's AST.
     @Test
-    func htmlExportRendersMarkdown() {
-        let html = MarkdownExport.html(from: "# Hi\n\nSome **bold** text.", title: "Doc")
+    func htmlExportRendersThroughTheGitHubRenderer() {
+        let html = GFMRenderer.page("# Hi\n\nSome **bold** text.", title: "Doc")
         #expect(html.contains("<h1>Hi</h1>"))
         #expect(html.contains("<strong>bold</strong>"))
         #expect(html.contains("<title>Doc</title>"))
+        #expect(html.contains("markdown-body"))   // github-markdown-css
     }
 
     // MARK: - EditorTabs

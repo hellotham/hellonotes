@@ -11,6 +11,12 @@ import Foundation
 
 public extension GFMRenderer {
 
+    private static func escapedForTitle(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
     private static func resource(_ name: String, _ ext: String) -> String {
         guard let url = Bundle.module.url(forResource: name, withExtension: ext),
               let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
@@ -30,7 +36,8 @@ public extension GFMRenderer {
     /// `baseURL` (the note's folder) lets relative image `src`s resolve.
     /// - Parameter fontScale: the app's text-scale setting, applied at the
     ///   root so GitHub's own type scale stays proportional.
-    static func page(_ markdown: String, fontScale: Double = 1) -> String {
+    /// - Parameter title: the document title, for a saved or printed file.
+    static func page(_ markdown: String, title: String = "", fontScale: Double = 1) -> String {
         // GitHub-mode: hard line breaks, matching api.github.com/markdown.
         let body = html(markdown, hardBreaks: true)
         return """
@@ -40,6 +47,7 @@ public extension GFMRenderer {
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="light dark">
+        \(title.isEmpty ? "" : "<title>\(escapedForTitle(title))</title>")
         <style>
         \(githubCSS)
         </style>

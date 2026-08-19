@@ -7,6 +7,7 @@
 
 #if os(macOS)
 import AppKit
+import GFMRender
 import UniformTypeIdentifiers
 
 /// macOS export helpers: write a note's HTML/PDF via a save panel. PDF is
@@ -15,19 +16,19 @@ import UniformTypeIdentifiers
 enum EditorExport {
 
     static func exportHTML(markdown: String, title: String) {
-        let html = MarkdownExport.html(from: markdown, title: title)
+        let html = GFMRenderer.page(markdown, title: title)
         save(data: html.data(using: .utf8), suggestedName: "\(title).html", type: .html)
     }
 
     static func exportPDF(markdown: String, title: String) {
-        let html = MarkdownExport.html(from: markdown, title: title)
+        let html = GFMRenderer.page(markdown, title: title)
         save(data: pdfData(fromHTML: html), suggestedName: "\(title).pdf", type: .pdf)
     }
 
     /// Print the note via the standard print panel, rendering its HTML through
     /// the native text system (no WebView).
     static func printNote(markdown: String, title: String) {
-        let html = MarkdownExport.html(from: markdown, title: title)
+        let html = GFMRenderer.page(markdown, title: title)
         guard let htmlData = html.data(using: .utf8),
               let attributed = try? NSAttributedString(
                 data: htmlData,

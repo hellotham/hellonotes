@@ -15,12 +15,13 @@
 
 #if os(iOS)
 import UIKit
+import GFMRender
 
 enum iOSEditorExport {
 
     /// Render `markdown` to HTML and hand the file to the share sheet.
     static func exportHTML(markdown: String, title: String) {
-        let html = MarkdownExport.html(from: markdown, title: title)
+        let html = GFMRenderer.page(markdown, title: title)
         share(data: Data(html.utf8), filename: "\(safe(title)).html")
     }
 
@@ -30,7 +31,7 @@ enum iOSEditorExport {
     /// Preview shows, so an exported PDF matches what was on screen rather than
     /// being a second, subtly different renderer.
     static func exportPDF(markdown: String, title: String) {
-        let html = MarkdownExport.html(from: markdown, title: title)
+        let html = GFMRenderer.page(markdown, title: title)
         let formatter = UIMarkupTextPrintFormatter(markupText: html)
         let renderer = UIPrintPageRenderer()
         renderer.addPrintFormatter(formatter, startingAtPageAt: 0)
@@ -55,7 +56,7 @@ enum iOSEditorExport {
 
     /// Send the rendered note to the system print panel.
     static func printNote(markdown: String, title: String) {
-        let html = MarkdownExport.html(from: markdown, title: title)
+        let html = GFMRenderer.page(markdown, title: title)
         let info = UIPrintInfo.printInfo()
         info.outputType = .general
         info.jobName = title

@@ -277,7 +277,7 @@ struct HelloNotesCommands: Commands {
             // account whose desktop client is not installed.
             Menu("Connect Over the Web") {
                 ForEach(CloudBrowser.allCases) { provider in
-                    Button("\(provider.displayName)…") { actions?.connectOverWeb(provider) }
+                    Button("\(provider.displayName)…") { actions?.connectOverWeb?(provider) }
                 }
                 #if DEBUG
                 Divider()
