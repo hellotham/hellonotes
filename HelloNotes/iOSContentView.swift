@@ -1286,9 +1286,14 @@ struct iOSContentView: View {
 
     /// Raw Markdown source editor, bound straight to the note buffer.
     private var sourceEditor: some View {
-        TextEditor(text: Binding(get: { editor.text }, set: { editor.text = $0 }))
-            .font(.system(size: appearance.editorFontSize, design: .monospaced))
-            .padding(.horizontal, 4)
+        // Not `TextEditor`: SwiftUI cannot turn typographic substitution off,
+        // and this view shows the note's literal Markdown source. See
+        // `iOSSourceEditor` — typing `---` under a table header was producing
+        // an em dash and quietly breaking the table.
+        iOSSourceEditor(
+            text: Binding(get: { editor.text }, set: { editor.text = $0 }),
+            fontSize: appearance.editorFontSize
+        )
     }
 
     /// Read-only rendered preview (WKWebView over the shared HTML export).
