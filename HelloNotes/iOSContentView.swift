@@ -33,7 +33,19 @@ struct iOSContentView: View {
         Binding(get: { mode }, set: { storedMode = $0.rawValue })
     }
 
-    @State private var editor = EditorModel()
+    /// One editor per open note, exactly as on the Mac.
+    ///
+    /// `EditorTabs` was already cross-platform — 117 lines, no `os(macOS)`
+    /// anywhere — and simply unused here, so iPad had a single buffer and no
+    /// tabs. Sharing it is what keeps flush-on-close, prune-with-flush and
+    /// reconcile identical on both platforms rather than reimplemented once
+    /// more.
+    @State private var tabs = EditorTabs()
+    /// Stands in when no note is open, so the 30-odd `editor.` call sites do
+    /// not each have to answer "and if there is nothing open?". The detail
+    /// column shows `ContentUnavailableView` in that state anyway.
+    @State private var noEditor = EditorModel()
+    private var editor: EditorModel { tabs.editor(withID: selectedNoteID) ?? noEditor }
     @State private var showImporter = false
     @State private var showSettings = false
     @State private var showWelcome = false
@@ -339,19 +351,26 @@ struct iOSContentView: View {
             if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
         }
         .focusedSceneValue(\.appActions, appActions)
+        .task { wireTabs() }
+        .onChange(of: library.allNotes) { _, notes in
+            // Closes tabs for notes that are gone — flushing first, which is
+            // the part that stops a rename or an external change taking pending
+            // keystrokes with it.
+            tabs.prune(keeping: Set(notes.map(\.id)))
+        }
         .onChange(of: selectedNoteID) { _, newID in
             // A selection that resolves to nothing must not blank the editor.
             // The same bare lookup on macOS was the "populated sidebar, clicks
             // do nothing" bug; here the failure is worse, because opening `nil`
             // actively closes the open note. Deselecting is the one case where
             // clearing is what was asked for.
-            guard let newID else { Task { await editor.open(nil) }; return }
+            guard newID != nil else { return }
             guard let note = library.allNotes.first(where: { $0.id == newID }) else { return }
-            Task { await editor.open(note) }
+            Task { await tabs.editor(for: note) }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
-                Task { await editor.flush() }
+                Task { await tabs.flushAll() }
             }
         }
         .overlay {
@@ -1078,17 +1097,14 @@ struct iOSContentView: View {
             // the column, and the split view follows it past the screen.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .trailing) { inspectorOverlay }
-            .navigationTitle(note.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    reviewLinksButton
+                // The top line is tabs; one caret holds everything else.
+                ToolbarItem(placement: .principal) {
+                    tabStrip
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    aiMenu
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    modePicker
+                    noteMenu
                 }
                 // Trailing — the inspector's five tabs, over the inspector,
                 // exactly as on the Mac. These *are* the tab strip: the panel
@@ -1315,6 +1331,106 @@ struct iOSContentView: View {
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 8)
+    }
+
+    /// The same wiring the Mac gives its tabs: a save reindexes its collection
+    /// rather than triggering a rescan, opening hydrates a cloud note first,
+    /// and a write into a folder that has gone away is refused rather than
+    /// lost.
+    private func wireTabs() {
+        tabs.onNoteSaved = { @MainActor url, text in
+            library.collection(containing: url)?.noteDidSave(url, text: text)
+        }
+        tabs.prepareToOpen = { @MainActor url in
+            await library.collection(containing: url)?.hydrateIfNeeded(url)
+        }
+        tabs.saveBlocked = { @MainActor url in
+            guard let collection = library.collection(containing: url),
+                  case .unavailable(let reason) = collection.state else { return nil }
+            let title = url.deletingPathExtension().lastPathComponent
+            return "Can’t save “\(title)” — \(reason.explanation) Your changes are kept here until it’s back."
+        }
+    }
+
+    /// The open notes, along the top line.
+    ///
+    /// Tabs rather than a title: a title repeats what the sidebar already says,
+    /// while a tab strip says what is *open* — and on a device with one window
+    /// that is the only place that can say it.
+    private var tabStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(tabs.openNotes) { note in
+                    let isCurrent = note.id == selectedNoteID
+                    HStack(spacing: 4) {
+                        Button { selectedNoteID = note.id } label: {
+                            Text(note.title)
+                                .lineLimit(1)
+                                .font(.subheadline)
+                                .fontWeight(isCurrent ? .semibold : .regular)
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            Task { selectedNoteID = await tabs.close(note.id) }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close \(note.title)")
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(isCurrent ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
+                                in: RoundedRectangle(cornerRadius: 7))
+                    .foregroundStyle(isCurrent ? Color.primary : .secondary)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+        .frame(maxWidth: 520)
+    }
+
+    /// Everything the top bar used to spread across four controls.
+    ///
+    /// One caret, because tabs need the width and because every command here is
+    /// also in the menu bar now — this is the touch route to the same set, not
+    /// a second vocabulary.
+    private var noteMenu: some View {
+        Menu {
+            Picker("View", selection: modeBinding) {
+                ForEach(EditorMode.iOSCases) { m in
+                    Label(m.label, systemImage: m.symbol).tag(m)
+                }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { inspectorPresented.toggle() }
+            } label: {
+                Label(inspectorPresented ? "Hide Inspector" : "Show Inspector",
+                      systemImage: "sidebar.right")
+            }
+            if editor.note != nil {
+                Divider()
+                Button { beginLinkReview() } label: {
+                    Label("Review Links…", systemImage: "link.badge.plus")
+                }
+            }
+            if let ai = aiActions {
+                Divider()
+                Section("Using \(ai.providerName)") {
+                    Button { ai.summarize() } label: { Label("Summarise Note", systemImage: "text.append") }
+                    Button { ai.suggestTags() } label: { Label("Suggest Tags", systemImage: "number") }
+                    Button { ai.suggestLinks() } label: { Label("Suggest Links", systemImage: "link") }
+                    Button { ai.rewriteNote() } label: { Label("Rewrite or Expand…", systemImage: "wand.and.stars") }
+                }
+            }
+        } label: {
+            Image(systemName: "chevron.down.circle")
+        }
+        .accessibilityLabel("Note Actions")
     }
 
     /// The AI commands, or nil when there is nothing they could do.
