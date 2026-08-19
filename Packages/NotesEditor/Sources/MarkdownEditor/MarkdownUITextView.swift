@@ -247,6 +247,15 @@ public final class MarkdownUITextView: UITextView {
     /// colour across the entire string before any view exists.
     private func bind(to document: EditorDocument) {
         self.document = document
+        // A restyle can change what a fragment *is* — a collapsed block, a
+        // concealed marker, a gutter bar — so TextKit has to lay it out again
+        // and the overlay has to repaint. AppKit wires exactly this and iOS
+        // never did, which is why a rendered table drew at the top of the
+        // document until a scroll happened to force both.
+        document.onRestyle = { [weak self] range in
+            self?.textLayoutManager?.invalidateLayout(charactersIn: range)
+            self?.refreshChrome()
+        }
         typingAttributes = [
             .font: document.theme.body,
             .foregroundColor: document.theme.text,
@@ -344,6 +353,15 @@ final class ChromeOverlayView: UIView {
         // visible slice; the enumeration itself still skips over fragments above
         // the rect, so the walk is O(offset-to-viewport + visible), not O(document).
         tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: []) { fragment in
+            // A fragment TextKit has not laid out yet reports
+            // `layoutFragmentFrame` of `.zero`, and `options: []` deliberately
+            // does not force layout (forcing it here re-enters layout during
+            // drawing and crashes — see above). Drawing at a zero frame paints
+            // the fragment at the top of the view: invisible for a gutter bar,
+            // glaring for a rendered table, which is exactly how a table came
+            // out stamped over the first lines of the note until a scroll laid
+            // the fragment out for real.
+            guard fragment.state == .layoutAvailable else { return true }
             let frame = fragment.layoutFragmentFrame
             let top = inset.top + frame.origin.y
             if top > rect.maxY { return false }   // below the dirty rect; done

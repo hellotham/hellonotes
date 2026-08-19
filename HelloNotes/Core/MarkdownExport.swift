@@ -27,7 +27,13 @@ nonisolated enum MarkdownExport {
         <style>
         :root { color-scheme: light dark; font-size: \(rootFontPercent)%; }
         body {
-          font: -apple-system-body, system-ui, sans-serif;
+          /* `font-family`, not the `font` shorthand. The shorthand takes either
+             a single system keyword or a full `style weight size/line-height
+             family`; `font: -apple-system-body, system-ui, sans-serif` is
+             neither, so WebKit dropped the whole declaration and fell back to
+             its default — Times. Every rendered note, every export and every
+             printed page has been serif because of one property name. */
+          font-family: -apple-system, system-ui, "Helvetica Neue", sans-serif;
           max-width: 44rem; margin: 2rem auto; padding: 0 1.25rem;
           line-height: 1.6;
         }

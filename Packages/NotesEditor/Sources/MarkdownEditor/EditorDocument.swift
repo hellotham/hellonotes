@@ -945,6 +945,12 @@ public final class EditorDocument {
         storage.addAttribute(blockImageAttribute, value: image, range: NSRange(location: concealed.location, length: 1))
         storage.endEditing()
         isApplyingStyles = false
+        // The image arrives asynchronously, long after the restyle that
+        // asked for it. Nothing else tells the host, and on iOS the chrome
+        // is painted by a separate overlay view rather than by the fragment
+        // — so the overlay kept whatever it had drawn before, which for a
+        // fragment not yet laid out is the top of the document.
+        onRestyle?(range)
     }
 
     // MARK: - Front-matter fold
