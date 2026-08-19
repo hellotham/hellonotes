@@ -23,7 +23,8 @@
 
 # Commands
 - Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification.
-- Editor tests: `swift test --package-path Packages/NotesEditor`
+- Editor tests (macOS): `swift test --package-path Packages/NotesEditor`
+- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~10s, headless, no app launch). `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-26-5`.
 - Layout contract: `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -only-testing:HelloNotesTests/ShellContractTests` (~2s, headless — run it after any shell or representable change).
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
 - Release/DMG: use the `/release` skill (`docs/production.md` Appendix A2 is authoritative).
@@ -35,5 +36,7 @@
 - Vault content I/O goes through `Core/FileIO` (coordinated), never `String(contentsOf:)`/`.write(to:)` — raw reads of dataless cloud files fail with EDEADLK. The `vault-io-reviewer` agent checks this.
 - `project.pbxproj`: git is the source of truth. Never accept an Xcode regenerate/modernize prompt; recover with `git checkout HEAD -- HelloNotes.xcodeproj/project.pbxproj`.
 - Secrets: `Config/Secrets.xcconfig` (git-ignored) holds provider keys; the DMG bakes in whatever it held at build time. Never touch the repo-root `.env`.
+- A UIKit control added onto a `UITextView` arbitrates against the view's own recognisers. `cancelsTouchesInView = false` governs touch *delivery*, not gesture *arbitration* — a bare `UITapGestureRecognizer` wins and silently eats the caret tap. Give it its own delegate object returning `shouldRecognizeSimultaneouslyWith: true`; never make the text view that delegate, it is already UIKit's for six recognisers of its own.
+- Never swap `NSTextContentStorage.textStorage` under a live `UITextView`. AppKit tolerates it; UIKit keeps a second reference and the two disagree about the document's length, which throws `NSRangeException` from inside UIKit with no app frames on the stack. Build the content storage / layout manager / container first and pass the container to `UITextView(frame:textContainer:)`.
 - Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts).
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.
