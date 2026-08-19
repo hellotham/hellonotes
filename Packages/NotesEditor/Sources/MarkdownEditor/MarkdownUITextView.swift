@@ -29,6 +29,61 @@ public final class MarkdownUITextView: UITextView {
     private lazy var chromeOverlay = ChromeOverlayView()
     var onLinkTap: ((EditorLinkTap) -> Void)?
 
+    /// The formatting bar above the keyboard.
+    ///
+    /// A UIKit `inputAccessoryView`, not a SwiftUI `ToolbarItemGroup(placement:
+    /// .keyboard)`. The SwiftUI form was tried first and simply never appeared:
+    /// SwiftUI hangs a keyboard toolbar off the responder *it* manages, and the
+    /// first responder here is a `UITextView` inside a `UIViewRepresentable`,
+    /// which it does not. The bar is owned by the view whose keyboard it sits
+    /// on, so it also needs no bus to reach the text.
+    ///
+    /// `lazy`, like the other view-owned properties here — see `chromeOverlay`.
+    private lazy var formatAccessory: UIToolbar = makeFormatAccessory()
+
+    private func makeFormatAccessory() -> UIToolbar {
+        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
+        bar.autoresizingMask = .flexibleWidth
+
+        func button(_ symbol: String, _ label: String,
+                    _ command: EditorFormatCommand) -> UIBarButtonItem {
+            let item = UIBarButtonItem(
+                image: UIImage(systemName: symbol),
+                primaryAction: UIAction { [weak self] _ in self?.apply(command) })
+            item.accessibilityLabel = label
+            return item
+        }
+
+        // Applying the same level again removes the heading — the editor's own
+        // semantics, so there is no separate "Body" item to get wrong.
+        let heading = UIBarButtonItem(
+            image: UIImage(systemName: "textformat.size"),
+            menu: UIMenu(children: (1...3).map { level in
+                UIAction(title: "Heading \(level)") { [weak self] _ in
+                    self?.apply(.heading(level))
+                }
+            }))
+        heading.accessibilityLabel = "Heading"
+
+        let hide = UIBarButtonItem(
+            image: UIImage(systemName: "keyboard.chevron.compact.down"),
+            primaryAction: UIAction { [weak self] _ in self?.resignFirstResponder() })
+        hide.accessibilityLabel = "Hide Keyboard"
+
+        bar.items = [
+            button("bold", "Bold", .bold),
+            button("italic", "Italic", .italic),
+            button("chevron.left.forwardslash.chevron.right", "Code", .inlineCode),
+            heading,
+            button("list.bullet", "Bulleted List", .unorderedList),
+            button("list.number", "Numbered List", .orderedList),
+            button("text.quote", "Blockquote", .blockquote),
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            hide,
+        ]
+        return bar
+    }
+
     public static func make(document: EditorDocument) -> MarkdownUITextView {
         // Build the TextKit 2 stack around the document's storage *first*, and
         // hand the finished container to the initialiser.
@@ -80,6 +135,7 @@ public final class MarkdownUITextView: UITextView {
         tv.smartInsertDeleteType = .no
         tv.spellCheckingType = .default
         tv.keyboardDismissMode = .interactive
+        tv.inputAccessoryView = tv.formatAccessory
 
         // The system find bar — ⌘F on a hardware keyboard, and "Find…" in the
         // edit menu. This was switched off for a while on the theory that
@@ -281,8 +337,6 @@ public struct EditorMenuItem {
 /// SwiftUI host for the iOS Markdown editor. Same public surface (`init`,
 /// `editable`, `onLinkTap`) as the macOS `MarkdownEditorView`.
 public struct MarkdownEditorView: UIViewRepresentable {
-    /// Document id for the format command bus, if the host wants one.
-    private var busDocumentId: String?
     private let document: EditorDocument
     private var isEditable = true
     private var onLinkTap: ((EditorLinkTap) -> Void)?
@@ -298,16 +352,6 @@ public struct MarkdownEditorView: UIViewRepresentable {
                              uiView: MarkdownUITextView,
                              context: Context) -> CGSize? {
         viewportSizeThatFits(proposal)
-    }
-
-    /// Listen for formatting commands addressed to `documentId`.
-    ///
-    /// The same bus the Mac's Format menu posts on. iOS needs it for the
-    /// keyboard accessory bar: the bar is a SwiftUI view with no handle on the
-    /// text view, exactly as the Mac's menu bar has none, and the answer that
-    /// already worked there works here.
-    public func commandBus(documentId: String) -> Self {
-        var copy = self; copy.busDocumentId = documentId; return copy
     }
 
     public func editable(_ flag: Bool) -> Self {
@@ -331,7 +375,6 @@ public struct MarkdownEditorView: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         tv.delegate = context.coordinator
-        context.coordinator.subscribeToFormatBus(documentId: busDocumentId, view: tv)
         // Small/medium notes: style the whole document once up front (proven
         // path). Large notes: rely on the document's synchronous prefix styling
         // (done in init) plus its idle background pass, so opening never blocks
@@ -347,11 +390,6 @@ public struct MarkdownEditorView: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         context.coordinator.selectionMenuItems = selectionMenuItems
-        // Re-bind on update as well as creation: switching notes changes the
-        // document id while SwiftUI may reuse the view, and a bus still
-        // addressed to the previous note would format nothing. The subscribe
-        // guard makes an unchanged id a no-op.
-        context.coordinator.subscribeToFormatBus(documentId: busDocumentId, view: tv)
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(document: document) }
@@ -360,60 +398,6 @@ public struct MarkdownEditorView: UIViewRepresentable {
         let document: EditorDocument
         var selectionMenuItems: ((String) -> [EditorMenuItem])?
         init(document: EditorDocument) { self.document = document }
-
-        /// Format-bus observers, and the id they are bound to.
-        ///
-        /// **On the coordinator, not the text view** — the same place macOS
-        /// keeps them, and for a reason that bites specifically here:
-        /// `MarkdownUITextView` is built through the inherited convenience
-        /// initialiser `init(usingTextLayoutManager:)`, which does not run a
-        /// subclass's stored-property synthesis. A plain `var tokens: [X] = []`
-        /// on the view is therefore never initialised, and appending to it
-        /// crashes the moment a note is opened. A coordinator is an ordinary
-        /// Swift class with ordinary initialisation.
-        private var busTokens: [NSObjectProtocol] = []
-        private var busDocumentId: String?
-        private weak var busView: MarkdownUITextView?
-
-        // No `deinit` cleanup: reading the token array from a nonisolated
-        // `deinit` is not allowed (it is not `Sendable`), and it is not needed
-        // — `NotificationCenter` has held its observers weakly since iOS 9, so
-        // they die with the coordinator. Re-binding still removes them
-        // explicitly, because there the array *is* reachable and leaving stale
-        // observers on a live coordinator would format the wrong document.
-
-        /// Observe formatting commands addressed to `documentId`.
-        func subscribeToFormatBus(documentId: String?, view: MarkdownUITextView) {
-            busView = view
-            guard busDocumentId != documentId else { return }
-            for token in busTokens { NotificationCenter.default.removeObserver(token) }
-            busTokens.removeAll()
-            busDocumentId = documentId
-            guard let documentId, !documentId.isEmpty else { return }
-
-            let center = NotificationCenter.default
-            let formats: [(String, EditorFormatCommand)] = [
-                ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),
-                ("highlight", .highlight), ("inlineCode", .inlineCode),
-                ("blockquote", .blockquote), ("unorderedList", .unorderedList),
-                ("orderedList", .orderedList),
-            ]
-            for (kind, command) in formats {
-                busTokens.append(center.addObserver(
-                    forName: Notification.Name("hnEditorFormat.\(kind).\(documentId)"),
-                    object: nil, queue: .main
-                ) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.busView?.apply(command) }
-                })
-            }
-            busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorFormat.heading.\(documentId)"),
-                object: nil, queue: .main
-            ) { [weak self] note in
-                let level = note.userInfo?["level"] as? Int ?? 1
-                MainActor.assumeIsolated { [level] in self?.busView?.apply(.heading(level)) }
-            })
-        }
 
         public func textView(_ textView: UITextView,
                              editMenuForTextIn range: NSRange,

@@ -91,5 +91,40 @@ import Testing
         #expect(tv.text.contains("Section 137"))
     }
 
+
+    // MARK: - The keyboard bar
+
+    /// A `ToolbarItemGroup(placement: .keyboard)` was tried first and never
+    /// appeared — SwiftUI attaches those to responders it owns, and this one is
+    /// a `UITextView` inside a representable. Nothing crashed; the formatting
+    /// was simply unreachable, which is the failure this test exists to catch.
+    @Test func theKeyboardBarIsAttachedWithTheFormattingCommands() {
+        let (tv, _) = hosted(EditorDocument(text: "plain line\n"))
+        let bar = tv.inputAccessoryView as? UIToolbar
+        let labels = (bar?.items ?? []).compactMap(\.accessibilityLabel)
+        #expect(labels.contains("Bold"))
+        #expect(labels.contains("Italic"))
+        #expect(labels.contains("Heading"))
+        #expect(labels.contains("Bulleted List"))
+        #expect(labels.contains("Blockquote"))
+        #expect(labels.contains("Hide Keyboard"))
+    }
+
+    /// The other half: the commands the bar sends have to reach the document.
+    /// iOS routes them through `UITextInput.replace(_:withText:)` — the path a
+    /// keystroke takes — and that had never been run.
+    @Test func formattingFromTheBarEditsTheDocument() {
+        let document = EditorDocument(text: "plain line\n")
+        let (tv, _) = hosted(document)
+
+        tv.selectedRange = NSRange(location: 0, length: 5)
+        tv.apply(.bold)
+        #expect(document.text.hasPrefix("**plain**"))
+
+        tv.selectedRange = NSRange(location: 0, length: 0)
+        tv.apply(.blockquote)
+        #expect(document.text.hasPrefix("> **plain**"))
+    }
+
 }
 #endif
