@@ -1270,38 +1270,50 @@ struct iOSContentView: View {
         }
     }
 
-    /// The panel's own chrome: a dropdown naming the tab, and a way out.
-    /// The Mac uses five toolbar toggles as the tab strip; there is no room for
-    /// that on an iPad toolbar that already carries the mode picker.
+    /// The panel's own chrome: the tab's name, a way out, and the five tabs as
+    /// buttons.
+    ///
+    /// Buttons rather than a dropdown — a tap should not cost a menu when there
+    /// are only five destinations. But the dropdown was right about one thing
+    /// worth keeping: it *names* the view. Five bare icons make you learn what
+    /// "list.bullet.indent" means, so the name stays, on its own line where
+    /// there is room for it.
     private var inspectorHeader: some View {
-        HStack {
-            Menu {
-                Picker("Tab", selection: Binding(
-                    get: { inspectorTab },
-                    set: { inspectorTabRaw = $0.rawValue }
-                )) {
-                    ForEach(InspectorTab.allCases) { tab in
-                        Label(tab.title, systemImage: tab.systemImage).tag(tab)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(inspectorTab.title)
+                    .font(.headline)
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { inspectorPresented = false }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Close Inspector")
+            }
+            HStack(spacing: 0) {
+                ForEach(InspectorTab.allCases) { tab in
+                    Button {
+                        inspectorTabRaw = tab.rawValue
+                    } label: {
+                        Image(systemName: tab.systemImage)
+                            .frame(maxWidth: .infinity, minHeight: 30)
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(tab == inspectorTab ? Color.accentColor : .secondary)
+                    .background(
+                        tab == inspectorTab ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
+                    .accessibilityLabel(tab.title)
+                    .accessibilityAddTraits(tab == inspectorTab ? [.isSelected] : [])
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Label(inspectorTab.title, systemImage: inspectorTab.systemImage)
-                    Image(systemName: "chevron.down").font(.caption2)
-                }
-                .font(.headline)
             }
-            Spacer()
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { inspectorPresented = false }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
-            }
-            .accessibilityLabel("Close Inspector")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
     }
 
     /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,
