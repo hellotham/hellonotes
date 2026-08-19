@@ -121,6 +121,10 @@ enum ShellKind: String, Equatable, Sendable {
 
     /// Compact is the only shell that gives the editor the whole screen.
     var editorIsScreen: Bool { self == .compact }
+
+    /// Whether this shell can show the inspector *when the user asks for it*.
+    /// Distinct from `inspectorMin`, which is about what to show by default.
+    var canShowInspector: Bool { self == .wideInspector || self == .wide }
 }
 
 /// The one rule that reads both platforms.

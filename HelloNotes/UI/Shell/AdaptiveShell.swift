@@ -90,7 +90,12 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
             // and in `scratchpad/ChromeLab --design 10`.
             HStack(spacing: 0) {
                 EditorPaneContainer { pane() }
-                if kind == .wideInspector && inspectorPresented {
+                // `.wide` counts too, when the inspector is *asked for*.
+                // `inspectorMin` (1400pt) decides whether a third column is
+                // affordable by default — it must not decide whether one can
+                // ever be opened. An 11-inch iPad is 1194pt in landscape, so
+                // every inspector control on it set a flag the shell ignored.
+                if kind.canShowInspector && inspectorPresented {
                     Divider()
                     inspector()
                         .frame(minWidth: ShellMetrics.inspectorFloor,

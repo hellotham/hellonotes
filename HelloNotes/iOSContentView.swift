@@ -952,7 +952,25 @@ struct iOSContentView: View {
     @ViewBuilder
     private var inspector: some View {
         if let collection = focused {
-            NoteInspector(
+            VStack(spacing: 0) {
+                // On the Mac the toolbar is this panel's tab strip (D6). On
+                // iPad the toolbar has no room, so the strip lives here.
+                Picker("Inspector tab", selection: Binding(
+                    get: { inspectorTab },
+                    set: { inspectorTabRaw = $0.rawValue }
+                )) {
+                    ForEach(InspectorTab.allCases) { tab in
+                        Image(systemName: tab.systemImage)
+                            .accessibilityLabel(tab.title)
+                            .tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                Divider()
+                NoteInspector(
                 noteText: editor.text,
                 onSelectHeading: { scrollToHeading($0.title) },
                 summarize: { text in
@@ -1003,6 +1021,7 @@ struct iOSContentView: View {
                 tab: inspectorTab,
                 request: inspectorRequest
             )
+            }
         } else {
             ContentUnavailableView("No Collection", systemImage: "sidebar.right",
                                    description: Text("Open a collection to inspect its notes."))
@@ -1091,8 +1110,8 @@ struct iOSContentView: View {
                 // `inspectorPresented` was set only by the AI commands, so
                 // Outline, Tags, References, Properties and History existed and
                 // could not be opened by hand.
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    inspectorToggles
+                ToolbarItem(placement: .topBarTrailing) {
+                    inspectorToggle
                 }
             }
             .sheet(item: $linkReview) { review in
@@ -1219,29 +1238,21 @@ struct iOSContentView: View {
         editor.text = body.count < full.count ? String(full.dropLast(body.count)) + text : text
     }
 
-    /// The inspector's tab strip, which doubles as its disclosure control.
+    /// One button that discloses the inspector, and nothing more.
     ///
-    /// Hidden by default (`inspectorPresented` starts false), so the note has
-    /// the width until you ask for the panel. Pressing the tab you are already
-    /// on closes it again — Pages' Format button, and the Mac's behaviour here.
-    @ViewBuilder
-    private var inspectorToggles: some View {
-        ForEach(InspectorTab.allCases) { tab in
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    if inspectorPresented && inspectorTab == tab {
-                        inspectorPresented = false
-                    } else {
-                        inspectorTabRaw = tab.rawValue
-                        inspectorPresented = true
-                    }
-                }
-            } label: {
-                Label(tab.title, systemImage: tab.systemImage)
-            }
-            .accessibilityLabel(tab.title)
-            .tint(inspectorPresented && inspectorTab == tab ? Color.accentColor : nil)
+    /// The Mac puts the five tabs in the band and lets them *be* the tab strip.
+    /// An iPad toolbar already carries Review Links, the AI menu and the mode
+    /// picker, and five more icons squeezed the mode picker to the point of
+    /// unusability. So: one disclosure control here, and the tab strip moves
+    /// inside the panel where there is room for it.
+    private var inspectorToggle: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { inspectorPresented.toggle() }
+        } label: {
+            Label("Inspector", systemImage: inspectorPresented
+                  ? "sidebar.trailing" : "sidebar.right")
         }
+        .accessibilityLabel(inspectorPresented ? "Hide Inspector" : "Show Inspector")
     }
 
     /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,
