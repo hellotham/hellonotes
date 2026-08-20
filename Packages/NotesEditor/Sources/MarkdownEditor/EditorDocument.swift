@@ -197,6 +197,22 @@ public final class EditorDocument {
 
     // MARK: - Programmatic replacement (load, external reload)
 
+    /// Replace one range, keeping the parse, the styling and the undo stack —
+    /// the path a keystroke takes, for a host that has text to substitute
+    /// rather than a whole document to load.
+    ///
+    /// `replaceText` is the wrong tool for this: it reparses everything and
+    /// clears undo, which for filling in an image's alt text a second after it
+    /// was pasted would throw away the paste itself.
+    @discardableResult
+    public func replaceFirst(_ needle: String, with replacement: String) -> Bool {
+        let ns = storage.mutableString
+        let found = ns.range(of: needle)
+        guard found.location != NSNotFound else { return false }
+        storage.replaceCharacters(in: found, with: replacement)
+        return true
+    }
+
     public func replaceText(_ newText: String) {
         stylingTask?.cancel()
         let ns = newText as NSString

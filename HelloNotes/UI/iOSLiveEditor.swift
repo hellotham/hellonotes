@@ -72,15 +72,7 @@ struct iOSLiveEditor: View {
                         case .url(let url): UIApplication.shared.open(url)
                         }
                     }
-                    .onPasteImage {
-                        // Saves the image beside the note and returns the link,
-                        // so a note stays plain text referencing a real file
-                        // rather than carrying an embedded blob.
-                        ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(),
-                                             nextTo: note.fileURL,
-                                             subfolder: attachmentFolder,
-                                             timestamp: .now)
-                    }
+                    .onPasteImage { pasteImage(into: document) }
                     .selectionMenuItems { selected in selectionMenu(for: selected) }
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
@@ -119,6 +111,30 @@ struct iOSLiveEditor: View {
             document = built
         }
         .onDisappear { editor.willFlush = nil }
+    }
+
+    /// Save a pasted image beside the note and return the Markdown to insert,
+    /// with the alt text filled in afterwards from on-device vision — the same
+    /// two-step the Mac does, so a pasted screenshot is described rather than
+    /// left as `![]()`.
+    ///
+    /// The note stays plain text pointing at a real file; nothing is embedded.
+    private func pasteImage(into document: EditorDocument) -> String? {
+        guard let markdown = ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(),
+                                                  nextTo: note.fileURL,
+                                                  subfolder: attachmentFolder,
+                                                  timestamp: .now) else { return nil }
+        guard let rel = markdown.range(of: "](").map({ String(markdown[$0.upperBound...].dropLast()) })
+        else { return markdown }
+
+        let assetURL = note.fileURL.deletingLastPathComponent().appendingPathComponent(rel)
+        Task { @MainActor in
+            guard let alt = await VisionAlt.describe(assetURL) else { return }
+            // Rewrite through the document so the edit reaches the parser and
+            // the undo stack, exactly as typing would.
+            document.replaceFirst(markdown, with: "![\(alt)](\(rel))")
+        }
+        return markdown
     }
 
     /// Build the editor's wiki-link / code-colour / block-embed services, using

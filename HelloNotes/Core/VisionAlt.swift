@@ -9,10 +9,14 @@
 //  short, descriptive alt string. No network, no API key.
 //
 
-#if os(macOS)
+// **Cross-platform.** Vision ships on iOS, and every function here already
+// worked in `CGImage` — the `AppKit` import was unused. The gate was the only
+// thing keeping automatic alt text off the iPad.
+
 import Foundation
 import Vision
-import AppKit
+import CoreGraphics
+import ImageIO
 
 enum VisionAlt {
     /// A short alt-text description of the image at `url`, or `nil` if nothing
@@ -105,4 +109,3 @@ private final class OnceResumer: @unchecked Sendable {
         continuation.resume(returning: value)
     }
 }
-#endif
