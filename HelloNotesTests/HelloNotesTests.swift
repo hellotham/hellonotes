@@ -593,7 +593,7 @@ struct HelloNotesTests {
         pasteboard.setData(png, forType: .png)
 
         let markdown = try #require(
-            ImagePaste.saveImage(from: pasteboard, nextTo: noteURL, subfolder: "assets",
+            ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(pasteboard), nextTo: noteURL, subfolder: "assets",
                                  timestamp: Date(timeIntervalSince1970: 1_000_000))
         )
 
@@ -621,7 +621,7 @@ struct HelloNotesTests {
         pasteboard.setData(png, forType: .png)
 
         let markdown = try #require(
-            ImagePaste.saveImage(from: pasteboard, nextTo: noteURL, subfolder: "",
+            ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(pasteboard), nextTo: noteURL, subfolder: "",
                                  timestamp: Date(timeIntervalSince1970: 2_000_000))
         )
 

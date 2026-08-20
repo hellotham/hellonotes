@@ -556,7 +556,8 @@ struct NoteEditorView: View {
     /// The alt text is filled in asynchronously from on-device vision.
     private func pasteImage(_ pasteboard: NSPasteboard) -> String? {
         guard let noteURL = editor.note?.fileURL else { return nil }
-        guard let markdown = ImagePaste.saveImage(from: pasteboard, nextTo: noteURL,
+        guard let markdown = ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(pasteboard),
+                                                  nextTo: noteURL,
                                                   subfolder: attachmentFolder, timestamp: .now) else { return nil }
 
         // markdown == "![](relative/path.png)" — resolve and describe it.

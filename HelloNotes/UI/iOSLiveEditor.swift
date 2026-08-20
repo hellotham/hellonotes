@@ -72,6 +72,15 @@ struct iOSLiveEditor: View {
                         case .url(let url): UIApplication.shared.open(url)
                         }
                     }
+                    .onPasteImage {
+                        // Saves the image beside the note and returns the link,
+                        // so a note stays plain text referencing a real file
+                        // rather than carrying an embedded blob.
+                        ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(),
+                                             nextTo: note.fileURL,
+                                             subfolder: attachmentFolder,
+                                             timestamp: .now)
+                    }
                     .selectionMenuItems { selected in selectionMenu(for: selected) }
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
