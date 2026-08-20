@@ -9,8 +9,10 @@
 //  remote created on a connected hosting account and pushed to.
 //
 
-#if os(macOS)
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct NewRepositoryView: View {
     @Bindable var store: GitAccountsStore
@@ -18,6 +20,9 @@ struct NewRepositoryView: View {
     var onCreated: (URL) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    #if os(iOS)
+    @State private var showFolderPicker = false
+    #endif
 
     @State private var git = GitService()
     @State private var name = ""
@@ -97,6 +102,16 @@ struct NewRepositoryView: View {
         }
         .frame(width: 460, height: 440)
         .onAppear { if selectedHost.isEmpty { selectedHost = store.accounts.first?.host ?? "" } }
+        #if os(iOS)
+        // The Mac opens an NSOpenPanel; iPad presents the document
+        // picker, which is the same question asked the platform's way.
+        .sheet(isPresented: $showFolderPicker) {
+            FolderPicker(startingAt: nil) { urls in
+                showFolderPicker = false
+                if let first = urls.first { parent = first }
+            }
+        }
+        #endif
     }
 
     private var canCreate: Bool {
@@ -105,6 +120,7 @@ struct NewRepositoryView: View {
     }
 
     private func chooseParent() {
+        #if os(macOS)
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -112,6 +128,9 @@ struct NewRepositoryView: View {
         panel.prompt = "Choose"
         panel.message = "Choose where to create the repository folder."
         if panel.runModal() == .OK { parent = panel.url }
+        #else
+        showFolderPicker = true
+        #endif
     }
 
     private func create() {
@@ -150,4 +169,3 @@ struct NewRepositoryView: View {
         }
     }
 }
-#endif
