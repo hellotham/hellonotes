@@ -341,3 +341,74 @@ text size — which only a code read surfaced.
   destabilising the shell the release after its redesign.
 - **An in-flight latch for external scans** (§3) — adds re-entrancy to the core
   scan path; the cancellation half shipped instead.
+
+---
+
+## iOS parity audit (2026-08-21)
+
+36 files are wholly `#if os(macOS)`. Audited each for what it actually *uses*,
+rather than what it is gated on. Three groups.
+
+### Gated for no technical reason at all
+
+These import no AppKit and use no Mac-only API. The gate is the only thing
+stopping them compiling for iOS.
+
+| File | Lines | Mac-only API used |
+|---|---|---|
+| `UI/GraphView.swift` | 457 | none |
+| `UI/MindMapView.swift` | 527 | none (`NSRange`/`NSRegularExpression` are Foundation) |
+| `UI/CommandPalette.swift` | 274 | none |
+| `UI/GitSettingsView.swift` | 161 | none |
+
+`AppActions.canGraph` is hard-coded `false` on iOS and `commandPalette` is `nil`,
+so both commands appear greyed out in the iPad menu bar — accurately, but for a
+reason that is circular.
+
+### Cross-platform API, gated anyway
+
+- **`State/SpotlightSearch.swift`** — `NSMetadataQuery` is Foundation and ships
+  on iOS. Consequence: `iOSContentView` passes `unlinkedMentions: []` to the
+  inspector with a comment admitting the References tab is short one of its
+  three sections on iPad.
+
+### Small, real dependency — and the replacement already exists in-tree
+
+| File | Needs | Already available |
+|---|---|---|
+| `UI/SlidesView.swift` | `NSViewRepresentable` | the `UIViewRepresentable` pattern used by `iOSFileViewer` |
+| `UI/MermaidPreviewView.swift` | `NSImage`, `NSRect` | `PlatformImage`, `PlatformDraw` |
+| `UI/CloneRepositoryView.swift`, `UI/NewRepositoryView.swift` | `NSOpenPanel` | `FolderPicker` in `iOSContentView` |
+| `Core/SmartPaste.swift`, `Core/ImagePaste.swift` | `NSPasteboard` | `UIPasteboard` |
+| `Core/VisionAlt.swift` | Vision + `NSImage` | Vision ships on iOS |
+
+`GitService` itself is **not** gated — iPad already reads history in the
+inspector. It cannot clone, create or configure a repository, which is a UI gap,
+not an engine one.
+
+### The one that is not a UI gate
+
+**iPad never notices a change made anywhere else.** `Core/FileWatcher.swift` is
+built on **FSEvents**, which genuinely is macOS-only, and `Collection`'s
+`startWatching` is gated with it. On a vault synced from a Mac, the iPad shows
+stale content until a manual **Rescan Collection**. This is the largest
+functional gap in the audit and the only one whose fix is not "delete the gate":
+iOS wants `NSMetadataQuery` for ubiquitous items, or
+`DispatchSource.makeFileSystemObjectSource` per directory.
+
+### Genuinely Mac-only, correctly gated
+
+`GlobalHotKey` (no system-wide hotkey on iOS), `ServicesProvider` (NSServices),
+`QuickCaptureView` (depends on the hotkey), `ChromeProbe` (window chrome
+measurement), `TerminationGuard` (`NSApplication` quit handshake — iOS covers
+the same ground through `scenePhase`), and the multi-window surfaces
+(`AuxiliaryWindows`, `NoteWindowView`, `LauncherView`). `MLXProvider` is
+arguable: MLX runs on iOS, but the memory ceiling on an iPad makes it a
+different feature rather than the same one.
+
+### Already at parity by another route
+
+`EditorExport` → `iOSEditorExport`; `FileViewerView` → `iOSFileViewer`;
+`FindReplaceBar` → `UIFindInteraction`; `OpenQuicklyView` → `OpenQuicklyList`;
+`EditorTabBar` → the iPad tab strip; the settings panes → `iOSSettingsView`.
+
