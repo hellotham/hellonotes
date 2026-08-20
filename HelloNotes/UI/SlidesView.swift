@@ -9,7 +9,8 @@
 //  the arrows / on-screen controls, or jump from the slide menu.
 //
 
-#if os(macOS)
+// **Cross-platform.** This file was `#if os(macOS)` for the sake of one
+// representable; the Marp rendering, navigation and export never were.
 import SwiftUI
 import MarkdownEditor
 import WebKit
@@ -104,6 +105,13 @@ struct SlidesView: View {
     }
 }
 
+/// The deck, in a web view.
+///
+/// The only platform-specific thing in this file: `NSViewRepresentable` on the
+/// Mac, `UIViewRepresentable` on iPad. Everything else — the Marp rendering,
+/// the navigation, the export — was already portable, which is why the whole
+/// file sat behind `#if os(macOS)` for the sake of these fifteen lines.
+#if os(macOS)
 private struct SlideWebView: NSViewRepresentable {
     let html: String
     let baseURL: URL?
@@ -121,4 +129,25 @@ private struct SlideWebView: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: WKWebView,
                       context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
 }
+#else
+private struct SlideWebView: UIViewRepresentable {
+    let html: String
+    let baseURL: URL?
+
+    func makeUIView(context: Context) -> WKWebView {
+        let view = WKWebView()
+        view.isOpaque = false                 // the iOS spelling of drawsBackground
+        view.backgroundColor = .clear
+        view.scrollView.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ view: WKWebView, context: Context) {
+        view.loadHTMLString(html, baseURL: baseURL)
+    }
+    // Viewport sizing (S1): take what we're offered, never the deck's size.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView,
+                      context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
+}
 #endif
+

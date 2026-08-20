@@ -5,9 +5,11 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
+// **Cross-platform.** Gated for an `NSImage` render-and-flip this file kept
+// privately; the shared renderer does both, on both platforms.
 import SwiftUI
 import BeautifulMermaid
+import MarkdownEditor
 
 /// A sheet that renders the note's ```mermaid blocks as native images (via
 /// BeautifulMermaid — no WebView). The editor has no inline code-block
@@ -45,29 +47,18 @@ struct MermaidPreviewView: View {
 private struct DiagramCell: View {
     let index: Int
     let source: String
-    @State private var image: NSImage?
+    @State private var image: PlatformImage?
     @State private var didRender = false
+    @Environment(\.colorScheme) private var colorScheme
 
-    private static func makeImage(_ source: String) -> NSImage? {
-        guard let rendered = (try? MermaidRenderer.renderImage(source: source)) ?? nil else { return nil }
-        return flippedVertically(rendered)
-    }
-
-    /// BeautifulMermaid renders into a Core Graphics context (bottom-left
-    /// origin), so the resulting `NSImage` is upside down when shown top-left.
-    /// Redraw it flipped so diagrams display right-way-up.
-    private static func flippedVertically(_ image: NSImage) -> NSImage {
-        let size = image.size
-        guard size.width > 0, size.height > 0 else { return image }
-        let flipped = NSImage(size: size)
-        flipped.lockFocus()
-        let transform = NSAffineTransform()
-        transform.translateX(by: 0, yBy: size.height)
-        transform.scaleX(by: 1, yBy: -1)
-        transform.concat()
-        image.draw(at: .zero, from: NSRect(origin: .zero, size: size), operation: .copy, fraction: 1)
-        flipped.unlockFocus()
-        return flipped
+    /// `MermaidDiagramRenderer.standaloneImage` rather than a local render and
+    /// flip. This file had its own `NSImage` copy of both — including the
+    /// bottom-left-origin correction, which `PlatformImageOrient.uprightMermaid`
+    /// already does for the editor's inline diagrams on both platforms. One
+    /// renderer, so a diagram in the preview cannot come out different from the
+    /// same diagram in a note.
+    private static func makeImage(_ source: String, isDark: Bool) -> PlatformImage? {
+        MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark)
     }
 
     var body: some View {
@@ -77,7 +68,7 @@ private struct DiagramCell: View {
                 .foregroundStyle(.secondary)
 
             if let image {
-                Image(nsImage: image)
+                Image(platformImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,9 +91,8 @@ private struct DiagramCell: View {
         // Render once (not on every body eval / scroll). Still main-actor
         // (MermaidRenderer + lockFocus are main-only), but no longer repeated.
         .task(id: source) {
-            image = Self.makeImage(source)
+            image = Self.makeImage(source, isDark: colorScheme == .dark)
             didRender = true
         }
     }
 }
-#endif
