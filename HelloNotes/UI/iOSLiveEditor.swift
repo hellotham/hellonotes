@@ -73,6 +73,7 @@ struct iOSLiveEditor: View {
                         }
                     }
                     .onPasteImage { pasteImage(into: document) }
+                    .onPasteMarkdown { smartPaste(into: document) }
                     .selectionMenuItems { selected in selectionMenu(for: selected) }
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
@@ -135,6 +136,21 @@ struct iOSLiveEditor: View {
             document.replaceFirst(markdown, with: "![\(alt)](\(rel))")
         }
         return markdown
+    }
+
+    /// A pasted bare URL becomes a Markdown link whose text is upgraded to the
+    /// page title once fetched; pasted rich text becomes Markdown. Returns nil
+    /// to let the plain-text paste stand, which is the right answer for
+    /// anything without meaningful formatting.
+    private func smartPaste(into document: EditorDocument) -> String? {
+        if let (markdown, url) = SmartPaste.urlLink(fromString: SmartPaste.pasteboardString()) {
+            Task { @MainActor in
+                guard let title = await SmartPaste.fetchTitle(url) else { return }
+                document.replaceFirst(markdown, with: "[\(title)](\(url.absoluteString))")
+            }
+            return markdown
+        }
+        return SmartPaste.markdownFromHTML(html: SmartPaste.pasteboardHTML())
     }
 
     /// Build the editor's wiki-link / code-colour / block-embed services, using

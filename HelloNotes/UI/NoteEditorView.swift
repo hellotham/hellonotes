@@ -576,7 +576,7 @@ struct NoteEditorView: View {
     /// Convert a URL to a Markdown link (title filled in asynchronously) or rich
     /// text to Markdown. Returns `nil` to fall through to the default paste.
     private func smartPaste(_ pasteboard: NSPasteboard) -> String? {
-        if let (markdown, url) = SmartPaste.urlLink(from: pasteboard) {
+        if let (markdown, url) = SmartPaste.urlLink(fromString: SmartPaste.pasteboardString(pasteboard)) {
             Task { @MainActor in
                 if let title = await SmartPaste.fetchTitle(url) {
                     replaceFirst(markdown, with: "[\(title)](\(url.absoluteString))")
@@ -588,7 +588,7 @@ struct NoteEditorView: View {
         // Rich text → Markdown. The HTML importer is main-thread-only and O(size);
         // `markdownFromHTML` caps the size it will convert, so a huge clipboard
         // falls through to a plain-text paste instead of freezing the editor.
-        return SmartPaste.markdownFromHTML(pasteboard)
+        return SmartPaste.markdownFromHTML(html: SmartPaste.pasteboardHTML(pasteboard))
     }
 
     /// Replace the first occurrence of `target` in the note body — used to

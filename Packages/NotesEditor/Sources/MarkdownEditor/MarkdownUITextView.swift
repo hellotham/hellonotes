@@ -207,12 +207,19 @@ public final class MarkdownUITextView: UITextView {
     /// file beside the note and returns the link to insert. Nil means the host
     /// does not handle images, and an image-only paste is dropped as before.
     var onPasteImage: (() -> String?)?
+    /// The host's chance to convert a pasted URL or rich text into Markdown.
+    /// Nil, or a nil return, falls through to the plain-string paste.
+    var onPasteMarkdown: (() -> String?)?
 
     public override func paste(_ sender: Any?) {
         // Images first: a pasteboard carrying an image often also carries a
         // string (a filename, a URL), and inserting that instead of the picture
         // is the wrong answer.
         if UIPasteboard.general.hasImages, let markdown = onPasteImage?() {
+            insertText(markdown)
+            return
+        }
+        if let markdown = onPasteMarkdown?() {
             insertText(markdown)
             return
         }
@@ -507,6 +514,11 @@ public struct MarkdownEditorView: View {
         var copy = self; copy.representable = representable.onPasteImage(handler); return copy
     }
 
+    /// Convert a pasted URL or rich text to Markdown.
+    public func onPasteMarkdown(_ handler: @escaping () -> String?) -> Self {
+        var copy = self; copy.representable = representable.onPasteMarkdown(handler); return copy
+    }
+
     public func selectionMenuItems(_ build: @escaping (String) -> [EditorMenuItem]) -> Self {
         var copy = self; copy.representable = representable.selectionMenuItems(build); return copy
     }
@@ -519,6 +531,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     private var isEditable = true
     private var onLinkTap: ((EditorLinkTap) -> Void)?
     private var onPasteImage: (() -> String?)?
+    private var onPasteMarkdown: (() -> String?)?
     private var selectionMenuItems: ((String) -> [EditorMenuItem])?
 
     init(document: EditorDocument) { self.document = document }
@@ -549,6 +562,10 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         var copy = self; copy.onPasteImage = handler; return copy
     }
 
+    func onPasteMarkdown(_ handler: @escaping () -> String?) -> Self {
+        var copy = self; copy.onPasteMarkdown = handler; return copy
+    }
+
     /// Host actions added to the selection's edit menu. Called with the selected
     /// text each time the menu is built, so the host can decide per selection
     /// which items make sense — an item that cannot apply is better absent than
@@ -562,6 +579,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
+        tv.onPasteMarkdown = onPasteMarkdown
         tv.delegate = context.coordinator
         context.coordinator.subscribe(documentId: busDocumentId, view: tv)
         // Small/medium notes: style the whole document once up front (proven
@@ -584,6 +602,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
+        tv.onPasteMarkdown = onPasteMarkdown
         context.coordinator.selectionMenuItems = selectionMenuItems
         context.coordinator.subscribe(documentId: busDocumentId, view: tv)
     }

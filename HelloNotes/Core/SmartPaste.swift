@@ -10,8 +10,17 @@
 //  upgraded to the page title when it arrives.
 //
 
-#if os(macOS)
+// **Cross-platform.** The pasteboard is only ever read for two strings; the
+// HTML→Markdown conversion below is `NSAttributedString` and `NSTextList`,
+// both of which ship on iOS. Taking the strings as arguments is all it needed.
+
+import Foundation
+import MarkdownEditor
+#if canImport(AppKit)
 import AppKit
+#else
+import UIKit
+#endif
 
 enum SmartPaste {
 
@@ -19,13 +28,36 @@ enum SmartPaste {
 
     /// If the pasteboard holds a single bare http(s) URL, the Markdown link to
     /// insert (title = the URL, upgraded later) and the URL itself.
-    static func urlLink(from pasteboard: NSPasteboard) -> (markdown: String, url: URL)? {
-        guard let raw = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+    static func urlLink(fromString string: String?) -> (markdown: String, url: URL)? {
+        guard let raw = string?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty, !raw.contains(where: { $0.isWhitespace }),
               let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https", url.host != nil else { return nil }
         return ("[\(raw)](\(raw))", url)
     }
+
+    /// The system pasteboard's plain string, if any.
+    #if canImport(AppKit)
+    static func pasteboardString(_ pb: NSPasteboard = .general) -> String? {
+        pb.string(forType: .string)
+    }
+
+    /// The system pasteboard's HTML flavour, if any.
+    static func pasteboardHTML(_ pb: NSPasteboard = .general) -> String? {
+        pb.string(forType: .html)
+    }
+    #else
+    static func pasteboardString(_ pb: UIPasteboard = .general) -> String? {
+        pb.string
+    }
+
+    static func pasteboardHTML(_ pb: UIPasteboard = .general) -> String? {
+        if let data = pb.data(forPasteboardType: "public.html") {
+            return String(data: data, encoding: .utf8)
+        }
+        return nil
+    }
+    #endif
 
     /// Fetch a web page's `<title>`, cleaned for use as link text.
     static func fetchTitle(_ url: URL) async -> String? {
@@ -62,8 +94,8 @@ enum SmartPaste {
     /// Convert pasteboard HTML rich text to Markdown, or `nil` when the HTML has
     /// no meaningful formatting (so the plain-text paste is preserved verbatim)
     /// or is too large to convert without stalling. Must run on the main actor.
-    static func markdownFromHTML(_ pasteboard: NSPasteboard) -> String? {
-        guard let html = pasteboard.string(forType: .html), hasFormatting(html),
+    static func markdownFromHTML(html: String?) -> String? {
+        guard let html, hasFormatting(html),
               html.utf8.count <= maxConvertibleHTMLBytes,
               let data = html.data(using: .utf8),
               let attributed = try? NSAttributedString(
@@ -142,10 +174,36 @@ enum SmartPaste {
 
     /// Heading level from the paragraph's dominant font size relative to a 13pt
     /// body baseline, when the text is also bold. Browsers export h1–h6 that way.
+    /// AppKit and UIKit agree on the idea and disagree on the spelling:
+    /// `.bold` vs `.traitBold`, `isFixedPitch` vs `.traitMonoSpace`.
+    private static func isBold(_ font: PlatformFont) -> Bool {
+        #if canImport(AppKit)
+        font.fontDescriptor.symbolicTraits.contains(.bold)
+        #else
+        font.fontDescriptor.symbolicTraits.contains(.traitBold)
+        #endif
+    }
+
+    private static func isItalic(_ font: PlatformFont) -> Bool {
+        #if canImport(AppKit)
+        font.fontDescriptor.symbolicTraits.contains(.italic)
+        #else
+        font.fontDescriptor.symbolicTraits.contains(.traitItalic)
+        #endif
+    }
+
+    private static func isMonospaced(_ font: PlatformFont) -> Bool {
+        #if canImport(AppKit)
+        font.isFixedPitch
+        #else
+        font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
+        #endif
+    }
+
     private static func headingLevel(of paragraph: NSAttributedString) -> Int? {
         guard paragraph.length > 0,
-              let font = paragraph.attribute(.font, at: 0, effectiveRange: nil) as? NSFont else { return nil }
-        let bold = font.fontDescriptor.symbolicTraits.contains(.bold)
+              let font = paragraph.attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont else { return nil }
+        let bold = isBold(font)
         let ratio = font.pointSize / 13.0
         guard bold || ratio >= 1.3 else { return nil }
         switch ratio {
@@ -174,8 +232,8 @@ enum SmartPaste {
                 return
             }
 
-            let font = attrs[.font] as? NSFont
-            if font?.isFixedPitch == true {
+            let font = attrs[.font] as? PlatformFont
+            if let font, isMonospaced(font) {
                 out += "`\(raw.trimmingCharacters(in: .whitespaces))`"
                 return
             }
@@ -183,8 +241,9 @@ enum SmartPaste {
                 out += raw
                 return
             }
-            let traits = font?.fontDescriptor.symbolicTraits ?? []
-            out += wrap(raw, bold: traits.contains(.bold), italic: traits.contains(.italic))
+            out += wrap(raw,
+                        bold: font.map(isBold) ?? false,
+                        italic: font.map(isItalic) ?? false)
         }
         return out
     }
@@ -209,4 +268,3 @@ enum SmartPaste {
         return out
     }
 }
-#endif
