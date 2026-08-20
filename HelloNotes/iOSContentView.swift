@@ -127,6 +127,12 @@ struct iOSContentView: View {
     @State private var showLLMSettings = false
     @State private var showOpenQuickly = false
     @State private var gitAccounts = GitAccountsStore()
+    /// Spotlight names the files whose content mentions this note; only those
+    /// few are read and verified. `SpotlightSearch` was macOS-gated despite
+    /// `NSMetadataQuery` being Foundation, which is why the iPad's References
+    /// tab showed backlinks and outgoing links but never unlinked mentions.
+    @State private var referenceSpotlight = SpotlightSearch()
+    @State private var unlinkedMentions: [Note] = []
     @State private var showGraph = false
     @State private var showMindMap = false
     @State private var showPalette = false
@@ -253,6 +259,9 @@ struct iOSContentView: View {
                     selectedNoteID = note.id
                 }
             }
+        }
+        .task(id: "\(selectedNoteID?.path ?? "")|\(focused?.derivedRevision ?? 0)") {
+            await computeUnlinkedMentions()
         }
         .modifier(ParitySheets(
             showGraph: $showGraph,
@@ -1010,9 +1019,7 @@ struct iOSContentView: View {
                 outgoingLinks: editor.note.map {
                     collection.linkGraph.outgoingLinks(for: $0, in: collection.notes)
                 } ?? [],
-                // Unlinked mentions need a Spotlight query the iOS shell does
-                // not run yet; the other two come straight from the index.
-                unlinkedMentions: [],
+                unlinkedMentions: unlinkedMentions,
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: { _ in },
                 linkCandidates: collection.search.linkTargets(),
@@ -1509,6 +1516,37 @@ struct iOSContentView: View {
             ContentUnavailableView("No Note Open", systemImage: "point.topleft.down.curvedto.point.bottomright.up",
                                    description: Text("Open a note to see its mind map."))
         }
+    }
+
+    /// Notes whose text mentions this note's title or aliases without linking
+    /// to it. Same shape as the Mac's: Spotlight narrows the corpus, then each
+    /// candidate is read and checked with the word-boundary scanner, off the
+    /// main actor. Degrades to nothing on a volume with no Spotlight index,
+    /// which is the same way the Mac degrades.
+    private func computeUnlinkedMentions() async {
+        guard let note = editor.note, let c = focused else { unlinkedMentions = []; return }
+        let names = [note.title] + c.search.aliases(of: note.fileURL)
+        let excluded = Set(c.linkGraph.backlinks(for: note, in: c.notes).map(\.fileURL))
+            .union([note.fileURL])
+
+        var candidatePaths: Set<String> = []
+        for name in names {
+            let hits = await referenceSpotlight.search(name, in: [c.rootURL])
+            guard !Task.isCancelled else { return }
+            candidatePaths.formUnion(hits.map { $0.standardizedFileURL.path })
+        }
+        let candidates = c.notes.filter {
+            candidatePaths.contains($0.fileURL.standardizedFileURL.path) && !excluded.contains($0.fileURL)
+        }
+        let found = await offMain { () -> [Note] in
+            candidates.compactMap { candidate in
+                guard let text = try? FileIO.readString(at: candidate.fileURL),
+                      MentionScanner.containsMention(of: names, in: text) else { return nil }
+                return candidate
+            }
+        }
+        guard !Task.isCancelled else { return }
+        unlinkedMentions = found
     }
 
     /// The AI commands, or nil when there is nothing they could do.

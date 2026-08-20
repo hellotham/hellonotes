@@ -10,7 +10,8 @@
 //  attachments the app never parses itself, at zero indexing cost.
 //
 
-#if os(macOS)
+// **Not macOS-only.** `NSMetadataQuery` is Foundation and ships on iOS; the
+// gate was the only reason the iPad's References tab was a third short.
 import Foundation
 
 @MainActor
@@ -90,4 +91,3 @@ final class SpotlightSearch {
         activeQuery = nil
     }
 }
-#endif
