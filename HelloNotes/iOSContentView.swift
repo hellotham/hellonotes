@@ -1072,7 +1072,13 @@ struct iOSContentView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if let note = editor.note {
+        if let file = selectedFile {
+            iOSFileViewer(url: file.url)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationTitle(file.name)
+                .navigationBarTitleDisplayMode(.inline)
+                .ignoresSafeArea(.container, edges: .bottom)
+        } else if let note = editor.note {
             VStack(spacing: 0) {
                 if appearance.showInlineTitle {
                     InlineNoteTitle(
@@ -1433,6 +1439,20 @@ struct iOSContentView: View {
         .accessibilityLabel("Note Actions")
     }
 
+    /// The non-note file the selection points at, if any.
+    ///
+    /// Checked before `editor.note` because a selection change reaches this
+    /// view before the editor has finished opening — without the ordering, a
+    /// tap on a PDF shows the previous note until the load settles.
+    private var selectedFile: CollectionFile? {
+        guard let id = selectedNoteID else { return nil }
+        guard library.allNotes.first(where: { $0.id == id }) == nil else { return nil }
+        for collection in library.collections {
+            if let file = collection.attachments.first(where: { $0.url == id }) { return file }
+        }
+        return nil
+    }
+
     /// The AI commands, or nil when there is nothing they could do.
     ///
     /// A greyed item says "not now"; an enabled one that always errors says
@@ -1663,9 +1683,11 @@ private struct CollectionTreeRow: View {
                 Label(node.name, systemImage: "folder")
             }
         } else if let file = node.file {
-            // Non-note files appear but are not selectable as notes.
-            Label(file.name, systemImage: "doc")
-                .foregroundStyle(.secondary)
+            // Selectable, like a note. Both ids are the file's URL, so one
+            // selection carries either and the detail column decides which
+            // viewer to show.
+            Label(file.name, systemImage: file.kind.symbol)
+                .tag(file.url)
         }
     }
 }
