@@ -9,9 +9,10 @@
 //  open as the collection.
 //
 
-#if os(macOS)
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 struct CloneRepositoryView: View {
     @Bindable var store: GitAccountsStore
@@ -27,6 +28,10 @@ struct CloneRepositoryView: View {
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var filter = ""
+    #if os(iOS)
+    @State private var showFolderPicker = false
+    @State private var pendingCloneURL: String?
+    #endif
     @State private var repoURL = ""               // the URL that will be cloned
 
     private var filteredRepos: [RemoteRepository] {
@@ -64,6 +69,16 @@ struct CloneRepositoryView: View {
             footer
         }
         .frame(width: 560, height: 640)
+        #if os(iOS)
+        .sheet(isPresented: $showFolderPicker) {
+            FolderPicker(startingAt: nil) { urls in
+                showFolderPicker = false
+                guard let parent = urls.first, let pending = pendingCloneURL else { return }
+                pendingCloneURL = nil
+                clone(pending, into: parent)
+            }
+        }
+        #endif
     }
 
     // MARK: - Browse
@@ -191,7 +206,22 @@ struct CloneRepositoryView: View {
 
     private func clone() {
         let urlString = repoURL.trimmingCharacters(in: .whitespaces)
+        #if os(macOS)
         guard let parent = chooseDestinationFolder() else { return }
+        clone(urlString, into: parent)
+        #else
+        // The picker is asynchronous here, so the clone waits for its callback
+        // rather than for a modal to return. `pendingCloneURL` carries the
+        // typed repository across that gap.
+        pendingCloneURL = urlString
+        showFolderPicker = true
+        #endif
+    }
+
+    /// Clone `urlString` into `parent`. Split out so the folder can arrive from
+    /// a modal panel (macOS) or a picker callback (iOS) without duplicating the
+    /// authentication and security-scope handling.
+    private func clone(_ urlString: String, into parent: URL) {
 
         // Authenticate with an account matching the URL's host, if we have one.
         let host = URL(string: urlString).flatMap { GitRemoteURL.host(of: $0) } ?? ""
@@ -209,6 +239,7 @@ struct CloneRepositoryView: View {
         }
     }
 
+    #if os(macOS)
     /// Ask the user where to put the clone. The returned folder is the *parent*;
     /// the repository is cloned into a subfolder named after the repo.
     private func chooseDestinationFolder() -> URL? {
@@ -221,5 +252,5 @@ struct CloneRepositoryView: View {
         panel.message = "Choose the folder to clone the repository into."
         return panel.runModal() == .OK ? panel.url : nil
     }
+    #endif
 }
-#endif
