@@ -19,7 +19,8 @@
 //  unfindable, which is precisely the problem being solved.
 //
 
-#if os(macOS)
+// **Not macOS-only.** This file was `#if os(macOS)` and used no AppKit and
+// no Mac-only API — the gate was the only thing keeping it off iPad.
 import SwiftUI
 
 /// One runnable command.
@@ -83,10 +84,18 @@ struct CommandPaletteView: View {
                 .listStyle(.plain)
             }
         }
+        #if os(macOS)
         .frame(width: 540, height: 420)
         // Escape must dismiss even when the field has lost first responder —
         // the same reason Open Quickly does not rely on the sheet's cancel action.
         .onExitCommand { dismiss() }
+        #else
+        // A sheet on iPad sizes itself and dismisses by drag; the fixed frame
+        // would fight the presentation. Escape still works for a hardware
+        // keyboard — `onKeyPress` is the iOS spelling of `onExitCommand`, and
+        // the only line in this file that was ever platform-specific.
+        .onKeyPress(.escape) { dismiss(); return .handled }
+        #endif
         .onAppear { fieldFocused = true; selection = commands.first?.id }
         .onChange(of: query) { _, _ in
             // Keep a valid top selection as the query narrows, so Return always
@@ -270,4 +279,3 @@ extension AppActions {
         return commands
     }
 }
-#endif

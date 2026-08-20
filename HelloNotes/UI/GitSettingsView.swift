@@ -5,7 +5,8 @@
 //  Created by Chris Tham on 12/7/2026.
 //
 
-#if os(macOS)
+// **Not macOS-only.** This file was `#if os(macOS)` and used no AppKit and
+// no Mac-only API — the gate was the only thing keeping it off iPad.
 import SwiftUI
 
 /// Manage the Git commit identity, connected hosting accounts (GitHub, GitLab,
@@ -157,4 +158,3 @@ struct GitSettingsView: View {
         }
     }
 }
-#endif

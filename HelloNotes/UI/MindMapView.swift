@@ -13,7 +13,8 @@
 //  note; click a linked note to open it. The canvas scrolls and zooms.
 //
 
-#if os(macOS)
+// **Not macOS-only.** This file was `#if os(macOS)` and used no AppKit and
+// no Mac-only API — the gate was the only thing keeping it off iPad.
 import SwiftUI
 
 struct MindMapView: View {
@@ -523,4 +524,3 @@ struct MindMapModel {
         return CGSize(width: textWidth + hPad * 2, height: fontSize * 1.25 + vPad * 2)
     }
 }
-#endif

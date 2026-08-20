@@ -5,7 +5,8 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
+// **Not macOS-only.** This file was `#if os(macOS)` and used no AppKit and
+// no Mac-only API — the gate was the only thing keeping it off iPad.
 import SwiftUI
 
 /// A node in the link graph.
@@ -453,4 +454,3 @@ struct GraphView: View {
         return best?.index
     }
 }
-#endif

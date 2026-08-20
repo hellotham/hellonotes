@@ -126,6 +126,10 @@ struct iOSContentView: View {
     @State private var showAssistant = false
     @State private var showLLMSettings = false
     @State private var showOpenQuickly = false
+    @State private var gitAccounts = GitAccountsStore()
+    @State private var showGraph = false
+    @State private var showMindMap = false
+    @State private var showPalette = false
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
     @AppStorage("dailyDateFormat") private var dailyDateFormat = "yyyy-MM-dd"
 
@@ -250,8 +254,15 @@ struct iOSContentView: View {
                 }
             }
         }
+        .modifier(ParitySheets(
+            showGraph: $showGraph,
+            showMindMap: $showMindMap,
+            showPalette: $showPalette,
+            graph: { graphSheet },
+            mindMap: { mindMapSheet },
+            palette: { CommandPaletteView(commands: appActions.paletteCommands) }))
         .sheet(isPresented: $showSettings) {
-            iOSSettingsView(settings: appearance)
+            iOSSettingsView(settings: appearance, git: focused?.git, accounts: gitAccounts)
         }
         // Ask Library, which iOS simply did not have. The Mac gives it a window;
         // a sheet is the same thing on a platform with one window.
@@ -1453,6 +1464,53 @@ struct iOSContentView: View {
         return nil
     }
 
+    /// The link graph. Built through `GraphData`, the same builder the Mac's
+    /// graph window uses, so the two cannot disagree about what is connected.
+    @ViewBuilder
+    private var graphSheet: some View {
+        let data = GraphData.build(for: railCollection ?? focused)
+        if data.nodes.isEmpty {
+            ContentUnavailableView("No Notes to Graph",
+                                   systemImage: "point.3.connected.trianglepath.dotted",
+                                   description: Text("Open a collection with notes to see its link graph."))
+        } else {
+            GraphView(nodes: data.nodes, edges: data.edges,
+                      onSelect: { url in
+                          showGraph = false
+                          if let note = library.allNotes.first(where: { $0.fileURL == url }) {
+                              selectedNoteID = note.id
+                          }
+                      },
+                      accent: appearance.resolvedAccent)
+        }
+    }
+
+    /// The open note as a mind map, from its own headings and links.
+    @ViewBuilder
+    private var mindMapSheet: some View {
+        if let note = editor.note, let c = focused {
+            MindMapView(
+                rootTitle: note.title,
+                rootURL: note.fileURL,
+                text: editor.text,
+                resolveLink: { target in
+                    guard let url = c.linkGraph.resolve(target),
+                          let n = c.notes.first(where: { $0.fileURL == url }) else { return nil }
+                    return (url, n.title)
+                },
+                accent: appearance.resolvedAccent,
+                onOpenNote: { url in
+                    showMindMap = false
+                    if let n = library.allNotes.first(where: { $0.fileURL == url }) {
+                        selectedNoteID = n.id
+                    }
+                })
+        } else {
+            ContentUnavailableView("No Note Open", systemImage: "point.topleft.down.curvedto.point.bottomright.up",
+                                   description: Text("Open a note to see its mind map."))
+        }
+    }
+
     /// The AI commands, or nil when there is nothing they could do.
     ///
     /// A greyed item says "not now"; an enabled one that always errors says
@@ -1488,8 +1546,8 @@ struct iOSContentView: View {
             openLauncher: { showImporter = true },
             canOpenQuickly: !(scope?.notes.isEmpty ?? true),
             openQuickly: { showOpenQuickly = true },
-            canGraph: false,
-            graphView: {},
+            canGraph: !(scope?.notes.isEmpty ?? true),
+            graphView: { showGraph = true },
             canAsk: scope != nil,
             askLibrary: { showLibraryChat = true },
             assistant: { showAssistant = true },
@@ -1529,7 +1587,7 @@ struct iOSContentView: View {
             openCloudFolder: { showImporter = true },
             refreshCloudCollection: (scope?.isRemote ?? false)
                 ? { Task { await scope?.refreshFromProvider() } } : nil,
-            commandPalette: nil,
+            commandPalette: { showPalette = true },
             ai: aiActions,
             reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
             composeNote: { showCompose = true },
@@ -1773,6 +1831,51 @@ private struct OpenQuicklyList: View {
                 Button("Cancel") { dismiss() }
             }
         }
+    }
+}
+
+/// The surfaces that were macOS-only until the parity audit: Graph, Mind Map
+/// and the command palette.
+///
+/// A `ViewModifier` rather than three more `.sheet` calls in `body` — that
+/// chain is already long enough to defeat the type-checker, which it did the
+/// first time these were added. Bindings and builders are passed explicitly:
+/// a modifier holding the host struct would be looking at a copy of its state.
+private struct ParitySheets<Graph: View, Mind: View, Palette: View>: ViewModifier {
+    @Binding var showGraph: Bool
+    @Binding var showMindMap: Bool
+    @Binding var showPalette: Bool
+    @ViewBuilder let graph: () -> Graph
+    @ViewBuilder let mindMap: () -> Mind
+    @ViewBuilder let palette: () -> Palette
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showGraph) {
+                NavigationStack {
+                    graph()
+                        .navigationTitle("Graph")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showGraph = false }
+                            }
+                        }
+                }
+            }
+            .sheet(isPresented: $showMindMap) {
+                NavigationStack {
+                    mindMap()
+                        .navigationTitle("Mind Map")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showMindMap = false }
+                            }
+                        }
+                }
+            }
+            .sheet(isPresented: $showPalette) { palette() }
     }
 }
 

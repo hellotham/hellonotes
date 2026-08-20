@@ -15,6 +15,13 @@ import SwiftUI
 
 struct iOSSettingsView: View {
     @Bindable var settings: AppearanceSettings
+    /// The focused collection's Git service, if it is in a repository.
+    /// `GitSettingsView` and `GitAccountsStore` were never Mac-specific — the
+    /// view imports nothing but SwiftUI and the store nothing but Foundation;
+    /// only the settings *window* was macOS, so iPad could read history in the
+    /// inspector and never configure the remote it was reading from.
+    var git: GitService?
+    var accounts: GitAccountsStore?
     @Environment(\.dismiss) private var dismiss
     /// So a browsed folder can be promoted to a sidebar collection here too —
     /// the same action macOS has had. Without it the iOS browser could only ever
@@ -94,6 +101,17 @@ struct iOSSettingsView: View {
                     Toggle("Show note title", isOn: $settings.showInlineTitle)
                 } footer: {
                     Text("Shows the file's name above the note as a heading. Editing it renames the file and updates every link to it.")
+                }
+
+                if let git, let accounts {
+                    Section("Git") {
+                        NavigationLink {
+                            GitSettingsView(store: accounts, git: git)
+                                .navigationTitle("Git")
+                        } label: {
+                            Label("Repository & Accounts", systemImage: "arrow.trianglehead.branch")
+                        }
+                    }
                 }
 
                 Section("Attachments") {

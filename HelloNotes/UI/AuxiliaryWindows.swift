@@ -25,12 +25,8 @@ struct GraphWindowView: View {
 
     /// What the graph shows: every note, or just the notes within `depth`
     /// links of the focused one.
-    private enum Scope: Hashable {
-        case collection
-        case aroundFocus
-    }
 
-    @State private var scope: Scope = .collection
+    @State private var scope: GraphScope = .collection
     @State private var focusedURL: URL?
     @State private var depth = 2
 
@@ -42,66 +38,17 @@ struct GraphWindowView: View {
     /// A force-directed layout of every note is O(N²); past this many nodes the
     /// whole-collection view keeps only the most-connected notes (and says so),
     /// so the graph stays legible and fast instead of an unreadable hairball.
-    private static let maxNodes = 250
 
     private var graphKey: String {
         "\(scope)|\(focusedURL?.path ?? "")|\(depth)|\(library.focused?.id ?? "")|\(library.focused?.derivedRevision ?? 0)"
     }
 
-    /// Nodes and resolved edges for the current scope, plus how many notes were
-    /// dropped by the `maxNodes` cap (0 when nothing was dropped).
+    /// Nodes and edges for the current scope. The rules live in `GraphData`
+    /// so the iPad's graph cannot drift from this one.
     private func computeGraphData() -> (nodes: [GraphNode], edges: [GraphEdge], dropped: Int) {
-        guard let c = library.focused else { return ([], [], 0) }
-
-        var notes = c.notes
-        if scope == .aroundFocus, let focusedURL {
-            let keep = neighbourhood(of: focusedURL, in: c, depth: depth)
-            notes = notes.filter { keep.contains($0.fileURL) }
-        }
-
-        var dropped = 0
-        if notes.count > Self.maxNodes {
-            // Rank by degree (outgoing + backlinks) and keep the top slice.
-            let degree: (URL) -> Int = { url in
-                (c.linkGraph.outgoingByURL[url]?.count ?? 0) + (c.linkGraph.backlinksByURL[url]?.count ?? 0)
-            }
-            dropped = notes.count - Self.maxNodes
-            notes = Array(notes.sorted { degree($0.fileURL) > degree($1.fileURL) }.prefix(Self.maxNodes))
-        }
-
-        let indexByURL = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.fileURL, $0) })
-        var edges: [GraphEdge] = []
-        for (i, note) in notes.enumerated() {
-            for target in c.linkGraph.outgoingByURL[note.fileURL] ?? [] {
-                if let destURL = c.linkGraph.resolve(target), let j = indexByURL[destURL], j != i {
-                    edges.append(GraphEdge(from: i, to: j))
-                }
-            }
-        }
-        return (notes.map { GraphNode(url: $0.fileURL, label: $0.title) }, edges, dropped)
+        GraphData.build(for: library.focused, scope: scope, focusedURL: focusedURL, depth: depth)
     }
 
-    /// Every note within `depth` links of `url`, following links both ways.
-    private func neighbourhood(of url: URL, in collection: Collection, depth: Int) -> Set<URL> {
-        var visited: Set<URL> = [url]
-        var frontier = [url]
-        for _ in 0..<depth {
-            var next: [URL] = []
-            for u in frontier {
-                var adjacent: [URL] = []
-                for target in collection.linkGraph.outgoingByURL[u] ?? [] {
-                    if let dest = collection.linkGraph.resolve(target) { adjacent.append(dest) }
-                }
-                adjacent += collection.linkGraph.backlinksByURL[u] ?? []
-                for v in adjacent where !visited.contains(v) {
-                    visited.insert(v)
-                    next.append(v)
-                }
-            }
-            frontier = next
-        }
-        return visited
-    }
 
     private var focusedTitle: String? {
         guard let focusedURL else { return nil }
@@ -125,7 +72,7 @@ struct GraphWindowView: View {
                           })
                     .overlay(alignment: .top) {
                         if data.dropped > 0 {
-                            Text("Showing the \(Self.maxNodes) most-connected notes · \(data.dropped) more hidden")
+                            Text("Showing the \(GraphData.maxNodes) most-connected notes · \(data.dropped) more hidden")
                                 .font(.caption)
                                 .padding(.horizontal, 10).padding(.vertical, 5)
                                 .background(.thinMaterial, in: Capsule())
@@ -137,9 +84,9 @@ struct GraphWindowView: View {
         .toolbar {
             ToolbarItemGroup {
                 Picker("Scope", selection: $scope) {
-                    Text("Whole Collection").tag(Scope.collection)
+                    Text("Whole Collection").tag(GraphScope.collection)
                     Text(focusedTitle.map { "Around “\($0)”" } ?? "Around Focused Note")
-                        .tag(Scope.aroundFocus)
+                        .tag(GraphScope.aroundFocus)
                 }
                 .pickerStyle(.menu)
                 .disabled(focusedURL == nil && scope == .collection)
