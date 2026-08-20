@@ -386,15 +386,22 @@ reason that is circular.
 inspector. It cannot clone, create or configure a repository, which is a UI gap,
 not an engine one.
 
-### The one that is not a UI gate
+### Corrected: iPad *does* notice external changes
 
-**iPad never notices a change made anywhere else.** `Core/FileWatcher.swift` is
-built on **FSEvents**, which genuinely is macOS-only, and `Collection`'s
-`startWatching` is gated with it. On a vault synced from a Mac, the iPad shows
-stale content until a manual **Rescan Collection**. This is the largest
-functional gap in the audit and the only one whose fix is not "delete the gate":
-iOS wants `NSMetadataQuery` for ubiquitous items, or
-`DispatchSource.makeFileSystemObjectSource` per directory.
+An earlier draft of this audit claimed the iPad never sees a change made
+elsewhere, on the evidence that `Core/FileWatcher.swift` is FSEvents and
+macOS-only. That was wrong, and wrong in the way audits usually are — it read
+the gate and stopped.
+
+iOS has `Core/DirectoryPresenter.swift`: a real `NSFilePresenter` registered on
+a private queue, with `presentedSubitemDidChange` and `presentedItemDidChange`
+wired into the iOS `Collection.activate` / `deactivate`. FSEvents is macOS-only;
+*change detection* is not, and the portable substitute was already there.
+
+What is genuinely coarser: a presenter reports "something under here changed"
+rather than FSEvents' path list, so iOS coalesces a burst into one rescan
+instead of reconciling named paths. That is a difference in precision, not a
+missing feature.
 
 ### Genuinely Mac-only, correctly gated
 
