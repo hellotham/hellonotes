@@ -2548,3 +2548,21 @@ five behaviours could drift without anything failing.
 Remaining on the sidebar: the iOS renderer still walks `CollectionTreeNode`
 rather than the shared `[NoteOutlineItem]`, so this is the model unified and the
 rendering not yet. That is the next step, and it needs no answer about tint.
+
+### …and the iOS renderer walks them
+
+`SidebarItemRow` replaces `CollectionTreeRow`: one recursive view over the shared
+`[NoteOutlineItem]` instead of a second walk over `CollectionTreeNode` composing
+its own sections. Both sidebars now derive their structure from
+`SidebarTree.roots`, and the folder id is the folder's absolute path on both —
+which is also the expansion key, so `folderActions` no longer needs a node to
+open the folder it just created a note in.
+
+A recursive renderer has to be a `View` rather than a `@ViewBuilder` function:
+an opaque `some View` that calls itself is defined in terms of itself and does
+not compile. `CollectionTreeRow` had discovered the same thing.
+
+What is left of the split is the widget: `NSOutlineView` against SwiftUI `List`.
+Same shape as `FileViewerView`'s two representables — and the tint question,
+which decides whether the Mac keeps its native outline, is now a question about
+one view rather than a blocker on the sidebar's behaviour.
