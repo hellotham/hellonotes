@@ -32,9 +32,20 @@ struct PlatformParityTests {
     /// Fields that are genuinely one-platform, each with the reason. Anything
     /// *not* on this list must be wired on both — so adding a Mac-only command
     /// is a deliberate act with a justification beside it, not an omission.
-    static let platformSpecific: [String: String] = [
-        "revealInFinder": "iOS has no Finder, and no public API to reveal an arbitrary path in Files.",
-    ]
+    /// Empty, and meant to stay that way.
+    ///
+    /// It held one entry — `revealInFinder`, justified as "iOS has no Finder,
+    /// and no public API to reveal an arbitrary path in Files". The first half
+    /// is true and the second was the wrong question: iOS has Files, it opens
+    /// at a path, and "show me this file where it lives" is a question both
+    /// platforms can answer. `FileReveal` answers it on both, and the entry
+    /// went with it.
+    ///
+    /// The wider ruling on this project is that there are no exemptions. Adding
+    /// one here is not a decision to take alone — the record of judgement calls
+    /// about "this platform is different" in this codebase is four for four
+    /// wrong, each defended in a comment by whoever made it.
+    static let platformSpecific: [String: String] = [:]
 
     private static func source(_ name: String) throws -> String {
         let url = URL(filePath: #filePath)

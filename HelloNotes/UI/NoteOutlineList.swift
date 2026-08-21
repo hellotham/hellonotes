@@ -658,7 +658,7 @@ struct NoteOutlineList: NSViewRepresentable {
                     NSPasteboard.general.setString("[[\(note.title)]]", forType: .string)
                 }
                 addItem(menu, "Open in New Window") { self.parent.onOpenInNewWindow(note) }
-                addItem(menu, "Reveal in Finder") {
+                addItem(menu, FileReveal.revealTitle) {
                     NSWorkspace.shared.activateFileViewerSelecting([note.fileURL])
                 }
                 // Cloud (File Provider) download controls, only for notes that
@@ -676,13 +676,13 @@ struct NoteOutlineList: NSViewRepresentable {
                 addItem(menu, "Move to Trash") { self.parent.onDelete(note) }
             } else if let file = node.file {
                 addItem(menu, "Open in Default App") { NSWorkspace.shared.open(file.url) }
-                addItem(menu, "Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
+                addItem(menu, FileReveal.revealTitle) { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
             } else if let collection = node.collection {
                 addItem(menu, "New Note") { self.parent.onNewNote(collection, nil) }
                 addItem(menu, "New Folder") { self.parent.onNewFolder(collection, nil) }
                 menu.addItem(.separator())
                 addItem(menu, "Focus Collection") { self.parent.onFocusCollection(collection) }
-                addItem(menu, "Reveal in Finder") {
+                addItem(menu, FileReveal.revealTitle) {
                     NSWorkspace.shared.activateFileViewerSelecting([collection.rootURL])
                 }
                 addItem(menu, "Close Collection") { self.parent.onCloseCollection(collection) }
@@ -690,7 +690,7 @@ struct NoteOutlineList: NSViewRepresentable {
                 addItem(menu, "New Note Here") { self.parent.onNewNote(nil, node.id) }
                 addItem(menu, "New Folder Here") { self.parent.onNewFolder(nil, node.id) }
                 menu.addItem(.separator())
-                addItem(menu, "Reveal in Finder") {
+                addItem(menu, FileReveal.revealTitle) {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: node.id, isDirectory: true)])
                 }
                 menu.addItem(.separator())

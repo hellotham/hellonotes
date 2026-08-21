@@ -1,37 +1,44 @@
 #!/usr/bin/env python3
 """
-PostToolUse check: refuse a *new* platform divergence in HelloNotes/.
+PostToolUse check: a platform gate must supply *both* platforms.
 
-Why a hook and not a test. This repo already has two parity tests
-(PlatformParityTests, ShellComplianceTests) and they are tripwires: they fire
-after somebody has written the second implementation, which means the second
-implementation gets written. Three shipped divergences were found by hand in one
-audit — the iPad's inspector column pinned to `.constant(false)`, `prefersTouch`
-hard-coded per platform, and a sidebar whose two versions had drifted five rows
-apart — and each one had been *defended in a comment* by whoever added it. A
-check that runs at the moment the gate is typed is the only one that can refuse
-the gate.
+The rule, and why it is this rule
+--------------------------------
+There are two kinds of `#if os(...)` and they are not alike:
 
-What it refuses, in files under HelloNotes/ (not tests, not the editor package):
+    // one API, two implementations — this is how parity is built
+    #if os(macOS)
+    throw error            // the Mac has a Trash for every location
+    #else
+    try FileManager.default.removeItem(at: url)
+    #endif
 
-  1. A newly added `#if os(macOS)` / `#if os(iOS)` / `#if canImport(AppKit)`
-     style gate.
-  2. A newly created file whose name starts with `iOS` or `Mac`.
+    // a feature that exists on one platform — this is how parity is lost
+    #if os(macOS)
+    Button("Reveal in Finder") { ... }
+    #endif
 
-Both are refusable rather than forbidden, but **not by the author**. The escape
-is
+The first gives both platforms the same behaviour through different calls. The
+second gives one platform a capability the other does not have. Every divergence
+this audit found is the second kind, and every shared type it built —
+`AccentContrast`, `Trash`, `PointerPresence` — is the first.
 
-    // PARITY-EXEMPT: <id>
+The distinction is mechanical: **the second kind has no `#else`.** So that is the
+check. A gate that covers both branches passes; a gate that covers one is
+refused. No exemption list, no registry, nothing to sign off — because an
+exemption is a judgement call, and the record of judgement calls in this
+codebase is four for four wrong, each defended in a comment by whoever made it.
 
-where `<id>` names an entry in docs/parity-exemptions.md that carries an
-`Approved:` line from the project owner. A reason written by whoever wants the
-gate is not a control — it is the same self-granted permission that produced
-every divergence this audit found, each of which arrived with a comment
-defending it, each of which was wrong. So the reason lives in a file the model
-is refused write access to (see protect-files.py), and an entry without
-`Approved:` is a request rather than an exemption.
+Also refused: a newly created file named `iOS*` or `Mac*`, which is the same
+divergence spelled as a filename. And a whole-file gate is caught by the same
+rule — `#if os(macOS)` at the top of a 739-line view with `#endif` at the bottom
+has no `#else`, which is exactly what makes it a one-platform feature.
 
-Exit 2 feeds the message back to the model so the next action is the fix.
+Scope: `HelloNotes/**.swift`. The editor package's AppKit/UIKit split *is* the
+platform boundary and both halves exist there by construction; the parity test
+suites cover the tests.
+
+Exit 2 feeds the message back so the next action is the fix.
 """
 
 import json
@@ -42,51 +49,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-GATE = re.compile(r'^\s*#(?:if|elseif)\s+.*\b(?:os\(macOS\)|os\(iOS\)|os\(visionOS\)|'
+GATE = re.compile(r'^\s*#if\s+.*\b(?:os\(macOS\)|os\(iOS\)|os\(visionOS\)|'
                   r'canImport\(AppKit\)|canImport\(UIKit\)|targetEnvironment\()')
-EXEMPT = re.compile(r'PARITY-EXEMPT\s*:\s*([A-Za-z0-9][A-Za-z0-9_-]*)')
-REGISTRY = ROOT / "docs" / "parity-exemptions.md"
-
-
-def approved_ids() -> set[str]:
-    """Exemption ids the owner has signed off, from the registry.
-
-    An entry is `### \\`id\\`` followed, before the next entry, by a line
-    beginning `- **Approved:**` whose text is not the pending marker. Anything
-    else — missing, blank, "pending" — is not in force.
-    """
-    try:
-        text = REGISTRY.read_text(encoding="utf-8")
-    except Exception:
-        return set()
-    approved: set[str] = set()
-    current: str | None = None
-    for line in text.splitlines():
-        heading = re.match(r'^###\s+`([^`]+)`', line)
-        if heading:
-            current = heading.group(1)
-            continue
-        if current and re.match(r'^\s*-\s*\*\*Approved:\*\*', line):
-            body = line.split("**Approved:**", 1)[1].strip()
-            if body and "pending" not in body.lower():
-                approved.add(current)
-            current = None
-    return approved
-
-
-def exemption_is_in_force(context: str) -> tuple[bool, str]:
-    """Whether `context` carries an approved exemption, and why not if not."""
-    match = EXEMPT.search(context)
-    if not match:
-        return False, ("no `// PARITY-EXEMPT: <id>` naming an approved entry in "
-                       "docs/parity-exemptions.md")
-    identifier = match.group(1)
-    if identifier not in approved_ids():
-        return False, (f"`PARITY-EXEMPT: {identifier}` names an entry that is not "
-                       f"approved in docs/parity-exemptions.md. Add the argument "
-                       f"there and ask the owner to sign it off — the model "
-                       f"cannot approve its own exemption.")
-    return True, ""
+ELSE = re.compile(r'^\s*#(?:else|elseif)\b')
+ENDIF = re.compile(r'^\s*#endif\b')
+ANY_IF = re.compile(r'^\s*#if\b')
 
 try:
     event = json.load(sys.stdin)
@@ -103,12 +70,7 @@ try:
 except ValueError:
     sys.exit(0)
 
-parts = relative.parts
-# App sources only. The editor package's AppKit/UIKit split is the platform
-# boundary itself and is expected; tests are checked by the parity suites.
-if not parts or parts[0] != "HelloNotes":
-    sys.exit(0)
-if path.suffix != ".swift":
+if not relative.parts or relative.parts[0] != "HelloNotes" or path.suffix != ".swift":
     sys.exit(0)
 
 
@@ -127,55 +89,60 @@ try:
 except Exception:
     sys.exit(0)
 
-before = committed(relative)
+
+def one_sided_gates(lines: list[str]) -> list[tuple[int, str]]:
+    """Gates whose block contains no `#else` / `#elseif` at their own depth."""
+    found: list[tuple[int, str]] = []
+    stack: list[tuple[int, str, bool]] = []   # (line index, text, saw_else)
+    for index, line in enumerate(lines):
+        if ANY_IF.match(line):
+            stack.append((index, line.strip(), False))
+        elif ELSE.match(line) and stack:
+            start, text, _ = stack[-1]
+            stack[-1] = (start, text, True)
+        elif ENDIF.match(line) and stack:
+            start, text, saw_else = stack.pop()
+            if GATE.match(lines[start]) and not saw_else:
+                found.append((start, text))
+    return found
+
+
+before = {text for _, text in one_sided_gates(committed(relative))}
 problems: list[str] = []
 
-# 1 — a new platform-named file.
-if not before and re.match(r'^(iOS|Mac)[A-Z]', path.name):
-    head = "\n".join(current[:40])
-    ok, why = exemption_is_in_force(head)
-    if not ok:
-        problems.append(
-            f"`{path.name}` is a new platform-specific file. A view that exists "
-            f"once per platform is how the two shells drift — put the decision in "
-            f"a shared type and keep only the presentation per platform. ({why})"
-        )
+if not committed(relative) and re.match(r'^(iOS|Mac)[A-Z]', path.name):
+    problems.append(
+        f"`{path.name}` is a new platform-specific file — the same divergence "
+        f"spelled as a filename. Put the decision in a shared type and keep only "
+        f"the presentation per platform."
+    )
 
-# 2 — gates that are in the file now and were not before.
-def gate_lines(lines: list[str]) -> list[str]:
-    return [line.strip() for line in lines if GATE.match(line)]
+remaining = dict()
+for text in before:
+    remaining[text] = remaining.get(text, 0) + 1
 
-added = gate_lines(current)
-for gate in gate_lines(before):
-    if gate in added:
-        added.remove(gate)
-
-for index, line in enumerate(current):
-    if not GATE.match(line):
-        continue
-    stripped = line.strip()
-    if stripped not in added:
-        continue
-    added.remove(stripped)
-    context = "\n".join(current[max(0, index - 3):index + 1])
-    ok, why = exemption_is_in_force(context)
-    if ok:
+for index, text in one_sided_gates(current):
+    if remaining.get(text):
+        remaining[text] -= 1
         continue
     problems.append(
-        f"{relative}:{index + 1} adds `{stripped}`. Ask what fact the gate is "
-        f"really about — three divergences in this codebase turned out to be a "
-        f"platform standing in for something else (window width, whether a "
-        f"pointer is attached, whether a Trash exists). ({why})"
+        f"{relative}:{index + 1} — `{text}` has no `#else`, so it gives one "
+        f"platform something the other does not have. A gate that supplies both "
+        f"branches is how this codebase shares behaviour (`Trash`, "
+        f"`PointerPresence`, `AccentContrast` all do); a gate that supplies one "
+        f"is how it loses it. Ask what fact the gate is about — every divergence "
+        f"found in this project turned out to be a platform standing in for "
+        f"window width, whether a pointer is attached, or whether a Trash "
+        f"exists — then answer that fact on both sides."
     )
 
 if problems:
     print("Platform parity check\n", file=sys.stderr)
     for problem in problems:
         print(f"  • {problem}\n", file=sys.stderr)
-    print("The contract is that a Mac window and an iPad of the same size behave "
-          "the same. Share the implementation, or put the argument in "
-          "docs/parity-exemptions.md and ask the owner to approve it — an "
-          "exemption you granted yourself is not one.", file=sys.stderr)
+    print("A Mac window and an iPad of the same size must behave the same. There "
+          "is no exemption path: give the gate an `#else`, or share the "
+          "implementation.", file=sys.stderr)
     sys.exit(2)
 
 sys.exit(0)

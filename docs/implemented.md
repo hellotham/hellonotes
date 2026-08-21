@@ -2327,3 +2327,57 @@ Worth recording, because the pattern is the finding:
 In each case a platform was standing in for a fact, and the fact was available.
 The one exemption that survives is `revealInFinder`, and even that is "the OS has
 no such concept", not "our code should differ".
+
+### Exemptions abolished, and the rule that replaced them
+
+The exemption mechanism was wrong twice over. First it accepted a reason written
+by whoever wanted the gate — the same self-granted permission that produced every
+divergence here. Then, with the reason moved to an owner-approved registry, it
+was still asking someone to adjudicate case by case. Both claimed exemptions were
+rejected outright, and the right answer turned out to be mechanical.
+
+**A platform gate must supply both platforms.** There are two kinds of
+`#if os(…)` and they are not alike:
+
+```swift
+#if os(macOS)
+throw error                                  // the Mac has a Trash everywhere
+#else
+try FileManager.default.removeItem(at: url)  // iOS does not, so remove it
+#endif
+```
+
+gives both platforms the same behaviour through different calls. Against:
+
+```swift
+#if os(macOS)
+Button("Reveal in Finder") { … }
+#endif
+```
+
+which gives one platform a capability the other lacks. Every divergence this
+audit found is the second kind; every shared type it built — `AccentContrast`,
+`Trash`, `PointerPresence`, `FileReveal` — is the first. The distinction is
+mechanical: **the second kind has no `#else`.** That is now the whole rule, with
+no exemption path, no registry and nothing to sign off. A whole-file gate fails
+it by construction, which is exactly right: `#if os(macOS)` at the top of a
+739-line view with `#endif` at the bottom has no `#else` because the view exists
+on one platform.
+
+### "iOS has no Finder" was the wrong question
+
+`revealInFinder` was the last entry on the parity allowlist, justified as "iOS
+exposes no public API to reveal an arbitrary path in Files". The first half is
+true; the second half asked about an API rather than about the capability. iOS
+has Files, `shareddocuments:` opens it at a path, and *show me this file where it
+lives* is a question both platforms answer.
+
+`FileReveal` answers it: `NSWorkspace.activateFileViewerSelecting` on one side,
+`shareddocuments:` on the other, one `revealInFileManager` action above them, and
+one title — "Reveal in Finder" or "Reveal in Files" — from a shared constant, so
+the menu bar, the command palette and both sidebars spell it the same way. The
+action is nil where the file cannot be revealed at all, so the item disables
+rather than doing nothing.
+
+`PlatformParityTests.platformSpecific` is now empty, and the file says it is
+meant to stay that way.

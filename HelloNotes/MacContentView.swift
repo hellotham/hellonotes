@@ -728,7 +728,8 @@ struct MacContentView: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString("[[\(note.title)]]", forType: .string)
                     },
-                    revealInFinder: { NSWorkspace.shared.activateFileViewerSelecting([note.fileURL]) },
+                    revealInFileManager: FileReveal.canReveal(note.fileURL)
+                        ? { FileReveal.reveal(note.fileURL) } : nil,
                     openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
                     exportHTML: {
                         if let editor = activeEditor {

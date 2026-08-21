@@ -38,7 +38,7 @@ struct CommandPaletteTests {
             format: { _ in },
             note: NoteMenuActions(
                 isBookmarked: false, rename: {}, duplicate: {}, toggleBookmark: {},
-                copyWikiLink: {}, revealInFinder: {}, openInNewWindow: {},
+                copyWikiLink: {}, revealInFileManager: {}, openInNewWindow: {},
                 exportHTML: {}, exportPDF: {}, printNote: {}, moveToTrash: {}),
             rescan: {},
             showsNonNoteFiles: false, setShowsNonNoteFiles: { _ in },

@@ -1270,6 +1270,15 @@ struct iOSContentView: View {
         } label: {
             Label("Open in New Window", systemImage: "macwindow")
         }
+        // The same command the Mac's sidebar menu has always had, now that it
+        // is one command — see `FileReveal`.
+        if FileReveal.canReveal(note.fileURL) {
+            Button {
+                FileReveal.reveal(note.fileURL)
+            } label: {
+                Label(FileReveal.revealTitle, systemImage: "folder")
+            }
+        }
         // Cloud (File Provider) download controls, for notes that live in a
         // cloud folder. `FileIO.download` / `.evict` were cross-platform all
         // along and had no iOS caller — on the platform where a vault is *most*
@@ -2664,6 +2673,10 @@ struct iOSContentView: View {
                         library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
                     },
                     copyWikiLink: { UIPasteboard.general.string = "[[\(note.title)]]" },
+                    // Same command as the Mac's, through `FileReveal` — this
+                    // was nil on iOS because the menu item was gated away.
+                    revealInFileManager: FileReveal.canReveal(note.fileURL)
+                        ? { FileReveal.reveal(note.fileURL) } : nil,
                     // Was nil, so File ▸ Open in New Window and the palette's
                     // "Open in New Window" both drew, enabled, and did nothing.
                     openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },

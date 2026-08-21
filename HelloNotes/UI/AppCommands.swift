@@ -169,7 +169,9 @@ struct NoteMenuActions {
     var duplicate: () -> Void
     var toggleBookmark: () -> Void
     var copyWikiLink: () -> Void
-    var revealInFinder: (() -> Void)?
+    /// Show the note in Finder or Files, whichever this platform has.
+    /// Nil when the file cannot be revealed at all.
+    var revealInFileManager: (() -> Void)?
     var openInNewWindow: (() -> Void)?
     var exportHTML: () -> Void
     var exportPDF: () -> Void
@@ -379,12 +381,12 @@ struct HelloNotesCommands: Commands {
             // platform, so the item follows the capability instead of the OS.
             Button("Open in New Window") { actions?.note?.openInNewWindow?() }
                 .disabled(actions?.note?.openInNewWindow == nil)
-            #if os(macOS)
-            // This one *is* a Mac concept — iOS has no Finder, and no public
-            // API to reveal an arbitrary path in Files.
-            Button("Reveal in Finder") { actions?.note?.revealInFinder?() }
-                .disabled(actions?.note == nil)
-            #endif
+            // One command on both platforms. It was gated to macOS on the
+            // grounds that iOS has no Finder — true, and not the point: iOS has
+            // Files, it opens at a path, and "show me this file where it lives"
+            // is a question both platforms can answer. See `FileReveal`.
+            Button(FileReveal.revealTitle) { actions?.note?.revealInFileManager?() }
+                .disabled(actions?.note?.revealInFileManager == nil)
 
             Divider()
 

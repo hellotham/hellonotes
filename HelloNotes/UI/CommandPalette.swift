@@ -256,7 +256,7 @@ extension AppActions {
                 note.isBookmarked ? "Remove Bookmark" : "Bookmark Note",
                 note.isBookmarked ? "bookmark.slash" : "bookmark", run: note.toggleBookmark)
             add("copy-link", "Note", "Copy Wiki Link", "link", run: note.copyWikiLink)
-            add("reveal", "Note", "Reveal in Finder", "folder", run: note.revealInFinder)
+            add("reveal", "Note", FileReveal.revealTitle, "folder", run: note.revealInFileManager)
             add("new-window", "Note", "Open in New Window", "macwindow", run: note.openInNewWindow)
             add("export-html", "Note", "Export as HTML…", "doc.richtext", run: note.exportHTML)
             add("export-pdf", "Note", "Export as PDF…", "doc.richtext", run: note.exportPDF)

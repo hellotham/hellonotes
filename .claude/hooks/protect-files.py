@@ -33,15 +33,6 @@ BLOCKED = {
         "(standing project rule). If the contents are needed, the user handles "
         "the file directly."
     ),
-    "parity-exemptions.md": (
-        "Blocked: docs/parity-exemptions.md records which platform divergences "
-        "the owner has approved, and Claude does not write to it. An exemption "
-        "authored by the party that wants it is not a control — that is exactly "
-        "how every divergence in this codebase arrived, each with a comment "
-        "defending it. Put the argument in the response for the user to paste "
-        "in and sign off; until an entry carries `Approved:`, the gate it covers "
-        "stays refused."
-    ),
     "Secrets.xcconfig": (
         "Blocked: Secrets.xcconfig holds live provider credentials and is "
         "git-ignored. Claude does not read or write it; edit "
