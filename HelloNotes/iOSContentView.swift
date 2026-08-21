@@ -59,6 +59,30 @@ struct iOSContentView: View {
     /// column shows `ContentUnavailableView` in that state anyway.
     @State private var noEditor = EditorModel()
     private var editor: EditorModel { tabs.editor(withID: selectedNoteID) ?? noEditor }
+
+    /// Every sidebar command, one implementation — see `ShellActions`. The
+    /// shell owns the state a command reads and writes; what the command *does*
+    /// is not platform-shaped and no longer lives here.
+    private var actions: ShellActions {
+        ShellActions(
+            library: library, tabs: tabs, selection: $selectedNoteID,
+            scope: railCollection ?? focused,
+            renameTarget: $renameTarget, renameText: $renameText,
+            newFolderCollection: $newFolderCollection,
+            newFolderParent: $newFolderParent,
+            newFolderName: $newFolderName,
+            pendingFolderDelete: $pendingFolderDelete,
+            expandedFolders: expandedFolders,
+            openNoteWindow: { openWindow(value: NoteRef($0.fileURL)) },
+            reviewLinks: { beginLinkReview() })
+    }
+
+    /// Open folders, per scene. Shared storage and shared conversion, because
+    /// this was `@SceneStorage` on iPad and `@State` on the Mac — so relaunching
+    /// restored the tree on one platform and collapsed it on the other.
+    private var expandedFolders: Binding<Set<String>> {
+        ExpandedFolders.binding($expandedFolderIDs)
+    }
     @State private var showImporter = false
     @State private var showSettings = false
     @State private var showWelcome = false
@@ -78,13 +102,7 @@ struct iOSContentView: View {
     /// `DisclosureGroup` with no `isExpanded` binding is collapsed on every
     /// appearance, so the tree forgot where you were each launch — on a vault
     /// with nested folders that means re-navigating from the root every time.
-    @SceneStorage("iosExpandedFolders") private var expandedFolderIDs = ""
-    private var expandedFolders: Binding<Set<String>> {
-        Binding(
-            get: { Set(expandedFolderIDs.split(separator: "\n").map(String.init)) },
-            set: { expandedFolderIDs = $0.sorted().joined(separator: "\n") }
-        )
-    }
+    @SceneStorage("expandedFolders") private var expandedFolderIDs = ""
     @State private var selectedNoteID: Note.ID?
     /// Reopen where you left off, exactly as the Mac does: the focused
     /// collection and the open note persist across relaunches as stable path
@@ -685,8 +703,7 @@ struct iOSContentView: View {
             TextField("Name", text: $renameText)
             Button("Cancel", role: .cancel) { renameTarget = nil }
             Button("Rename") {
-                if let note = renameTarget { renameNote(note, to: renameText) }
-                renameTarget = nil
+                actions.commitRename()
             }
         } message: {
             Text("Renaming updates [[links]] in notes that point at it.")
@@ -848,7 +865,6 @@ struct iOSContentView: View {
                 .truncationMode(.tail)
         }
         .tag(note.id)
-        .contextMenu { noteActions(note) }
         // The tree is the only place a note has a *location*, so it is the only
         // place a move makes sense — the same rows the Mac makes draggable.
         .draggable(note.fileURL)
@@ -871,14 +887,11 @@ struct iOSContentView: View {
             accent: appearance.resolvedAccent,
             fontScale: appearance.textScale,
             scopedCollectionID: selectedTag == nil ? nil : (railCollection ?? focused)?.id,
+            actions: actions.sidebarMenu,
+            scopedCollection: railCollection ?? focused,
+            onCloseCollection: { actions.closeCollection($0) },
             row: { note, snippet in AnyView(noteRow(note, snippet: snippet)) },
-            collectionMenu: { AnyView(collectionMenuItems($0)) },
-            folderMenu: { id in AnyView(folderMenu(forID: id)) },
-            onDropIntoFolder: { id, urls in
-                guard let (collection, url) = folder(forID: id) else { return false }
-                moveItems(urls, into: url, of: collection)
-                return true
-            })
+            onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) })
         .navigationTitle("Collections")
         // **The iPad had no search field at any width.** The only `.searchable`
         // in this file sits on `noteList`, which is compact-only — and
@@ -980,150 +993,6 @@ struct iOSContentView: View {
             }
         }
     }
-
-    /// What you can do to a folder in the sidebar tree.
-    ///
-    /// Folder rows carried no menu at all — note rows had one — so
-    /// `Collection.createFolder`, `deleteFolder` and `moveItem`, every one of
-    /// them cross-platform, had *zero* iOS callers: an iPad could not create a
-    /// folder, remove one, or aim a new note at one, and all four `createNote()`
-    /// calls used the no-argument overload, so every note landed in the
-    /// collection root. The same three commands the Mac's outline offers
-    /// (`NoteOutlineList`), with the same confirmation before a trash — which
-    /// takes everything inside the folder with it.
-    @ViewBuilder
-    private func folderActions(_ folder: URL, in collection: Collection) -> some View {
-        // The item id *is* the folder's absolute path, which is also the key
-        // the expansion set uses — so opening the folder needs no node.
-        let itemID = folder.path
-        Button {
-            // Opened, because a note selected inside a collapsed folder is a
-            // selection you cannot see.
-            expandFolder(itemID)
-            Task {
-                if let note = await collection.createNote(in: folder) { selectedNoteID = note.id }
-            }
-        } label: {
-            Label("New Note Here", systemImage: "square.and.pencil")
-        }
-        Button {
-            expandFolder(itemID)
-            beginNewFolder(in: collection, parent: folder)
-        } label: {
-            Label("New Folder Here", systemImage: "folder.badge.plus")
-        }
-        Divider()
-        Button(role: .destructive) {
-            pendingFolderDelete = folder
-        } label: {
-            Label("Move to Trash", systemImage: "trash")
-        }
-    }
-
-
-    /// Move dropped notes and attachments into `folder`.
-    ///
-    /// Flushes every tab first — the files are about to change paths, and an
-    /// in-flight autosave would be writing to the old one — then reselects a
-    /// moved item at its new URL if it was the one open. The Mac's
-    /// `moveItem(at:into:)`, over the same `Collection.moveItem`, which had no
-    /// iOS caller at all.
-    ///
-    /// **Only items this collection already owns.** A drop carries a plain
-    /// `URL`, so anything can arrive — a link from Safari, a file from Files, a
-    /// note belonging to another open collection. The first two are not ours to
-    /// move and the third would be moved by the wrong index, so all three are
-    /// refused rather than guessed at.
-    private func moveItems(_ urls: [URL], into folder: URL, of collection: Collection) {
-        let sources = urls.filter { library.collection(containing: $0)?.id == collection.id }
-        guard !sources.isEmpty else { return }
-        Task {
-            await tabs.flushAll()
-            for source in sources {
-                let wasSelected = selectedNoteID == source
-                if let destination = await collection.moveItem(at: source, into: folder),
-                   wasSelected {
-                    selectedNoteID = destination
-                }
-            }
-        }
-    }
-
-    /// Open a folder in the sidebar tree.
-    private func expandFolder(_ id: String) {
-        var open = expandedFolders.wrappedValue
-        open.insert(id)
-        expandedFolders.wrappedValue = open
-    }
-
-    /// Raise the New Folder prompt for `collection`, inside `parent` (or at its
-    /// root when `parent` is nil).
-    private func beginNewFolder(in collection: Collection, parent: URL?) {
-        newFolderParent = parent
-        newFolderName = ""
-        newFolderCollection = collection
-    }
-
-    /// What you can do to an open collection from the sidebar.
-    ///
-    /// Closing loses no data — the folder stays exactly where it is and only
-    /// stops being listed — so it is not marked destructive, matching the
-    /// compact list's deliberately grey (not red) swipe action.
-    @ViewBuilder
-    private func collectionMenuItems(_ collection: Collection) -> some View {
-        // At the collection's own root. The contract's one exception to "no
-        // command in the sidebar" is an action whose entire subject *is* the
-        // sidebar's content, and New Note / New Folder at a named root is
-        // exactly that — it is also the only way to aim either at a particular
-        // collection when several are open.
-        Button {
-            Task {
-                if let note = await collection.createNote() { selectedNoteID = note.id }
-            }
-        } label: {
-            Label("New Note", systemImage: "square.and.pencil")
-        }
-        Button {
-            beginNewFolder(in: collection, parent: nil)
-        } label: {
-            Label("New Folder…", systemImage: "folder.badge.plus")
-        }
-        Divider()
-        Button {
-            collection.showsNonNoteFiles.toggle()
-        } label: {
-            Label(collection.showsNonNoteFiles ? "Hide Non-Note Files" : "Show Non-Note Files",
-                  systemImage: collection.showsNonNoteFiles ? "eye.slash" : "eye")
-        }
-        Button {
-            collection.rescan()
-        } label: {
-            Label("Rescan Collection", systemImage: "arrow.clockwise")
-        }
-        if collection.isRemote {
-            Button {
-                Task { await collection.refreshFromProvider() }
-            } label: {
-                Label("Refresh Cloud Collection", systemImage: "cloud")
-            }
-        }
-        Divider()
-        Button {
-            // The Mac offers this explicitly; on iPad focus was only ever a
-            // side effect of selecting a note, so a collection with nothing
-            // selected in it could not be made the scope for New Note, the
-            // graph, tags or Open Quickly.
-            library.focusedID = collection.id
-        } label: {
-            Label("Focus Collection", systemImage: "scope")
-        }
-        Button {
-            library.close(collection)
-        } label: {
-            Label("Close Collection", systemImage: "xmark.circle")
-        }
-    }
-
     /// Mirrors a browsed cloud folder into a sidebar collection. Captures the
     /// library itself rather than `self`, which is a view struct.
     private var addRemoteCollection: AddRemoteCollection {
@@ -1132,132 +1001,6 @@ struct iOSContentView: View {
             try await library.openRemote(store: store, remoteRoot: remoteRoot,
                                          displayName: displayName, progress: progress)
         }
-    }
-
-    /// Whether this note lives in a File Provider (iCloud Drive, Dropbox…)
-    /// folder, and so has a download state worth offering control over.
-    private func isCloudBacked(_ note: Note) -> Bool {
-        if note.isOnlineOnly { return true }
-        return (try? note.fileURL.resourceValues(forKeys: [.isUbiquitousItemKey]))?
-            .isUbiquitousItem == true
-    }
-
-    /// Everything you can do to a note, in one place, used by both the sidebar
-    /// tree and the note list.
-    ///
-    /// Before this, an iPad could create a note and then neither rename,
-    /// duplicate, bookmark nor delete it: `deleteNote` had no caller on iOS at
-    /// all, and rename existed only through the inline title — which is behind
-    /// an appearance setting, so turning that off removed the only route.
-    @ViewBuilder
-    private func noteActions(_ note: Note) -> some View {
-        Button {
-            renameText = note.title
-            renameTarget = note
-        } label: {
-            Label("Rename…", systemImage: "pencil")
-        }
-        Button {
-            guard let c = library.collection(containing: note.fileURL) else { return }
-            // Select the copy, as the Mac does. Discarding the returned `Note`
-            // left you looking at the original with a duplicate somewhere in
-            // the tree — which reads as "nothing happened".
-            Task { if let copy = await c.duplicateNote(note) { selectedNoteID = copy.id } }
-        } label: {
-            Label("Duplicate", systemImage: "plus.square.on.square")
-        }
-        Button {
-            library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
-        } label: {
-            Label(isBookmarked(note) ? "Remove Bookmark" : "Bookmark",
-                  systemImage: isBookmarked(note) ? "bookmark.slash" : "bookmark")
-        }
-        Button {
-            UIPasteboard.general.string = "[[\(note.title)]]"
-        } label: {
-            Label("Copy Wiki Link", systemImage: "link")
-        }
-        // The touch route to the second scene. ⌃⌘O reaches the same command
-        // from a hardware keyboard; a keyboard-less iPad had none.
-        Button {
-            openWindow(value: NoteRef(note.fileURL))
-        } label: {
-            Label("Open in New Window", systemImage: "macwindow")
-        }
-        // The same command the Mac's sidebar menu has always had, now that it
-        // is one command — see `FileReveal`.
-        if FileReveal.canReveal(note.fileURL) {
-            Button {
-                FileReveal.reveal(note.fileURL)
-            } label: {
-                Label(FileReveal.revealTitle, systemImage: "folder")
-            }
-        }
-        // Cloud (File Provider) download controls, for notes that live in a
-        // cloud folder. `FileIO.download` / `.evict` were cross-platform all
-        // along and had no iOS caller — on the platform where a vault is *most*
-        // likely to be iCloud-backed, there was no way to pull a note down
-        // before going offline, or to reclaim its space after.
-        if isCloudBacked(note) {
-            Divider()
-            if note.isOnlineOnly {
-                Button {
-                    try? FileIO.download(at: note.fileURL)
-                } label: {
-                    Label("Download", systemImage: "arrow.down.circle")
-                }
-            } else {
-                Button {
-                    try? FileIO.evict(at: note.fileURL)
-                } label: {
-                    Label("Remove Download", systemImage: "icloud.slash")
-                }
-            }
-        }
-        // Only for the note that is actually open: the existing review flow
-        // reads the live editor buffer, and proposals are offsets into *that*
-        // text — running it against some other note would apply ranges to the
-        // wrong document.
-        if editor.note?.fileURL == note.fileURL {
-            Button {
-                beginLinkReview()
-            } label: {
-                Label("Review Links…", systemImage: "link.badge.plus")
-            }
-        }
-        Divider()
-        Menu {
-            Button {
-                EditorExport.exportHTML(markdown: textFor(note), title: note.title)
-            } label: { Label("Export as HTML…", systemImage: "doc.richtext") }
-            Button {
-                EditorExport.exportPDF(markdown: textFor(note), title: note.title)
-            } label: { Label("Export as PDF…", systemImage: "doc.text") }
-            Button {
-                EditorExport.printNote(markdown: textFor(note), title: note.title)
-            } label: { Label("Print…", systemImage: "printer") }
-        } label: {
-            Label("Export", systemImage: "square.and.arrow.up")
-        }
-        Divider()
-        Button(role: .destructive) {
-            guard let c = library.collection(containing: note.fileURL) else { return }
-            if selectedNoteID == note.id { selectedNoteID = nil }
-            Task { await c.deleteNote(note) }
-        } label: {
-            Label("Move to Trash", systemImage: "trash")
-        }
-    }
-
-    /// The note's text: the live buffer when it is the one open (so an export
-    /// reflects unsaved edits, as it does on the Mac), otherwise from disk.
-    private func textFor(_ note: Note) -> String {
-        if editor.note?.fileURL == note.fileURL { return editor.text }
-        return (try? FileIO.readString(at: note.fileURL)) ?? ""
-    }
-
-    private func isBookmarked(_ note: Note) -> Bool {
-        library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
     }
 
     /// Open (creating if needed) today's daily note.
@@ -1274,9 +1017,6 @@ struct iOSContentView: View {
         }
     }
 
-    /// Whether a search or tag filter is narrowing the list.
-    private var isFiltering: Bool { selectedTag != nil || !searchText.isEmpty }
-
     /// The collection and folder URL a folder item's id names.
     ///
     /// The id is the owning collection's id followed by the folder's path
@@ -1288,14 +1028,6 @@ struct iOSContentView: View {
         }) else { return nil }
         return (collection, URL(fileURLWithPath: id, isDirectory: true))
     }
-
-    @ViewBuilder
-    private func folderMenu(forID id: String) -> some View {
-        if let (collection, url) = folder(forID: id) {
-            folderActions(url, in: collection)
-        }
-    }
-
     /// Re-check the selection after the note set changed underneath it.
     ///
     /// Deliberately conservative: a selection that still resolves is left
@@ -1605,29 +1337,6 @@ struct iOSContentView: View {
         ]
     }
 
-    /// Rename from the inline title. Goes through the collection so the file
-    /// moves *and* every `[[wiki-link]]` to it is rewritten.
-    private func renameNote(_ note: Note, to title: String) {
-        guard let collection = library.collection(containing: note.fileURL) else { return }
-        Task {
-            // Renaming moves the file; an in-flight autosave would be writing
-            // to the old path.
-            //
-            // **Every** tab, not just the front one. This flushed `editor` —
-            // the *selected* note's — while a rename raised from the sidebar's
-            // context menu is usually aimed at a different note entirely.
-            // `EditorTabs.prune` deliberately keeps a dirty editor, and that
-            // editor holds the pre-rename URL, so its next save resurrected a
-            // ghost file at the old name while the renamed file never received
-            // the edits. The Mac awaits `flushAll()` in both of its rename
-            // paths for exactly this reason.
-            await tabs.flushAll()
-            if let renamed = await collection.renameNote(note, to: title) {
-                selectedNoteID = renamed.id
-            }
-        }
-    }
-
     /// Tags as their own place in the compact tab bar — the phone has no
     /// inspector rail to keep them in, and they are still how people navigate
     /// across a vault rather than down it.
@@ -1883,7 +1592,7 @@ struct iOSContentView: View {
                 onOpenWikiLink: { openWikiLink($0) },
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: linkMention,
-                onRenameNote: { renameNote(note, to: $0) },
+                onRenameNote: { actions.rename(note, to: $0) },
                 onShowMindMap: { showMindMap = true },
                 ai: aiActions,
                 selectionActions: selectionActions(in: c)
@@ -1963,7 +1672,7 @@ struct iOSContentView: View {
             }
             .disabled(scope == nil)
             Button {
-                if let scope { beginNewFolder(in: scope, parent: nil) }
+                actions.beginNewFolder(in: scope, folderID: nil)
             } label: {
                 Label("New Folder…", systemImage: "folder.badge.plus")
             }
@@ -2040,40 +1749,10 @@ struct iOSContentView: View {
     // tabs — the answer belongs with the thing it is about on both platforms,
     // and only the route to it differs.
 
-    @ViewBuilder
-    private var aiMenu: some View {
-        let intelligence = IntelligenceService(settings: llmSettings)
-        if intelligence.isAvailable {
-            Menu {
-                Button("Summarise Note", systemImage: "text.append") { askInspector(.summarize) }
-                Button("Suggest Tags", systemImage: "number") { askInspector(.suggestTags) }
-                Button("Suggest Links", systemImage: "link.badge.plus") { askInspector(.suggestLinks) }
-                Divider()
-                Button("Rewrite or Expand Note…", systemImage: "wand.and.stars") {
-                        NotificationCenter.default.post(name: .hnRewriteNote, object: nil)
-                    }
-                Divider()
-                Text("via \(intelligence.providerName)")
-            } label: {
-                Image(systemName: "sparkles")
-            }
-        }
-    }
-
     /// Review Links is its own toolbar button rather than an item in the AI
     /// menu: it is an exact text scan and works with no provider configured, so
     /// burying it under a sparkles icon would hide a working feature behind a
     /// setting it does not need.
-    @ViewBuilder
-    private var reviewLinksButton: some View {
-        if editor.note != nil, editorCollection != nil {
-            Button { beginLinkReview() } label: {
-                Image(systemName: "link.badge.plus")
-            }
-            .help("Find links this note names but doesn't make")
-        }
-    }
-
     /// Start a composition run against the collection the rail is showing.
     private func runCompose(_ prompt: String, mode: NoteComposer.Mode, depth: Int) {
         guard let scope = railCollection ?? focused else { return }
@@ -2112,13 +1791,6 @@ struct iOSContentView: View {
         inspectorTabRaw = request.tab.rawValue
         inspectorPresented = true
         inspectorRequest = request
-    }
-
-    /// Replace the note's body, keeping any front matter.
-    private func replaceBody(with text: String) {
-        let full = editor.text
-        let body = FrontMatter.body(of: full)
-        editor.text = body.count < full.count ? String(full.dropLast(body.count)) + text : text
     }
 
     /// One button that discloses the inspector, and nothing more.
@@ -2483,17 +2155,13 @@ struct iOSContentView: View {
             },
             note: editor.note.map { note in
                 NoteMenuActions(
-                    isBookmarked: isBookmarked(note),
-                    rename: { renameText = note.title; renameTarget = note },
-                    duplicate: {
-                        guard let c = library.collection(containing: note.fileURL) else { return }
-                        // Select the copy — see `noteActions`.
-                        Task { if let copy = await c.duplicateNote(note) { selectedNoteID = copy.id } }
-                    },
+                    isBookmarked: actions.isBookmarked(note),
+                    rename: { actions.beginRename(note) },
+                    duplicate: { actions.duplicate(note) },
                     toggleBookmark: {
                         library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
                     },
-                    copyWikiLink: { UIPasteboard.general.string = "[[\(note.title)]]" },
+                    copyWikiLink: { Clipboard.copy(note.wikiLink) },
                     // Same command as the Mac's, through `FileReveal` — this
                     // was nil on iOS because the menu item was gated away.
                     revealInFileManager: FileReveal.canReveal(note.fileURL)
@@ -2501,14 +2169,10 @@ struct iOSContentView: View {
                     // Was nil, so File ▸ Open in New Window and the palette's
                     // "Open in New Window" both drew, enabled, and did nothing.
                     openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
-                    exportHTML: { EditorExport.exportHTML(markdown: textFor(note), title: note.title) },
-                    exportPDF: { EditorExport.exportPDF(markdown: textFor(note), title: note.title) },
-                    printNote: { EditorExport.printNote(markdown: textFor(note), title: note.title) },
-                    moveToTrash: {
-                        guard let c = library.collection(containing: note.fileURL) else { return }
-                        if selectedNoteID == note.id { selectedNoteID = nil }
-                        Task { await c.deleteNote(note) }
-                    })
+                    exportHTML: { EditorExport.exportHTML(markdown: actions.text(of: note), title: note.title) },
+                    exportPDF: { EditorExport.exportPDF(markdown: actions.text(of: note), title: note.title) },
+                    printNote: { EditorExport.printNote(markdown: actions.text(of: note), title: note.title) },
+                    moveToTrash: { actions.delete(note) })
             },
             rescan: scope.map { c in { c.rescan() } },
             showsNonNoteFiles: scope?.showsNonNoteFiles,

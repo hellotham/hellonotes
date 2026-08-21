@@ -48,35 +48,24 @@ struct NoteOutlineList: NSViewRepresentable {
     /// group rows and each subtree names its own collection.
     var scopedCollectionID: Collection.ID? = nil
 
-    var isBookmarked: (Note) -> Bool
-    var onToggleBookmark: (Note) -> Void
-    var onDelete: (Note) -> Void
-    var onOpenInNewWindow: (Note) -> Void
-    var onCloseCollection: (Collection) -> Void
-    var onFocusCollection: (Collection) -> Void
-    var onRename: (Note) -> Void = { _ in }
-    var onDuplicate: (Note) -> Void = { _ in }
-    /// "New Note" on a collection row (in its root) or a folder row (inside it).
-    /// The second argument is the folder outline-item id, `nil` for the root.
-    var onNewNote: (Collection?, String?) -> Void = { _, _ in }
-    /// "New Folder" on a collection row (root) or folder row (nested). Same
-    /// argument convention as `onNewNote`.
-    var onNewFolder: (Collection?, String?) -> Void = { _, _ in }
-    /// Move a folder (by outline-item id, an absolute path) to the Trash.
-    var onDeleteFolder: (String) -> Void = { _ in }
-    /// A note/attachment was dropped on a folder or collection row: move the
-    /// item at the first URL into the folder at the second.
-    var onMoveItem: (URL, URL) -> Void = { _, _ in }
+    /// What the shell's commands *do*. The menu itself — which items, in which
+    /// order, with which titles — is `SidebarMenu`, shared, so neither widget
+    /// owns a command list of its own. See `SidebarMenu.swift` for the five
+    /// divergences that arrangement had already produced.
+    var actions: SidebarMenu.Actions = SidebarMenu.Actions()
+    /// The collection the whole outline belongs to, for the empty-space menu.
+    var scopedCollection: Collection? = nil
+    /// Close a collection from the row's own button (not the menu).
+    var onCloseCollection: (Collection) -> Void = { _ in }
+    /// A note/attachment was dropped on a folder or collection row: move every
+    /// URL into the folder whose absolute path is the outline-item id.
+    var onDropIntoFolder: (String, [URL]) -> Bool = { _, _ in false }
 
     /// Accepted so the call site is one call site. AppKit builds its own cells
-    /// and menus from `NoteOutlineItem`; the SwiftUI branch asks the shell for
-    /// them, because a SwiftUI row *is* a view and a context menu *is* a view
-    /// builder. Both draw `NoteRowContent`, which is what keeps them agreeing
-    /// about what a row says.
+    /// from `NoteOutlineItem`; the SwiftUI branch asks the shell, because a
+    /// SwiftUI row *is* a view. Both draw `NoteRowContent`, which is what keeps
+    /// them agreeing about what a row says.
     var row: (Note, String?) -> AnyView = { _, _ in AnyView(EmptyView()) }
-    var collectionMenu: (Collection) -> AnyView = { _ in AnyView(EmptyView()) }
-    var folderMenu: (String) -> AnyView = { _ in AnyView(EmptyView()) }
-    var onDropIntoFolder: (String, [URL]) -> Bool = { _, _ in false }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -308,8 +297,7 @@ struct NoteOutlineList: NSViewRepresentable {
                          item: Any?, childIndex index: Int) -> Bool {
             guard let source = draggedURL(from: info),
                   let target = dropTarget(for: item) else { return false }
-            parent.onMoveItem(source, target.folderURL)
-            return true
+            return parent.onDropIntoFolder(target.folderURL.path, [source])
         }
 
         private func draggedURL(from info: NSDraggingInfo) -> URL? {
@@ -601,66 +589,31 @@ struct NoteOutlineList: NSViewRepresentable {
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
             guard let outline = outlineView else { return }
-            guard outline.clickedRow >= 0,
-                  let node = outline.item(atRow: outline.clickedRow) as? NoteOutlineItem else {
-                // Empty space below the rows. With the rail scoping the outline
-                // there is no collection row left to right-click, so this is
-                // the only way to create something at the collection's root.
-                if parent.scopedCollectionID != nil {
-                    addItem(menu, "New Note") { self.parent.onNewNote(nil, nil) }
-                    addItem(menu, "New Folder") { self.parent.onNewFolder(nil, nil) }
-                }
-                return
+            let items: [SidebarMenu.Item]
+            if outline.clickedRow >= 0,
+               let node = outline.item(atRow: outline.clickedRow) as? NoteOutlineItem {
+                items = SidebarMenu.items(for: node, actions: parent.actions)
+            } else {
+                // Empty space below the rows, which names no node.
+                items = SidebarMenu.emptySpace(in: parent.scopedCollection,
+                                               actions: parent.actions)
             }
+            add(items, to: menu)
+        }
 
-            if let note = node.note {
-                addItem(menu, "Rename…") { self.parent.onRename(note) }
-                addItem(menu, "Duplicate") { self.parent.onDuplicate(note) }
-                let on = parent.isBookmarked(note)
-                addItem(menu, on ? "Remove Bookmark" : "Add Bookmark") { self.parent.onToggleBookmark(note) }
-                menu.addItem(.separator())
-                addItem(menu, "Copy Wiki Link") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("[[\(note.title)]]", forType: .string)
-                }
-                addItem(menu, "Open in New Window") { self.parent.onOpenInNewWindow(note) }
-                addItem(menu, FileReveal.revealTitle) {
-                    NSWorkspace.shared.activateFileViewerSelecting([note.fileURL])
-                }
-                // Cloud (File Provider) download controls, only for notes that
-                // live in a cloud folder.
-                let isCloud = (try? note.fileURL.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
-                if isCloud || note.isOnlineOnly {
+        private func add(_ items: [SidebarMenu.Item], to menu: NSMenu) {
+            for item in items {
+                if item.isSeparator {
                     menu.addItem(.separator())
-                    if note.isOnlineOnly {
-                        addItem(menu, "Download") { try? FileIO.download(at: note.fileURL) }
-                    } else {
-                        addItem(menu, "Remove Download") { try? FileIO.evict(at: note.fileURL) }
-                    }
+                } else if let children = item.children {
+                    let parentItem = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
+                    let submenu = NSMenu()
+                    add(children, to: submenu)
+                    parentItem.submenu = submenu
+                    menu.addItem(parentItem)
+                } else {
+                    addItem(menu, item.title, action: item.run ?? {})
                 }
-                menu.addItem(.separator())
-                addItem(menu, "Move to Trash") { self.parent.onDelete(note) }
-            } else if let file = node.file {
-                addItem(menu, "Open in Default App") { NSWorkspace.shared.open(file.url) }
-                addItem(menu, FileReveal.revealTitle) { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
-            } else if let collection = node.collection {
-                addItem(menu, "New Note") { self.parent.onNewNote(collection, nil) }
-                addItem(menu, "New Folder") { self.parent.onNewFolder(collection, nil) }
-                menu.addItem(.separator())
-                addItem(menu, "Focus Collection") { self.parent.onFocusCollection(collection) }
-                addItem(menu, FileReveal.revealTitle) {
-                    NSWorkspace.shared.activateFileViewerSelecting([collection.rootURL])
-                }
-                addItem(menu, "Close Collection") { self.parent.onCloseCollection(collection) }
-            } else if case .folder = node.kind {
-                addItem(menu, "New Note Here") { self.parent.onNewNote(nil, node.id) }
-                addItem(menu, "New Folder Here") { self.parent.onNewFolder(nil, node.id) }
-                menu.addItem(.separator())
-                addItem(menu, FileReveal.revealTitle) {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: node.id, isDirectory: true)])
-                }
-                menu.addItem(.separator())
-                addItem(menu, "Move to Trash") { self.parent.onDeleteFolder(node.id) }
             }
         }
 
@@ -727,12 +680,16 @@ struct NoteOutlineList: View {
     var fontScale: CGFloat = 1
     var scopedCollectionID: Collection.ID?
 
+    /// What the shell's commands do. Which commands there are is
+    /// `SidebarMenu` — the same list the Mac's `NSMenu` is built from.
+    var actions: SidebarMenu.Actions = SidebarMenu.Actions()
+    var scopedCollection: Collection? = nil
+    var onCloseCollection: (Collection) -> Void = { _ in }
+
     /// A row for a note. The shell supplies it because what a row *says* is
-    /// `NoteRowContent`'s and what it *does* — select, drag, its context menu —
-    /// belongs to the shell that owns the selection.
+    /// `NoteRowContent`'s and what it *does* — select, drag — belongs to the
+    /// shell that owns the selection.
     var row: (Note, String?) -> AnyView
-    var collectionMenu: (Collection) -> AnyView
-    var folderMenu: (String) -> AnyView
     var onDropIntoFolder: (String, [URL]) -> Bool
 
     var body: some View {
@@ -742,13 +699,37 @@ struct NoteOutlineList: View {
                     item: item,
                     expandedFolders: $expandedFolders,
                     collapsedCollections: $collapsedCollections,
+                    actions: actions,
                     row: row,
-                    collectionMenu: collectionMenu,
-                    folderMenu: folderMenu,
                     onDropIntoFolder: onDropIntoFolder)
             }
         }
         .tint(accent)
+    }
+}
+
+/// One `SidebarMenu.Item` list, as SwiftUI buttons. The Mac walks the same
+/// array into an `NSMenu`; this is the only other renderer.
+struct SidebarMenuItems: View {
+    let items: [SidebarMenu.Item]
+    var body: some View {
+        ForEach(items) { item in
+            if item.isSeparator {
+                Divider()
+            } else if let children = item.children {
+                Menu {
+                    SidebarMenuItems(items: children)
+                } label: {
+                    Label(item.title, systemImage: item.symbol)
+                }
+            } else {
+                Button(role: item.destructive ? .destructive : nil) {
+                    item.run?()
+                } label: {
+                    Label(item.title, systemImage: item.symbol)
+                }
+            }
+        }
     }
 }
 
@@ -768,18 +749,27 @@ struct SidebarItemRow: View {
     /// opened should do.
     @Binding var collapsedCollections: Set<Collection.ID>
 
+    let actions: SidebarMenu.Actions
     let row: (Note, String?) -> AnyView
-    let collectionMenu: (Collection) -> AnyView
-    let folderMenu: (String) -> AnyView
     let onDropIntoFolder: (String, [URL]) -> Bool
+
+    /// This row's menu, from the shared list.
+    private var menuItems: [SidebarMenu.Item] {
+        SidebarMenu.items(for: item, actions: actions)
+    }
 
     var body: some View {
         switch item.kind {
         case .note(let note, let snippet):
             row(note, snippet)
+                .contextMenu { SidebarMenuItems(items: menuItems) }
 
         case .file(let file):
-            Label(file.name, systemImage: file.kind.symbol).tag(file.url)
+            // An attachment had no menu at all here — not Open, not Reveal —
+            // while the Mac's had both. Same list now.
+            Label(file.name, systemImage: file.kind.symbol)
+                .tag(file.url)
+                .contextMenu { SidebarMenuItems(items: menuItems) }
 
         case .place(let name, let symbol):
             DisclosureGroup {
@@ -808,14 +798,14 @@ struct SidebarItemRow: View {
                     Text(collection.name).font(.headline)
                     Spacer()
                     Menu {
-                        collectionMenu(collection)
+                        SidebarMenuItems(items: menuItems)
                     } label: {
                         Image(systemName: "ellipsis.circle").imageScale(.large)
                     }
                     .accessibilityLabel("\(collection.name) actions")
                     .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
                 }
-                .contextMenu { collectionMenu(collection) }
+                .contextMenu { SidebarMenuItems(items: menuItems) }
             }
 
         case .folder(let name):
@@ -832,7 +822,7 @@ struct SidebarItemRow: View {
                 // the long-press of every row nested inside it, and a drop on
                 // the group would swallow drops meant for its children.
                 Label(name, systemImage: "folder")
-                    .contextMenu { folderMenu(item.id) }
+                    .contextMenu { SidebarMenuItems(items: menuItems) }
                     .dropDestination(for: URL.self) { urls, _ in
                         onDropIntoFolder(item.id, urls)
                     }
@@ -845,9 +835,8 @@ struct SidebarItemRow: View {
             SidebarItemRow(item: child,
                            expandedFolders: $expandedFolders,
                            collapsedCollections: $collapsedCollections,
+                           actions: actions,
                            row: row,
-                           collectionMenu: collectionMenu,
-                           folderMenu: folderMenu,
                            onDropIntoFolder: onDropIntoFolder)
         }
     }

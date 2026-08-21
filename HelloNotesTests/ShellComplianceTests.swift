@@ -227,4 +227,54 @@ struct ShellComplianceTests {
                     "\(file) does not key its rebuild on the shared key")
         }
     }
+
+    /// The sidebar's commands are one list, and one implementation.
+    ///
+    /// `NoteOutlineList` is one type, but its two branches used to take
+    /// *disjoint* parameter sets — the AppKit branch built its own `NSMenu`
+    /// inside the coordinator and the SwiftUI branch asked the shell for a view
+    /// builder, each declaring the other's parameters with defaults. Both
+    /// compiled; neither ran the other's code. That is how a note on the Mac
+    /// lost Review Links and Export, a collection on the Mac lost Rescan and
+    /// Show Non-Note Files, and an attachment on iPad ended up with no menu at
+    /// all.
+    ///
+    /// Both shells now hand it one `SidebarMenu.Actions`, and neither builds a
+    /// menu or reimplements a command.
+    @Test("Neither shell owns a sidebar command list")
+    func sidebarCommandsAreShared() throws {
+        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+            let source = try Self.source(file)
+            #expect(source.contains("actions: actions.sidebarMenu"),
+                    "\(file) does not hand the outline the shared command list")
+            for forbidden in ["collectionMenu:", "folderMenu:", "onNewNote:", "onNewFolder:",
+                              "onDeleteFolder:", "onRename:", "onDuplicate:", "onMoveItem:",
+                              "onToggleBookmark:", "onFocusCollection:"] {
+                #expect(!source.contains(forbidden),
+                        "\(file) still passes `\(forbidden)` to the outline, which is a command list the other platform will not have")
+            }
+        }
+    }
+
+    /// The commands themselves are `ShellActions`, not a copy per shell.
+    ///
+    /// Rename, delete, duplicate, move and create existed twice under names
+    /// that differed just enough to hide it — `performRename()` against
+    /// `renameNote(_:to:)`, `moveItem(at:into:)` against
+    /// `moveItems(_:into:of:)` — and only one copy of each carried the comment
+    /// explaining the rule it had to keep.
+    @Test("Neither shell reimplements a sidebar operation")
+    func sidebarOperationsAreShared() throws {
+        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+            let source = try Self.source(file)
+            #expect(source.contains("private var actions: ShellActions"),
+                    "\(file) does not go through ShellActions")
+            for forbidden in ["func performRename(", "func renameNote(", "func moveItem(",
+                              "func moveItems(", "func beginRename(", "func expandFolder(",
+                              "func beginNewFolder(", "func renameSelectedNote("] {
+                #expect(!source.contains(forbidden),
+                        "\(file) still has its own `\(forbidden)` — the other platform has the twin, and they drift")
+            }
+        }
+    }
 }

@@ -1,0 +1,248 @@
+//
+//  SidebarMenu.swift
+//  HelloNotes
+//
+//  Created by Chris Tham on 22/8/2026.
+//
+//  What right-clicking (or long-pressing) a sidebar row offers — decided once,
+//  built twice.
+//
+//  `NoteOutlineList` was already one API over two widgets, but its two branches
+//  took *disjoint* parameter sets: the AppKit branch assembled its own `NSMenu`
+//  inside the coordinator, and the SwiftUI branch asked the shell for a
+//  `@ViewBuilder`. Each declared the other's parameters with defaults, so both
+//  compiled while neither ran the other's code. Two command lists for one
+//  control, which had drifted exactly as far as that arrangement allows:
+//
+//    · a note on the Mac had no Review Links and no Export ▸ HTML/PDF/Print
+//    · a collection on the Mac had no Show Non-Note Files, no Rescan and no
+//      Refresh Cloud Collection
+//    · a collection on iPad had no Reveal, and neither did a folder
+//    · an attachment on iPad had no menu at all — not Open, not Reveal
+//    · the Mac said "New Folder" where iPad said "New Folder…", for the same
+//      command, which prompts
+//
+//  None of those is a platform difference. They are the difference between two
+//  people writing the same list twice.
+//
+//  So the list moves here as data — title, symbol, destructiveness, action —
+//  and each widget renders it in its own idiom. An `NSMenu` and a SwiftUI
+//  `Menu` are genuinely different objects; *which items are in them* is not.
+//
+
+import Foundation
+
+@MainActor
+enum SidebarMenu {
+
+    /// One entry. A separator is an item with no title and no action, so a menu
+    /// is a flat array and the two renderers walk it the same way.
+    struct Item: Identifiable {
+        let id: Int
+        var title: String = ""
+        var symbol: String = ""
+        var destructive: Bool = false
+        /// A submenu (Export ▸). `nil` for a leaf.
+        var children: [Item]? = nil
+        var run: (() -> Void)? = nil
+
+        var isSeparator: Bool { title.isEmpty && children == nil }
+    }
+
+    /// Everything a menu item needs to *do*, supplied by the shell that owns
+    /// the selection, the editor and the library.
+    ///
+    /// Closures rather than a reference to the shell: a modifier holding the
+    /// host struct would be looking at a copy of its state.
+    struct Actions {
+        var isBookmarked: (Note) -> Bool = { _ in false }
+        var toggleBookmark: (Note) -> Void = { _ in }
+        var rename: (Note) -> Void = { _ in }
+        var duplicate: (Note) -> Void = { _ in }
+        var openInNewWindow: (Note) -> Void = { _ in }
+        var delete: (Note) -> Void = { _ in }
+        /// Whether this note is the one the editor has open. Review Links reads
+        /// the live buffer and its proposals are offsets into *that* text, so
+        /// running it against another note would apply ranges to the wrong
+        /// document.
+        var isOpenInEditor: (Note) -> Bool = { _ in false }
+        var reviewLinks: (Note) -> Void = { _ in }
+        /// The note's current text — the editor's buffer when it is open, the
+        /// file otherwise. Exporting the file while the editor holds unsaved
+        /// edits exports the wrong thing.
+        var text: (Note) -> String = { _ in "" }
+
+        var newNote: (Collection?, String?) -> Void = { _, _ in }
+        var newFolder: (Collection?, String?) -> Void = { _, _ in }
+        var deleteFolder: (String) -> Void = { _ in }
+        var focusCollection: (Collection) -> Void = { _ in }
+        var closeCollection: (Collection) -> Void = { _ in }
+        /// Called before creating inside a folder, so the new item is not
+        /// created into a folder that is closed — a selection you cannot see.
+        var expandFolder: (String) -> Void = { _ in }
+    }
+
+    /// The menu for one sidebar row.
+    static func items(for item: NoteOutlineItem, actions: Actions) -> [Item] {
+        var ids = 0
+        func next() -> Int { ids += 1; return ids }
+        func separator() -> Item { Item(id: next()) }
+        func entry(_ title: String, _ symbol: String,
+                   destructive: Bool = false,
+                   run: @escaping () -> Void) -> Item {
+            Item(id: next(), title: title, symbol: symbol,
+                 destructive: destructive, run: run)
+        }
+
+        if let note = item.note {
+            var menu: [Item] = [
+                entry("Rename…", "pencil") { actions.rename(note) },
+                entry("Duplicate", "plus.square.on.square") { actions.duplicate(note) },
+                entry(actions.isBookmarked(note) ? "Remove Bookmark" : "Add Bookmark",
+                      actions.isBookmarked(note) ? "bookmark.slash" : "bookmark") {
+                    actions.toggleBookmark(note)
+                },
+                separator(),
+                entry("Copy Wiki Link", "link") { Clipboard.copy(note.wikiLink) },
+                entry("Open in New Window", "macwindow") { actions.openInNewWindow(note) },
+            ]
+            if FileReveal.canReveal(note.fileURL) {
+                menu.append(entry(FileReveal.revealTitle, "folder") {
+                    FileReveal.reveal(note.fileURL)
+                })
+            }
+            // Cloud (File Provider) download controls, only for notes that live
+            // in a cloud folder.
+            if isCloudBacked(note.fileURL) || note.isOnlineOnly {
+                menu.append(separator())
+                if note.isOnlineOnly {
+                    menu.append(entry("Download", "arrow.down.circle") {
+                        try? FileIO.download(at: note.fileURL)
+                    })
+                } else {
+                    menu.append(entry("Remove Download", "icloud.slash") {
+                        try? FileIO.evict(at: note.fileURL)
+                    })
+                }
+            }
+            if actions.isOpenInEditor(note) {
+                menu.append(separator())
+                menu.append(entry("Review Links…", "link.badge.plus") {
+                    actions.reviewLinks(note)
+                })
+            }
+            menu.append(separator())
+            menu.append(Item(id: next(), title: "Export", symbol: "square.and.arrow.up",
+                             children: [
+                                Item(id: next(), title: "Export as HTML…", symbol: "doc.richtext",
+                                     run: { EditorExport.exportHTML(markdown: actions.text(note),
+                                                                    title: note.title) }),
+                                Item(id: next(), title: "Export as PDF…", symbol: "doc.text",
+                                     run: { EditorExport.exportPDF(markdown: actions.text(note),
+                                                                   title: note.title) }),
+                                Item(id: next(), title: "Print…", symbol: "printer",
+                                     run: { EditorExport.printNote(markdown: actions.text(note),
+                                                                   title: note.title) }),
+                             ]))
+            menu.append(separator())
+            menu.append(entry("Move to Trash", "trash", destructive: true) {
+                actions.delete(note)
+            })
+            return menu
+        }
+
+        if let file = item.file {
+            var menu = [entry("Open in Default App", "arrow.up.forward.app") {
+                FileReveal.openInDefaultApp(file.url)
+            }]
+            if FileReveal.canReveal(file.url) {
+                menu.append(entry(FileReveal.revealTitle, "folder") {
+                    FileReveal.reveal(file.url)
+                })
+            }
+            return menu
+        }
+
+        if let collection = item.collection {
+            var menu: [Item] = [
+                // The contract's one exception to "no command in the sidebar"
+                // is an action whose entire subject *is* the sidebar's content,
+                // and New Note / New Folder at a named root is exactly that —
+                // it is also the only way to aim either at a particular
+                // collection when several are open.
+                entry("New Note", "square.and.pencil") { actions.newNote(collection, nil) },
+                entry("New Folder…", "folder.badge.plus") { actions.newFolder(collection, nil) },
+                separator(),
+                entry(collection.showsNonNoteFiles ? "Hide Non-Note Files" : "Show Non-Note Files",
+                      collection.showsNonNoteFiles ? "eye.slash" : "eye") {
+                    collection.showsNonNoteFiles.toggle()
+                },
+                entry("Rescan Collection", "arrow.clockwise") { collection.rescan() },
+            ]
+            if collection.isRemote {
+                menu.append(entry("Refresh Cloud Collection", "cloud") {
+                    Task { await collection.refreshFromProvider() }
+                })
+            }
+            menu.append(separator())
+            menu.append(entry("Focus Collection", "scope") { actions.focusCollection(collection) })
+            if FileReveal.canReveal(collection.rootURL) {
+                menu.append(entry(FileReveal.revealTitle, "folder") {
+                    FileReveal.reveal(collection.rootURL)
+                })
+            }
+            menu.append(entry("Close Collection", "xmark.circle") {
+                actions.closeCollection(collection)
+            })
+            return menu
+        }
+
+        if case .folder = item.kind {
+            // The item id *is* the folder's absolute path, which is also the
+            // key the expansion set uses — so opening the folder needs no node.
+            let folderID = item.id
+            let url = URL(fileURLWithPath: folderID, isDirectory: true)
+            var menu: [Item] = [
+                entry("New Note Here", "square.and.pencil") {
+                    actions.expandFolder(folderID)
+                    actions.newNote(nil, folderID)
+                },
+                entry("New Folder Here…", "folder.badge.plus") {
+                    actions.expandFolder(folderID)
+                    actions.newFolder(nil, folderID)
+                },
+            ]
+            if FileReveal.canReveal(url) {
+                menu.append(separator())
+                menu.append(entry(FileReveal.revealTitle, "folder") { FileReveal.reveal(url) })
+            }
+            menu.append(separator())
+            menu.append(entry("Move to Trash", "trash", destructive: true) {
+                actions.deleteFolder(folderID)
+            })
+            return menu
+        }
+
+        // A pinned place owns no folder on disk, so there is nothing to do to it.
+        return []
+    }
+
+    /// The menu for empty space below the rows, where the click names no node.
+    /// Offered only when the whole outline belongs to one collection, because
+    /// otherwise "New Note" has no answer to "in which".
+    static func emptySpace(in collection: Collection?, actions: Actions) -> [Item] {
+        guard let collection else { return [] }
+        return [
+            Item(id: 1, title: "New Note", symbol: "square.and.pencil",
+                 run: { actions.newNote(collection, nil) }),
+            Item(id: 2, title: "New Folder…", symbol: "folder.badge.plus",
+                 run: { actions.newFolder(collection, nil) }),
+        ]
+    }
+
+    /// Whether a file lives in a File Provider (iCloud Drive, Dropbox, …), and
+    /// so has download controls at all.
+    private static func isCloudBacked(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
+    }
+}

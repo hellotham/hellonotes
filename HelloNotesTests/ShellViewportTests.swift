@@ -190,13 +190,7 @@ struct ShellViewportTests {
                 revealID: .constant(nil),
                 expandedFolders: .constant([]),
                 collapsedCollections: .constant([]),
-                accent: .accentColor,
-                isBookmarked: { _ in false },
-                onToggleBookmark: { _ in },
-                onDelete: { _ in },
-                onOpenInNewWindow: { _ in },
-                onCloseCollection: { _ in },
-                onFocusCollection: { _ in }
+                accent: .accentColor
             )
         }
         let few = idealSize(outline(rows: 1))

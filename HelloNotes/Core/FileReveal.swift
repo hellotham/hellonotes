@@ -78,4 +78,21 @@ enum FileReveal {
         return true
         #endif
     }
+
+    /// Hand a non-note file to whatever the platform opens it with.
+    ///
+    /// The Mac's sidebar offered this on an attachment and iOS did not, on the
+    /// same reasoning that kept "Reveal" macOS-only — `NSWorkspace.open` has no
+    /// iOS twin. It has: `UIApplication.open`, which hands the URL to the
+    /// document provider. Same command, different call.
+    @discardableResult
+    static func openInDefaultApp(_ url: URL) -> Bool {
+        #if canImport(AppKit)
+        return NSWorkspace.shared.open(url)
+        #else
+        guard UIApplication.shared.canOpenURL(url) else { return false }
+        UIApplication.shared.open(url)
+        return true
+        #endif
+    }
 }

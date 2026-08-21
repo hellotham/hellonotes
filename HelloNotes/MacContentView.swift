@@ -118,7 +118,7 @@ struct MacContentView: View {
     /// Sidebar expansion, held by the shell so both platforms keep it across a
     /// rebuild. The AppKit outline manages its own and ignores these; they are
     /// here so the call site is one call site.
-    @State private var expandedOutlineFolders: Set<String> = []
+    @SceneStorage("expandedFolders") private var expandedFolderIDs = ""
     @State private var collapsedCollections: Set<Collection.ID> = []
     private var compactPlace: Binding<CompactPlace> {
         Binding(get: { CompactPlace(rawValue: compactPlaceRaw) ?? .notes },
@@ -143,7 +143,7 @@ struct MacContentView: View {
 
     /// Rename-note prompt state (set via the context menu or the Note menu).
     @State private var renameTarget: Note?
-    @State private var renameTitle = ""
+    @State private var renameText = ""
 
     /// New-folder prompt state (set via the note-list context menu).
     @State private var newFolderCollection: Collection?
@@ -242,6 +242,30 @@ struct MacContentView: View {
         tabs.editor(withID: selectedNoteID)
     }
 
+    /// Every sidebar command, one implementation — see `ShellActions`. The
+    /// shell owns the state a command reads and writes; what the command *does*
+    /// is not platform-shaped and no longer lives here.
+    private var actions: ShellActions {
+        ShellActions(
+            library: library, tabs: tabs, selection: $selectedNoteID,
+            scope: railCollection ?? focused,
+            renameTarget: $renameTarget, renameText: $renameText,
+            newFolderCollection: $newFolderCollection,
+            newFolderParent: $newFolderParent,
+            newFolderName: $newFolderName,
+            pendingFolderDelete: $pendingFolderDelete,
+            expandedFolders: expandedFolders,
+            openNoteWindow: { openWindow(value: NoteRef($0.fileURL)) },
+            reviewLinks: { beginLinkReview() })
+    }
+
+    /// Open folders, per scene. Shared storage and shared conversion, because
+    /// this was `@SceneStorage` on iPad and `@State` on the Mac — so relaunching
+    /// restored the tree on one platform and collapsed it on the other.
+    private var expandedFolders: Binding<Set<String>> {
+        ExpandedFolders.binding($expandedFolderIDs)
+    }
+
     /// The attachment file the current selection points at, if any.
     private var selectedAttachment: CollectionFile? {
         library.collections.lazy.compactMap { c in c.attachments.first { $0.url == selectedNoteID } }.first
@@ -260,12 +284,6 @@ struct MacContentView: View {
         // The debounce, the two waves and the merge are `LibrarySearch`'s. What
         // is left here is the outline, which is this platform's presentation.
         search.update(query: raw, in: library.collections)
-    }
-
-    /// Notes matching the active tag filter in the focused collection, flat rows.
-    private var taggedRows: [NoteRow] {
-        guard let selectedTag, let focused else { return [] }
-        return focused.search.notesTagged(selectedTag).map { NoteRow(note: $0, snippet: nil) }
     }
 
     // MARK: - Editor derived data (for the selection's collection)
@@ -641,8 +659,8 @@ struct MacContentView: View {
         .alert("Rename Note",
                isPresented: Binding(get: { renameTarget != nil },
                                     set: { if !$0 { renameTarget = nil } })) {
-            TextField("Title", text: $renameTitle)
-            Button("Rename") { performRename() }
+            TextField("Title", text: $renameText)
+            Button("Rename") { actions.commitRename() }
             Button("Cancel", role: .cancel) { renameTarget = nil }
         } message: {
             Text("Wiki links to this note across the collection are updated too.")
@@ -675,20 +693,6 @@ struct MacContentView: View {
                     .opacity(0)
                     .frame(width: 0, height: 0)
                     .accessibilityHidden(true)
-            }
-        }
-    }
-
-    /// Move a note/attachment into `folder` (drag & drop). Flushes pending
-    /// edits first — the file is about to change paths — then reselects the
-    /// item at its new URL.
-    private func moveItem(at source: URL, into folder: URL) {
-        guard let c = library.collection(containing: source) else { return }
-        let wasSelected = selectedNoteID == source
-        Task {
-            await tabs.flushAll()
-            if let destination = await c.moveItem(at: source, into: folder), wasSelected {
-                selectedNoteID = destination
             }
         }
     }
@@ -735,40 +739,30 @@ struct MacContentView: View {
             },
             note: showOpenQuickly ? nil : selectedNote.map { note in
                 NoteMenuActions(
-                    isBookmarked: library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false,
-                    rename: { beginRename(note) },
-                    duplicate: {
-                        let c = library.collection(containing: note.fileURL)
-                        Task {
-                            if let copy = await c?.duplicateNote(note) { selectedNoteID = copy.id }
-                        }
-                    },
+                    isBookmarked: actions.isBookmarked(note),
+                    rename: { actions.beginRename(note) },
+                    duplicate: { actions.duplicate(note) },
                     toggleBookmark: { library.collection(containing: note.fileURL)?.bookmarks.toggle(note) },
-                    copyWikiLink: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString("[[\(note.title)]]", forType: .string)
-                    },
+                    copyWikiLink: { Clipboard.copy(note.wikiLink) },
                     revealInFileManager: FileReveal.canReveal(note.fileURL)
                         ? { FileReveal.reveal(note.fileURL) } : nil,
                     openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
+                    // `actions.text(of:)`, not the active editor's buffer. These
+                    // read `if let editor = activeEditor`, so exporting or
+                    // printing a note that was not open in an editor did
+                    // nothing at all — an enabled menu item with no effect. The
+                    // shared accessor prefers the live buffer and falls back to
+                    // the file, which is what the iPad already did.
                     exportHTML: {
-                        if let editor = activeEditor {
-                            EditorExport.exportHTML(markdown: editor.text, title: note.title)
-                        }
+                        EditorExport.exportHTML(markdown: actions.text(of: note), title: note.title)
                     },
                     exportPDF: {
-                        if let editor = activeEditor {
-                            EditorExport.exportPDF(markdown: editor.text, title: note.title)
-                        }
+                        EditorExport.exportPDF(markdown: actions.text(of: note), title: note.title)
                     },
                     printNote: {
-                        if let editor = activeEditor {
-                            EditorExport.printNote(markdown: editor.text, title: note.title)
-                        }
+                        EditorExport.printNote(markdown: actions.text(of: note), title: note.title)
                     },
-                    moveToTrash: {
-                        if let c = library.collection(containing: note.fileURL) { delete(note, in: c) }
-                    }
+                    moveToTrash: { actions.delete(note) }
                 )
             },
             rescan: focused.map { collection in
@@ -904,43 +898,6 @@ struct MacContentView: View {
         inspectorTab = request.tab
         inspectorPresented = true
         inspectorRequest = request
-    }
-
-    /// Open the rename prompt pre-filled with the note's current title.
-    private func beginRename(_ note: Note) {
-        renameTitle = note.title
-        renameTarget = note
-    }
-
-    /// Flush pending edits (the file is about to move), rename, and reselect.
-    /// Rename the open note from its inline title. Goes through the same
-    /// collection path as the note-list rename, so the file moves *and* every
-    /// `[[wiki-link]]` to it is rewritten — a title that only relabelled the
-    /// note would quietly break every link pointing at it.
-    private func renameSelectedNote(to title: String) {
-        guard let note = selectedNote,
-              let collection = library.collection(containing: note.fileURL) else { return }
-        Task {
-            // Flush first: renaming moves the file, and an in-flight autosave
-            // would be writing to the old path.
-            await tabs.flushAll()
-            if let renamed = await collection.renameNote(note, to: title) {
-                selectedNoteID = renamed.id
-            }
-        }
-    }
-
-    private func performRename() {
-        guard let note = renameTarget,
-              let c = library.collection(containing: note.fileURL) else { renameTarget = nil; return }
-        let title = renameTitle
-        renameTarget = nil
-        Task {
-            await tabs.flushAll()
-            if let renamed = await c.renameNote(note, to: title) {
-                selectedNoteID = renamed.id
-            }
-        }
     }
 
     /// Drop the selection if the note (or attachment) it pointed at is gone.
@@ -1623,7 +1580,7 @@ struct MacContentView: View {
                     onOpenWikiLink: openWikiLink,
                     onOpenNote: { selectedNoteID = $0.id },
                     onLinkMention: linkMention,
-                    onRenameNote: { renameSelectedNote(to: $0) },
+                    onRenameNote: { title in selectedNote.map { actions.rename($0, to: title) } },
                     onShowMindMap: {
                         if let url = selectedNote?.fileURL { openWindow(value: MindMapRef(url)) }
                     },
@@ -1814,7 +1771,7 @@ struct MacContentView: View {
             // Expansion state is the shell's on both platforms now — the
             // outline used to keep its own inside the representable, which is
             // why it survived a rebuild there and not on iPad.
-            expandedFolders: $expandedOutlineFolders,
+            expandedFolders: expandedFolders,
             collapsedCollections: $collapsedCollections,
             focusedCollectionID: library.focusedID,
             accent: appearance.resolvedAccent,
@@ -1824,55 +1781,10 @@ struct MacContentView: View {
             // from the group a node hangs under. The one exception is a tag
             // filter, whose rows are bare notes from the focused collection.
             scopedCollectionID: selectedTag == nil ? nil : (railCollection ?? focused)?.id,
-            isBookmarked: { note in
-                library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
-            },
-            onToggleBookmark: { note in
-                library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
-            },
-            onDelete: { note in
-                if let c = library.collection(containing: note.fileURL) { delete(note, in: c) }
-            },
-            onOpenInNewWindow: { openWindow(value: NoteRef($0.fileURL)) },
-            onCloseCollection: { collection in
-                if selectedNote.map({ library.collection(containing: $0.fileURL)?.id == collection.id }) ?? false {
-                    selectedNoteID = nil
-                }
-                library.close(collection)
-            },
-            onFocusCollection: { library.focus($0) },
-            onRename: { beginRename($0) },
-            onDuplicate: { note in
-                let c = library.collection(containing: note.fileURL)
-                Task { if let copy = await c?.duplicateNote(note) { selectedNoteID = copy.id } }
-            },
-            onNewNote: { collection, folderID in
-                // A folder id is the folder's absolute path (collection id + relative path).
-                if let folderID, let c = library.collections.first(where: { folderID == $0.id || folderID.hasPrefix($0.id + "/") }) {
-                    Task {
-                        if let note = await c.createNote(in: URL(fileURLWithPath: folderID, isDirectory: true)) {
-                            selectedNoteID = note.id
-                        }
-                    }
-                } else if let c = collection ?? railCollection ?? focused {
-                    Task { if let note = await c.createNote() { selectedNoteID = note.id } }
-                }
-            },
-            onNewFolder: { collection, folderID in
-                if let folderID, let c = library.collections.first(where: { folderID == $0.id || folderID.hasPrefix($0.id + "/") }) {
-                    newFolderParent = URL(fileURLWithPath: folderID, isDirectory: true)
-                    newFolderCollection = c
-                } else if let c = collection ?? railCollection ?? focused {
-                    newFolderParent = nil
-                    newFolderCollection = c
-                }
-                newFolderName = ""
-            },
-            onDeleteFolder: { folderID in
-                // Deleting a folder trashes everything inside it — confirm first.
-                pendingFolderDelete = URL(fileURLWithPath: folderID, isDirectory: true)
-            },
-            onMoveItem: { source, folder in moveItem(at: source, into: folder) }
+            actions: actions.sidebarMenu,
+            scopedCollection: railCollection ?? focused,
+            onCloseCollection: { actions.closeCollection($0) },
+            onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) }
         )
     }
 
@@ -1955,11 +1867,6 @@ struct MacContentView: View {
             let expanded = TemplateExpander.expand(raw, title: title, date: .now)
             editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
         }
-    }
-
-    private func delete(_ note: Note, in collection: Collection) {
-        if selectedNoteID == note.id { selectedNoteID = nil }
-        Task { await collection.deleteNote(note) }
     }
 
     /// Handle a clicked link within the selection's collection. External URLs
