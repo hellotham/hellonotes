@@ -30,7 +30,8 @@ struct NewEditorHost: View {
     /// ranking over the collection's titles, headings, and tags).
     var completions: (EditorCompletionKind, String) -> [WikiCompletion] = { _, _ in [] }
     /// Pasteboard → Markdown intents (image-to-attachment, HTML-to-md).
-    var pasteMarkdown: (NSPasteboard) -> String? = { _ in nil }
+    var pasteMarkdown: () -> String? = { nil }
+    var pasteImage: () -> String? = { nil }
     /// The provider-backed intelligence service ("Rewrite with AI…").
     var intelligence: IntelligenceService? = nil
     /// What the collection can do with a selected phrase. `nil` hides the
@@ -103,7 +104,8 @@ struct NewEditorHost: View {
                         case .url(let url): NSWorkspace.shared.open(url)
                         }
                     }
-                    .onPasteMarkdown { pasteboard in pasteMarkdown(pasteboard) }
+                    .onPasteMarkdown { pasteMarkdown() }
+                    .onPasteImage { pasteImage() }
                     .onInlineContext { context, rect in
                         if inlineContext != context { inlineContext = context }
                         caretRect = rect

@@ -418,9 +418,12 @@ struct NoteEditorView: View {
             wrapGuide: appearance.wrapGuide,
             onOpenWikiLink: onOpenWikiLink,
             completions: { kind, query in completionSource.matches(kind, query: query) },
-            pasteMarkdown: { pasteboard in
-                pasteImage(pasteboard) ?? smartPaste(pasteboard)
-            },
+            // Two hooks, as on iOS — the pasteboard argument they used to share
+            // was one every caller filled with `NSPasteboard.general`, and it
+            // was the only thing stopping the two editor hosts having the same
+            // paste signature.
+            pasteMarkdown: { smartPaste(NSPasteboard.general) },
+            pasteImage: { pasteImage(NSPasteboard.general) },
             intelligence: intelligence,
             selectionActions: selectionActions,
             blockRenderer: blockRenderAdapter

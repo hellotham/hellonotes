@@ -594,7 +594,17 @@ public final class MarkdownTextView: NSTextView {
     /// Pasteboard intents, injected by the host: return the Markdown to
     /// insert (image saved to the vault, HTML converted, …) or nil to fall
     /// through to the default plain paste.
-    var onPasteMarkdown: ((NSPasteboard) -> String?)?
+    /// Convert whatever is on the pasteboard to Markdown, or nil to paste as
+    /// usual. No argument: it was `(NSPasteboard) -> String?`, and a host
+    /// cannot supply an `NSPasteboard` on iOS — so one hook the two platforms
+    /// could not share, for a parameter every caller filled with
+    /// `NSPasteboard.general`.
+    var onPasteMarkdown: (() -> String?)?
+    /// Save a pasted image and return the Markdown link to insert. UIKit has
+    /// had this as its own hook since the iOS editor shipped; AppKit folded it
+    /// into `onPasteMarkdown` at the call site, so the two hosts took different
+    /// paste arguments for identical behaviour.
+    var onPasteImage: (() -> String?)?
 
     /// Reports the caret's autocomplete context (`[[link` / `#tag`) and its
     /// rect in this view's enclosing scroll-view coordinates, or nil.
@@ -785,7 +795,11 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public override func paste(_ sender: Any?) {
-        if let onPasteMarkdown, let markdown = onPasteMarkdown(NSPasteboard.general) {
+        if let onPasteImage, let markdown = onPasteImage() {
+            performEdit(replacing: selectedRange(), with: markdown)
+            return
+        }
+        if let onPasteMarkdown, let markdown = onPasteMarkdown() {
             performEdit(replacing: selectedRange(), with: markdown)
             return
         }
@@ -909,7 +923,8 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private let document: EditorDocument
     private var isEditable = true
     private var onLinkTap: ((EditorLinkTap) -> Void)?
-    private var onPasteMarkdown: ((NSPasteboard) -> String?)?
+    private var onPasteMarkdown: (() -> String?)?
+    private var onPasteImageHandler: (() -> String?)?
     private var onInlineContext: ((EditorDocument.InlineContext?, CGRect) -> Void)?
     private var onRewriteSelectionHandler: ((NSRange) -> Void)?
     private var onSelectionChangeHandler: ((NSRange, CGRect) -> Void)?
@@ -962,8 +977,13 @@ public struct MarkdownEditorView: NSViewRepresentable {
     }
 
     /// Host paste hook: return Markdown to insert, or nil for plain paste.
-    public func onPasteMarkdown(_ handler: @escaping (NSPasteboard) -> String?) -> Self {
+    public func onPasteMarkdown(_ handler: @escaping () -> String?) -> Self {
         var copy = self; copy.onPasteMarkdown = handler; return copy
+    }
+
+    /// Save a pasted image and return the Markdown link to insert.
+    public func onPasteImage(_ handler: @escaping () -> String?) -> Self {
+        var copy = self; copy.onPasteImageHandler = handler; return copy
     }
 
     /// Autocomplete context reporting (`[[link` / `#tag` at the caret, with
@@ -1022,6 +1042,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.wrapGuideColumns = wrapGuideColumns
         textView.onCaretEscapeTop = onCaretEscapeTopHandler
         textView.onPasteMarkdown = onPasteMarkdown
+        textView.onPasteImage = onPasteImageHandler
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
         textView.onSelectionChange = onSelectionChangeHandler
