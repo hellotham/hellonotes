@@ -1004,76 +1004,9 @@ struct MacContentView: View {
 
     private var collectionTree: some View {
         VStack(spacing: 0) {
-            searchCompletenessNotice
+            SearchCompletenessNotice(collections: library.collections, isSearching: isSearching)
             outlineList
                 .overlay { noteListEmptyState }
-        }
-    }
-
-    /// Collections that can't answer a search truthfully right now: the index is
-    /// behind the folder, or the folder can't be read at all.
-    private var collectionsWithPartialAnswers: [Collection] {
-        library.collections.filter { !$0.isAvailable || $0.hasIncompleteIndex }
-    }
-
-    /// Collections holding items whose content a search cannot read because it
-    /// has not been downloaded.
-    private var collectionsWithUnreadableContent: [Collection] {
-        library.collections.filter { $0.notLocalCount > 0 }
-    }
-
-    /// Say when search results are incomplete, at the point they are read.
-    ///
-    /// Marking the collection row alone would not do: a **false negative** is
-    /// the most damaging thing a knowledge tool can produce, because it is
-    /// invisible by construction — you cannot notice the note that didn't come
-    /// back. Someone searching a vault whose index is behind must be told here,
-    /// where they are about to conclude the note doesn't exist.
-    @ViewBuilder
-    private var searchCompletenessNotice: some View {
-        let affected = collectionsWithPartialAnswers
-        if isSearching, !affected.isEmpty {
-            let names = affected.map(\.name).joined(separator: ", ")
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(.orange)
-                Text("These results may be incomplete — \(names) \(affected.count == 1 ? "is" : "are") not fully indexed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quaternary.opacity(0.4))
-            Divider()
-        }
-
-        // Content search deliberately skips files that aren't downloaded, so a
-        // query never quietly pulls a whole account local. That default is
-        // right — but a default is not the same as the only option, and without
-        // a way past it the omission is a wall rather than a choice.
-        let notLocal = collectionsWithUnreadableContent
-        if isSearching, !notLocal.isEmpty {
-            let total = notLocal.reduce(0) { $0 + $1.notLocalCount }
-            HStack(spacing: 6) {
-                Image(systemName: "icloud.and.arrow.down")
-                    .foregroundStyle(.secondary)
-                Text("\(total) item\(total == 1 ? " isn't" : "s aren't") downloaded, so their contents aren't searched.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Download and Search") {
-                    Task { for collection in notLocal { await collection.downloadAllForSearch() } }
-                }
-                .font(.caption)
-                .buttonStyle(.link)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quaternary.opacity(0.4))
-            Divider()
         }
     }
 
@@ -1468,62 +1401,12 @@ struct MacContentView: View {
         .accessibilityLabel("Search all collections")
     }
 
-    /// Collection-level conditions worth interrupting a reader for.
-    ///
-    /// The status bar carries these too, but only appears when *no* note is
-    /// selected — which is the minority of the time. A folder that has gone
-    /// missing, or an index known to be behind, must be visible while you are
-    /// actually reading. Silent when there is nothing to say, so ordinary work
-    /// gains no chrome.
-    @ViewBuilder
-    private var collectionConditionBar: some View {
-        if let focused, selectedNoteID != nil {
-            if case .unavailable(let reason) = focused.state {
-                conditionStrip("exclamationmark.triangle.fill", .orange,
-                               "\(focused.name) is unavailable — \(reason.explanation)") {
-                    Button("Try Again") { Task { await library.retry(focused) } }
-                        .buttonStyle(.link)
-                }
-            } else if focused.showsScanProgress, let scan = focused.scanProgress {
-                conditionStrip("clock.arrow.circlepath", .secondary,
-                               "Scanning \(focused.name) — \(scan.itemsSeen) items so far.") {
-                    Button("Stop") { focused.cancelScan() }.buttonStyle(.link)
-                }
-            } else if focused.hasIncompleteIndex {
-                conditionStrip("exclamationmark.circle.fill", .orange,
-                               "\(focused.name) is being re-indexed — search may be incomplete.") {
-                    EmptyView()
-                }
-            }
-        }
-    }
-
-    private func conditionStrip<Trailing: View>(
-        _ symbol: String, _ tint: Color, _ message: String,
-        @ViewBuilder trailing: () -> Trailing
-    ) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: symbol).foregroundStyle(tint)
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                trailing()
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.4))
-            Divider()
-        }
-    }
-
     @ViewBuilder
     private var editorPaneBody: some View {
         VStack(spacing: 0) {
-            collectionConditionBar
+            CollectionConditionBar(collection: focused,
+                                  hasSelection: selectedNoteID != nil,
+                                  onRetry: { c in Task { await library.retry(c) } })
             if let attachment = selectedAttachment {
                 FileViewerView(
                     file: attachment,

@@ -847,6 +847,14 @@ struct iOSContentView: View {
     }
 
     private var collectionTree: some View {
+        VStack(spacing: 0) {
+        // A search over a half-built index came back short here with no
+        // indication that it had. A false negative is the most damaging thing a
+        // knowledge tool can produce, because you cannot notice the note that
+        // did not come back — see `CollectionStatusStrips`.
+        SearchCompletenessNotice(
+            collections: library.collections,
+            isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         // `NoteOutlineList` — the same call the Mac makes. One API over two
         // widgets: an `NSOutlineView` there, a SwiftUI `List` of
         // `SidebarItemRow` here. What is *in* the tree is `SidebarTree.roots`
@@ -868,6 +876,7 @@ struct iOSContentView: View {
             onCloseCollection: { actions.closeCollection($0) },
             row: { note, snippet in AnyView(noteRow(note, snippet: snippet)) },
             onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) })
+        }
         .navigationTitle("Collections")
         // **The iPad had no search field at any width.** The only `.searchable`
         // in this file sits on `noteList`, which is compact-only — and
@@ -1504,6 +1513,12 @@ struct iOSContentView: View {
 
     @ViewBuilder
     private var detailBody: some View {
+        VStack(spacing: 0) {
+        // A collection that went unavailable said nothing here — the note
+        // simply stopped saving. Same strip the Mac has always drawn.
+        CollectionConditionBar(collection: railCollection ?? focused,
+                               hasSelection: selectedNoteID != nil,
+                               onRetry: { c in Task { await library.retry(c) } })
         if let file = selectedFile {
             // The same viewer the Mac uses, and handed the same hydration
             // callbacks — so a direct-API collection fetches through its
@@ -1575,6 +1590,7 @@ struct iOSContentView: View {
                 systemImage: "doc.text",
                 description: Text("Choose a note from the list, or create a new one.")
             )
+        }
         }
     }
 
