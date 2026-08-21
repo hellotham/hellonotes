@@ -135,7 +135,7 @@ struct iOSContentView: View {
 
     /// The right inspector rail, remembered per scene (decision 10). Off by
     /// default on iPad: a reader wants the note, not the apparatus.
-    @SceneStorage("inspectorPresented") private var inspectorPresented = false
+    @SceneStorage("inspectorPresented") private var inspectorPresented = true
 
     /// Compact only: which place the bottom tab bar is showing, and whether the
     /// open note is filling the screen rather than sitting in the mini strip.
@@ -1573,11 +1573,17 @@ struct iOSContentView: View {
             // Without the clamp the editor's or preview's ideal height sizes
             // the column, and the split view follows it past the screen.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // The overlay is the *narrow* presentation. Where the shell has
-            // room for the column, the column is what shows — otherwise both
-            // would, which is how the same setting ends up meaning two things.
-            .overlay(alignment: .trailing) {
-                WhenNoInspectorColumn { inspectorOverlay }
+            // The inspector, where the shell has no column for it. Shared —
+            // the Mac had no overlay at all, so its own default 1100pt window
+            // showed no inspector however many times you pressed the toggles.
+            .inspectorOverlay(presented: $inspectorPresented) {
+                VStack(spacing: 0) {
+                    InspectorOverlayHeader(tabRaw: $inspectorTabRaw) {
+                        inspectorPresented = false
+                    }
+                    Divider()
+                    inspector
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(item: $linkReview) { review in
@@ -1782,83 +1788,6 @@ struct iOSContentView: View {
         }
         .accessibilityLabel(inspectorPresented ? "Hide Inspector" : "Show Inspector")
     }
-
-    /// The inspector, over the note rather than beside it.
-    ///
-    /// A column needs width the iPad does not reliably have — 1400pt for a
-    /// third column, and 834pt in portrait is not close. An overlay is
-    /// width-independent, so the panel behaves the same in both orientations,
-    /// and it is what Obsidian does here.
-    @ViewBuilder
-    private var inspectorOverlay: some View {
-        if inspectorPresented {
-            ZStack(alignment: .trailing) {
-                // Tap anywhere on the note to dismiss — the panel is modal over
-                // the note, so there is no reason to hunt for the close button.
-                Color.black.opacity(0.12)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) { inspectorPresented = false }
-                    }
-                VStack(spacing: 0) {
-                    inspectorHeader
-                    Divider()
-                    inspector
-                }
-                .frame(width: 360)
-                .background(.regularMaterial)
-                .overlay(alignment: .leading) { Divider() }
-                .transition(.move(edge: .trailing))
-            }
-        }
-    }
-
-    /// The panel's own chrome: the tab's name, a way out, and the five tabs as
-    /// buttons.
-    ///
-    /// Buttons rather than a dropdown — a tap should not cost a menu when there
-    /// are only five destinations. But the dropdown was right about one thing
-    /// worth keeping: it *names* the view. Five bare icons make you learn what
-    /// "list.bullet.indent" means, so the name stays, on its own line where
-    /// there is room for it.
-    private var inspectorHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(inspectorTab.title)
-                    .font(.headline)
-                Spacer()
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { inspectorPresented = false }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityLabel("Close Inspector")
-            }
-            HStack(spacing: 0) {
-                ForEach(InspectorTab.allCases) { tab in
-                    Button {
-                        inspectorTabRaw = tab.rawValue
-                    } label: {
-                        Image(systemName: tab.systemImage)
-                            .frame(maxWidth: .infinity, minHeight: 30)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(tab == inspectorTab ? Color.accentColor : .secondary)
-                    .background(
-                        tab == inspectorTab ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
-                        in: RoundedRectangle(cornerRadius: 6)
-                    )
-                    .accessibilityLabel(tab.title)
-                    .accessibilityAddTraits(tab == inspectorTab ? [.isSelected] : [])
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-    }
-
     /// The same wiring the Mac gives its tabs: a save reindexes its collection
     /// rather than triggering a rescan, opening hydrates a cloud note first,
     /// and a write into a folder that has gone away is refused rather than
@@ -1973,15 +1902,6 @@ struct iOSContentView: View {
         }
         return nil
     }
-
-    /// The open note as a mind map — `MindMapPane`, the same view the Mac's
-    /// mind-map window hosts.
-    ///
-    /// This used to be its own copy that omitted `onShowSection`, which
-    /// defaults to a no-op — so tapping a heading node did nothing here while
-    /// on the Mac it opened the note and scrolled to that section. The bus it
-    /// needs is the one the inspector's outline already uses.
-    @ViewBuilder
     /// The AI commands, or nil when there is nothing they could do.
     ///
     /// A greyed item says "not now"; an enabled one that always errors says
@@ -2165,22 +2085,6 @@ struct iOSContentView: View {
         }
     }
 
-}
-
-/// Shows its content only where the shell has no inspector *column* to put the
-/// inspector in.
-///
-/// Its own view because `@Environment` on `iOSContentView` resolves at that
-/// struct's position in the view graph — above `AdaptiveShell`, which is what
-/// sets `\.shell`. A property of the content view therefore cannot see the
-/// shell it is being rendered inside; a child view can.
-private struct WhenNoInspectorColumn<Content: View>: View {
-    @Environment(\.shell) private var shell
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        if shell.kind != .wideInspector { content() }
-    }
 }
 
 /// What the open note *is*, as far as the note menu needs to know.

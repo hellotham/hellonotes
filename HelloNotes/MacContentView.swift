@@ -1140,6 +1140,18 @@ struct MacContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The inspector, where the shell has no column for it. Shared —
+            // the Mac had no overlay at all, so its own default 1100pt window
+            // showed no inspector however many times you pressed the toggles.
+            .inspectorOverlay(presented: $inspectorPresented) {
+                VStack(spacing: 0) {
+                    InspectorOverlayHeader(tabRaw: $inspectorTabRaw) {
+                        inspectorPresented = false
+                    }
+                    Divider()
+                    inspector
+                }
+            }
             // The toolbar belongs to the editor, Mail-style. Declared on the
             // note list it rendered over the *inspector* — the rightmost column
             // wins the trailing edge — leaving nothing above the text.
