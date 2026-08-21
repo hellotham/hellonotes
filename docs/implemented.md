@@ -2444,3 +2444,39 @@ the title and the body are one flow on iPad as they have been on the Mac.
 `HelloNotes/` is down to three platform-named files: `MacContentView`,
 `iOSContentView` and `iOSNoteEditorPane`, plus `NoteOutlineList` as the last
 whole-file gate that is not one of them.
+
+### No allowlists either
+
+Exemptions were withdrawn, and two allowlists survived the withdrawal by not
+being called that:
+
+- `PlatformParityTests.platformSpecific` — a dictionary of commands permitted to
+  exist on one platform. It had been emptied when `FileReveal` retired its last
+  entry, but an empty allowlist is still an allowlist: the next divergence has
+  somewhere to be written down. Deleted, along with the test that policed it.
+- `ShellComplianceTests.mayDiffer` — the four slot names `sidebar`, `pane`,
+  `inspector`, `compact`. These genuinely do differ, being the two shells'
+  presentations, which is why `AdaptiveShell` takes them as closures at all —
+  but naming them in a set is an exemption list by another name. Replaced with
+  a structural test: an argument passed as `{ … }` is the caller's own view, and
+  an argument passed any other way is configuration both callers must agree on.
+  No names, nothing to add to.
+
+Verified after both removals by reinstating the `prefersTouch: true` hard-code
+and watching the guard name it:
+
+    prefersTouch: macOS `PointerPresence.shared.prefersTouch` vs iOS `true`
+
+### One exporter
+
+`EditorExport` and `iOSEditorExport` had byte-identical public signatures —
+`exportHTML`, `exportPDF`, `printNote`, all `(markdown:title:)` — and no
+relationship in the type system, so every caller had to know its platform to
+name the type. That is how `NoteMenuActions.exportHTML` came to be wired to one
+enum on the Mac and a different one on iPad, each free to diverge in what it
+produced. They already had: the page margin was 48pt on macOS and 36pt on iOS.
+
+One enum now, with the platform inside each entry point — a save panel and
+`NSPrintOperation` against a share sheet and `UIPrintInteractionController` —
+and both rendering the same GFM HTML, which is what actually decides how the
+file looks.

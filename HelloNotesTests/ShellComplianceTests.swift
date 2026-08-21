@@ -32,22 +32,20 @@ import Testing
 
 struct ShellComplianceTests {
 
-    /// Arguments that legitimately differ, each with the reason. Adding to this
-    /// list is how a divergence becomes a decision instead of an oversight.
-    static let mayDiffer: Set<String> = [
-        // The slots — this *is* the presentation, and the whole point of the
-        // shell taking them as closures.
-        "sidebar", "pane", "inspector", "compact",
-    ]
-
-    // `prefersTouch` used to be listed here, on the grounds that it is input
-    // sizing rather than arrangement. That was wrong:
-    // `ShellContext.showsFormatBar` is `!prefersTouch && …`, so it removes a
-    // region, and `tabBarHeight` changes with it. Hard-coded false on the Mac
-    // and true on iPad, it made a Mac window and an iPad of the same size render
-    // different shells — the exact thing the contract forbids. Both shells now
-    // ask `PointerPresence`, so the argument is identical and the allowlist does
-    // not need it.
+    /// Whether an argument's value is a closure literal.
+    ///
+    /// There is no allowlist here and there is not meant to be one. The slot
+    /// arguments — `sidebar:`, `pane:`, `inspector:`, `compact:` — differ
+    /// because they *are* the two shells' presentations, which is the whole
+    /// reason `AdaptiveShell` takes them as closures; naming them in a set
+    /// would be an exemption list by another name, and every exemption in this
+    /// project has been withdrawn. Recognising a closure structurally says the
+    /// same thing without granting anything: a value passed as `{ … }` is the
+    /// caller's own view, and a value passed any other way is configuration
+    /// that both callers must agree on.
+    private static func isClosure(_ value: String) -> Bool {
+        value.hasPrefix("{")
+    }
 
     private static func source(_ name: String) throws -> String {
         try String(contentsOf: URL(filePath: #filePath)
@@ -116,17 +114,18 @@ struct ShellComplianceTests {
 
         var divergences: [String] = []
         for label in Set(mac.keys).union(ios.keys).sorted() {
-            guard !Self.mayDiffer.contains(label) else { continue }
             let a = mac[label] ?? "<absent>"
             let b = ios[label] ?? "<absent>"
+            guard !(Self.isClosure(a) && Self.isClosure(b)) else { continue }
             if a != b { divergences.append("\(label): macOS `\(a)` vs iOS `\(b)`") }
         }
 
         #expect(divergences.isEmpty, """
             The two shells hand `AdaptiveShell` different arguments, so a Mac \
             window and an iPad of the same size can render different layouts — \
-            which the layout contract forbids. Either make them agree, or add \
-            the argument to `mayDiffer` with the reason:
+            which the layout contract forbids. Make them agree — the only \
+            arguments allowed to differ are the slot closures, and those are \
+            recognised by being closures rather than by being named:
             \(divergences.joined(separator: "\n"))
             """)
     }
@@ -138,7 +137,7 @@ struct ShellComplianceTests {
     func neitherShellPinsAShellArgument() throws {
         for file in ["MacContentView.swift", "iOSContentView.swift"] {
             let arguments = Self.shellArguments(in: try Self.source(file))
-            for (label, value) in arguments where !Self.mayDiffer.contains(label) {
+            for (label, value) in arguments where !Self.isClosure(value) {
                 #expect(!value.contains(".constant("),
                         "\(file) pins `\(label)` to \(value) — the shell can no longer decide it")
             }

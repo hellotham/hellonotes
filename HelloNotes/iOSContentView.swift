@@ -1314,13 +1314,13 @@ struct iOSContentView: View {
         Divider()
         Menu {
             Button {
-                iOSEditorExport.exportHTML(markdown: textFor(note), title: note.title)
+                EditorExport.exportHTML(markdown: textFor(note), title: note.title)
             } label: { Label("Export as HTML…", systemImage: "doc.richtext") }
             Button {
-                iOSEditorExport.exportPDF(markdown: textFor(note), title: note.title)
+                EditorExport.exportPDF(markdown: textFor(note), title: note.title)
             } label: { Label("Export as PDF…", systemImage: "doc.text") }
             Button {
-                iOSEditorExport.printNote(markdown: textFor(note), title: note.title)
+                EditorExport.printNote(markdown: textFor(note), title: note.title)
             } label: { Label("Print…", systemImage: "printer") }
         } label: {
             Label("Export", systemImage: "square.and.arrow.up")
@@ -2680,9 +2680,9 @@ struct iOSContentView: View {
                     // Was nil, so File ▸ Open in New Window and the palette's
                     // "Open in New Window" both drew, enabled, and did nothing.
                     openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
-                    exportHTML: { iOSEditorExport.exportHTML(markdown: textFor(note), title: note.title) },
-                    exportPDF: { iOSEditorExport.exportPDF(markdown: textFor(note), title: note.title) },
-                    printNote: { iOSEditorExport.printNote(markdown: textFor(note), title: note.title) },
+                    exportHTML: { EditorExport.exportHTML(markdown: textFor(note), title: note.title) },
+                    exportPDF: { EditorExport.exportPDF(markdown: textFor(note), title: note.title) },
+                    printNote: { EditorExport.printNote(markdown: textFor(note), title: note.title) },
                     moveToTrash: {
                         guard let c = library.collection(containing: note.fileURL) else { return }
                         if selectedNoteID == note.id { selectedNoteID = nil }

@@ -32,21 +32,6 @@ struct PlatformParityTests {
     /// Fields that are genuinely one-platform, each with the reason. Anything
     /// *not* on this list must be wired on both — so adding a Mac-only command
     /// is a deliberate act with a justification beside it, not an omission.
-    /// Empty, and meant to stay that way.
-    ///
-    /// It held one entry — `revealInFinder`, justified as "iOS has no Finder,
-    /// and no public API to reveal an arbitrary path in Files". The first half
-    /// is true and the second was the wrong question: iOS has Files, it opens
-    /// at a path, and "show me this file where it lives" is a question both
-    /// platforms can answer. `FileReveal` answers it on both, and the entry
-    /// went with it.
-    ///
-    /// The wider ruling on this project is that there are no exemptions. Adding
-    /// one here is not a decision to take alone — the record of judgement calls
-    /// about "this platform is different" in this codebase is four for four
-    /// wrong, each defended in a comment by whoever made it.
-    static let platformSpecific: [String: String] = [:]
-
     private static func source(_ name: String) throws -> String {
         let url = URL(filePath: #filePath)
             .deletingLastPathComponent()   // …/HelloNotesTests
@@ -92,27 +77,17 @@ struct PlatformParityTests {
             let onMac = supplies(mac, field)
             let onIOS = supplies(ios, field)
             guard onMac != onIOS else { continue }
-            if Self.platformSpecific[field] != nil { continue }
             missing.append("\(field) — wired on \(onMac ? "macOS" : "iOS") only")
         }
 
         #expect(missing.isEmpty, """
             These commands are wired on one platform and not the other. An \
             unwired optional still draws an enabled menu item that does \
-            nothing, so either wire it or add it to `platformSpecific` with \
-            the reason:
+            nothing, so wire it — there is no allowlist to add it to. The one \
+            entry this test used to carry (`revealInFinder`, "iOS has no \
+            Finder") was retired by asking the capability question instead of \
+            the API question: iOS has Files, and `FileReveal` opens it.
             \(missing.joined(separator: "\n"))
             """)
-    }
-
-    /// The documented exceptions have to stay real: a field listed as
-    /// platform-specific that no longer exists is a stale excuse, and the next
-    /// person reads it as a rule.
-    @Test func everyDocumentedExceptionStillExists() throws {
-        let commands = try Self.source("UI/AppCommands.swift")
-        for (field, reason) in Self.platformSpecific {
-            #expect(commands.contains("var \(field):"),
-                    "`\(field)` is listed as platform-specific (\(reason)) but is no longer a field of AppActions")
-        }
     }
 }

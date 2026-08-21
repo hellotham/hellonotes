@@ -2,20 +2,44 @@
 //  EditorExport.swift
 //  HelloNotes
 //
-//  Created by Chris Tham on 11/7/2026.
+//  Export a note as HTML or PDF, and print it — one type, both platforms.
+//
+//  There were two, `EditorExport` and `iOSEditorExport`, with byte-identical
+//  public signatures (`exportHTML`, `exportPDF`, `printNote`, all
+//  `(markdown:title:)`) and no relationship in the type system. Every caller
+//  therefore had to know which platform it was on to name the type — which is
+//  how `NoteMenuActions.exportHTML` ended up wired to one enum on the Mac and a
+//  different enum on iPad, free to diverge in what they produced.
+//
+//  They already had: the page margin was 48pt on macOS and 36pt on iOS, under a
+//  comment on the iOS side claiming it produced "the same page shape the Mac's
+//  export produces". Two constants that must agree, in two files neither of
+//  which mentions the other. `ExportPage` below is what they agree through now.
+//
+//  One enum, three entry points, and the platform inside each — a save panel
+//  and `NSPrintOperation` on one side, a share sheet and
+//  `UIPrintInteractionController` on the other. Both render the same GFM HTML,
+//  which is the part that decides what the file actually looks like.
 //
 
+import Foundation
 import CoreGraphics
+import GFMRender
+#if canImport(AppKit)
+import AppKit
+import UniformTypeIdentifiers
+#else
+import UIKit
+#endif
 
-/// The page an exported or printed note is laid out on.
+/// The page an export or a print lands on — shared, because the two exporters
+/// each hard-coded it and disagreed.
 ///
-/// **Deliberately outside the `#if os(macOS)` below**, and read by
-/// `iOSEditorExport` too. This geometry lived twice — 48pt margins on the Mac,
-/// 36pt on iOS under a comment claiming it produced "the same page shape the
-/// Mac's export produces". Two constants that must agree, in two files neither
-/// of which mentions the other, is a promise nothing enforces; it was already
-/// broken, and silently, because nobody exports the same note from both
-/// devices and measures.
+/// The margin was 48pt on macOS and 36pt on iOS, under a comment on the iOS
+/// side claiming it produced "the same page shape the Mac's export produces".
+/// Two constants that must agree, in two files neither of which mentioned the
+/// other, is a promise nothing enforces — and it was already broken, silently,
+/// because nobody exports the same note from both devices and measures.
 enum ExportPage {
     /// US Letter at 72 dpi.
     static let width: CGFloat = 612
@@ -25,15 +49,9 @@ enum ExportPage {
     static let margin: CGFloat = 48
 }
 
-#if os(macOS)
-import AppKit
-import GFMRender
-import UniformTypeIdentifiers
-
-/// macOS export helpers: write a note's HTML/PDF via a save panel. PDF is
-/// produced by the native text system (no WebView) from the exported HTML.
 @MainActor
 enum EditorExport {
+#if os(macOS)
 
     static func exportHTML(markdown: String, title: String) {
         let html = GFMRenderer.page(markdown, title: title)
@@ -177,5 +195,119 @@ enum EditorExport {
         // right here — `FileIO` exists for vault content on cloud volumes.
         return try? Data(contentsOf: target)
     }
-}
+#else
+
+
+    /// Render `markdown` to HTML and hand the file to the share sheet.
+    static func exportHTML(markdown: String, title: String) {
+        let html = GFMRenderer.page(markdown, title: title)
+        share(data: Data(html.utf8), filename: "\(safe(title)).html")
+    }
+
+    /// Render `markdown` to a paginated PDF and hand it to the share sheet.
+    ///
+    /// Printed through `UIPrintPageRenderer` against the same GFM HTML the
+    /// Preview shows, so an exported PDF matches what was on screen rather than
+    /// being a second, subtly different renderer.
+    static func exportPDF(markdown: String, title: String) {
+        let html = GFMRenderer.page(markdown, title: title)
+        let formatter = UIMarkupTextPrintFormatter(markupText: html)
+        let renderer = UIPrintPageRenderer()
+        renderer.addPrintFormatter(formatter, startingAtPageAt: 0)
+
+        // The same page shape the Mac's export produces — and now literally the
+        // same numbers, from `ExportPage`. It used to say this while insetting
+        // by 36pt against the Mac's 48pt: a comment claiming a parity that two
+        // hard-coded constants in two files could not keep.
+        let page = CGRect(x: 0, y: 0, width: ExportPage.width, height: ExportPage.height)
+        let printable = page.insetBy(dx: ExportPage.margin, dy: ExportPage.margin)
+        renderer.setValue(page, forKey: "paperRect")
+        renderer.setValue(printable, forKey: "printableRect")
+
+        let data = NSMutableData()
+        UIGraphicsBeginPDFContextToData(data, page, nil)
+        renderer.prepare(forDrawingPages: NSRange(location: 0, length: renderer.numberOfPages))
+        for index in 0..<renderer.numberOfPages {
+            UIGraphicsBeginPDFPage()
+            renderer.drawPage(at: index, in: UIGraphicsGetPDFContextBounds())
+        }
+        UIGraphicsEndPDFContext()
+        share(data: data as Data, filename: "\(safe(title)).pdf")
+    }
+
+    /// Send the rendered note to the system print panel.
+    static func printNote(markdown: String, title: String) {
+        let html = GFMRenderer.page(markdown, title: title)
+        let info = UIPrintInfo.printInfo()
+        info.outputType = .general
+        info.jobName = title
+        let controller = UIPrintInteractionController.shared
+        controller.printInfo = info
+        controller.printFormatter = UIMarkupTextPrintFormatter(markupText: html)
+        controller.present(animated: true)
+    }
+
+    // MARK: - Private
+
+    /// Write to a temporary file and present the share sheet over whatever is
+    /// frontmost. A temp file rather than raw `Data` so the sheet shows a real
+    /// filename and extension — "HelloNotes.pdf", not "Item". An uncoordinated
+    /// write is right here: the temporary directory is ours and local, not
+    /// vault content on a cloud volume, which is what `FileIO` exists for.
+    private static func share(data: Data, filename: String) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            // Say so. This used to be `catch { return }`, which made a failed
+            // export look exactly like a cancelled one — the share sheet simply
+            // never appeared, and the user was left to guess which had happened.
+            // The Mac has always raised an alert on a failed write.
+            presentError("HelloNotes couldn't write “\(filename)”: \(error.localizedDescription)")
+            return
+        }
+
+        guard let presenter = frontmostViewController() else {
+            presentError("HelloNotes couldn't find a window to share “\(filename)” from.")
+            return
+        }
+
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        // Required on iPad: an unanchored popover is a crash, not a no-op.
+        sheet.popoverPresentationController?.sourceView = presenter.view
+        sheet.popoverPresentationController?.sourceRect = CGRect(
+            x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+        sheet.popoverPresentationController?.permittedArrowDirections = []
+        presenter.present(sheet, animated: true)
+    }
+
+    /// The controller a sheet or alert can actually be presented from — the
+    /// top of the presentation stack, not the root. Presenting on a controller
+    /// that is already presenting something is a silent no-op with a console
+    /// warning, which is the same invisible failure this file just stopped
+    /// having.
+    private static func frontmostViewController() -> UIViewController? {
+        guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+              var top = scene.keyWindow?.rootViewController
+        else { return nil }
+        while let presented = top.presentedViewController { top = presented }
+        return top
+    }
+
+    private static func presentError(_ message: String) {
+        guard let presenter = frontmostViewController() else { return }
+        let alert = UIAlertController(title: "Export failed", message: message,
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        presenter.present(alert, animated: true)
+    }
+
+    private static func safe(_ title: String) -> String {
+        let cleaned = title.replacingOccurrences(of: "/", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "Note" : cleaned
+    }
 #endif
+}
