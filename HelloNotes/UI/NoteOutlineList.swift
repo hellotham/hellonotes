@@ -693,18 +693,57 @@ struct NoteOutlineList: View {
     var onDropIntoFolder: (String, [URL]) -> Bool
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(roots, id: \.id) { item in
-                SidebarItemRow(
-                    item: item,
-                    expandedFolders: $expandedFolders,
-                    collapsedCollections: $collapsedCollections,
-                    actions: actions,
-                    row: row,
-                    onDropIntoFolder: onDropIntoFolder)
+        // `ScrollViewReader`, because `revealID` was declared here and never
+        // read: the Mac scrolled a newly-added collection into view and the
+        // iPad silently did not, so on a library of any size "add this cloud
+        // folder" appended a row below the fold and looked like nothing had
+        // happened.
+        ScrollViewReader { proxy in
+            List(selection: $selection) {
+                ForEach(roots, id: \.id) { item in
+                    SidebarItemRow(
+                        item: item,
+                        expandedFolders: $expandedFolders,
+                        collapsedCollections: $collapsedCollections,
+                        actions: actions,
+                        row: row,
+                        onDropIntoFolder: onDropIntoFolder)
+                }
+            }
+            .tint(accent)
+            .onChange(of: revealID) { _, id in
+                guard let id else { return }
+                reveal(id, with: proxy)
+            }
+            // A reveal asked for before this list existed — the ordinary case,
+            // since adding a collection is what asks.
+            .onAppear { if let id = revealID { reveal(id, with: proxy) } }
+        }
+    }
+
+    /// Open whatever hides `id`, then scroll to it.
+    ///
+    /// A row inside a closed disclosure group is not in the list at all, so
+    /// scrolling to it does nothing until its ancestors are open. Folder ids
+    /// are absolute paths, so an ancestor is a path prefix.
+    private func reveal(_ id: String, with proxy: ScrollViewProxy) {
+        collapsedCollections.remove(id)
+        for root in roots where id.hasPrefix(root.id) {
+            collapsedCollections.remove(root.id)
+        }
+        if id.contains("/") {
+            var path = id
+            while let slash = path.lastIndex(of: "/") {
+                path = String(path[path.startIndex..<slash])
+                expandedFolders.insert(path)
             }
         }
-        .tint(accent)
+        // After the expansion has been applied, or the target is still not a
+        // row and `scrollTo` has nothing to find.
+        DispatchQueue.main.async {
+            withAnimation { proxy.scrollTo(id, anchor: .center) }
+            revealID = nil
+        }
     }
 }
 
@@ -759,6 +798,11 @@ struct SidebarItemRow: View {
     }
 
     var body: some View {
+        content.id(item.id)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch item.kind {
         case .note(let note, let snippet):
             row(note, snippet)

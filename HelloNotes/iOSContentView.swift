@@ -63,6 +63,9 @@ struct iOSContentView: View {
     /// An auxiliary surface presented as a sheet, when the canvas is too narrow
     /// for a window. `nil` is the ordinary case on any full-size window.
     @State private var auxiliarySheet: AuxiliarySurface?
+    /// An outline row to scroll into view once, set when something asks the
+    /// window to *show* a collection (see `Library.pendingRevealCollectionID`).
+    @State private var revealOutlineID: String?
 
     /// Open Graph / Ask Library / Assistant — a window where there is room for
     /// one, a sheet where there is not. The decision is `AuxiliaryPresentation`
@@ -555,6 +558,11 @@ struct iOSContentView: View {
             selectedTag = nil
             library.focusedID = id
             railPlaceID = id
+            // Scroll it into view too. This was the Mac's line and not the
+            // iPad's, and the outline's SwiftUI branch ignored `revealID`
+            // entirely — so a newly added collection landed below the fold and
+            // a successful add looked like a failed one.
+            revealOutlineID = id
             library.pendingRevealCollectionID = nil
         }
         .onChange(of: library.pendingOpenNoteID) { _, id in
@@ -875,7 +883,7 @@ struct iOSContentView: View {
             roots: sidebarTree.roots,
             signature: sidebarTree.signature,
             selection: $selectedNoteID,
-            revealID: .constant(nil),
+            revealID: $revealOutlineID,
             expandedFolders: expandedFolders,
             collapsedCollections: $collapsedCollections,
             focusedCollectionID: library.focusedID,
