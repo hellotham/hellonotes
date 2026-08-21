@@ -45,6 +45,43 @@ public final class MarkdownUITextView: UITextView {
     /// what a build without an on-device model amounts to.
     var onInlineCompletionRequest: ((InlineCompletionContext) -> Void)?
 
+    /// Asked for "Rewrite with AI…" on the current selection.
+    ///
+    /// The same hook `MarkdownTextView` has, delivered the same way: the view
+    /// contributes a menu item and hands the *range* back, because what happens
+    /// next is a sheet with alternatives, a replace and an insert-below — none
+    /// of which fits `EditorMenuItem`'s synchronous `(String) -> String?`. That
+    /// mismatch is why the iPad's edit menu offered Link, Find Related and Ask
+    /// Your Library but not the fourth one the Mac's context menu has.
+    var onRewriteSelection: ((NSRange) -> Void)?
+
+    /// A *guide*, in the Xcode and VS Code sense: a line you can see while the
+    /// text still wraps at the view's edge — the same thing `MarkdownTextView`
+    /// draws on the Mac, and the same reason it is a guide rather than a wrap
+    /// point (a hard column is the Editor width setting instead).
+    ///
+    /// Painted by `ChromeOverlayView`, not here: UIKit does not call a
+    /// `UITextView` subclass's `draw(_:)` over its own text, which is why every
+    /// other piece of editor chrome lives on that overlay too.
+    public var wrapGuideColumns: Int = 0 {
+        didSet {
+            guard wrapGuideColumns != oldValue else { return }
+            chromeOverlay.setNeedsDisplay()
+        }
+    }
+
+    /// Where the guide sits, in the overlay's coordinates — `nil` when it is
+    /// off or would fall outside the text area, where it would just be a line
+    /// hugging the edge of the view.
+    public var wrapGuideX: CGFloat? {
+        guard wrapGuideColumns > 0, let font = document?.theme.body else { return nil }
+        let advance = ("0" as NSString).size(withAttributes: [.font: font]).width
+        guard advance > 0 else { return nil }
+        let x = textContainerInset.left + textContainer.lineFragmentPadding
+              + advance * CGFloat(wrapGuideColumns)
+        return x < bounds.width - 1 ? x : nil
+    }
+
     /// The formatting bar above the keyboard.
     ///
     /// A UIKit `inputAccessoryView`, not a SwiftUI `ToolbarItemGroup(placement:
@@ -134,6 +171,19 @@ public final class MarkdownUITextView: UITextView {
         tv.spellCheckingType = .default
         tv.keyboardDismissMode = .interactive
         tv.inputAccessoryView = tv.formatAccessory
+
+        // AI-native, exactly as the Mac (`MarkdownTextView`): the full Apple
+        // Intelligence Writing Tools experience — inline, because this is a
+        // real TextKit 2 view — constrained to plain text so a rewrite can
+        // never come back as rich text and corrupt Markdown syntax.
+        //
+        // Not optional here: the coordinator already forwards the system's
+        // `suggestedActions` into the selection menu, so Writing Tools has
+        // been reachable on iOS the whole time — with the default result
+        // options, which permit attributed replacements straight into storage
+        // whose only meaning is its bytes.
+        tv.writingToolsBehavior = .complete
+        tv.allowedWritingToolsResultOptions = [.plainText]
 
         // The system find bar — ⌘F on a hardware keyboard, and "Find…" in the
         // edit menu. This was switched off for a while on the theory that
@@ -267,6 +317,29 @@ public final class MarkdownUITextView: UITextView {
         syncRenderMetrics()
     }
 
+    /// Throw away the undo stack UIKit is keeping for this text view.
+    ///
+    /// Call after the document's whole text has been replaced under the view
+    /// (an external reload, a conflict resolution). `EditorDocument.replaceText`
+    /// ends by clearing *its own* `UndoManager`, which is where undo lives on
+    /// AppKit — `MarkdownTextView`'s coordinator returns it from
+    /// `undoManager(for:)`, so the clear lands on the stack the text view uses.
+    /// UIKit resolves `undoManager` up the responder chain instead, so that
+    /// clear reaches nothing here and the responder's stack keeps operations
+    /// describing the *pre-reload* document. Replaying one applies a patch at
+    /// offsets that no longer mean anything.
+    ///
+    /// Clearing the responder's stack rather than overriding `undoManager` to
+    /// return the document's: `UIResponder` documents the override as
+    /// supported, but it would re-point every ordinary keystroke's undo
+    /// registration — and the keyboard bar's Undo button, and shake-to-undo —
+    /// at a manager UIKit has never driven, to fix a stack that is only ever
+    /// wrong right here. This discards exactly what is stale and leaves typing
+    /// undo on the path UIKit already owns.
+    func resetUndoStack() {
+        undoManager?.removeAllActions()
+    }
+
     func syncRenderMetrics() {
         guard let document else { return }
         let padding = textContainer.lineFragmentPadding * 2
@@ -286,6 +359,16 @@ public final class MarkdownUITextView: UITextView {
     public override func layoutSubviews() {
         super.layoutSubviews()
         syncRenderMetrics()
+        // The counterpart of the Mac's bounds observer, which fires on the
+        // scroll view's *first* layout as well as on every scroll. iOS only had
+        // the scroll half (`scrollViewDidScroll`), so nothing styled the visible
+        // range until the user scrolled — which is why `makeUIView` compensated
+        // by styling whole documents up to 200KB synchronously on the main
+        // thread, something the Mac has never done. Same rule on both platforms
+        // now: prefix at init, viewport on layout and scroll, the rest in the
+        // background. Idempotent — `ensureStyled` returns nil once a range is
+        // done, so repeated layout passes cost a range check.
+        ensureVisibleRangeStyled()
         refreshChrome()
     }
 
@@ -505,6 +588,11 @@ public final class EditorProxy {
     /// show a hint, and for tests.
     public var hasInlineSuggestion: Bool { textView?.inlineSuggestion != nil }
 
+    /// Discard the undo stack after the document's text has been replaced
+    /// wholesale (`EditorDocument.replaceText`). See `resetUndoStack` for why
+    /// the document clearing its own `UndoManager` is not enough on UIKit.
+    public func resetUndo() { textView?.resetUndoStack() }
+
     /// Move the caret, clamped to the document. Deliberately does not scroll:
     /// the callers that want both say so.
     public func setSelection(_ range: NSRange) {
@@ -646,6 +734,15 @@ final class ChromeOverlayView: UIView {
             }
             return true
         }
+        if let x = tv.wrapGuideX {
+            // Hairline at the current screen scale, so it stays one pixel.
+            let width = 1 / (tv.window?.screen.scale ?? UIScreen.main.scale)
+            UIColor.separator.withAlphaComponent(0.55).setFill()
+            // Full height of the dirty rect: the overlay spans `contentSize`,
+            // so this is the whole document's worth of guide, drawn a slice at
+            // a time exactly like the fragments above it.
+            context.fill(CGRect(x: x, y: rect.minY, width: width, height: rect.height))
+        }
         // Last, so the ghost sits over the chrome rather than under a callout
         // band — it is the topmost thing in the editor while it is showing.
         tv.drawInlineSuggestion(in: rect)
@@ -712,6 +809,18 @@ public struct MarkdownEditorView: View {
         var copy = self; copy.representable = representable.editable(flag); return copy
     }
 
+    /// Offer "Rewrite with AI…" in the edit menu for a selection. The handler
+    /// receives the range; presenting the sheet is the host's job.
+    public func onRewriteSelection(_ handler: @escaping (NSRange) -> Void) -> Self {
+        var copy = self; copy.representable = representable.onRewriteSelection(handler); return copy
+    }
+
+    /// Show a vertical guide at `columns` characters, or 0 for none. A line to
+    /// see, not a wrap point — the text still runs to the edge of the pane.
+    public func wrapGuide(_ columns: Int) -> Self {
+        var copy = self; copy.representable = representable.wrapGuide(columns); return copy
+    }
+
     public func onLinkTap(_ handler: @escaping (EditorLinkTap) -> Void) -> Self {
         var copy = self; copy.representable = representable.onLinkTap(handler); return copy
     }
@@ -754,6 +863,8 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     private var busDocumentId: String?
     let document: EditorDocument
     private var isEditable = true
+    private var wrapGuideColumns = 0
+    private var onRewriteSelectionHandler: ((NSRange) -> Void)?
     private var onLinkTap: ((EditorLinkTap) -> Void)?
     private var onPasteImage: (() -> String?)?
     private var onPasteMarkdown: (() -> String?)?
@@ -817,6 +928,8 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> MarkdownUITextView {
         let tv = MarkdownUITextView.make(document: document)
         tv.isEditable = isEditable
+        tv.wrapGuideColumns = wrapGuideColumns
+        tv.onRewriteSelection = onRewriteSelectionHandler
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
         tv.onPasteMarkdown = onPasteMarkdown
@@ -825,15 +938,24 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         editorProxy?.textView = tv
         tv.delegate = context.coordinator
         context.coordinator.subscribe(documentId: busDocumentId, view: tv)
-        // Small/medium notes: style the whole document once up front (proven
-        // path). Large notes: rely on the document's synchronous prefix styling
-        // (done in init) plus its idle background pass, so opening never blocks
-        // the main thread on the entire document. The visible range is styled
-        // (and its layout invalidated) via `ensureVisibleRangeStyled` on scroll.
-        if document.storage.length <= 200_000 {
-            document.styleEverythingNow()
-        }
+        // No whole-document styling pass here. It used to run for anything up
+        // to 200KB — a synchronous restyle of every block, on the main thread,
+        // at the moment a note opens — because `layoutSubviews` had no
+        // `ensureVisibleRangeStyled` call and the viewport would otherwise
+        // stay unstyled until the first scroll. It has one now, so opening a
+        // note costs what it costs on the Mac: the prefix, the viewport, and a
+        // background pass for the rest.
         return tv
+    }
+
+    /// Offer "Rewrite with AI…" on a selection, reporting its range.
+    func onRewriteSelection(_ handler: @escaping (NSRange) -> Void) -> Self {
+        var copy = self; copy.onRewriteSelectionHandler = handler; return copy
+    }
+
+    /// Show a vertical guide at `columns` characters, or 0 for none.
+    func wrapGuide(_ columns: Int) -> Self {
+        var copy = self; copy.wrapGuideColumns = columns; return copy
     }
 
     func updateUIView(_ tv: MarkdownUITextView, context: Context) {
@@ -865,9 +987,26 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         /// through an initialiser that does not run subclass stored-property
         /// synthesis, so an array property there is never initialised and
         /// appending to it crashes on the first note opened.
-        private var busTokens: [NSObjectProtocol] = []
+        ///
+        /// `nonisolated(unsafe)`, as on AppKit's coordinator: registration and
+        /// removal happen on the main thread, and `deinit` — which cannot be
+        /// isolated — only reads the array to remove what it registered.
+        nonisolated(unsafe) private var busTokens: [NSObjectProtocol] = []
         private var busDocumentId: String?
         private weak var busView: MarkdownUITextView?
+
+        /// Block observers are retained by `NotificationCenter` until they are
+        /// removed by token, so a coordinator that just goes away leaves its
+        /// ten registrations behind for the life of the process — still firing,
+        /// still holding their captures. The removal branch in `subscribe` does
+        /// not cover this: `MarkdownEditorView.body` gives the representable an
+        /// `.id` per document, so a coordinator is bound 1:1 to an
+        /// `EditorDocument` and is never asked to re-subscribe under a second
+        /// id. It is asked to disappear, which is what this answers. AppKit's
+        /// coordinator has had the same `deinit` since it was written.
+        deinit {
+            for token in busTokens { NotificationCenter.default.removeObserver(token) }
+        }
 
         /// Observe formatting and find commands addressed to `documentId`.
         func subscribe(documentId: String?, view: MarkdownUITextView) {
@@ -921,12 +1060,24 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         public func textView(_ textView: UITextView,
                              editMenuForTextIn range: NSRange,
                              suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard let selectionMenuItems, range.length > 0 else { return nil }
+            guard range.length > 0 else { return nil }
             let selected = (textView.text as NSString).substring(with: range)
-            let items = selectionMenuItems(selected)
-            guard !items.isEmpty else { return nil }
+            let items = selectionMenuItems?(selected) ?? []
 
-            let actions = items.map { item in
+            // Rewrite is offered on its own terms, ahead of the vault actions,
+            // and only when the host wired it *and* the text is editable —
+            // exactly the three conditions `MarkdownTextView.menu(for:)` checks.
+            var rewrite: [UIMenuElement] = []
+            if let view = textView as? MarkdownUITextView,
+               let onRewrite = view.onRewriteSelection, view.isEditable {
+                rewrite.append(UIAction(title: String(localized: "Rewrite with AI…"),
+                                        image: UIImage(systemName: "sparkles")) { _ in
+                    onRewrite(range)
+                })
+            }
+            guard !items.isEmpty || !rewrite.isEmpty else { return nil }
+
+            let actions: [UIMenuElement] = rewrite + items.map { item in
                 UIAction(title: item.title,
                          image: item.systemImage.flatMap(UIImage.init(systemName:))) { _ in
                     guard let replacement = item.perform(selected) else { return }
@@ -941,6 +1092,24 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             // included. Ours are the vault-aware ones and cannot be reached any
             // other way; the system's are one submenu away wherever they sit.
             return UIMenu(children: actions + suggestedActions)
+        }
+
+        // MARK: Writing Tools session lifecycle
+
+        /// Pause our restyling for the duration of a Writing Tools session, so
+        /// our attributes never fight the session's own decorations (the
+        /// proofreading underlines, the rewrite animation) as it streams text
+        /// in; the document collects the damage and restyles once at the end.
+        ///
+        /// The Mac has bracketed sessions since Writing Tools landed. iOS never
+        /// called either half, so `externalSessionDepth` sat at 0 and every
+        /// edit the session made was restyled underneath it.
+        public func textViewWritingToolsWillBegin(_ textView: UITextView) {
+            document.beginExternalTextSession()
+        }
+
+        public func textViewWritingToolsDidEnd(_ textView: UITextView) {
+            document.endExternalTextSession()
         }
 
         public func textViewDidChangeSelection(_ textView: UITextView) {

@@ -153,6 +153,14 @@ extension AppActions {
     var paletteCommands: [PaletteCommand] {
         var commands: [PaletteCommand] = []
 
+        // `run` is deliberately optional and deliberately passed *straight
+        // through* from `AppActions` — `run: newWindow`, not `{ newWindow?() }`.
+        // A trailing closure literal is never nil, so wrapping an optional
+        // action in one defeats the `guard let run` below: the row is appended
+        // whether or not the action exists, and running it does nothing. That
+        // is how the iPad palette came to list "New Window" and four "Connect …
+        // Over the Web…" rows, all five of them nil on iOS and all five of them
+        // dismissing the palette to no effect.
         func add(_ id: String, _ group: String, _ title: String, _ symbol: String,
                  shortcut: String? = nil, enabled: Bool = true, run: (() -> Void)?) {
             guard enabled, let run else { return }
@@ -175,13 +183,18 @@ extension AppActions {
             run: refreshCloudCollection)
         add("rescan", "File", "Rescan Collection", "arrow.triangle.2.circlepath", run: rescan)
         add("new-main-window", "File", "New Window", "macwindow",
-            shortcut: "⌥⌘N") { newWindow?() }
+            shortcut: "⌥⌘N", run: newWindow)
         add("close-tab", "File", "Close Tab", "xmark.square",
             enabled: canCloseTab, run: closeTab)
-        for provider in CloudBrowser.allCases {
-            add("connect-\(provider.rawValue)", "File",
-                "Connect \(provider.displayName) Over the Web…", "cloud") {
-                connectOverWeb?(provider)
+        // Bind the optional *once*, outside the loop, so the per-provider
+        // closures only come into existence when there is something for them
+        // to call. Four rows, so getting this wrong costs four dead rows.
+        if let connectOverWeb {
+            for provider in CloudBrowser.allCases {
+                add("connect-\(provider.rawValue)", "File",
+                    "Connect \(provider.displayName) Over the Web…", "cloud") {
+                    connectOverWeb(provider)
+                }
             }
         }
         // Deliberately no entry for the palette itself: a command that opens the
@@ -199,8 +212,11 @@ extension AppActions {
             }
         }
 
-        // View
-        for mode in EditorMode.macCases where mode != editorMode {
+        // View — `platformCases`, the same list the View menu builds from.
+        // This file is not macOS-only and this list is what an iPad reads, so
+        // naming one platform's cases here would offer the iPad whatever the
+        // Mac happens to offer.
+        for mode in EditorMode.platformCases where mode != editorMode {
             add("mode-\(mode.rawValue)", "View", "\(mode.label) Mode", mode.symbol) {
                 setEditorMode(mode)
             }

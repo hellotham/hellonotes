@@ -564,7 +564,7 @@ struct NoteOutlineList: NSViewRepresentable {
                 let cloud = symbolIcon("icloud.and.arrow.down")
                 cloud.contentTintColor = .tertiaryLabelColor
                 cloud.setContentHuggingPriority(.required, for: .horizontal)
-                cloud.setAccessibilityLabel("Online only — not downloaded")
+                cloud.setAccessibilityLabel(NoteRowContent.onlineOnlyLabel)
                 let row = NSStackView(views: [title, cloud])
                 row.orientation = .horizontal
                 row.spacing = 4
@@ -573,7 +573,10 @@ struct NoteOutlineList: NSViewRepresentable {
             } else {
                 titleRow = title
             }
-            let subtitleText = snippet ?? Self.dateFormatter.string(from: note.lastModified)
+            // Via `NoteRowContent`, shared with the iPad's sidebar — the two
+            // rows drew from nothing in common, and the iPad's ended up with no
+            // second line and no badge at all.
+            let subtitleText = NoteRowContent.make(note, snippet: snippet).subtitle
             let subtitle = label(subtitleText, font: .systemFont(ofSize: 11 * parent.fontScale), color: .secondaryLabelColor)
             subtitle.lineBreakMode = .byTruncatingTail
             let stack = NSStackView(views: [titleRow, subtitle])
@@ -616,13 +619,6 @@ struct NoteOutlineList: NSViewRepresentable {
             field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             return field
         }
-
-        private static let dateFormatter: DateFormatter = {
-            let f = DateFormatter()
-            f.dateStyle = .medium
-            f.timeStyle = .short
-            return f
-        }()
 
         // MARK: Actions
 

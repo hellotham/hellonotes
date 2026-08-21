@@ -13,9 +13,17 @@
 //  `NSFilePresenter` is the portable answer: register as the presenter of the
 //  collection's root and the coordination machinery reports changes to its
 //  subitems, including the ones a File Provider (iCloud, Dropbox, …) streams in
-//  from another device. It is coarser than FSEvents — no flags, no per-file
-//  event list — so it maps onto the same debounce as an ordinary change and
-//  nothing more is claimed of it.
+//  from another device. It is coarser than FSEvents — no flags, no batch —
+//  so it maps onto the same debounce as an ordinary change and nothing more is
+//  claimed of it.
+//
+//  It does, however, know *which* subitem changed, and it used to throw that
+//  away: `onChange` took no argument, so `Collection` could not ask its
+//  `hasExternalChanges(in:)` filter whether the change was one of its own
+//  autosaves — and `FileIO.write` coordinates with `filePresenter: nil`, which
+//  excludes no presenter, so every 600ms autosave came straight back to us as
+//  news. One URL is the difference between deferring our own writes and
+//  discarding them.
 //
 
 import Foundation
@@ -28,7 +36,9 @@ import Foundation
 final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
     private let root: URL
-    private let onChange: @Sendable () -> Void
+    /// The subitem that changed, or `nil` when the folder changed wholesale and
+    /// there is no one path to name.
+    private let onChange: @Sendable (URL?) -> Void
     private var isRegistered = false
 
     /// A private queue is required: the coordination system delivers callbacks
@@ -43,7 +53,7 @@ final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
     var presentedItemURL: URL? { root }
 
-    init(root: URL, onChange: @escaping @Sendable () -> Void) {
+    init(root: URL, onChange: @escaping @Sendable (URL?) -> Void) {
         self.root = root
         self.onChange = onChange
         super.init()
@@ -67,12 +77,13 @@ final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
     /// Something inside the folder changed — a note edited on another device and
     /// streamed down, a file added in the Files app.
-    func presentedSubitemDidChange(at url: URL) { onChange() }
+    func presentedSubitemDidChange(at url: URL) { onChange(url) }
 
-    /// The folder itself changed (contents replaced wholesale).
-    func presentedItemDidChange() { onChange() }
+    /// The folder itself changed (contents replaced wholesale). No single path
+    /// describes it, so the caller gets `nil` and has to assume the worst.
+    func presentedItemDidChange() { onChange(nil) }
 
-    func presentedSubitemDidAppear(at url: URL) { onChange() }
+    func presentedSubitemDidAppear(at url: URL) { onChange(url) }
 
-    func accommodatePresentedSubitemDeletion(at url: URL) async throws { onChange() }
+    func accommodatePresentedSubitemDeletion(at url: URL) async throws { onChange(url) }
 }

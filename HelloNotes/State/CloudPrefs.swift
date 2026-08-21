@@ -22,12 +22,44 @@ final class CloudPrefs {
     /// Reentrancy guard so a cloud→local apply doesn't echo back as a push.
     private var isApplyingRemote = false
 
+    /// Posted after a cloud→local pull actually changed something, naming the
+    /// keys in `userInfo[changedKeysKey]`.
+    ///
+    /// It exists because a pull can arrive *after* the object that read the
+    /// value: `AppearanceSettings` reads UserDefaults once, in `init()`, and is
+    /// built at `HelloNotesApp.swift:19` — before `start()` is called at :39, and
+    /// before any later `didChangeExternallyNotification`. Writing the defaults
+    /// is therefore not enough to make a pulled setting *take effect*; whoever
+    /// cached it has to be told to re-read.
+    static let didPullFromCloud = Notification.Name("HelloNotesCloudPrefsDidPull")
+    /// `userInfo` key on `didPullFromCloud`: `[String]` of the keys that changed.
+    static let changedKeysKey = "changedKeys"
+
     /// Value-only preference keys to mirror (no secrets, no note content, no
     /// device-specific bookmarks).
+    ///
+    /// The list is the contract, so it has to name the keys the app *writes*.
+    /// It previously carried four that exist nowhere in the codebase
+    /// ("appAppearance", "appAccentColor", "editorFontSize" — which is a
+    /// computed property, not a stored default — and "newEditorEnabled") while
+    /// omitting every key `AppearanceSettings` actually persists, so the
+    /// appearance settings this file promises to carry across devices were the
+    /// one group it never carried.
     private let keys = [
-        "iosEditorViewMode", "dailyNoteFolder", "dailyDateFormat",
-        "templatesFolder", "attachmentFolder", "editorFontSize",
-        "appAppearance", "appAccentColor", "newEditorEnabled",
+        // Appearance (AppearanceSettings)
+        "appearanceMode", "accentChoice", "customAccentHex",
+        "textScale", "increaseContrast",
+        "readingWidth", "editorWidth", "wrapGuide", "showInlineTitle",
+        "noteSortOrder",
+        // Folders (GeneralSettingsView / iOSSettingsView)
+        "dailyNoteFolder", "dailyDateFormat", "templatesFolder", "attachmentFolder",
+        // Editor view mode. Two keys on purpose — the platforms persist it
+        // separately (AppCommands.swift:172-180), because reading the Mac's on
+        // iPad silently disabled every Format command. Mirroring *both* keeps
+        // that separation intact while letting each platform's setting follow
+        // the user to their other devices of that platform; mirroring only the
+        // iOS one, as before, left the Mac's mode syncing nowhere.
+        "editorViewMode", "iosEditorViewMode",
     ]
 
     private init() {}
@@ -73,8 +105,21 @@ final class CloudPrefs {
     private func pullFromCloud() {
         isApplyingRemote = true
         defer { isApplyingRemote = false }
+        var changed: [String] = []
         for key in keys {
-            if let value = store.object(forKey: key) { defaults.set(value, forKey: key) }
+            guard let value = store.object(forKey: key) else { continue }
+            // Write only what differs. Setting an identical value still posts
+            // `UserDefaults.didChangeNotification`, and `localChanged` hops to
+            // the main actor *after* the `defer` above has cleared the guard —
+            // so an unconditional write echoes straight back out as a push.
+            if let current = defaults.object(forKey: key) as? NSObject,
+               let incoming = value as? NSObject,
+               current.isEqual(incoming) { continue }
+            defaults.set(value, forKey: key)
+            changed.append(key)
         }
+        guard !changed.isEmpty else { return }
+        NotificationCenter.default.post(name: Self.didPullFromCloud, object: self,
+                                        userInfo: [Self.changedKeysKey: changed])
     }
 }

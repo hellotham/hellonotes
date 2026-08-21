@@ -2,12 +2,17 @@
 //  QuickCaptureView.swift
 //  HelloNotes
 //
-//  The menu-bar quick-capture popover: type a line and append it to today's
-//  daily note in the focused collection, without switching to the app. Runs
-//  in-process (no sandbox/bookmark issues) via the shared NavigationRouter.
+//  Quick capture: type a line and append it to today's daily note in the focused
+//  collection. Runs in-process (no sandbox/bookmark issues) via the shared
+//  NavigationRouter.
+//
+//  On the Mac it lives in a `MenuBarExtra`, so it is reachable without switching
+//  to the app. iOS has no such chrome — the nearest equivalents are a Control
+//  Center control or a widget, both of which can only *launch* the app — so
+//  there it is a sheet, reached from the Library actions, the `+` menu and the
+//  command palette. The capture itself is the same view and the same code path.
 //
 
-#if os(macOS)
 import SwiftUI
 
 struct QuickCaptureView: View {
@@ -28,7 +33,12 @@ struct QuickCaptureView: View {
 
             TextEditor(text: $text)
                 .font(.body)
+#if os(macOS)
                 .frame(width: 300, height: 96)
+#else
+                // A popover has a width to declare; a sheet is given one.
+                .frame(minHeight: 120)
+#endif
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
                 .focused($focused)
 
@@ -56,4 +66,3 @@ struct QuickCaptureView: View {
         }
     }
 }
-#endif

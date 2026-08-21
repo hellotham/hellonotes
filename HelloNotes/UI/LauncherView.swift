@@ -8,8 +8,18 @@
 //  libraries to switch to, and actions to open from the file system, browse
 //  iCloud Obsidian vaults, clone a remote, or create a new repository.
 //
+//  Cross-platform. It was `#if os(macOS)` end to end, and nothing inside it
+//  ever needed to be: `RecentsStore`, `LibrariesStore` and `Bookmark` are all
+//  ungated, and the body is a `ScrollView` of buttons. Only the fixed 560×560
+//  frame was Mac-shaped — a panel declares its own size, a sheet is given one.
+//
+//  What that gate cost the iPad was not the window but the *contents*: iOS
+//  wired `openLauncher` straight to the file importer, so a vault you had
+//  opened twenty times was still a folder you had to go and find again, and
+//  saved libraries — a named set of collections to reopen together — could be
+//  saved on the Mac, synced, and never opened on the iPad.
+//
 
-#if os(macOS)
 import SwiftUI
 
 struct LauncherView: View {
@@ -75,7 +85,11 @@ struct LauncherView: View {
                 .padding()
             }
         }
+        #if os(macOS)
+        // A panel has to declare a size. On iOS the sheet is given one, and a
+        // hard 560pt would be wider than every iPhone.
         .frame(width: 560, height: 560)
+        #endif
         .alert("Save Library", isPresented: $showSavePrompt) {
             TextField("Library name", text: $newLibraryName)
             Button("Cancel", role: .cancel) {}
@@ -202,4 +216,3 @@ struct LauncherView: View {
         }
     }
 }
-#endif

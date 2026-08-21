@@ -126,9 +126,6 @@ struct MacContentView: View {
     @State private var newFolderParent: URL?
     @State private var newFolderName = ""
 
-    /// How notes are ordered in the folder tree.
-    @State private var sortOrder: SortOrder = .modified
-
     /// Active tag filter, if any (within the focused collection). Set from the
     /// inspector's Tags tab — the rails cooperate across the shell (decision 1).
     @State private var selectedTag: String?
@@ -310,7 +307,8 @@ struct MacContentView: View {
     /// The folder tree for `collection` and the current sort order.
     private func tree(for collection: Collection) -> [CollectionTreeNode] {
         CollectionTree.build(from: collection.notes, attachments: collection.attachments,
-                             folders: collection.folders, rootURL: collection.rootURL, sort: sortOrder)
+                             folders: collection.folders, rootURL: collection.rootURL,
+                             sort: appearance.noteSortOrder)
     }
 
     // MARK: - Editor derived data (for the selection's collection)
@@ -2014,7 +2012,7 @@ struct MacContentView: View {
         // from notes across all of them, so they ride the same revisions —
         // except bookmarking, which changes no revision and is counted here.
         let bookmarkCount = library.collections.reduce(0) { $0 + $1.bookmarks.paths.count }
-        return "\(sortOrder.rawValue)|b\(bookmarkCount)|\(library.focusedID ?? "")"
+        return "\(appearance.noteSortOrder.rawValue)|b\(bookmarkCount)|\(library.focusedID ?? "")"
              + "|\(appearance.textScale)|\(mode)"
     }
 
@@ -2154,12 +2152,6 @@ struct MacContentView: View {
 }
 
 /// A note list row: the note plus an optional search snippet.
-private struct NoteRow: Identifiable {
-    let note: Note
-    let snippet: String?
-    var id: Note.ID { note.id }
-}
-
 /// Presents `Collection.lastError` (a failed file operation) as an alert and
 /// clears it on dismiss. Extracted from the shell body to keep it type-checkable.
 private struct FileOperationErrorAlert: ViewModifier {

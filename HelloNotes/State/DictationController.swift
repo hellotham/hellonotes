@@ -19,6 +19,15 @@ final class DictationController {
     private(set) var isRecording = false
     private(set) var transcript = ""
 
+    /// Why the last `start()` failed, or `nil` if it didn't.
+    ///
+    /// The `catch` below used to discard the error, which on iOS made a denied
+    /// microphone — or an audio session that could not be activated —
+    /// indistinguishable from a dead button: the command ran, nothing happened,
+    /// and there was nothing to read. `VoiceCapture` now raises real, actionable
+    /// errors, so they are kept for a caller to show.
+    private(set) var lastError: String?
+
     #if canImport(Speech)
     private var capture: Any?   // VoiceCapture (macOS/iOS 26-gated), held as Any
     #endif
@@ -36,6 +45,7 @@ final class DictationController {
         #if canImport(Speech)
         guard #available(macOS 26.0, iOS 26.0, *), !isRecording else { return }
         transcript = ""
+        lastError = nil
         let vc = VoiceCapture()
         capture = vc
         do {
@@ -45,6 +55,7 @@ final class DictationController {
             isRecording = true
         } catch {
             capture = nil
+            lastError = error.localizedDescription
         }
         #endif
     }

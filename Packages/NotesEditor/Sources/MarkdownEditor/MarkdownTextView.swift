@@ -351,7 +351,7 @@ public final class MarkdownTextView: NSTextView {
     /// text still wraps at the view's edge. Making it a wrap point would be a
     /// different (and much more intrusive) feature — anyone who wants a hard
     /// column sets a fixed Editor width instead.
-    var wrapGuideColumns: Int = 0 {
+    public var wrapGuideColumns: Int = 0 {
         didSet { if wrapGuideColumns != oldValue { needsDisplay = true } }
     }
 

@@ -29,6 +29,12 @@ struct GitSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The Mac opens this as a sheet, which has no chrome of its own, so
+            // the title and the way out have to be drawn here. iOS *pushes* it
+            // (`iOSSettingsView` → NavigationLink, `.navigationTitle("Git")`),
+            // where the navigation bar already supplies both — drawing this row
+            // there stacks a second title and a second dismiss under the first.
+            #if os(macOS)
             HStack {
                 Label("Git Settings", systemImage: "arrow.triangle.branch").font(.headline)
                 Spacer()
@@ -36,6 +42,7 @@ struct GitSettingsView: View {
             }
             .padding()
             Divider()
+            #endif
 
             Form {
                 identitySection
@@ -44,7 +51,9 @@ struct GitSettingsView: View {
             }
             .formStyle(.grouped)
         }
-        .frame(width: 540, height: 620)
+        // Fixed on the Mac, device-sized on iOS — a hard 540pt is 147pt wider
+        // than an iPhone's screen, which clips the form rather than scrolling it.
+        .panelFrame(width: 540, height: 620)
     }
 
     // MARK: - Identity

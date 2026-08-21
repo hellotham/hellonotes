@@ -9,7 +9,6 @@ import Testing
 import Foundation
 @testable import HelloNotes
 
-#if os(macOS)
 
 /// The walk's contract. Every one of these is a property the old
 /// `FileManager.enumerator` could not have: it returned only when finished,
@@ -357,4 +356,3 @@ private final class Collector: @unchecked Sendable {
     var count: Int { children.count }
 }
 
-#endif

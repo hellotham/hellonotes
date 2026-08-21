@@ -44,17 +44,28 @@ enum ProviderFactory {
             return (GeminiProvider(baseURL: config.baseURL, apiKey: key), config.model)
 
         case .foundationModels:
-            #if os(macOS)
+            // Gated on the *framework*, not the platform, because that is what
+            // `FoundationModelsProvider` itself is gated on — and Foundation
+            // Models ships on iOS 26 too, where `IntelligenceService` and
+            // `NoteIntelligence` already run it. Gating on `os(macOS)` told an
+            // iPad that was running the model it needed a Mac, while the
+            // provider picker went on offering "Apple Intelligence (on-device)"
+            // there: every chat turn failed on a claim that was untrue.
+            #if canImport(FoundationModels)
             return (FoundationModelsProvider(), config.model)
             #else
-            throw LLMError.unsupported("On-device models require macOS.")
+            // The framework is genuinely absent: name the OS version *this*
+            // reader would need, not the Mac's.
+            throw LLMError.unsupported(NoteIntelligence.tooOldMessage)
             #endif
 
         case .mlx:
+            // This one really is Mac-only — `MLXProvider` is `#if os(macOS)`, so
+            // off the Mac the type does not exist to return.
             #if os(macOS)
             return (MLXProvider(), config.model)
             #else
-            throw LLMError.unsupported("On-device models require macOS.")
+            throw LLMError.unsupported("MLX models run on the Mac only.")
             #endif
         }
     }

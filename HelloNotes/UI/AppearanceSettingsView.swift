@@ -92,6 +92,15 @@ struct AppearanceSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                Picker("Sort notes by", selection: $settings.noteSortOrder) {
+                    ForEach(SortOrder.allCases) { order in
+                        Label(order.rawValue, systemImage: order.systemImage).tag(order)
+                    }
+                }
+                Text("How notes are ordered inside each folder of the sidebar. Folders always come first, sorted by name.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Toggle("Show note title", isOn: $settings.showInlineTitle)
                 Text("Shows the file's name above the note as a heading. Editing it renames the file and updates every link to it.")
                     .font(.caption)

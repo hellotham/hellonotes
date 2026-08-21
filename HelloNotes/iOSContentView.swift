@@ -10,6 +10,10 @@ import SwiftUI
 import MarkdownEditor
 import UniformTypeIdentifiers
 import UIKit
+// Explicit, for `URL: Transferable` — the payload the sidebar's drag-to-move
+// carries. It arrives transitively through SwiftUI, and a conformance that
+// happens to be visible is not the same as one that is imported.
+import CoreTransferable
 
 /// The iOS / iPadOS shell, arranged by `AdaptiveShell` exactly as macOS is: a
 /// narrow library rail of *places*, the note list (or the Library place), the
@@ -22,6 +26,15 @@ struct iOSContentView: View {
     @Environment(Library.self) private var library
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(LLMSettings.self) private var llmSettings
+    /// Deep links and quick capture both route through this.
+    @Environment(NavigationRouter.self) private var router
+    /// Opens a standalone note window (a second iPadOS scene).
+    @Environment(\.openWindow) private var openWindow
+    /// Parsed editor documents, kept above the shell so a tab switch doesn't
+    /// re-parse. Held here because a cached document also captured which
+    /// `[[link]]` targets existed when it was built — see the `library.allNotes`
+    /// handler, which must forget them when the note set moves.
+    @Environment(EditorDocumentStore.self) private var documents
     @Environment(\.scenePhase) private var scenePhase
 
     /// How the editor presents the note (live Markdown / Preview / Split).
@@ -73,8 +86,20 @@ struct iOSContentView: View {
         )
     }
     @State private var selectedNoteID: Note.ID?
+    /// Reopen where you left off, exactly as the Mac does: the focused
+    /// collection and the open note persist across relaunches as stable path
+    /// identifiers rather than URLs. `railPlace` was already restored here, so
+    /// an iPad came back to the right *tree* and an empty editor — and
+    /// `library.focused` was left at whichever collection finished restore last.
+    @SceneStorage("restoredCollectionID") private var restoredCollectionID = ""
+    @SceneStorage("restoredNotePath") private var restoredNotePath = ""
     @State private var selectedTag: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Focus for the sidebar's search field. Edit ▸ Search All Collections
+    /// (⌥⌘F) hands it focus over `hnFocusLibrarySearch`, the same notification
+    /// the Mac uses — the command used to *clear* the selection instead, which
+    /// closed the note you were reading and showed no field to type into.
+    @FocusState private var searchFocused: Bool
 
     /// The right inspector rail, remembered per scene (decision 10). Off by
     /// default on iPad: a reader wants the note, not the apparatus.
@@ -85,11 +110,67 @@ struct iOSContentView: View {
     @State private var place: CompactPlace = .notes
     @State private var noteIsExpanded = false
 
-    /// The open note's front-matter properties, edited in the inspector.
-    @State private var properties: [Property] = []
     /// On iPhone (collapsed), open straight to the note list rather than the
     /// filter sidebar.
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
+
+    /// New-folder prompt state, driven from the sidebar's folder and collection
+    /// menus. `Collection.createFolder` was cross-platform from the start and
+    /// simply had no iOS caller, so an iPad could make notes and never a folder
+    /// to put them in.
+    /// Collections the user has folded away. Collapsed-set rather than
+    /// expanded-set so a newly opened collection starts open, which is what a
+    /// collection you just opened should do.
+    @State private var collapsedCollections: Set<Collection.ID> = []
+
+    @State private var newFolderCollection: Collection?
+    @State private var newFolderParent: URL?
+    @State private var newFolderName = ""
+    /// A folder awaiting a confirmed "Move to Trash" — which trashes everything
+    /// inside it, so it is confirmed rather than done on a tap, as on the Mac.
+    @State private var pendingFolderDelete: URL?
+
+    /// Notes whose *body* matched the search, by file URL. Title and alias hits
+    /// come straight from the metadata index and are instant; content hits cost
+    /// file reads, so they arrive on their own debounced pass and merge in.
+    @State private var contentMatches: Set<URL> = []
+    /// The snippet each body match was found by, so the sidebar can show *why*
+    /// a note matched. The Mac has shown this since search was written; iOS ran
+    /// the identical Spotlight wave and then threw the snippets away, keeping
+    /// only the URLs.
+    @State private var contentSnippets: [URL: String] = [:]
+    /// Attachments whose *contents* matched — PDFs, Pages documents, anything
+    /// Spotlight indexes. The Mac lists these beside the note hits; iPad
+    /// dropped them entirely, so a phrase that lived only inside a PDF was
+    /// unfindable on that platform.
+    @State private var contentFileHits: [Collection.ID: [CollectionFile]] = [:]
+    @State private var contentSearchTask: Task<Void, Never>?
+    /// Spotlight narrows the corpus before any note is read, exactly as the
+    /// Mac's `scheduleSearch` does. Its own query object, so a content search
+    /// never cancels the references panel's in-flight one (each `SpotlightSearch`
+    /// supersedes only its own).
+    @State private var searchSpotlight = SpotlightSearch()
+
+    /// The sidebar's folder trees, cached against everything they are built
+    /// from (`treeInputsKey`).
+    ///
+    /// `CollectionTree.build` is a `pathComponents` split per note and per
+    /// attachment plus a recursive `localizedStandardCompare` sort, and it used
+    /// to run inline inside a `ForEach` over every open collection. Because
+    /// `expandedFolders` is one shared binding, opening a single folder
+    /// re-derived *every* collection's whole tree. Same fix as the Mac's
+    /// `outlineInputsKey`/`cachedRoots`.
+    @State private var cachedTrees: [Collection.ID: [CollectionTreeNode]] = [:]
+
+    /// Whether the open note is a Marp deck / holds Mermaid fences.
+    ///
+    /// Both used to be computed inline in `noteMenu`'s builder. `Menu(content:)`
+    /// takes a non-escaping `ViewBuilder`, so both ran at construction time on
+    /// the main actor — and `mermaidBlocks` is a whole-document regex with no
+    /// early exit. Computed once here instead, off-main, against
+    /// `docFeaturesKey`, which is the Mac's memoized `DocStats` with a cheaper
+    /// key (see the `.task` for why the text itself is the wrong one here).
+    @State private var docFeatures = NoteDocFeatures()
 
     /// Which place the library rail is on — `""` is the Library place, the
     /// sentinel means "never chosen", so a first launch lands in the notes.
@@ -134,6 +215,14 @@ struct iOSContentView: View {
     @State private var showMermaid = false
     @State private var showClone = false
     @State private var showNewRepo = false
+    /// The "open" launcher and its backing stores — recents plus saved
+    /// libraries. Both stores were cross-platform from the day they were
+    /// written; only `LauncherView` was gated, so iPad had nowhere to show
+    /// them and `openLauncher` went straight to the file importer.
+    @State private var showLauncher = false
+    @State private var recents = RecentsStore()
+    @State private var libraries = LibrariesStore()
+    @State private var showQuickCapture = false
     @State private var gitAccounts = GitAccountsStore()
     /// Spotlight names the files whose content mentions this note; only those
     /// few are read and verified. `SpotlightSearch` was macOS-gated despite
@@ -159,6 +248,21 @@ struct iOSContentView: View {
     @State private var inspectorRequest: InspectorRequest?
 
     private var focused: Collection? { library.focused }
+
+    /// The collection that owns what is selected, falling back to the focused
+    /// one — the Mac's `editorCollection`, and for the same reason.
+    ///
+    /// Everything *about the open note* has to be asked of the note's own
+    /// collection, not of whichever happens to be focused: its tags, its link
+    /// candidates, its git repository and history, and the corpus a backlink or
+    /// an unlinked mention is searched in. Keyed on `focused`, an iPad with two
+    /// collections open showed the wrong collection's tags and came back with
+    /// no backlinks at all. Derived from the selection's URL rather than from a
+    /// resolved `Note`, so an attachment answers with its own collection too.
+    private var editorCollection: Collection? {
+        if let id = selectedNoteID, let owner = library.collection(containing: id) { return owner }
+        return focused
+    }
 
     /// The collection the library rail is standing in, or `nil` on the Library
     /// place. Resolved by id every time, so closing it falls back to Library
@@ -208,14 +312,31 @@ struct iOSContentView: View {
         // search or tag filter still has somewhere to look from the Library
         // place.
         guard let scope = railCollection ?? focused else { return [] }
-        if let selectedTag {
-            return scope.search.notesTagged(selectedTag)
-        }
-        guard !searchText.isEmpty else { return scope.notes }
-        return scope.notes.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+        return notes(in: scope)
     }
 
     var body: some View {
+        // Split in two deliberately, the way `MacContentView`'s is. The sheet
+        // stack and the scene wiring are one expression to the type checker,
+        // and this chain has already defeated it once — which is why the parity
+        // sheets live in a `ViewModifier`. Two opaque halves are two smaller
+        // problems.
+        presentations(shellCore)
+            // Every failed file operation used to be invisible here. Nineteen
+            // `report(…)` sites write `Collection.lastError` and exactly one
+            // view presented it — a `private struct` inside `MacContentView` —
+            // so on iPad renaming a note onto an existing name silently did
+            // nothing at all.
+            .modifier(FileOperationErrorAlert(collection: erroringCollection))
+            .modifier(FolderDeleteConfirmation(folder: $pendingFolderDelete) { folder in
+                if let c = collection(owningFolder: folder) {
+                    Task { await c.deleteFolder(at: folder) }
+                }
+            })
+    }
+
+    /// The shell itself plus everything that wires it to the scene.
+    private var shellCore: some View {
         AdaptiveShell(
             // Never a third column on iPad: the inspector is an overlay over
             // the note (below), which is what Obsidian does and what makes it
@@ -226,10 +347,282 @@ struct iOSContentView: View {
             // instead of a persistent format bar (decision 3).
             prefersTouch: true,
             sidebar: { collectionTree },
-            pane: { detail },
+            pane: { detail(showsShellCommands: true) },
             inspector: { inspector },
             compact: { compactShell }
         )
+        .task {
+            // Not under a test host — see TestEnvironment.
+            guard !TestEnvironment.isRunningTests else { return }
+            // **External changes reach the editor.** `Library.onExternalChange`
+            // defaults to a no-op and only macOS ever set it, so on iOS a note
+            // edited elsewhere — Obsidian on another device, a sync landing —
+            // updated the note list while the open editor kept showing the old
+            // text, and a selection pointing at a note that had gone was never
+            // re-checked.
+            library.onExternalChange = { @MainActor in
+                // **Every** open tab, not just the front one. This reconciled
+                // `tabs.editor(withID: selectedNoteID)` alone, so a background
+                // tab never saw a remote change, never raised `hasConflict`,
+                // and its next save wrote stale text over the newer file.
+                // `EditorTabs.reconcileAll()` was cross-platform all along.
+                Task { await tabs.reconcileAll() }
+                revalidateSelection()
+            }
+            // Nothing recorded opens on iOS, so the launcher's Recents and
+            // Obsidian Vaults lists would have stayed permanently empty even
+            // once it had somewhere to draw them. `Library.restore` calls this
+            // for every restored collection too, so a relaunch re-seeds the
+            // list rather than emptying it.
+            library.onOpened = { recents.record($0) }
+            if library.isEmpty {
+                await library.restore()
+                if library.isEmpty && !hasSeenWelcome { pendingWelcome = true }
+            }
+            // Reopen the last-focused collection and the note that was open,
+            // as the Mac does. `railPlace` alone was restored here, so an iPad
+            // came back to the right *tree* with an empty editor, and
+            // `library.focused` was left at whichever collection happened to
+            // finish restoring last.
+            if !restoredCollectionID.isEmpty,
+               library.collections.contains(where: { $0.id == restoredCollectionID }) {
+                library.focusedID = restoredCollectionID
+            }
+            if !restoredNotePath.isEmpty {
+                let url = URL(fileURLWithPath: restoredNotePath)
+                if library.allNotes.contains(where: { $0.id == url }) { selectedNoteID = url }
+            }
+            // A window whose rail has never been moved opens in the focused
+            // collection, not on the Library place: the notes are the point.
+            if railPlaceID == Self.railPlaceUnset { railPlaceID = library.focusedID ?? "" }
+        }
+        .task { wireTabs() }
+        .task(id: docFeaturesKey) {
+            // Off the main actor, memoized, and keyed on something that changes
+            // at most once per autosave.
+            //
+            // `MarkdownParsing.mermaidBlocks` is a whole-document regex with no
+            // early exit, and it used to run on the main actor every time the
+            // note menu was *built* — `Menu(content:label:)` takes a
+            // *non-escaping* ViewBuilder, so both scans ran on every body
+            // evaluation whether or not the menu was ever opened.
+            //
+            // The Mac keys the same work on the text itself, debounced, because
+            // its `DocStats` also carries a live word count. Nothing on iPad
+            // shows one, and keying on the text here would read `editor.text`
+            // during the *shell's* body — making every keystroke invalidate the
+            // whole shell, which is a worse bug than the one being fixed. All
+            // these two flags gate is a pair of menu rows, and an autosave
+            // lands within a second of typing stopping.
+            let text = editor.text
+            docFeatures = await offMain { NoteDocFeatures(text: text) }
+        }
+        .task(id: "\(selectedNoteID?.path ?? "")|\(editorCollection?.derivedRevision ?? 0)") {
+            await computeUnlinkedMentions()
+        }
+        .onChange(of: showSplash) { _, visible in
+            // Present onboarding only after the launch splash has faded.
+            if !visible && pendingWelcome {
+                pendingWelcome = false
+                showWelcome = true
+            }
+        }
+        .onChange(of: library.focusedID) { _, newID in
+            restoredCollectionID = newID ?? ""
+            // Switching collections resets the in-collection tag filter.
+            //
+            // The *search* deliberately survives, as it does on the Mac: focus
+            // now follows the selection, so opening a search hit that lives in
+            // another collection would otherwise empty the field the hit came
+            // from and drop the rest of the results with it.
+            selectedTag = nil
+            // **Only deselect a note that the new focus doesn't contain.**
+            // This used to clear the selection unconditionally, so any focus
+            // change — including one the app made itself while opening a note
+            // in another collection — closed whatever was on screen. Nothing
+            // outside the editor may close the file being edited.
+            if let selectedNoteID,
+               !library.allNotes.contains(where: { $0.id == selectedNoteID
+                   && library.collection(containing: $0.fileURL)?.id == newID }) {
+                self.selectedNoteID = nil
+            }
+            // The rail follows the focus while it is standing in a collection;
+            // on the Library place it stays put — you went there on purpose.
+            if railPlace != .library, let newID { railPlaceID = newID }
+        }
+        .onChange(of: library.collections.count) { was, now in
+            if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
+        }
+        .focusedSceneValue(\.appActions, appActions)
+        .onChange(of: library.allNotes) { _, notes in
+            // A cached document captured which wiki-link targets existed when
+            // it was built — neither the store key nor the task key names the
+            // note set — so once that set changes it would go on colouring
+            // `[[links]]` by a stale answer: a brand-new note stayed painted as
+            // broken in every open document until the 8-entry LRU evicted it.
+            documents.forgetAll()
+            // Closes tabs for notes that are gone — flushing first, which is
+            // the part that stops a rename or an external change taking pending
+            // keystrokes with it.
+            tabs.prune(keeping: Set(notes.map(\.id)))
+            // The Recent Notes widget is built and embedded for iOS, and its
+            // snapshot file was never written here — so it was permanently
+            // empty on the one platform that puts widgets on the home screen.
+            library.writeWidgetSnapshot()
+            Task { await router.donateNotesToSpotlight() }   // system Spotlight
+        }
+        .onChange(of: selectedNoteID) { _, newID in
+            restoredNotePath = newID?.path ?? ""
+            // A selection that resolves to nothing must not blank the editor.
+            // The same bare lookup on macOS was the "populated sidebar, clicks
+            // do nothing" bug; here the failure is worse, because opening `nil`
+            // actively closes the open note. Deselecting is the one case where
+            // clearing is what was asked for.
+            guard newID != nil else { return }
+            guard let note = library.allNotes.first(where: { $0.id == newID }) else { return }
+            // **Focus follows the selection**, as it does on both branches of
+            // the Mac's `openSelectedNote`. `focusCollection` had no iOS caller
+            // at all, and the only other writer of focus lived in the compact
+            // shell — which no iPad ever shows — so with two collections open,
+            // tapping a note under the second left the scope on the first. That
+            // scope drives New Note, the graph, tags, Open Quickly, the note
+            // list and Show Non-Note Files, so every one of them answered about
+            // a collection the user was not in.
+            library.focusCollection(containing: note.fileURL)
+            Task { await tabs.editor(for: note) }
+        }
+        .onChange(of: searchText) { _, query in scheduleContentSearch(query) }
+        .onChange(of: treeInputsKey, initial: true) { _, _ in rebuildTrees() }
+        .onChange(of: library.pendingRevealCollectionID) { _, id in
+            // Something added a collection and asked us to show it —
+            // `Library.openRemote` does this for a newly-connected cloud
+            // collection. Unlike a passing focus change this moves the rail
+            // unconditionally: the user asked for this collection by name, so
+            // leaving them looking at a different tree makes a successful add
+            // look like a failed one.
+            guard let id else { return }
+            selectedTag = nil
+            library.focusedID = id
+            railPlaceID = id
+            library.pendingRevealCollectionID = nil
+        }
+        .onChange(of: library.pendingOpenNoteID) { _, id in
+            // A `hellonotes://` deep link, an App Intent (Open Note, Create
+            // Note, Append to Daily Note), the widget, or Quick Capture asking
+            // to show a note. iOS observed none of them: the links resolved and
+            // opened nothing, every Siri shortcut landed nowhere, and Quick
+            // Capture appended its line and then reported success over a shell
+            // that had not moved.
+            guard let id else { return }
+            showOpenQuickly = false
+            selectedTag = nil
+            searchText = ""
+            selectedNoteID = id
+            // The phone keeps the open note in a mini strip behind a tab bar;
+            // being *asked* to open one is a request to read it.
+            place = .notes
+            noteIsExpanded = true
+            library.pendingOpenNoteID = nil
+        }
+        .onChange(of: router.pendingSearch) { _, query in
+            // `hellonotes://search?q=…` and the Search Notes intent.
+            guard let query else { return }
+            showOpenQuickly = false
+            selectedTag = nil
+            searchText = query
+            revealSearch(focusField: false)
+            router.pendingSearch = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .hnFocusLibrarySearch)) { _ in
+            revealSearch(focusField: true)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                Task { await tabs.flushAll() }
+            }
+        }
+        .overlay {
+            if showSplash {
+                SplashScreenView { withAnimation(.easeOut(duration: 0.5)) { showSplash = false } }
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .task {
+                        try? await Task.sleep(for: .seconds(2.8))
+                        withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
+                    }
+            }
+        }
+    }
+
+    /// The first collection with something to say about a failed operation.
+    ///
+    /// The Mac binds its alert to `focused`, which is right there because every
+    /// note action it offers acts on the focused collection. Here they do not:
+    /// the sidebar holds one tree over *every* open collection and its note
+    /// actions resolve the owner with `library.collection(containing:)`, so an
+    /// alert watching only the focused one would still be silent for exactly
+    /// the operations that most often fail.
+    private var erroringCollection: Collection? {
+        library.collections.first { $0.lastError != nil }
+    }
+
+    /// The collection a folder path belongs to. Folder ids are absolute paths
+    /// and a collection's id is its standardised root path, so containment is a
+    /// prefix test — the same one the Mac's folder actions use.
+    private func collection(owningFolder url: URL) -> Collection? {
+        library.collections.first { url.path == $0.id || url.path.hasPrefix($0.id + "/") }
+    }
+
+    /// What `docFeatures` is computed against: which note is open, and the
+    /// tabs' combined save revision. Cheap to read every render, and it changes
+    /// at most once per autosave rather than once per keystroke.
+    private var docFeaturesKey: String {
+        "\(selectedNoteID?.path ?? "")|\(tabs.totalSavedRevision)"
+    }
+
+    /// Bring the search field and its results on screen.
+    ///
+    /// Both live in the sidebar on iPad, so a request to search a hidden
+    /// sidebar is a dead end — the same reasoning as the Mac's
+    /// `hnFocusLibrarySearch` handler, which opens the panel before taking
+    /// focus. On the phone the sidebar is a tab rather than a column, and the
+    /// note is covering it.
+    private func revealSearch(focusField: Bool) {
+        if columnVisibility == .detailOnly {
+            withAnimation(.easeInOut(duration: 0.18)) { columnVisibility = .all }
+        }
+        place = .search
+        noteIsExpanded = false
+        if focusField { searchFocused = true }
+    }
+
+    /// Every sheet and alert the shell owns — the second half of the split
+    /// described in `body`.
+    private func presentations<V: View>(_ content: V) -> some View {
+        content
+        .sheet(isPresented: $showLauncher) {
+            // The same six affordances the Mac's launcher offers, wired to the
+            // iOS routes for each: the folder picker stands in for NSOpenPanel,
+            // and it already starts in Obsidian's iCloud folder and expands a
+            // picked folder into the vaults inside it (`handleImport`).
+            LauncherView(
+                recents: recents,
+                libraries: libraries,
+                openCollectionURLs: library.collections.map(\.rootURL),
+                onOpenURL: { url in Task { await library.open(url: url) } },
+                onOpenLibrary: { saved in
+                    let urls = libraries.urls(for: saved)
+                    Task { await library.openLibrary(urls) }
+                },
+                onSaveLibrary: { name in
+                    libraries.save(name: name, urls: library.collections.map(\.rootURL))
+                },
+                onOpenCollection: { showImporter = true },
+                onOpenObsidian: { showImporter = true },
+                onClone: { showClone = true },
+                onNewRepository: { showNewRepo = true }
+            )
+        }
         .sheet(isPresented: $showImporter) {
             // `UIDocumentPickerViewController`, not SwiftUI's `.fileImporter`.
             //
@@ -257,6 +650,19 @@ struct iOSContentView: View {
             }
         } message: {
             Text("Renaming updates [[links]] in notes that point at it.")
+        }
+        .sheet(isPresented: $showQuickCapture) {
+            NavigationStack {
+                QuickCaptureView(router: router)
+                    .navigationTitle("Quick Capture")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showQuickCapture = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium])
         }
         .sheet(isPresented: $showClone) {
             NavigationStack {
@@ -301,8 +707,19 @@ struct iOSContentView: View {
                 }
             }
         }
-        .task(id: "\(selectedNoteID?.path ?? "")|\(focused?.derivedRevision ?? 0)") {
-            await computeUnlinkedMentions()
+        .alert("New Folder", isPresented: Binding(
+            get: { newFolderCollection != nil },
+            set: { if !$0 { newFolderCollection = nil } })
+        ) {
+            TextField("Name", text: $newFolderName, prompt: Text("New Folder"))
+            Button("Create") {
+                let collection = newFolderCollection
+                let name = newFolderName.isEmpty ? "New Folder" : newFolderName
+                let parent = newFolderParent
+                newFolderCollection = nil
+                Task { await collection?.createFolder(named: name, in: parent) }
+            }
+            Button("Cancel", role: .cancel) { newFolderCollection = nil }
         }
         .modifier(ParitySheets(
             showGraph: $showGraph,
@@ -362,87 +779,18 @@ struct iOSContentView: View {
                 onDismiss: { showWelcome = false }
             )
         }
-        .task {
-            // Not under a test host — see TestEnvironment.
-            guard !TestEnvironment.isRunningTests else { return }
-            // **External changes reach the editor.** `Library.onExternalChange`
-            // defaults to a no-op and only macOS ever set it, so on iOS a note
-            // edited elsewhere — Obsidian on another device, a sync landing —
-            // updated the note list while the open editor kept showing the old
-            // text, and a selection pointing at a note that had gone was never
-            // re-checked.
-            library.onExternalChange = { @MainActor in
-                Task { await editor.reconcileWithDisk() }
-                revalidateSelection()
-            }
-            if library.isEmpty {
-                await library.restore()
-                if library.isEmpty && !hasSeenWelcome { pendingWelcome = true }
-            }
-            // A window whose rail has never been moved opens in the focused
-            // collection, not on the Library place: the notes are the point.
-            if railPlaceID == Self.railPlaceUnset { railPlaceID = library.focusedID ?? "" }
-        }
-        .onChange(of: showSplash) { _, visible in
-            // Present onboarding only after the launch splash has faded.
-            if !visible && pendingWelcome {
-                pendingWelcome = false
-                showWelcome = true
-            }
-        }
-        .onChange(of: library.focusedID) { _, newID in
-            // Switching collections resets the in-collection filter.
-            selectedTag = nil
-            searchText = ""
-            // **Only deselect a note that the new focus doesn't contain.**
-            // This used to clear the selection unconditionally, so any focus
-            // change — including one the app made itself while opening a note
-            // in another collection — closed whatever was on screen. Nothing
-            // outside the editor may close the file being edited.
-            if let selectedNoteID,
-               !library.allNotes.contains(where: { $0.id == selectedNoteID
-                   && library.collection(containing: $0.fileURL)?.id == newID }) {
-                self.selectedNoteID = nil
-            }
-            // The rail follows the focus while it is standing in a collection;
-            // on the Library place it stays put — you went there on purpose.
-            if railPlace != .library, let newID { railPlaceID = newID }
-        }
-        .onChange(of: library.collections.count) { was, now in
-            if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
-        }
-        .focusedSceneValue(\.appActions, appActions)
-        .task { wireTabs() }
-        .onChange(of: library.allNotes) { _, notes in
-            // Closes tabs for notes that are gone — flushing first, which is
-            // the part that stops a rename or an external change taking pending
-            // keystrokes with it.
-            tabs.prune(keeping: Set(notes.map(\.id)))
-        }
-        .onChange(of: selectedNoteID) { _, newID in
-            // A selection that resolves to nothing must not blank the editor.
-            // The same bare lookup on macOS was the "populated sidebar, clicks
-            // do nothing" bug; here the failure is worse, because opening `nil`
-            // actively closes the open note. Deselecting is the one case where
-            // clearing is what was asked for.
-            guard newID != nil else { return }
-            guard let note = library.allNotes.first(where: { $0.id == newID }) else { return }
-            Task { await tabs.editor(for: note) }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active {
-                Task { await tabs.flushAll() }
-            }
-        }
-        .overlay {
-            if showSplash {
-                SplashScreenView { withAnimation(.easeOut(duration: 0.5)) { showSplash = false } }
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .task {
-                        try? await Task.sleep(for: .seconds(2.8))
-                        withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
-                    }
+        .background {
+            // ⌘W → close the active editor tab, but only while several are
+            // open. The Mac guards this against falling through to File ▸ Close
+            // and dismissing the window; an iPad scene has no competing Close
+            // Window, so here it is simply the keyboard route to the same
+            // command the tab strip and the File menu offer.
+            if tabs.openNotes.count > 1, let id = selectedNoteID, tabs.editor(withID: id) != nil {
+                Button("") { closeTab(id) }
+                    .keyboardShortcut("w", modifiers: .command)
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
             }
         }
     }
@@ -457,12 +805,48 @@ struct iOSContentView: View {
     /// column one to get the platform's toggle. On iPhone the shell hands off to
     /// `CompactShell` before reaching here, where a sidebar beside a 375pt
     /// screen would be absurd; there the collection list keeps its own tab.
+    /// A note row in the sidebar: title, the cloud badge when it is online
+    /// only, and a second line carrying the search snippet or the modification
+    /// date — the same three things the Mac's `noteCell` shows, decided by the
+    /// same `NoteRowContent` so the two cannot drift again.
+    @ViewBuilder
+    private func noteRow(_ note: Note, snippet: String? = nil) -> some View {
+        let content = NoteRowContent.make(note, snippet: snippet)
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 4) {
+                Text(content.title).font(.subheadline.weight(.semibold))
+                if content.isOnlineOnly {
+                    Image(systemName: "icloud.and.arrow.down")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityLabel(NoteRowContent.onlineOnlyLabel)
+                }
+            }
+            Text(content.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .tag(note.id)
+        .contextMenu { noteActions(note) }
+        // The tree is the only place a note has a *location*, so it is the only
+        // place a move makes sense — the same rows the Mac makes draggable.
+        .draggable(note.fileURL)
+    }
+
     private var collectionTree: some View {
         List(selection: $selectedNoteID) {
+            // Recents and Bookmarks, pinned above the collections, as full note
+            // rows — the Mac renders them through the same cell as every other
+            // note, so they carry the same subtitle, the same cloud badge, the
+            // same context menu and the same drag. They were bare `Text` here,
+            // which made the two most-used entry points in the sidebar the two
+            // least useful rows in it.
             if !LibraryPlace.mostRecent(library.allNotes).isEmpty {
                 DisclosureGroup {
                     ForEach(LibraryPlace.mostRecent(library.allNotes)) { note in
-                        Text(note.title).tag(note.id)
+                        noteRow(note)
                     }
                 } label: {
                     Label("Recents", systemImage: "clock")
@@ -471,60 +855,113 @@ struct iOSContentView: View {
             if !bookmarkedNotes.isEmpty {
                 DisclosureGroup {
                     ForEach(bookmarkedNotes) { note in
-                        Text(note.title).tag(note.id)
+                        noteRow(note)
                     }
                 } label: {
                     Label("Bookmarks", systemImage: "bookmark")
                 }
             }
             ForEach(library.collections) { collection in
-                Section {
-                    // A filter flattens the tree on purpose: when you are
-                    // searching or filtering by tag, what matters is the hits,
-                    // not where they live.
-                    if isFiltering {
-                        ForEach(notes(in: collection)) { note in
-                            Text(note.title).tag(note.id)
-                                .contextMenu { noteActions(note) }
+                // A *collapsible* collection, as on the Mac, where a collection
+                // is an outline row with children. It was a `Section`, whose
+                // header does not collapse — so with three vaults open an iPad
+                // had no way to fold one away and the tree just got longer.
+                //
+                // `selectedTag != nil` flattens it and drops the group entirely:
+                // a tag filter is already scoped to one collection, so a header
+                // above it says nothing the selection has not said. The Mac
+                // makes exactly this exception.
+                if selectedTag != nil {
+                    ForEach(notes(in: collection)) { note in
+                        noteRow(note)
+                    }
+                } else {
+                    DisclosureGroup(isExpanded: Binding(
+                        get: { !collapsedCollections.contains(collection.id) },
+                        set: { open in
+                            if open { collapsedCollections.remove(collection.id) }
+                            else { collapsedCollections.insert(collection.id) }
                         }
-                    } else {
-                        ForEach(tree(for: collection)) { node in
-                            CollectionTreeRow(node: node, expanded: expandedFolders) { note in
-                                AnyView(noteActions(note))
+                    )) {
+                        // A search flattens the tree on purpose: when you are
+                        // searching, what matters is the hits, not where they
+                        // live.
+                        if isFiltering {
+                            ForEach(notes(in: collection)) { note in
+                                noteRow(note, snippet: contentSnippets[note.fileURL])
+                            }
+                            // Attachments whose contents matched — the half of
+                            // the Mac's `SearchGroup` iPad never had.
+                            ForEach(contentFileHits[collection.id] ?? []) { file in
+                                Label(file.name, systemImage: file.kind.symbol)
+                                    .tag(file.url)
+                            }
+                        } else {
+                            ForEach(tree(for: collection)) { node in
+                                CollectionTreeRow(
+                                    node: node,
+                                    expanded: expandedFolders,
+                                    actions: { note in AnyView(noteActions(note)) },
+                                    folderActions: { folder in
+                                        AnyView(folderActions(folder, in: collection))
+                                    },
+                                    onDrop: { folder, urls in
+                                        moveItems(urls, into: folderURL(folder, in: collection),
+                                                  of: collection)
+                                    })
                             }
                         }
-                    }
-                } header: {
-                    // **Closing a collection has to be reachable here.** It was
-                    // only ever offered as a swipe on the compact shell's
-                    // collections list — a view the iPad never shows at regular
-                    // width — so on iPad a collection could be opened and never
-                    // closed again.
-                    //
-                    // A *visible* control, not just a long-press context menu:
-                    // the Mac can afford a hidden right-click because right-click
-                    // is where Mac users look, but the bug reported here was
-                    // "there is no way to close a collection", and answering
-                    // that with another hidden gesture answers it badly. The
-                    // context menu is kept as well, for the long-pressers.
-                    HStack {
-                        Text(collection.name)
-                        Spacer()
-                        Menu {
-                            collectionMenuItems(collection)
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                                .imageScale(.large)
-                                .accessibilityLabel("\(collection.name) actions")
+                    } label: {
+                        // **Closing a collection has to be reachable here.** It
+                        // was only ever offered as a swipe on the compact
+                        // shell's collections list — a view the iPad never
+                        // shows at regular width — so on iPad a collection
+                        // could be opened and never closed again.
+                        //
+                        // A *visible* control, not just a long-press context
+                        // menu: the Mac can afford a hidden right-click because
+                        // right-click is where Mac users look, but the bug
+                        // reported here was "there is no way to close a
+                        // collection", and answering that with another hidden
+                        // gesture answers it badly. The context menu is kept as
+                        // well, for the long-pressers.
+                        HStack {
+                            Text(collection.name).font(.headline)
+                            Spacer()
+                            Menu {
+                                collectionMenuItems(collection)
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                                    .imageScale(.large)
+                            }
+                            .accessibilityLabel("\(collection.name) actions")
+                            // 44pt: this is a header row, which is short.
+                            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
                         }
-                        // 44pt: this sits in a section header, which is short.
-                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                        .contextMenu { collectionMenuItems(collection) }
                     }
-                    .contextMenu { collectionMenuItems(collection) }
                 }
             }
         }
         .navigationTitle("Collections")
+        // **The iPad had no search field at any width.** The only `.searchable`
+        // in this file sits on `noteList`, which is compact-only — and
+        // `AdaptiveShell` picks compact below 600pt, so no iPad has ever
+        // reached it. Meanwhile ⌥⌘F cleared the selection (closing the note you
+        // were reading) and Find Related could set `searchText` with no field
+        // on screen to edit or clear.
+        //
+        // Against the panel it searches, per D9 — but a native `.searchable`
+        // rather than the Mac's hand-built field: D9's two objections
+        // (collapsing to a glyph at 860pt, and claiming the trailing end of the
+        // band) are both AppKit behaviours. `navigationBarDrawer(.always)` is
+        // how the same "must not vanish at the width it is most needed" rule is
+        // spelled on iOS. The hits replace the tree in place, so field and
+        // results stay together and Cancel is always there to escape them.
+        .searchable(text: $searchText,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search all collections")
+        .searchFocused($searchFocused)
         .overlay {
             // **Closing the last collection must not be a dead end.** The way
             // back in lived only in the Library place's menu, which the iPad
@@ -538,6 +975,11 @@ struct iOSContentView: View {
                 } actions: {
                     Button("Open Collection…") { showImporter = true }
                         .buttonStyle(.borderedProminent)
+                    // The Mac's equivalent empty state offers the launcher, not
+                    // the panel: after the first time, the way back in is a
+                    // vault you have already opened, not a folder to re-find.
+                    Button("Open Recent…") { showLauncher = true }
+                        .disabled(recents.entries.isEmpty && libraries.libraries.isEmpty)
                 }
             }
         }
@@ -576,15 +1018,22 @@ struct iOSContentView: View {
                             Label("Today's Note", systemImage: "calendar")
                         }
                         Button {
+                            showQuickCapture = true
+                        } label: {
+                            Label("Quick Capture…", systemImage: "square.and.pencil.circle")
+                        }
+                        Button {
                             showOpenQuickly = true
                         } label: {
                             Label("Open Quickly…", systemImage: "magnifyingglass")
                         }
                         Button {
-                            // The Library place is where search spans every
-                            // collection; iOS has no separate search field to
-                            // focus, so going there *is* the command.
-                            select(.library)
+                            // Focus the field, the way ⌥⌘F does on the Mac.
+                            // This used to `select(.library)` — which runs
+                            // `selectedNoteID = nil` — so "Search All
+                            // Collections" closed the note you were reading and
+                            // then offered no field to type into.
+                            revealSearch(focusField: true)
                         } label: {
                             Label("Search All Collections", systemImage: "text.magnifyingglass")
                         }
@@ -596,6 +1045,97 @@ struct iOSContentView: View {
         }
     }
 
+    /// What you can do to a folder in the sidebar tree.
+    ///
+    /// Folder rows carried no menu at all — note rows had one — so
+    /// `Collection.createFolder`, `deleteFolder` and `moveItem`, every one of
+    /// them cross-platform, had *zero* iOS callers: an iPad could not create a
+    /// folder, remove one, or aim a new note at one, and all four `createNote()`
+    /// calls used the no-argument overload, so every note landed in the
+    /// collection root. The same three commands the Mac's outline offers
+    /// (`NoteOutlineList`), with the same confirmation before a trash — which
+    /// takes everything inside the folder with it.
+    @ViewBuilder
+    private func folderActions(_ node: CollectionTreeNode, in collection: Collection) -> some View {
+        let folder = folderURL(node, in: collection)
+        Button {
+            // Opened, because a note selected inside a collapsed folder is a
+            // selection you cannot see.
+            expandFolder(node.id)
+            Task {
+                if let note = await collection.createNote(in: folder) { selectedNoteID = note.id }
+            }
+        } label: {
+            Label("New Note Here", systemImage: "square.and.pencil")
+        }
+        Button {
+            expandFolder(node.id)
+            beginNewFolder(in: collection, parent: folder)
+        } label: {
+            Label("New Folder Here", systemImage: "folder.badge.plus")
+        }
+        Divider()
+        Button(role: .destructive) {
+            pendingFolderDelete = folder
+        } label: {
+            Label("Move to Trash", systemImage: "trash")
+        }
+    }
+
+    /// The URL of a folder node inside `collection`.
+    ///
+    /// Folder node ids are paths *relative* to the collection root (note and
+    /// attachment ids are absolute file paths), so the root has to be put back
+    /// on — the same join the Mac's `outlineItems(from:prefix:)` performs with
+    /// its `prefix`. `collection.id` is the already-standardised root path and
+    /// the node id opens with a separator, so they concatenate directly.
+    private func folderURL(_ node: CollectionTreeNode, in collection: Collection) -> URL {
+        URL(fileURLWithPath: collection.id + node.id, isDirectory: true)
+    }
+
+    /// Move dropped notes and attachments into `folder`.
+    ///
+    /// Flushes every tab first — the files are about to change paths, and an
+    /// in-flight autosave would be writing to the old one — then reselects a
+    /// moved item at its new URL if it was the one open. The Mac's
+    /// `moveItem(at:into:)`, over the same `Collection.moveItem`, which had no
+    /// iOS caller at all.
+    ///
+    /// **Only items this collection already owns.** A drop carries a plain
+    /// `URL`, so anything can arrive — a link from Safari, a file from Files, a
+    /// note belonging to another open collection. The first two are not ours to
+    /// move and the third would be moved by the wrong index, so all three are
+    /// refused rather than guessed at.
+    private func moveItems(_ urls: [URL], into folder: URL, of collection: Collection) {
+        let sources = urls.filter { library.collection(containing: $0)?.id == collection.id }
+        guard !sources.isEmpty else { return }
+        Task {
+            await tabs.flushAll()
+            for source in sources {
+                let wasSelected = selectedNoteID == source
+                if let destination = await collection.moveItem(at: source, into: folder),
+                   wasSelected {
+                    selectedNoteID = destination
+                }
+            }
+        }
+    }
+
+    /// Open a folder in the sidebar tree.
+    private func expandFolder(_ id: String) {
+        var open = expandedFolders.wrappedValue
+        open.insert(id)
+        expandedFolders.wrappedValue = open
+    }
+
+    /// Raise the New Folder prompt for `collection`, inside `parent` (or at its
+    /// root when `parent` is nil).
+    private func beginNewFolder(in collection: Collection, parent: URL?) {
+        newFolderParent = parent
+        newFolderName = ""
+        newFolderCollection = collection
+    }
+
     /// What you can do to an open collection from the sidebar.
     ///
     /// Closing loses no data — the folder stays exactly where it is and only
@@ -603,6 +1143,24 @@ struct iOSContentView: View {
     /// compact list's deliberately grey (not red) swipe action.
     @ViewBuilder
     private func collectionMenuItems(_ collection: Collection) -> some View {
+        // At the collection's own root. The contract's one exception to "no
+        // command in the sidebar" is an action whose entire subject *is* the
+        // sidebar's content, and New Note / New Folder at a named root is
+        // exactly that — it is also the only way to aim either at a particular
+        // collection when several are open.
+        Button {
+            Task {
+                if let note = await collection.createNote() { selectedNoteID = note.id }
+            }
+        } label: {
+            Label("New Note", systemImage: "square.and.pencil")
+        }
+        Button {
+            beginNewFolder(in: collection, parent: nil)
+        } label: {
+            Label("New Folder…", systemImage: "folder.badge.plus")
+        }
+        Divider()
         Button {
             collection.showsNonNoteFiles.toggle()
         } label: {
@@ -623,10 +1181,27 @@ struct iOSContentView: View {
         }
         Divider()
         Button {
+            // The Mac offers this explicitly; on iPad focus was only ever a
+            // side effect of selecting a note, so a collection with nothing
+            // selected in it could not be made the scope for New Note, the
+            // graph, tags or Open Quickly.
+            library.focusedID = collection.id
+        } label: {
+            Label("Focus Collection", systemImage: "scope")
+        }
+        Button {
             library.close(collection)
         } label: {
             Label("Close Collection", systemImage: "xmark.circle")
         }
+    }
+
+    /// Whether this note lives in a File Provider (iCloud Drive, Dropbox…)
+    /// folder, and so has a download state worth offering control over.
+    private func isCloudBacked(_ note: Note) -> Bool {
+        if note.isOnlineOnly { return true }
+        return (try? note.fileURL.resourceValues(forKeys: [.isUbiquitousItemKey]))?
+            .isUbiquitousItem == true
     }
 
     /// Everything you can do to a note, in one place, used by both the sidebar
@@ -646,7 +1221,10 @@ struct iOSContentView: View {
         }
         Button {
             guard let c = library.collection(containing: note.fileURL) else { return }
-            Task { await c.duplicateNote(note) }
+            // Select the copy, as the Mac does. Discarding the returned `Note`
+            // left you looking at the original with a duplicate somewhere in
+            // the tree — which reads as "nothing happened".
+            Task { if let copy = await c.duplicateNote(note) { selectedNoteID = copy.id } }
         } label: {
             Label("Duplicate", systemImage: "plus.square.on.square")
         }
@@ -660,6 +1238,34 @@ struct iOSContentView: View {
             UIPasteboard.general.string = "[[\(note.title)]]"
         } label: {
             Label("Copy Wiki Link", systemImage: "link")
+        }
+        // The touch route to the second scene. ⌃⌘O reaches the same command
+        // from a hardware keyboard; a keyboard-less iPad had none.
+        Button {
+            openWindow(value: NoteRef(note.fileURL))
+        } label: {
+            Label("Open in New Window", systemImage: "macwindow")
+        }
+        // Cloud (File Provider) download controls, for notes that live in a
+        // cloud folder. `FileIO.download` / `.evict` were cross-platform all
+        // along and had no iOS caller — on the platform where a vault is *most*
+        // likely to be iCloud-backed, there was no way to pull a note down
+        // before going offline, or to reclaim its space after.
+        if isCloudBacked(note) {
+            Divider()
+            if note.isOnlineOnly {
+                Button {
+                    try? FileIO.download(at: note.fileURL)
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+            } else {
+                Button {
+                    try? FileIO.evict(at: note.fileURL)
+                } label: {
+                    Label("Remove Download", systemImage: "icloud.slash")
+                }
+            }
         }
         // Only for the note that is actually open: the existing review flow
         // reads the live editor buffer, and proposals are offsets into *that*
@@ -724,13 +1330,54 @@ struct iOSContentView: View {
     /// Whether a search or tag filter is narrowing the list.
     private var isFiltering: Bool { selectedTag != nil || !searchText.isEmpty }
 
+    /// A cheap fingerprint of everything the sidebar's trees are built from:
+    /// which collections are open, each one's structural `revision`, and whether
+    /// it is listing its non-note files. O(collections), not O(notes) — computed
+    /// every render, while the expensive rebuild runs only when it changes.
+    ///
+    /// The key names **every** open collection rather than the one being drawn.
+    /// A cache key must name everything the cached value depends on
+    /// (`CLAUDE.md`); keyed on one collection, opening or closing another left
+    /// the key unchanged and the tree never rebuilt — the exact defect the Mac's
+    /// `outlineInputsKey` carries a paragraph about.
+    private var treeInputsKey: String {
+        // The sort order is part of what the cached tree *is*, so it belongs in
+        // the key — the Mac's equivalent key has always named it, and a cache
+        // key that omits an input is how changing a setting looks like a
+        // setting that does nothing.
+        library.collections
+            .map { "\($0.id)#\($0.revision)#\($0.showsNonNoteFiles)" }
+            .joined(separator: "|")
+        + "|sort:\(appearance.noteSortOrder.rawValue)"
+    }
+
     /// The folder tree for `collection`, built by the same shared builder the
     /// Mac uses — so the two platforms cannot drift in what a folder contains
-    /// or how it is ordered.
+    /// or how it is ordered — and read from the cache rather than re-derived.
+    ///
+    /// It used to call `CollectionTree.build` inline, inside a `ForEach` over
+    /// every open collection. Because `expandedFolders` is one binding shared by
+    /// the whole tree, opening a *single* folder re-derived every collection's
+    /// entire tree: a `pathComponents` split per note and per attachment, plus a
+    /// recursive `localizedStandardCompare` sort, on the main actor.
     private func tree(for collection: Collection) -> [CollectionTreeNode] {
-        CollectionTree.build(from: collection.notes, attachments: collection.attachments,
-                             folders: collection.folders, rootURL: collection.rootURL,
-                             sort: .modified)
+        cachedTrees[collection.id] ?? []
+    }
+
+    /// Rebuild every open collection's tree. Called only when `treeInputsKey`
+    /// changes — one pass over the library, not one per collection per render.
+    private func rebuildTrees() {
+        var built: [Collection.ID: [CollectionTreeNode]] = [:]
+        for collection in library.collections {
+            built[collection.id] = CollectionTree.build(
+                from: collection.notes, attachments: collection.attachments,
+                folders: collection.folders, rootURL: collection.rootURL,
+                // Was hard-coded `.modified` here and an unwritten `@State` on
+                // the Mac — the same value by coincidence rather than by
+                // agreement. Both read the setting now.
+                sort: appearance.noteSortOrder)
+        }
+        cachedTrees = built
     }
 
     /// Re-check the selection after the note set changed underneath it.
@@ -754,8 +1401,82 @@ struct iOSContentView: View {
     /// shows the folder tree instead.
     private func notes(in collection: Collection) -> [Note] {
         if let selectedTag { return collection.search.notesTagged(selectedTag) }
-        guard !searchText.isEmpty else { return collection.notes }
-        return collection.notes.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return collection.notes }
+        // Titles **and aliases**, from the metadata index — instant, no file
+        // reads. This was a bare `title.contains`, which structurally cannot
+        // match an alias, so a note deliberately given a second name could not
+        // be found by that name on iPad while it could on the Mac.
+        var hits = collection.search.titleResults(query: query).map(\.note)
+        // Then the body matches from the debounced content pass, appended so
+        // the instant title hits stay at the top.
+        if !contentMatches.isEmpty {
+            let already = Set(hits.map(\.fileURL))
+            hits += collection.notes.filter {
+                contentMatches.contains($0.fileURL) && !already.contains($0.fileURL)
+            }
+        }
+        return hits
+    }
+
+    /// The search's second wave: notes whose *body* matches.
+    ///
+    /// Same two-stage shape as the Mac's `scheduleSearch`, and for the same
+    /// reason — Spotlight names the files whose content matches, and only those
+    /// few are then read, so a query costs a handful of reads rather than a pass
+    /// over the whole vault. On a volume with no Spotlight index it degrades to
+    /// the title/alias hits, which is how the Mac degrades. Snippets are the one
+    /// thing not carried across: the sidebar's rows are single-line titles, and
+    /// a snippet needs a row that can hold one.
+    private func scheduleContentSearch(_ raw: String) {
+        contentSearchTask?.cancel()
+        // Wave 1 has already been applied by the time this runs (it is a pure
+        // read of the index). Dropping the previous wave 2 here is what stops
+        // the last query's body matches lingering under the new one's.
+        contentMatches = []
+        contentSnippets = [:]
+        contentFileHits = [:]
+        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // One or two characters churn through an enormous result set for no
+        // discriminating value — the Mac skips them too.
+        guard query.count >= 3 else { return }
+        contentSearchTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            let hits = await searchSpotlight.search(query, in: library.collections.map(\.rootURL))
+            guard !Task.isCancelled, !hits.isEmpty else { return }
+            let hitPaths = Set(hits.map { $0.standardizedFileURL.path })
+            var found: Set<URL> = []
+            var snippets: [URL: String] = [:]
+            var files: [Collection.ID: [CollectionFile]] = [:]
+            for collection in library.collections {
+                // Attachments first: they need no read of ours at all, because
+                // Spotlight has already matched their contents. This is the
+                // half iPad had no equivalent of — the Mac collects exactly
+                // these into `SearchGroup.fileRows`.
+                let matchedFiles = collection.attachments.filter {
+                    hitPaths.contains($0.url.standardizedFileURL.path)
+                }
+                if !matchedFiles.isEmpty { files[collection.id] = matchedFiles }
+
+                let candidates = collection.notes.map(\.fileURL)
+                    .filter { hitPaths.contains($0.standardizedFileURL.path) }
+                guard !candidates.isEmpty else { continue }
+                let matches = await collection.search.contentResults(query: query, in: candidates)
+                guard !Task.isCancelled else { return }
+                for match in matches {
+                    found.insert(match.note.fileURL)
+                    // `contentResults` already extracted this; keeping it costs
+                    // a dictionary entry and is the whole difference between
+                    // "this note matched" and "this note matched *here*".
+                    snippets[match.note.fileURL] = match.snippet
+                }
+            }
+            guard !Task.isCancelled else { return }
+            contentMatches = found
+            contentSnippets = snippets
+            contentFileHits = files
+        }
     }
 
     /// Moving the rail is a navigation: it clears whatever was narrowing the
@@ -921,7 +1642,7 @@ struct iOSContentView: View {
                         searchText = ""
                         selectedNoteID = note.id
                     },
-                    onOpenLibrary: { showImporter = true },
+                    onOpenLibrary: { showLauncher = true },
                     isEmptyLibrary: library.isEmpty
                 )
             } else {
@@ -954,6 +1675,11 @@ struct iOSContentView: View {
                     }
                 }
                 .searchable(text: $searchText, prompt: "Search \(railCollection?.name ?? "notes")")
+                // The compact shell's own field. Only one of the two
+                // `.searchFocused` bindings is ever in the hierarchy —
+                // `AdaptiveShell` renders compact or the column/tall shell,
+                // never both — so ⌥⌘F reaches whichever field exists.
+                .searchFocused($searchFocused)
                 .overlay {
                     if displayedNotes.isEmpty {
                         ContentUnavailableView("No Notes", systemImage: "doc.text")
@@ -996,6 +1722,16 @@ struct iOSContentView: View {
             .init(title: "New Note from a Prompt…", symbol: "sparkles.square.filled.on.square",
                   isEnabled: scope != nil) { showCompose = true },
             .init(title: "Open Collection", symbol: "folder.badge.plus") { showImporter = true },
+            // The launcher, by touch. `openLauncher` reaches it from a hardware
+            // keyboard's ⇧⌘O, which is not a route a keyboard-less iPad has —
+            // and recents and saved libraries are the only way back to a vault
+            // without navigating the Files picker to it again.
+            .init(title: "Open Recent…", symbol: "clock.arrow.circlepath") { showLauncher = true },
+            // The Mac reaches this from the menu bar without switching apps.
+            // iOS has no such chrome, so the capture lives where the rest of
+            // the library-wide commands do.
+            .init(title: "Quick Capture…", symbol: "square.and.pencil.circle",
+                  isEnabled: !library.isEmpty) { showQuickCapture = true },
             // Reachable deliberately, not only by selecting a phrase — the
             // question you want to ask your notes usually isn't already in one.
             .init(title: "Ask Your Library", symbol: "sparkles.rectangle.stack",
@@ -1018,7 +1754,16 @@ struct iOSContentView: View {
         Task {
             // Renaming moves the file; an in-flight autosave would be writing
             // to the old path.
-            await editor.flush()
+            //
+            // **Every** tab, not just the front one. This flushed `editor` —
+            // the *selected* note's — while a rename raised from the sidebar's
+            // context menu is usually aimed at a different note entirely.
+            // `EditorTabs.prune` deliberately keeps a dirty editor, and that
+            // editor holds the pre-rename URL, so its next save resurrected a
+            // ghost file at the old name while the renamed file never received
+            // the edits. The Mac awaits `flushAll()` in both of its rename
+            // paths for exactly this reason.
+            await tabs.flushAll()
             if let renamed = await collection.renameNote(note, to: title) {
                 selectedNoteID = renamed.id
             }
@@ -1063,7 +1808,12 @@ struct iOSContentView: View {
     /// and the text, which is exactly where they are tightest.
     @ViewBuilder
     private var inspector: some View {
-        if let collection = focused {
+        // The *selection's* collection, not the focused one. Every panel here
+        // answers a question about the open note — its tags, its link
+        // candidates, its git history, the corpus its backlinks are searched in
+        // — and asking a different collection returns confidently wrong answers
+        // (and, for backlinks, an empty list).
+        if let collection = editorCollection {
             NoteInspector(
                 noteText: editor.text,
                 onSelectHeading: { scrollToHeading($0.title) },
@@ -1090,7 +1840,11 @@ struct iOSContentView: View {
                 } ?? [],
                 unlinkedMentions: unlinkedMentions,
                 onOpenNote: { selectedNoteID = $0.id },
-                onLinkMention: { _ in },
+                // `NoteInspector` draws an enabled "Link" button per unlinked
+                // mention, promising to "turn this mention into a [[link]] in
+                // that note" — and this was `{ _ in }`, so on iPad it promised
+                // and did nothing.
+                onLinkMention: linkMention,
                 linkCandidates: collection.search.linkTargets(),
                 suggestLinks: { text, _ in
                     // Retrieval first, model second — see the Mac's
@@ -1103,10 +1857,10 @@ struct iOSContentView: View {
                         .suggestLinks(for: text, candidates: neighbours.map(\.title))
                 },
                 onInsertLink: { editor.text = NoteEdits.addingRelatedLink($0, to: editor.text) },
-                properties: $properties,
-                onPropertiesChanged: {
-                    editor.text = FrontMatter.applying(properties, to: editor.text)
-                },
+                properties: propertiesBinding,
+                // Writing goes through the binding's setter, which is also the
+                // path the note buffer autosaves by.
+                onPropertiesChanged: {},
                 fileURL: editor.note?.fileURL,
                 git: collection.git,
                 onRestoreRevision: { editor.text = $0 },
@@ -1129,10 +1883,137 @@ struct iOSContentView: View {
                                         userInfo: ["query": title])
     }
 
+    /// Front matter, read from and written straight through the note buffer.
+    ///
+    /// Derived rather than copied into `@State`, for the reason the Mac's
+    /// `propertiesBinding` records: a copy is seeded when the selection changes,
+    /// which happens before the editor has loaded that note's text, so the
+    /// inspector shows the properties of nothing at all. **A binding over the
+    /// buffer cannot be stale**, and writing through it autosaves by the same
+    /// path typing does.
+    ///
+    /// Here the `@State` copy was never seeded by anything — no `onAppear`, no
+    /// `task`, no selection handler — so the tab always showed zero rows and
+    /// adding a single property called `FrontMatter.applying([thatOneKey], …)`,
+    /// which replaces the block wholesale: title, tags and aliases destroyed,
+    /// and then autosaved. Removing the last row rendered `""` and stripped the
+    /// front matter entirely.
+    private var propertiesBinding: Binding<[Property]> {
+        Binding(
+            get: { FrontMatter.properties(in: editor.text) },
+            set: { updated in editor.text = FrontMatter.applying(updated, to: editor.text) }
+        )
+    }
+
+    /// Turn the first plain-text mention of the open note (by title) in `note`
+    /// into a `[[link]]`, writing the change to disk and re-indexing.
+    ///
+    /// The read *and* the write go off the main actor: both are coordinated, and
+    /// a coordinated call against a File Provider blocks for as long as the
+    /// provider takes. This runs from a button in the inspector, so the shell
+    /// would freeze with it.
+    private func linkMention(_ note: Note) {
+        guard let target = editor.note, let c = editorCollection else { return }
+        let title = target.title
+        Task {
+            let updated = await offMain { () -> String? in
+                guard let text = try? FileIO.readString(at: note.fileURL),
+                      let updated = MentionScanner.linkingFirstMention(of: title, in: text)
+                else { return nil }
+                try? FileIO.write(Data(updated.utf8), to: note.fileURL)
+                return updated
+            }
+            guard let updated else { return }
+            // The note *set* is unchanged (one note's content), so no re-scan:
+            // patch the index incrementally and suppress the watcher for our
+            // own write.
+            c.noteDidSave(note.fileURL, text: updated)
+        }
+    }
+
     // MARK: - Compact: the editor is the screen
 
     /// Phone-sized: places in a bottom tab bar, the open note above it as a
     /// mini strip, one tap from full screen (decisions 6 and 11).
+    /// The AI place: Ask Your Library up front, because a question about the
+    /// vault is the commonest thing to want from a phone, with the note-scoped
+    /// actions below it and the Assistant last.
+    ///
+    /// Everything here already existed as a sheet reachable from the Library
+    /// actions. What was missing was a *place* — decision 7's fourth tab, left
+    /// unbuilt on the (by then stale) grounds that the views were macOS-only.
+    @ViewBuilder
+    private var aiPlace: some View {
+        let scope = railCollection ?? focused
+        List {
+            Section {
+                Button {
+                    chatSeed = nil
+                    showLibraryChat = true
+                } label: {
+                    Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
+                }
+                .disabled(library.allNotes.isEmpty)
+                Button {
+                    showCompose = true
+                } label: {
+                    Label("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square")
+                }
+                .disabled(scope == nil)
+            } footer: {
+                Text("Answers are drawn from the notes you have open, with links back to them.")
+            }
+
+            // The same actions the iPad's toolbar offers, landing in the same
+            // inspector tabs. `aiActions` is nil without an open note *or*
+            // without an available provider, and the whole section disables
+            // together — every one of them reads the open buffer through a
+            // model, so there is no useful half.
+            let ai = aiActions
+            Section {
+                Button { ai?.summarize() } label: {
+                    Label("Summarize", systemImage: "text.append")
+                }
+                Button { ai?.suggestTags() } label: {
+                    Label("Suggest Tags", systemImage: "number")
+                }
+                Button { ai?.suggestLinks() } label: {
+                    Label("Suggest Links", systemImage: "link.badge.plus")
+                }
+                Button { ai?.rewriteNote() } label: {
+                    Label("Rewrite Note…", systemImage: "wand.and.stars")
+                }
+                Button { beginLinkReview() } label: {
+                    Label("Review Links…", systemImage: "checklist")
+                }
+            } header: {
+                Text("This note")
+            } footer: {
+                if editor.note == nil {
+                    Text("Open a note to use these.")
+                } else if ai == nil {
+                    Text("No AI provider is configured. Set one up in AI Settings.")
+                }
+            }
+            .disabled(ai == nil)
+
+            Section {
+                Button {
+                    showAssistant = true
+                } label: {
+                    Label("Assistant", systemImage: "sparkles")
+                }
+                .disabled(scope == nil)
+                Button {
+                    showLLMSettings = true
+                } label: {
+                    Label("AI Settings…", systemImage: "brain")
+                }
+            }
+        }
+        .navigationTitle("AI")
+    }
+
     private var compactShell: some View {
         CompactShell(
             place: $place,
@@ -1146,17 +2027,39 @@ struct iOSContentView: View {
                     // tab means "start typing", not a different set of notes.
                     case .search: noteList
                     case .tags:   tagList
+                    // Decision 7's AI place. A destination rather than a sheet,
+                    // because on a phone the sheets are reached from the
+                    // Library actions inside the Notes tab — two taps deep in
+                    // the one place a phone user is least likely to look.
+                    case .ai:     aiPlace
                     }
                 }
             },
-            editor: { detail }
+            editor: { detail(showsShellCommands: false) }
         )
     }
 
     // MARK: - Column 3: Editor
 
+    /// The pane, with one toolbar over all three of its states — a non-note
+    /// file, the open note, or nothing selected.
+    ///
+    /// The toolbar used to hang off the note branch alone, so every command in
+    /// it disappeared at the one moment there was no note: the state in which
+    /// "New Note" is most wanted.
+    ///
+    /// `showsShellCommands` is off on the phone. There the note is presented
+    /// full screen by `CompactShell`, whose band already carries a collapse
+    /// button and has 375pt to spend — and the same commands are a tab away in
+    /// the Library place, which is the compact shell's whole point. The iPad has
+    /// neither, which is why the leading item exists at all.
+    private func detail(showsShellCommands: Bool) -> some View {
+        detailBody
+            .toolbar { detailToolbar(showsShellCommands: showsShellCommands) }
+    }
+
     @ViewBuilder
-    private var detail: some View {
+    private var detailBody: some View {
         if let file = selectedFile {
             iOSFileViewer(url: file.url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1165,23 +2068,25 @@ struct iOSContentView: View {
                 .ignoresSafeArea(.container, edges: .bottom)
         } else if let note = editor.note {
             VStack(spacing: 0) {
-                if appearance.showInlineTitle {
-                    InlineNoteTitle(
-                        title: note.title,
-                        theme: EditorTheme(fontSize: appearance.editorFontSize),
-                        onRename: { renameNote(note, to: $0) }
-                    )
-                }
-                switch mode {
-                case .edit:
-                    liveEditor(note)
-                case .markdown:
-                    sourceEditor
-                case .split:
-                    splitEditor(note)
-                default:
-                    preview(note)
-                }
+                // Both of these are raised by the shared `EditorModel` on either
+                // platform and were presented only by `NoteEditorView`, which is
+                // `#if os(macOS)` end to end.
+                // The pane, the banners and the four modes are shared with the
+                // standalone note window — see `iOSNoteEditorPane`.
+                iOSNoteEditorPane(
+                    editor: editor,
+                    note: note,
+                    // The note's own collection, never the focused one: an iPad
+                    // with two collections open completed `[[links]]` against
+                    // the wrong vocabulary and wrote links resolving to nothing.
+                    collection: editorCollection,
+                    appearance: appearance,
+                    llmSettings: llmSettings,
+                    mode: mode,
+                    onOpenWikiLink: { openWikiLink($0) },
+                    selectionActions: editorCollection.map(selectionActions(in:)),
+                    onRename: { renameNote(note, to: $0) }
+                )
             }
             // S3: the detail column is a viewport, whatever mode it is in.
             // Without the clamp the editor's or preview's ideal height sizes
@@ -1189,32 +2094,14 @@ struct iOSContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .trailing) { inspectorOverlay }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // The top line is tabs; one caret holds everything else.
-                ToolbarItem(placement: .principal) {
-                    tabStrip
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    noteMenu
-                }
-                // Trailing — the inspector's five tabs, over the inspector,
-                // exactly as on the Mac. These *are* the tab strip: the panel
-                // carries none. iPad had no route to the inspector at all —
-                // `inspectorPresented` was set only by the AI commands, so
-                // Outline, Tags, References, Properties and History existed and
-                // could not be opened by hand.
-                ToolbarItem(placement: .topBarTrailing) {
-                    inspectorToggle
-                }
-            }
             .sheet(item: $linkReview) { review in
                 NavigationStack {
                     ReviewLinksView(
                         proposals: review.proposals,
                         noteText: review.noteText,
-                        preview: { await focused?.openingLines(of: $0) ?? "" },
+                        preview: { await editorCollection?.openingLines(of: $0) ?? "" },
                         onFinish: { applyAcceptedLinks($0, reviewedText: review.noteText) },
-                        onDecline: { focused?.declineLink($0) }
+                        onDecline: { editorCollection?.declineLink($0) }
                     )
                 }
             }
@@ -1236,6 +2123,110 @@ struct iOSContentView: View {
                 description: Text("Choose a note from the list, or create a new one.")
             )
         }
+    }
+
+    @ToolbarContentBuilder
+    private func detailToolbar(showsShellCommands: Bool) -> some ToolbarContent {
+        // Leading — the commands that have to survive a collapsed sidebar.
+        if showsShellCommands {
+            ToolbarItem(placement: .topBarLeading) { shellCommandMenu }
+        }
+        if editor.note != nil {
+            // The top line is tabs; one caret holds everything else.
+            ToolbarItem(placement: .principal) { tabStrip }
+            ToolbarItem(placement: .topBarTrailing) { noteMenu }
+            // Trailing — the inspector, over the inspector, exactly as on the
+            // Mac. iPad had no route to it at all: `inspectorPresented` was set
+            // only by the AI commands, so Outline, Tags, References, Properties
+            // and History existed and could not be opened by hand.
+            ToolbarItem(placement: .topBarTrailing) { inspectorToggle }
+        }
+    }
+
+    /// The library-wide commands, in the band over the *editor*.
+    ///
+    /// `shell-chrome.md` D8 and the P2 corollary: no command may live inside the
+    /// collapsible panel, because collapsing it removes the command at the exact
+    /// moment it is wanted. Every one of these previously lived only in
+    /// `libraryActions` or `collectionsList` — both reachable solely from
+    /// `compactShell`, and `AdaptiveShell` picks compact only below 600pt, so no
+    /// iPad has ever shown either. **Settings in particular was unreachable at
+    /// any iPad size**: the `Settings {}` scene is `#if os(macOS)` and
+    /// `AppCommands` declares no `.appSettings` group, so ⌘, does nothing
+    /// either — appearance, text size and the Git accounts had no route at all.
+    ///
+    /// One toolbar item rather than five, because at 744pt this band is also
+    /// carrying the tab strip and two trailing controls. Tapping it is New Note
+    /// — much the commonest of the set — and holding it is the rest, which is
+    /// how iOS spells "a button that is also a menu".
+    private var shellCommandMenu: some View {
+        let scope = railCollection ?? focused
+        return Menu {
+            Button {
+                newNoteInScope()
+            } label: {
+                Label("New Note", systemImage: "square.and.pencil")
+            }
+            .disabled(scope == nil)
+            Button {
+                if let scope { beginNewFolder(in: scope, parent: nil) }
+            } label: {
+                Label("New Folder…", systemImage: "folder.badge.plus")
+            }
+            .disabled(scope == nil)
+            Divider()
+            Button {
+                openTodaysNote()
+            } label: {
+                Label("Today's Note", systemImage: "calendar")
+            }
+            .disabled(scope == nil)
+            Button {
+                showQuickCapture = true
+            } label: {
+                Label("Quick Capture…", systemImage: "square.and.pencil.circle")
+            }
+            .disabled(library.isEmpty)
+            Button {
+                showOpenQuickly = true
+            } label: {
+                Label("Open Quickly…", systemImage: "arrow.forward.square")
+            }
+            .disabled(scope?.notes.isEmpty ?? true)
+            Divider()
+            Button {
+                showImporter = true
+            } label: {
+                Label("Open Collection…", systemImage: "folder.badge.plus")
+            }
+            Button {
+                showLauncher = true
+            } label: {
+                Label("Open Recent…", systemImage: "clock.arrow.circlepath")
+            }
+            Divider()
+            Button {
+                showLLMSettings = true
+            } label: {
+                Label("AI Settings…", systemImage: "brain")
+            }
+            Button {
+                showSettings = true
+            } label: {
+                Label("Settings…", systemImage: "gearshape")
+            }
+        } label: {
+            Label("New Note", systemImage: "square.and.pencil")
+        } primaryAction: {
+            newNoteInScope()
+        }
+        .accessibilityLabel("New Note, and app commands")
+    }
+
+    /// New Note in the collection the shell is scoped to.
+    private func newNoteInScope() {
+        guard let scope = railCollection ?? focused else { return }
+        Task { if let note = await scope.createNote() { selectedNoteID = note.id } }
     }
 
     // MARK: - AI on the open note
@@ -1269,7 +2260,7 @@ struct iOSContentView: View {
     /// setting it does not need.
     @ViewBuilder
     private var reviewLinksButton: some View {
-        if editor.note != nil, focused != nil {
+        if editor.note != nil, editorCollection != nil {
             Button { beginLinkReview() } label: {
                 Image(systemName: "link.badge.plus")
             }
@@ -1295,7 +2286,9 @@ struct iOSContentView: View {
     /// See the Mac's `beginLinkReview()` — proposals are generated once, up
     /// front, because every range is an offset into the text as it is now.
     private func beginLinkReview() {
-        guard let collection = focused else { return }
+        // The open note's own collection: the proposals are offsets into *its*
+        // text and are looked up in *its* index.
+        guard let collection = editorCollection else { return }
         let text = editor.text
         Task {
             let found = await collection.linkProposals(in: text, for: editor.note?.fileURL)
@@ -1306,7 +2299,7 @@ struct iOSContentView: View {
     private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
         guard !accepted.isEmpty else { return }
         guard editor.text == reviewedText else {
-            focused?.lastError = "The note changed while you were reviewing, so no links were added. Run Review Links again."
+            editorCollection?.lastError = "The note changed while you were reviewing, so no links were added. Run Review Links again."
             return
         }
         editor.text = LinkProposals.apply(accepted, to: editor.text)
@@ -1462,7 +2455,10 @@ struct iOSContentView: View {
                         }
                         .buttonStyle(.plain)
                         Button {
-                            Task { selectedNoteID = await tabs.close(note.id) }
+                            // Through the same path as File ▸ Close Tab and
+                            // ⌘W, so closing a *background* tab doesn't move
+                            // the selection off the note you are reading.
+                            closeTab(note.id)
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.caption2)
@@ -1491,7 +2487,7 @@ struct iOSContentView: View {
     private var noteMenu: some View {
         Menu {
             Picker("View", selection: modeBinding) {
-                ForEach(EditorMode.iOSCases) { m in
+                ForEach(EditorMode.platformCases) { m in
                     Label(m.label, systemImage: m.symbol).tag(m)
                 }
             }
@@ -1508,7 +2504,20 @@ struct iOSContentView: View {
                 Button { beginLinkReview() } label: {
                     Label("Review Links…", systemImage: "link.badge.plus")
                 }
-                if MarpSlides.isMarp(editor.text) {
+                // **The way in to the mind map.** `showMindMap` was bound into
+                // `ParitySheets` with a full sheet behind it and was never once
+                // set to `true` anywhere in the codebase — every write was a
+                // dismissal — so the whole surface was dead code on iOS. The Mac
+                // reaches it from the editor's bottom bar; the bar's iPad
+                // equivalent is this menu.
+                Button { showMindMap = true } label: {
+                    Label("Mind Map", systemImage: "brain")
+                }
+                // Read from the memoized, off-main scan rather than computed
+                // here: `Menu(content:label:)` takes a *non-escaping*
+                // ViewBuilder, so anything in this closure runs at construction
+                // time on the main actor whether or not the menu is ever opened.
+                if docFeatures.isMarp {
                     Button { showSlides = true } label: {
                         Label("Present as Slides", systemImage: "rectangle.on.rectangle")
                     }
@@ -1516,7 +2525,7 @@ struct iOSContentView: View {
                 // Only when there is one to preview — the Mac's bar button is
                 // always there, but a menu row that opens an empty sheet reads
                 // as a broken command rather than an empty note.
-                if !MarkdownParsing.mermaidBlocks(in: editor.text).isEmpty {
+                if docFeatures.hasMermaid {
                     Button { showMermaid = true } label: {
                         Label("Mermaid Diagrams", systemImage: "chart.xyaxis.line")
                     }
@@ -1575,7 +2584,7 @@ struct iOSContentView: View {
     /// The open note as a mind map, from its own headings and links.
     @ViewBuilder
     private var mindMapSheet: some View {
-        if let note = editor.note, let c = focused {
+        if let note = editor.note, let c = editorCollection {
             MindMapView(
                 rootTitle: note.title,
                 rootURL: note.fileURL,
@@ -1604,7 +2613,9 @@ struct iOSContentView: View {
     /// main actor. Degrades to nothing on a volume with no Spotlight index,
     /// which is the same way the Mac degrades.
     private func computeUnlinkedMentions() async {
-        guard let note = editor.note, let c = focused else { unlinkedMentions = []; return }
+        // The open note's own collection — a mention is a fact about the corpus
+        // the note lives in, and searching a different one comes back empty.
+        guard let note = editor.note, let c = editorCollection else { unlinkedMentions = []; return }
         let names = [note.title] + c.search.aliases(of: note.fileURL)
         let excluded = Set(c.linkGraph.backlinks(for: note, in: c.notes).map(\.fileURL))
             .union([note.fileURL])
@@ -1656,21 +2667,24 @@ struct iOSContentView: View {
         let scope = railCollection ?? focused
         return AppActions(
             canNewNote: scope != nil,
-            newNote: {
-                guard let scope else { return }
-                Task { if let note = await scope.createNote() { selectedNoteID = note.id } }
-            },
+            newNote: { newNoteInScope() },
             todaysNote: { openTodaysNote() },
-            openLauncher: { showImporter = true },
+            openLauncher: { showLauncher = true },
             canOpenQuickly: !(scope?.notes.isEmpty ?? true),
             openQuickly: { showOpenQuickly = true },
             canGraph: !(scope?.notes.isEmpty ?? true),
             graphView: { showGraph = true },
-            canAsk: scope != nil,
+            // Asking the library needs notes to ask *about*, not a collection to
+            // stand in — the Mac's rule, and iOS's own `libraryActions` row used
+            // it while this one used a third, looser one.
+            canAsk: !library.allNotes.isEmpty,
             askLibrary: { showLibraryChat = true },
             assistant: { showAssistant = true },
-            canCloseTab: false,
-            closeTab: {},
+            // File ▸ Close Tab exists on iPad now that the `#if os(macOS)` gate
+            // around it is gone, and this hard-coded `false` would have left it
+            // permanently greyed over a `tabStrip` full of real, closable tabs.
+            canCloseTab: tabs.openNotes.count > 1 && selectedNoteID != nil,
+            closeTab: { if let id = selectedNoteID { closeTab(id) } },
             format: editor.note.map { note in
                 { (action: FormatAction) in
                     NotificationCenter.default.post(
@@ -1684,12 +2698,16 @@ struct iOSContentView: View {
                     rename: { renameText = note.title; renameTarget = note },
                     duplicate: {
                         guard let c = library.collection(containing: note.fileURL) else { return }
-                        Task { await c.duplicateNote(note) }
+                        // Select the copy — see `noteActions`.
+                        Task { if let copy = await c.duplicateNote(note) { selectedNoteID = copy.id } }
                     },
                     toggleBookmark: {
                         library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
                     },
                     copyWikiLink: { UIPasteboard.general.string = "[[\(note.title)]]" },
+                    // Was nil, so File ▸ Open in New Window and the palette's
+                    // "Open in New Window" both drew, enabled, and did nothing.
+                    openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
                     exportHTML: { iOSEditorExport.exportHTML(markdown: textFor(note), title: note.title) },
                     exportPDF: { iOSEditorExport.exportPDF(markdown: textFor(note), title: note.title) },
                     printNote: { iOSEditorExport.printNote(markdown: textFor(note), title: note.title) },
@@ -1708,34 +2726,33 @@ struct iOSContentView: View {
             commandPalette: { showPalette = true },
             ai: aiActions,
             reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
-            composeNote: { showCompose = true },
+            // Needs a collection to put the note in. Unconditional, ⌃⌘N opened
+            // a composer on iPad that then died on `guard let scope` in both
+            // `runCompose` and the sheet's `onCreate` — a live command that
+            // cannot complete, where the Mac greys the item out and says so.
+            composeNote: (railCollection ?? focused) == nil ? nil : { showCompose = true },
             find: editor.note.map { note in
                 { NotificationCenter.default.post(name: .hnFind(documentId: note.fileURL.path), object: nil) }
             },
-            searchAllCollections: { select(.library) },
+            // ⌥⌘F focuses the search field. It used to `select(.library)`,
+            // which clears `selectedNoteID` — so the shortcut closed the note
+            // you were reading and offered nothing to type into.
+            searchAllCollections: {
+                NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
+            },
             editorMode: mode,
             setEditorMode: { storedMode = $0.rawValue }
         )
     }
 
-    /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,
-    /// list bullets, callouts, heading rules, checkboxes).
-    private func liveEditor(_ note: Note) -> some View {
-        iOSLiveEditor(
-            editor: editor,
-            note: note,
-            collection: focused,
-            fontSize: appearance.editorFontSize,
-            onOpenWikiLink: { openWikiLink($0) },
-            selectionActions: focused.map(selectionActions(in:)),
-            completionSource: WikiCompletionSource(
-                titles: focused?.search.linkTargets() ?? [],
-                tags: focused?.search.allTags() ?? [],
-                headings: { name in focused?.search.headings(forName: name) ?? [] },
-                currentText: { editor.text }
-            ),
-            intelligence: IntelligenceService(settings: llmSettings)
-        )
+    /// Close a tab and move to its neighbour, dropping the parsed document with
+    /// it — closing is the user saying they are done with the note.
+    private func closeTab(_ id: Note.ID) {
+        Task {
+            let next = await tabs.close(id)
+            documents.forget(path: id.path)
+            if selectedNoteID == id { selectedNoteID = next }
+        }
     }
 
     /// What the collection can do with a selected phrase — the same three the
@@ -1755,10 +2772,12 @@ struct iOSContentView: View {
             findRelated: { phrase in
                 selectedTag = nil
                 searchText = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
-                // The phone hides the list behind the editor, so a search whose
-                // results are on another screen has to bring you to that screen.
-                place = .search
-                noteIsExpanded = false
+                // Show the field and the results. This used to set `searchText`
+                // and stop, which at iPad width flipped the tree into a filtered
+                // state with no field on screen to edit or clear — and on the
+                // phone the list is behind the editor, so a search whose results
+                // are on another screen has to bring you to that screen.
+                revealSearch(focusField: false)
             },
             explain: { phrase in
                 chatSeed = "Explain this, using my notes: \(phrase)"
@@ -1767,65 +2786,135 @@ struct iOSContentView: View {
         )
     }
 
-    /// Resolve a `[[wiki-link]]` tap to a note in the focused collection and
-    /// select it (create-on-miss is a macOS-only nicety for now).
+    /// Handle a tapped link within the selection's collection — the Mac's
+    /// `openWikiLink`, which this was a fifth of.
+    ///
+    /// It split on `#`, threw the anchor away, matched titles alone, scoped to
+    /// the focused collection rather than the note's own, and returned in
+    /// silence on a miss. So an external URL did nothing, a link written against
+    /// an alias or a path did nothing, `[[Note#Heading]]` landed at the top of
+    /// the note, a link to a note that does not exist yet did nothing at all
+    /// (the Mac creates it — that is how you write forward in a vault), and with
+    /// two collections open every one of those was answered by the wrong index.
     private func openWikiLink(_ target: String) {
-        let base = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
-        guard let c = focused,
-              let match = c.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame })
-        else { return }
-        selectedNoteID = match.id
-    }
+        // External URLs go to the system, as they do on the Mac — the same four
+        // schemes, through iOS's opener rather than NSWorkspace.
+        let webSchemes: Set<String> = ["http", "https", "mailto", "file"]
+        if let url = URL(string: target),
+           let scheme = url.scheme?.lowercased(),
+           webSchemes.contains(scheme) {
+            UIApplication.shared.open(url)
+            return
+        }
 
-    /// Raw Markdown source editor, bound straight to the note buffer.
-    private var sourceEditor: some View {
-        // Not `TextEditor`: SwiftUI cannot turn typographic substitution off,
-        // and this view shows the note's literal Markdown source. See
-        // `iOSSourceEditor` — typing `---` under a table header was producing
-        // an em dash and quietly breaking the table.
-        iOSSourceEditor(
-            text: Binding(get: { editor.text }, set: { editor.text = $0 }),
-            fontSize: appearance.editorFontSize
-        )
-    }
+        guard let c = editorCollection else { return }
 
-    /// Read-only rendered preview (WKWebView over the shared HTML export).
-    private func preview(_ note: Note) -> some View {
-        MarkdownWebView(
-            markdown: editor.text,
-            title: note.title,
-            baseURL: note.fileURL.deletingLastPathComponent(),
-            fontScale: appearance.textScale
-        )
-    }
+        let base: String
+        let heading: String?
+        if let hash = target.firstIndex(of: "#") {
+            base = String(target[..<hash])
+            let after = String(target[target.index(after: hash)...])
+            heading = after.isEmpty ? nil : after
+        } else {
+            base = target
+            heading = nil
+        }
 
-    /// Source + preview together — side by side on a wide (landscape) screen,
-    /// stacked on a tall (portrait) one.
-    private func splitEditor(_ note: Note) -> some View {
-        GeometryReader { geo in
-            let sideBySide = geo.size.width >= geo.size.height
-            let layout = sideBySide
-                ? AnyLayout(HStackLayout(spacing: 0))
-                : AnyLayout(VStackLayout(spacing: 0))
-            layout {
-                sourceEditor
-                Divider()
-                preview(note)
+        Task {
+            let destination: Note?
+            if base.isEmpty {
+                // `[[#Heading]]` — an anchor within this note.
+                destination = editor.note
+            } else if let url = c.linkGraph.resolve(base),
+                      let note = c.notes.first(where: { $0.fileURL == url }) {
+                // The link graph resolves aliases and paths, which a title
+                // comparison cannot.
+                destination = note
+            } else if let match = c.notes.first(where: {
+                $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame
+            }) {
+                destination = match
+            } else {
+                destination = await c.createNote(title: base)   // create-on-miss
+            }
+
+            guard let destination else { return }
+            let switching = selectedNoteID != destination.id
+            selectedNoteID = destination.id
+
+            if let heading {
+                // The tab has to exist before anything can scroll inside it,
+                // and a fresh one needs a beat to lay out.
+                await tabs.editor(for: destination)
+                if switching { try? await Task.sleep(for: .milliseconds(350)) }
+                scrollToHeading(heading)
             }
         }
     }
 
-    /// Preview / Markdown / Split switcher.
-    private var modePicker: some View {
-        Picker("View mode", selection: modeBinding) {
-            ForEach(EditorMode.iOSCases) { m in
-                Image(systemName: m.symbol)
-                    .accessibilityLabel(m.label)
-                    .tag(m)
-            }
+}
+
+/// What the open note *is*, as far as the note menu needs to know.
+///
+/// The Mac's `DocStats`, minus the word count that nothing on iOS shows. It
+/// exists as its own type because both scans are whole-document passes and the
+/// menu that reads them is built on every body evaluation: computing them there
+/// put a regex over the entire note on the main actor, run or not.
+/// `nonisolated` so it can cross `offMain`, which requires `Sendable`.
+private nonisolated struct NoteDocFeatures: Equatable, Sendable {
+    var isMarp = false
+    var hasMermaid = false
+
+    init() {}
+
+    init(text: String) {
+        isMarp = MarpSlides.isMarp(text)
+        hasMermaid = !MarkdownParsing.mermaidBlocks(in: text).isEmpty
+    }
+}
+
+/// Presents `Collection.lastError` (a failed file operation) as an alert and
+/// clears it on dismiss.
+///
+/// A twin of the Mac's, which is `private` inside `MacContentView` — so on iOS
+/// the nineteen `report(…)` sites in `Collection` (create, rename, duplicate,
+/// delete, move, folder operations, append, cloud upload and download) plus
+/// `NoteComposer` all wrote somewhere nothing read. Renaming a note onto a name
+/// that already existed simply did nothing, with no message.
+private struct FileOperationErrorAlert: ViewModifier {
+    var collection: Collection?
+    func body(content: Content) -> some View {
+        content.alert(
+            "Couldn't complete that",
+            isPresented: Binding(
+                get: { collection?.lastError != nil },
+                set: { if !$0 { collection?.lastError = nil } }
+            ),
+            presenting: collection?.lastError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { Text($0) }
+    }
+}
+
+/// Confirms a folder "Move to Trash", which trashes everything inside it. The
+/// Mac's twin, for the same reason: a tap that can take a hundred notes with it
+/// asks first.
+private struct FolderDeleteConfirmation: ViewModifier {
+    @Binding var folder: URL?
+    var onConfirm: (URL) -> Void
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            folder.map { "Move “\($0.lastPathComponent)” and its contents to the Trash?" } ?? "",
+            isPresented: Binding(get: { folder != nil }, set: { if !$0 { folder = nil } }),
+            titleVisibility: .visible,
+            presenting: folder
+        ) { f in
+            Button("Move to Trash", role: .destructive) { onConfirm(f) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Everything inside the folder will be moved to the Trash. You can recover it from there.")
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
     }
 }
 
@@ -1849,21 +2938,69 @@ private struct CollectionTreeRow: View {
     /// and the row recurses; the alternative is a generic parameter that has to
     /// be threaded through every level of the tree for no benefit.
     let actions: (Note) -> AnyView
+    /// The actions menu for a folder row. Folder rows had none at all while note
+    /// rows did, which is how `createFolder`, `deleteFolder` and `moveItem`
+    /// ended up cross-platform with no iOS caller. Supplied by the sidebar,
+    /// which is the level that still knows which collection this tree belongs
+    /// to — the node itself does not.
+    let folderActions: (CollectionTreeNode) -> AnyView
+    /// Items dropped onto a folder row. Given the folder node and the dragged
+    /// URLs; the sidebar decides which of them it is entitled to move.
+    let onDrop: (CollectionTreeNode, [URL]) -> Void
 
     var body: some View {
         if let note = node.note {
-            Text(note.title).tag(note.id)
-                .contextMenu { actions(note) }
+            // Same three fields as every other note row, via `NoteRowContent` —
+            // this was a bare `Text(note.title)`, which is how the iPad's tree
+            // ended up showing neither the modification date nor the
+            // online-only badge the Mac's rows have always carried.
+            let content = NoteRowContent.make(note)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(content.title).font(.subheadline.weight(.semibold))
+                    if content.isOnlineOnly {
+                        Image(systemName: "icloud.and.arrow.down")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .accessibilityLabel(NoteRowContent.onlineOnlyLabel)
+                    }
+                }
+                Text(content.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .tag(note.id)
+            .contextMenu { actions(note) }
+                // The tree is the only place a note has a *location*, so it is
+                // the only place a move makes sense — the same rows the Mac
+                // makes draggable in `NoteOutlineList`. A `URL` payload, because
+                // that is what `Collection.moveItem` takes and what the drop
+                // side can validate.
+                .draggable(note.fileURL)
         } else if node.isFolder {
             DisclosureGroup(isExpanded: Binding(
                 get: { expanded.contains(node.id) },
                 set: { if $0 { expanded.insert(node.id) } else { expanded.remove(node.id) } }
             )) {
                 ForEach(node.children ?? []) { child in
-                    CollectionTreeRow(node: child, expanded: $expanded, actions: actions)
+                    CollectionTreeRow(node: child, expanded: $expanded,
+                                      actions: actions, folderActions: folderActions,
+                                      onDrop: onDrop)
                 }
             } label: {
+                // On the label, not the group: a menu on the group would claim
+                // the long-press of every row nested inside it too, and a drop
+                // on the group would swallow drops meant for its children.
                 Label(node.name, systemImage: "folder")
+                    .contextMenu { folderActions(node) }
+                    // The `DropSession` form, not the `(items, location) -> Bool`
+                    // one: that overload is `@_disfavoredOverload` and
+                    // deprecated as of the OS this app requires.
+                    .dropDestination(for: URL.self) { urls, _ in
+                        onDrop(node, urls)
+                    }
             }
         } else if let file = node.file {
             // Selectable, like a note. Both ids are the file's URL, so one
@@ -1871,6 +3008,7 @@ private struct CollectionTreeRow: View {
             // viewer to show.
             Label(file.name, systemImage: file.kind.symbol)
                 .tag(file.url)
+                .draggable(file.url)
         }
     }
 }

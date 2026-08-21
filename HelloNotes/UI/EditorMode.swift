@@ -7,12 +7,12 @@
 
 import SwiftUI
 
-/// How the note editor presents the open note. Shared by both platforms,
-/// though not every case is offered everywhere: macOS starts in ``edit`` (the
-/// live WYSIWYG rendering), while iOS — which has no live editor — starts in
-/// ``preview`` and offers only the render/source/split trio.
+/// How the note editor presents the open note. Shared by both platforms, which
+/// now offer the same four modes and start in the same one: `iOSLiveEditor`
+/// gave iPad the live WYSIWYG ``edit`` mode the Mac has, and both platforms
+/// default their stored mode to ``edit``.
 enum EditorMode: String, CaseIterable, Identifiable {
-    /// Live, editable WYSIWYG rendering. macOS only.
+    /// Live, editable WYSIWYG rendering.
     case edit
     /// Read-only rendering — the note as it reads, with no caret.
     case preview
@@ -41,19 +41,14 @@ enum EditorMode: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The cases offered on macOS (all four).
-    static let macCases: [EditorMode] = [.edit, .preview, .markdown, .split]
-
-    /// The cases offered on iOS — no live WYSIWYG editor there.
-    static let iOSCases: [EditorMode] = [.edit, .preview, .markdown, .split]
-
-    /// The cases this platform offers. One name, so the shared menu code does
-    /// not have to know which platform it is compiled for.
-    static var platformCases: [EditorMode] {
-        #if os(macOS)
-        macCases
-        #else
-        iOSCases
-        #endif
-    }
+    /// The cases this platform offers, in the order every picker shows them.
+    ///
+    /// **One array, not two behind a `#if`.** There used to be `macCases` and
+    /// `iOSCases`, byte-identical, with `platformCases` choosing between two
+    /// equal values — a difference the code claimed and no longer had. Two
+    /// lists that must stay equal, and a conditional that hides it when they
+    /// stop being, is exactly how a mode comes to exist on one platform for a
+    /// reason nobody wrote down: the shared surfaces (the View menu, the
+    /// command palette) would silently offer the iPad whatever the Mac listed.
+    static let platformCases: [EditorMode] = [.edit, .preview, .markdown, .split]
 }

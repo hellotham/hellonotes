@@ -161,13 +161,26 @@ struct NewRepositoryView: View {
                 }
             }
 
+            // On iOS `parent` came from `FolderPicker`, i.e. a
+            // `UIDocumentPickerViewController(asCopy: false)` — a security-scoped
+            // URL that grants nothing until access is *started*, and `GitService`
+            // never starts it. Without this the folder creation fails with a
+            // permission error and the sheet reports the useless "Couldn't create
+            // the repository." Same shape as `CloneRepositoryView`: held open on
+            // success (the URL is handed onward as a collection root and needs
+            // the scope for the app's lifetime), balanced on every other exit.
+            // On the Mac an `NSOpenPanel` URL isn't scoped, so `started` is false
+            // and both calls are no-ops.
+            let started = parent.startAccessingSecurityScopedResource()
+
             let created = await git.createRepository(
                 named: name, in: parent, remoteURL: remoteURL, account: account, token: token)
             busy = false
             if let created {
-                onCreated(created)
+                onCreated(created)   // scope kept — the collection keeps reading this folder
                 dismiss()
             } else {
+                if started { parent.stopAccessingSecurityScopedResource() }
                 error = git.lastError ?? "Couldn't create the repository."
             }
         }

@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import MarkdownEditor   // PlatformColor
 
 @MainActor
 @Observable
@@ -118,6 +119,18 @@ final class AppearanceSettings {
         didSet { UserDefaults.standard.set(showInlineTitle, forKey: "showInlineTitle") }
     }
 
+    /// How notes are ordered inside each folder of the sidebar tree.
+    ///
+    /// It was a `@State` on `MacContentView` that nothing ever wrote and a
+    /// hard-coded `.modified` on iOS: a `SortOrder` enum with `CaseIterable`, an
+    /// `Identifiable` conformance and a `systemImage` per case, built for a
+    /// picker that was never drawn on either platform. Here rather than on
+    /// either shell so both read the same value, and so it follows the user
+    /// across devices like every other view preference.
+    var noteSortOrder: SortOrder {
+        didSet { UserDefaults.standard.set(noteSortOrder.rawValue, forKey: "noteSortOrder") }
+    }
+
     static let wrapGuideChoices = [0, 72, 80, 100]
 
     static let minScale = 0.8
@@ -134,6 +147,7 @@ final class AppearanceSettings {
         readingWidth = ReadingWidth(rawValue: defaults.string(forKey: "readingWidth") ?? "") ?? .normal
         editorWidth = EditorWidth(rawValue: defaults.string(forKey: "editorWidth") ?? "") ?? .full
         wrapGuide = defaults.integer(forKey: "wrapGuide")
+        noteSortOrder = SortOrder(rawValue: defaults.string(forKey: "noteSortOrder") ?? "") ?? .modified
         // Default on, so `bool(forKey:)` returning false for "never set" is
         // read as the default rather than as the user having turned it off.
         showInlineTitle = defaults.object(forKey: "showInlineTitle") as? Bool ?? true
@@ -189,11 +203,7 @@ final class AppearanceSettings {
     /// stays vivid and legible in either appearance. `nil` follows the system.
     var accentColor: Color? {
         guard baseAccent != nil else { return nil }
-        #if os(macOS)
-        return Color(nsColor: adaptiveAccentNSColor)
-        #else
-        return baseAccent
-        #endif
+        return Color(platform: adaptiveAccentPlatformColor)
     }
 
     /// The current tint as a concrete colour, for previews/swatches.
@@ -201,102 +211,69 @@ final class AppearanceSettings {
 
     /// The accent to use for *text* (links, a selected label), everywhere.
     ///
-    /// On macOS this is the contrast-corrected `accentText`, which walks the
-    /// accent until it clears the WCAG target against the window background.
-    /// iOS has no equivalent machinery yet, so it takes the plain tint — the
-    /// point of this property is that call sites don't platform-branch over a
-    /// theming decision.
-    var accentTextColor: Color {
-        #if os(macOS)
-        accentText ?? .accentColor
-        #else
-        resolvedAccent
-        #endif
-    }
+    /// The contrast-corrected accent: walked toward black or white until it
+    /// clears the WCAG target against the window background. It used to say
+    /// "iOS has no equivalent machinery yet" and hand back the raw tint, which
+    /// made "Increase contrast" inert on that platform — see
+    /// `AccentContrast.swift` for why the machinery is no longer platform-shaped.
+    var accentTextColor: Color { accentText ?? .accentColor }
 
-    #if os(macOS)
-    /// The chosen accent as an sRGB colour, deepened toward a richer mauve when
-    /// "increase contrast" is on (so fills and labels have more headroom).
-    private var solidBaseNSColor: NSColor? {
+    // MARK: - Accent, contrast-corrected
+    //
+    // Cross-platform. The arithmetic lives in `AccentContrast.swift`; what
+    // remains here is which colour to ask for, and against what ground.
+
+    /// The chosen accent as an sRGB triple, deepened when "increase contrast"
+    /// is on (so fills and labels have more headroom).
+    private var solidBase: SRGB? {
         guard let base = baseAccent else { return nil }
-        let solid = NSColor(base).usingColorSpace(.sRGB) ?? NSColor(base)
-        return increaseContrast ? (solid.blended(withFraction: 0.18, of: .black) ?? solid) : solid
+        let solid = PlatformColor(base).srgb
+        return increaseContrast ? solid.blended(withFraction: 0.18, of: .black) : solid
     }
 
-    /// The appearance-adaptive accent NSColor for control fills / decorations.
-    var adaptiveAccentNSColor: NSColor {
-        guard let solid = solidBaseNSColor else { return .controlAccentColor }
-        return NSColor(name: nil) { appearance in
-            Self.contextAdjusted(solid, isDark: Self.isDark(appearance))
-        }
+    /// The appearance-adaptive accent for control fills / decorations.
+    var adaptiveAccentPlatformColor: PlatformColor {
+        guard let solid = solidBase else { return .systemAccent }
+        return .adaptive { isDark in solid.contextAdjusted(isDark: isDark) }
     }
-    /// Alias kept for the editor call site.
-    var editorAccentNSColor: NSColor { adaptiveAccentNSColor }
 
-    /// The accent when used as *text* (links, selected labels): adjusted until it
-    /// clears the current contrast target (AA 4.5 or, with increase-contrast on,
-    /// AAA 7:1) against the window background — legible in either appearance.
-    var accentTextNSColor: NSColor {
-        guard let solid = solidBaseNSColor else { return .controlAccentColor }
+    /// The accent the editor draws its selection, links and wrap guide in.
+    ///
+    /// Named for the job rather than for AppKit — it was `editorAccentNSColor`,
+    /// and a name with a framework in it is a name only one platform can call.
+    /// `EditorTheme` has taken a `PlatformColor?` since it was written; iOS was
+    /// simply passing `nil` and getting `.tintColor`, so a chosen accent
+    /// coloured the Mac's editor and not the iPad's.
+    var editorAccentPlatformColor: PlatformColor { adaptiveAccentPlatformColor }
+
+    /// The accent when used as *text* (links, selected labels): adjusted until
+    /// it clears the current contrast target (AA 4.5 or, with increase-contrast
+    /// on, AAA 7:1) against the window background — legible in either
+    /// appearance.
+    var accentTextPlatformColor: PlatformColor {
+        guard let solid = solidBase else { return .systemAccent }
         let target = contrastTarget
-        return NSColor(name: nil) { appearance in
-            let isDark = Self.isDark(appearance)
-            let start = Self.contextAdjusted(solid, isDark: isDark)
-            let bg: NSColor = isDark ? NSColor(white: 0.12, alpha: 1) : NSColor(white: 0.98, alpha: 1)
-            return Self.readable(start, on: bg, towardDark: !isDark, target: target)
+        return .adaptive { isDark in
+            solid.contextAdjusted(isDark: isDark)
+                .readable(on: .windowGround(isDark: isDark),
+                          towardDark: !isDark,
+                          target: target)
         }
     }
 
     /// The label colour to place *on top of* an accent fill (black or white,
     /// whichever contrasts better with the accent in the current appearance).
-    var onAccentNSColor: NSColor {
-        let solid = solidBaseNSColor
-        return NSColor(name: nil) { appearance in
-            let fill = solid.map { Self.contextAdjusted($0, isDark: Self.isDark(appearance)) } ?? .controlAccentColor
-            return Self.contrast(.white, fill) >= Self.contrast(.black, fill) ? .white : .black
+    var onAccentPlatformColor: PlatformColor {
+        let solid = solidBase
+        return .adaptive { isDark in
+            (solid?.contextAdjusted(isDark: isDark)
+                ?? PlatformColor.systemAccent.srgb).labelOnTop
         }
     }
 
     /// The accent as a legible text colour, or `nil` for "multicolor".
-    var accentText: Color? { baseAccent == nil ? nil : Color(nsColor: accentTextNSColor) }
-    var onAccent: Color { Color(nsColor: onAccentNSColor) }
-
-    private static func isDark(_ appearance: NSAppearance) -> Bool {
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    }
-
-    private static func contextAdjusted(_ solid: NSColor, isDark: Bool) -> NSColor {
-        isDark ? (solid.blended(withFraction: 0.24, of: .white) ?? solid)
-               : (solid.blended(withFraction: 0.08, of: .black) ?? solid)
-    }
-
-    // MARK: WCAG contrast helpers
-
-    static func luminance(_ color: NSColor) -> CGFloat {
-        let c = color.usingColorSpace(.sRGB) ?? color
-        func lin(_ v: CGFloat) -> CGFloat { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
-        return 0.2126 * lin(c.redComponent) + 0.7152 * lin(c.greenComponent) + 0.0722 * lin(c.blueComponent)
-    }
-
-    static func contrast(_ a: NSColor, _ b: NSColor) -> CGFloat {
-        let la = luminance(a), lb = luminance(b)
-        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
-    }
-
-    /// Blend `color` toward black (or white) in steps until it meets `target`
-    /// contrast against `bg`.
-    static func readable(_ color: NSColor, on bg: NSColor, towardDark: Bool, target: CGFloat = 4.5) -> NSColor {
-        let solid = color.usingColorSpace(.sRGB) ?? color
-        let end: NSColor = towardDark ? .black : .white
-        var result = solid
-        var fraction: CGFloat = 0
-        while contrast(result, bg) < target && fraction < 1 {
-            fraction += 0.07
-            result = solid.blended(withFraction: fraction, of: end) ?? result
-        }
-        return result
-    }
-    #endif
+    var accentText: Color? { baseAccent == nil ? nil : Color(platform: accentTextPlatformColor) }
+    var onAccent: Color { Color(platform: onAccentPlatformColor) }
 
     /// Base editor font size (points) scaled by the text setting.
     var editorFontSize: CGFloat { 16 * textScale }

@@ -11,6 +11,7 @@
 //
 
 import SwiftUI
+import MarkdownEditor   // PlatformFont
 
 // MARK: - Part 3: component sizes
 
@@ -212,6 +213,91 @@ enum TextWidth {
             return (min(available, max(ShellMetrics.editorFloor,
                                        available * editing.proportion)), false)
         }
+    }
+
+    /// Measured, not assumed: a character count means a different point width
+    /// in the proportional body font than in the monospaced source font, so the
+    /// width is always resolved against the font actually in use.
+    ///
+    /// Cross-platform, and here rather than in a view, because it used to be a
+    /// `private static` on the macOS-only `NoteEditorView` written in `NSFont`
+    /// — which is the whole reason Reading width and Editor width were settings
+    /// the iPad stored and never applied.
+    static func characterWidth(size: CGFloat, monospaced: Bool) -> CGFloat {
+        let font: PlatformFont = monospaced
+            ? .monospacedSystemFont(ofSize: size, weight: .regular)
+            : .systemFont(ofSize: size)
+        return ("0" as NSString).size(withAttributes: [.font: font]).width
+    }
+}
+
+/// Constrains prose to the user's measure and centres it when the setting asks
+/// for a fixed one.
+///
+/// A modifier rather than a helper on one view, so both shells' editors are
+/// laid out by the same code — the Mac's `NoteEditorView` and the iPad's
+/// `iOSLiveEditor` were two answers to one question, and only one of them had
+/// read the setting.
+struct MeasuredText: ViewModifier {
+    let intent: TextIntent
+    let fontSize: CGFloat
+    var monospaced: Bool = false
+    let reading: ReadingWidth
+    let editing: EditorWidth
+
+    /// Read here rather than passed in, so a caller cannot measure against a
+    /// width the shell disagrees with — the contract's own rule about never
+    /// re-deriving the pane width further down.
+    @Environment(\.shell) private var shell
+
+    func body(content: Content) -> some View {
+        let resolved = TextWidth.resolve(
+            intent: intent,
+            paneWidth: shell.paneWidth,
+            characterWidth: TextWidth.characterWidth(size: fontSize, monospaced: monospaced),
+            reading: reading,
+            editing: editing
+        )
+        HStack(spacing: 0) {
+            if resolved.centred { Spacer(minLength: 0) }
+            content.frame(maxWidth: resolved.width)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension View {
+    /// Lay this content out at the user's Reading / Editor width.
+    func measuredText(_ intent: TextIntent,
+                      fontSize: CGFloat,
+                      monospaced: Bool = false,
+                      reading: ReadingWidth,
+                      editing: EditorWidth) -> some View {
+        modifier(MeasuredText(intent: intent, fontSize: fontSize,
+                              monospaced: monospaced, reading: reading, editing: editing))
+    }
+}
+
+/// Applies the user's measure when there is one, and nothing at all when there
+/// is not.
+///
+/// `ViewModifier` rather than an `if` in the body: a conditional branch around
+/// a `UIViewRepresentable` changes the view's identity, which tears the text
+/// view down and rebuilds it — dropping the caret every time the setting is
+/// touched.
+struct OptionalMeasure: ViewModifier {
+    let intent: TextIntent
+    let fontSize: CGFloat
+    var monospaced: Bool = false
+    let width: (reading: ReadingWidth, editing: EditorWidth)?
+
+    func body(content: Content) -> some View {
+        content.measuredText(intent,
+                             fontSize: fontSize,
+                             monospaced: monospaced,
+                             reading: width?.reading ?? .full,
+                             editing: width?.editing ?? .full)
     }
 }
 

@@ -7,6 +7,7 @@
 
 #if os(macOS)
 import SwiftUI
+import GFMRender
 import MarkdownEditor
 
 /// The editor column: hosts HelloNotes' TextKit 2 editor (Packages/NotesEditor)
@@ -362,31 +363,16 @@ struct NoteEditorView: View {
     private func measured<Content: View>(_ intent: TextIntent,
                                          monospaced: Bool = false,
                                          @ViewBuilder content: () -> Content) -> some View {
-        let resolved = TextWidth.resolve(
-            intent: intent,
-            paneWidth: shell.paneWidth,
-            characterWidth: Self.characterWidth(size: appearance.editorFontSize,
-                                                monospaced: monospaced),
-            reading: appearance.readingWidth,
-            editing: appearance.editorWidth
-        )
-        HStack(spacing: 0) {
-            if resolved.centred { Spacer(minLength: 0) }
-            content()
-                .frame(maxWidth: resolved.width)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// Measured, not assumed: a character count means a different point width
-    /// in the proportional body font than in the monospaced source font, so the
-    /// width is always resolved against the font actually in use.
-    private static func characterWidth(size: CGFloat, monospaced: Bool) -> CGFloat {
-        let font = monospaced
-            ? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-            : NSFont.systemFont(ofSize: size)
-        return ("0" as NSString).size(withAttributes: [.font: font]).width
+        // The measure itself lives in `ShellContract.swift` so the iPad's
+        // editor is laid out by the same code — this used to be a private
+        // `NSFont` implementation here, which is why Reading width and Editor
+        // width were Mac-only settings in practice.
+        content()
+            .measuredText(intent,
+                          fontSize: appearance.editorFontSize,
+                          monospaced: monospaced,
+                          reading: appearance.readingWidth,
+                          editing: appearance.editorWidth)
     }
 
     // MARK: - Editor modes
@@ -427,7 +413,7 @@ struct NoteEditorView: View {
             editor: editor,
             linkCandidates: linkCandidates,
             fontSize: appearance.editorFontSize,
-            accent: appearance.editorAccentNSColor,
+            accent: appearance.editorAccentPlatformColor,
             isEditable: isEditable,
             wrapGuide: appearance.wrapGuide,
             onOpenWikiLink: onOpenWikiLink,
@@ -451,9 +437,19 @@ struct NoteEditorView: View {
     /// GitHub-identical rendered preview: the note (front matter stripped, the
     /// app's wiki-links/embeds/callouts bridged to HTML) is rendered through
     /// cmark-gfm — GitHub's own engine — and shown with GitHub's stylesheet.
+    ///
+    /// Built by rendering the page here rather than through
+    /// `GFMPreview(markdown:baseURL:)`, because that convenience initialiser
+    /// calls `GFMRenderer.page` with `fontScale` left at its default of 1. Text
+    /// Size scales Edit and Markdown (both read `appearance.editorFontSize`)
+    /// and iOS already passes the scale through (`MarkdownWebView`), so the Mac
+    /// was the one place where the same slider worked in one mode of a window
+    /// and did nothing in the next. `page` folds the scale into the HTML, so a
+    /// changed setting changes the page and the web view reloads on its own.
     private var githubPreview: some View {
         GFMPreview(
-            markdown: GitHubMarkdown.prepare(editor.text),
+            html: GFMRenderer.page(GitHubMarkdown.prepare(editor.text),
+                                   fontScale: appearance.textScale),
             baseURL: editor.note?.fileURL.deletingLastPathComponent()
         )
     }
@@ -895,7 +891,7 @@ struct NoteEditorView: View {
     /// Segmented Edit / Preview / Markdown / Split switcher.
     private var modePicker: some View {
         Picker("View mode", selection: modeBinding) {
-            ForEach(EditorMode.macCases) { m in
+            ForEach(EditorMode.platformCases) { m in
                 Image(systemName: m.symbol)
                     .help(m.label)
                     .accessibilityLabel(m.label)

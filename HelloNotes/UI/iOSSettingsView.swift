@@ -38,10 +38,6 @@ struct iOSSettingsView: View {
         }
     }
 
-    @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
-    @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
-    @AppStorage("dailyDateFormat") private var dailyDateFormat = "yyyy-MM-dd"
-    @AppStorage("templatesFolder") private var templatesFolder = "Templates"
 
     @State private var showDropbox = false
     @State private var showBox = false
@@ -97,10 +93,50 @@ struct iOSSettingsView: View {
                     Text("Scales the note editor and preview. Everything else follows the system text size in Settings > Display & Brightness.")
                 }
 
-                Section {
+                // Reading and editing want different widths, so they get
+                // different settings (docs/layout-architecture.md, decision 5).
+                //
+                // These three were stored and synced on iOS from the start and
+                // read by nothing: the measure was applied by a `private func`
+                // on the macOS-only `NoteEditorView`, and the wrap guide was
+                // drawn by the AppKit text view only. So the settings existed
+                // on iPad, moved, persisted, and changed nothing on screen.
+                Section("Text width") {
+                    Picker("Reading width", selection: $settings.readingWidth) {
+                        ForEach(ReadingWidth.allCases, id: \.self) { width in
+                            Text(width.label).tag(width)
+                        }
+                    }
+                    Text("How wide a line gets in Preview. A comfortable measure is about 80 characters; the column is centred in the pane.")
+                        .font(.caption).foregroundStyle(.secondary)
+
+                    Picker("Editor width", selection: $settings.editorWidth) {
+                        ForEach(EditorWidth.allCases, id: \.self) { width in
+                            Text(width.label).tag(width)
+                        }
+                    }
+                    Text("How much of the pane you write in. Full uses the whole pane, left-aligned — tables and diagrams need the room.")
+                        .font(.caption).foregroundStyle(.secondary)
+
+                    Picker("Wrap guide", selection: $settings.wrapGuide) {
+                        ForEach(AppearanceSettings.wrapGuideChoices, id: \.self) { columns in
+                            Text(columns == 0 ? "Off" : "\(columns) characters").tag(columns)
+                        }
+                    }
+                    Text("A line you can see while editing, not a wrap point — text still runs to the edge of the pane.")
+                        .font(.caption).foregroundStyle(.secondary)
+
+                    Picker("Sort notes by", selection: $settings.noteSortOrder) {
+                        ForEach(SortOrder.allCases) { order in
+                            Label(order.rawValue, systemImage: order.systemImage).tag(order)
+                        }
+                    }
+                    Text("How notes are ordered inside each folder of the sidebar. Folders always come first, sorted by name.")
+                        .font(.caption).foregroundStyle(.secondary)
+
                     Toggle("Show note title", isOn: $settings.showInlineTitle)
-                } footer: {
                     Text("Shows the file's name above the note as a heading. Editing it renames the file and updates every link to it.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 if let git, let accounts {
@@ -114,26 +150,7 @@ struct iOSSettingsView: View {
                     }
                 }
 
-                Section("Attachments") {
-                    TextField("Pasted-image folder", text: $attachmentFolder, prompt: Text("Same folder as note"))
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                }
-
-                Section("Daily notes") {
-                    TextField("Folder", text: $dailyNoteFolder, prompt: Text("Collection root"))
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    TextField("Date format", text: $dailyDateFormat, prompt: Text("yyyy-MM-dd"))
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                }
-
-                Section("Templates") {
-                    TextField("Folder", text: $templatesFolder, prompt: Text("Templates"))
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                }
+                FolderConventionSections()
 
                 Section {
                     Button("Connect Dropbox…") { showDropbox = true }

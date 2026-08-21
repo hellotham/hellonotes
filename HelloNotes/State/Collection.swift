@@ -375,26 +375,50 @@ final class Collection: Identifiable {
     /// live editor's block-embed renderer uses it on both macOS and iOS).
     let embedProvider = CollectionEmbedProvider()
 
-    #if os(macOS)
-    private var fileWatcher: FileWatcher?
-
-    /// Standardised paths this collection wrote itself, with when — so the file
-    /// watcher can ignore the churn from our own autosaves (and their atomic
-    /// temp files) instead of re-scanning the whole collection on every save.
+    /// Standardised paths this collection wrote itself, with when — so a change
+    /// notification can be recognised as the churn from our own autosaves (and
+    /// their atomic temp files) instead of re-scanning the whole collection on
+    /// every save.
+    ///
+    /// **Cross-platform, because the writes are.** This lived beside the macOS
+    /// file watcher on the assumption that only FSEvents could ever hear about
+    /// them. It cannot: `FileIO.write` coordinates through
+    /// `NSFileCoordinator(filePresenter: nil)`, and *nil excludes no presenter*,
+    /// so iOS's own `DirectoryPresenter` is told about every write the app makes.
+    /// With the filter behind a `#if`, each 600 ms autosave woke the presenter,
+    /// which debounced 400 ms and then re-walked the entire vault — the exact
+    /// storm this was written to prevent, running unopposed on the platform that
+    /// can least afford it.
     private var recentSelfWrites: [String: Date] = [:]
+
+    /// How long a write of our own goes on explaining a change notification.
+    private static let selfWriteWindow: TimeInterval = 3
+
+    /// How long the log of our own writes is kept at all — a little longer than
+    /// the window, so a notification arriving late still finds its entry.
+    private static let selfWriteMemory: TimeInterval = 5
 
     /// Coalesces bursts of external changes (a co-editing app like Obsidian
     /// autosaving, or iCloud streaming a file down in pieces) into a single
     /// scan + reconcile, instead of re-walking the whole vault per event.
     private var externalReconcileTask: Task<Void, Never>?
 
+    /// How long a reconcile waits for the burst to end before scanning.
+    private static let reconcileDebounce: Duration = .milliseconds(400)
+
     /// Debounced index refresh scheduled after an editor save (the note *set*
     /// is unchanged, so no re-scan is needed — only the content-derived index).
     private var deriveTask: Task<Void, Never>?
 
+    #if os(macOS)
+    private var fileWatcher: FileWatcher?
+
     /// Coalesces `.git` churn into one status read (a checkout touches hundreds
     /// of files in there).
     private var gitRefreshTask: Task<Void, Never>?
+    #else
+    /// iOS's stand-in for the macOS file watcher.
+    private var presenter: DirectoryPresenter?
     #endif
 
     private var securityScoped = false
@@ -988,9 +1012,18 @@ final class Collection: Identifiable {
 
     // MARK: - Lifecycle
 
-    #if os(macOS)
     /// Begin the security scope, do an initial scan, refresh derived data and Git
     /// status, and start watching the folder for external changes.
+    ///
+    /// **One body for both platforms.** iOS used to keep a shorter copy of this,
+    /// and everything the copy quietly left out was a bug: no cache-first
+    /// `refreshDerived`, so every launch re-read the whole vault instead of
+    /// hitting a fingerprinted cache; no `linkGraph.load`, so backlinks, the
+    /// graph view's edges and rename's link rewriting all consulted an empty
+    /// graph; and no Git status, so an iPad never believed a real clone was a
+    /// repository and hid the remote controls for the life of the collection.
+    /// Only *how* the folder is watched is genuinely platform-specific, so that
+    /// is the only part left behind a `#if`.
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {
         securityScoped = rootURL.startAccessingSecurityScopedResource()
         await scanOffMain()
@@ -1001,13 +1034,12 @@ final class Collection: Identifiable {
         // wait on an unrelated network operation. The status is a badge; it can
         // arrive when it arrives.
         Task { await git.refreshStatus() }
-        startWatching(onExternalChange: onExternalChange)
+        startObserving(onExternalChange: onExternalChange)
     }
 
     /// Stop watching and relinquish the security scope. Call before closing.
     func deactivate() {
-        fileWatcher?.stop()
-        fileWatcher = nil
+        stopObserving()
         if securityScoped { rootURL.stopAccessingSecurityScopedResource(); securityScoped = false }
     }
 
@@ -1082,7 +1114,13 @@ final class Collection: Identifiable {
         }
     }
 
-    private func startWatching(onExternalChange: @escaping @MainActor () -> Void) {
+    // MARK: Watching the folder
+
+    #if os(macOS)
+    /// FSEvents where it exists: it reports the things a file presenter cannot —
+    /// a moved root, an unmounted volume, a dropped batch, and the paths that
+    /// actually changed.
+    private func startObserving(onExternalChange: @escaping @MainActor () -> Void) {
         let watcher = FileWatcher { [weak self] event in
             Task { @MainActor [weak self] in
                 self?.handle(event, onExternalChange: onExternalChange)
@@ -1090,6 +1128,11 @@ final class Collection: Identifiable {
         }
         watcher.start(url: rootURL)
         fileWatcher = watcher
+    }
+
+    private func stopObserving() {
+        fileWatcher?.stop()
+        fileWatcher = nil
     }
 
     /// Turn what FSEvents said into what the collection should do about it.
@@ -1146,6 +1189,74 @@ final class Collection: Identifiable {
         }
     }
 
+    #else
+    /// iOS has no FSEvents, so before this it had **no change detection at
+    /// all**: an iPad showing a vault edited on a Mac stayed stale until
+    /// relaunch. A file-coordination presenter is the portable substitute —
+    /// coarser than FSEvents (no flags, no path list), so it maps onto a plain
+    /// debounced rescan and claims nothing more.
+    private func startObserving(onExternalChange: @escaping @MainActor () -> Void) {
+        presenter?.stop()
+        let presenter = DirectoryPresenter(root: rootURL) { [weak self] url in
+            Task { @MainActor [weak self] in
+                self?.presenterDidReportChange(at: url, onExternalChange: onExternalChange)
+            }
+        }
+        presenter.start()
+        self.presenter = presenter
+    }
+
+    private func stopObserving() {
+        presenter?.stop()
+        presenter = nil
+    }
+
+    /// A coordinated change arrived. Decide whether it is ours, and how long to
+    /// let it settle.
+    ///
+    /// `FileIO.write` coordinates with `filePresenter: nil`, which excludes *no*
+    /// presenter — so the app is told about its own autosaves, once every
+    /// 600 ms while anyone is typing. Left unfiltered each one cost a full
+    /// off-main vault walk plus a full index rebuild, work macOS has never done
+    /// because its watcher is handed the changed paths and asks
+    /// `hasExternalChanges(in:)` about them.
+    ///
+    /// The presenter knows the same thing, so it is asked the same question:
+    /// a named subitem we wrote in the last few seconds is not news and is
+    /// dropped outright, exactly as on macOS. One filter, one answer.
+    ///
+    /// `presentedItemDidChange` names no path (`url == nil`), and there the
+    /// strongest question left is the weaker *"did we write anything just
+    /// now?"* — which must be acted on by **waiting, never by dropping**: an
+    /// edit made on another device landing in the same window as one of our own
+    /// saves has to survive. So it is pushed past the end of that window
+    /// instead.
+    private func presenterDidReportChange(at url: URL?,
+                                          onExternalChange: @escaping @MainActor () -> Void) {
+        if let url {
+            guard hasExternalChanges(in: [url.path]) else { return }
+            reconcileSoon(onExternalChange: onExternalChange)
+            return
+        }
+        guard let settling = selfWriteSettleDelay else {
+            reconcileSoon(onExternalChange: onExternalChange)
+            return
+        }
+        reconcileSoon(onExternalChange: onExternalChange, after: settling)
+    }
+
+    /// How much of the self-write window is left to wait out, or `nil` when
+    /// nothing we wrote can account for this notification.
+    private var selfWriteSettleDelay: Duration? {
+        guard let newest = recentSelfWrites.values.max() else { return nil }
+        let remaining = Duration.seconds(Self.selfWriteWindow - Date().timeIntervalSince(newest))
+        // Below the ordinary debounce there is nothing left to wait for — and a
+        // *shorter* wait would defeat the coalescing it stands in for.
+        guard remaining > Self.reconcileDebounce else { return nil }
+        return remaining
+    }
+    #endif
+
     /// Debounced rescan + reindex.
     ///
     /// A live co-editor (Obsidian) plus iCloud can rewrite files in rapid
@@ -1153,10 +1264,22 @@ final class Collection: Identifiable {
     /// index rebuild + editor reconcile — which, while the open note is being
     /// co-edited, stutters the UI and keeps resetting the editor's scroll
     /// position.
+    ///
+    /// Cross-platform because the reasoning is: both watchers want exactly this.
+    /// The iOS copy that used to live in the other branch had also quietly lost
+    /// the Git refresh below, so an iPad's change count went stale the moment
+    /// anything happened outside the app.
     private func reconcileSoon(onExternalChange: @escaping @MainActor () -> Void) {
+        reconcileSoon(onExternalChange: onExternalChange, after: Self.reconcileDebounce)
+    }
+
+    /// The same, held off for `delay` — long enough that a change we may have
+    /// caused ourselves has stopped being news.
+    private func reconcileSoon(onExternalChange: @escaping @MainActor () -> Void,
+                               after delay: Duration) {
         externalReconcileTask?.cancel()
         externalReconcileTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
             await self.scanOffMain()
             self.refreshDerived()
@@ -1169,17 +1292,40 @@ final class Collection: Identifiable {
         }
     }
 
+    /// Remember that we just wrote `url`, so a change notification about it is
+    /// recognised as ours rather than mistaken for someone else's edit.
+    ///
+    /// Prunes as it records. The log is only ever read for the last few seconds,
+    /// and the read that used to prune it (`hasExternalChanges`) needs a path
+    /// list — which a file presenter never supplies, so on iOS nothing else
+    /// would ever clear it.
+    private func rememberSelfWrite(_ url: URL, at time: Date = Date()) {
+        recentSelfWrites = recentSelfWrites.filter {
+            time.timeIntervalSince($0.value) < Self.selfWriteMemory
+        }
+        recentSelfWrites[Self.normalize(url.path)] = time
+    }
+
     /// Whether `paths` contains a change we didn't cause. Filters out our own
     /// recent autosaves and hidden-file churn (atomic-write temp files, the
     /// `.git` directory that auto-commit touches, `.DS_Store`), so the app's own
     /// writes never trigger a full re-scan + re-index of the collection.
+    ///
+    /// Cross-platform along with the log it reads, though only a watcher that
+    /// reports *which* paths changed can ask it: the iOS presenter path asks the
+    /// weaker, path-less form of the same question in `selfWriteSettleDelay`.
+    /// Kept here, and not back inside the macOS branch, so that the day the
+    /// presenter starts forwarding its subitem URL there is one filter to point
+    /// it at rather than a second one to write.
     private func hasExternalChanges(in paths: [String]) -> Bool {
         let now = Date()
-        recentSelfWrites = recentSelfWrites.filter { now.timeIntervalSince($0.value) < 5 }
+        recentSelfWrites = recentSelfWrites.filter {
+            now.timeIntervalSince($0.value) < Self.selfWriteMemory
+        }
         return paths.contains { path in
             if (path as NSString).lastPathComponent.hasPrefix(".") { return false }
             if let wroteAt = recentSelfWrites[Self.normalize(path)],
-               now.timeIntervalSince(wroteAt) < 3 { return false }
+               now.timeIntervalSince(wroteAt) < Self.selfWriteWindow { return false }
             return true
         }
     }
@@ -1198,8 +1344,17 @@ final class Collection: Identifiable {
     /// search entry are patched incrementally (O(1 note)). A title/alias change
     /// can alter *other* notes' backlinks, so that falls back to a debounced
     /// full rebuild for correctness.
+    ///
+    /// **Cross-platform, and it always had to be.** iOS carried a deliberately
+    /// narrow copy of this, and the omission that mattered was the upload: iOS
+    /// can open a direct-API cloud collection (Settings → Add cloud account) and
+    /// `deleteNote`/`deleteFolder` already delete on the provider, so an edit
+    /// that stopped at the local mirror was written, never sent, and then
+    /// overwritten by the stale server copy on the next refresh or hydrate.
+    /// A save is a save on both platforms; there is nothing about this body that
+    /// needs AppKit.
     func noteDidSave(_ url: URL, text: String) {
-        recentSelfWrites[Self.normalize(url.path)] = Date()
+        rememberSelfWrite(url)
         let title = url.deletingPathExtension().lastPathComponent
 
         // A cloud (RemoteStore) collection: push the saved note back to the
@@ -1285,101 +1440,6 @@ final class Collection: Identifiable {
         notes.sort { $0.lastModified > $1.lastModified }
         revision &+= 1
     }
-    #else
-    /// iOS's stand-in for the macOS file watcher.
-    private var presenter: DirectoryPresenter?
-    /// Coalesces a burst of coordinated change callbacks into one rescan.
-    private var externalReconcileTask: Task<Void, Never>?
-
-    func activate(onExternalChange: @escaping @MainActor () -> Void) async {
-        securityScoped = rootURL.startAccessingSecurityScopedResource()
-        await scanOffMain()
-        embedProvider.update(notes: notes)   // resolve `![[Note]]` transclusions
-        Task { await search.refresh(from: notes) }
-        startPresenting(onExternalChange: onExternalChange)
-    }
-
-    func deactivate() {
-        presenter?.stop()
-        presenter = nil
-        if securityScoped { rootURL.stopAccessingSecurityScopedResource(); securityScoped = false }
-    }
-
-    /// iOS has no FSEvents, so until now it had **no change detection at all**:
-    /// an iPad showing a vault edited on a Mac stayed stale until relaunch. A
-    /// file-coordination presenter is the portable substitute — coarser than
-    /// FSEvents (no flags, no path list), so it maps onto a plain debounced
-    /// rescan and claims nothing more.
-    private func startPresenting(onExternalChange: @escaping @MainActor () -> Void) {
-        presenter?.stop()
-        let presenter = DirectoryPresenter(root: rootURL) { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.reconcileSoon(onExternalChange: onExternalChange)
-            }
-        }
-        presenter.start()
-        self.presenter = presenter
-    }
-
-    /// Debounced rescan, shared with the macOS watcher's reasoning: a device
-    /// syncing a vault down rewrites files in bursts, and one rescan per file
-    /// would spend the whole burst re-walking.
-    private func reconcileSoon(onExternalChange: @escaping @MainActor () -> Void) {
-        externalReconcileTask?.cancel()
-        externalReconcileTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled, let self else { return }
-            await self.scanOffMain()
-            self.refreshDerived()
-            onExternalChange()
-        }
-    }
-
-    func refreshDerived() {
-        embedProvider.update(notes: notes)
-        Task { await search.refresh(from: notes) }
-    }
-
-    /// Rebuild everything from scratch, ignoring the index cache — the safety
-    /// valve for when the index looks wrong.
-    ///
-    /// iOS's own copy, because the macOS one lives inside `#if os(macOS)` and
-    /// calls `refreshDerived(force:)`, which only exists there. Without it an
-    /// iPad had no way to force a re-index at all: if the list went stale, the
-    /// only remedy was closing and reopening the collection.
-    func rescan() {
-        CollectionIndexCache.remove(for: rootURL)
-        // Drop the walk checkpoint too, or "rebuild from scratch" quietly
-        // resumes from a stored frontier and reproduces the wrong index.
-        WalkCheckpointStore.remove(for: id)
-        Task {
-            await scanOffMain()
-            refreshDerived()
-        }
-    }
-
-    /// Fold one note's new contents into the derived indexes.
-    ///
-    /// iOS reaches its indexes the slow way: a coordinated write wakes the
-    /// `DirectoryPresenter`, which debounces 400ms and then rescans. That is
-    /// fine for the editor, whose saves are already debounced and whose note is
-    /// already on screen — but not for a note the app has just *created*, which
-    /// is selected immediately and would spend that window absent from search,
-    /// backlinks and relatedness while looking perfectly present.
-    ///
-    /// Deliberately the narrow version of its macOS namesake: no watcher
-    /// bookkeeping (there is no watcher) and no title-change fallback, because
-    /// the only caller creates a note whose title nothing else can link to yet.
-    func noteDidSave(_ url: URL, text: String) {
-        guard let note = notes.first(where: { $0.fileURL == url }) else { return }
-        let title = url.deletingPathExtension().lastPathComponent
-        linkGraph.updateNote(url: url, title: title, text: text)
-        search.updateNote(note, text: text)
-        updateRelatedness(url: url, title: title, text: text)
-        embedProvider.update(notes: notes)
-        derivedRevision &+= 1
-    }
-    #endif
 
     // MARK: - File operations
 
@@ -1439,9 +1499,7 @@ final class Collection: Identifiable {
         // Register before anything can observe the file, so the watcher knows
         // this one was ours. `renameNote` and `append` already did this; create
         // and delete were the two that did not.
-        #if os(macOS)
-        recentSelfWrites[Self.normalize(url.path)] = Date()
-        #endif
+        rememberSelfWrite(url)
 
         let note = Note(title: url.deletingPathExtension().lastPathComponent,
                         fileURL: url,
@@ -1465,9 +1523,7 @@ final class Collection: Identifiable {
 
     /// Drop a note we just removed from the in-memory picture. See `adopt`.
     private func forget(_ note: Note) {
-        #if os(macOS)
-        recentSelfWrites[Self.normalize(note.fileURL.path)] = Date()
-        #endif
+        rememberSelfWrite(note.fileURL)
         notes.removeAll { $0.fileURL == note.fileURL }
         revision &+= 1
         removeFromRelatedness(note.fileURL)
@@ -1551,11 +1607,9 @@ final class Collection: Identifiable {
     /// not been told about. Naming a note in a large vault therefore re-read
     /// the entire vault twice, the second time landing mid-keystroke.
     private func adopt(renamed note: Note, to destination: URL, title: String) -> Note? {
-        #if os(macOS)
         let now = Date()
-        recentSelfWrites[Self.normalize(note.fileURL.path)] = now      // the file that left
-        recentSelfWrites[Self.normalize(destination.path)] = now       // and the one that arrived
-        #endif
+        rememberSelfWrite(note.fileURL, at: now)      // the file that left
+        rememberSelfWrite(destination, at: now)       // and the one that arrived
 
         // Keep `lastModified` — a move preserves it, and inventing a new one
         // would jump the note to the top of a list sorted by it, on nothing
@@ -1647,13 +1701,10 @@ final class Collection: Identifiable {
             return (written, failed)
         }
 
-        // Register these writes as our own so the file watcher doesn't re-scan
+        // Register these writes as our own so the change watcher doesn't re-scan
         // them as external changes (a spurious reconcile + double re-index).
-        // The watcher + self-write filtering are macOS-only.
-        #if os(macOS)
         let now = Date()
-        for url in outcome.written { recentSelfWrites[Self.normalize(url.path)] = now }
-        #endif
+        for url in outcome.written { rememberSelfWrite(url, at: now) }
 
         let failures = outcome.failed
         if !failures.isEmpty {
@@ -1704,9 +1755,7 @@ final class Collection: Identifiable {
             report("Couldn't append to “\(note.title)”: \(error.localizedDescription)")
             return
         }
-        #if os(macOS)
-        recentSelfWrites[Self.normalize(url.path)] = Date()
-        #endif
+        rememberSelfWrite(url)
         // **One note's content changed, so no walk.** This used to
         // `await scanOffMain()`, which made a one-file append cost a re-read of
         // the whole folder — and appending is what quick-capture does.
@@ -1717,10 +1766,17 @@ final class Collection: Identifiable {
     func deleteNote(_ note: Note) async {
         // Capture the remote path *before* trashing (the mapping is by URL).
         let remotePath = remote.map { $0.remotePath(forLocalURL: note.fileURL) }
+        // `Trash.item` throws only when the file is still there, so a thrown
+        // error is the one case where dropping it from the model would be a
+        // lie. It used to call `trashItem` directly, report the throw, and
+        // `forget(note)` anyway — which on iOS (no Trash for an app container)
+        // removed the note from the sidebar, left it on disk, and let the next
+        // scan bring it back.
         do {
-            try FileManager.default.trashItem(at: note.fileURL, resultingItemURL: nil)
+            try Trash.item(at: note.fileURL)
         } catch {
-            report("Couldn't move “\(note.title)” to the Trash: \(error.localizedDescription)")
+            report("Couldn't delete “\(note.title)”: \(error.localizedDescription)")
+            return
         }
         // A direct-API collection must delete on the provider too, or the next
         // syncDown silently re-downloads the note the user just deleted.
@@ -1761,9 +1817,10 @@ final class Collection: Identifiable {
     func deleteFolder(at url: URL) async {
         let remotePath = remote.map { $0.remotePath(forLocalURL: url) }
         do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            try Trash.item(at: url)
         } catch {
-            report("Couldn't move the folder to the Trash: \(error.localizedDescription)")
+            report("Couldn't delete the folder: \(error.localizedDescription)")
+            return
         }
         if let remote, let remotePath {
             do { try await remote.store.delete(path: remotePath) }

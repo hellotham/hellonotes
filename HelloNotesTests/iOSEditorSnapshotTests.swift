@@ -11,6 +11,7 @@
 #if os(iOS)
 import XCTest
 import UIKit
+import SwiftUI
 import MarkdownEditor
 @testable import HelloNotes
 
@@ -116,6 +117,74 @@ final class iOSEditorSnapshotTests: XCTestCase {
         }
         let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"] ?? NSTemporaryDirectory()
         let url = URL(fileURLWithPath: dir).appendingPathComponent("ios-editor-services.png")
+        try image.pngData()?.write(to: url)
+        print("SNAPSHOT wrote \(url.path)")
+        XCTAssertGreaterThan(image.size.width, 100)
+    }
+
+    /// The two settings that used to be Mac-only in practice — and, in the same
+    /// capture, proof that a note opened the way a note is actually opened
+    /// still draws its chrome.
+    ///
+    /// The wrap guide had no UIKit implementation at all: it was painted by
+    /// `MarkdownTextView.draw`, and UIKit does not call a `UITextView`
+    /// subclass's `draw(_:)` over its own text. The accent was worse, because
+    /// nothing was missing — `EditorTheme` has taken a cross-platform
+    /// `accent: PlatformColor?` since it was written and iOS passed `nil`, so
+    /// the chosen accent coloured the Mac's editor and not the iPad's.
+    ///
+    /// **No `styleEverythingNow()`, deliberately.** Every other snapshot here
+    /// calls it, which is exactly why none of them could have caught what
+    /// `makeUIView` used to do: style whole documents up to 200KB synchronously
+    /// on the main thread at open, because `layoutSubviews` had no
+    /// `ensureVisibleRangeStyled` call. That pass is gone; this asserts that
+    /// laying the view out is enough on its own — bullets, checkboxes, the
+    /// callout band and the heading rules are all overlay-drawn from the
+    /// styling pass, so if the viewport were not styled this capture would come
+    /// back as plain text.
+    func testRenderWrapGuideAndAccent() throws {
+        let accent = PlatformColor(red: 0.42, green: 0.31, blue: 0.78, alpha: 1)
+        let doc = EditorDocument(text: Self.sample,
+                                 theme: EditorTheme(fontSize: 17, accent: accent))
+        let tv = MarkdownUITextView.make(document: doc)
+        let bounds = CGRect(x: 0, y: 0, width: 390, height: 780)
+        tv.frame = bounds
+        tv.isScrollEnabled = false
+        tv.wrapGuideColumns = 32
+
+        let window = UIWindow(frame: bounds)
+        window.backgroundColor = .systemBackground
+        window.addSubview(tv)
+        window.makeKeyAndVisible()
+
+        tv.setNeedsLayout()
+        tv.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        tv.setNeedsLayout()
+        tv.layoutIfNeeded()
+
+        // Styled by layout alone: the first heading is bold, which only the
+        // styling pass makes it.
+        // Read through the view's own storage — the document's is internal to
+        // the package, and this is the reference UIKit actually draws from.
+        let heading = (tv.textStorage.string as NSString).range(of: "Heading one")
+        let font = tv.textStorage.attribute(.font, at: heading.location,
+                                            effectiveRange: nil) as? UIFont
+        let traits: UIFontDescriptor.SymbolicTraits = font?.fontDescriptor.symbolicTraits ?? []
+        XCTAssertTrue(traits.contains(.traitBold),
+                      "the viewport is styled without a whole-document pass")
+
+        // The guide has somewhere to be, inside the text area rather than
+        // hugging the bezel — the case `wrapGuideX` returns nil for.
+        let x = try XCTUnwrap(tv.wrapGuideX)
+        XCTAssertGreaterThan(x, tv.textContainerInset.left)
+        XCTAssertLessThan(x, bounds.width - 1)
+
+        let image = UIGraphicsImageRenderer(bounds: bounds).image { ctx in
+            tv.layer.render(in: ctx.cgContext)
+        }
+        let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"] ?? NSTemporaryDirectory()
+        let url = URL(fileURLWithPath: dir).appendingPathComponent("ios-editor-wrapguide-accent.png")
         try image.pngData()?.write(to: url)
         print("SNAPSHOT wrote \(url.path)")
         XCTAssertGreaterThan(image.size.width, 100)

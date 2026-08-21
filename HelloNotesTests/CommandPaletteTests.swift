@@ -5,7 +5,6 @@
 //  Created by Chris Tham on 16/8/2026.
 //
 
-#if os(macOS)
 import Testing
 import Foundation
 @testable import HelloNotes
@@ -130,6 +129,53 @@ struct CommandPaletteTests {
         }
     }
 
+    /// The palette is not a macOS surface — `iOSContentView` presents the same
+    /// sheet — so its mode rows have to come from the platform's list. It read
+    /// `EditorMode.macCases` while the View menu read `platformCases`, which is
+    /// harmless only for as long as the two lists stay equal, and the point of
+    /// a shared registry is that nobody has to remember that.
+    @Test func editorModeRowsFollowThePlatformList() {
+        var actions = fullActions()
+        actions.editorMode = .preview
+        let ids = Set(actions.paletteCommands.map(\.id))
+        let expected = Set(EditorMode.platformCases
+            .filter { $0 != .preview }
+            .map { "mode-\($0.rawValue)" })
+        #expect(Set(ids.filter { $0.hasPrefix("mode-") }) == expected)
+    }
+
+    /// The five rows that a trailing-closure literal smuggled past `add`'s
+    /// `guard let run`.
+    ///
+    /// Most entries hand their optional action straight through — `run:
+    /// note.revealInFinder` — so a nil action omits the row. "New Window" and
+    /// the four "Connect … Over the Web…" rows wrapped theirs in `{ newWindow?()
+    /// }` instead, and a closure literal is never nil: the rows were appended
+    /// unconditionally. On iPad both actions *are* nil, so the palette listed
+    /// five commands that dismissed it and did nothing. Everything else in this
+    /// suite passes non-nil actions, which is exactly why none of it saw this.
+    @Test func nilOptionalActionsProduceNoRows() {
+        let noWindowsNoWeb = AppActions(
+            canNewNote: true, newNote: {}, todaysNote: {}, openLauncher: {},
+            canOpenQuickly: true, openQuickly: {},
+            canGraph: true, graphView: {},
+            canAsk: true, askLibrary: {}, assistant: {},
+            canCloseTab: true, closeTab: {},
+            searchAllCollections: {},
+            editorMode: .edit, setEditorMode: { _ in })
+        let ids = Set(noWindowsNoWeb.paletteCommands.map(\.id))
+
+        #expect(!ids.contains("new-main-window"), "New Window survived a nil newWindow")
+        for provider in CloudBrowser.allCases {
+            #expect(!ids.contains("connect-\(provider.rawValue)"),
+                    "connect-\(provider.rawValue) survived a nil connectOverWeb")
+        }
+        // The window's other commands are untouched — this is about the two
+        // optional actions, not about emptying the palette.
+        #expect(ids.contains("new-note"))
+        #expect(ids.contains("close-tab"))
+    }
+
     /// Commands that need a note, a collection or a provider must disappear
     /// rather than appear and fail — the palette greys nothing out, so an
     /// unavailable command has to be absent.
@@ -155,4 +201,3 @@ struct CommandPaletteTests {
         #expect(ids.contains("launcher"))
     }
 }
-#endif

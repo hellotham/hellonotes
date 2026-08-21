@@ -15,6 +15,19 @@ import Foundation
 import Speech
 import AVFoundation
 
+/// Why capture couldn't start, for the cases the Speech framework has no error
+/// of its own for.
+enum VoiceCaptureError: LocalizedError {
+    case microphoneDenied
+
+    var errorDescription: String? {
+        switch self {
+        case .microphoneDenied:
+            return "HelloNotes can't use the microphone. Turn it on in Settings › Privacy & Security › Microphone."
+        }
+    }
+}
+
 @available(macOS 26.0, iOS 26.0, *)
 actor VoiceCapture {
     private let engine = AVAudioEngine()
@@ -29,6 +42,15 @@ actor VoiceCapture {
     /// Start transcribing. `onTranscript` receives the running transcript (final
     /// text + the current volatile tail) as it grows.
     func start(onTranscript: @escaping @Sendable (String) -> Void) async throws {
+        #if os(iOS)
+        // Asked first, before the model download below, so the permission alert
+        // lands on the tap that asked for dictation rather than some seconds
+        // after it. Already-answered requests return immediately.
+        guard await AVAudioApplication.requestRecordPermission() else {
+            throw VoiceCaptureError.microphoneDenied
+        }
+        #endif
+
         let transcriber = SpeechTranscriber(
             locale: Locale.current,
             transcriptionOptions: [],
@@ -64,6 +86,26 @@ actor VoiceCapture {
 
         try await analyzer.start(inputSequence: stream)
 
+        #if os(iOS)
+        // iOS hands out no microphone until an audio session asks for one: the
+        // default `.soloAmbient` category has no input route at all, so the tap
+        // install and `engine.start()` below both fail before a single sample
+        // arrives — and `DictationController` swallows the throw, which is how
+        // dictation on iPad managed to produce no prompt, no transcript and no
+        // error. macOS has no `AVAudioSession` (the input device is simply
+        // there), hence the gate rather than a shared path.
+        //
+        // This must run *before* `engine.inputNode` is first read: the node
+        // latches the hardware format on that first access, and the format the
+        // session has yet to grant is not the one we want to tap.
+        do {
+            try activateAudioSession()
+        } catch {
+            unwindFailedStart()
+            throw error
+        }
+        #endif
+
         // Feed microphone audio, converted to the analyzer's preferred format.
         let inputNode = engine.inputNode
         let sourceFormat = inputNode.outputFormat(forBus: 0)
@@ -84,7 +126,32 @@ actor VoiceCapture {
             continuation.yield(AnalyzerInput(buffer: output))
         }
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            unwindFailedStart()
+            throw error
+        }
+    }
+
+    /// Undo a half-built capture.
+    ///
+    /// `DictationController` drops the `VoiceCapture` when `start()` throws and
+    /// never calls `stop()`, so anything already running has to be unwound here:
+    /// the results task is waiting on a stream that would otherwise never
+    /// finish, and on iOS the audio session would go on ducking other audio for
+    /// a dictation that isn't happening.
+    private func unwindFailedStart() {
+        #if os(iOS)
+        deactivateAudioSession()
+        #endif
+        inputContinuation?.finish()
+        inputContinuation = nil
+        resultsTask?.cancel()
+        resultsTask = nil
+        analyzer = nil
+        transcriber = nil
     }
 
     func stop() async {
@@ -93,6 +160,29 @@ actor VoiceCapture {
         inputContinuation?.finish()
         try? await analyzer?.finalizeAndFinishThroughEndOfInput()
         resultsTask?.cancel()
+        #if os(iOS)
+        deactivateAudioSession()
+        #endif
     }
+
+    #if os(iOS)
+    /// Put the session into a category that has an input route.
+    ///
+    /// `.measurement` turns off the system's own signal processing, which is
+    /// what a recogniser wants to hear rather than an AGC'd version of it, and
+    /// has the side effect of allowing a Bluetooth HFP mic. `.duckOthers` lowers
+    /// whatever is playing instead of stopping it.
+    private func activateAudioSession() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+        try session.setActive(true)
+    }
+
+    /// Hand the audio route back. `.notifyOthersOnDeactivation` is what lets a
+    /// ducked podcast come back up instead of staying quiet after dictation.
+    private func deactivateAudioSession() {
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+    #endif
 }
 #endif

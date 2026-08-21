@@ -101,14 +101,23 @@ struct HelloNotesApp: App {
         // every keyboard shortcut with it — no ⌘B, no ⌘F, no View menu.
         .commands { HelloNotesCommands() }
 
-        #if os(macOS)
         // Standalone single-note windows, opened via `openWindow(value: NoteRef(url))`.
         // NoteRef (not URL) keeps macOS from treating this as a document scene.
+        //
+        // Cross-platform: iPadOS builds a second scene from the same call, and
+        // this was gated to macOS while `AppCommands` went on offering "Open in
+        // New Window" on both — an item that drew, enabled, and did nothing.
         WindowGroup(for: NoteRef.self) { $ref in
             if let ref {
+                #if os(macOS)
                 rooted(NoteWindowView(fileURL: ref.url))
+                #else
+                rooted(iOSNoteWindowView(fileURL: ref.url))
+                #endif
             }
         }
+
+        #if os(macOS)
 
         // Exploration / reference surfaces live in windows, not sheets, so
         // they can stay open beside the notes they describe.

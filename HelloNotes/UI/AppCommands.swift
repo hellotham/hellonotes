@@ -246,11 +246,16 @@ struct HelloNotesCommands: Commands {
             // shortcuts beat menu items), so ⌘W closes the tab then and the
             // window otherwise — the Safari/Xcode convention. This item is the
             // discoverable, clickable counterpart.
-            #if os(macOS)
-            // iPad has no editor tab bar.
+            //
+            // **Not Mac-only.** This was gated `#if os(macOS)` under the
+            // comment "iPad has no editor tab bar", which stopped being true
+            // the day `iOSContentView` grew a `tabStrip` over the same shared
+            // `EditorTabs` the Mac uses, close buttons and all. The gate left
+            // the iPad with tabs it could open, close by touch, and reach from
+            // no menu — so it gets the item on both platforms, greyed by
+            // `canCloseTab` exactly as the Mac's is.
             Button("Close Tab") { actions?.closeTab() }
                 .disabled(!(actions?.canCloseTab ?? false))
-            #endif
         }
 
         // MARK: File — export lives where macOS users expect it.

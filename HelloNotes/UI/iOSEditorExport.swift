@@ -36,10 +36,12 @@ enum iOSEditorExport {
         let renderer = UIPrintPageRenderer()
         renderer.addPrintFormatter(formatter, startingAtPageAt: 0)
 
-        // US Letter at 72dpi, with a half-inch margin — the same page shape the
-        // Mac's export produces.
-        let page = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let printable = page.insetBy(dx: 36, dy: 36)
+        // The same page shape the Mac's export produces — and now literally the
+        // same numbers, from `ExportPage`. It used to say this while insetting
+        // by 36pt against the Mac's 48pt: a comment claiming a parity that two
+        // hard-coded constants in two files could not keep.
+        let page = CGRect(x: 0, y: 0, width: ExportPage.width, height: ExportPage.height)
+        let printable = page.insetBy(dx: ExportPage.margin, dy: ExportPage.margin)
         renderer.setValue(page, forKey: "paperRect")
         renderer.setValue(printable, forKey: "printableRect")
 
@@ -70,24 +72,57 @@ enum iOSEditorExport {
 
     /// Write to a temporary file and present the share sheet over whatever is
     /// frontmost. A temp file rather than raw `Data` so the sheet shows a real
-    /// filename and extension — "HelloNotes.pdf", not "Item".
+    /// filename and extension — "HelloNotes.pdf", not "Item". An uncoordinated
+    /// write is right here: the temporary directory is ours and local, not
+    /// vault content on a cloud volume, which is what `FileIO` exists for.
     private static func share(data: Data, filename: String) {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        do { try data.write(to: url, options: .atomic) } catch { return }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            // Say so. This used to be `catch { return }`, which made a failed
+            // export look exactly like a cancelled one — the share sheet simply
+            // never appeared, and the user was left to guess which had happened.
+            // The Mac has always raised an alert on a failed write.
+            presentError("HelloNotes couldn't write “\(filename)”: \(error.localizedDescription)")
+            return
+        }
 
-        guard let scene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive }),
-              let root = scene.keyWindow?.rootViewController
-        else { return }
+        guard let presenter = frontmostViewController() else {
+            presentError("HelloNotes couldn't find a window to share “\(filename)” from.")
+            return
+        }
 
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         // Required on iPad: an unanchored popover is a crash, not a no-op.
-        sheet.popoverPresentationController?.sourceView = root.view
+        sheet.popoverPresentationController?.sourceView = presenter.view
         sheet.popoverPresentationController?.sourceRect = CGRect(
-            x: root.view.bounds.midX, y: root.view.bounds.midY, width: 0, height: 0)
+            x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
         sheet.popoverPresentationController?.permittedArrowDirections = []
-        root.present(sheet, animated: true)
+        presenter.present(sheet, animated: true)
+    }
+
+    /// The controller a sheet or alert can actually be presented from — the
+    /// top of the presentation stack, not the root. Presenting on a controller
+    /// that is already presenting something is a silent no-op with a console
+    /// warning, which is the same invisible failure this file just stopped
+    /// having.
+    private static func frontmostViewController() -> UIViewController? {
+        guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+              var top = scene.keyWindow?.rootViewController
+        else { return nil }
+        while let presented = top.presentedViewController { top = presented }
+        return top
+    }
+
+    private static func presentError(_ message: String) {
+        guard let presenter = frontmostViewController() else { return }
+        let alert = UIAlertController(title: "Export failed", message: message,
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        presenter.present(alert, animated: true)
     }
 
     private static func safe(_ title: String) -> String {

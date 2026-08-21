@@ -21,11 +21,13 @@ import SwiftUI
 /// The places the tab bar switches between. The open note is deliberately not
 /// one of them — it is the now-playing track, not a destination.
 ///
-/// The design also calls for an AI place here (decision 7). It is absent
-/// because the Assistant and Ask Library views are still macOS-only; a tab that
-/// led nowhere would be worse than no tab. See docs/unimplemented.md.
+/// The AI place is decision 7's fourth tab. It used to be absent, with the
+/// reason written here: the Assistant and Ask Library views were macOS-only, and
+/// a tab that led nowhere would be worse than no tab. That reason expired when
+/// 1.3 brought both to iOS — the comment outlived the constraint it described,
+/// which is the ordinary way a documented gap becomes a stale one.
 enum CompactPlace: String, CaseIterable, Identifiable {
-    case notes, search, tags
+    case notes, search, tags, ai
 
     var id: String { rawValue }
 
@@ -34,6 +36,7 @@ enum CompactPlace: String, CaseIterable, Identifiable {
         case .notes: "Notes"
         case .search: "Search"
         case .tags: "Tags"
+        case .ai: "AI"
         }
     }
 
@@ -42,6 +45,7 @@ enum CompactPlace: String, CaseIterable, Identifiable {
         case .notes: "folder"
         case .search: "magnifyingglass"
         case .tags: "number"
+        case .ai: "sparkles"
         }
     }
 }

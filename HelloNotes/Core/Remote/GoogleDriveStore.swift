@@ -31,11 +31,6 @@ import CryptoKit
 #if canImport(AuthenticationServices)
 import AuthenticationServices
 #endif
-#if os(macOS)
-import AppKit
-#elseif canImport(UIKit)
-import UIKit
-#endif
 
 final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "Google Drive"
@@ -584,12 +579,11 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
 
 #if canImport(AuthenticationServices)
 extension GoogleDriveStore: ASWebAuthenticationPresentationContextProviding {
+    // Shared with the other three providers: on iOS a bare `ASPresentationAnchor()`
+    // is a scene-less `UIWindow`, which makes `start()` fail with
+    // `presentationContextInvalid` and the login sheet never appear.
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        #if os(macOS)
-        return NSApplication.shared.keyWindow ?? ASPresentationAnchor()
-        #else
-        return ASPresentationAnchor()
-        #endif
+        WebAuthAnchor.presentationAnchor()
     }
 }
 #endif

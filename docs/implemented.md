@@ -1922,3 +1922,207 @@ Twelve new iOS editor tests (38 in the suite, up from 26), and
 the ranking that used to live inside the macOS-only `NoteEditorView` moved to a
 cross-platform `WikiCompletions.swift`, so there is one fuzzy ranker rather than
 two drifting.
+
+---
+
+## 25 · The second parity pass — settings that did nothing, and a window that was never built (2026-08-21)
+
+§24 closed the features iPad was missing. This pass asked the harder half of the
+same question: where do the two platforms have the same feature and *behave
+differently* — and it found that the most common shape of that bug is not a
+missing feature but **a setting with no reader**.
+
+### A framework name in an API name is a platform boundary in disguise
+
+`AppearanceSettings.editorAccentNSColor` could only ever be called from AppKit.
+`EditorTheme` has taken a cross-platform `accent: PlatformColor?` since it was
+written, so iOS simply passed `nil` and got `.tintColor` — a chosen accent
+coloured the Mac's editor and not the iPad's, for the whole life of the iOS
+editor, with nothing gated and nothing missing.
+
+Underneath it sat eleven functions of WCAG colour science inside
+`#if os(macOS)`, written in `NSColor` (`blended(withFraction:of:)`,
+`redComponent`, `usingColorSpace` — none of which UIKit has). So **"Increase
+contrast" was a switch iPad drew, stored, synced, and ignored**: `accentTextColor`
+returned the raw tint and the AAA target the toggle exists to select was never
+consulted. Nothing crashed; the text was simply harder to read than the user had
+asked for.
+
+The fix is structural rather than a UIKit transcription — a second copy of colour
+maths is how the collection lifecycle drifted into two behaviours in the first
+place. `AccentContrast.swift` writes the arithmetic **once**, on framework-free
+sRGB triples, and each platform supplies three adapters: read components, build a
+colour, build one that answers differently in dark mode. The ratios are now
+testable without a window, which is what the eight new tests in
+`AccentContrastTests` do.
+
+### Settings with no reader
+
+Three more of the same shape, all with a picker, a `UserDefaults` key and a
+`CloudPrefs` sync entry — everything except somewhere to be read on iOS:
+
+- **Reading width / Editor width.** Their only reader was a `private func` on the
+  macOS-only `NoteEditorView`, written in `NSFont`. Now a `MeasuredText` modifier
+  in `ShellContract.swift` that both shells apply, reading pane width from the
+  shell environment rather than taking it as a parameter — so a caller cannot
+  measure against a width the shell disagrees with.
+- **Wrap guide.** Drawn by `MarkdownTextView.draw` only. UIKit does not call a
+  `UITextView` subclass's `draw(_:)` over its own text, which is why every other
+  piece of editor chrome lives on `ChromeOverlayView`; the guide now does too.
+- **Sort order.** `SortOrder` is `CaseIterable`, `Identifiable`, and carries a
+  `systemImage` per case — built for a picker that was never drawn on *either*
+  platform. It was a `@State` on `MacContentView` that nothing wrote and a
+  hard-coded `.modified` on iOS: the same value by coincidence rather than by
+  agreement. It moves to `AppearanceSettings`, both trees read it, and — per the
+  cache-key rule — the iOS `treeInputsKey` had to start naming it, or changing the
+  setting would have looked exactly like a setting that does nothing.
+
+### Two screens describing the same key differently
+
+`GeneralSettingsView` offered "Pasted images" as a two-way picker with a
+remembered subfolder name and a worked example of the Markdown it produces;
+`iOSSettingsView` offered a bare text field whose empty state means "same folder
+as the note" — true, and discoverable only by reading the placeholder. The Mac
+also previews what today's daily note would be called, which is the only feedback
+the date-format field has. That is not a platform difference; it is one screen
+having been improved and the other not. Both now render
+`FolderConventionSections`.
+
+### The window that was never built
+
+`AppActions.note.openInNewWindow` is an **optional** closure, nil on iOS. So File ▸
+Open in New Window and the palette's "Open in New Window" both drew, both
+enabled, and both did nothing when chosen. iPadOS has supported multiple scenes
+since iOS 13 and the app's generated scene manifest already declares
+`UIApplicationSupportsMultipleScenes` — what was missing was a view to put in the
+second scene, because the Mac's hosts `NoteEditorView`, which is macOS-only.
+
+Rather than write a second note view, the four view modes, the inline title and
+the two buffer banners came out of `iOSContentView` into `iOSNoteEditorPane` and
+`EditorBanners`, which the main window and the new `iOSNoteWindowView` both use.
+The window owns its own `EditorModel`, as the Mac's does — a second window on the
+same note is a second buffer — and drains it on scene-phase change rather than
+through `TerminationGuard`, which does not exist on a platform that suspends
+rather than quits.
+
+### The launcher, and what its gate actually cost
+
+`LauncherView` was `#if os(macOS)` end to end and nothing inside it needed to be:
+`RecentsStore`, `LibrariesStore` and `Bookmark` are all ungated, and the body is
+a `ScrollView` of buttons. Only the fixed 560×560 frame was Mac-shaped. What the
+gate cost the iPad was not the window but the *contents* — iOS wired
+`openLauncher` straight to the file importer, so a vault opened twenty times was
+still a folder to go and find again, and a saved library could be created on the
+Mac, synced, and never opened on the iPad. `library.onOpened` had no iOS
+assignment either, so even with somewhere to draw them the lists would have
+stayed empty.
+
+### A trade-off worth re-litigating, re-litigated
+
+`makeUIView` ran `styleEverythingNow()` for any note under 200KB — a synchronous
+restyle of every block, on the main thread, at the moment a note opens, which the
+Mac has never done. The comment called it the proven path. The actual asymmetry
+was one line: macOS styles its viewport from a scroll-view bounds observer, which
+fires on *first* layout as well as on every scroll, and iOS had only the scroll
+half. `layoutSubviews` calls `ensureVisibleRangeStyled()` now, and the
+whole-document pass is gone — opening a note costs what it costs on the Mac.
+
+### Also
+
+- **CSV/TSV** rendered as a table on iPad. `CSVTableView` and `CSVParser` were
+  born inside the macOS-gated `FileViewerView` and inherited its gate, so iPad
+  sent spreadsheets to Quick Look with everything else — which opens them, as a
+  wall of comma-separated text. A spreadsheet whose columns are gone is not a
+  spreadsheet.
+- **"Rewrite with AI…"** reaches the iPad's edit menu. It is the one vault action
+  that could not be an `EditorMenuItem`, whose `perform` is a synchronous
+  `(String) -> String?`: a rewrite opens a sheet with alternatives, a Replace and
+  an Insert Below. The UIKit view contributes the item and hands back the
+  *range*, exactly as `MarkdownTextView.menu(for:)` does.
+
+Nine new iOS editor tests (47 in the suite, up from 38) and eleven new app tests
+(302, up from 291).
+
+---
+
+## 26 · The audit that found the audit was wrong (2026-08-22)
+
+§25 was reported as an exhaustive parity pass. It was not, and the way it failed
+is worth more than the fixes in it.
+
+**The method answered the wrong question.** Both passes worked by enumerating
+`#if os(macOS)` gates and asking, of each, *does iOS have an equivalent?* That
+finds features which are **absent**. It is structurally blind to features which
+are **present and different** — and "behaves the same" is most of what parity
+means. `NoteOutlineList.swift` was in the gate list, was looked at, and was
+classified "the Mac shell's own view; iOS has its own" — which is true, and
+answers nothing about what the two views actually render.
+
+They rendered very different things:
+
+| | macOS | iPad |
+|---|---|---|
+| Note row | semibold title, cloud badge when online-only, second line carrying the search snippet or the modification date | `Text(note.title)` |
+| Collection | expandable outline row — a vault can be folded away | `Section` header — not collapsible |
+| Search | snippets per hit, plus `fileRows`: attachments whose *contents* matched | bare `[Note]`; **no snippets, no attachment hits at all** |
+| Tag filter | drops the collection group row (the selection already says which) | keeps the header |
+| Recents / Bookmarks | full note rows — same cell, same menu, draggable | inert `Text` |
+
+The third row is the one that matters most: on iPad, a phrase living only inside
+a PDF was unfindable. Not slow, not badly presented — *unfindable*, while the
+same query on the Mac found it. iOS was already running the identical Spotlight
+wave and discarding the result (`found.formUnion(matches.map { $0.note.fileURL })`
+threw away every snippet, and `collection.attachments` was never consulted).
+
+The fix follows §25's own rule, which the sidebar had been exempted from: the two
+sidebars genuinely cannot share a view — `NSOutlineView` cells against SwiftUI
+rows — but they can share what a row *says*. `NoteRowContent` decides title,
+subtitle and badge once; each platform draws it. A row that gains a field now
+gains it on both or neither.
+
+### Delete did not delete
+
+Running the iOS test suite — the one verification §25 could not complete — failed
+immediately on `createAndDeleteNote`: the file was still on disk afterwards.
+
+`Collection.deleteNote` called `FileManager.trashItem`, caught the throw,
+reported it, and called `forget(note)` **regardless**. On macOS that is right:
+every location the app can reach has a Trash. On iOS there is no Trash for an app
+container, so `trashItem` throws, the note leaves the sidebar, stays on disk, and
+**comes back at the next scan**. Delete appeared to work and quietly undid itself.
+`deleteFolder` had the identical shape.
+
+`Trash.item(at:)` now tries the Trash and, where the platform has no Trash for
+that location, removes the item — and throws *only* when the item is still there,
+which is what makes it safe for the caller to drop it from the model. An item
+already gone counts as success, so a stale row cannot be stranded.
+
+### The tests themselves were not at parity
+
+`HelloNotesTests` ran 302 tests on macOS and 236 on iOS. Three of the missing
+suites covered code that is cross-platform and were gated for no reason left
+standing: `CommandPaletteTests` (the palette was un-gated in 1.3.2),
+`ResumableTreeWalkTests` (`ResumableTreeWalk` has no platform gate at all), and
+part of `HelloNotesTests` itself. Un-gated: iOS now runs 257 tests in 29 suites.
+
+Still macOS-only, and correctly so: `ShellContractTests` (measures real
+`NSWindow`s), `EditorFidelitySnapshotTests` (AppKit rendering; iOS has its own
+snapshot suite), `SmartPasteTests` (genuinely an `NSPasteboard` fixture — the iOS
+`UIPasteboard` half needs tests of its own, and does not have them).
+
+### Two more capability gaps, from diffing menus item by item
+
+- **Download / Remove Download** existed only in the Mac's sidebar menu, on the
+  platform where a vault is *least* likely to be cloud-backed. `FileIO.download`
+  and `.evict` have no platform gate; iPad simply never called them.
+- **Focus Collection** had no iOS command. Focus was reachable only as a side
+  effect of selecting a note, so a collection with nothing selected in it could
+  not be made the scope for New Note, the graph, tags or Open Quickly.
+
+### What to do instead of a gate sweep
+
+Pair the surfaces, then diff the capabilities: for each user-facing surface, name
+the macOS view and the iOS view, and compare what each *offers* — every row
+field, every menu item, every state it can show. A gate sweep answers "does it
+exist"; only a capability diff answers "does it behave the same", which is the
+question parity is actually asking.
