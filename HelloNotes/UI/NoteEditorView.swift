@@ -74,6 +74,11 @@ struct NoteEditorView: View {
     @Environment(AppearanceSettings.self) private var appearance
     /// The pane this editor was given — the width rules resolve against it.
     @Environment(\.shell) private var shell
+    /// Published so a surface in another scene — the mind map — can show what
+    /// is being typed rather than what was last saved. Here rather than in each
+    /// shell because this view is the one both platforms put in the editor
+    /// column, so there is exactly one place the buffer is known.
+    @Environment(LiveBuffer.self) private var liveBuffer
 
     /// Folder (relative to the note) where pasted images are saved; empty means
     /// the same folder as the note. Configured in Settings.
@@ -245,6 +250,11 @@ struct NoteEditorView: View {
                 .task(id: editor.note?.fileURL) {
                     properties = FrontMatter.properties(in: editor.text)
                     showProperties = false
+                }
+                // The buffer another scene reads. `LiveBuffer` coalesces, so
+                // this is not a write per keystroke.
+                .onChange(of: editor.text, initial: true) { _, text in
+                    liveBuffer.publish(url: editor.note?.fileURL, text: text)
                 }
                 .task(id: editor.text) {
                     // Debounce so key-repeat typing doesn't queue a full-text

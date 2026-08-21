@@ -306,4 +306,22 @@ struct ShellComplianceTests {
             }
         }
     }
+
+    /// The mind map shows what you are typing, not what was last saved.
+    ///
+    /// It read the note's file unconditionally, which was invisible while it
+    /// was a sheet on iPad — a sheet lives in the editor's own scene and was
+    /// handed the buffer directly. Once both platforms opened a window, that
+    /// read became the only source, and unifying the two presentations would
+    /// have settled the difference by taking the worse of them.
+    @Test("An auxiliary window prefers the live buffer to the file")
+    func mindMapReadsTheLiveBuffer() throws {
+        let source = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes/UI/AuxiliaryWindows.swift"), encoding: .utf8)
+        #expect(source.contains("liveBuffer.text(for: rootURL) ?? fileText"),
+                "MindMapWindowView no longer prefers the editor's buffer")
+        #expect(source.contains("guard liveBuffer.text(for: rootURL) == nil else { return }"),
+                "MindMapWindowView reads the file even when the buffer has the note")
+    }
 }

@@ -53,7 +53,17 @@ struct MindMapWindowView: View {
     let rootURL: URL
 
     @Environment(Library.self) private var library
-    @State private var text: String?
+    @Environment(LiveBuffer.self) private var liveBuffer
+    @State private var fileText: String?
+
+    /// What is being typed, when the editor is holding this note; what is on
+    /// disk otherwise.
+    ///
+    /// This read the file unconditionally, so the Mac's mind map showed the
+    /// note as of the last autosave while the iPad's — a sheet in the same
+    /// scene, handed the live buffer — showed what you were typing. Now that
+    /// both platforms open a window, the window has to be able to see it.
+    private var text: String? { liveBuffer.text(for: rootURL) ?? fileText }
 
     var body: some View {
         MindMapPane(rootURL: rootURL,
@@ -62,7 +72,10 @@ struct MindMapWindowView: View {
                     onShowSection: showSection)
             .frame(minWidth: 480, minHeight: 360)
             .task(id: rootURL) {
-                text = await offMain { try? FileIO.readString(at: rootURL) }
+                // Only when the editor is not holding it — reading a file we
+                // already have in memory is a coordinated read for nothing.
+                guard liveBuffer.text(for: rootURL) == nil else { return }
+                fileText = await offMain { try? FileIO.readString(at: rootURL) }
             }
     }
 
