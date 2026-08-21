@@ -8,8 +8,8 @@
 //  it already existed a few hundred lines away.
 //
 
-#if os(iOS)
 import SwiftUI
+#if os(iOS)
 import UIKit
 import UniformTypeIdentifiers
 
@@ -53,6 +53,43 @@ struct FolderPicker: UIViewControllerRepresentable {
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             onPick([])
         }
+    }
+}
+
+#else
+import AppKit
+
+/// The Mac's folder picker.
+///
+/// An `NSOpenPanel` run when the view appears, rather than a representable:
+/// AppKit's panel is a window of its own, not a view to embed. Presented the
+/// same way as the iOS picker — in a sheet — so a caller asks for a folder
+/// identically on both platforms instead of choosing between a view here and a
+/// method on `Library` there.
+struct FolderPicker: View {
+    let startingAt: URL?
+    let onPick: ([URL]) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        // Nothing to draw: the panel is the UI. A zero-size view keeps the
+        // sheet from flashing a blank card behind it.
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onAppear {
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = true
+                panel.prompt = "Open"
+                panel.directoryURL = startingAt
+                let urls = panel.runModal() == .OK ? panel.urls : []
+                dismiss()
+                // After the dismiss, so the caller's sheet is already down when
+                // whatever it opens wants to present something of its own.
+                if !urls.isEmpty { onPick(urls) }
+            }
     }
 }
 #endif

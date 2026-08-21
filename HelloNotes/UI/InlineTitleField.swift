@@ -23,9 +23,13 @@
 //  is a *distance* in points from the first glyph, never a character count.
 //
 
-#if os(macOS)
 import SwiftUI
+import MarkdownEditor   // PlatformFont
+#if os(macOS)
 import AppKit
+#endif
+
+#if os(macOS)
 
 struct InlineTitleField: NSViewRepresentable {
     @Binding var text: String
@@ -173,6 +177,49 @@ struct InlineTitleField: NSViewRepresentable {
             guard let field else { return }
             parent.onCommit(field.stringValue)
         }
+    }
+}
+
+#else
+/// The iOS title field.
+///
+/// SwiftUI's `TextField` is exactly right here, and the two boundary behaviours
+/// the Mac's `NSTextField` exists to correct do not arise the same way: UIKit
+/// does not select-all on programmatic focus, and there is no field editor whose
+/// caret timer needs restarting.
+///
+/// One thing is genuinely not carried across the seam: the *column*. SwiftUI has
+/// no way to place a caret at an x offset in a `TextField`, so the whole field
+/// takes focus and `onEnterBody` reports no column. The Mac keeps it through its
+/// own representable. That is a platform capability, not a decision — and it is
+/// why this type exists on both sides rather than the caller choosing between
+/// two different views.
+struct InlineTitleField: View {
+    @Binding var text: String
+    let font: PlatformFont
+    var onCommit: (String) -> Void
+    var onEnterBody: (CGFloat?) -> Void
+    var focusRequest: CaretHandoff
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Untitled", text: $text)
+            .textFieldStyle(.plain)
+            .font(Font(font))
+            .submitLabel(.done)
+            .autocorrectionDisabled()
+            .focused($focused)
+            // The caret arrived from the note below. The Mac's field has taken
+            // this since the inline title shipped; iOS's ignored it, so ↑ from
+            // the first line of a note on an iPad keyboard did nothing.
+            .onChange(of: focusRequest) { _, _ in focused = true }
+            .onSubmit {
+                onCommit(text)
+                // Return commits and hands the caret back down, with no column
+                // to keep — the same contract the Mac's field reports.
+                onEnterBody(nil)
+            }
     }
 }
 #endif

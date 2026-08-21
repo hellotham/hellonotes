@@ -34,8 +34,8 @@
 //      grep chrome ~/Library/Containers/com.hellotham.HelloNotes/Data/Library/Caches/hn-geom.log
 //
 
-#if os(macOS)
 import SwiftUI
+#if os(macOS)
 import AppKit
 
 /// Drop into a `.background()` anywhere inside the window. Zero-sized, and does
@@ -306,5 +306,20 @@ enum ChromeProbeLog {
             try? data.write(to: url)
         }
     }
+}
+
+#else
+/// There is no titlebar to bleed under on iOS.
+///
+/// The problem this instrument measures — a split-view column painting up into
+/// the window's titlebar because AppKit keeps the content view full height — has
+/// no iOS analogue: a scene has safe-area insets, SwiftUI honours them, and
+/// nothing is layered over the content the way a titlebar is.
+///
+/// So the `#else` is genuinely empty, and saying that is the point: the reader
+/// who comes looking for "why is this macOS-only" gets an answer here instead of
+/// having to infer one from a gate.
+enum ChromeProbeLog {
+    static func note(_ line: String) {}
 }
 #endif

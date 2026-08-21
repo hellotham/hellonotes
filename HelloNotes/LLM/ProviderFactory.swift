@@ -60,13 +60,12 @@ enum ProviderFactory {
             #endif
 
         case .mlx:
-            // This one really is Mac-only — `MLXProvider` is `#if os(macOS)`, so
-            // off the Mac the type does not exist to return.
-            #if os(macOS)
+            // One call site. `MLXProvider` exists on both platforms now — off
+            // the Mac it answers `.unsupported` rather than not being there, so
+            // this does not have to know which platform it is on. Whether MLX
+            // *could* run on an M-series iPad is a dependency question, and the
+            // type says so where the answer belongs.
             return (MLXProvider(), config.model)
-            #else
-            throw LLMError.unsupported("MLX models run on the Mac only.")
-            #endif
         }
     }
 }

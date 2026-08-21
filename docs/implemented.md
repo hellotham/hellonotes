@@ -2761,3 +2761,37 @@ side and `.selection` on the other. And neither read
 height (HIG: 44pt touch)", while the Mac hard-coded 30 and iPad used padding. The
 one number the contract states about this view was consulted by nothing, which is
 the same shape as `sortOrder`: a rule with no reader.
+
+### The four small ones
+
+**`InlineTitleField`** now exists on both platforms. `InlineNoteTitle` used to
+choose between an `NSTextField` representable and a SwiftUI `TextField` with an
+`#if` — and the two had different *capabilities*, which is fine, and different
+*contracts*, which was not: the iOS branch ignored `focusRequest` entirely, so ↑
+from the note's first line did nothing on an iPad keyboard until this audit.
+One type, two implementations, four parameters both honour. The column genuinely
+does not cross the seam on iOS — SwiftUI cannot place a caret at an x offset —
+and that is now a documented property of one type rather than an absent feature
+of a different one.
+
+**`FolderPicker`** gains a Mac half: an `NSOpenPanel` run when the view appears,
+rather than a representable, because AppKit's panel is a window and not a view to
+embed. It is presented the same way — in a sheet — so a caller asks for a folder
+identically on both platforms instead of choosing between a view here and a
+method on `Library` there.
+
+**`MLXProvider`** exists on both and answers `.unsupported` off the Mac, so
+`ProviderFactory` has one call site rather than a gate. Whether MLX *could* run
+on an M-series iPad is a dependency question rather than a code one — MLX Swift
+targets Apple silicon generally and this project's package is not configured for
+iOS — and the type says so where the answer belongs.
+
+**`ChromeProbe`** keeps an empty `#else`, and that is the point: the problem it
+measures — a split-view column painting up into the titlebar because AppKit keeps
+the content view full height — has no iOS analogue. A reader who comes looking
+for "why is this macOS-only" gets an answer instead of inferring one from a gate.
+
+*Note for whoever owns this file: `ChromeProbe`, `TitlebarClearance`,
+`TitlebarInsetReader` and `ChromeProbeLog` have no callers anywhere in the app.
+The header's record of what has been ruled out is worth keeping either way; the
+code may not be.*

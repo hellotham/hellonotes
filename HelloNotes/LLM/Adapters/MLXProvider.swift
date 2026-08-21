@@ -78,4 +78,30 @@ struct MLXProvider: LLMProvider {
         }
     }
 }
+
+#else
+/// MLX off the Mac.
+///
+/// Whether MLX *could* run here is a dependency question rather than a code one:
+/// MLX Swift targets Apple silicon generally, and an M-series iPad has the
+/// hardware — but this project's package dependency is not configured for iOS,
+/// so the model types are absent and nothing here can conjure them.
+///
+/// The type exists on both platforms so `ProviderFactory` has one call site
+/// rather than a gate, and it answers honestly instead of not being there.
+@MainActor
+final class MLXProvider: LLMProvider {
+    private(set) var loadingModel: String?
+    private(set) var progress: Double = 0
+
+    init() {}
+
+    func stream(_ context: LLMContext, model: String,
+                options: LLMRequestOptions) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish(throwing: LLMError.unsupported(
+                "MLX models run on the Mac only."))
+        }
+    }
+}
 #endif
