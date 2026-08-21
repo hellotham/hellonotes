@@ -72,13 +72,15 @@ struct MacContentView: View {
 
     /// Debounced full-text results, computed off the render path so typing in
     /// the search field doesn't scan every note's body on each keystroke.
-    @State private var searchResults: [SearchGroup] = []
-    @State private var searchResultsRevision = 0
-    @State private var searchTask: Task<Void, Never>?
-    @State private var isSearchInFlight = false
+    /// Searching the library — the same implementation the iPad runs.
+    ///
+    /// This was four `@State` fields and a `scheduleSearch` written once here
+    /// and once in `iOSContentView`, with two debounces, two minimum query
+    /// lengths and two merge rules. The iPad's discarded its snippets and never
+    /// collected attachment hits at all, so a phrase inside a PDF was
+    /// unfindable there. See `LibrarySearch`.
+    @State private var search = LibrarySearch()
 
-    /// System Spotlight-index query for matches inside attachments (PDFs etc.).
-    @State private var spotlight = SpotlightSearch()
 
     /// A separate Spotlight query for the references panel's unlinked-mention
     /// candidates, so selecting a note never cancels an in-flight sidebar search
@@ -228,74 +230,14 @@ struct MacContentView: View {
     /// A collection paired with its full-text search hits (for grouped results).
     /// `fileRows` are attachments (PDFs, documents, …) whose *content* matched,
     /// found via the system Spotlight index rather than the app's own index.
-    private struct SearchGroup: Identifiable {
-        let collection: Collection
-        let rows: [NoteRow]
-        var fileRows: [CollectionFile] = []
-        var id: Collection.ID { collection.id }
-    }
 
     /// Recompute the debounced search results. Runs at most once per ~200 ms of
     /// typing (not per keystroke), and computes the groups once (they used to be
     /// recomputed twice per body — for the rows and the empty-state check).
     private func scheduleSearch(_ raw: String) {
-        searchTask?.cancel()
-        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            searchResults = []
-            searchResultsRevision &+= 1
-            isSearchInFlight = false
-            rebuildOutline()
-            return
-        }
-        isSearchInFlight = true
-        searchTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
-            // Wave 1: title/alias hits, straight from the metadata index —
-            // instant, no file reads.
-            searchResults = library.collections.compactMap { collection in
-                let rows = collection.search.titleResults(query: query).map {
-                    NoteRow(note: $0.note, snippet: nil)
-                }
-                return rows.isEmpty ? nil : SearchGroup(collection: collection, rows: rows)
-            }
-            searchResultsRevision &+= 1
-            isSearchInFlight = false
-            rebuildOutline()   // reflect results immediately, independent of key timing
-
-            // Wave 2: *content* matches — inside notes and attachments (PDFs,
-            // documents, …) — via the system Spotlight index. Spotlight names
-            // the files whose content matches; only those files are then read
-            // (off-main) to verify and extract snippets, so a query costs a
-            // handful of reads, not a pass over the whole collection. Zero
-            // Spotlight hits simply means no content matches (Finder
-            // semantics); title hits above still stand. Skipped for 1–2
-            // character queries, which would churn through enormous result
-            // sets for no discriminating value.
-            guard query.count >= 3 else { return }
-            let hits = await spotlight.search(query, in: library.collections.map(\.rootURL))
-            guard !Task.isCancelled, !hits.isEmpty else { return }
-            let hitPaths = Set(hits.map { $0.standardizedFileURL.path })
-            var merged: [SearchGroup] = []
-            for collection in library.collections {
-                let mdCandidates = collection.notes.map(\.fileURL)
-                    .filter { hitPaths.contains($0.standardizedFileURL.path) }
-                let contentHits = await collection.search.contentResults(query: query, in: mdCandidates)
-                guard !Task.isCancelled else { return }
-                let contentURLs = Set(contentHits.map(\.id))
-                let titleRows = (searchResults.first { $0.id == collection.id }?.rows ?? [])
-                    .filter { !contentURLs.contains($0.note.fileURL) }
-                let rows = contentHits.map { NoteRow(note: $0.note, snippet: $0.snippet) } + titleRows
-                let files = collection.attachments.filter { hitPaths.contains($0.url.standardizedFileURL.path) }
-                guard !rows.isEmpty || !files.isEmpty else { continue }
-                merged.append(SearchGroup(collection: collection, rows: rows, fileRows: files))
-            }
-            guard !Task.isCancelled else { return }
-            searchResults = merged
-            searchResultsRevision &+= 1
-            rebuildOutline()
-        }
+        // The debounce, the two waves and the merge are `LibrarySearch`'s. What
+        // is left here is the outline, which is this platform's presentation.
+        search.update(query: raw, in: library.collections)
     }
 
     /// Notes matching the active tag filter in the focused collection, flat rows.
@@ -1874,7 +1816,7 @@ struct MacContentView: View {
                     .buttonStyle(.borderedProminent)
             }
         } else if isSearching {
-            if searchResults.isEmpty && !isSearchInFlight {
+            if search.isEmpty && !search.isInFlight {
                 ContentUnavailableView.search(text: searchText)
             }
         } else if selectedTag == nil, let collection = focused, collection.notes.isEmpty,
@@ -1897,11 +1839,13 @@ struct MacContentView: View {
     /// folders (D2) — search and a tag filter replace that with their results.
     private func buildOutlineRoots() -> [NoteOutlineItem] {
         if isSearching {
-            return searchResults.map { group in
-                NoteOutlineItem(id: group.collection.id, kind: .collection(group.collection),
-                                children: group.rows.map {
+            return search.groups.compactMap { group in
+                guard let collection = library.collections.first(where: { $0.id == group.id })
+                else { return nil }
+                return NoteOutlineItem(id: collection.id, kind: .collection(collection),
+                                       children: group.rows.map {
                     NoteOutlineItem(id: $0.note.fileURL.path, kind: .note($0.note, snippet: $0.snippet))
-                } + group.fileRows.map {
+                } + group.files.map {
                     NoteOutlineItem(id: $0.url.path, kind: .file($0))
                 })
             }
@@ -1989,7 +1933,7 @@ struct MacContentView: View {
             .joined(separator: "|")
         let mode: String
         if isSearching {
-            mode = "s:\(searchResultsRevision):\(collectionRevisions)"
+            mode = "s:\(search.revision):\(collectionRevisions)"
         } else if let selectedTag {
             mode = "t:\(selectedTag):\(focused?.id ?? ""):\(collectionRevisions)"
         } else {

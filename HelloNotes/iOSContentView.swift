@@ -130,26 +130,15 @@ struct iOSContentView: View {
     /// inside it, so it is confirmed rather than done on a tap, as on the Mac.
     @State private var pendingFolderDelete: URL?
 
-    /// Notes whose *body* matched the search, by file URL. Title and alias hits
-    /// come straight from the metadata index and are instant; content hits cost
-    /// file reads, so they arrive on their own debounced pass and merge in.
-    @State private var contentMatches: Set<URL> = []
-    /// The snippet each body match was found by, so the sidebar can show *why*
-    /// a note matched. The Mac has shown this since search was written; iOS ran
-    /// the identical Spotlight wave and then threw the snippets away, keeping
-    /// only the URLs.
-    @State private var contentSnippets: [URL: String] = [:]
-    /// Attachments whose *contents* matched — PDFs, Pages documents, anything
-    /// Spotlight indexes. The Mac lists these beside the note hits; iPad
-    /// dropped them entirely, so a phrase that lived only inside a PDF was
-    /// unfindable on that platform.
-    @State private var contentFileHits: [Collection.ID: [CollectionFile]] = [:]
-    @State private var contentSearchTask: Task<Void, Never>?
-    /// Spotlight narrows the corpus before any note is read, exactly as the
-    /// Mac's `scheduleSearch` does. Its own query object, so a content search
-    /// never cancels the references panel's in-flight one (each `SpotlightSearch`
-    /// supersedes only its own).
-    @State private var searchSpotlight = SpotlightSearch()
+
+    /// Searching the library — the same implementation the Mac runs.
+    ///
+    /// This was three `@State` fields plus a `scheduleContentSearch` that ran
+    /// the identical two waves against the identical Spotlight index as the
+    /// Mac's `scheduleSearch`, and then discarded both the snippets and the
+    /// attachment hits — so a phrase living only inside a PDF was unfindable on
+    /// this platform. See `LibrarySearch`.
+    @State private var search = LibrarySearch()
 
     /// The sidebar's folder trees, cached against everything they are built
     /// from (`treeInputsKey`).
@@ -345,10 +334,19 @@ struct iOSContentView: View {
     /// The shell itself plus everything that wires it to the scene.
     private var shellCore: some View {
         AdaptiveShell(
-            // Never a third column on iPad: the inspector is an overlay over
-            // the note (below), which is what Obsidian does and what makes it
-            // work in portrait, where no shell here is wide enough for a rail.
-            inspectorPresented: .constant(false),
+            // **The same layout at the same size.** This was
+            // `.constant(false)`, with a comment saying the iPad is never wide
+            // enough for a third column — which is a claim about width, and
+            // width is the one thing the shell already decides. `ShellKind`
+            // resolves `.wideInspector` at 1400pt and an iPad reaches that in
+            // Stage Manager and on a 13" in landscape, so the rule was not "too
+            // narrow", it was "not on this OS". That is the definition of
+            // non-parity: a Mac window and an iPad of the same size were
+            // getting different layouts.
+            //
+            // Narrower shells still overlay it, on **both** platforms, because
+            // `AdaptiveShell` only draws the column for `.wideInspector`.
+            inspectorPresented: $inspectorPresented,
             columnVisibility: $columnVisibility,
             // Touch sizing: 44pt targets, and the keyboard accessory bar
             // instead of a persistent format bar (decision 3).
@@ -908,11 +906,11 @@ struct iOSContentView: View {
                         // live.
                         if isFiltering {
                             ForEach(notes(in: collection)) { note in
-                                noteRow(note, snippet: contentSnippets[note.fileURL])
+                                noteRow(note, snippet: search.snippet(for: note.fileURL))
                             }
                             // Attachments whose contents matched — the half of
                             // the Mac's `SearchGroup` iPad never had.
-                            ForEach(contentFileHits[collection.id] ?? []) { file in
+                            ForEach(search.group(for: collection.id)?.files ?? []) { file in
                                 Label(file.name, systemImage: file.kind.symbol)
                                     .tag(file.url)
                             }
@@ -1431,22 +1429,11 @@ struct iOSContentView: View {
     /// shows the folder tree instead.
     private func notes(in collection: Collection) -> [Note] {
         if let selectedTag { return collection.search.notesTagged(selectedTag) }
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return collection.notes }
-        // Titles **and aliases**, from the metadata index — instant, no file
-        // reads. This was a bare `title.contains`, which structurally cannot
-        // match an alias, so a note deliberately given a second name could not
-        // be found by that name on iPad while it could on the Mac.
-        var hits = collection.search.titleResults(query: query).map(\.note)
-        // Then the body matches from the debounced content pass, appended so
-        // the instant title hits stay at the top.
-        if !contentMatches.isEmpty {
-            let already = Set(hits.map(\.fileURL))
-            hits += collection.notes.filter {
-                contentMatches.contains($0.fileURL) && !already.contains($0.fileURL)
-            }
-        }
-        return hits
+        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return collection.notes }
+        // Both waves, in result order, from the shared engine — this used to
+        // merge them here with a rule of its own.
+        return search.notes(in: collection.id)
     }
 
     /// The search's second wave: notes whose *body* matches.
@@ -1459,54 +1446,8 @@ struct iOSContentView: View {
     /// thing not carried across: the sidebar's rows are single-line titles, and
     /// a snippet needs a row that can hold one.
     private func scheduleContentSearch(_ raw: String) {
-        contentSearchTask?.cancel()
-        // Wave 1 has already been applied by the time this runs (it is a pure
-        // read of the index). Dropping the previous wave 2 here is what stops
-        // the last query's body matches lingering under the new one's.
-        contentMatches = []
-        contentSnippets = [:]
-        contentFileHits = [:]
-        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // One or two characters churn through an enormous result set for no
-        // discriminating value — the Mac skips them too.
-        guard query.count >= 3 else { return }
-        contentSearchTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
-            let hits = await searchSpotlight.search(query, in: library.collections.map(\.rootURL))
-            guard !Task.isCancelled, !hits.isEmpty else { return }
-            let hitPaths = Set(hits.map { $0.standardizedFileURL.path })
-            var found: Set<URL> = []
-            var snippets: [URL: String] = [:]
-            var files: [Collection.ID: [CollectionFile]] = [:]
-            for collection in library.collections {
-                // Attachments first: they need no read of ours at all, because
-                // Spotlight has already matched their contents. This is the
-                // half iPad had no equivalent of — the Mac collects exactly
-                // these into `SearchGroup.fileRows`.
-                let matchedFiles = collection.attachments.filter {
-                    hitPaths.contains($0.url.standardizedFileURL.path)
-                }
-                if !matchedFiles.isEmpty { files[collection.id] = matchedFiles }
-
-                let candidates = collection.notes.map(\.fileURL)
-                    .filter { hitPaths.contains($0.standardizedFileURL.path) }
-                guard !candidates.isEmpty else { continue }
-                let matches = await collection.search.contentResults(query: query, in: candidates)
-                guard !Task.isCancelled else { return }
-                for match in matches {
-                    found.insert(match.note.fileURL)
-                    // `contentResults` already extracted this; keeping it costs
-                    // a dictionary entry and is the whole difference between
-                    // "this note matched" and "this note matched *here*".
-                    snippets[match.note.fileURL] = match.snippet
-                }
-            }
-            guard !Task.isCancelled else { return }
-            contentMatches = found
-            contentSnippets = snippets
-            contentFileHits = files
-        }
+        // The debounce, the two waves and the merge are `LibrarySearch`'s.
+        search.update(query: raw, in: library.collections)
     }
 
     /// Moving the rail is a navigation: it clears whatever was narrowing the
@@ -2122,7 +2063,12 @@ struct iOSContentView: View {
             // Without the clamp the editor's or preview's ideal height sizes
             // the column, and the split view follows it past the screen.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .trailing) { inspectorOverlay }
+            // The overlay is the *narrow* presentation. Where the shell has
+            // room for the column, the column is what shows — otherwise both
+            // would, which is how the same setting ends up meaning two things.
+            .overlay(alignment: .trailing) {
+                WhenNoInspectorColumn { inspectorOverlay }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(item: $linkReview) { review in
                 NavigationStack {
@@ -2864,6 +2810,22 @@ struct iOSContentView: View {
         }
     }
 
+}
+
+/// Shows its content only where the shell has no inspector *column* to put the
+/// inspector in.
+///
+/// Its own view because `@Environment` on `iOSContentView` resolves at that
+/// struct's position in the view graph — above `AdaptiveShell`, which is what
+/// sets `\.shell`. A property of the content view therefore cannot see the
+/// shell it is being rendered inside; a child view can.
+private struct WhenNoInspectorColumn<Content: View>: View {
+    @Environment(\.shell) private var shell
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if shell.kind != .wideInspector { content() }
+    }
 }
 
 /// What the open note *is*, as far as the note menu needs to know.
