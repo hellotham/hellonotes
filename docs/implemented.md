@@ -2407,3 +2407,40 @@ are equally valid resolutions of the same divergence and cost more to build.
 The editor hosts' builder surfaces now share 15 methods, with the remainder being
 framework conformances (`makeNSView`, `textViewDidChange`) and proxy methods
 rather than host-facing hooks — which is what the two hosts were waiting on.
+
+### The editor hosts merge
+
+`NewEditorHost` (283 lines, macOS) and `iOSLiveEditor` (474, iOS) did the same
+job: build an `EditorDocument` from the note buffer, feed the model back at save
+cadence, rebuild on note/font/appearance change, patch in place on external
+reload. Same shape, the same comments in places, and not the same code.
+
+They had drifted, and on all three differences the **iPad's** was correct:
+
+- `onEdit` captured `built` *strongly* on the Mac — a document retaining itself
+  inside its own callback, which no eviction from the store could free. iOS took
+  it `[weak built]` and said why.
+- `onDisappear` **cancelled** the sync debounce on the Mac and **landed** it on
+  iOS. Cancelling drops up to half a second of typing at a note switch, which is
+  the moment it is most likely to be holding something.
+- Nothing cancelled the inline-completion task on the Mac when the host went away
+  or the note changed.
+
+So `EditorHost` is the iPad's implementation, plus the two things only the Mac's
+had: `isEditable` (Preview has no caret, so syntax stays rendered) and the
+`.hnEditorFocusStart` handover that brings the caret back down from the inline
+title. It contains **no platform gate and no platform API**. Three things
+genuinely differ and all three sit below it: `ExternalURL` opens a URL,
+`EditorProxy.resetUndo` is a no-op on AppKit (undo lives on the document there,
+and UIKit resolves `undoManager` up the responder chain so its stack outlives a
+wholesale replacement), and the representable under `MarkdownEditorView`, which
+is the platform boundary itself.
+
+Two supporting additions, each a half the other platform was missing: the AppKit
+proxy gained `resetUndo` so the host can call it unconditionally, and the UIKit
+proxy gained `focusFirstLine(atX:)` — the other half of `onCaretEscapeTop`, so
+the title and the body are one flow on iPad as they have been on the Mac.
+
+`HelloNotes/` is down to three platform-named files: `MacContentView`,
+`iOSContentView` and `iOSNoteEditorPane`, plus `NoteOutlineList` as the last
+whole-file gate that is not one of them.

@@ -82,6 +82,16 @@ public final class EditorProxy {
     /// backwards off the start of the title, rather than arrowing down).
     public func focusStart() { focusFirstLine(atX: 0) }
 
+    /// Discard the undo stack after a wholesale text replacement.
+    ///
+    /// Nothing to do on AppKit: undo lives on the *document's* `UndoManager`,
+    /// which `EditorDocument.replaceText` already clears. UIKit resolves
+    /// `undoManager` up the responder chain, so its stack survives the
+    /// replacement still describing the text that is gone — which is why the
+    /// method exists at all. It is here so the host can call it unconditionally
+    /// instead of asking which platform it is on.
+    public func resetUndo() {}
+
     /// Restore the insertion point after an in-place buffer replacement
     /// (external reload). Clamps to the new length and deliberately does NOT
     /// autoscroll, so a reload triggered by another editor keeps this view's

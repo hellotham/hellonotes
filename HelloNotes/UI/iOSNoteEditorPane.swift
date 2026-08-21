@@ -86,14 +86,15 @@ struct iOSNoteEditorPane: View {
     /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,
     /// list bullets, callouts, heading rules, checkboxes).
     private var liveEditor: some View {
-        iOSLiveEditor(
+        EditorHost(
             editor: editor,
             note: note,
-            collection: collection,
+            linkTargets: collection?.search.linkTargets() ?? [],
             fontSize: appearance.editorFontSize,
             accent: appearance.editorAccentPlatformColor,
             textWidth: (appearance.readingWidth, appearance.editorWidth),
             wrapGuide: appearance.wrapGuide,
+            embedProvider: collection?.embedProvider,
             onOpenWikiLink: onOpenWikiLink,
             selectionActions: selectionActions,
             completionSource: WikiCompletionSource(

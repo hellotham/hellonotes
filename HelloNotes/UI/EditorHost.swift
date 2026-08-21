@@ -1,28 +1,53 @@
 //
-//  iOSLiveEditor.swift
+//  EditorHost.swift
 //  HelloNotes
 //
-//  Hosts the shared TextKit 2 live editor (Packages/NotesEditor) on iOS,
-//  mirroring the macOS NewEditorHost: it builds an EditorDocument from the
-//  note buffer, feeds the model back at *save* cadence (a debounce, not a
-//  keystroke — the bridge is a whole-document snapshot), rebuilds when the
-//  note / font / appearance changes, and patches the live document in place
-//  when the open note is reloaded from disk. Code-syntax colours are wired
-//  via the cross-platform CodeHighlighterAdapter. The block-embed renderer is wired
-//  too, but EditorDocument only *consumes* it on macOS for now (the collapse +
-//  RenderedBlockFragment image path is `#if canImport(AppKit)`); on iOS block
-//  embeds still show their Markdown source until that path is ported to the
-//  overlay renderer. See docs/unimplemented.md §6.
+//  Created by Chris Tham on 22/8/2026.
+//
+//  The one host for the shared TextKit 2 editor (Packages/NotesEditor).
+//
+//  There were two — `NewEditorHost` on macOS and `iOSLiveEditor` on iOS — doing
+//  the same job: build an `EditorDocument` from the note buffer, feed the model
+//  back at *save* cadence (a debounce, not a keystroke, because the bridge is a
+//  whole-document snapshot), rebuild when the note / font / appearance changes,
+//  and patch the live document in place when the open note is reloaded from
+//  disk. Same shape, same comments in places, and not the same code — so they
+//  drifted, and this file is the iPad's implementation because on all three
+//  differences it was the correct one:
+//
+//  * `onEdit` captured `built` **strongly** on the Mac — the document retaining
+//    itself inside its own callback, which no eviction from the store could
+//    ever free. iOS took it `[weak built]` and said why.
+//  * `onDisappear` *cancelled* the sync debounce on the Mac and landed it on
+//    iOS. Cancelling drops up to half a second of typing on a note switch,
+//    which is the one moment it is most likely to be holding something.
+//  * Nothing cancelled the inline-completion task on the Mac when the host went
+//    away or the note changed.
+//
+//  What the Mac's had that this needed: `isEditable` (Preview mode has no
+//  caret, so syntax stays rendered) and the `.hnEditorFocusStart` handover that
+//  brings the caret back down from the inline title.
+//
+//  Three things genuinely differ per platform and none of them are here: which
+//  API opens a URL (`ExternalURL`), whether an undo stack survives a wholesale
+//  replacement (`EditorProxy.resetUndo`, a no-op on AppKit), and the
+//  representable underneath `MarkdownEditorView`, which is the platform
+//  boundary itself.
 //
 
-#if os(iOS)
 import SwiftUI
 import MarkdownEditor
 
-struct iOSLiveEditor: View {
+struct EditorHost: View {
     @Bindable var editor: EditorModel
     let note: Note
-    let collection: Collection?
+    /// Every title the vault can be linked to, **aliases included**.
+    ///
+    /// `search.linkTargets()`, not `notes.map(\.title)`: the two differ on
+    /// exactly the aliases, and the completion list already offers them — so
+    /// with titles alone the editor suggested an alias, you accepted it, and
+    /// the finished `[[Alias]]` was painted as a broken link.
+    var linkTargets: [String] = []
     let fontSize: CGFloat
     /// The editor's accent — selection, links, the wrap guide.
     ///
@@ -36,6 +61,12 @@ struct iOSLiveEditor: View {
     var textWidth: (reading: ReadingWidth, editing: EditorWidth)? = nil
     /// Columns for the wrap guide, 0 for none.
     var wrapGuide: Int = 0
+    /// Preview mode is this host with no caret — syntax then stays fully
+    /// rendered, because nothing is revealing the line the caret is on.
+    var isEditable: Bool = true
+    /// Renders `![[Note]]` transclusion cards. Supplied rather than taken from
+    /// the collection so a host with no collection still draws the rest.
+    var embedProvider: CollectionEmbedProvider? = nil
     var onOpenWikiLink: (String) -> Void
     /// What the collection can do with a selected phrase. Surfaced in the
     /// system edit menu — see `SelectionActionBar.swift` for why there rather
@@ -102,12 +133,13 @@ struct iOSLiveEditor: View {
             if let document {
                 MarkdownEditorView(document: document)
                     .commandBus(documentId: note.fileURL.path)
-                    .editable(true)
-                    .wrapGuide(wrapGuide)
+                    .editable(isEditable)
+                    // Reading mode has no ruler: the measure is the guide there.
+                    .wrapGuide(isEditable ? wrapGuide : 0)
                     .onLinkTap { tap in
                         switch tap {
                         case .wiki(let target): onOpenWikiLink(target)
-                        case .url(let url): UIApplication.shared.open(url)
+                        case .url(let url): ExternalURL.open(url)
                         }
                     }
                     .onPasteImage { pasteImage(into: document) }
@@ -275,6 +307,13 @@ struct iOSLiveEditor: View {
             proxy.resetUndo()
             proxy.setSelection(caret)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .hnEditorFocusStart)) { note in
+            // The title is handing the caret down into the body, in the column
+            // it left from (absent for Return/Tab, which commit rather than
+            // navigate and so land at the start). The other half of
+            // `onCaretEscapeTop`; iOS had neither until this session.
+            proxy.focusFirstLine(atX: note.userInfo?["x"] as? CGFloat ?? 0)
+        }
         .onDisappear {
             // The debounce must not outlive the host that owns it: land what it
             // was holding rather than dropping it, then make sure the model has
@@ -336,7 +375,7 @@ struct iOSLiveEditor: View {
 
     /// Suggestions for whatever the caret is inside right now, or none.
     private var activeCompletions: [WikiCompletion] {
-        guard let context = inlineContext else { return [] }
+        guard isEditable, let context = inlineContext else { return [] }
         switch context.kind {
         case .wikiLink: return completionSource.matches(.wikiLink, query: context.query)
         case .tag: return completionSource.matches(.tag, query: context.query)
@@ -415,7 +454,7 @@ struct iOSLiveEditor: View {
         // cached document (`documents.forgetAll()`) when the note set changes.
         // The iOS shell's `onChange(of: library.allNotes)` still needs the
         // same call.
-        let titles = Set((collection?.search.linkTargets() ?? []).map { $0.lowercased() })
+        let titles = Set(linkTargets.map { $0.lowercased() })
         return EditorServices(
             wikiLinkExists: { titles.contains($0.lowercased()) },
             codeHighlighter: CodeHighlighterAdapter(darkMode: colorScheme == .dark),
@@ -429,7 +468,7 @@ struct iOSLiveEditor: View {
     private func makeBlockRenderer() -> BlockRenderAdapter {
         let noteDir = note.fileURL.deletingLastPathComponent()
         let subfolder = attachmentFolder.trimmingCharacters(in: .whitespaces)
-        let embed = collection?.embedProvider
+        let embed = embedProvider
         return BlockRenderAdapter(
             resolve: { target in
                 let name = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
@@ -470,5 +509,3 @@ struct iOSLiveEditor: View {
         "\(note.fileURL.path)|\(Int(fontSize))|\(colorScheme == .dark ? "d" : "l")"
     }
 }
-
-#endif

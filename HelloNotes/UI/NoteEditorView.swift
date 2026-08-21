@@ -409,24 +409,26 @@ struct NoteEditorView: View {
     /// The HelloNotes TextKit 2 editor. `isEditable: false` gives the read-only
     /// Preview mode (no caret, so syntax stays fully rendered).
     private func editorHost(isEditable: Bool) -> some View {
-        NewEditorHost(
+        EditorHost(
             editor: editor,
-            linkCandidates: linkCandidates,
+            // The host requires a note; the caller already guards on one, and
+            // an editor with no note renders the placeholder above this.
+            note: editor.note ?? Note(title: "", fileURL: URL(fileURLWithPath: "/"),
+                                      lastModified: .distantPast),
+            linkTargets: linkCandidates,
             fontSize: appearance.editorFontSize,
             accent: appearance.editorAccentPlatformColor,
-            isEditable: isEditable,
+            // The measure is applied by the host on both platforms now — this
+            // view's `measured(_:)` wraps the *modes*, and the editor is one of
+            // them, so passing it here would apply it twice.
+            textWidth: nil,
             wrapGuide: appearance.wrapGuide,
+            isEditable: isEditable,
+            embedProvider: embedProvider,
             onOpenWikiLink: onOpenWikiLink,
-            completions: { kind, query in completionSource.matches(kind, query: query) },
-            // Two hooks, as on iOS — the pasteboard argument they used to share
-            // was one every caller filled with `NSPasteboard.general`, and it
-            // was the only thing stopping the two editor hosts having the same
-            // paste signature.
-            pasteMarkdown: { smartPaste(NSPasteboard.general) },
-            pasteImage: { pasteImage(NSPasteboard.general) },
-            intelligence: intelligence,
             selectionActions: selectionActions,
-            blockRenderer: blockRenderAdapter
+            completionSource: completionSource,
+            intelligence: intelligence
         )
     }
 

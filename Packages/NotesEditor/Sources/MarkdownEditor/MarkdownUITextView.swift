@@ -654,6 +654,35 @@ public final class EditorProxy {
     /// show a hint, and for tests.
     public var hasInlineSuggestion: Bool { textView?.inlineSuggestion != nil }
 
+    /// Make the editor first responder with the caret on the **first line**, at
+    /// the horizontal offset `x` (points from the text's left edge).
+    ///
+    /// The other half of the caret handover: `onCaretEscapeTop` lifts the caret
+    /// into the inline title, and this brings it back down. iOS had neither
+    /// until this session, so on an iPad keyboard the title and the body were
+    /// two islands.
+    ///
+    /// The column is honoured the same way AppKit's is — by asking the layout
+    /// which offset on the first line sits nearest `x` — so arrowing down keeps
+    /// your place in the column rather than jumping to the start of the line.
+    public func focusFirstLine(atX x: CGFloat) {
+        guard let tv = textView else { return }
+        tv.becomeFirstResponder()
+        let inset = tv.textContainerInset.left + tv.textContainer.lineFragmentPadding
+        let firstLineY = tv.caretRect(for: tv.beginningOfDocument).midY
+        let point = CGPoint(x: inset + max(0, x), y: firstLineY)
+        let location = tv.closestPosition(to: point).map {
+            tv.offset(from: tv.beginningOfDocument, to: $0)
+        } ?? 0
+        let range = NSRange(location: location, length: 0)
+        tv.selectedRange = range
+        tv.document?.selectionDidChange(range)
+        tv.scrollRangeToVisible(range)
+    }
+
+    /// The caret arrived from above with no column to honour.
+    public func focusStart() { focusFirstLine(atX: 0) }
+
     /// Discard the undo stack after the document's text has been replaced
     /// wholesale (`EditorDocument.replaceText`). See `resetUndoStack` for why
     /// the document clearing its own `UndoManager` is not enough on UIKit.
