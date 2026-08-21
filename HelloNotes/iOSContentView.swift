@@ -38,13 +38,9 @@ struct iOSContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     /// How the editor presents the note (live Markdown / Preview / Split).
-    @AppStorage("editorViewMode") private var storedMode = EditorMode.edit.rawValue
-    private var mode: EditorMode {
-        EditorMode(rawValue: storedMode) ?? .edit
-    }
-    private var modeBinding: Binding<EditorMode> {
-        Binding(get: { mode }, set: { storedMode = $0.rawValue })
-    }
+    @AppStorage(EditorMode.storageKey) private var storedMode = EditorMode.edit.rawValue
+    private var mode: EditorMode { EditorMode.mode(storedMode) }
+    private var modeBinding: Binding<EditorMode> { EditorMode.binding($storedMode) }
 
     /// One editor per open note, exactly as on the Mac.
     ///
@@ -541,7 +537,7 @@ struct iOSContentView: View {
             library.focusCollection(containing: note.fileURL)
             Task { await tabs.editor(for: note) }
         }
-        .onChange(of: searchText) { _, query in scheduleContentSearch(query) }
+        .onChange(of: searchText) { _, query in search.update(query: query, in: library.collections) }
         .onChange(of: SidebarTreeModel.key(sidebarInputs), initial: true) { _, _ in
             sidebarTree.refresh(sidebarInputs)
         }
@@ -1026,19 +1022,7 @@ struct iOSContentView: View {
         return search.notes(in: collection.id)
     }
 
-    /// The search's second wave: notes whose *body* matches.
-    ///
-    /// Same two-stage shape as the Mac's `scheduleSearch`, and for the same
-    /// reason — Spotlight names the files whose content matches, and only those
-    /// few are then read, so a query costs a handful of reads rather than a pass
-    /// over the whole vault. On a volume with no Spotlight index it degrades to
-    /// the title/alias hits, which is how the Mac degrades. Snippets are the one
-    /// thing not carried across: the sidebar's rows are single-line titles, and
-    /// a snippet needs a row that can hold one.
-    private func scheduleContentSearch(_ raw: String) {
-        // The debounce, the two waves and the merge are `LibrarySearch`'s.
-        search.update(query: raw, in: library.collections)
-    }
+
 
     /// Moving the rail is a navigation: it clears whatever was narrowing the
     /// note list, so switching collections never lands in the previous one's

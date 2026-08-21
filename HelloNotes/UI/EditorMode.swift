@@ -23,6 +23,24 @@ enum EditorMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Where the mode is persisted.
+    ///
+    /// A constant because the literal was spelled in four files, and that is
+    /// how it came to be spelled *two different ways*: `editorViewMode` in the
+    /// shared editor and the Mac's shell, `iosEditorViewMode` in the iPad's,
+    /// so the iPad's View menu wrote one key while the editor it controls read
+    /// the other. A key named once cannot fork.
+    static let storageKey = "editorViewMode"
+
+    /// The stored raw value, as a mode. Unknown values fall back to editing,
+    /// which is the mode a note is most useful in.
+    static func mode(_ raw: String) -> EditorMode { EditorMode(rawValue: raw) ?? .edit }
+
+    /// The stored raw value as a mode binding, for a picker.
+    static func binding(_ raw: Binding<String>) -> Binding<EditorMode> {
+        Binding(get: { mode(raw.wrappedValue) }, set: { raw.wrappedValue = $0.rawValue })
+    }
+
     var label: String {
         switch self {
         case .edit: "Edit"

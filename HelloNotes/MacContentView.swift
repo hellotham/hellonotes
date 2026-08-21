@@ -59,7 +59,7 @@ struct MacContentView: View {
     @AppStorage("gitAutoCommit") private var autoCommit = false
     /// The editor presentation mode. Published through `AppActions` so the View
     /// menu, the palette and the editor's own picker all read one value.
-    @AppStorage("editorViewMode") private var editorModeRaw = EditorMode.edit.rawValue
+    @AppStorage(EditorMode.storageKey) private var storedMode = EditorMode.edit.rawValue
 
     /// Daily-notes & templates configuration.
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
@@ -136,7 +136,7 @@ struct MacContentView: View {
 
     @State private var showOpenQuickly = false
     /// ⌘⇧P — every command, findable by name. See `CommandPalette.swift`.
-    @State private var showCommandPalette = false
+    @State private var showPalette = false
 
     /// An in-progress link review, with the text the proposals were generated
     /// against so stale ranges can be detected rather than applied.
@@ -304,11 +304,7 @@ struct MacContentView: View {
     /// Recompute the debounced search results. Runs at most once per ~200 ms of
     /// typing (not per keystroke), and computes the groups once (they used to be
     /// recomputed twice per body — for the rows and the empty-state check).
-    private func scheduleSearch(_ raw: String) {
-        // The debounce, the two waves and the merge are `LibrarySearch`'s. What
-        // is left here is the outline, which is this platform's presentation.
-        search.update(query: raw, in: library.collections)
-    }
+
 
     // MARK: - Editor derived data (for the selection's collection)
 
@@ -522,7 +518,7 @@ struct MacContentView: View {
             library.writeWidgetSnapshot()   // refresh the recent-notes widget
             Task { await router.donateNotesToSpotlight() }   // system Spotlight
         }
-        .onChange(of: searchText) { _, q in scheduleSearch(q) }
+        .onChange(of: searchText) { _, q in search.update(query: q, in: library.collections) }
         .onChange(of: router.pendingSearch) { _, query in
             guard let query else { return }
             showOpenQuickly = false
@@ -580,7 +576,7 @@ struct MacContentView: View {
     /// the split described in `body`.
     private func presentations<V: View>(_ content: V) -> some View {
         content
-        .sheet(isPresented: $showCommandPalette) {
+        .sheet(isPresented: $showPalette) {
             CommandPaletteView(commands: appActions.paletteCommands)
         }
         .sheet(item: $linkReview) { review in
@@ -773,7 +769,7 @@ struct MacContentView: View {
             quickCapture: { showQuickCapture = true },
             templates: Templates.available(in: railCollection ?? focused, folder: templatesFolder),
             insertTemplate: activeEditor == nil ? nil : { actions.insertTemplate($0) },
-            commandPalette: { showCommandPalette = true },
+            commandPalette: { showPalette = true },
             ai: aiActions,
             reviewLinks: (!showOpenQuickly && selectedNote != nil && focused != nil)
                 ? { beginLinkReview() } : nil,
@@ -791,8 +787,8 @@ struct MacContentView: View {
                 NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
             },
             connectOverWeb: { auxiliary.open(.cloud($0)) },
-            editorMode: EditorMode(rawValue: editorModeRaw) ?? .edit,
-            setEditorMode: { editorModeRaw = $0.rawValue }
+            editorMode: EditorMode.mode(storedMode),
+            setEditorMode: { storedMode = $0.rawValue }
         )
     }
 

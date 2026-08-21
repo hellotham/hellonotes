@@ -232,7 +232,7 @@ struct HelloNotesCommands: Commands {
     /// it controls read the other, and changing the mode on iPad changed
     /// nothing. Two keys for one setting is not a platform difference; it is
     /// two answers to one question.
-    @AppStorage("editorViewMode") private var editorMode = EditorMode.edit.rawValue
+    @AppStorage(EditorMode.storageKey) private var editorMode = EditorMode.edit.rawValue
 
     /// Formatting applies only in the live-editing mode with a note focused.
     private var canFormat: Bool {

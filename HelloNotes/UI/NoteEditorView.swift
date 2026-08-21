@@ -86,12 +86,10 @@ struct NoteEditorView: View {
 
     /// How the editor presents the note. Persisted across launches; macOS
     /// defaults to the live WYSIWYG editor.
-    @AppStorage("editorViewMode") private var storedMode = EditorMode.edit.rawValue
+    @AppStorage(EditorMode.storageKey) private var storedMode = EditorMode.edit.rawValue
 
-    private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .edit }
-    private var modeBinding: Binding<EditorMode> {
-        Binding(get: { mode }, set: { storedMode = $0.rawValue })
-    }
+    private var mode: EditorMode { EditorMode.mode(storedMode) }
+    private var modeBinding: Binding<EditorMode> { EditorMode.binding($storedMode) }
 
     /// The intelligence service for the user's chosen provider.
     private var intelligence: IntelligenceService { IntelligenceService(settings: llmSettings) }
