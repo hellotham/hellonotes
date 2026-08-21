@@ -2652,3 +2652,31 @@ nothing carried it across.
 test starts from a text view configured the way the *system* would leave it, so
 it fails if the call stops being made rather than passing on a view that happened
 to default correctly.
+
+### The editor pane merges, and takes 180 lines of the Mac's with it
+
+`NoteEditorPane` — banners, inline title, and the four view modes with their
+per-mode width rules — is now one view that `NoteEditorView` (the Mac's editor
+column and its note window) and `iOSNoteEditorPane`'s callers both use.
+`NoteEditorView` goes from 917 lines to 776, and what remains of it is this
+window's own chrome: the find bar, the bottom bar, the mode sheets, and the
+commands that act on the open note.
+
+Three things surfaced in the merge:
+
+- **The Mac had no `SourceEditor`** — see above; Markdown mode was substituting
+  typography into source.
+- **The iPad had no downloading banner.** `editor.isDownloading` is raised on
+  both platforms and only the Mac drew it, on the platform *less* likely to be
+  looking at an online-only note.
+- **`MarkdownWebView` was a duplicate of `GFMPreview`**, which has been
+  cross-platform since it was written. The app carried a second `WKWebView`
+  wrapper over the same renderer, on one platform, because `GFMPreview`'s
+  `markdown:` initialiser had no `fontScale` — so one caller worked around it
+  with `GFMRenderer.page` and the other wrote a whole view. The parameter exists
+  now and both use the package's.
+
+The split layout is the one genuine platform branch inside the pane:
+`HSplitView` / `VSplitView` give the Mac a *draggable* divider and exist only
+there. The arrangement — side by side in a landscape column, stacked in a
+portrait one — is shared; the splitter is not.

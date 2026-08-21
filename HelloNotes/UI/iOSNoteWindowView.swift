@@ -49,7 +49,7 @@ struct iOSNoteWindowView: View {
         NavigationStack {
             Group {
                 if let note = editor.note {
-                    iOSNoteEditorPane(
+                    NoteEditorPane(
                         editor: editor,
                         note: note,
                         collection: collection,

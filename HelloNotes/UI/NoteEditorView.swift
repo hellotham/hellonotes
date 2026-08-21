@@ -199,48 +199,65 @@ struct NoteEditorView: View {
 
     var body: some View {
         Group {
-            if editor.note == nil {
+            if let note = editor.note {
+                // Split out because the modifier chain below defeated the type
+                // checker once the pane became a single call — the same reason
+                // `iOSContentView` splits its own body in two.
+                noteBody(note)
+
+            } else {
                 ContentUnavailableView(
                     "No Note Selected",
                     systemImage: "doc.text",
                     description: Text("Select a note from the list, or create a new one.")
                 )
-            } else {
-                VStack(spacing: 0) {
-                    if editor.hasConflict {
-                        conflictBanner
-                    }
-                    if editor.saveError != nil {
-                        saveErrorBanner
-                    }
-                    if editor.isDownloading {
-                        downloadingBanner
-                    }
+            }
+        }
+    }
 
-                    // Decision 5: each mode gets its own width rule. Reading is
-                    // a fixed measure, centred; editing and source fill the
-                    // pane (or the chosen proportion of it), left-aligned.
-                    //
-                    // The title goes *inside* the measure, so it sits flush
-                    // with the first line of the body in every mode rather
-                    // than floating at the pane's left edge while a centred
-                    // reading column starts somewhere else.
-                    switch mode {
-                    case .edit:
-                        measured(.editing) { VStack(spacing: 0) { inlineTitle; editModeContent } }
-                    case .preview:
-                        measured(.reading) { VStack(spacing: 0) { inlineTitle; previewModeContent } }
-                    case .markdown:
-                        measured(.editing, monospaced: true) {
-                            VStack(spacing: 0) { inlineTitle; sourceEditor }
-                        }
-                    case .split:
-                        // Split has two rules at once, so one title above both.
-                        VStack(spacing: 0) {
-                            inlineTitle
-                            splitModeContent
-                        }
+    /// The open note: the shared pane, this window's chrome around it, and the
+    /// commands and sheets that act on it.
+    @ViewBuilder
+    private func noteBody(_ note: Note) -> some View {
+                VStack(spacing: 0) {
+                    // Above the pane rather than inside Edit mode's measure:
+                    // the pane is shared now, and a find bar is chrome like the
+                    // bottom bar — full width reads better than a column's.
+                    if showFindBar {
+                        FindReplaceBar(
+                            findText: $findText,
+                            replaceText: $replaceText,
+                            currentIndex: $findCurrentIndex,
+                            matchCount: findMatchCount,
+                            onFindChanged: postFindQuery,
+                            onNext: { stepMatch(by: 1) },
+                            onPrevious: { stepMatch(by: -1) },
+                            onReplace: replaceCurrentMatch,
+                            onReplaceAll: replaceAllMatches,
+                            onClose: closeFindBar
+                        )
                     }
+                    // Banners, inline title and the four modes are
+                    // `NoteEditorPane`, shared with the iPad. They were the
+                    // same shape written twice — and had drifted: the Mac's
+                    // Markdown mode was corrupting source with typographic
+                    // substitution, and the iPad had no downloading banner.
+                    NoteEditorPane(
+                        editor: editor,
+                        note: note,
+                        // This view is handed its vocabulary rather than a
+                        // collection — it is used by the note *window* too,
+                        // which has no shell around it.
+                        collection: nil,
+                        appearance: appearance,
+                        llmSettings: llmSettings,
+                        mode: mode,
+                        onOpenWikiLink: onOpenWikiLink,
+                        selectionActions: selectionActions,
+                        onRename: onRenameNote,
+                        linkTargets: linkCandidates,
+                        embedProvider: embedProvider,
+                        completionSource: completionSource)
 
                     Divider()
                     bottomBar
@@ -296,198 +313,31 @@ struct NoteEditorView: View {
                         findCurrentIndex = min(findCurrentIndex, count - 1)
                     }
                 }
-                .sheet(isPresented: $showMermaid) {
-                    MermaidPreviewView(sources: mermaidSources)
-                }
-                .sheet(isPresented: $showSlides) {
-                    SlidesView(
-                        markdown: editor.text,
-                        title: editor.note?.title ?? "Slides",
-                        baseURL: editor.note?.fileURL.deletingLastPathComponent()
-                    )
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .hnRewriteNote)) { _ in
-                    showRewriteNote = true
-                }
-                .sheet(isPresented: $showRewriteNote) {
-                    RewriteSelectionView(
-                        intelligence: intelligence,
-                        // The body, not the file: rewriting a note should not
-                        // hand the model its own front matter to reword.
-                        original: FrontMatter.body(of: editor.text),
-                        onReplace: replaceBody,
-                        onInsertBelow: { editor.text = editor.text.trimmingTrailingNewlines() + "\n\n\($0)\n" },
-                        subject: .wholeNote
-                    )
-                }
-                .sheet(isPresented: $showHistory) {
-                    if let url = editor.note?.fileURL {
-                        NoteHistoryView(fileURL: url, git: git) { restored in
-                            editor.text = restored
-                        }
-                    }
-                }
-            }
-        }
+                .modifier(NoteEditorSheets(
+                    editor: editor,
+                    git: git,
+                    showMermaid: $showMermaid,
+                    showSlides: $showSlides,
+                    showRewriteNote: $showRewriteNote,
+                    showHistory: $showHistory,
+                    mermaidSources: mermaidSources,
+                    intelligence: intelligence,
+                    onReplaceBody: replaceBody))
     }
 
     // MARK: - Inline title
 
-    /// The note's filename as an editable H1 above its body — the first thing
-    /// a note *is*. Without it the body appears to start mid-content, and the
-    /// only place the title showed was the window's title bar, which is not
-    /// where anyone reads.
-    @ViewBuilder
-    private var inlineTitle: some View {
-        if appearance.showInlineTitle, let note = editor.note {
-            InlineNoteTitle(
-                title: note.title,
-                theme: EditorTheme(fontSize: appearance.editorFontSize),
-                onRename: { onRenameNote($0) },
-                focusRequest: titleFocusRequest
-            )
-        }
-    }
 
     // MARK: - Text width (decision 5)
 
-    /// Apply the width rule for `intent` to whatever the pane gave us.
-    ///
-    /// Reading holds a fixed measure and centres it, because a measure that
-    /// isn't centred isn't a measure. Editing takes the pane (or the chosen
-    /// proportion) and stays left-aligned, VS Code style — a centred
-    /// proportional column would just reintroduce the symmetric gutters this
-    /// is meant to remove. On a narrow pane `min()` collapses the distinction
-    /// and neither setting bites.
-    @ViewBuilder
-    private func measured<Content: View>(_ intent: TextIntent,
-                                         monospaced: Bool = false,
-                                         @ViewBuilder content: () -> Content) -> some View {
-        // The measure itself lives in `ShellContract.swift` so the iPad's
-        // editor is laid out by the same code — this used to be a private
-        // `NSFont` implementation here, which is why Reading width and Editor
-        // width were Mac-only settings in practice.
-        content()
-            .measuredText(intent,
-                          fontSize: appearance.editorFontSize,
-                          monospaced: monospaced,
-                          reading: appearance.readingWidth,
-                          editing: appearance.editorWidth)
-    }
 
     // MARK: - Editor modes
 
-    /// The live, editable WYSIWYG editor plus its edit-only chrome: the
-    /// find bar, front-matter properties, `[[wiki-link]]`/`#tag` completion
-    /// popup, and the references panel.
-    @ViewBuilder
-    private var editModeContent: some View {
-        if showFindBar {
-            FindReplaceBar(
-                findText: $findText,
-                replaceText: $replaceText,
-                currentIndex: $findCurrentIndex,
-                matchCount: findMatchCount,
-                onFindChanged: postFindQuery,
-                onNext: { stepMatch(by: 1) },
-                onPrevious: { stepMatch(by: -1) },
-                onReplace: replaceCurrentMatch,
-                onReplaceAll: replaceAllMatches,
-                onClose: closeFindBar
-            )
-        }
-
-        // Front matter and references are no longer persistent chrome here.
-        // They are cross-cutting answers to "what is this?", so they live in
-        // the inspector rail (decision 1), and remain one click away from the
-        // bottom bar for the shells and windows that have no rail. That gives
-        // the text back ~200pt of height it was lending to a panel most of the
-        // time — text outranks references under pressure.
-        editorHost(isEditable: true)
-    }
-
-    /// The HelloNotes TextKit 2 editor. `isEditable: false` gives the read-only
-    /// Preview mode (no caret, so syntax stays fully rendered).
-    private func editorHost(isEditable: Bool) -> some View {
-        EditorHost(
-            editor: editor,
-            // The host requires a note; the caller already guards on one, and
-            // an editor with no note renders the placeholder above this.
-            note: editor.note ?? Note(title: "", fileURL: URL(fileURLWithPath: "/"),
-                                      lastModified: .distantPast),
-            linkTargets: linkCandidates,
-            fontSize: appearance.editorFontSize,
-            accent: appearance.editorAccentPlatformColor,
-            // The measure is applied by the host on both platforms now — this
-            // view's `measured(_:)` wraps the *modes*, and the editor is one of
-            // them, so passing it here would apply it twice.
-            textWidth: nil,
-            wrapGuide: appearance.wrapGuide,
-            isEditable: isEditable,
-            embedProvider: embedProvider,
-            onOpenWikiLink: onOpenWikiLink,
-            selectionActions: selectionActions,
-            completionSource: completionSource,
-            intelligence: intelligence
-        )
-    }
 
     /// Read-only rendering: the same editor with no caret, so the note reads as
     /// it will look, with `[[wiki-links]]` still clickable.
     @ViewBuilder
-    private var previewModeContent: some View {
-        githubPreview
-    }
 
-    /// GitHub-identical rendered preview: the note (front matter stripped, the
-    /// app's wiki-links/embeds/callouts bridged to HTML) is rendered through
-    /// cmark-gfm — GitHub's own engine — and shown with GitHub's stylesheet.
-    ///
-    /// Built by rendering the page here rather than through
-    /// `GFMPreview(markdown:baseURL:)`, because that convenience initialiser
-    /// calls `GFMRenderer.page` with `fontScale` left at its default of 1. Text
-    /// Size scales Edit and Markdown (both read `appearance.editorFontSize`)
-    /// and iOS already passes the scale through (`MarkdownWebView`), so the Mac
-    /// was the one place where the same slider worked in one mode of a window
-    /// and did nothing in the next. `page` folds the scale into the HTML, so a
-    /// changed setting changes the page and the web view reloads on its own.
-    private var githubPreview: some View {
-        GFMPreview(
-            html: GFMRenderer.page(GitHubMarkdown.prepare(editor.text),
-                                   fontScale: appearance.textScale),
-            baseURL: editor.note?.fileURL.deletingLastPathComponent()
-        )
-    }
-
-    /// The raw Markdown source in a plain monospaced editor, bound straight to
-    /// the note buffer (so edits autosave like everywhere else).
-    private var sourceEditor: some View {
-        // `SourceEditor`, not `TextEditor`: SwiftUI cannot turn typographic
-        // substitution off, and this shows the note's literal Markdown. `---`
-        // under a table header was becoming an em dash here and quietly
-        // breaking the table — the bug iOS found and fixed in its own copy of
-        // this view while the Mac kept typing curly quotes into source.
-        SourceEditor(text: $editor.text, fontSize: appearance.editorFontSize)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// Source + preview together, with a draggable divider. Side by side in a
-    /// landscape (wide) column and stacked in a portrait (tall) one.
-    private var splitModeContent: some View {
-        GeometryReader { geo in
-            if geo.size.width >= geo.size.height {
-                HSplitView {
-                    sourceEditor.frame(minWidth: 180)
-                    githubPreview.frame(minWidth: 180)
-                }
-            } else {
-                VSplitView {
-                    sourceEditor.frame(minHeight: 120)
-                    githubPreview.frame(minHeight: 120)
-                }
-            }
-        }
-    }
 
     // MARK: - Smart paste
 
@@ -629,65 +479,12 @@ struct NoteEditorView: View {
 
     // MARK: - Conflict banner
 
-    private var conflictBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            Text("This note changed on disk while you were editing.")
-                .font(.callout)
-            Spacer()
-            Button("Reload") { editor.resolveConflictReloading() }
-            Button("Keep Mine") { Task { await editor.resolveConflictKeepingMine() } }
-                .keyboardShortcut(.defaultAction)
-        }
-        .padding(8)
-        .background(.orange.opacity(0.15))
-    }
 
     // MARK: - Downloading banner
 
-    /// Shown while an online-only note's bytes are being materialized from the
-    /// cloud on open, so the editor doesn't just read as blank during a slow
-    /// download.
-    private var downloadingBanner: some View {
-        HStack(spacing: 10) {
-            ProgressView().controlSize(.small)
-            Text("Downloading from the cloud…")
-                .font(.callout)
-            Spacer()
-        }
-        .padding(8)
-        .background(.blue.opacity(0.12))
-    }
 
     // MARK: - Save-error banner
 
-    /// A persistent, readable banner for a failed write. Unlike the tiny
-    /// hover-only status label, this stays visible, shows the actual error
-    /// (selectable, so it can be copied), and offers a one-tap Retry. A banner
-    /// rather than a modal alert deliberately — a failing autosave retries on
-    /// its own, and a re-appearing alert would spam the user.
-    private var saveErrorBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("This note couldn’t be saved.")
-                    .font(.callout.weight(.medium))
-                if let error = editor.saveError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-            Spacer()
-            Button("Retry") { Task { await editor.save() } }
-                .keyboardShortcut(.defaultAction)
-        }
-        .padding(8)
-        .background(.red.opacity(0.15))
-    }
 
     // MARK: - References (outgoing / backlinks / unlinked mentions)
 
@@ -917,6 +714,61 @@ struct NoteEditorView: View {
         .buttonStyle(.borderless)
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// The sheets and commands that act on the open note.
+///
+/// A `ViewModifier` because the chain in `noteBody` defeated the type checker
+/// once the pane became a single call — the same reason `iOSContentView` keeps
+/// its parity sheets in one. Splitting a long chain in two is two smaller
+/// problems for the compiler.
+private struct NoteEditorSheets: ViewModifier {
+    @Bindable var editor: EditorModel
+    var git: GitService
+    @Binding var showMermaid: Bool
+    @Binding var showSlides: Bool
+    @Binding var showRewriteNote: Bool
+    @Binding var showHistory: Bool
+    var mermaidSources: [String]
+    var intelligence: IntelligenceService
+    /// Replace the note's body, keeping its front matter — the rewrite sheet's
+    /// only way back into the document.
+    var onReplaceBody: (String) -> Void
+
+    func body(content: Content) -> some View {
+        content
+        .sheet(isPresented: $showMermaid) {
+            MermaidPreviewView(sources: mermaidSources)
+        }
+        .sheet(isPresented: $showSlides) {
+            SlidesView(
+                markdown: editor.text,
+                title: editor.note?.title ?? "Slides",
+                baseURL: editor.note?.fileURL.deletingLastPathComponent()
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .hnRewriteNote)) { _ in
+            showRewriteNote = true
+        }
+        .sheet(isPresented: $showRewriteNote) {
+            RewriteSelectionView(
+                intelligence: intelligence,
+                // The body, not the file: rewriting a note should not
+                // hand the model its own front matter to reword.
+                original: FrontMatter.body(of: editor.text),
+                onReplace: onReplaceBody,
+                onInsertBelow: { editor.text = editor.text.trimmingTrailingNewlines() + "\n\n\($0)\n" },
+                subject: .wholeNote
+            )
+        }
+        .sheet(isPresented: $showHistory) {
+            if let url = editor.note?.fileURL {
+                NoteHistoryView(fileURL: url, git: git) { restored in
+                    editor.text = restored
+                }
+            }
+        }
     }
 }
 

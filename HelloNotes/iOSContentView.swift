@@ -1991,8 +1991,8 @@ struct iOSContentView: View {
                 // platform and were presented only by `NoteEditorView`, which is
                 // `#if os(macOS)` end to end.
                 // The pane, the banners and the four modes are shared with the
-                // standalone note window — see `iOSNoteEditorPane`.
-                iOSNoteEditorPane(
+                // standalone note window — see `NoteEditorPane`.
+                NoteEditorPane(
                     editor: editor,
                     note: note,
                     // The note's own collection, never the focused one: an iPad

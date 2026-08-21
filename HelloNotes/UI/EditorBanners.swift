@@ -13,8 +13,11 @@
 //  no iOS caller at all, and a conflict on iPad was detected and then silently
 //  overwritten by the next autosave.
 //
+//  Ungated now, along with the third banner the Mac had and iPad did not: an
+//  online-only note that has not downloaded yet. iPad is *more* likely to be
+//  looking at one, not less.
+//
 
-#if os(iOS)
 import SwiftUI
 
 /// The note changed on disk under an open editor.
@@ -80,4 +83,21 @@ struct SaveErrorBanner: View {
         .background(.red.opacity(0.15))
     }
 }
-#endif
+
+/// Shown while an online-only note's bytes are being materialized from the
+/// cloud on open, so the editor doesn't just read as blank during a slow
+/// download.
+struct DownloadingBanner: View {
+    @Bindable var editor: EditorModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text("Downloading from the cloud…")
+                .font(.callout)
+            Spacer()
+        }
+        .padding(8)
+        .background(.blue.opacity(0.12))
+    }
+}

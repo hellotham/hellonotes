@@ -1,5 +1,5 @@
 //
-//  iOSNoteEditorPane.swift
+//  NoteEditorPane.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 21/8/2026.
@@ -19,11 +19,10 @@
 //  the second scene.
 //
 
-#if os(iOS)
 import SwiftUI
 import MarkdownEditor
 
-struct iOSNoteEditorPane: View {
+struct NoteEditorPane: View {
     @Bindable var editor: EditorModel
     let note: Note
     /// The note's *own* collection, never the focused one: `[[link]]` and `#tag`
@@ -41,6 +40,16 @@ struct iOSNoteEditorPane: View {
     /// Banners are the main window's job when it owns the chrome; a standalone
     /// window has to draw its own.
     var showsBanners = true
+    /// Every title the vault can be linked to, aliases included. Defaults to
+    /// the collection's, for a caller that has one; the Mac's editor is handed
+    /// a list instead, because at that level it has no `Collection`.
+    var linkTargets: [String]? = nil
+    /// Renders `![[Note]]` transclusion cards.
+    var embedProvider: CollectionEmbedProvider? = nil
+    /// What `[[` and `#` complete to. Defaults to the collection's index.
+    var completionSource: WikiCompletionSource? = nil
+    /// Preview mode is this pane with no caret.
+    var isEditable: Bool = true
 
     /// Bumped when the caret arrives from the note below — see the Mac's
     /// `NoteEditorView`, which does the same with the same notification.
@@ -51,6 +60,10 @@ struct iOSNoteEditorPane: View {
             if showsBanners {
                 if editor.hasConflict { ConflictBanner(editor: editor) }
                 if editor.saveError != nil { SaveErrorBanner(editor: editor) }
+                // An online-only note whose bytes have not arrived. The Mac has
+                // shown this since cloud collections landed; iPad, which is
+                // *more* likely to be looking at one, showed nothing.
+                if editor.isDownloading { DownloadingBanner(editor: editor) }
             }
             if appearance.showInlineTitle {
                 InlineNoteTitle(
@@ -89,15 +102,16 @@ struct iOSNoteEditorPane: View {
         EditorHost(
             editor: editor,
             note: note,
-            linkTargets: collection?.search.linkTargets() ?? [],
+            linkTargets: linkTargets ?? collection?.search.linkTargets() ?? [],
             fontSize: appearance.editorFontSize,
             accent: appearance.editorAccentPlatformColor,
             textWidth: (appearance.readingWidth, appearance.editorWidth),
             wrapGuide: appearance.wrapGuide,
-            embedProvider: collection?.embedProvider,
+            isEditable: isEditable,
+            embedProvider: embedProvider ?? collection?.embedProvider,
             onOpenWikiLink: onOpenWikiLink,
             selectionActions: selectionActions,
-            completionSource: WikiCompletionSource(
+            completionSource: completionSource ?? WikiCompletionSource(
                 titles: collection?.search.linkTargets() ?? [],
                 tags: collection?.search.allTags() ?? [],
                 headings: { name in collection?.search.headings(forName: name) ?? [] },
@@ -131,9 +145,11 @@ struct iOSNoteEditorPane: View {
     /// Read-only rendered preview (WKWebView over the shared HTML export),
     /// through `GitHubMarkdown.prepare` exactly as the Mac's `githubPreview` is.
     private var preview: some View {
-        MarkdownWebView(
+        // `GFMPreview` — the package's own preview, cross-platform since it was
+        // written. `MarkdownWebView` was a second WKWebView wrapper over the
+        // same renderer, in the app, on one platform.
+        GFMPreview(
             markdown: GitHubMarkdown.prepare(editor.text),
-            title: note.title,
             baseURL: note.fileURL.deletingLastPathComponent(),
             fontScale: appearance.textScale
         )
@@ -149,14 +165,28 @@ struct iOSNoteEditorPane: View {
     /// stacked on a tall (portrait) one.
     private var splitEditor: some View {
         GeometryReader { geo in
-            let sideBySide = geo.size.width >= geo.size.height
-            let layout = sideBySide
-                ? AnyLayout(HStackLayout(spacing: 0))
-                : AnyLayout(VStackLayout(spacing: 0))
-            layout {
-                sourceEditor
-                Divider()
-                preview
+            // Side by side in a landscape column, stacked in a portrait one —
+            // the same rule on both. `HSplitView`/`VSplitView` give the Mac a
+            // *draggable* divider and exist only there, so the arrangement is
+            // shared and the splitter is not.
+            if geo.size.width >= geo.size.height {
+                #if canImport(AppKit)
+                HSplitView {
+                    sourceEditor.frame(minWidth: 180)
+                    preview.frame(minWidth: 180)
+                }
+                #else
+                HStack(spacing: 0) { sourceEditor; Divider(); preview }
+                #endif
+            } else {
+                #if canImport(AppKit)
+                VSplitView {
+                    sourceEditor.frame(minHeight: 120)
+                    preview.frame(minHeight: 120)
+                }
+                #else
+                VStack(spacing: 0) { sourceEditor; Divider(); preview }
+                #endif
             }
         }
     }
@@ -179,4 +209,3 @@ struct iOSEditorModePicker: View {
         .labelsHidden()
     }
 }
-#endif

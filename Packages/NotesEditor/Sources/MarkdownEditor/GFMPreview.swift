@@ -27,8 +27,14 @@ public struct GFMPreview: View {
     }
 
     /// Convenience: render raw Markdown to a GitHub page directly.
-    public init(markdown: String, baseURL: URL? = nil) {
-        self.init(html: GFMRenderer.page(markdown), baseURL: baseURL)
+    /// - Parameter fontScale: the app's Text Size, folded into the page.
+    ///
+    /// It used to be absent, so this initialiser rendered at scale 1 and every
+    /// caller that cared had to reach for `GFMRenderer.page` and the `html:`
+    /// form instead. One of them did and one did not, which is how Text Size
+    /// scaled the preview on iPad and did nothing on the Mac.
+    public init(markdown: String, baseURL: URL? = nil, fontScale: Double = 1) {
+        self.init(html: GFMRenderer.page(markdown, fontScale: fontScale), baseURL: baseURL)
     }
 
     public var body: some View {
