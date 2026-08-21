@@ -2023,7 +2023,18 @@ struct iOSContentView: View {
     @ViewBuilder
     private var detailBody: some View {
         if let file = selectedFile {
-            iOSFileViewer(url: file.url)
+            // The same viewer the Mac uses, and handed the same hydration
+            // callbacks — so a direct-API collection fetches through its
+            // provider here too rather than falling back to the iCloud watch.
+            FileViewerView(
+                file: file,
+                isPlaceholder: { url in
+                    library.collection(containing: url).map { !$0.hasContent(url) } ?? false
+                },
+                prepare: { url in
+                    await library.collection(containing: url)?.hydrateIfNeeded(url)
+                }
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .navigationTitle(file.name)
                 .navigationBarTitleDisplayMode(.inline)

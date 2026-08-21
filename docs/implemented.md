@@ -2480,3 +2480,27 @@ One enum now, with the platform inside each entry point — a save panel and
 `NSPrintOperation` against a share sheet and `UIPrintInteractionController` —
 and both rendering the same GFM HTML, which is what actually decides how the
 file looks.
+
+### One file viewer
+
+`FileViewerView` and `iOSFileViewer` had drifted into disagreeing about what
+previewing a file *is*. The Mac dispatched on `CollectionFile.kind` — PDF to
+PDFKit, CSV to a table, the rest to Quick Look — and drew a bottom bar with
+"Open in default app" and "Reveal in Finder". iOS took a bare `URL`, sent
+everything to Quick Look, and had no bar: so on iPad a PDF got Quick Look's flat
+rendering instead of a continuous scrolling reader, and there was no way to hand
+the file to another app at all.
+
+They also disagreed about *when the bytes arrive*, and this is the part worth
+recording. The Mac was handed `isPlaceholder` / `prepare` by the shell, because a
+collection that mirrors a provider knows how to fetch its own files. iOS
+re-implemented hydration inside the view against iCloud's ubiquitous-item
+status. Neither is wrong and both are needed — a direct-API collection hydrates
+through its provider, a Files-backed one through iCloud, and either shell may
+hand over either kind. The merged view uses the callbacks when it has them and
+falls back to the ubiquitous-item watch when it does not, on both platforms. The
+iPad gained provider hydration; the Mac gained the iCloud fallback.
+
+PDFKit ships on both, so even the PDF path is one decision behind an `#else` —
+the three representables (PDF, Quick Look, and the shared `ExternalURL` for
+"open in the default app") are the only platform-shaped code left in the file.
