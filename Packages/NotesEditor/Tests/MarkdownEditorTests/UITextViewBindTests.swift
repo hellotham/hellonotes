@@ -183,5 +183,99 @@ import Testing
         }
     }
 
+    // MARK: - Autocomplete
+
+    /// The caret inside a half-typed `[[link` has to reach the host, or the
+    /// completion list has nothing to draw. The document has answered this
+    /// since it was written; on iOS nothing ever asked it.
+    @Test func aHalfTypedWikiLinkIsReportedToTheHost() {
+        let document = EditorDocument(text: "before\n\nsee [[Sec\n\nafter\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+
+        var reported: EditorDocument.InlineContext?
+        var rect = CGRect.zero
+        tv.onInlineContextChange = { context, caret in reported = context; rect = caret }
+
+        let caret = (document.text as NSString).range(of: "[[Sec").upperBound
+        tv.selectedRange = NSRange(location: caret, length: 0)
+        tv.reportInlineContext()
+
+        #expect(reported?.kind == .wikiLink)
+        #expect(reported?.query == "Sec")
+        // The rect positions a popup; a zero one puts it in the corner.
+        #expect(rect.height > 0)
+        #expect(rect.origin.x.isFinite && rect.origin.y.isFinite)
+    }
+
+    /// Plain text must clear the popup, not leave the last one on screen.
+    @Test func plainTextReportsNoContext() {
+        let document = EditorDocument(text: "just a line of prose\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+
+        var calls = 0
+        var reported: EditorDocument.InlineContext? = .init(kind: .tag, range: NSRange(location: 0, length: 1), query: "x")
+        tv.onInlineContextChange = { context, _ in calls += 1; reported = context }
+
+        tv.selectedRange = NSRange(location: 5, length: 0)
+        tv.reportInlineContext()
+
+        #expect(calls == 1)
+        #expect(reported == nil)
+    }
+
+    /// Accepting a completion replaces the whole construct — markers included —
+    /// through the proxy the host holds.
+    @Test func acceptingACompletionThroughTheProxyRewritesTheLink() {
+        let document = EditorDocument(text: "see [[Sec\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+
+        var reported: EditorDocument.InlineContext?
+        tv.onInlineContextChange = { context, _ in reported = context }
+        tv.selectedRange = NSRange(location: 9, length: 0)
+        tv.reportInlineContext()
+
+        let proxy = EditorProxy()
+        proxy.textView = tv
+        #expect(proxy.replace(range: reported!.range, with: "[[Section One]]"))
+        #expect(document.text == "see [[Section One]]\n")
+        // Through the UITextInput path, so the document saw the edit too.
+        #expect(tv.textStorage.length == (document.text as NSString).length)
+    }
+
+    /// The outline's jump-to-heading drives this. It must land on the heading
+    /// rather than somewhere plausible near it.
+    @Test func theProxyScrollsAndMovesTheCaret() {
+        let document = EditorDocument(text: sampleText())
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+
+        let target = (document.text as NSString).range(of: "## Section 180")
+        #expect(target.location != NSNotFound)
+
+        let proxy = EditorProxy()
+        proxy.textView = tv
+        proxy.setSelection(NSRange(location: target.location, length: 0))
+        proxy.scroll(to: target)
+        tv.layoutIfNeeded()
+
+        #expect(tv.selectedRange.location == target.location)
+        #expect(tv.contentOffset.y > 0)
+    }
+
+    /// A range past the end must clamp, not throw: the outline is built from
+    /// the model's text, which can trail the document by a keystroke.
+    @Test func theProxyClampsAnOutOfRangeSelection() {
+        let document = EditorDocument(text: "short\n")
+        let (tv, _) = hosted(document)
+        let proxy = EditorProxy()
+        proxy.textView = tv
+        proxy.setSelection(NSRange(location: 9_999, length: 50))
+        #expect(tv.selectedRange.location <= (document.text as NSString).length)
+        #expect(NSMaxRange(tv.selectedRange) <= (document.text as NSString).length)
+    }
+
 }
 #endif

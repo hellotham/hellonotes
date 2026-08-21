@@ -311,10 +311,4 @@ struct NewEditorHost: View {
         inlineContext = nil
     }
 }
-
-/// The completion domains the host can be asked for.
-enum EditorCompletionKind {
-    case wikiLink
-    case tag
-}
 #endif

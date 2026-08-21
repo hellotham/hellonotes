@@ -1065,10 +1065,8 @@ struct iOSContentView: View {
     /// Heading navigation is a notification, so it reaches the editor from
     /// anywhere in the shell — the rail is the editor's sibling, not its parent.
     ///
-    /// The iOS editor host does not consume this yet: `MarkdownEditorView`
-    /// exposes no `EditorProxy` on iOS, so there is nothing to drive the scroll
-    /// with. Posting it anyway means the outline starts working the moment the
-    /// package grows that seam, rather than needing this rewired.
+    /// `iOSLiveEditor` listens on the same bus the Mac's editor does and drives
+    /// the scroll through `EditorProxy`, so this is the identical call on both.
     private func scrollToHeading(_ title: String) {
         NotificationCenter.default.post(name: .hnEditorFindQuery, object: nil,
                                         userInfo: ["query": title])
@@ -1664,7 +1662,13 @@ struct iOSContentView: View {
             collection: focused,
             fontSize: appearance.editorFontSize,
             onOpenWikiLink: { openWikiLink($0) },
-            selectionActions: focused.map(selectionActions(in:))
+            selectionActions: focused.map(selectionActions(in:)),
+            completionSource: WikiCompletionSource(
+                titles: focused?.search.linkTargets() ?? [],
+                tags: focused?.search.allTags() ?? [],
+                headings: { name in focused?.search.headings(forName: name) ?? [] },
+                currentText: { editor.text }
+            )
         )
     }
 

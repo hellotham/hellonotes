@@ -312,6 +312,100 @@ public final class MarkdownUITextView: UITextView {
             else if let s = link as? String, let url = URL(string: s) { onLinkTap?(.url(url)) }
         }
     }
+
+    // MARK: - Inline context (autocomplete)
+
+    /// The host's autocomplete hook: what the caret is inside — a `[[link` or
+    /// a `#tag` — and where to draw the list, or nil for plain text.
+    var onInlineContextChange: ((EditorDocument.InlineContext?, CGRect) -> Void)?
+
+    /// Report the caret's inline context, with the caret rect in **viewport**
+    /// coordinates.
+    ///
+    /// Viewport, not content: a `UITextView` scrolls its own content, so a rect
+    /// in content space is correct exactly once — the popup would then drift up
+    /// the screen as the note scrolls, because the SwiftUI overlay it positions
+    /// sits over the viewport, not over the document.
+    func reportInlineContext() {
+        guard let onInlineContextChange, let document else { return }
+        let selection = selectedRange
+        guard selection.length == 0,
+              let context = document.inlineContext(at: selection.location) else {
+            onInlineContextChange(nil, .zero)
+            return
+        }
+        onInlineContextChange(context, caretRectInViewport(at: selection.location))
+    }
+
+    private func caretRectInViewport(at location: Int) -> CGRect {
+        guard let position = position(from: beginningOfDocument, offset: location) else { return .zero }
+        return caretRect(for: position).offsetBy(dx: -contentOffset.x, dy: -contentOffset.y)
+    }
+
+    /// Scroll a character range into view the TextKit 2-safe way: lay the target
+    /// out first, then scroll to its real frame. `scrollRangeToVisible` alone
+    /// lands short on a long note, because every fragment between here and there
+    /// is still carrying an estimated height.
+    public func reliablyScroll(to range: NSRange) {
+        guard let tlm = textLayoutManager,
+              let content = tlm.textContentManager,
+              let start = content.location(content.documentRange.location, offsetBy: range.location),
+              let end = content.location(start, offsetBy: range.length),
+              let textRange = NSTextRange(location: start, end: end) else {
+            scrollRangeToVisible(range)
+            return
+        }
+        tlm.ensureLayout(for: textRange)
+        var frame: CGRect?
+        tlm.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, rect, _, _ in
+            frame = frame?.union(rect) ?? rect
+            return true
+        }
+        guard let frame else {
+            scrollRangeToVisible(range)
+            return
+        }
+        // Unanimated, like the Mac's `scrollToVisible`: the scroll is the
+        // answer to a tap somewhere else in the window, so it should already be
+        // there when you look back — and an animated one leaves `contentOffset`
+        // unchanged until the animation runs, which is unobservable to a caller.
+        scrollRectToVisible(frame.insetBy(dx: 0, dy: -40)
+            .offsetBy(dx: textContainerInset.left, dy: textContainerInset.top), animated: false)
+    }
+}
+
+/// The host's handle on a live editor: programmatic edits that take the same
+/// path typing does, and navigation.
+///
+/// The UIKit half of the macOS `EditorProxy`, carrying only the two calls this
+/// platform actually makes — accepting a `[[link]]` completion, and scrolling to
+/// a heading picked in the outline. Same name and same shape as the AppKit one
+/// so a host reads identically on both.
+public final class EditorProxy {
+    weak var textView: MarkdownUITextView?
+
+    public init() {}
+
+    @discardableResult
+    public func replace(range: NSRange, with text: String) -> Bool {
+        textView?.performEdit(replacing: range, with: text) ?? false
+    }
+
+    public func scroll(to range: NSRange) {
+        textView?.reliablyScroll(to: range)
+    }
+
+    /// Move the caret, clamped to the document. Deliberately does not scroll:
+    /// the callers that want both say so.
+    public func setSelection(_ range: NSRange) {
+        guard let tv = textView else { return }
+        let length = (tv.text as NSString?)?.length ?? 0
+        let location = min(max(0, range.location), length)
+        let clamped = NSRange(location: location,
+                              length: min(max(0, range.length), length - location))
+        tv.selectedRange = clamped
+        tv.document?.selectionDidChange(clamped)
+    }
 }
 
 
@@ -522,6 +616,17 @@ public struct MarkdownEditorView: View {
     public func selectionMenuItems(_ build: @escaping (String) -> [EditorMenuItem]) -> Self {
         var copy = self; copy.representable = representable.selectionMenuItems(build); return copy
     }
+
+    /// Hand the host a handle on the live text view (programmatic edits, scroll).
+    public func proxy(_ proxy: EditorProxy) -> Self {
+        var copy = self; copy.representable = representable.proxy(proxy); return copy
+    }
+
+    /// Called whenever the caret settles: the `[[link` / `#tag` it is inside
+    /// (nil in plain text) and the caret rect in the editor's own coordinates.
+    public func onInlineContext(_ handler: @escaping (EditorDocument.InlineContext?, CGRect) -> Void) -> Self {
+        var copy = self; copy.representable = representable.onInlineContext(handler); return copy
+    }
 }
 
 struct MarkdownEditorRepresentable: UIViewRepresentable {
@@ -533,6 +638,8 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     private var onPasteImage: (() -> String?)?
     private var onPasteMarkdown: (() -> String?)?
     private var selectionMenuItems: ((String) -> [EditorMenuItem])?
+    private var editorProxy: EditorProxy?
+    private var onInlineContext: ((EditorDocument.InlineContext?, CGRect) -> Void)?
 
     init(document: EditorDocument) { self.document = document }
 
@@ -574,12 +681,22 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         var copy = self; copy.selectionMenuItems = build; return copy
     }
 
+    func proxy(_ proxy: EditorProxy) -> Self {
+        var copy = self; copy.editorProxy = proxy; return copy
+    }
+
+    func onInlineContext(_ handler: @escaping (EditorDocument.InlineContext?, CGRect) -> Void) -> Self {
+        var copy = self; copy.onInlineContext = handler; return copy
+    }
+
     func makeUIView(context: Context) -> MarkdownUITextView {
         let tv = MarkdownUITextView.make(document: document)
         tv.isEditable = isEditable
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
         tv.onPasteMarkdown = onPasteMarkdown
+        tv.onInlineContextChange = onInlineContext
+        editorProxy?.textView = tv
         tv.delegate = context.coordinator
         context.coordinator.subscribe(documentId: busDocumentId, view: tv)
         // Small/medium notes: style the whole document once up front (proven
@@ -603,6 +720,8 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
         tv.onPasteMarkdown = onPasteMarkdown
+        tv.onInlineContextChange = onInlineContext
+        editorProxy?.textView = tv
         context.coordinator.selectionMenuItems = selectionMenuItems
         context.coordinator.subscribe(documentId: busDocumentId, view: tv)
     }
@@ -701,14 +820,23 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             document.selectionDidChange(textView.selectedRange)
             // Reveal flips which markers conceal / which chrome shows.
             (textView as? MarkdownUITextView)?.refreshChrome()
+            (textView as? MarkdownUITextView)?.reportInlineContext()
         }
 
         public func textViewDidChange(_ textView: UITextView) {
             (textView as? MarkdownUITextView)?.refreshChrome()
+            // From here too, not only from the selection callback: UIKit fires
+            // `didChangeSelection` *before* `didChange` for an insertion, so on
+            // the keystroke that completes `[[` the parse the context is read
+            // from is still one edit behind.
+            (textView as? MarkdownUITextView)?.reportInlineContext()
         }
 
         public func scrollViewDidScroll(_ scrollView: UIScrollView) {
             (scrollView as? MarkdownUITextView)?.ensureVisibleRangeStyled()
+            // The caret rect is reported in viewport coordinates, so scrolling
+            // moves it even though the caret itself has not budged.
+            (scrollView as? MarkdownUITextView)?.reportInlineContext()
         }
     }
 }

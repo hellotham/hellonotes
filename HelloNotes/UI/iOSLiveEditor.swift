@@ -27,6 +27,9 @@ struct iOSLiveEditor: View {
     /// system edit menu — see `SelectionActionBar.swift` for why there rather
     /// than in a bar of our own.
     var selectionActions: SelectionActions? = nil
+    /// What `[[` and `#` can complete to. Ranking is shared with the Mac —
+    /// see `WikiCompletions.swift`.
+    var completionSource = WikiCompletionSource()
 
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
     @Environment(\.colorScheme) private var colorScheme
@@ -35,6 +38,13 @@ struct iOSLiveEditor: View {
     /// every rotation would re-parse the note and drop the caret.
     @Environment(EditorDocumentStore.self) private var documents
     @State private var document: EditorDocument?
+    /// The handle programmatic edits go through: accepting a completion, and
+    /// the outline's scroll-to-heading.
+    @State private var proxy = EditorProxy()
+
+    // Autocomplete popup state, reported by the editor on every caret move.
+    @State private var inlineContext: EditorDocument.InlineContext?
+    @State private var caretRect: CGRect = .zero
 
     /// The vault-aware items added to the system edit menu for `selected`.
     ///
@@ -75,7 +85,36 @@ struct iOSLiveEditor: View {
                     .onPasteImage { pasteImage(into: document) }
                     .onPasteMarkdown { smartPaste(into: document) }
                     .selectionMenuItems { selected in selectionMenu(for: selected) }
+                    .proxy(proxy)
+                    .onInlineContext { context, rect in
+                        if inlineContext != context { inlineContext = context }
+                        caretRect = rect
+                    }
                     .ignoresSafeArea(.container, edges: .bottom)
+                    .overlay(alignment: .topLeading) {
+                        let matches = activeCompletions
+                        if !matches.isEmpty {
+                            WikiLinkCompletionList(matches: matches, onSelect: accept)
+                                // Clamped so a caret near the right edge — or
+                                // near the bottom, where the keyboard is —
+                                // still draws the list on screen.
+                                .offset(x: max(4, caretRect.minX), y: caretRect.maxY + 2)
+                        }
+                    }
+                    // Outline → editor. The Mac jumps to a heading by posting
+                    // its title on the find bus; iOS had the poster (the
+                    // inspector's outline) and no listener, because there was
+                    // no handle to scroll the text view with. There is now.
+                    .onReceive(NotificationCenter.default.publisher(for: .hnEditorFindQuery)) { notification in
+                        guard let query = notification.userInfo?["query"] as? String,
+                              !query.isEmpty else { return }
+                        let found = (document.text as NSString).range(of: query)
+                        guard found.location != NSNotFound else { return }
+                        // Caret at the heading, not a selection over it: a
+                        // selection would pop the edit menu on arrival.
+                        proxy.setSelection(NSRange(location: found.location, length: 0))
+                        proxy.scroll(to: found)
+                    }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -112,6 +151,31 @@ struct iOSLiveEditor: View {
             document = built
         }
         .onDisappear { editor.willFlush = nil }
+        // A completion belongs to the note it was typed in.
+        .onChange(of: note.fileURL) { _, _ in inlineContext = nil }
+    }
+
+    /// Suggestions for whatever the caret is inside right now, or none.
+    private var activeCompletions: [WikiCompletion] {
+        guard let context = inlineContext else { return [] }
+        switch context.kind {
+        case .wikiLink: return completionSource.matches(.wikiLink, query: context.query)
+        case .tag: return completionSource.matches(.tag, query: context.query)
+        }
+    }
+
+    /// Replace the whole half-typed construct — markers included, which is what
+    /// `InlineContext.range` covers — so accepting `[[No` gives `[[Note]]` and
+    /// not `[[No[[Note]]`.
+    private func accept(_ completion: WikiCompletion) {
+        guard let context = inlineContext else { return }
+        let replacement: String
+        switch context.kind {
+        case .wikiLink: replacement = "[[\(completion.insert)]]"
+        case .tag: replacement = "#\(completion.insert) "
+        }
+        proxy.replace(range: context.range, with: replacement)
+        inlineContext = nil
     }
 
     /// Save a pasted image beside the note and return the Markdown to insert,

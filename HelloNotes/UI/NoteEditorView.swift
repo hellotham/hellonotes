@@ -187,65 +187,13 @@ struct NoteEditorView: View {
         MarkdownParsing.mermaidBlocks(in: editor.text)
     }
 
-    private func noteCompletions(query: String) -> [WikiCompletion] {
-        let ranked: [String]
-        if query.isEmpty {
-            ranked = Array(linkCandidates.prefix(8))
-        } else {
-            ranked = linkCandidates
-                .compactMap { title in FuzzyMatch.score(query: query, candidate: title).map { (title, $0) } }
-                .sorted { $0.1 > $1.1 }
-                .prefix(8)
-                .map(\.0)
-        }
-        // Nothing to offer if the only match is exactly what's already typed.
-        if ranked.count == 1, ranked[0].localizedCaseInsensitiveCompare(query) == .orderedSame {
-            return []
-        }
-        return ranked.map { WikiCompletion(label: $0, insert: $0, isHeading: false) }
-    }
-
-    private func headingCompletions(notePart: String, query: String) -> [WikiCompletion] {
-        let noteName = notePart.trimmingCharacters(in: .whitespaces)
-        // Empty note part → headings of the note being edited (`[[#heading]]`).
-        let headings = noteName.isEmpty
-            ? MarkdownParsing.headings(in: editor.text).map(\.title)
-            : headingProvider(noteName)
-        let q = query.trimmingCharacters(in: .whitespaces)
-
-        let ranked: [String]
-        if q.isEmpty {
-            ranked = Array(headings.prefix(8))
-        } else {
-            ranked = headings
-                .compactMap { h in FuzzyMatch.score(query: q, candidate: h).map { (h, $0) } }
-                .sorted { $0.1 > $1.1 }
-                .prefix(8)
-                .map(\.0)
-        }
-        return ranked.map { heading in
-            WikiCompletion(label: heading, insert: "\(noteName)#\(heading)", isHeading: true)
-        }
-    }
-
-    /// Rank existing tags against a partially-typed tag (for the editor's
-    /// `#tag` autocomplete).
-    private func tagCompletions(partial: String) -> [WikiCompletion] {
-        let ranked: [String]
-        if partial.isEmpty {
-            ranked = Array(tagCandidates.prefix(8))
-        } else {
-            ranked = tagCandidates
-                .compactMap { tag in FuzzyMatch.score(query: partial, candidate: tag).map { (tag, $0) } }
-                .sorted { $0.1 > $1.1 }
-                .prefix(8)
-                .map(\.0)
-        }
-        // Nothing to offer if the only match is exactly what's already typed.
-        if ranked.count == 1, ranked[0].localizedCaseInsensitiveCompare(partial) == .orderedSame {
-            return []
-        }
-        return ranked.map { WikiCompletion(label: "#\($0)", insert: $0, isHeading: false) }
+    /// The collection's side of `[[link]]` / `#tag` autocomplete. The ranking
+    /// is shared with the iPad host — see `WikiCompletions.swift`.
+    private var completionSource: WikiCompletionSource {
+        WikiCompletionSource(titles: linkCandidates,
+                             tags: tagCandidates,
+                             headings: headingProvider,
+                             currentText: { editor.text })
     }
 
     var body: some View {
@@ -483,18 +431,7 @@ struct NoteEditorView: View {
             isEditable: isEditable,
             wrapGuide: appearance.wrapGuide,
             onOpenWikiLink: onOpenWikiLink,
-            completions: { kind, query in
-                switch kind {
-                case .wikiLink:
-                    if let hash = query.firstIndex(of: "#") {
-                        return headingCompletions(notePart: String(query[..<hash]),
-                                                  query: String(query[query.index(after: hash)...]))
-                    }
-                    return noteCompletions(query: query.trimmingCharacters(in: .whitespaces))
-                case .tag:
-                    return tagCompletions(partial: query)
-                }
-            },
+            completions: { kind, query in completionSource.matches(kind, query: query) },
             pasteMarkdown: { pasteboard in
                 pasteImage(pasteboard) ?? smartPaste(pasteboard)
             },
