@@ -45,6 +45,22 @@ enum CloudBrowser: String, CaseIterable, Identifiable {
         case .oneDrive: "OneDrive"
         }
     }
+
+    /// The store this browser drives.
+    ///
+    /// Here rather than at the call site because macOS opens four `Window`s
+    /// that each name their own store and iOS presents one sheet that has to
+    /// pick — and a second mapping from case to store is how the two platforms
+    /// end up disagreeing about which provider "Box" means.
+    @MainActor
+    func makeStore() -> any RemoteStore {
+        switch self {
+        case .dropbox: DropboxStore()
+        case .box: BoxStore()
+        case .googleDrive: GoogleDriveStore()
+        case .oneDrive: OneDriveStore()
+        }
+    }
 }
 
 /// The actions a HelloNotes window offers to the menu bar.
@@ -204,12 +220,13 @@ struct HelloNotesCommands: Commands {
             Button("New Note") { actions?.newNote() }
                 .keyboardShortcut("n")
                 .disabled(!(actions?.canNewNote ?? false))
-            #if os(macOS)
-            // No second window to open on iPad.
+            // There is a second window on iPad: `WindowGroup(id: "main")` is
+            // cross-platform and iPadOS makes another scene from it. The gate
+            // here said "no second window to open on iPad" and was the only
+            // thing making that true.
             Button("New Window") { actions?.newWindow?() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
-                .disabled(actions == nil)
-            #endif
+                .disabled(actions?.newWindow == nil)
             Button("Today's Note") { actions?.todaysNote() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(!(actions?.canNewNote ?? false))
@@ -277,22 +294,25 @@ struct HelloNotesCommands: Commands {
             Button("Refresh Cloud Collection") { actions?.refreshCloudCollection?() }
                 .disabled(actions?.refreshCloudCollection == nil)
 
-            #if os(macOS)
             // Connecting over the provider's own API is the fallback, for an
-            // account whose desktop client is not installed.
+            // account whose desktop client is not installed. All four browsers
+            // have been on iOS since they were written — reachable only from
+            // Settings, because this menu was gated and `connectOverWeb` was
+            // nil on that platform.
             Menu("Connect Over the Web") {
                 ForEach(CloudBrowser.allCases) { provider in
                     Button("\(provider.displayName)…") { actions?.connectOverWeb?(provider) }
                 }
-                #if DEBUG
+                #if DEBUG && os(macOS)
                 Divider()
                 // Debug-only, so deliberately not a `CloudBrowser` case and not
                 // in the palette — it drives a mock store, not a real account.
+                // macOS only because it is a `Window`, and iOS has no scene for
+                // it; the four real providers are sheets on that platform.
                 Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
                 #endif
             }
-            .disabled(actions == nil)
-            #endif
+            .disabled(actions?.connectOverWeb == nil)
         }
 
         // MARK: File — Print (⌘P), the standard menu item a notes app must have.
@@ -353,10 +373,15 @@ struct HelloNotesCommands: Commands {
 
             Button("Copy Wiki Link") { actions?.note?.copyWikiLink() }
                 .disabled(actions?.note == nil)
-            #if os(macOS)
-            // Both are Mac desktop concepts.
+            // Not a Mac desktop concept after all: iPadOS makes a second scene
+            // from the same `openWindow(value:)` call, and `iOSNoteWindowView`
+            // now fills it. Disabled on the optional rather than gated on the
+            // platform, so the item follows the capability instead of the OS.
             Button("Open in New Window") { actions?.note?.openInNewWindow?() }
-                .disabled(actions?.note == nil)
+                .disabled(actions?.note?.openInNewWindow == nil)
+            #if os(macOS)
+            // This one *is* a Mac concept — iOS has no Finder, and no public
+            // API to reveal an arbitrary path in Files.
             Button("Reveal in Finder") { actions?.note?.revealInFinder?() }
                 .disabled(actions?.note == nil)
             #endif

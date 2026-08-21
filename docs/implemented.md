@@ -2126,3 +2126,36 @@ the macOS view and the iOS view, and compare what each *offers* — every row
 field, every menu item, every state it can show. A gate sweep answers "does it
 exist"; only a capability diff answers "does it behave the same", which is the
 question parity is actually asking.
+
+### The mechanical version, and the guard
+
+Diffing menus by eye found two gaps; diffing the *command surface* mechanically
+found three more, and the method is cheap enough to keep. `AppActions` has 50
+fields and most are **optional closures** — an unwired one still draws an
+enabled menu item and a palette row that do nothing when chosen. Comparing which
+fields each shell supplies took one pass and named:
+
+- **Open in New Window** — wired this pass, but `AppCommands` still hid the item
+  behind `#if os(macOS)` with the comment "Both are Mac desktop concepts". Half
+  right: the item is now offered wherever the closure exists, which is what a
+  command should key on.
+- **New Window** — gated with "No second window to open on iPad", which the gate
+  was the only thing making true. `WindowGroup(id: "main")` is cross-platform.
+- **Connect Over the Web** — all four direct-API browsers have been on iOS since
+  they were written and were reachable only from Settings, because the menu was
+  gated and `connectOverWeb` was nil.
+
+Only `revealInFinder` genuinely differs, and it now says so in one place.
+
+`PlatformParityTests` makes the check a test: it reads the two shells and fails
+naming any `AppActions` field wired on one platform and not the other, with an
+allowlist that must carry a reason. Validated by unwiring `connectOverWeb` and
+watching it fail with that field's name — an instrument that has not been shown
+to fail is not evidence. A second test asserts the allowlist's entries still
+exist, so a stale excuse cannot sit there being read as a rule.
+
+`SmartPasteIOSTests` covers what the macOS suite structurally could not: the
+`UIFontDescriptor` branches of `isBold` / `isItalic` / `isMonospaced`, which
+decide what rich text becomes when it is pasted into a note. They pass — but
+until now, pasting formatted text on iPad wrote a `.md` file through code no
+test had ever executed.

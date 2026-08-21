@@ -220,6 +220,13 @@ struct iOSContentView: View {
     /// written; only `LauncherView` was gated, so iPad had nowhere to show
     /// them and `openLauncher` went straight to the file importer.
     @State private var showLauncher = false
+    /// The direct-API cloud browser the menu bar asked for, if any.
+    ///
+    /// `AppActions.connectOverWeb` was nil on iOS, so File ▸ Connect Over the
+    /// Web ▸ Dropbox… drew, enabled, and did nothing — while the very same four
+    /// browsers were reachable from Settings. The capability was there; the
+    /// command was not.
+    @State private var cloudBrowser: CloudBrowser?
     @State private var recents = RecentsStore()
     @State private var libraries = LibrariesStore()
     @State private var showQuickCapture = false
@@ -600,6 +607,19 @@ struct iOSContentView: View {
     /// described in `body`.
     private func presentations<V: View>(_ content: V) -> some View {
         content
+        .sheet(item: $cloudBrowser) { browser in
+            NavigationStack {
+                RemoteBrowserView(store: browser.makeStore(),
+                                  onAddAsCollection: addRemoteCollection)
+                    .navigationTitle(browser.displayName)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { cloudBrowser = nil }
+                        }
+                    }
+            }
+        }
         .sheet(isPresented: $showLauncher) {
             // The same six affordances the Mac's launcher offers, wired to the
             // iOS routes for each: the folder picker stands in for NSOpenPanel,
@@ -1193,6 +1213,16 @@ struct iOSContentView: View {
             library.close(collection)
         } label: {
             Label("Close Collection", systemImage: "xmark.circle")
+        }
+    }
+
+    /// Mirrors a browsed cloud folder into a sidebar collection. Captures the
+    /// library itself rather than `self`, which is a view struct.
+    private var addRemoteCollection: AddRemoteCollection {
+        let library = self.library
+        return { store, remoteRoot, displayName, progress in
+            try await library.openRemote(store: store, remoteRoot: remoteRoot,
+                                         displayName: displayName, progress: progress)
         }
     }
 
@@ -2204,6 +2234,16 @@ struct iOSContentView: View {
             } label: {
                 Label("Open Recent…", systemImage: "clock.arrow.circlepath")
             }
+            Menu {
+                // The same four the Mac's File ▸ Connect Over the Web offers.
+                // They were reachable on iPad only by opening Settings, which
+                // is not where "open something" lives on either platform.
+                ForEach(CloudBrowser.allCases) { browser in
+                    Button(browser.displayName) { cloudBrowser = browser }
+                }
+            } label: {
+                Label("Connect Over the Web", systemImage: "cloud")
+            }
             Divider()
             Button {
                 showLLMSettings = true
@@ -2731,6 +2771,8 @@ struct iOSContentView: View {
             // `runCompose` and the sheet's `onCreate` — a live command that
             // cannot complete, where the Mac greys the item out and says so.
             composeNote: (railCollection ?? focused) == nil ? nil : { showCompose = true },
+            // iPadOS makes a second scene from the same call the Mac uses.
+            newWindow: { openWindow(id: "main") },
             find: editor.note.map { note in
                 { NotificationCenter.default.post(name: .hnFind(documentId: note.fileURL.path), object: nil) }
             },
@@ -2740,6 +2782,9 @@ struct iOSContentView: View {
             searchAllCollections: {
                 NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
             },
+            // The four direct-API browsers exist on iOS and were reachable only
+            // from Settings, so File ▸ Connect Over the Web did nothing.
+            connectOverWeb: { cloudBrowser = $0 },
             editorMode: mode,
             setEditorMode: { storedMode = $0.rawValue }
         )
