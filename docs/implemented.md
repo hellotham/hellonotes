@@ -2504,3 +2504,21 @@ iPad gained provider hydration; the Mac gained the iCloud fallback.
 PDFKit ships on both, so even the PDF path is one decision behind an `#else` —
 the three representables (PDF, Quick Look, and the shared `ExternalURL` for
 "open in the default app") are the only platform-shaped code left in the file.
+
+### One settings screen's worth of controls
+
+`AppearanceSettingsView` (a Preferences tab) and a stretch of `iOSSettingsView`
+drew the same four groups — Appearance, Accent colour, Text size, Text width —
+over the same `AppearanceSettings` object. That duplication is what earlier in
+this audit had cost three settings: Reading width, Editor width and Wrap guide
+existed on the Mac's screen and not on the iPad's. They were "fixed" then by
+adding a second copy of each control, which closed the gap and left the reason
+for it in place.
+
+`AppearanceSettingsSections` is that reason removed. What stays per-screen is the
+container — a Preferences tab against a `NavigationStack` — and one layout
+parameter: the Mac's accent row is a line of swatches, the iPad's an adaptive
+grid, because 44pt targets do not fit on one line at sheet width. That is a
+width decision, taken by the caller, not a second set of controls.
+
+`AppearanceSettingsView` is 27 lines; `iOSSettingsView` lost 108.
