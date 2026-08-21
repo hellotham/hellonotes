@@ -576,6 +576,9 @@ struct iOSContentView: View {
         }
         // About HelloNotes raises the same splash the Mac shows in a floating
         // window — and stays up until tapped, where the launch one fades.
+        .onReceive(NotificationCenter.default.publisher(for: .hnOpenAISettings)) { _ in
+            showLLMSettings = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .hnShowSplash)) { note in
             splashAutoDismisses = note.userInfo?["autoDismiss"] as? Bool ?? true
             withAnimation(.easeIn(duration: 0.2)) { showSplash = true }
@@ -699,7 +702,7 @@ struct iOSContentView: View {
             // seeded with a start directory" was simply wrong: the UIKit picker
             // has had `directoryURL` since iOS 13. So the picker now opens in
             // Obsidian's iCloud folder instead of wherever Files was last.
-            FolderPicker(startingAt: ObsidianVault.pickerStartDirectory) { urls in
+            FolderPicker(startingAt: ObsidianVault.browseStartDirectory) { urls in
                 showImporter = false
                 guard !urls.isEmpty else { return }
                 Task { await openPicked(urls) }

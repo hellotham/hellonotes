@@ -957,7 +957,7 @@ struct MacContentView: View {
         panel.allowsMultipleSelection = true
         panel.prompt = "Open"
         panel.message = "Choose your Obsidian vault folder(s) in iCloud Drive."
-        panel.directoryURL = ObsidianVault.defaultBrowseDirectory
+        panel.directoryURL = ObsidianVault.browseStartDirectory
 
         guard panel.runModal() == .OK else { return }
 

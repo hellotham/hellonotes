@@ -139,10 +139,7 @@ struct AssistantView: View {
                 Text("\(model.activeProvider.displayName) needs an API key. Add one in Settings, or switch to a local provider (Apple, MLX, Ollama, LM Studio).")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                #if os(macOS)
-                SettingsLink { Text("Open AI Settings…") }
-                    .buttonStyle(.borderedProminent)
-                #endif
+                OpenAISettingsButton()
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 40)

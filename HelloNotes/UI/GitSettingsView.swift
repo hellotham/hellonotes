@@ -27,16 +27,26 @@ struct GitSettingsView: View {
     @State private var remoteURL = ""
     @State private var remoteAccountHost = ""
 
+    /// One name for one screen. It was "Git Settings" in the Mac's sheet header
+    /// and "Git" in the title its iOS caller happened to set.
+    static let title = "Git Settings"
+
     var body: some View {
         VStack(spacing: 0) {
-            // The Mac opens this as a sheet, which has no chrome of its own, so
-            // the title and the way out have to be drawn here. iOS *pushes* it
-            // (`iOSSettingsView` → NavigationLink, `.navigationTitle("Git")`),
-            // where the navigation bar already supplies both — drawing this row
-            // there stacks a second title and a second dismiss under the first.
+            // Both branches supply the same two things: what this screen is
+            // called, and the way out of it. The Mac opens it as a sheet, which
+            // has no chrome of its own, so both are drawn here; iOS pushes it,
+            // where the navigation bar draws them and a second row would stack
+            // a title and a dismiss under the first.
+            //
+            // The `#else` is not decoration. Stated as a one-sided gate this
+            // read as "the Mac has a title and iOS does not", and the fact that
+            // iOS got one from its caller was true by luck of where it happened
+            // to be pushed from — including the name, which was "Git" there and
+            // "Git Settings" here for one screen.
             #if os(macOS)
             HStack {
-                Label("Git Settings", systemImage: "arrow.triangle.branch").font(.headline)
+                Label(Self.title, systemImage: "arrow.triangle.branch").font(.headline)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
@@ -54,6 +64,11 @@ struct GitSettingsView: View {
         // Fixed on the Mac, device-sized on iOS — a hard 540pt is 147pt wider
         // than an iPhone's screen, which clips the form rather than scrolling it.
         .panelFrame(width: 540, height: 620)
+        #if !os(macOS)
+        // The other branch of the header above: iOS gets its title and its way
+        // back from the navigation bar, named by the same constant.
+        .navigationTitle(Self.title)
+        #endif
     }
 
     // MARK: - Identity

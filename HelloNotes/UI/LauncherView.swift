@@ -85,11 +85,11 @@ struct LauncherView: View {
                 .padding()
             }
         }
-        #if os(macOS)
-        // A panel has to declare a size. On iOS the sheet is given one, and a
-        // hard 560pt would be wider than every iPhone.
-        .frame(width: 560, height: 560)
-        #endif
+        // Fixed on the Mac, device-sized on iOS — the same expression every
+        // other panel in the app uses. Written out as a one-sided gate it read
+        // as a size the iPad does not get; it is one presentation rule with two
+        // spellings, which is what `panelFrame` is.
+        .panelFrame(width: 560, height: 560)
         .alert("Save Library", isPresented: $showSavePrompt) {
             TextField("Library name", text: $newLibraryName)
             Button("Cancel", role: .cancel) {}

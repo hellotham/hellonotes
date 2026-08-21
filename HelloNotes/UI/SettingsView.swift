@@ -112,8 +112,9 @@ struct iOSSettingsView: View {
                 if let git, let accounts {
                     Section("Git") {
                         NavigationLink {
+                            // The title is `GitSettingsView`'s own now — set
+                            // here it was a second name for one screen.
                             GitSettingsView(store: accounts, git: git)
-                                .navigationTitle("Git")
                         } label: {
                             Label("Repository & Accounts", systemImage: "arrow.trianglehead.branch")
                         }

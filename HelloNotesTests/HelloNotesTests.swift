@@ -1175,10 +1175,15 @@ struct RealHomeTests {
     /// where neither folder has ever existed — so the panel silently ignored
     /// them.
     @Test func browseHintsPointIntoTheRealHomeNotTheContainer() {
+        // `browseStartDirectory` is the entry point both platforms call; the
+        // two below are the macOS branch it resolves to. Asserting the entry
+        // point as well is the difference between guarding the hint and
+        // guarding a value that happens to feed it.
         for url in [CloudProvider.cloudStorageDirectory,
                     CloudProvider.iCloudDriveDirectory,
                     ObsidianVault.defaultBrowseDirectory,
-                    ObsidianVault.iCloudObsidianDirectory] {
+                    ObsidianVault.iCloudObsidianDirectory,
+                    ObsidianVault.browseStartDirectory].compactMap({ $0 }) {
             #expect(!url.path.contains("/Library/Containers/"), "\(url.path)")
             #expect(url.path.hasPrefix(RealHome.directory.path), "\(url.path)")
         }

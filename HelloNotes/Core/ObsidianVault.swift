@@ -22,7 +22,37 @@ nonisolated enum ObsidianVault {
         return FileManager.default.fileExists(atPath: config.path, isDirectory: &isDir) && isDir.boolValue
     }
 
+    /// Where the file picker should open when adding a collection.
+    ///
+    /// One name, because this was two: `pickerStartDirectory` on iOS and
+    /// `defaultBrowseDirectory` on macOS, each `#if`-gated, each with its own
+    /// caller. Two names for one question is how the two platforms come to
+    /// answer it differently — and they did: the Mac checked whether Obsidian's
+    /// folder actually exists and fell back to the iCloud Drive root, and iOS
+    /// returned its guess unconditionally with no fallback at all.
+    ///
+    /// Optional on both: a hint the picker may ignore, not an access grant.
+    static var browseStartDirectory: URL? {
+        #if os(macOS)
+        return defaultBrowseDirectory
+        #else
+        let obsidian = pickerStartDirectory
+        // Same fallback the Mac has always had. `checkResourceIsReachable` on
+        // another app's container will usually fail under the sandbox, which is
+        // why an unreachable path still returns the hint rather than nil — the
+        // picker resolves it out of process, and if it cannot it opens where it
+        // would have anyway.
+        return obsidian ?? iCloudDriveHint
+        #endif
+    }
+
     #if os(iOS)
+    /// The iCloud Drive root, as a hint of last resort.
+    private static var iCloudDriveHint: URL? {
+        URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs",
+            isDirectory: true)
+    }
+
     /// Where the Files picker should open when adding a collection.
     ///
     /// Obsidian's iOS app keeps its vaults in its own iCloud Drive folder, and
@@ -37,7 +67,7 @@ nonisolated enum ObsidianVault {
     /// nothing is worse than before. That is why the path is built literally
     /// rather than through `FileManager` — there is nothing here for us to
     /// resolve, and pretending otherwise would just fail differently.
-    static var pickerStartDirectory: URL? {
+    private static var pickerStartDirectory: URL? {
         URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/iCloud~md~obsidian/Documents",
             isDirectory: true)
     }
