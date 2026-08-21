@@ -184,7 +184,6 @@ struct iOSContentView: View {
     @State private var composePermissions = PermissionBroker()
     /// Ask Library, and the question it should open with (`nil` = ask fresh).
     @State private var showLibraryChat = false
-    @State private var chatSeed: String?
     /// The agentic assistant, and the provider/key settings it needs. Both were
     /// macOS-only until 1.3 — and without the second, an iPad had no way to
     /// enter an API key at all, so every provider but Apple was unreachable.
@@ -769,18 +768,7 @@ struct iOSContentView: View {
         }
         // Ask Library, which iOS simply did not have. The Mac gives it a window;
         // a sheet is the same thing on a platform with one window.
-        .sheet(isPresented: $showLibraryChat, onDismiss: { chatSeed = nil }) {
-            NavigationStack {
-                LibraryChatView(intelligence: IntelligenceService(settings: llmSettings),
-                                notes: library.allNotes,
-                                searches: library.collections.map(\.search),
-                                onOpenNote: { note in
-                                    showLibraryChat = false
-                                    selectedNoteID = note.id
-                                },
-                                initialQuestion: chatSeed)
-            }
-        }
+        .sheet(isPresented: $showLibraryChat) { libraryChatSheet }
         .sheet(isPresented: $showAssistant) {
             NavigationStack {
                 AssistantHost().navigationTitle("Assistant")
@@ -1675,7 +1663,6 @@ struct iOSContentView: View {
             // question you want to ask your notes usually isn't already in one.
             .init(title: "Ask Your Library", symbol: "sparkles.rectangle.stack",
                   isEnabled: !library.allNotes.isEmpty) {
-                chatSeed = nil
                 showLibraryChat = true
             },
             .init(title: "Assistant", symbol: "sparkles", isEnabled: scope != nil) {
@@ -1873,7 +1860,6 @@ struct iOSContentView: View {
         List {
             Section {
                 Button {
-                    chatSeed = nil
                     showLibraryChat = true
                 } label: {
                     Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
@@ -2474,6 +2460,27 @@ struct iOSContentView: View {
         return nil
     }
 
+    /// Ask Your Library — `LibraryChatWindowView`, the same view the Mac's
+    /// window hosts, seeded from the same pending question.
+    ///
+    /// This used to be a second construction of `LibraryChatView` with a local
+    /// `chatSeed`, so anything that called `Library.requestAsk` other than the
+    /// selection action reached the Mac's chat and not this one.
+    private var libraryChatSheet: some View {
+        NavigationStack {
+            LibraryChatWindowView(onOpenNote: { note in
+                showLibraryChat = false
+                selectedNoteID = note.id
+            })
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { showLibraryChat = false }
+                }
+            }
+        }
+    }
+
     /// The link graph — `GraphPane`, the same view the Mac's graph window
     /// hosts. This used to be its own reduced copy: `GraphData.build(for:)`
     /// with every parameter defaulted, so iPad had no scope, no link depth, and
@@ -2487,28 +2494,35 @@ struct iOSContentView: View {
         })
     }
 
-    /// The open note as a mind map, from its own headings and links.
+    /// The open note as a mind map — `MindMapPane`, the same view the Mac's
+    /// mind-map window hosts.
+    ///
+    /// This used to be its own copy that omitted `onShowSection`, which
+    /// defaults to a no-op — so tapping a heading node did nothing here while
+    /// on the Mac it opened the note and scrolled to that section. The bus it
+    /// needs is the one the inspector's outline already uses.
     @ViewBuilder
     private var mindMapSheet: some View {
-        if let note = editor.note, let c = editorCollection {
-            MindMapView(
-                rootTitle: note.title,
+        if let note = editor.note {
+            MindMapPane(
                 rootURL: note.fileURL,
+                // The live buffer, not the file: a sheet sits over the open
+                // note, so the map should reflect unsaved edits.
                 text: editor.text,
-                resolveLink: { target in
-                    guard let url = c.linkGraph.resolve(target),
-                          let n = c.notes.first(where: { $0.fileURL == url }) else { return nil }
-                    return (url, n.title)
-                },
-                accent: appearance.resolvedAccent,
                 onOpenNote: { url in
                     showMindMap = false
                     if let n = library.allNotes.first(where: { $0.fileURL == url }) {
                         selectedNoteID = n.id
                     }
+                },
+                onShowSection: { heading in
+                    showMindMap = false
+                    guard let heading else { return }
+                    scrollToHeading(heading)
                 })
         } else {
-            ContentUnavailableView("No Note Open", systemImage: "point.topleft.down.curvedto.point.bottomright.up",
+            ContentUnavailableView("No Note Open",
+                                   systemImage: "point.topleft.down.curvedto.point.bottomright.up",
                                    description: Text("Open a note to see its mind map."))
         }
     }
@@ -2695,7 +2709,7 @@ struct iOSContentView: View {
                 revealSearch(focusField: false)
             },
             explain: { phrase in
-                chatSeed = "Explain this, using my notes: \(phrase)"
+                library.askAboutSelection(phrase)
                 showLibraryChat = true
             }
         )

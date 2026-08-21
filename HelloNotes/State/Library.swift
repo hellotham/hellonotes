@@ -105,6 +105,18 @@ final class Library {
 
     func requestAsk(_ question: String) { pendingLibraryQuestion = question }
 
+    /// Ask the library about a selected phrase.
+    ///
+    /// The prompt lives here because it was written out at two call sites — one
+    /// in each shell — and a sentence duplicated across platforms is a sentence
+    /// that can differ on them. The *mechanism* was duplicated too: the Mac set
+    /// this pending question and opened its window, while iPad kept a local
+    /// `chatSeed`, so anything else that called `requestAsk` reached the Mac's
+    /// chat and not the iPad's.
+    func askAboutSelection(_ phrase: String) {
+        requestAsk("Explain this, using my notes: \(phrase)")
+    }
+
     /// Take the pending question, if any, clearing it.
     func takePendingLibraryQuestion() -> String? {
         defer { pendingLibraryQuestion = nil }

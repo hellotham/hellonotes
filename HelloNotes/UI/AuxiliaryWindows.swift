@@ -11,7 +11,6 @@
 //  the main window to show a note via `Library.requestOpen`.
 //
 
-#if os(macOS)
 import SwiftUI
 
 // MARK: - Graph
@@ -45,57 +44,29 @@ struct MindMapRef: Hashable, Codable {
     init(_ url: URL) { self.url = url }
 }
 
-/// A note's idea map, in its own window.
+/// A mind map in a window of its own.
+///
+/// The map is `MindMapPane`, shared with the iPad's sheet; this is the scene
+/// around it — the window minimum, and reading the note off disk, because a
+/// window has no editor to take the text from.
 struct MindMapWindowView: View {
     let rootURL: URL
 
     @Environment(Library.self) private var library
-    @Environment(AppearanceSettings.self) private var appearance
-
-    /// The note's text, loaded off-main once per note — not in `body`, which
-    /// would synchronously re-read the file on every render.
     @State private var text: String?
 
-    private var collection: Collection? { library.collection(containing: rootURL) }
-
-    private var rootTitle: String {
-        collection?.notes.first { $0.fileURL == rootURL }?.title
-            ?? rootURL.deletingPathExtension().lastPathComponent
-    }
-
     var body: some View {
-        Group {
-            if let c = collection, let text {
-                MindMapView(
-                    rootTitle: rootTitle,
-                    rootURL: rootURL,
+        MindMapPane(rootURL: rootURL,
                     text: text,
-                    resolveLink: { target in
-                        guard let url = c.linkGraph.resolve(target),
-                              let note = c.notes.first(where: { $0.fileURL == url }) else { return nil }
-                        return (url, note.title)
-                    },
-                    accent: appearance.resolvedAccent,
                     onOpenNote: { library.requestOpen($0) },
-                    onShowSection: { heading in showSection(heading) }
-                )
-            } else if collection != nil {
-                ProgressView()   // text still loading
-            } else {
-                ContentUnavailableView("Note Unavailable", systemImage: "brain",
-                                       description: Text("This note's collection is no longer open."))
+                    onShowSection: showSection)
+            .frame(minWidth: 480, minHeight: 360)
+            .task(id: rootURL) {
+                text = await offMain { try? FileIO.readString(at: rootURL) }
             }
-        }
-        .navigationTitle("Mind Map — \(rootTitle)")
-        .frame(minWidth: 480, minHeight: 360)
-        .task(id: rootURL) {
-            let url = rootURL
-            text = await offMain { try? FileIO.readString(at: url) }
-        }
     }
 
-    /// Open the mapped note in the main window and, when a section was
-    /// clicked, scroll the editor to that heading.
+    /// Open the root note in the main window and scroll to `heading`.
     private func showSection(_ heading: String?) {
         library.requestOpen(rootURL)
         guard let heading else { return }
@@ -114,6 +85,10 @@ struct MindMapWindowView: View {
 
 /// Retrieval-augmented Q&A over every open collection, in its own window.
 struct LibraryChatWindowView: View {
+    /// What opening a result does. A separate window asks the main one; a sheet
+    /// can select directly. Defaults to the window's behaviour.
+    var onOpenNote: ((Note) -> Void)?
+
     @Environment(Library.self) private var library
     @Environment(LLMSettings.self) private var llmSettings
 
@@ -126,7 +101,10 @@ struct LibraryChatWindowView: View {
         LibraryChatView(intelligence: IntelligenceService(settings: llmSettings),
                         notes: library.allNotes,
                         searches: library.collections.map(\.search),
-                        onOpenNote: { note in library.requestOpen(note.id) },
+                        onOpenNote: { note in
+                            if let onOpenNote { onOpenNote(note) }
+                            else { library.requestOpen(note.id) }
+                        },
                         initialQuestion: seed)
         .navigationTitle("Ask Library")
         .task { seed = library.takePendingLibraryQuestion() }
@@ -143,4 +121,3 @@ struct AssistantWindowView: View {
             .navigationTitle("Assistant")
     }
 }
-#endif

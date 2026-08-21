@@ -871,7 +871,7 @@ struct MacContentView: View {
                 searchText = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
             },
             explain: { phrase in
-                library.requestAsk("Explain this, using my notes: \(phrase)")
+                library.askAboutSelection(phrase)
                 openWindow(id: "askLibrary")
             }
         )

@@ -2830,3 +2830,27 @@ they cover both platforms — which reads as independent, and is the shape where
 one gets updated and the other does not. They are now two small
 `#if/#else` view extensions with names: `plainSearchField()` and
 `paletteChrome(dismiss:)`.
+
+### Mind map, Ask Library, and a prompt written twice
+
+**The mind map's section jump did nothing on iPad.** `MindMapView.onShowSection`
+defaults to a no-op, the Mac passed it, and the iPad's sheet did not — so tapping
+a heading node opened the note and scrolled to that section on one platform and
+did nothing at all on the other. A silently defaulted closure is the quietest way
+for two call sites to disagree: no error, no warning, and nothing on screen
+except a tap that does not work. `MindMapPane` is the map on both now, with the
+text a parameter — a window has no editor and reads the file, a sheet is over the
+open note and uses the live buffer, which is what makes the map reflect unsaved
+edits.
+
+**Ask Library was seeded two different ways.** The Mac wrote
+`library.requestAsk("Explain this, using my notes: …")` and opened its window;
+iPad wrote the same sentence into a local `chatSeed` and opened a sheet. Two
+consequences: the prompt existed twice and could differ, and *anything else* that
+called `requestAsk` reached the Mac's chat and not the iPad's — the pending
+question had one reader. `Library.askAboutSelection(_:)` owns the sentence, and
+iPad's sheet is `LibraryChatWindowView`, seeded from the same pending question.
+
+`AuxiliaryWindows.swift` has no gate left: nothing in it was ever AppKit. It
+holds the scene wrappers — the window minimum, reading a note off disk, asking
+the main window to open something — around panes both platforms share.
