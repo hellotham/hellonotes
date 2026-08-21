@@ -188,6 +188,8 @@ struct ShellViewportTests {
                 signature: "rows-\(rows)",
                 selection: .constant(nil),
                 revealID: .constant(nil),
+                expandedFolders: .constant([]),
+                collapsedCollections: .constant([]),
                 accent: .accentColor,
                 isBookmarked: { _ in false },
                 onToggleBookmark: { _ in },

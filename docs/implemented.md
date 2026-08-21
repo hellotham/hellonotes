@@ -2914,3 +2914,26 @@ That is the second time a guard I wrote had a hole where the defect was. Both
 times the hole was a deliberate exclusion — "skip closures", "skip imports" — and
 both times the exclusion was right in general and wrong for one member of the
 set it covered.
+
+### One sidebar API, two widgets
+
+`NoteOutlineList` is now one type on both platforms: an `NSOutlineView`
+representable on macOS, a SwiftUI `List` of `SidebarItemRow` on iOS, behind one
+signature that both shells call identically. That is the same shape
+`FileViewerView` uses for PDFs and Quick Look — the decision is shared and only
+the widget differs — and by this point *everything* around the widget already
+was: `SidebarTree.roots` decides what is in the tree, `NoteRowContent` decides
+what a row says, and the menus and drop targets are the shell's on both.
+
+Two parameters are accepted by the AppKit branch and ignored there:
+`expandedFolders` and `collapsedCollections`. `NSOutlineView` owns its own
+expansion and restores it across a reload; SwiftUI has no such memory and needs
+the shell to hold it. They are accepted rather than removed so the call site is
+one call site — the alternative is two signatures, which is where this whole
+audit started.
+
+The tint claim in the file's header — that SwiftUI's `List` forces the system
+selection colour, which is why the Mac keeps an `NSOutlineView` — remains
+**untested**. It no longer blocks anything: the API is one either way, and if the
+claim turns out to be stale the AppKit branch can be deleted without touching a
+single call site. Settling it needs `screencapture -l` on a running window.

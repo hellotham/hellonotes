@@ -860,28 +860,30 @@ struct iOSContentView: View {
     }
 
     private var collectionTree: some View {
-        List(selection: $selectedNoteID) {
-            // One recursive renderer over `SidebarTree.roots` — the same items
-            // the Mac's `NoteOutlineList` draws. This used to walk
-            // `CollectionTreeNode` and compose its own sections, which is how
-            // five row behaviours drifted from the Mac's: no snippets, no
-            // attachment hits, collections that could not be collapsed, a
-            // redundant header under a tag filter, and inert pinned rows.
-            ForEach(sidebarRoots, id: \.id) { item in
-                SidebarItemRow(
-                    item: item,
-                    expandedFolders: expandedFolders,
-                    collapsedCollections: $collapsedCollections,
-                    row: { note, snippet in AnyView(noteRow(note, snippet: snippet)) },
-                    collectionMenu: { AnyView(collectionMenuItems($0)) },
-                    folderMenu: { id in AnyView(folderMenu(forID: id)) },
-                    onDropIntoFolder: { id, urls in
-                        guard let (collection, url) = folder(forID: id) else { return false }
-                        moveItems(urls, into: url, of: collection)
-                        return true
-                    })
-            }
-        }
+        // `NoteOutlineList` — the same call the Mac makes. One API over two
+        // widgets: an `NSOutlineView` there, a SwiftUI `List` of
+        // `SidebarItemRow` here. What is *in* the tree is `SidebarTree.roots`
+        // and what a row *says* is `NoteRowContent`, both shared, so the widget
+        // is the only thing left that differs.
+        NoteOutlineList(
+            roots: sidebarRoots,
+            signature: treeInputsKey,
+            selection: $selectedNoteID,
+            revealID: .constant(nil),
+            expandedFolders: expandedFolders,
+            collapsedCollections: $collapsedCollections,
+            focusedCollectionID: library.focusedID,
+            accent: appearance.resolvedAccent,
+            fontScale: appearance.textScale,
+            scopedCollectionID: selectedTag == nil ? nil : (railCollection ?? focused)?.id,
+            row: { note, snippet in AnyView(noteRow(note, snippet: snippet)) },
+            collectionMenu: { AnyView(collectionMenuItems($0)) },
+            folderMenu: { id in AnyView(folderMenu(forID: id)) },
+            onDropIntoFolder: { id, urls in
+                guard let (collection, url) = folder(forID: id) else { return false }
+                moveItems(urls, into: url, of: collection)
+                return true
+            })
         .navigationTitle("Collections")
         // **The iPad had no search field at any width.** The only `.searchable`
         // in this file sits on `noteList`, which is compact-only — and
@@ -2818,106 +2820,5 @@ private struct ParitySheets<Graph: View, Mind: View, Palette: View>: ViewModifie
     }
 }
 
-/// One sidebar item and everything under it.
-///
-/// Its own `View` because the renderer recurses, and a function returning
-/// `some View` cannot: the opaque type would be defined in terms of itself.
-/// The old `CollectionTreeRow` had the same shape over `CollectionTreeNode`;
-/// this walks `NoteOutlineItem`, which is the model the Mac's outline walks.
-private struct SidebarItemRow: View {
-    let item: NoteOutlineItem
-    /// Open folders, shared by the whole tree so the state survives the rows
-    /// being rebuilt (which happens on every rescan).
-    let expandedFolders: Binding<Set<String>>
-    /// Collections the user has folded away. A *collapsed* set, so a newly
-    /// opened collection starts open — which is what a collection you just
-    /// opened should do.
-    @Binding var collapsedCollections: Set<Collection.ID>
-
-    let row: (Note, String?) -> AnyView
-    let collectionMenu: (Collection) -> AnyView
-    let folderMenu: (String) -> AnyView
-    let onDropIntoFolder: (String, [URL]) -> Bool
-
-    var body: some View {
-        switch item.kind {
-        case .note(let note, let snippet):
-            row(note, snippet)
-
-        case .file(let file):
-            Label(file.name, systemImage: file.kind.symbol).tag(file.url)
-
-        case .place(let name, let symbol):
-            DisclosureGroup {
-                children
-            } label: {
-                Label(name, systemImage: symbol)
-            }
-
-        case .collection(let collection):
-            DisclosureGroup(isExpanded: Binding(
-                get: { !collapsedCollections.contains(collection.id) },
-                set: { open in
-                    if open { collapsedCollections.remove(collection.id) }
-                    else { collapsedCollections.insert(collection.id) }
-                }
-            )) {
-                children
-            } label: {
-                // **Closing a collection has to be reachable here.** It was only
-                // ever offered as a swipe on the compact shell's collections
-                // list — a view the iPad never shows at regular width — so a
-                // collection could be opened and never closed again. A *visible*
-                // control, not just a long-press: the Mac can afford a hidden
-                // right-click because that is where Mac users look.
-                HStack {
-                    Text(collection.name).font(.headline)
-                    Spacer()
-                    Menu {
-                        collectionMenu(collection)
-                    } label: {
-                        Image(systemName: "ellipsis.circle").imageScale(.large)
-                    }
-                    .accessibilityLabel("\(collection.name) actions")
-                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                }
-                .contextMenu { collectionMenu(collection) }
-            }
-
-        case .folder(let name):
-            DisclosureGroup(isExpanded: Binding(
-                get: { expandedFolders.wrappedValue.contains(item.id) },
-                set: { open in
-                    var folders = expandedFolders.wrappedValue
-                    if open { folders.insert(item.id) } else { folders.remove(item.id) }
-                    expandedFolders.wrappedValue = folders
-                }
-            )) {
-                children
-            } label: {
-                // On the label, not the group: a menu on the group would claim
-                // the long-press of every row nested inside it, and a drop on
-                // the group would swallow drops meant for its children.
-                Label(name, systemImage: "folder")
-                    .contextMenu { folderMenu(item.id) }
-                    .dropDestination(for: URL.self) { urls, _ in
-                        onDropIntoFolder(item.id, urls)
-                    }
-            }
-        }
-    }
-
-    private var children: some View {
-        ForEach(item.children, id: \.id) { child in
-            SidebarItemRow(item: child,
-                           expandedFolders: expandedFolders,
-                           collapsedCollections: $collapsedCollections,
-                           row: row,
-                           collectionMenu: collectionMenu,
-                           folderMenu: folderMenu,
-                           onDropIntoFolder: onDropIntoFolder)
-        }
-    }
-}
 
 #endif

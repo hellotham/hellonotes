@@ -103,6 +103,11 @@ struct MacContentView: View {
     /// when the OS forces it past the declared minimum.
     @SceneStorage("compactPlace") private var compactPlaceRaw = CompactPlace.notes.rawValue
     @State private var compactNoteExpanded = false
+    /// Sidebar expansion, held by the shell so both platforms keep it across a
+    /// rebuild. The AppKit outline manages its own and ignores these; they are
+    /// here so the call site is one call site.
+    @State private var expandedOutlineFolders: Set<String> = []
+    @State private var collapsedCollections: Set<Collection.ID> = []
     private var compactPlace: Binding<CompactPlace> {
         Binding(get: { CompactPlace(rawValue: compactPlaceRaw) ?? .notes },
                 set: { compactPlaceRaw = $0.rawValue })
@@ -1801,6 +1806,11 @@ struct MacContentView: View {
             signature: cachedSignature,
             selection: $selectedNoteID,
             revealID: $revealOutlineID,
+            // Expansion state is the shell's on both platforms now — the
+            // outline used to keep its own inside the representable, which is
+            // why it survived a rebuild there and not on iPad.
+            expandedFolders: $expandedOutlineFolders,
+            collapsedCollections: $collapsedCollections,
             focusedCollectionID: library.focusedID,
             accent: appearance.resolvedAccent,
             fontScale: appearance.textScale,
