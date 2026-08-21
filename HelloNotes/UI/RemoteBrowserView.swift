@@ -31,6 +31,27 @@ typealias AddRemoteCollection = @MainActor (
     _ progress: @escaping @Sendable (RemoteSyncProgress) -> Void
 ) async throws -> RemoteSyncOutcome
 
+extension Library {
+    /// Mirror a browsed cloud folder into a sidebar collection, handing
+    /// progress and failures back to the browser that asked for it.
+    ///
+    /// This was `Task { try? await library.openRemote(…) }` at five call sites:
+    /// the `try?` discarded every error, and nothing awaited or reported the
+    /// result — so an expired token, a 403 on a shared folder and a complete
+    /// success all looked identical, and identical to the button being dead.
+    ///
+    /// Then it was written twice: once in `HelloNotesApp` behind
+    /// `#if os(macOS)`, once in `iOSContentView`, byte for byte the same. It
+    /// belongs to the library, which is the object that does the work and the
+    /// one thing both call sites already have.
+    var addRemoteCollection: AddRemoteCollection {
+        { [self] store, remoteRoot, displayName, progress in
+            try await openRemote(store: store, remoteRoot: remoteRoot,
+                                 displayName: displayName, progress: progress)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class RemoteBrowserModel {

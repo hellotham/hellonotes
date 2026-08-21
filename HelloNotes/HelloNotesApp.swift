@@ -46,25 +46,6 @@ struct HelloNotesApp: App {
         CloudPrefs.shared.start()   // mirror preference keys via iCloud KV
     }
 
-    #if os(macOS)
-    /// Mirrors a browsed cloud folder into a sidebar collection, handing
-    /// progress and failures back to the browser that asked for it.
-    ///
-    /// This was `Task { try? await library.openRemote(…) }` at five call sites:
-    /// the `try?` discarded every error, and nothing awaited or reported the
-    /// result — so an expired token, a 403 on a shared folder and a complete
-    /// success all looked identical, and identical to the button being dead.
-    private var addRemoteCollection: AddRemoteCollection {
-        // Capture the library itself, not `self` — the App struct holds property
-        // wrappers and has no business outliving this scene's body evaluation.
-        let library = self.library
-        return { store, remoteRoot, displayName, progress in
-            try await library.openRemote(store: store, remoteRoot: remoteRoot,
-                                         displayName: displayName, progress: progress)
-        }
-    }
-    #endif
-
     /// Every app-wide observable, injected in one place.
     ///
     /// The macOS and iOS scenes used to carry their own lists, and the iOS one
@@ -100,9 +81,10 @@ struct HelloNotesApp: App {
                 .onOpenURL { router.handle($0) }
             #endif
         }
-        #if os(macOS)
+        // Both platforms: iPadOS 26 gives a scene a resizable window too, so
+        // gating this meant the iPad's first window opened at whatever the
+        // system chose while the Mac's opened at a size the app had picked.
         .defaultSize(width: 1100, height: 720)   // roomy first launch (not the 860pt min floor)
-        #endif
         // iPadOS builds its menu bar from a scene's `.commands` exactly as
         // macOS does. Gating this was gating the iPad's whole menu bar and
         // every keyboard shortcut with it — no ⌘B, no ⌘F, no View menu.
@@ -144,32 +126,32 @@ struct HelloNotesApp: App {
         // in Info.plist); a DEBUG-only demo window drives the same UI with an
         // in-memory MockRemoteStore.
         Window("Cloud Notes (Direct)", id: CloudBrowser.dropbox.windowID) {
-            RemoteBrowserView(store: DropboxStore(), onAddAsCollection: addRemoteCollection)
+            RemoteBrowserView(store: DropboxStore(), onAddAsCollection: library.addRemoteCollection)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
         Window("Box (Direct)", id: CloudBrowser.box.windowID) {
-            RemoteBrowserView(store: BoxStore(), onAddAsCollection: addRemoteCollection)
+            RemoteBrowserView(store: BoxStore(), onAddAsCollection: library.addRemoteCollection)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
         Window("Google Drive (Direct)", id: CloudBrowser.googleDrive.windowID) {
-            RemoteBrowserView(store: GoogleDriveStore(), onAddAsCollection: addRemoteCollection)
+            RemoteBrowserView(store: GoogleDriveStore(), onAddAsCollection: library.addRemoteCollection)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
         Window("OneDrive (Direct)", id: CloudBrowser.oneDrive.windowID) {
-            RemoteBrowserView(store: OneDriveStore(), onAddAsCollection: addRemoteCollection)
+            RemoteBrowserView(store: OneDriveStore(), onAddAsCollection: library.addRemoteCollection)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)
 
         #if DEBUG
         Window("Cloud Demo", id: "remoteBrowserDemo") {
-            RemoteBrowserView(store: MockRemoteStore(), onAddAsCollection: addRemoteCollection)
+            RemoteBrowserView(store: MockRemoteStore(), onAddAsCollection: library.addRemoteCollection)
                 .themedRoot(appearance)
         }
         .defaultSize(width: 480, height: 580)

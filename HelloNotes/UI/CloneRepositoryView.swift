@@ -10,9 +10,6 @@
 //
 
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 struct CloneRepositoryView: View {
     @Bindable var store: GitAccountsStore
@@ -28,10 +25,12 @@ struct CloneRepositoryView: View {
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var filter = ""
-    #if os(iOS)
     @State private var showFolderPicker = false
+    /// The typed repository, carried across the picker's callback. The picker
+    /// is a presented sheet on both platforms now, so the wait is asynchronous
+    /// on both — the Mac used to run a modal `NSOpenPanel` inline and needed no
+    /// such state, which is exactly why this was `#if os(iOS)`.
     @State private var pendingCloneURL: String?
-    #endif
     @State private var repoURL = ""               // the URL that will be cloned
 
     private var filteredRepos: [RemoteRepository] {
@@ -68,12 +67,12 @@ struct CloneRepositoryView: View {
             Divider()
             footer
         }
-#if os(macOS)
-        // A fixed sheet on the Mac; on iPhone and iPad the sheet is sized by
-        // the presentation, and a hard 560pt would overflow a phone.
-        .frame(width: 560, height: 640)
-#endif
-        #if os(iOS)
+        .panelFrame(width: 560, height: 640)
+        // `FolderPicker` has been cross-platform since it was lifted out of the
+        // iOS shell — an `NSOpenPanel` in a zero-size sheet on the Mac, the
+        // document picker on iOS. This view went on calling `NSOpenPanel`
+        // directly anyway, so "choose a folder" existed twice: once here for
+        // the Mac and once in the sheet below for iPad.
         .sheet(isPresented: $showFolderPicker) {
             FolderPicker(startingAt: nil) { urls in
                 showFolderPicker = false
@@ -82,7 +81,6 @@ struct CloneRepositoryView: View {
                 clone(pending, into: parent)
             }
         }
-        #endif
     }
 
     // MARK: - Browse
@@ -210,16 +208,10 @@ struct CloneRepositoryView: View {
 
     private func clone() {
         let urlString = repoURL.trimmingCharacters(in: .whitespaces)
-        #if os(macOS)
-        guard let parent = chooseDestinationFolder() else { return }
-        clone(urlString, into: parent)
-        #else
-        // The picker is asynchronous here, so the clone waits for its callback
-        // rather than for a modal to return. `pendingCloneURL` carries the
-        // typed repository across that gap.
+        // The picker is a presented sheet, so the clone waits for its callback
+        // rather than for a modal to return.
         pendingCloneURL = urlString
         showFolderPicker = true
-        #endif
     }
 
     /// Clone `urlString` into `parent`. Split out so the folder can arrive from
@@ -243,18 +235,4 @@ struct CloneRepositoryView: View {
         }
     }
 
-    #if os(macOS)
-    /// Ask the user where to put the clone. The returned folder is the *parent*;
-    /// the repository is cloned into a subfolder named after the repo.
-    private func chooseDestinationFolder() -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Clone Here"
-        panel.message = "Choose the folder to clone the repository into."
-        return panel.runModal() == .OK ? panel.url : nil
-    }
-    #endif
 }

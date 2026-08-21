@@ -661,7 +661,7 @@ struct iOSContentView: View {
         .sheet(item: $cloudBrowser) { browser in
             NavigationStack {
                 RemoteBrowserView(store: browser.makeStore(),
-                                  onAddAsCollection: addRemoteCollection)
+                                  onAddAsCollection: library.addRemoteCollection)
                     .navigationTitle(browser.displayName)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -1006,16 +1006,6 @@ struct iOSContentView: View {
             }
         }
     }
-    /// Mirrors a browsed cloud folder into a sidebar collection. Captures the
-    /// library itself rather than `self`, which is a view struct.
-    private var addRemoteCollection: AddRemoteCollection {
-        let library = self.library
-        return { store, remoteRoot, displayName, progress in
-            try await library.openRemote(store: store, remoteRoot: remoteRoot,
-                                         displayName: displayName, progress: progress)
-        }
-    }
-
     /// Open (creating if needed) today's daily note.
     private func openTodaysNote() {
         let name = TemplateExpander.dailyNoteName(for: .now, format: dailyDateFormat)

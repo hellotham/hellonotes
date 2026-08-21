@@ -10,9 +10,6 @@
 //
 
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 struct NewRepositoryView: View {
     @Bindable var store: GitAccountsStore
@@ -20,9 +17,7 @@ struct NewRepositoryView: View {
     var onCreated: (URL) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    #if os(iOS)
     @State private var showFolderPicker = false
-    #endif
 
     @State private var git = GitService()
     @State private var name = ""
@@ -100,22 +95,14 @@ struct NewRepositoryView: View {
             }
             .padding()
         }
-#if os(macOS)
-        // A fixed sheet on the Mac; on iPhone and iPad the sheet is sized by
-        // the presentation, and a hard 560pt would overflow a phone.
-        .frame(width: 460, height: 440)
-#endif
+        .panelFrame(width: 460, height: 440)
         .onAppear { if selectedHost.isEmpty { selectedHost = store.accounts.first?.host ?? "" } }
-        #if os(iOS)
-        // The Mac opens an NSOpenPanel; iPad presents the document
-        // picker, which is the same question asked the platform's way.
         .sheet(isPresented: $showFolderPicker) {
             FolderPicker(startingAt: nil) { urls in
                 showFolderPicker = false
                 if let first = urls.first { parent = first }
             }
         }
-        #endif
     }
 
     private var canCreate: Bool {
@@ -123,19 +110,11 @@ struct NewRepositoryView: View {
             && (!createRemote || !selectedHost.isEmpty)
     }
 
-    private func chooseParent() {
-        #if os(macOS)
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.prompt = "Choose"
-        panel.message = "Choose where to create the repository folder."
-        if panel.runModal() == .OK { parent = panel.url }
-        #else
-        showFolderPicker = true
-        #endif
-    }
+    /// One question, one way of asking it. `FolderPicker` is an `NSOpenPanel`
+    /// in a zero-size sheet on the Mac and the document picker on iOS; this
+    /// view reached past it to `NSOpenPanel` on one platform and used the sheet
+    /// on the other, so "choose a folder" was written twice.
+    private func chooseParent() { showFolderPicker = true }
 
     private func create() {
         guard let parent else { return }
