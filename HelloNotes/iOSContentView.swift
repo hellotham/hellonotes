@@ -295,29 +295,6 @@ struct iOSContentView: View {
         railPlace == .library && searchText.isEmpty && selectedTag == nil
     }
 
-    /// Open picked folders, expanding any that are (or contain) Obsidian vaults
-    /// — so choosing an iCloud Drive folder full of vaults opens each of them.
-    private func openPicked(_ urls: [URL]) async {
-        // Through `openChecking`, so a large folder is warned about here as it
-        // is on the Mac. Vault discovery still applies to whatever survives it.
-        for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            let vaults = ObsidianVault.discoverVaults(in: url)
-            if vaults.isEmpty {
-                await library.openChecking([url])
-            } else {
-                // Hold the picked folder's security scope while opening each
-                // child vault. A discovered child URL is not itself picker- or
-                // bookmark-scoped, so `Collection.activate`'s own
-                // startAccessingSecurityScopedResource() returns false; without
-                // the parent scope held, the vault would open (and bookmark)
-                // as an empty collection.
-                for vault in vaults { await library.open(url: vault) }
-            }
-            if scoped { url.stopAccessingSecurityScopedResource() }
-        }
-    }
-
     /// Tags of the focused collection.
     private var tags: [String] { (railCollection ?? focused)?.search.allTags() ?? [] }
 
@@ -702,10 +679,11 @@ struct iOSContentView: View {
             // seeded with a start directory" was simply wrong: the UIKit picker
             // has had `directoryURL` since iOS 13. So the picker now opens in
             // Obsidian's iCloud folder instead of wherever Files was last.
-            FolderPicker(startingAt: ObsidianVault.browseStartDirectory) { urls in
+            FolderPicker(startingAt: ObsidianVault.browseStartDirectory,
+                         message: ObsidianVault.pickerMessage) { urls in
                 showImporter = false
                 guard !urls.isEmpty else { return }
-                Task { await openPicked(urls) }
+                Task { await library.openPicked(urls) }
             }
             .ignoresSafeArea()
         }

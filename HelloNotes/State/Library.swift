@@ -578,4 +578,35 @@ final class Library {
         if back { persist() }
         return back
     }
+
+    /// Open whatever a folder picker returned.
+    ///
+    /// Written twice: `iOSContentView.openPicked` and
+    /// `MacContentView.openObsidianVault`, and they had drifted. The iPad went
+    /// through `openChecking`, which warns before indexing a folder large
+    /// enough to be someone's whole home directory; the Mac called `open(urls:)`
+    /// straight through and warned about nothing. The same picker, the same
+    /// question, two answers.
+    ///
+    /// Vault discovery applies to whatever survives that check: a folder that
+    /// *contains* vaults opens them, a folder that is one opens itself.
+    func openPicked(_ urls: [URL]) async {
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            let vaults = ObsidianVault.discoverVaults(in: url)
+            if vaults.isEmpty {
+                await openChecking([url])
+            } else {
+                // Hold the picked folder's scope while opening each child
+                // vault. A discovered child URL is not itself picker- or
+                // bookmark-scoped, so `Collection.activate`'s own
+                // `startAccessingSecurityScopedResource()` returns false;
+                // without the parent scope held, the vault would open (and
+                // bookmark) as an empty collection.
+                for vault in vaults { await open(url: vault) }
+            }
+            if scoped { url.stopAccessingSecurityScopedResource() }
+        }
+    }
+
 }

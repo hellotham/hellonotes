@@ -39,6 +39,10 @@ struct MacContentView: View {
     @State private var recents = RecentsStore()
     @State private var libraries = LibrariesStore()
     @State private var showLauncher = false
+    /// The folder picker for "Open Collection". A presented sheet on both
+    /// platforms — the Mac ran an `NSOpenPanel` inline, which is why its open
+    /// path and the iPad's were two functions that had drifted apart.
+    @State private var showImporter = false
     @State private var showNewRepo = false
     @State private var showWelcome = false
     /// First-run onboarding is shown once; afterwards an empty launch offers the
@@ -630,9 +634,17 @@ struct MacContentView: View {
         .sheet(isPresented: $showWelcome, onDismiss: { hasSeenWelcome = true }) {
             WelcomeView(
                 onOpenCollection: { showWelcome = false; library.requestOpenCollections() },
-                onOpenObsidian: { showWelcome = false; openObsidianVault() },
+                onOpenObsidian: { showWelcome = false; showImporter = true },
                 onDismiss: { showWelcome = false }
             )
+        }
+        .sheet(isPresented: $showImporter) {
+            FolderPicker(startingAt: ObsidianVault.browseStartDirectory,
+                         message: ObsidianVault.pickerMessage) { urls in
+                showImporter = false
+                guard !urls.isEmpty else { return }
+                Task { await library.openPicked(urls) }
+            }
         }
         .sheet(isPresented: $showLauncher) {
             LauncherView(
@@ -646,7 +658,7 @@ struct MacContentView: View {
                 },
                 onSaveLibrary: { name in libraries.save(name: name, urls: library.collections.map(\.rootURL)) },
                 onOpenCollection: { library.requestOpenCollections() },
-                onOpenObsidian: { openObsidianVault() },
+                onOpenObsidian: { showImporter = true },
                 onClone: { showClone = true },
                 onNewRepository: { showNewRepo = true }
             )
@@ -943,32 +955,6 @@ struct MacContentView: View {
                 || library.collections.contains { $0.attachments.contains { $0.url == id } }
         } ?? true
         if !stillValid { selectedNoteID = tabs.openNotes.last?.id }
-    }
-
-    /// Browse iCloud Drive for Obsidian vaults. The open panel (Powerbox) grants
-    /// access to the chosen folders; the panel opens in Obsidian's iCloud folder
-    /// so vaults are one click away. Each selected folder that is an Obsidian
-    /// vault (has a `.obsidian` config) — or contains vaults — opens as a
-    /// collection; a plain folder opens as-is. Multi-select opens several at once.
-    private func openObsidianVault() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Open"
-        panel.message = "Choose your Obsidian vault folder(s) in iCloud Drive."
-        panel.directoryURL = ObsidianVault.browseStartDirectory
-
-        guard panel.runModal() == .OK else { return }
-
-        var toOpen: [URL] = []
-        for url in panel.urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            let found = ObsidianVault.discoverVaults(in: url)
-            if scoped { url.stopAccessingSecurityScopedResource() }
-            toOpen += found.isEmpty ? [url] : found   // fall back to the folder itself
-        }
-        Task { await library.open(urls: toOpen) }
     }
 
     // MARK: - Column 1: the collection tree

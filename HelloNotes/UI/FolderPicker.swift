@@ -20,6 +20,11 @@ import UniformTypeIdentifiers
 /// security-scoped for the caller to open.
 struct FolderPicker: UIViewControllerRepresentable {
     let startingAt: URL?
+    /// What the Mac's panel calls its accept button, and the sentence above it.
+    /// The document picker has neither, so iOS ignores them — the *caller* says
+    /// the same thing on both platforms and each shows what it can.
+    var prompt = "Open"
+    var message: String? = nil
     let onPick: ([URL]) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
@@ -68,6 +73,8 @@ import AppKit
 /// method on `Library` there.
 struct FolderPicker: View {
     let startingAt: URL?
+    var prompt = "Open"
+    var message: String? = nil
     let onPick: ([URL]) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -82,7 +89,8 @@ struct FolderPicker: View {
                 panel.canChooseFiles = false
                 panel.canChooseDirectories = true
                 panel.allowsMultipleSelection = true
-                panel.prompt = "Open"
+                panel.prompt = prompt
+                if let message { panel.message = message }
                 panel.directoryURL = startingAt
                 let urls = panel.runModal() == .OK ? panel.urls : []
                 dismiss()

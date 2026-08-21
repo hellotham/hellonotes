@@ -22,6 +22,11 @@ nonisolated enum ObsidianVault {
         return FileManager.default.fileExists(atPath: config.path, isDirectory: &isDir) && isDir.boolValue
     }
 
+    /// What the picker says it is asking for. Shown by the Mac's panel; the
+    /// document picker has no such field, so iOS simply does not draw it — the
+    /// caller still says the same thing on both.
+    static let pickerMessage = "Choose your Obsidian vault folder(s) in iCloud Drive."
+
     /// Where the file picker should open when adding a collection.
     ///
     /// One name, because this was two: `pickerStartDirectory` on iOS and
