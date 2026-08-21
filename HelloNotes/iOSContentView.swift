@@ -54,7 +54,7 @@ struct iOSContentView: View {
     /// not each have to answer "and if there is nothing open?". The detail
     /// column shows `ContentUnavailableView` in that state anyway.
     @State private var noEditor = EditorModel()
-    private var editor: EditorModel { tabs.editor(withID: selectedNoteID) ?? noEditor }
+    private var editor: EditorModel { actions.activeEditor ?? noEditor }
 
     /// The scene's width, for `AuxiliaryPresentation`. Measured here rather
     /// than read from `\.shell`, because this view *supplies* the shell's slots
@@ -74,6 +74,74 @@ struct iOSContentView: View {
         AuxiliaryOpener(openWindow: openWindow, width: shellWidth) { auxiliarySheet = $0 }
     }
 
+
+    /// The editor showing the selected note, if any. `ShellActions` owns it, so
+    /// the two shells cannot resolve "the open editor" differently.
+    private var activeEditor: EditorModel? { actions.activeEditor }
+
+    /// The collection the editor's note belongs to, falling back to the focused
+    /// one. Resolved from the selection's URL rather than from a `Note` lookup:
+    /// an attachment has no `Note`, and the Mac's version returned the *focused*
+    /// collection for one.
+    private var editorCollection: Collection? {
+        if let id = selectedNoteID, let owner = library.collection(containing: id) { return owner }
+        return focused
+    }
+
+
+
+    /// Turn the first mention of the open note in `note` into a link.
+    private func linkMention(_ note: Note) {
+        guard let target = activeEditor?.note, let c = editorCollection else { return }
+        Task { await MentionLinker.linkFirstMention(of: target.title, in: note, collection: c) }
+    }
+
+    /// Jump the editor to a heading — and clear the highlight afterwards, which
+    /// the iPad's copy of this never did, so a jumped-to heading stayed
+    /// highlighted until something else happened to clear it.
+    private func scrollToHeading(_ title: String) {
+        hnJumpToHeadingInEditor(titled: title)
+    }
+
+    private func beginLinkReview() {
+        guard let editor = activeEditor else { return }
+        let text = editor.text
+        Task {
+            // `editorCollection`, not `focused`: the proposals are offsets into
+            // *this* note's text and are looked up in *its* index.
+            linkReview = await LinkReviewFlow.begin(text: text,
+                                                    noteURL: editor.note?.fileURL,
+                                                    in: editorCollection)
+        }
+    }
+
+    private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
+        guard let editor = activeEditor else { return }
+        switch LinkReviewFlow.apply(accepted, reviewedText: reviewedText,
+                                    currentText: editor.text) {
+        case .apply(let text):    editor.text = text
+        case .stale(let message): editorCollection?.lastError = message
+        case .nothing:            break
+        }
+    }
+
+    private var propertiesBinding: Binding<[Property]> {
+        Binding(
+            get: { FrontMatter.properties(in: activeEditor?.text ?? "") },
+            set: { updated in
+                guard let editor = activeEditor else { return }
+                editor.text = FrontMatter.applying(updated, to: editor.text)
+            }
+        )
+    }
+
+    /// Open the inspector on the tab that answers `kind`.
+    private func askInspector(_ kind: InspectorRequest.Kind) {
+        let request = InspectorRequest(kind: kind, token: (inspectorRequest?.token ?? 0) + 1)
+        inspectorTabRaw = request.tab.rawValue
+        inspectorPresented = true
+        inspectorRequest = request
+    }
 
     /// Every sidebar command, one implementation — see `ShellActions`. The
     /// shell owns the state a command reads and writes; what the command *does*
@@ -290,21 +358,6 @@ struct iOSContentView: View {
     @State private var inspectorRequest: InspectorRequest?
 
     private var focused: Collection? { library.focused }
-
-    /// The collection that owns what is selected, falling back to the focused
-    /// one — the Mac's `editorCollection`, and for the same reason.
-    ///
-    /// Everything *about the open note* has to be asked of the note's own
-    /// collection, not of whichever happens to be focused: its tags, its link
-    /// candidates, its git repository and history, and the corpus a backlink or
-    /// an unlinked mention is searched in. Keyed on `focused`, an iPad with two
-    /// collections open showed the wrong collection's tags and came back with
-    /// no backlinks at all. Derived from the selection's URL rather than from a
-    /// resolved `Note`, so an attachment answers with its own collection too.
-    private var editorCollection: Collection? {
-        if let id = selectedNoteID, let owner = library.collection(containing: id) { return owner }
-        return focused
-    }
 
     /// The collection the library rail is standing in, or `nil` on the Library
     /// place. Resolved by id every time, so closing it falls back to Library
@@ -1402,50 +1455,6 @@ struct iOSContentView: View {
         }
     }
 
-    /// Heading navigation is a notification, so it reaches the editor from
-    /// anywhere in the shell — the rail is the editor's sibling, not its parent.
-    ///
-    /// `iOSLiveEditor` listens on the same bus the Mac's editor does and drives
-    /// the scroll through `EditorProxy`, so this is the identical call on both.
-    private func scrollToHeading(_ title: String) {
-        NotificationCenter.default.post(name: .hnEditorFindQuery, object: nil,
-                                        userInfo: ["query": title])
-    }
-
-    /// Front matter, read from and written straight through the note buffer.
-    ///
-    /// Derived rather than copied into `@State`, for the reason the Mac's
-    /// `propertiesBinding` records: a copy is seeded when the selection changes,
-    /// which happens before the editor has loaded that note's text, so the
-    /// inspector shows the properties of nothing at all. **A binding over the
-    /// buffer cannot be stale**, and writing through it autosaves by the same
-    /// path typing does.
-    ///
-    /// Here the `@State` copy was never seeded by anything — no `onAppear`, no
-    /// `task`, no selection handler — so the tab always showed zero rows and
-    /// adding a single property called `FrontMatter.applying([thatOneKey], …)`,
-    /// which replaces the block wholesale: title, tags and aliases destroyed,
-    /// and then autosaved. Removing the last row rendered `""` and stripped the
-    /// front matter entirely.
-    private var propertiesBinding: Binding<[Property]> {
-        Binding(
-            get: { FrontMatter.properties(in: editor.text) },
-            set: { updated in editor.text = FrontMatter.applying(updated, to: editor.text) }
-        )
-    }
-
-    /// Turn the first plain-text mention of the open note (by title) in `note`
-    /// into a `[[link]]`, writing the change to disk and re-indexing.
-    ///
-    /// The read *and* the write go off the main actor: both are coordinated, and
-    /// a coordinated call against a File Provider blocks for as long as the
-    /// provider takes. This runs from a button in the inspector, so the shell
-    /// would freeze with it.
-    private func linkMention(_ note: Note) {
-        guard let target = editor.note, let c = editorCollection else { return }
-        Task { await MentionLinker.linkFirstMention(of: target.title, in: note, collection: c) }
-    }
-
     // MARK: - Compact: the editor is the screen
 
     /// Phone-sized: places in a bottom tab bar, the open note above it as a
@@ -1738,38 +1747,6 @@ struct iOSContentView: View {
         ComposeRun.start(prompt: prompt, mode: mode, depth: depth, in: scope,
                          composer: composer, permissions: composePermissions,
                          settings: llmSettings)
-    }
-
-    /// See the Mac's `beginLinkReview()` — proposals are generated once, up
-    /// front, because every range is an offset into the text as it is now.
-    private func beginLinkReview() {
-        let text = editor.text
-        Task {
-            linkReview = await LinkReviewFlow.begin(text: text,
-                                                    noteURL: editor.note?.fileURL,
-                                                    in: editorCollection)
-        }
-    }
-
-    private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
-        switch LinkReviewFlow.apply(accepted, reviewedText: reviewedText,
-                                    currentText: editor.text) {
-        case .apply(let text):        editor.text = text
-        case .stale(let message):     editorCollection?.lastError = message
-        case .nothing:                break
-        }
-    }
-
-    /// Reveal the tab that shows this kind of answer, then ask for it.
-    ///
-    /// The reveal matters more here than on the Mac: the iOS rail defaults to
-    /// *closed*, so without it every one of these commands would appear to do
-    /// nothing at all.
-    private func askInspector(_ kind: InspectorRequest.Kind) {
-        let request = InspectorRequest(kind: kind, token: (inspectorRequest?.token ?? 0) + 1)
-        inspectorTabRaw = request.tab.rawValue
-        inspectorPresented = true
-        inspectorRequest = request
     }
 
     /// One button that discloses the inspector, and nothing more.

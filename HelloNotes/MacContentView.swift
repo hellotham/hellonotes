@@ -220,12 +220,6 @@ struct MacContentView: View {
         library.note(id: selectedNoteID)
     }
 
-    /// The collection that owns the current selection (falls back to focused).
-    private var editorCollection: Collection? {
-        if let note = selectedNote { return library.collection(containing: note.fileURL) ?? focused }
-        return focused
-    }
-
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -259,8 +253,100 @@ struct MacContentView: View {
         AuxiliaryOpener(openWindow: openWindow, width: shellWidth) { auxiliarySheet = $0 }
     }
 
-    private var activeEditor: EditorModel? {
-        tabs.editor(withID: selectedNoteID)
+    /// The editor showing the selected note, if any. `ShellActions` owns it, so
+    /// the two shells cannot resolve "the open editor" differently.
+    private var activeEditor: EditorModel? { actions.activeEditor }
+
+    /// The collection the editor's note belongs to, falling back to the focused
+    /// one. Resolved from the selection's URL rather than from a `Note` lookup:
+    /// an attachment has no `Note`, and the Mac's version returned the *focused*
+    /// collection for one.
+    private var editorCollection: Collection? {
+        if let id = selectedNoteID, let owner = library.collection(containing: id) { return owner }
+        return focused
+    }
+
+    /// Follow a `[[wiki link]]`.
+    ///
+    /// The decision is `WikiLinkNavigation`'s. What was left here was written
+    /// twice and had drifted: only the iPad's awaited `tabs.editor(for:)`
+    /// before scrolling, because the tab has to exist before anything can
+    /// scroll inside it and a fresh one needs a beat to lay out. The Mac's
+    /// jumped straight to the heading, which on a note that was not already
+    /// open scrolled nothing. And opening a web link was `NSWorkspace` on one
+    /// and `UIApplication` on the other, which is `FileReveal.openInDefaultApp`.
+    private func openWikiLink(_ target: String) {
+        Task {
+            switch await WikiLinkNavigation.resolve(target: target,
+                                                    in: editorCollection,
+                                                    current: activeEditor?.note) {
+            case .web(let url):
+                FileReveal.openInDefaultApp(url)
+            case .note(let destination, let heading):
+                let switching = selectedNoteID != destination.id
+                selectedNoteID = destination.id
+                if let heading {
+                    await tabs.editor(for: destination)
+                    if switching { try? await Task.sleep(for: .milliseconds(350)) }
+                    scrollToHeading(heading)
+                }
+            case .none:
+                break
+            }
+        }
+    }
+
+    /// Turn the first mention of the open note in `note` into a link.
+    private func linkMention(_ note: Note) {
+        guard let target = activeEditor?.note, let c = editorCollection else { return }
+        Task { await MentionLinker.linkFirstMention(of: target.title, in: note, collection: c) }
+    }
+
+    /// Jump the editor to a heading — and clear the highlight afterwards, which
+    /// the iPad's copy of this never did, so a jumped-to heading stayed
+    /// highlighted until something else happened to clear it.
+    private func scrollToHeading(_ title: String) {
+        hnJumpToHeadingInEditor(titled: title)
+    }
+
+    private func beginLinkReview() {
+        guard let editor = activeEditor else { return }
+        let text = editor.text
+        Task {
+            // `editorCollection`, not `focused`: the proposals are offsets into
+            // *this* note's text and are looked up in *its* index.
+            linkReview = await LinkReviewFlow.begin(text: text,
+                                                    noteURL: editor.note?.fileURL,
+                                                    in: editorCollection)
+        }
+    }
+
+    private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
+        guard let editor = activeEditor else { return }
+        switch LinkReviewFlow.apply(accepted, reviewedText: reviewedText,
+                                    currentText: editor.text) {
+        case .apply(let text):    editor.text = text
+        case .stale(let message): editorCollection?.lastError = message
+        case .nothing:            break
+        }
+    }
+
+    private var propertiesBinding: Binding<[Property]> {
+        Binding(
+            get: { FrontMatter.properties(in: activeEditor?.text ?? "") },
+            set: { updated in
+                guard let editor = activeEditor else { return }
+                editor.text = FrontMatter.applying(updated, to: editor.text)
+            }
+        )
+    }
+
+    /// Open the inspector on the tab that answers `kind`.
+    private func askInspector(_ kind: InspectorRequest.Kind) {
+        let request = InspectorRequest(kind: kind, token: (inspectorRequest?.token ?? 0) + 1)
+        inspectorTabRaw = request.tab.rawValue
+        inspectorPresented = true
+        inspectorRequest = request
     }
 
     /// Every sidebar command, one implementation — see `ShellActions`. The
@@ -783,38 +869,6 @@ struct MacContentView: View {
                          settings: llmSettings)
     }
 
-    /// Gather this note's unmade links, then hand them to the review sheet.
-    ///
-    /// Generated once, up front, rather than lazily per step: every proposal's
-    /// range is an offset into the text as it is *now*, so a set generated
-    /// piecemeal while the note changed underneath would apply at the wrong
-    /// offsets. Nothing is written until the review finishes.
-    private func beginLinkReview() {
-        guard let editor = activeEditor else { return }
-        let text = editor.text
-        Task {
-            // `editorCollection`, not `focused`: the proposals are offsets into
-            // *this* note's text and are looked up in *its* index. This asked
-            // the focused collection, so with two open it reviewed a note from
-            // one against the other's index — the iPad's copy had been fixed
-            // and this one had not. See `LinkReviewFlow`.
-            linkReview = await LinkReviewFlow.begin(text: text,
-                                                    noteURL: selectedNote?.fileURL,
-                                                    in: editorCollection)
-        }
-    }
-
-    /// Apply the accepted links as one edit.
-    private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
-        guard let editor = activeEditor else { return }
-        switch LinkReviewFlow.apply(accepted, reviewedText: reviewedText,
-                                    currentText: editor.text) {
-        case .apply(let text):        editor.text = text
-        case .stale(let message):     editorCollection?.lastError = message
-        case .nothing:                break
-        }
-    }
-
     /// The AI commands, or `nil` when they would only disappoint — no note
     /// open, or no provider that can actually answer. A greyed-out menu item
     /// says "not now"; an enabled one that always errors says "this app is
@@ -862,18 +916,6 @@ struct MacContentView: View {
                 auxiliary.open(.askLibrary)
             }
         )
-    }
-
-    /// Reveal the tab that shows this kind of answer, then ask for it.
-    ///
-    /// Revealing first is the point: a command whose result appears in a panel
-    /// you cannot see has not been made findable, it has been made invisible
-    /// twice over.
-    private func askInspector(_ kind: InspectorRequest.Kind) {
-        let request = InspectorRequest(kind: kind, token: (inspectorRequest?.token ?? 0) + 1)
-        inspectorTab = request.tab
-        inspectorPresented = true
-        inspectorRequest = request
     }
 
     /// Drop the selection if the note (or attachment) it pointed at is gone.
@@ -1081,23 +1123,6 @@ struct MacContentView: View {
     private func insertSummaryCallout(_ text: String) {
         guard let editor = activeEditor else { return }
         editor.text = NoteEdits.insertingSummaryCallout(text, into: editor.text)
-    }
-
-    /// Front matter, read from and written straight through the note buffer.
-    ///
-    /// Deliberately derived rather than copied into `@State`. The copy was
-    /// seeded when the *selection* changed, which happens before the editor has
-    /// loaded that note's text — so the inspector showed the properties of
-    /// nothing at all. A binding over the buffer cannot be stale, and writing
-    /// through it autosaves by the same path typing does.
-    private var propertiesBinding: Binding<[Property]> {
-        Binding(
-            get: { FrontMatter.properties(in: activeEditor?.text ?? "") },
-            set: { updated in
-                guard let editor = activeEditor else { return }
-                editor.text = FrontMatter.applying(updated, to: editor.text)
-            }
-        )
     }
 
     // MARK: - Git section (the rail's collection)
@@ -1514,13 +1539,6 @@ struct MacContentView: View {
 
     // MARK: - Actions
 
-    /// Turn the first plain-text mention of the open note (by title) in `note`
-    /// into a `[[link]]`, writing the change to disk and re-indexing.
-    private func linkMention(_ note: Note) {
-        guard let target = selectedNote, let c = editorCollection else { return }
-        Task { await MentionLinker.linkFirstMention(of: target.title, in: note, collection: c) }
-    }
-
     private func newNote() {
         guard let c = railCollection ?? focused else { return }
         Task { if let note = await c.createNote() { selectedNoteID = note.id } }
@@ -1542,38 +1560,6 @@ struct MacContentView: View {
         }
     }
 
-    /// Handle a clicked link within the selection's collection. External URLs
-    /// open in the default app; otherwise the target is a note title — navigate
-    /// to the matching note, or create it if it doesn't exist yet.
-    private func openWikiLink(_ target: String) {
-        // The *decision* is shared with the iPad — see `WikiLinkNavigation`.
-        // What stays here is the platform half: which API opens a URL, and how
-        // this shell moves its own selection.
-        Task {
-            switch await WikiLinkNavigation.resolve(target: target,
-                                                    in: editorCollection,
-                                                    current: selectedNote) {
-            case .web(let url):
-                NSWorkspace.shared.open(url)
-            case .note(let destination, let heading):
-                let switching = selectedNoteID != destination.id
-                selectedNoteID = destination.id
-                if let heading {
-                    // The tab has to exist before anything can scroll inside it,
-                    // and a fresh one needs a beat to lay out.
-                    await tabs.editor(for: destination)
-                    if switching { try? await Task.sleep(for: .milliseconds(350)) }
-                    scrollToHeading(heading)
-                }
-            case .none:
-                break
-            }
-        }
-    }
-
-    private func scrollToHeading(_ title: String) {
-        hnJumpToHeadingInEditor(titled: title)
-    }
 }
 
 #endif
