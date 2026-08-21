@@ -126,6 +126,11 @@ struct iOSContentView: View {
     @State private var showAssistant = false
     @State private var showLLMSettings = false
     @State private var showOpenQuickly = false
+    /// Marp deck. `SlidesView` was portable all along — the whole file is
+    /// cross-platform apart from one web-view representable that already has a
+    /// UIKit twin. Only the way in was missing: its sole caller was the macOS
+    /// editor, so an iPad could hold a Marp deck and never present it.
+    @State private var showSlides = false
     @State private var gitAccounts = GitAccountsStore()
     /// Spotlight names the files whose content mentions this note; only those
     /// few are read and verified. `SpotlightSearch` was macOS-gated despite
@@ -249,6 +254,13 @@ struct iOSContentView: View {
             }
         } message: {
             Text("Renaming updates [[links]] in notes that point at it.")
+        }
+        .sheet(isPresented: $showSlides) {
+            SlidesView(
+                markdown: editor.text,
+                title: editor.note?.title ?? "Slides",
+                baseURL: editor.note?.fileURL.deletingLastPathComponent()
+            )
         }
         .sheet(isPresented: $showOpenQuickly) {
             NavigationStack {
@@ -1440,6 +1452,11 @@ struct iOSContentView: View {
                 Divider()
                 Button { beginLinkReview() } label: {
                     Label("Review Links…", systemImage: "link.badge.plus")
+                }
+                if MarpSlides.isMarp(editor.text) {
+                    Button { showSlides = true } label: {
+                        Label("Present as Slides", systemImage: "rectangle.on.rectangle")
+                    }
                 }
             }
             if let ai = aiActions {
