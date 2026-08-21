@@ -217,7 +217,8 @@ struct iOSContentView: View {
     }
     /// The same binding the Mac hands `CompactShell`.
     private var compactPlace: Binding<CompactPlace> {
-        Binding(get: { place }, set: { place = $0 })
+        Binding(get: { CompactPlace(rawValue: compactPlaceRaw) ?? .notes },
+                set: { compactPlaceRaw = $0.rawValue })
     }
     @State private var noteIsExpanded = false
 
@@ -350,7 +351,8 @@ struct iOSContentView: View {
     /// because the toolbar is the panel's tab strip (`shell-chrome.md` D6).
     @AppStorage("inspectorTab") private var inspectorTabRaw = InspectorTab.outline.rawValue
     private var inspectorTab: InspectorTab {
-        InspectorTab(rawValue: inspectorTabRaw) ?? .outline
+        get { InspectorTab(rawValue: inspectorTabRaw) ?? .outline }
+        nonmutating set { inspectorTabRaw = newValue.rawValue }
     }
 
     /// The last AI request routed to the inspector from the editor's toolbar
@@ -722,11 +724,11 @@ struct iOSContentView: View {
 
     /// Bring the search field and its results on screen.
     ///
-    /// Both live in the sidebar on iPad, so a request to search a hidden
-    /// sidebar is a dead end — the same reasoning as the Mac's
-    /// `hnFocusLibrarySearch` handler, which opens the panel before taking
-    /// focus. On the phone the sidebar is a tab rather than a column, and the
-    /// note is covering it.
+    /// Called by Find Related, which used to set `searchText` and stop — which
+    /// at iPad width flipped the tree into a filtered state with no field on
+    /// screen to edit or clear, and on a phone left the results on a screen you
+    /// were not looking at. The Mac's copy of Find Related did not call this at
+    /// all, so a collapsed sidebar there had the same problem.
     private func revealSearch(focusField: Bool) {
         if columnVisibility == .detailOnly {
             withAnimation(.easeInOut(duration: 0.18)) { columnVisibility = .all }
@@ -2003,9 +2005,12 @@ struct iOSContentView: View {
     private func selectionActions(in collection: Collection) -> SelectionActions {
         SelectionActions(
             linkTarget: { phrase in
-                // Exact and case-insensitive, nothing looser: a wrong link
-                // corrupts the graph silently. Meaning-based candidates belong
-                // behind a review step, not behind one tap.
+                // Exact, case-insensitive, and nothing looser. A fuzzy match
+                // here would confidently link "second brain" to a note called
+                // "Second Screen", and a wrong link is worse than no link: it
+                // corrupts the graph silently and nobody re-reads a link they
+                // accepted. Meaning-based candidates are the semantic index's
+                // job, behind a review step, not a one-click button.
                 let phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !phrase.isEmpty else { return nil }
                 return collection.search.linkTargets().first {
@@ -2013,13 +2018,10 @@ struct iOSContentView: View {
                 }
             },
             findRelated: { phrase in
+                // Into the note list's search, where results already have rows,
+                // snippets and selection — the same reasoning as following a tag.
                 selectedTag = nil
                 searchText = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Show the field and the results. This used to set `searchText`
-                // and stop, which at iPad width flipped the tree into a filtered
-                // state with no field on screen to edit or clear — and on the
-                // phone the list is behind the editor, so a search whose results
-                // are on another screen has to bring you to that screen.
                 revealSearch(focusField: false)
             },
             explain: { phrase in
@@ -2041,11 +2043,9 @@ struct iOSContentView: View {
         Task {
             switch await WikiLinkNavigation.resolve(target: target,
                                                     in: editorCollection,
-                                                    current: editor.note) {
+                                                    current: activeEditor?.note) {
             case .web(let url):
-                // `await`: inside a Task this resolves to the async overload,
-                // and the completion-handler one is deprecated.
-                await UIApplication.shared.open(url)
+                FileReveal.openInDefaultApp(url)
             case .note(let destination, let heading):
                 let switching = selectedNoteID != destination.id
                 selectedNoteID = destination.id

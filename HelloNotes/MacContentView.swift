@@ -121,12 +121,17 @@ struct MacContentView: View {
     /// Only read below the compact threshold, which a Mac window reaches only
     /// when the OS forces it past the declared minimum.
     @SceneStorage(CompactPlace.storageKey) private var compactPlaceRaw = CompactPlace.notes.rawValue
-    @State private var compactNoteExpanded = false
+    @State private var noteIsExpanded = false
     /// Sidebar expansion, held by the shell so both platforms keep it across a
     /// rebuild. The AppKit outline manages its own and ignores these; they are
     /// here so the call site is one call site.
     @SceneStorage("expandedFolders") private var expandedFolderIDs = ""
     @State private var collapsedCollections: Set<Collection.ID> = []
+    private var place: CompactPlace {
+        get { CompactPlace(rawValue: compactPlaceRaw) ?? .notes }
+        nonmutating set { compactPlaceRaw = newValue.rawValue }
+    }
+    /// The same binding the other shell hands `CompactShell`.
     private var compactPlace: Binding<CompactPlace> {
         Binding(get: { CompactPlace(rawValue: compactPlaceRaw) ?? .notes },
                 set: { compactPlaceRaw = $0.rawValue })
@@ -863,7 +868,10 @@ struct MacContentView: View {
 
     /// Start a composition run against the focused collection.
     private func runCompose(_ prompt: String, mode: NoteComposer.Mode, depth: Int) {
-        guard let scope = focused else { return }
+        // The sidebar's selection, per CLAUDE.md — anything keyed on a
+        // collection reads it. This asked `focused`, so with two collections
+        // open Compose wrote the new note into the wrong one.
+        guard let scope = railCollection ?? focused else { return }
         ComposeRun.start(prompt: prompt, mode: mode, depth: depth, in: scope,
                          composer: composer, permissions: composePermissions,
                          settings: llmSettings)
@@ -874,7 +882,7 @@ struct MacContentView: View {
     /// says "not now"; an enabled one that always errors says "this app is
     /// broken", and the second is the lie.
     private var aiActions: AIActions? {
-        guard !showOpenQuickly, selectedNote != nil else { return nil }
+        guard activeEditor?.note != nil else { return nil }
         let intelligence = IntelligenceService(settings: llmSettings)
         guard intelligence.isAvailable else { return nil }
         return AIActions(
@@ -890,6 +898,22 @@ struct MacContentView: View {
     ///
     /// All three are things Writing Tools structurally cannot do, because they
     /// are about this vault rather than about this sentence.
+    /// Bring the search field and its results on screen.
+    ///
+    /// Called by Find Related, which used to set `searchText` and stop — which
+    /// at iPad width flipped the tree into a filtered state with no field on
+    /// screen to edit or clear, and on a phone left the results on a screen you
+    /// were not looking at. The Mac's copy of Find Related did not call this at
+    /// all, so a collapsed sidebar there had the same problem.
+    private func revealSearch(focusField: Bool) {
+        if columnVisibility == .detailOnly {
+            withAnimation(.easeInOut(duration: 0.18)) { columnVisibility = .all }
+        }
+        place = .search
+        noteIsExpanded = false
+        if focusField { searchFocused = true }
+    }
+
     private func selectionActions(in collection: Collection) -> SelectionActions {
         SelectionActions(
             linkTarget: { phrase in
@@ -910,6 +934,7 @@ struct MacContentView: View {
                 // snippets and selection — the same reasoning as following a tag.
                 selectedTag = nil
                 searchText = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+                revealSearch(focusField: false)
             },
             explain: { phrase in
                 library.askAboutSelection(phrase)
@@ -990,7 +1015,7 @@ struct MacContentView: View {
         CompactShell(
             place: compactPlace,
             openNoteTitle: selectedNote?.title,
-            noteIsExpanded: $compactNoteExpanded,
+            noteIsExpanded: $noteIsExpanded,
             places: { place in
                 NavigationStack {
                     switch place {
