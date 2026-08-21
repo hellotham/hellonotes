@@ -1847,82 +1847,24 @@ struct iOSContentView: View {
 
     /// Phone-sized: places in a bottom tab bar, the open note above it as a
     /// mini strip, one tap from full screen (decisions 6 and 11).
-    /// The AI place: Ask Your Library up front, because a question about the
-    /// vault is the commonest thing to want from a phone, with the note-scoped
-    /// actions below it and the Assistant last.
+    /// The AI place — `AIPlaceList`, shared with the Mac's compact shell.
     ///
-    /// Everything here already existed as a sheet reachable from the Library
-    /// actions. What was missing was a *place* — decision 7's fourth tab, left
-    /// unbuilt on the (by then stale) grounds that the views were macOS-only.
-    @ViewBuilder
+    /// This was a `private var` here, which is precisely why the Mac's compact
+    /// shell had nothing to fill this tab with and so had no compact shell at
+    /// all. Everything it draws comes from `AIActions` and a few optional
+    /// closures, which both shells already build for the menu bar.
     private var aiPlace: some View {
         let scope = railCollection ?? focused
-        List {
-            Section {
-                Button {
-                    showLibraryChat = true
-                } label: {
-                    Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
-                }
-                .disabled(library.allNotes.isEmpty)
-                Button {
-                    showCompose = true
-                } label: {
-                    Label("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square")
-                }
-                .disabled(scope == nil)
-            } footer: {
-                Text("Answers are drawn from the notes you have open, with links back to them.")
-            }
-
-            // The same actions the iPad's toolbar offers, landing in the same
-            // inspector tabs. `aiActions` is nil without an open note *or*
-            // without an available provider, and the whole section disables
-            // together — every one of them reads the open buffer through a
-            // model, so there is no useful half.
-            let ai = aiActions
-            Section {
-                Button { ai?.summarize() } label: {
-                    Label("Summarize", systemImage: "text.append")
-                }
-                Button { ai?.suggestTags() } label: {
-                    Label("Suggest Tags", systemImage: "number")
-                }
-                Button { ai?.suggestLinks() } label: {
-                    Label("Suggest Links", systemImage: "link.badge.plus")
-                }
-                Button { ai?.rewriteNote() } label: {
-                    Label("Rewrite Note…", systemImage: "wand.and.stars")
-                }
-                Button { beginLinkReview() } label: {
-                    Label("Review Links…", systemImage: "checklist")
-                }
-            } header: {
-                Text("This note")
-            } footer: {
-                if editor.note == nil {
-                    Text("Open a note to use these.")
-                } else if ai == nil {
-                    Text("No AI provider is configured. Set one up in AI Settings.")
-                }
-            }
-            .disabled(ai == nil)
-
-            Section {
-                Button {
-                    showAssistant = true
-                } label: {
-                    Label("Assistant", systemImage: "sparkles")
-                }
-                .disabled(scope == nil)
-                Button {
-                    showLLMSettings = true
-                } label: {
-                    Label("AI Settings…", systemImage: "brain")
-                }
-            }
-        }
-        .navigationTitle("AI")
+        return AIPlaceList(
+            ai: aiActions,
+            canAsk: !library.allNotes.isEmpty,
+            askLibrary: { showLibraryChat = true },
+            reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
+            compose: scope == nil ? nil : { showCompose = true },
+            assistant: { showAssistant = true },
+            // iOS has no Preferences window, so AI settings needs a row here.
+            aiSettings: { showLLMSettings = true },
+            hasOpenNote: editor.note != nil)
     }
 
     private var compactShell: some View {

@@ -130,6 +130,59 @@ struct ShellComplianceTests {
             """)
     }
 
+    /// The slot closures may differ — they are the presentations — but the
+    /// **compact** slot may not be a different *kind of thing*.
+    ///
+    /// This is the blind spot that let a real defect through. `ShellKind`
+    /// resolves `.compact` at 250pt on either platform, and the Mac handed that
+    /// slot `EditorPaneContainer { editorColumn }` — the editor alone, no way to
+    /// reach another note — while iPad handed it the compact shell. The test
+    /// above skipped both because both are closures, which was right about the
+    /// sidebar and the pane (an outline against a `List`) and wrong here:
+    /// compact is not a rearrangement of the wide shell, it is a different
+    /// information architecture, and `CompactShell` *is* that architecture.
+    /// Either shell rendering something else at compact size is not laying out
+    /// differently, it is not being compact.
+    @Test("Both shells hand the compact slot the compact shell")
+    func bothShellsUseTheCompactShell() throws {
+        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+            let source = try Self.source(file)
+            let slot = try #require(Self.shellArguments(in: source)["compact"],
+                                    "\(file) passes no compact slot")
+            // Follow one level of indirection: both shells name a property
+            // rather than inlining the shell.
+            let referenced = slot.trimmingCharacters(in: CharacterSet(charactersIn: "{} \n"))
+            let body = referenced.hasSuffix("Shell") || referenced.hasSuffix("shell")
+                ? Self.propertyBody(named: referenced, in: source) ?? slot
+                : slot
+            #expect(body.contains("CompactShell("), """
+                \(file) fills the compact slot with `\(referenced)`, which does \
+                not render `CompactShell`. Compact is not the wide shell \
+                rearranged — it is a different information architecture, and a \
+                shell that renders something else at 250pt is not being compact.
+                """)
+        }
+    }
+
+    /// The body of a `private var name: some View { … }`, for following the one
+    /// hop each shell puts between the slot and the view.
+    private static func propertyBody(named name: String, in source: String) -> String? {
+        guard let start = source.range(of: "var \(name): some View {") else { return nil }
+        var depth = 0
+        var index = start.upperBound
+        var body = ""
+        for character in source[start.upperBound...] {
+            if character == "{" { depth += 1 }
+            if character == "}" {
+                if depth == 0 { break }
+                depth -= 1
+            }
+            body.append(character)
+            index = source.index(after: index)
+        }
+        return body
+    }
+
     /// The specific subversion that shipped: handing the shared shell a constant
     /// where it expects live state. It renders every arithmetic test green and
     /// the layout wrong.

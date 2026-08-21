@@ -2884,3 +2884,33 @@ equivalent of the last two — its tags live in the inspector and its AI actions
 the menu bar. Building them is designing new Mac UI rather than unifying existing
 code, which is a decision for the project's owner, not a repair. It is recorded
 here so the choice is visible rather than lost.
+
+### The Mac gets the compact shell, and the guard learns to see slots
+
+`MacContentView` now fills its `compact:` slot with `CompactShell`, so a window
+the OS forces below the compact threshold gets the same architecture an iPad does
+at that size: a tab bar of places, the open note as a strip above it.
+
+Nothing was designed for it. Every place is a view this shell already had — the
+outline answers both Notes and Search, because `buildOutlineRoots` replaces it
+with result groups while a search runs; the inspector owns Tags; and the AI place
+is `AIPlaceList`, extracted from `iOSContentView` and built from the same
+`AIActions` both shells already hand the menu bar. That extraction *was* the
+blocker: the AI place being a `private var` on one shell is why the other had
+nothing to put in that tab and therefore no compact shell at all.
+
+**And the guard could not see it.** `ShellComplianceTests` compares the two
+`AdaptiveShell` call sites and skips closures — right for the sidebar and the
+pane, where an `NSOutlineView` against a SwiftUI `List` is the presentation
+difference the slots exist for, and wrong for `compact`. Compact is not the wide
+shell rearranged; it is a different information architecture, and `CompactShell`
+*is* that architecture. A shell rendering something else at 250pt is not laying
+out differently, it is not being compact. The test now follows the one hop each
+shell puts between the slot and the view and asserts both reach `CompactShell` —
+verified by restoring the old degraded slot and watching it fail with the
+offending expression quoted.
+
+That is the second time a guard I wrote had a hole where the defect was. Both
+times the hole was a deliberate exclusion — "skip closures", "skip imports" — and
+both times the exclusion was right in general and wrong for one member of the
+set it covered.

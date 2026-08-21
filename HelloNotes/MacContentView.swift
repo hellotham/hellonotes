@@ -98,6 +98,16 @@ struct MacContentView: View {
     /// Debounces the per-save git status refresh.
     @State private var gitStatusTask: Task<Void, Never>?
 
+    /// Which compact place is showing, and whether the note is full-screen.
+    /// Only read below the compact threshold, which a Mac window reaches only
+    /// when the OS forces it past the declared minimum.
+    @SceneStorage("compactPlace") private var compactPlaceRaw = CompactPlace.notes.rawValue
+    @State private var compactNoteExpanded = false
+    private var compactPlace: Binding<CompactPlace> {
+        Binding(get: { CompactPlace(rawValue: compactPlaceRaw) ?? .notes },
+                set: { compactPlaceRaw = $0.rawValue })
+    }
+
     @State private var showOpenQuickly = false
     /// ⌘⇧P — every command, findable by name. See `CommandPalette.swift`.
     @State private var showCommandPalette = false
@@ -344,10 +354,7 @@ struct MacContentView: View {
             sidebar: { collectionTree },
             pane: { editorColumn },
             inspector: { inspector },
-            // A Mac window declares an 860pt minimum, so the compact shell is
-            // only reachable if the OS forces it (Stage Manager can ignore a
-            // minimum). Degrade to the editor rather than an error — decision 9.
-            compact: { EditorPaneContainer { editorColumn } }
+            compact: { compactShell }
         )
         // The declared window minimum (decision 9). A floor under the layout so
         // the editor's status bar and note list never collapse into vertical
@@ -1011,6 +1018,56 @@ struct MacContentView: View {
     /// Tags deliberately do not live here: the sidebar answers "where is it?",
     /// while tags are cross-cutting and belong to the inspector, which answers
     /// "what is this, and what touches it?" (decision 1).
+    /// The compact shell, at the sizes the OS can force a Mac window into.
+    ///
+    /// This used to be `EditorPaneContainer { editorColumn }` — the editor
+    /// alone. Decision 9 wrote that as "degrade to the editor rather than an
+    /// error", which was right when there was no compact shell to degrade *to*;
+    /// the consequence was that a window squeezed into a Stage Manager tile had
+    /// **no way to reach another note at all**, while an iPad at the same 250pt
+    /// showed a tab bar of places. `ShellKind` calls both `.compact` — it is in
+    /// the contract's own scene table — so that was the contract broken, not
+    /// honoured.
+    ///
+    /// Every place here is a view this shell already had: the outline answers
+    /// both Notes and Search (it renders search results itself), the inspector
+    /// owns Tags, and the AI actions are the same `AIActions` the menu bar
+    /// takes. Nothing new was designed for a window size this rare — it is the
+    /// same furniture, arranged the way the contract says it must be at this
+    /// size.
+    private var compactShell: some View {
+        CompactShell(
+            place: compactPlace,
+            openNoteTitle: selectedNote?.title,
+            noteIsExpanded: $compactNoteExpanded,
+            places: { place in
+                NavigationStack {
+                    switch place {
+                    case .notes, .search:
+                        // One tree for both: `buildOutlineRoots` already
+                        // replaces it with result groups while a search runs,
+                        // so "Search" is this list with the field focused.
+                        collectionTree
+                    case .tags:
+                        inspector
+                            .onAppear { inspectorTabRaw = InspectorTab.tags.rawValue }
+                    case .ai:
+                        AIPlaceList(ai: aiActions,
+                                    canAsk: !library.allNotes.isEmpty,
+                                    askLibrary: { openWindow(id: "askLibrary") },
+                                    reviewLinks: activeEditor != nil ? { beginLinkReview() } : nil,
+                                    compose: focused == nil ? nil : { showCompose = true },
+                                    assistant: { openWindow(id: "assistant") },
+                                    // The Mac reaches AI settings through
+                                    // Preferences, so no row here.
+                                    aiSettings: nil,
+                                    hasOpenNote: selectedNote != nil)
+                    }
+                }
+            },
+            editor: { editorColumn })
+    }
+
     private var collectionTree: some View {
         VStack(spacing: 0) {
             searchCompletenessNotice
