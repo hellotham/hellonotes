@@ -2735,3 +2735,29 @@ owns. And `CloudProvider.installedClients()` returns empty on iOS rather than no
 existing — the Files picker lists whichever File Provider extensions are enabled,
 which is the same out-of-process answer the Mac's panel gives, so the caller's
 job is to offer the picker rather than a list it built itself.
+
+### Settings, and a tab bar that ignored its own contract
+
+**Settings.** `GeneralSettingsView.swift` (a tabbed Preferences window) and
+`iOSSettingsView.swift` (a sheet) become one `SettingsView.swift`. The controls
+were already shared; what was left in each file was *arrangement*, and that is
+where the two genuinely differ — macOS Preferences is a tab bar of panes and iOS
+Settings is one scrolling list. Putting both in one file with an `#else` says
+that out loud and stops a setting being added to one arrangement and forgotten in
+the other, which is exactly how Reading width, Editor width and Wrap guide came
+to be Mac-only.
+
+One thing there was not arrangement: **Acknowledgements had no iOS route.**
+`AcknowledgementsView` has never been gated — it was only ever placed in the
+Mac's tab bar, so the licences and credits this app ships were unreachable on
+iPad. It is a row in Settings there now.
+
+**The tab bar** had drifted three ways. Its close button carried an accessibility
+label on iPad and none on the Mac, so VoiceOver announced a row of unlabelled
+buttons there. Its selection tint was `selectedContentBackgroundColor` on one
+side and `.selection` on the other. And neither read
+`ShellContext.tabBarHeight` — the contract defines it as
+`prefersTouch ? 44 : 32` and states "tab bars are never removed; they only change
+height (HIG: 44pt touch)", while the Mac hard-coded 30 and iPad used padding. The
+one number the contract states about this view was consulted by nothing, which is
+the same shape as `sortOrder`: a rule with no reader.

@@ -1,18 +1,71 @@
 //
-//  iOSSettingsView.swift
+//  SettingsView.swift
 //  HelloNotes
 //
-//  Created by Chris Tham on 13/7/2026.
+//  The app's settings — one file, two containers.
 //
-//  iOS Settings sheet. macOS hosts these in the Preferences window (⌘,), which
-//  has no iOS counterpart — so the sidebar menu offers this sheet instead:
-//  appearance (theme / accent / text size) plus the note-taking conventions
-//  (attachments, daily notes, templates) shared with macOS via @AppStorage.
+//  There were two: `GeneralSettingsView.swift` (a tabbed Preferences window) and
+//  `iOSSettingsView.swift` (a sheet), each gated to its platform. The *controls*
+//  in them are already shared — `AppearanceSettingsSections` and
+//  `FolderConventionSections` — so what was left in each file was arrangement,
+//  and arrangement is where the two genuinely differ: macOS Preferences is a
+//  tab bar of panes and iOS Settings is one scrolling list. Keeping them in one
+//  file with an `#else` says that out loud, and stops a *setting* being added to
+//  one arrangement and forgotten in the other, which is how Reading width,
+//  Editor width and Wrap guide came to be Mac-only in the first place.
+//
+//  One thing was not arrangement: **Acknowledgements had no iOS route.**
+//  `AcknowledgementsView` has never been gated; it was simply only ever placed
+//  in the Mac's tab bar, so the licences and credits the app ships were
+//  unreachable on iPad.
 //
 
-#if os(iOS)
 import SwiftUI
+#if !os(macOS)
+import UIKit
+#endif
 
+#if os(macOS)
+/// The Preferences window (⌘,): a tabbed container for all app settings. AI /
+/// LLM provider configuration also remains reachable from the Assistant window.
+struct PreferencesView: View {
+    /// Shared LLM configuration, so the AI tab and the Assistant sheet edit the
+    /// same providers, keys and defaults.
+    var llmSettings: LLMSettings
+    /// App-wide theming (appearance, accent, text size).
+    var appearance: AppearanceSettings
+
+    var body: some View {
+        TabView {
+            GeneralSettingsView()
+                .tabItem { Label("General", systemImage: "gearshape") }
+
+            AppearanceSettingsView(settings: appearance)
+                .tabItem { Label("Appearance", systemImage: "paintpalette") }
+
+            LLMSettingsForm(settings: llmSettings)
+                .tabItem { Label("AI", systemImage: "sparkles") }
+
+            AcknowledgementsView()
+                .tabItem { Label("Acknowledgements", systemImage: "heart") }
+        }
+        .frame(width: 560, height: 640)
+    }
+}
+
+struct GeneralSettingsView: View {
+    // Attachments, daily notes and templates now live in
+    // `FolderConventionSettings.swift`, shared with `iOSSettingsView` — the two
+    // screens had drifted into describing the same `@AppStorage` keys
+    // differently, which is a difference in the app, not in the platform.
+    var body: some View {
+        Form {
+            FolderConventionSections()
+        }
+        .formStyle(.grouped)
+    }
+}
+#else
 struct iOSSettingsView: View {
     @Bindable var settings: AppearanceSettings
     /// The focused collection's Git service, if it is in a repository.
@@ -68,6 +121,20 @@ struct iOSSettingsView: View {
                 }
 
                 FolderConventionSections()
+
+                Section {
+                    NavigationLink {
+                        AcknowledgementsView()
+                            .navigationTitle("Acknowledgements")
+                    } label: {
+                        Label("Acknowledgements", systemImage: "heart")
+                    }
+                } footer: {
+                    // `AcknowledgementsView` has never been gated — it was just
+                    // only ever placed in the Mac's tab bar, so the licences and
+                    // credits this app ships were unreachable on iPad.
+                    Text("Open-source licences and credits.")
+                }
 
                 Section {
                     Button("Connect Dropbox…") { showDropbox = true }

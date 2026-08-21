@@ -2378,47 +2378,19 @@ struct iOSContentView: View {
         }
     }
 
-    /// The open notes, along the top line.
-    ///
-    /// Tabs rather than a title: a title repeats what the sidebar already says,
-    /// while a tab strip says what is *open* — and on a device with one window
-    /// that is the only place that can say it.
+    /// The open notes, in the band over the editor. `EditorTabBar` is the
+    /// Mac's too — this was written inline here and had drifted from it: the
+    /// close button had an accessibility label and the Mac's did not, and
+    /// neither read the height the layout contract states for a tab bar.
     private var tabStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(tabs.openNotes) { note in
-                    let isCurrent = note.id == selectedNoteID
-                    HStack(spacing: 4) {
-                        Button { selectedNoteID = note.id } label: {
-                            Text(note.title)
-                                .lineLimit(1)
-                                .font(.subheadline)
-                                .fontWeight(isCurrent ? .semibold : .regular)
-                        }
-                        .buttonStyle(.plain)
-                        Button {
-                            // Through the same path as File ▸ Close Tab and
-                            // ⌘W, so closing a *background* tab doesn't move
-                            // the selection off the note you are reading.
-                            closeTab(note.id)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Close \(note.title)")
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(isCurrent ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
-                                in: RoundedRectangle(cornerRadius: 7))
-                    .foregroundStyle(isCurrent ? Color.primary : .secondary)
-                }
-            }
-            .padding(.horizontal, 2)
-        }
-        .frame(maxWidth: 520)
+        EditorTabBar(
+            notes: tabs.openNotes,
+            activeID: selectedNoteID,
+            onSelect: { selectedNoteID = $0 },
+            // Through the same path as File ▸ Close Tab and ⌘W, so closing a
+            // *background* tab doesn't move the selection off the note you are
+            // reading.
+            onClose: { closeTab($0) })
     }
 
     /// Everything the top bar used to spread across four controls.

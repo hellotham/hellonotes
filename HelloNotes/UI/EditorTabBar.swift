@@ -2,53 +2,75 @@
 //  EditorTabBar.swift
 //  HelloNotes
 //
-//  Created by Chris Tham on 11/7/2026.
+//  The strip of open notes — one view, both platforms.
+//
+//  There were two: this file, gated to macOS, and `tabStrip` written inline in
+//  `iOSContentView`. Same job, and they had drifted in three ways.
+//
+//  The close button carries an accessibility label on iPad and carried none on
+//  the Mac, so VoiceOver there announced a row of unlabelled buttons.
+//
+//  Neither read `ShellContext.tabBarHeight`. The contract defines it —
+//  `prefersTouch ? 44 : 32`, "tab bars are never removed; they only change
+//  height (HIG: 44pt touch)" — and the Mac hard-coded 30 while iPad used
+//  padding, so the one number the contract states about this view was consulted
+//  by nothing. That is the same shape as `sortOrder`: a value with a rule and no
+//  reader.
+//
+//  And the selection tint: `selectedContentBackgroundColor` on one side,
+//  `.selection` on the other. `.selection` is the cross-platform spelling of the
+//  same idea, so it is what both use.
 //
 
-#if os(macOS)
 import SwiftUI
 
-/// A horizontal bar of open-note tabs above the editor. Click a tab to switch,
-/// or its ✕ to close it.
 struct EditorTabBar: View {
     let notes: [Note]
     let activeID: Note.ID?
     let onSelect: (Note.ID) -> Void
+    /// Closing goes through the caller so a *background* tab closing cannot
+    /// move the selection off the note being read.
     let onClose: (Note.ID) -> Void
+
+    @Environment(\.shell) private var shell
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(notes) { note in
-                    tab(note)
-                    Divider()
-                }
+            HStack(spacing: 6) {
+                ForEach(notes) { tab($0) }
             }
+            .padding(.horizontal, 2)
         }
-        .frame(height: 30)
+        // The contract's number, not a literal: 44pt where a finger is doing the
+        // tapping, 32 where a pointer is.
+        .frame(height: shell.tabBarHeight)
         .background(.bar)
     }
 
     private func tab(_ note: Note) -> some View {
         let isActive = note.id == activeID
-        return HStack(spacing: 6) {
-            Text(note.title)
-                .lineLimit(1)
-                .font(.callout)
-            Button {
-                onClose(note.id)
-            } label: {
+        return HStack(spacing: 4) {
+            Button { onSelect(note.id) } label: {
+                Text(note.title)
+                    .lineLimit(1)
+                    .font(.subheadline)
+                    .fontWeight(isActive ? .semibold : .regular)
+            }
+            .buttonStyle(.plain)
+
+            Button { onClose(note.id) } label: {
                 Image(systemName: "xmark")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Close \(note.title)")
         }
         .padding(.horizontal, 10)
-        .frame(maxHeight: .infinity)
-        .background(isActive ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.25) : Color.clear)
+        .padding(.vertical, 5)
+        .background(isActive ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
+                    in: RoundedRectangle(cornerRadius: 7))
+        .foregroundStyle(isActive ? Color.primary : .secondary)
         .contentShape(.rect)
-        .onTapGesture { onSelect(note.id) }
     }
 }
-#endif
