@@ -10,12 +10,28 @@
 //  mini strip, one tap from full screen. Both retract as you scroll or type
 //  (decision 11) so writing gets the whole display without losing the way back.
 //
+//  Ungated. It uses no UIKit *types*, but it did use three iOS-only SwiftUI
+//  modifiers — `fullScreenCover`, `.topBarLeading` and
+//  `navigationBarTitleDisplayMode` — each of which now has a macOS equivalent at
+//  the bottom of this file. (Grepping for `UI…` type names said the file was
+//  portable; it was the wrong question, and the compiler asked the right one.)
+//
+//  The gate was doing something the contract forbids:
+//  `ShellKind` resolves `.compact` at 250pt on *either* platform (it is in the
+//  contract's own scene table as "Stage Mgr tiny"), and at that size the iPad
+//  got this architecture while the Mac's `compact:` slot got the editor alone.
+//  A Mac window squeezed into a Stage Manager tile therefore had no way to
+//  reach another note at all.
+//
+//  The Mac does not yet *pass* this — its shell has no `tagList` or `aiPlace`
+//  to fill the places with, and inventing them is designing rather than
+//  unifying. What is fixed here is that nothing stops it.
+//
 //  Worst case that must not break: with the keyboard up, roughly 350pt of
 //  editor height remains. Chrome must *retract, not compress*, which is why the
 //  strip and the tab bar are removed from the layout rather than shrunk.
 //
 
-#if os(iOS)
 import SwiftUI
 
 /// The places the tab bar switches between. The open note is deliberately not
@@ -84,9 +100,7 @@ struct CompactShell<Places: View, Editor: View>: View {
             }
         }
         .animation(.snappy(duration: 0.22), value: chromeRetracted)
-        .fullScreenCover(isPresented: $noteIsExpanded) {
-            expandedNote
-        }
+        .expandedNoteCover(isPresented: $noteIsExpanded) { expandedNote }
     }
 
     // MARK: - The mini strip
@@ -127,7 +141,7 @@ struct CompactShell<Places: View, Editor: View>: View {
             editor()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
+                    ToolbarItem(placement: .leadingBar) {
                         Button {
                             noteIsExpanded = false
                         } label: {
@@ -136,7 +150,7 @@ struct CompactShell<Places: View, Editor: View>: View {
                         .accessibilityLabel("Back to \(place.title)")
                     }
                 }
-                .navigationBarTitleDisplayMode(.inline)
+                .inlineNavigationTitle()
         }
         // Retract chrome while the keyboard is up: 44pt of tab bar is 44pt the
         // caret doesn't have (decision 11).
@@ -144,4 +158,43 @@ struct CompactShell<Places: View, Editor: View>: View {
         .onDisappear { chromeRetracted = false }
     }
 }
-#endif
+
+// MARK: - The three modifiers this shell needs that iOS spells differently
+
+private extension View {
+    /// The open note, filling the screen.
+    ///
+    /// `fullScreenCover` does not exist on macOS — there is no "full screen" for
+    /// a view inside a window — so a sheet is the equivalent presentation. Same
+    /// modal, same dismissal, the size the platform gives it.
+    @ViewBuilder
+    func expandedNoteCover<Cover: View>(isPresented: Binding<Bool>,
+                                        @ViewBuilder content: @escaping () -> Cover) -> some View {
+        #if os(iOS)
+        self.fullScreenCover(isPresented: isPresented, content: content)
+        #else
+        self.sheet(isPresented: isPresented, content: content)
+        #endif
+    }
+
+    /// A compact title bar, where the platform has the concept.
+    @ViewBuilder
+    func inlineNavigationTitle() -> some View {
+        #if os(iOS)
+        self.navigationBarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
+    }
+}
+
+private extension ToolbarItemPlacement {
+    /// The leading end of the bar, under each platform's name for it.
+    static var leadingBar: ToolbarItemPlacement {
+        #if os(iOS)
+        .topBarLeading
+        #else
+        .navigation
+        #endif
+    }
+}

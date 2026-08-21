@@ -2854,3 +2854,33 @@ iPad's sheet is `LibraryChatWindowView`, seeded from the same pending question.
 `AuxiliaryWindows.swift` has no gate left: nothing in it was ever AppKit. It
 holds the scene wrappers — the window minimum, reading a note off disk, asking
 the main window to open something — around panes both platforms share.
+
+### A Mac window in a Stage Manager tile cannot reach its notes
+
+`ShellKind` resolves `.compact` at 250pt on *either* platform — it is in the
+contract's own scene table as "Stage Mgr tiny" — and at that size the iPad got
+the compact architecture (a tab bar of places, the open note as a strip above it)
+while the Mac's `compact:` slot got `EditorPaneContainer { editorColumn }`: **the
+editor alone, with no way to reach another note at all.**
+
+Decision 9 wrote that as "degrade to the editor rather than an error", which was
+right when there was no compact shell to degrade *to*. There is one now, and
+`ShellComplianceTests` could not see the difference because it compares the two
+`AdaptiveShell` call sites and skips closures — the slots are exactly where this
+divergence lives.
+
+`CompactShell` is ungated. It uses no UIKit types but did use three iOS-only
+SwiftUI modifiers — `fullScreenCover`, `.topBarLeading` and
+`navigationBarTitleDisplayMode` — each of which now has a macOS equivalent in the
+same file. Worth recording how that was found: a grep for `UI…` type names
+reported the file as portable, which was the wrong question; the compiler asked
+the right one. An instrument that answers a near-miss of your question is worse
+than no instrument, and this is the third time in this audit that has bitten.
+
+**What is fixed is that nothing stops the Mac using it. What is not fixed is
+that the Mac has nothing to fill it with:** `iOSContentView` supplies four places
+(`collectionsList`, `noteList`, `tagList`, `aiPlace`) and `MacContentView` has no
+equivalent of the last two — its tags live in the inspector and its AI actions in
+the menu bar. Building them is designing new Mac UI rather than unifying existing
+code, which is a decision for the project's owner, not a repair. It is recorded
+here so the choice is visible rather than lost.
