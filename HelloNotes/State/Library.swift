@@ -235,9 +235,15 @@ final class Library {
         await open(urls: urls)
     }
 
-    #if os(macOS)
-    /// Present an open panel (multi-select) to add one or more collections.
+    /// Ask the user for folders to open as collections.
+    ///
+    /// The panel is the Mac's; the *request* is not. On iOS a model cannot
+    /// present a picker, so it publishes the ask and the shell — which already
+    /// owns a `FolderPicker` — puts it on screen. Whatever comes back goes
+    /// through `openChecking` on both platforms, which is what gives iPad the
+    /// large-folder warning it never had.
     func requestOpenCollections() {
+        #if os(macOS)
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -248,6 +254,9 @@ final class Library {
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
         Task { await openChecking(urls) }
+        #else
+        pendingFolderPick = .anyFolder
+        #endif
     }
 
     /// Add a folder from a cloud provider that is already mounted on this Mac.
@@ -264,6 +273,7 @@ final class Library {
     /// The sandbox cannot *list* that directory, but the panel runs out of
     /// process and can, and the user's selection is what grants access.
     func requestOpenCloudFolder() {
+        #if os(macOS)
         let installed = CloudProvider.installedClients()
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -279,6 +289,13 @@ final class Library {
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
         Task { await openChecking(urls) }
+        #else
+        // The Files picker lists whichever File Provider extensions are
+        // enabled, which is the same out-of-process answer the Mac's panel
+        // gives for `~/Library/CloudStorage` — so iOS asks for a folder and
+        // lets the picker say which providers exist.
+        pendingFolderPick = .cloudFolder
+        #endif
     }
 
     /// Open `urls`, pausing to warn about any that look big enough to take a
@@ -286,20 +303,67 @@ final class Library {
     /// and their call. The warning exists so the wait isn't a surprise, and so
     /// the far more common intent ("I meant my Notes subfolder") has somewhere
     /// to go.
-    private func openChecking(_ urls: [URL]) async {
+    ///
+    /// The warning was inside `#if os(macOS)` and built an `NSAlert`, so **iPad
+    /// had none of it**: picking a 2,000-note vault there opened it with no
+    /// word and no way to narrow the choice, on the platform where the wait is
+    /// longest. The estimate and the flow are shared now, and the question is
+    /// published for whichever shell is on screen to ask.
+    func openChecking(_ urls: [URL]) async {
         for url in urls {
             let estimate = await Self.estimateSize(of: url)
             guard estimate.looksLarge else { await open(url: url); continue }
-            switch Self.confirmLargeFolder(url, estimate: estimate) {
+            // Ask, and wait for the answer the shell brings back.
+            let choice = await withCheckedContinuation { continuation in
+                pendingLargeFolder = LargeFolderPrompt(url: url, estimate: estimate,
+                                                       answer: continuation.resume(returning:))
+            }
+            switch choice {
             case .addAnyway:
                 await open(url: url)
             case .chooseSubfolder:
-                if let chosen = Self.chooseSubfolder(under: url) { await openChecking([chosen]) }
+                // The shell reopens its own picker rooted here; whatever comes
+                // back re-enters this same check.
+                pendingSubfolderPick = url
             case .cancel:
                 continue
             }
         }
     }
+
+    /// A folder-picking request the shell should present, or nil.
+    ///
+    /// iOS only in practice — the Mac runs its panel inline — but declared for
+    /// both so the call site above is one function rather than two.
+    enum FolderPickRequest: Equatable { case anyFolder, cloudFolder }
+    var pendingFolderPick: FolderPickRequest?
+
+    /// A folder that looks large, and the continuation waiting on the answer.
+    ///
+    /// Published rather than presented: `Library` is a model and cannot put an
+    /// alert on screen, and an `NSAlert` here is what made this macOS-only.
+    struct LargeFolderPrompt: Identifiable {
+        let id = UUID()
+        let url: URL
+        let estimate: FolderSizeEstimate
+        let answer: (LargeFolderChoice) -> Void
+    }
+
+    /// The question waiting to be asked, or nil.
+    var pendingLargeFolder: LargeFolderPrompt?
+
+    /// A folder the user asked to narrow. The shell reopens its picker here and
+    /// feeds the result back through `openChecking`.
+    var pendingSubfolderPick: URL?
+
+    /// Answer the outstanding question.
+    func resolveLargeFolder(_ choice: LargeFolderChoice) {
+        guard let prompt = pendingLargeFolder else { return }
+        pendingLargeFolder = nil
+        prompt.answer(choice)
+    }
+
+    enum LargeFolderChoice: Sendable { case addAnyway, chooseSubfolder, cancel }
 
     /// What a one-second look at a folder suggests about its size.
     struct FolderSizeEstimate: Sendable {
@@ -331,40 +395,6 @@ final class Library {
                                   directoriesRemaining: result.progress.directoriesRemaining,
                                   isComplete: result.isComplete)
     }
-
-    private enum LargeFolderChoice { case addAnyway, chooseSubfolder, cancel }
-
-    private static func confirmLargeFolder(_ url: URL,
-                                           estimate: FolderSizeEstimate) -> LargeFolderChoice {
-        let alert = NSAlert()
-        alert.messageText = "“\(url.lastPathComponent)” is a large folder"
-        alert.informativeText = """
-            It holds at least \(estimate.itemsSeen.formatted()) items, so scanning it may take a while.
-
-            You can keep working while it fills in, and stop it at any time — it picks up where it left off.
-            """
-        // First button is the default: the warning informs, it does not decide.
-        alert.addButton(withTitle: "Add Anyway")
-        alert.addButton(withTitle: "Choose a Subfolder…")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:  return .addAnyway
-        case .alertSecondButtonReturn: return .chooseSubfolder
-        default:                       return .cancel
-        }
-    }
-
-    private static func chooseSubfolder(under url: URL) -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = url
-        panel.prompt = "Open"
-        panel.message = "Choose the folder inside “\(url.lastPathComponent)” to open."
-        return panel.runModal() == .OK ? panel.url : nil
-    }
-    #endif
 
     // MARK: - Persistence (security-scoped bookmarks)
 

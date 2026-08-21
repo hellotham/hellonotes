@@ -2704,3 +2704,34 @@ silently write a new note into the vault.
 What is left platform-shaped in it: a minimum window size and
 `navigationDocument` (which restores the title-bar proxy icon) on one side, a
 `NavigationStack` to hang a title bar off on the other.
+
+### iPad had no large-folder warning
+
+`Library.openChecking` probes a folder for a second before opening it, and warns
+when a full second was not enough *and* there is already a lot there — offering
+"Add Anyway", "Choose a Subfolder…" or Cancel. Adding a huge folder is never
+blocked; it is the user's folder. The warning exists so the wait is not a
+surprise, and so the far more common intent ("I meant my Notes subfolder") has
+somewhere to go.
+
+The whole flow sat inside `#if os(macOS)`, because the confirmation was an
+`NSAlert` — a model presenting its own modal. So **iPad had none of it**: picking
+a 2,000-note vault there opened it with nothing said, on the platform where the
+wait is longest and where the picker is most likely to land on a whole iCloud
+Drive folder. Its own import path called `library.open` directly and never went
+near the check.
+
+`Library` publishes the question now and `LargeFolderAlert` presents it, with the
+answer travelling back through the continuation `openChecking` is waiting on.
+Both shells apply the modifier and iPad's picker routes through `openChecking`,
+so the estimate, the threshold and the wording are one implementation. Four tests
+cover the judgement and the message — the part that was unreachable while it
+lived behind a modal button press.
+
+The same publish-rather-than-present move fixes the two open panels:
+`requestOpenCollections` and `requestOpenCloudFolder` are one function each, with
+iOS publishing a `FolderPickRequest` the shell answers with the picker it already
+owns. And `CloudProvider.installedClients()` returns empty on iOS rather than not
+existing — the Files picker lists whichever File Provider extensions are enabled,
+which is the same out-of-process answer the Mac's panel gives, so the caller's
+job is to offer the picker rather than a list it built itself.

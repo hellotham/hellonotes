@@ -275,11 +275,13 @@ struct iOSContentView: View {
     /// Open picked folders, expanding any that are (or contain) Obsidian vaults
     /// — so choosing an iCloud Drive folder full of vaults opens each of them.
     private func openPicked(_ urls: [URL]) async {
+        // Through `openChecking`, so a large folder is warned about here as it
+        // is on the Mac. Vault discovery still applies to whatever survives it.
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             let vaults = ObsidianVault.discoverVaults(in: url)
             if vaults.isEmpty {
-                await library.open(url: url)
+                await library.openChecking([url])
             } else {
                 // Hold the picked folder's security scope while opening each
                 // child vault. A discovered child URL is not itself picker- or
@@ -606,6 +608,21 @@ struct iOSContentView: View {
     /// described in `body`.
     private func presentations<V: View>(_ content: V) -> some View {
         content
+        // The large-folder warning, which iPad never had — see
+        // `LargeFolderAlert`.
+        .largeFolderAlert(library)
+        // `Library` asks for a picker rather than presenting one; the shell owns
+        // the picker, so the shell answers.
+        .onChange(of: library.pendingFolderPick) { _, request in
+            guard request != nil else { return }
+            library.pendingFolderPick = nil
+            showImporter = true
+        }
+        .onChange(of: library.pendingSubfolderPick) { _, url in
+            guard url != nil else { return }
+            library.pendingSubfolderPick = nil
+            showImporter = true
+        }
         .sheet(item: $cloudBrowser) { browser in
             NavigationStack {
                 RemoteBrowserView(store: browser.makeStore(),

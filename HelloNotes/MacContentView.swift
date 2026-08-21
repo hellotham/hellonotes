@@ -322,6 +322,9 @@ struct MacContentView: View {
         presentations(
             shellCore
                 .modifier(FileOperationErrorAlert(collection: focused))
+                // The same alert the iPad shows. It was an `NSAlert` inside
+                // `Library`, which is what kept it off that platform entirely.
+                .largeFolderAlert(library)
                 .modifier(FolderDeleteConfirmation(folder: $pendingFolderDelete) { folder in
                     if let c = library.collections.first(where: { folder.path == $0.id || folder.path.hasPrefix($0.id + "/") }) {
                         Task { await c.deleteFolder(at: folder) }

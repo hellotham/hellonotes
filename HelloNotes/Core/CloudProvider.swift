@@ -73,17 +73,27 @@ nonisolated enum CloudProvider {
         Installed(name: "OneDrive", bundleID: "com.microsoft.OneDrive"),
     ]
 
-    #if os(macOS)
     /// Which of those are actually installed.
     ///
-    /// A LaunchServices lookup, which the sandbox permits — unlike listing
-    /// `~/Library/CloudStorage`, which it does not. We never need to read that
-    /// directory ourselves: the open panel runs out of process and shows the
-    /// user what is really there.
+    /// On macOS a LaunchServices lookup, which the sandbox permits — unlike
+    /// listing `~/Library/CloudStorage`, which it does not. We never need to
+    /// read that directory ourselves: the open panel runs out of process and
+    /// shows the user what is really there.
+    ///
+    /// On iOS the question has no answer, and that is not the same as "none".
+    /// A provider's app being installed says nothing about whether its files are
+    /// reachable: the Files picker lists whichever *File Provider extensions*
+    /// are enabled, which the app cannot enumerate and does not need to — the
+    /// picker runs out of process and shows the user what is really there,
+    /// exactly as the Mac's open panel does. So the answer is empty, and the
+    /// caller's job is to offer the picker rather than a list it built itself.
     static func installedClients() -> [Installed] {
-        knownClients.filter {
+        #if os(macOS)
+        return knownClients.filter {
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleID) != nil
         }
+        #else
+        return []
+        #endif
     }
-    #endif
 }
