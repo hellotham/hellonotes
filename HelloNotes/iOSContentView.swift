@@ -2474,25 +2474,17 @@ struct iOSContentView: View {
         return nil
     }
 
-    /// The link graph. Built through `GraphData`, the same builder the Mac's
-    /// graph window uses, so the two cannot disagree about what is connected.
-    @ViewBuilder
+    /// The link graph — `GraphPane`, the same view the Mac's graph window
+    /// hosts. This used to be its own reduced copy: `GraphData.build(for:)`
+    /// with every parameter defaulted, so iPad had no scope, no link depth, and
+    /// no word when the node cap dropped notes from a large collection.
     private var graphSheet: some View {
-        let data = GraphData.build(for: railCollection ?? focused)
-        if data.nodes.isEmpty {
-            ContentUnavailableView("No Notes to Graph",
-                                   systemImage: "point.3.connected.trianglepath.dotted",
-                                   description: Text("Open a collection with notes to see its link graph."))
-        } else {
-            GraphView(nodes: data.nodes, edges: data.edges,
-                      onSelect: { url in
-                          showGraph = false
-                          if let note = library.allNotes.first(where: { $0.fileURL == url }) {
-                              selectedNoteID = note.id
-                          }
-                      },
-                      accent: appearance.resolvedAccent)
-        }
+        GraphPane(onOpen: { url in
+            showGraph = false
+            if let note = library.allNotes.first(where: { $0.fileURL == url }) {
+                selectedNoteID = note.id
+            }
+        })
     }
 
     /// The open note as a mind map, from its own headings and links.

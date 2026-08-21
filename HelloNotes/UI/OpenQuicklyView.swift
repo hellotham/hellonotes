@@ -46,10 +46,9 @@ struct OpenQuicklyView: View {
                 .focused($fieldFocused)
                 .onSubmit(openSelected)
                 .autocorrectionDisabled()
-#if os(iOS)
-                .textInputAutocapitalization(.never)
-                .submitLabel(.go)
-#endif
+                // A search field, not prose: no capitalisation, and the return
+                // key says what it does. Only iOS has either to set.
+                .plainSearchField()
 
             Divider()
 
@@ -61,14 +60,12 @@ struct OpenQuicklyView: View {
             }
             .listStyle(.plain)
         }
-#if os(macOS)
-        // A palette, not a document: fixed, and sized to the window rather than
-        // to whatever the results happen to be.
-        .frame(width: 540, height: 420)
-        // Escape must always dismiss, even if the text field has lost first-
-        // responder status — don't rely on the sheet's implicit cancel action.
-        .onExitCommand { dismiss() }
-#endif
+        // A palette, not a document: on the Mac it is sized to the window
+        // rather than to whatever the results happen to be, and Escape must
+        // always dismiss even when the field has lost first-responder status.
+        // A sheet is given its size and its cancel action, so iOS needs
+        // neither.
+        .paletteChrome(dismiss: { dismiss() })
         .onAppear { fieldFocused = true; results = search.quickOpenResults(query: "") }
         .onChange(of: query) { _, q in scheduleQuery(q) }
         .onChange(of: results) { _, newResults in
@@ -107,5 +104,32 @@ struct OpenQuicklyView: View {
         } else if let first = results.first {
             open(first)
         }
+    }
+}
+
+private extension View {
+    /// A field that searches rather than writes prose.
+    ///
+    /// A `#if/#else` in one place, not two adjacent `#if`s at the call site.
+    /// Two one-sided gates side by side are an if/else written the long way —
+    /// they read as independent, and it is easy to update one and leave the
+    /// other, which is the whole failure mode this codebase has been unpicking.
+    @ViewBuilder
+    func plainSearchField() -> some View {
+        #if os(iOS)
+        self.textInputAutocapitalization(.never).submitLabel(.go)
+        #else
+        self
+        #endif
+    }
+
+    /// A palette's own chrome, where the platform gives it none.
+    @ViewBuilder
+    func paletteChrome(dismiss: @escaping () -> Void) -> some View {
+        #if os(macOS)
+        self.frame(width: 540, height: 420).onExitCommand(perform: dismiss)
+        #else
+        self
+        #endif
     }
 }

@@ -2795,3 +2795,38 @@ for "why is this macOS-only" gets an answer instead of inferring one from a gate
 `TitlebarInsetReader` and `ChromeProbeLog` have no callers anywhere in the app.
 The header's record of what has been ruled out is worth keeping either way; the
 code may not be.*
+
+### The iPad's graph was a lesser graph
+
+`GraphWindowView` was inside `AuxiliaryWindows.swift`, gated to macOS, and the
+iPad drew its own `graphSheet`: `GraphData.build(for:)` with every parameter left
+at its default. Both sides carried a comment saying the *builder* was shared —
+"so the two cannot disagree about what is connected" — which was true, and beside
+the point. Everything around the builder disagreed:
+
+- **Scope.** The Mac shows the whole collection or just the notes within *n*
+  links of a focused one. iPad had only the whole collection.
+- **Depth.** One to three links, and iPad took the default with no control.
+- **The cap.** A force-directed layout of every note is O(N²), so past
+  `GraphData.maxNodes` the whole-collection view keeps the most-connected notes —
+  and the Mac says so in an overlay. **iPad silently showed a subset of a large
+  collection's graph with nothing to indicate it.**
+
+`GraphPane` is the graph on both, with `onOpen` supplied by the caller: a
+separate window has to ask the main one to open a note, and a sheet can simply
+select. The window's minimum size stayed with the window rather than becoming a
+gate inside the pane — the hook caught that when I first put it there, correctly:
+a minimum belongs to a scene, and a sheet is given its size.
+
+`GraphPane` contains no platform gate at all. The scope and depth controls are a
+`.toolbar`, which lands in a window's toolbar on one platform and a sheet's
+navigation bar on the other, without either shell having to know.
+
+### Two `#if`s side by side are an if/else written the long way
+
+`OpenQuicklyView` had `#if os(iOS)` for its keyboard hints and, thirty lines
+later, `#if os(macOS)` for its palette chrome. Both are one-sided, and together
+they cover both platforms — which reads as independent, and is the shape where
+one gets updated and the other does not. They are now two small
+`#if/#else` view extensions with names: `plainSearchField()` and
+`paletteChrome(dismiss:)`.
