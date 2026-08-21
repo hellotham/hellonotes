@@ -2159,3 +2159,36 @@ exist, so a stale excuse cannot sit there being read as a rule.
 decide what rich text becomes when it is pasted into a note. They pass — but
 until now, pasting formatted text on iPad wrote a `.md` file through code no
 test had ever executed.
+
+### The editor and toolbar surfaces, diffed the same way
+
+**Editor.** Comparing the two representables' public builder surfaces left one
+real difference: `onCaretEscapeTop`. On the Mac, ↑ from the first line (or ← from
+character zero) lifts the caret into the inline title above the note. iOS had
+neither half — no escape hook, and `InlineNoteTitle`'s iOS field ignored
+`focusRequest` entirely, so on an iPad keyboard ↑ at the top of a note did
+nothing at all. Both halves now exist. One difference stands and is deliberate:
+the Mac carries the *column* across the seam through its own `NSTextField`
+representable; SwiftUI's `TextField` cannot place a caret at an x offset, so iOS
+focuses the field.
+
+UIKit gives a `UITextView` no `moveUp` to override, so the escape is a
+`UIKeyCommand` — and an always-installed ↑ would swallow ordinary caret movement
+through the whole document. It is therefore offered only while the caret is
+somewhere the escape applies, and the test asserts the **absence**: no ↑ command
+mid-document, none for a selection, none when the host wired no hook.
+
+That test earned its place immediately. The first implementation asked
+`textLayoutFragment(for:)` whether the caret's fragment sat at the top of the
+document — and a fragment TextKit 2 has not laid out yet reports `.zero`, so
+every offset past the viewport read as "first line" and ↑ stopped working
+everywhere. The same trap this codebase already documents for chrome drawing,
+walked into again in a new place. Comparing caret *rects* — which lay out what
+they need — is both correct and the right answer for a wrapped first paragraph.
+
+**Toolbar.** At capability parity, with one adaptation that is a width decision
+rather than a gap: the Mac's five inspector toggles are one toggle plus an
+in-panel tab strip on iPad, because five do not fit at 834pt. Every tab is
+reachable; it costs one more tap. Search is a toolbar field on the Mac and a
+`.searchable` on the sidebar on iPad — the same capability in each platform's
+own spelling.

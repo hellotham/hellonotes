@@ -50,6 +50,10 @@ struct InlineNoteTitle: View {
     var focusRequest: CaretHandoff = .init()
 
     @State private var draft = ""
+    #if !os(macOS)
+    /// Focus for the iOS field — the Mac's representable manages its own.
+    @FocusState private var titleFocused: Bool
+    #endif
 
     var body: some View {
         field
@@ -82,11 +86,22 @@ struct InlineNoteTitle: View {
             focusRequest: focusRequest
         )
         #else
+        // Focusable, so the caret can arrive here from the note below it. The
+        // Mac's field has taken `focusRequest` since the inline title shipped;
+        // iOS's ignored it, so ↑ from the first line of a note on an iPad
+        // keyboard did nothing at all.
+        //
+        // No column is carried across the seam on this platform: SwiftUI's
+        // `TextField` has no way to place a caret at an x offset, so the whole
+        // field takes focus. The Mac keeps the column through its own
+        // `NSTextField` representable.
         TextField("Untitled", text: $draft)
             .textFieldStyle(.plain)
             .font(Font(theme.headingFont(level: 1)))
             .submitLabel(.done)
             .autocorrectionDisabled()
+            .focused($titleFocused)
+            .onChange(of: focusRequest) { _, _ in titleFocused = true }
             .onChange(of: draft) { _, value in
                 let clean = Self.sanitised(value)
                 if clean != value { draft = clean }

@@ -132,6 +132,16 @@ struct iOSLiveEditor: View {
                     .onPasteMarkdown { smartPaste(into: document) }
                     .selectionMenuItems { selected in selectionMenu(for: selected) }
                     .proxy(proxy)
+                    // ↑ from the first line (or ← from character zero) lands
+                    // in the inline title, as it does on the Mac. Posted on the
+                    // same bus the Mac's `NewEditorHost` uses, so the pane above
+                    // does not have to know which editor it is hosting.
+                    .onCaretEscapeTop { escape in
+                        var userInfo: [AnyHashable: Any] = [:]
+                        if case .vertical(let x) = escape { userInfo["x"] = x }
+                        NotificationCenter.default.post(
+                            name: .hnEditorCaretEscapedTop, object: nil, userInfo: userInfo)
+                    }
                     // The fourth vault action, and the only one that could not
                     // be an `EditorMenuItem`: it opens a sheet rather than
                     // returning a replacement string.

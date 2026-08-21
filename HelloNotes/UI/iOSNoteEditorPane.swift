@@ -42,6 +42,10 @@ struct iOSNoteEditorPane: View {
     /// window has to draw its own.
     var showsBanners = true
 
+    /// Bumped when the caret arrives from the note below — see the Mac's
+    /// `NoteEditorView`, which does the same with the same notification.
+    @State private var titleFocusRequest = CaretHandoff()
+
     var body: some View {
         VStack(spacing: 0) {
             if showsBanners {
@@ -53,7 +57,8 @@ struct iOSNoteEditorPane: View {
                     title: note.title,
                     theme: EditorTheme(fontSize: appearance.editorFontSize,
                                        accent: appearance.editorAccentPlatformColor),
-                    onRename: { onRename?($0) }
+                    onRename: { onRename?($0) },
+                    focusRequest: titleFocusRequest
                 )
                 .disabled(onRename == nil)
             }
@@ -63,6 +68,14 @@ struct iOSNoteEditorPane: View {
             case .split:    splitEditor
             default:        preview
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .hnEditorCaretEscapedTop)) { notification in
+            // The caret left the top of the note — catch it in the title. Only
+            // when there *is* a title to catch it in, and only when this pane
+            // can rename: a window that cannot rename must not steal focus into
+            // a field that will not commit.
+            guard appearance.showInlineTitle, onRename != nil else { return }
+            titleFocusRequest = titleFocusRequest.next(x: notification.userInfo?["x"] as? CGFloat)
         }
         // S3: the pane is a viewport, whatever mode it is in. Without the clamp
         // the editor's or preview's ideal height sizes the column, and the

@@ -466,13 +466,79 @@ public final class MarkdownUITextView: UITextView {
     /// but only while one is showing. Offered unconditionally, Esc would be
     /// swallowed from a text view that has no suggestion to dismiss.
     public override var keyCommands: [UIKeyCommand]? {
-        guard inlineSuggestion != nil else { return super.keyCommands }
-        return (super.keyCommands ?? []) + [
-            UIKeyCommand(input: "\t", modifierFlags: .alternate,
-                         action: #selector(acceptInlineSuggestionCommand(_:))),
-            UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [],
-                         action: #selector(dismissInlineSuggestionCommand(_:))),
-        ]
+        var commands = super.keyCommands ?? []
+        if inlineSuggestion != nil {
+            commands += [
+                UIKeyCommand(input: "\t", modifierFlags: .alternate,
+                             action: #selector(acceptInlineSuggestionCommand(_:))),
+                UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [],
+                             action: #selector(dismissInlineSuggestionCommand(_:))),
+            ]
+        }
+        // Arrowing off the top of the note lands in the title above it — the
+        // Mac has done this since the inline title shipped, by overriding
+        // `moveUp` / `moveLeft`. UIKit gives a `UITextView` no such overrides,
+        // so it is a key command instead — offered **only** while the caret is
+        // somewhere the escape applies, because a permanently-installed ↑ would
+        // swallow ordinary caret movement for the whole document.
+        if onCaretEscapeTop != nil {
+            if caretIsOnFirstLine {
+                commands.append(UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [],
+                                             action: #selector(escapeTopVertical(_:))))
+            }
+            if caretIsAtStart {
+                commands.append(UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [],
+                                             action: #selector(escapeTopBackward(_:))))
+            }
+        }
+        return commands
+    }
+
+    // MARK: - Caret escape (↑ / ← off the top of the note)
+
+    /// The caret left the top of the text; the host decides what is above it.
+    var onCaretEscapeTop: ((CaretEscape) -> Void)?
+
+    private var caretIsAtStart: Bool {
+        selectedRange.length == 0 && selectedRange.location == 0
+    }
+
+    private var caretIsOnFirstLine: Bool {
+        guard selectedRange.length == 0 else { return false }
+        if selectedRange.location == 0 { return true }
+        // Compare caret rects, not fragment frames. The obvious version asks
+        // `textLayoutFragment(for:)` for the caret's fragment and tests whether
+        // its frame sits at the top — and a fragment TextKit has not laid out
+        // yet reports `.zero`, so *every* offset past the viewport read as the
+        // first line and ↑ stopped working through the whole document. Caught
+        // by `theCaretEscapesTheTopOnlyFromTheTop`.
+        //
+        // `caretRect(for:)` lays out what it needs, and equal tops is what
+        // "same line" means on screen — which is also the right answer for a
+        // wrapped first paragraph, where the second visual line is not the
+        // first line even though it shares a fragment.
+        guard let position = position(from: beginningOfDocument, offset: selectedRange.location)
+        else { return false }
+        let here = caretRect(for: position)
+        let start = caretRect(for: beginningOfDocument)
+        guard here.minY.isFinite, start.minY.isFinite else { return false }
+        return abs(here.minY - start.minY) < 0.5
+    }
+
+    /// Where the caret sits horizontally, in points from the text's left edge —
+    /// so the column survives the different inset and font above the seam.
+    private var caretXOffset: CGFloat {
+        guard let position = position(from: beginningOfDocument, offset: selectedRange.location)
+        else { return 0 }
+        return caretRect(for: position).minX - textContainerInset.left - textContainer.lineFragmentPadding
+    }
+
+    @objc private func escapeTopVertical(_ sender: Any?) {
+        onCaretEscapeTop?(.vertical(x: caretXOffset))
+    }
+
+    @objc private func escapeTopBackward(_ sender: Any?) {
+        onCaretEscapeTop?(.backward)
     }
 
     // MARK: - Inline context (autocomplete)
@@ -809,6 +875,13 @@ public struct MarkdownEditorView: View {
         var copy = self; copy.representable = representable.editable(flag); return copy
     }
 
+    /// Called when the caret leaves through the top of the document — ↑ from the
+    /// first line, or ← from character zero. The host puts the caret wherever
+    /// its own chrome above the text begins.
+    public func onCaretEscapeTop(_ handler: @escaping (CaretEscape) -> Void) -> Self {
+        var copy = self; copy.representable = representable.onCaretEscapeTop(handler); return copy
+    }
+
     /// Offer "Rewrite with AI…" in the edit menu for a selection. The handler
     /// receives the range; presenting the sheet is the host's job.
     public func onRewriteSelection(_ handler: @escaping (NSRange) -> Void) -> Self {
@@ -864,6 +937,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     let document: EditorDocument
     private var isEditable = true
     private var wrapGuideColumns = 0
+    private var onCaretEscapeTopHandler: ((CaretEscape) -> Void)?
     private var onRewriteSelectionHandler: ((NSRange) -> Void)?
     private var onLinkTap: ((EditorLinkTap) -> Void)?
     private var onPasteImage: (() -> String?)?
@@ -929,6 +1003,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         let tv = MarkdownUITextView.make(document: document)
         tv.isEditable = isEditable
         tv.wrapGuideColumns = wrapGuideColumns
+        tv.onCaretEscapeTop = onCaretEscapeTopHandler
         tv.onRewriteSelection = onRewriteSelectionHandler
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
@@ -946,6 +1021,11 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         // note costs what it costs on the Mac: the prefix, the viewport, and a
         // background pass for the rest.
         return tv
+    }
+
+    /// Called when the caret leaves through the top of the document.
+    func onCaretEscapeTop(_ handler: @escaping (CaretEscape) -> Void) -> Self {
+        var copy = self; copy.onCaretEscapeTopHandler = handler; return copy
     }
 
     /// Offer "Rewrite with AI…" on a selection, reporting its range.

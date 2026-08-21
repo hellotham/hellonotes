@@ -781,6 +781,59 @@ import Testing
         // point of dropping the whole-document call.
         #expect(document.storage.length > 15_000, "sample must exceed one viewport")
     }
+
+    /// ↑ off the first line, and ← off character zero, leave the text — which
+    /// is what puts the caret in the inline title above it.
+    ///
+    /// The Mac gets this by overriding `moveUp` / `moveLeft`; UIKit gives a
+    /// `UITextView` no such overrides, so it is a key command — and a key
+    /// command for ↑ that is always installed would swallow ordinary caret
+    /// movement through the whole document. So the assertion that matters is
+    /// not that the commands work, but that they are **absent** everywhere the
+    /// escape does not apply.
+    @Test func theCaretEscapesTheTopOnlyFromTheTop() {
+        let document = EditorDocument(text: sampleText())
+        let (tv, _) = hosted(document)
+        var escapes: [String] = []
+        tv.onCaretEscapeTop = { escape in
+            switch escape {
+            case .vertical: escapes.append("vertical")
+            case .backward: escapes.append("backward")
+            }
+        }
+
+        func inputs() -> Set<String> {
+            Set((tv.keyCommands ?? []).compactMap(\.input))
+        }
+
+        // At the very start both escapes apply.
+        tv.selectedRange = NSRange(location: 0, length: 0)
+        #expect(inputs().contains(UIKeyCommand.inputUpArrow))
+        #expect(inputs().contains(UIKeyCommand.inputLeftArrow))
+
+        // Deep in the document neither does — ↑ and ← must reach the text view.
+        tv.selectedRange = NSRange(location: document.storage.length / 2, length: 0)
+        tv.layoutIfNeeded()
+        #expect(!inputs().contains(UIKeyCommand.inputUpArrow))
+        #expect(!inputs().contains(UIKeyCommand.inputLeftArrow))
+
+        // With no host hook there is nothing to escape to, so nothing is offered.
+        tv.onCaretEscapeTop = nil
+        tv.selectedRange = NSRange(location: 0, length: 0)
+        #expect(!inputs().contains(UIKeyCommand.inputUpArrow))
+        #expect(!inputs().contains(UIKeyCommand.inputLeftArrow))
+    }
+
+    /// A selection is not a caret: arrowing up out of one is ordinary editing.
+    @Test func aSelectionDoesNotEscapeTheTop() {
+        let document = EditorDocument(text: sampleText())
+        let (tv, _) = hosted(document)
+        tv.onCaretEscapeTop = { _ in }
+        tv.selectedRange = NSRange(location: 0, length: 12)
+        let inputs = Set((tv.keyCommands ?? []).compactMap(\.input))
+        #expect(!inputs.contains(UIKeyCommand.inputUpArrow))
+        #expect(!inputs.contains(UIKeyCommand.inputLeftArrow))
+    }
 }
 
 #endif
