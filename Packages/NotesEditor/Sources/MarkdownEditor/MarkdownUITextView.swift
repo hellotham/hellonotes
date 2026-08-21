@@ -663,7 +663,11 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                 MainActor.assumeIsolated {
                     guard let view = self?.busView else { return }
                     view.becomeFirstResponder()
-                    view.findInteraction?.presentFindNavigator(showingReplace: false)
+                    // `showingReplace: true` — the system find bar does
+                    // replace as well, on any editable text view, so the Mac's
+                    // Find & Replace needs no iOS counterpart written. It was
+                    // passing `false` and offering half the feature.
+                    view.findInteraction?.presentFindNavigator(showingReplace: true)
                 }
             })
         }
