@@ -244,6 +244,7 @@ struct iOSContentView: View {
     @State private var showGraph = false
     @State private var showMindMap = false
     @State private var showPalette = false
+    @AppStorage("templatesFolder") private var templatesFolder = "Templates"
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
     @AppStorage("dailyDateFormat") private var dailyDateFormat = "yyyy-MM-dd"
 
@@ -2180,6 +2181,8 @@ struct iOSContentView: View {
             openCloudFolder: { showImporter = true },
             refreshCloudCollection: (scope?.isRemote ?? false)
                 ? { Task { await scope?.refreshFromProvider() } } : nil,
+            templates: Templates.available(in: railCollection ?? focused, folder: templatesFolder),
+            insertTemplate: editor.note == nil ? nil : { actions.insertTemplate($0) },
             commandPalette: { showPalette = true },
             ai: aiActions,
             reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,

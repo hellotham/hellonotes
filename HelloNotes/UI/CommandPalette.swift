@@ -248,6 +248,17 @@ extension AppActions {
         add("review-links", "Note", "Review Links…", "link.badge.plus",
             shortcut: "⌘⇧L", run: reviewLinks)
 
+        // Templates, one entry each — a palette that offered "Insert Template…"
+        // and then asked which would be a second search inside a search. The
+        // command reaches a keyboard-less iPad only through here and the
+        // toolbar, since a menu bar needs a keyboard.
+        if let insertTemplate {
+            for template in templates {
+                add("template-\(template.title)", "Note", "Insert Template: \(template.title)",
+                    "doc.on.clipboard") { insertTemplate(template) }
+            }
+        }
+
         // Note — only when one is selected, which is exactly when they mean anything.
         if let note {
             add("rename", "Note", "Rename Note", "pencil", run: note.rename)

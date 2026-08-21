@@ -776,6 +776,8 @@ struct MacContentView: View {
             refreshCloudCollection: focused.flatMap { collection in
                 collection.isRemote ? { Task { await collection.refreshFromProvider() } } : nil
             },
+            templates: Templates.available(in: railCollection ?? focused, folder: templatesFolder),
+            insertTemplate: activeEditor == nil ? nil : { actions.insertTemplate($0) },
             commandPalette: { showCommandPalette = true },
             ai: aiActions,
             reviewLinks: (!showOpenQuickly && selectedNote != nil && focused != nil)
@@ -1845,27 +1847,6 @@ struct MacContentView: View {
                 searchText = ""
                 selectedNoteID = note.id
             }
-        }
-    }
-
-    /// Notes under the configured templates folder in the focused collection.
-    private var templateNotes: [Note] {
-        guard !templatesFolder.isEmpty, let c = focused else { return [] }
-        let base = c.rootURL.appendingPathComponent(templatesFolder).standardizedFileURL.path + "/"
-        return c.notes
-            .filter { $0.fileURL.standardizedFileURL.path.hasPrefix(base) }
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-    }
-
-    /// Append a template's expanded contents to the active note.
-    private func insertTemplate(_ template: Note) {
-        guard let editor = activeEditor else { return }
-        let title = editor.note?.title ?? ""
-        Task {
-            let raw = await offMain { try? FileIO.readString(at: template.fileURL) }
-            guard let raw else { return }
-            let expanded = TemplateExpander.expand(raw, title: title, date: .now)
-            editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
         }
     }
 

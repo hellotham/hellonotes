@@ -118,6 +118,21 @@ struct ShellActions {
         return (try? FileIO.readString(at: note.fileURL)) ?? ""
     }
 
+    /// Append an expanded template to the open note.
+    ///
+    /// Appended, not replacing: a template is something you add to what you are
+    /// writing. The read happens off-main (`Templates.expanded`), so a template
+    /// on a cloud provider cannot stall the editor.
+    func insertTemplate(_ template: TemplateRef) {
+        guard let editor = activeEditor else { return }
+        let title = editor.note?.title ?? ""
+        Task {
+            guard let expanded = await Templates.expanded(template, noteTitle: title)
+            else { return }
+            editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
+        }
+    }
+
     func isBookmarked(_ note: Note) -> Bool {
         library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
     }

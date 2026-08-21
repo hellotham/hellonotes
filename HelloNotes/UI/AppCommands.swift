@@ -107,6 +107,14 @@ struct AppActions {
     /// focused collection is one. A command, so it belongs in a menu rather than
     /// only in a status bar that hides whenever a note is open.
     var refreshCloudCollection: (() -> Void)?
+    /// Templates in the focused collection, and inserting one at the caret.
+    ///
+    /// Both are here rather than in `NoteMenuActions` because the list depends
+    /// on the *collection* and the insertion on the *editor*, and a menu that
+    /// offers a template while none is open would be a command that cannot run.
+    /// Empty list ⇒ the submenu greys out.
+    var templates: [TemplateRef] = []
+    var insertTemplate: ((TemplateRef) -> Void)? = nil
     /// Show the command palette (⌘⇧P).
     var commandPalette: (() -> Void)?
     /// AI actions on the open note. `nil` when there is no note or no working
@@ -370,6 +378,19 @@ struct HelloNotesCommands: Commands {
             Button("Review Links…") { actions?.reviewLinks?() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
                 .disabled(actions?.reviewLinks == nil)
+
+            Divider()
+
+            // The templates folder has been a setting since the folder
+            // conventions screen shipped, and this is the first thing that
+            // reads it — see `Templates`. One menu, so both platforms get the
+            // command from one place.
+            Menu("Insert Template") {
+                ForEach(actions?.templates ?? []) { template in
+                    Button(template.title) { actions?.insertTemplate?(template) }
+                }
+            }
+            .disabled(actions?.templates.isEmpty ?? true || actions?.insertTemplate == nil)
 
             Divider()
 
