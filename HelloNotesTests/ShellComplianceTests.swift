@@ -368,4 +368,34 @@ struct ShellComplianceTests {
                     "\(file) does not key its reference refresh on the shared key")
         }
     }
+
+    /// A scan may never close the note someone is reading.
+    ///
+    /// `revalidateSelection` existed in both shells under one name and was two
+    /// different functions. The Mac's cleared a selection that no longer
+    /// resolved and fell back to the last open tab, so a rescan that
+    /// momentarily dropped a note took the reader off it — the vanished-note
+    /// report. The iPad's kept the selection and reconciled the buffer, and
+    /// carried the paragraph explaining why.
+    ///
+    /// The architecture states the rule outright: no other operation may close
+    /// the current file. This asserts the shared implementation is the one both
+    /// shells call, and that neither has quietly grown a clearing path back.
+    @Test("Neither shell clears a selection it cannot resolve")
+    func revalidationNeverClearsTheSelection() throws {
+        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+            let source = try Self.source(file)
+            #expect(!source.contains("private func revalidateSelection"),
+                    "\(file) has its own revalidation again")
+            #expect(source.contains("actions.revalidateSelection()"),
+                    "\(file) does not call the shared revalidation")
+        }
+        let shared = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes/State/ShellActions.swift"), encoding: .utf8)
+        let body = shared.components(separatedBy: "func revalidateSelection()")[1]
+            .components(separatedBy: "\n    }")[0]
+        #expect(!body.contains("selection.wrappedValue = "),
+                "revalidateSelection writes the selection — it must only ever read it")
+    }
 }

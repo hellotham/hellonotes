@@ -422,7 +422,7 @@ struct iOSContentView: View {
                 // and its next save wrote stale text over the newer file.
                 // `EditorTabs.reconcileAll()` was cross-platform all along.
                 Task { await tabs.reconcileAll() }
-                revalidateSelection()
+                actions.revalidateSelection()
             }
             // Nothing recorded opens on iOS, so the launcher's Recents and
             // Obsidian Vaults lists would have stayed permanently empty even
@@ -1018,18 +1018,6 @@ struct iOSContentView: View {
         }) else { return nil }
         return (collection, URL(fileURLWithPath: id, isDirectory: true))
     }
-    /// Re-check the selection after the note set changed underneath it.
-    ///
-    /// Deliberately conservative: a selection that still resolves is left
-    /// exactly as it is, and one that no longer resolves is *kept* rather than
-    /// cleared, because clearing it would close the note the user is reading on
-    /// the strength of a scan. Only the editor's content is refreshed.
-    private func revalidateSelection() {
-        guard let selectedNoteID else { return }
-        guard library.allNotes.contains(where: { $0.id == selectedNoteID }) else { return }
-        Task { await editor.reconcileWithDisk() }
-    }
-
     private var bookmarkedNotes: [Note] {
         library.collections.flatMap { $0.bookmarks.bookmarkedNotes(from: $0.notes) }
     }

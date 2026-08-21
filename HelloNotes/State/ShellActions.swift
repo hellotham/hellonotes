@@ -133,6 +133,28 @@ struct ShellActions {
         }
     }
 
+    /// Re-check the selection after the note set changed underneath it.
+    ///
+    /// **Deliberately conservative, and this is the point of it.** A selection
+    /// that still resolves is left exactly as it is, and one that no longer
+    /// resolves is *kept* rather than cleared: clearing it would close the note
+    /// someone is reading on the strength of a scan, which is the rule the
+    /// architecture states outright — no other operation may close the current
+    /// file. Only the editor's content is refreshed.
+    ///
+    /// The two shells had this under one name and it was two different
+    /// functions. The Mac's cleared a selection that no longer resolved and
+    /// fell back to the last open tab — so a rescan that momentarily dropped a
+    /// note took the reader off it, which is the vanished-note report. The
+    /// iPad's kept the selection and reconciled the buffer, and carried the
+    /// paragraph explaining why. One name, opposite behaviours, and each
+    /// platform was missing what the other did.
+    func revalidateSelection() {
+        guard let id = selection.wrappedValue else { return }
+        guard library.allNotes.contains(where: { $0.id == id }) else { return }
+        Task { await tabs.editor(withID: id)?.reconcileWithDisk() }
+    }
+
     func isBookmarked(_ note: Note) -> Bool {
         library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
     }

@@ -409,7 +409,7 @@ struct MacContentView: View {
             }
             library.onExternalChange = { @MainActor in
                 Task { await tabs.reconcileAll() }
-                revalidateSelection()
+                actions.revalidateSelection()
             }
             // A note's autosave marks the write as the collection's own (so its
             // file watcher ignores it) and refreshes that collection's index
@@ -511,7 +511,7 @@ struct MacContentView: View {
             // [[links]] by a stale answer.
             documents.forgetAll()
             tabs.prune(keeping: Set(notes.map(\.id)))
-            revalidateSelection()
+            actions.revalidateSelection()
             library.writeWidgetSnapshot()   // refresh the recent-notes widget
             Task { await router.donateNotesToSpotlight() }   // system Spotlight
         }
@@ -909,14 +909,6 @@ struct MacContentView: View {
                         fileURL: newID,
                         lastModified: (try? FileManager.default.attributesOfItem(atPath: newID.path)[.modificationDate] as? Date) ?? Date())
         Task { await tabs.editor(for: note) }
-    }
-
-    private func revalidateSelection() {
-        let stillValid = selectedNoteID.map { id in
-            library.allNotes.contains { $0.id == id }
-                || library.collections.contains { $0.attachments.contains { $0.url == id } }
-        } ?? true
-        if !stillValid { selectedNoteID = tabs.openNotes.last?.id }
     }
 
     // MARK: - Column 1: the collection tree
