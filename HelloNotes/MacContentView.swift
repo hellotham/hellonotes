@@ -43,6 +43,9 @@ struct MacContentView: View {
     /// platforms — the Mac ran an `NSOpenPanel` inline, which is why its open
     /// path and the iPad's were two functions that had drifted apart.
     @State private var showImporter = false
+    /// Quick Capture. The menu-bar extra is not the only way in any more — it
+    /// was, which meant hiding the menu-bar icon hid the feature.
+    @State private var showQuickCapture = false
     @State private var showNewRepo = false
     @State private var showWelcome = false
     /// First-run onboarding is shown once; afterwards an empty launch offers the
@@ -242,6 +245,21 @@ struct MacContentView: View {
     }
 
     /// The editor for the active tab (the selected note).
+    /// The scene's width, for `AuxiliaryPresentation`. Measured here rather
+    /// than read from `\.shell`, because this view *supplies* the shell's slots
+    /// and so sits outside the context the shell publishes.
+    @State private var shellWidth: CGFloat = 0
+    /// An auxiliary surface presented as a sheet, when the canvas is too narrow
+    /// for a window. `nil` is the ordinary case on any full-size window.
+    @State private var auxiliarySheet: AuxiliarySurface?
+
+    /// Open Graph / Ask Library / Assistant — a window where there is room for
+    /// one, a sheet where there is not. The decision is `AuxiliaryPresentation`
+    /// and it is keyed on width, never on the platform.
+    private var auxiliary: AuxiliaryOpener {
+        AuxiliaryOpener(openWindow: openWindow, width: shellWidth) { auxiliarySheet = $0 }
+    }
+
     private var activeEditor: EditorModel? {
         tabs.editor(withID: selectedNoteID)
     }
@@ -373,6 +391,15 @@ struct MacContentView: View {
                     }
                 })
         )
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shellWidth = $0 }
+        // An auxiliary surface where the canvas is too narrow for a window.
+        // Present on **both** platforms: a Mac window dragged below the shell's
+        // compact threshold has no more room for a second window than an iPhone
+        // does, and the rule is the canvas, not the OS.
+        .sheet(item: $auxiliarySheet) { surface in
+            AuxiliarySheet(surface: surface,
+                           addRemoteCollection: library.addRemoteCollection)
+        }
     }
 
     private var shellCore: some View {
@@ -638,6 +665,10 @@ struct MacContentView: View {
                 onDismiss: { showWelcome = false }
             )
         }
+        .sheet(isPresented: $showQuickCapture) {
+            QuickCaptureView(router: router)
+                .panelFrame(width: 460, height: 320)
+        }
         .sheet(isPresented: $showImporter) {
             FolderPicker(startingAt: ObsidianVault.browseStartDirectory,
                          message: ObsidianVault.pickerMessage) { urls in
@@ -733,10 +764,10 @@ struct MacContentView: View {
             canOpenQuickly: !(focused?.notes.isEmpty ?? true),
             openQuickly: { showOpenQuickly = true },
             canGraph: !(focused?.notes.isEmpty ?? true),
-            graphView: closingOpenQuickly { openWindow(id: "graph") },
+            graphView: closingOpenQuickly { auxiliary.open(.graph) },
             canAsk: !library.allNotes.isEmpty,
-            askLibrary: closingOpenQuickly { openWindow(id: "askLibrary") },
-            assistant: closingOpenQuickly { openWindow(id: "assistant") },
+            askLibrary: closingOpenQuickly { auxiliary.open(.askLibrary) },
+            assistant: closingOpenQuickly { auxiliary.open(.assistant) },
             canCloseTab: tabs.openNotes.count > 1 && tabs.editor(withID: selectedNoteID) != nil,
             closeTab: closingOpenQuickly { if let id = selectedNoteID { closeTab(id) } },
             // Format and Note commands target the note *behind* the palette
@@ -788,6 +819,7 @@ struct MacContentView: View {
             refreshCloudCollection: focused.flatMap { collection in
                 collection.isRemote ? { Task { await collection.refreshFromProvider() } } : nil
             },
+            quickCapture: { showQuickCapture = true },
             templates: Templates.available(in: railCollection ?? focused, folder: templatesFolder),
             insertTemplate: activeEditor == nil ? nil : { actions.insertTemplate($0) },
             commandPalette: { showCommandPalette = true },
@@ -807,7 +839,7 @@ struct MacContentView: View {
             searchAllCollections: closingOpenQuickly {
                 NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
             },
-            connectOverWeb: { provider in openWindow(id: provider.windowID) },
+            connectOverWeb: { auxiliary.open(.cloud($0)) },
             editorMode: EditorMode(rawValue: editorModeRaw) ?? .edit,
             setEditorMode: { editorModeRaw = $0.rawValue }
         )
@@ -897,7 +929,7 @@ struct MacContentView: View {
             },
             explain: { phrase in
                 library.askAboutSelection(phrase)
-                openWindow(id: "askLibrary")
+                auxiliary.open(.askLibrary)
             }
         )
     }
@@ -1009,10 +1041,10 @@ struct MacContentView: View {
                     case .ai:
                         AIPlaceList(ai: aiActions,
                                     canAsk: !library.allNotes.isEmpty,
-                                    askLibrary: { openWindow(id: "askLibrary") },
+                                    askLibrary: { auxiliary.open(.askLibrary) },
                                     reviewLinks: activeEditor != nil ? { beginLinkReview() } : nil,
                                     compose: focused == nil ? nil : { showCompose = true },
-                                    assistant: { openWindow(id: "assistant") },
+                                    assistant: { auxiliary.open(.assistant) },
                                     // The Mac reaches AI settings through
                                     // Preferences, so no row here.
                                     aiSettings: nil,
@@ -1570,7 +1602,7 @@ struct MacContentView: View {
                     onLinkMention: linkMention,
                     onRenameNote: { title in selectedNote.map { actions.rename($0, to: title) } },
                     onShowMindMap: {
-                        if let url = selectedNote?.fileURL { openWindow(value: MindMapRef(url)) }
+                        if let url = selectedNote?.fileURL { auxiliary.open(.mindMap(url)) }
                     },
                     ai: aiActions,
                     selectionActions: selectionActions(in: c)
@@ -1683,14 +1715,14 @@ struct MacContentView: View {
             gitStatusButton
             statusBarButton("New note", "square.and.pencil") { newNote() }
             statusBarButton("Today's note", "calendar") { openTodaysNote() }
-            statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { openWindow(id: "graph") }
+            statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { auxiliary.open(.graph) }
                 .disabled(focused?.notes.isEmpty ?? true)
                 // The tip used to hang off the sidebar's Graph button; the
                 // status bar is where that command still lives on screen.
                 .popoverTip(GraphTip())
-            statusBarButton("Ask your library", "sparkles.rectangle.stack") { openWindow(id: "askLibrary") }
+            statusBarButton("Ask your library", "sparkles.rectangle.stack") { auxiliary.open(.askLibrary) }
                 .disabled(library.allNotes.isEmpty)
-            statusBarButton("Assistant", "sparkles") { openWindow(id: "assistant") }
+            statusBarButton("Assistant", "sparkles") { auxiliary.open(.assistant) }
         }
         .font(.callout)
         .padding(.horizontal, 10)

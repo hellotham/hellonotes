@@ -245,6 +245,9 @@ extension AppActions {
             add("ai-rewrite", "Note", "Rewrite or Expand Note…", "wand.and.stars", run: ai.rewriteNote)
         }
 
+        add("quick-capture", "File", "Quick Capture…", "square.and.pencil.circle",
+            shortcut: "⌃⌘K", run: quickCapture)
+
         add("review-links", "Note", "Review Links…", "link.badge.plus",
             shortcut: "⌘⇧L", run: reviewLinks)
 

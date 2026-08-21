@@ -102,57 +102,58 @@ struct HelloNotesApp: App {
             }
         }
 
-        #if os(macOS)
-
-        // Exploration / reference surfaces live in windows, not sheets, so
-        // they can stay open beside the notes they describe.
-        Window("Graph", id: "graph") {
+        // Exploration / reference surfaces open beside the notes they describe,
+        // on **both** platforms. `WindowGroup(id:)` rather than the singleton
+        // `Window`, which is macOS-only: the iPad has held a second scene since
+        // note windows shipped, and these were simply never given one. Which of
+        // window or sheet a canvas gets is `AuxiliaryPresentation`, keyed on
+        // width rather than on the OS.
+        WindowGroup(id: AuxiliarySurface.graph.windowID) {
             rooted(GraphWindowView())
         }
-        .defaultSize(width: 760, height: 560)
+        .defaultSize(AuxiliarySurface.graph.defaultSize)
 
-        Window("Ask Library", id: "askLibrary") {
+        WindowGroup(id: AuxiliarySurface.askLibrary.windowID) {
             rooted(LibraryChatWindowView())
         }
-        .defaultSize(width: 560, height: 640)
+        .defaultSize(AuxiliarySurface.askLibrary.defaultSize)
 
-        Window("Assistant", id: "assistant") {
+        WindowGroup(id: AuxiliarySurface.assistant.windowID) {
             rooted(AssistantWindowView())
         }
-        .defaultSize(width: 560, height: 680)
+        .defaultSize(AuxiliarySurface.assistant.defaultSize)
 
-        // Direct-API cloud browser (Phase 4): connect a provider over REST and
-        // edit notes without a sync folder. Uses DropboxStore (needs an app key
-        // in Info.plist); a DEBUG-only demo window drives the same UI with an
-        // in-memory MockRemoteStore.
-        Window("Cloud Notes (Direct)", id: CloudBrowser.dropbox.windowID) {
-            RemoteBrowserView(store: DropboxStore(), onAddAsCollection: library.addRemoteCollection)
-                .themedRoot(appearance)
+        // Direct-API cloud browsers: connect a provider over REST and edit
+        // notes without a sync folder. One scene per `CloudBrowser` case, so a
+        // provider added to the enum is a provider both platforms can open.
+        WindowGroup(id: CloudBrowser.dropbox.windowID) {
+            rooted(RemoteBrowserView(store: DropboxStore(),
+                                     onAddAsCollection: library.addRemoteCollection))
         }
         .defaultSize(width: 480, height: 580)
 
-        Window("Box (Direct)", id: CloudBrowser.box.windowID) {
-            RemoteBrowserView(store: BoxStore(), onAddAsCollection: library.addRemoteCollection)
-                .themedRoot(appearance)
+        WindowGroup(id: CloudBrowser.box.windowID) {
+            rooted(RemoteBrowserView(store: BoxStore(),
+                                     onAddAsCollection: library.addRemoteCollection))
         }
         .defaultSize(width: 480, height: 580)
 
-        Window("Google Drive (Direct)", id: CloudBrowser.googleDrive.windowID) {
-            RemoteBrowserView(store: GoogleDriveStore(), onAddAsCollection: library.addRemoteCollection)
-                .themedRoot(appearance)
+        WindowGroup(id: CloudBrowser.googleDrive.windowID) {
+            rooted(RemoteBrowserView(store: GoogleDriveStore(),
+                                     onAddAsCollection: library.addRemoteCollection))
         }
         .defaultSize(width: 480, height: 580)
 
-        Window("OneDrive (Direct)", id: CloudBrowser.oneDrive.windowID) {
-            RemoteBrowserView(store: OneDriveStore(), onAddAsCollection: library.addRemoteCollection)
-                .themedRoot(appearance)
+        WindowGroup(id: CloudBrowser.oneDrive.windowID) {
+            rooted(RemoteBrowserView(store: OneDriveStore(),
+                                     onAddAsCollection: library.addRemoteCollection))
         }
         .defaultSize(width: 480, height: 580)
 
         #if DEBUG
-        Window("Cloud Demo", id: "remoteBrowserDemo") {
-            RemoteBrowserView(store: MockRemoteStore(), onAddAsCollection: library.addRemoteCollection)
-                .themedRoot(appearance)
+        WindowGroup(id: CloudBrowser.mock.windowID) {
+            rooted(RemoteBrowserView(store: MockRemoteStore(),
+                                     onAddAsCollection: library.addRemoteCollection))
         }
         .defaultSize(width: 480, height: 580)
         #endif
@@ -164,7 +165,17 @@ struct HelloNotesApp: App {
         }
         .defaultSize(width: 720, height: 540)
 
+        #if os(macOS)
         // Preferences window (⌘,): General, Appearance, and AI tabs.
+        //
+        // `Settings` and `MenuBarExtra` are macOS scene *types* with no iOS
+        // spelling — there is no menu bar to extend and no Preferences scene to
+        // register. What matters for parity is that the surfaces behind them
+        // are reachable on both, and they are: Settings is a sheet the iPad
+        // shell presents from the same command, and Quick Capture is a command
+        // in `HelloNotesCommands` and the palette on both platforms. The
+        // menu-bar item is an extra *route* on the platform that has the
+        // concept, not a feature the iPad lacks.
         Settings {
             PreferencesView(llmSettings: llmSettings, appearance: appearance)
                 .themedRoot(appearance)

@@ -60,6 +60,22 @@ struct iOSContentView: View {
     @State private var noEditor = EditorModel()
     private var editor: EditorModel { tabs.editor(withID: selectedNoteID) ?? noEditor }
 
+    /// The scene's width, for `AuxiliaryPresentation`. Measured here rather
+    /// than read from `\.shell`, because this view *supplies* the shell's slots
+    /// and so sits outside the context the shell publishes.
+    @State private var shellWidth: CGFloat = 0
+    /// An auxiliary surface presented as a sheet, when the canvas is too narrow
+    /// for a window. `nil` is the ordinary case on any full-size window.
+    @State private var auxiliarySheet: AuxiliarySurface?
+
+    /// Open Graph / Ask Library / Assistant — a window where there is room for
+    /// one, a sheet where there is not. The decision is `AuxiliaryPresentation`
+    /// and it is keyed on width, never on the platform.
+    private var auxiliary: AuxiliaryOpener {
+        AuxiliaryOpener(openWindow: openWindow, width: shellWidth) { auxiliarySheet = $0 }
+    }
+
+
     /// Every sidebar command, one implementation — see `ShellActions`. The
     /// shell owns the state a command reads and writes; what the command *does*
     /// is not platform-shaped and no longer lives here.
@@ -208,11 +224,9 @@ struct iOSContentView: View {
     /// exists because `ToolContext` requires one.
     @State private var composePermissions = PermissionBroker()
     /// Ask Library, and the question it should open with (`nil` = ask fresh).
-    @State private var showLibraryChat = false
     /// The agentic assistant, and the provider/key settings it needs. Both were
     /// macOS-only until 1.3 — and without the second, an iPad had no way to
     /// enter an API key at all, so every provider but Apple was unreachable.
-    @State private var showAssistant = false
     @State private var showLLMSettings = false
     @State private var showOpenQuickly = false
     /// Marp deck. `SlidesView` was portable all along — the whole file is
@@ -232,7 +246,6 @@ struct iOSContentView: View {
     /// Web ▸ Dropbox… drew, enabled, and did nothing — while the very same four
     /// browsers were reachable from Settings. The capability was there; the
     /// command was not.
-    @State private var cloudBrowser: CloudBrowser?
     @State private var recents = RecentsStore()
     @State private var libraries = LibrariesStore()
     @State private var showQuickCapture = false
@@ -243,8 +256,6 @@ struct iOSContentView: View {
     /// tab showed backlinks and outgoing links but never unlinked mentions.
     @State private var referenceSpotlight = SpotlightSearch()
     @State private var unlinkedMentions: [Note] = []
-    @State private var showGraph = false
-    @State private var showMindMap = false
     @State private var showPalette = false
     @AppStorage("templatesFolder") private var templatesFolder = "Templates"
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
@@ -326,6 +337,13 @@ struct iOSContentView: View {
                     Task { await c.deleteFolder(at: folder) }
                 }
             })
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shellWidth = $0 }
+            // The same modifier the Mac carries: a window where the canvas has
+            // room for one, this sheet where it has not.
+            .sheet(item: $auxiliarySheet) { surface in
+                AuxiliarySheet(surface: surface,
+                               addRemoteCollection: library.addRemoteCollection)
+            }
     }
 
     /// The shell itself plus everything that wires it to the scene.
@@ -635,19 +653,6 @@ struct iOSContentView: View {
             library.pendingSubfolderPick = nil
             showImporter = true
         }
-        .sheet(item: $cloudBrowser) { browser in
-            NavigationStack {
-                RemoteBrowserView(store: browser.makeStore(),
-                                  onAddAsCollection: library.addRemoteCollection)
-                    .navigationTitle(browser.displayName)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { cloudBrowser = nil }
-                        }
-                    }
-            }
-        }
         .sheet(isPresented: $showLauncher) {
             // The same six affordances the Mac's launcher offers, wired to the
             // iOS routes for each: the folder picker stands in for NSOpenPanel,
@@ -759,23 +764,11 @@ struct iOSContentView: View {
             }
             Button("Cancel", role: .cancel) { newFolderCollection = nil }
         }
-        .modifier(ParitySheets(
-            showGraph: $showGraph,
-            showMindMap: $showMindMap,
-            showPalette: $showPalette,
-            graph: { graphSheet },
-            mindMap: { mindMapSheet },
-            palette: { CommandPaletteView(commands: appActions.paletteCommands) }))
+        .sheet(isPresented: $showPalette) {
+            CommandPaletteView(commands: appActions.paletteCommands)
+        }
         .sheet(isPresented: $showSettings) {
             iOSSettingsView(settings: appearance, git: focused?.git, accounts: gitAccounts)
-        }
-        // Ask Library, which iOS simply did not have. The Mac gives it a window;
-        // a sheet is the same thing on a platform with one window.
-        .sheet(isPresented: $showLibraryChat) { libraryChatSheet }
-        .sheet(isPresented: $showAssistant) {
-            NavigationStack {
-                AssistantHost().navigationTitle("Assistant")
-            }
         }
         .sheet(isPresented: $showCompose, onDismiss: { composer.reset() }) {
             NavigationStack {
@@ -1308,10 +1301,10 @@ struct iOSContentView: View {
             // question you want to ask your notes usually isn't already in one.
             .init(title: "Ask Your Library", symbol: "sparkles.rectangle.stack",
                   isEnabled: !library.allNotes.isEmpty) {
-                showLibraryChat = true
+                auxiliary.open(.askLibrary)
             },
             .init(title: "Assistant", symbol: "sparkles", isEnabled: scope != nil) {
-                showAssistant = true
+                auxiliary.open(.assistant)
             },
             .init(title: "AI Settings…", symbol: "brain") { showLLMSettings = true },
             .init(title: "Settings…", symbol: "gearshape") { showSettings = true },
@@ -1480,10 +1473,10 @@ struct iOSContentView: View {
         return AIPlaceList(
             ai: aiActions,
             canAsk: !library.allNotes.isEmpty,
-            askLibrary: { showLibraryChat = true },
+            askLibrary: { auxiliary.open(.askLibrary) },
             reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
             compose: scope == nil ? nil : { showCompose = true },
-            assistant: { showAssistant = true },
+            assistant: { auxiliary.open(.assistant) },
             // iOS has no Preferences window, so AI settings needs a row here.
             aiSettings: { showLLMSettings = true },
             hasOpenNote: editor.note != nil)
@@ -1574,7 +1567,7 @@ struct iOSContentView: View {
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: linkMention,
                 onRenameNote: { actions.rename(note, to: $0) },
-                onShowMindMap: { showMindMap = true },
+                onShowMindMap: { auxiliary.open(.mindMap(note.fileURL)) },
                 ai: aiActions,
                 selectionActions: selectionActions(in: c)
             )
@@ -1693,7 +1686,7 @@ struct iOSContentView: View {
                 // They were reachable on iPad only by opening Settings, which
                 // is not where "open something" lives on either platform.
                 ForEach(CloudBrowser.allCases) { browser in
-                    Button(browser.displayName) { cloudBrowser = browser }
+                    Button(browser.displayName) { auxiliary.open(.cloud(browser)) }
                 }
             } label: {
                 Label("Connect Over the Web", systemImage: "cloud")
@@ -1926,13 +1919,13 @@ struct iOSContentView: View {
                 Button { beginLinkReview() } label: {
                     Label("Review Links…", systemImage: "link.badge.plus")
                 }
-                // **The way in to the mind map.** `showMindMap` was bound into
-                // `ParitySheets` with a full sheet behind it and was never once
+                // **The way in to the mind map.** It was bound into a sheet and
+                // never once
                 // set to `true` anywhere in the codebase — every write was a
                 // dismissal — so the whole surface was dead code on iOS. The Mac
                 // reaches it from the editor's bottom bar; the bar's iPad
                 // equivalent is this menu.
-                Button { showMindMap = true } label: {
+                Button { if let url = editor.note?.fileURL { auxiliary.open(.mindMap(url)) } } label: {
                     Label("Mind Map", systemImage: "brain")
                 }
                 // Read from the memoized, off-main scan rather than computed
@@ -1982,40 +1975,6 @@ struct iOSContentView: View {
         return nil
     }
 
-    /// Ask Your Library — `LibraryChatWindowView`, the same view the Mac's
-    /// window hosts, seeded from the same pending question.
-    ///
-    /// This used to be a second construction of `LibraryChatView` with a local
-    /// `chatSeed`, so anything that called `Library.requestAsk` other than the
-    /// selection action reached the Mac's chat and not this one.
-    private var libraryChatSheet: some View {
-        NavigationStack {
-            LibraryChatWindowView(onOpenNote: { note in
-                showLibraryChat = false
-                selectedNoteID = note.id
-            })
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { showLibraryChat = false }
-                }
-            }
-        }
-    }
-
-    /// The link graph — `GraphPane`, the same view the Mac's graph window
-    /// hosts. This used to be its own reduced copy: `GraphData.build(for:)`
-    /// with every parameter defaulted, so iPad had no scope, no link depth, and
-    /// no word when the node cap dropped notes from a large collection.
-    private var graphSheet: some View {
-        GraphPane(onOpen: { url in
-            showGraph = false
-            if let note = library.allNotes.first(where: { $0.fileURL == url }) {
-                selectedNoteID = note.id
-            }
-        })
-    }
-
     /// The open note as a mind map — `MindMapPane`, the same view the Mac's
     /// mind-map window hosts.
     ///
@@ -2024,31 +1983,6 @@ struct iOSContentView: View {
     /// on the Mac it opened the note and scrolled to that section. The bus it
     /// needs is the one the inspector's outline already uses.
     @ViewBuilder
-    private var mindMapSheet: some View {
-        if let note = editor.note {
-            MindMapPane(
-                rootURL: note.fileURL,
-                // The live buffer, not the file: a sheet sits over the open
-                // note, so the map should reflect unsaved edits.
-                text: editor.text,
-                onOpenNote: { url in
-                    showMindMap = false
-                    if let n = library.allNotes.first(where: { $0.fileURL == url }) {
-                        selectedNoteID = n.id
-                    }
-                },
-                onShowSection: { heading in
-                    showMindMap = false
-                    guard let heading else { return }
-                    scrollToHeading(heading)
-                })
-        } else {
-            ContentUnavailableView("No Note Open",
-                                   systemImage: "point.topleft.down.curvedto.point.bottomright.up",
-                                   description: Text("Open a note to see its mind map."))
-        }
-    }
-
     /// Notes whose text mentions this note's title or aliases without linking
     /// to it. Same shape as the Mac's: Spotlight narrows the corpus, then each
     /// candidate is read and checked with the word-boundary scanner, off the
@@ -2115,13 +2049,13 @@ struct iOSContentView: View {
             canOpenQuickly: !(scope?.notes.isEmpty ?? true),
             openQuickly: { showOpenQuickly = true },
             canGraph: !(scope?.notes.isEmpty ?? true),
-            graphView: { showGraph = true },
+            graphView: { auxiliary.open(.graph) },
             // Asking the library needs notes to ask *about*, not a collection to
             // stand in — the Mac's rule, and iOS's own `libraryActions` row used
             // it while this one used a third, looser one.
             canAsk: !library.allNotes.isEmpty,
-            askLibrary: { showLibraryChat = true },
-            assistant: { showAssistant = true },
+            askLibrary: { auxiliary.open(.askLibrary) },
+            assistant: { auxiliary.open(.assistant) },
             // File ▸ Close Tab exists on iPad now that the `#if os(macOS)` gate
             // around it is gone, and this hard-coded `false` would have left it
             // permanently greyed over a `tabStrip` full of real, closable tabs.
@@ -2161,6 +2095,7 @@ struct iOSContentView: View {
             openCloudFolder: { showImporter = true },
             refreshCloudCollection: (scope?.isRemote ?? false)
                 ? { Task { await scope?.refreshFromProvider() } } : nil,
+            quickCapture: library.isEmpty ? nil : { showQuickCapture = true },
             templates: Templates.available(in: railCollection ?? focused, folder: templatesFolder),
             insertTemplate: editor.note == nil ? nil : { actions.insertTemplate($0) },
             commandPalette: { showPalette = true },
@@ -2184,7 +2119,7 @@ struct iOSContentView: View {
             },
             // The four direct-API browsers exist on iOS and were reachable only
             // from Settings, so File ▸ Connect Over the Web did nothing.
-            connectOverWeb: { cloudBrowser = $0 },
+            connectOverWeb: { auxiliary.open(.cloud($0)) },
             editorMode: mode,
             setEditorMode: { storedMode = $0.rawValue }
         )
@@ -2226,7 +2161,7 @@ struct iOSContentView: View {
             },
             explain: { phrase in
                 library.askAboutSelection(phrase)
-                showLibraryChat = true
+                auxiliary.open(.askLibrary)
             }
         )
     }
@@ -2300,51 +2235,5 @@ private nonisolated struct NoteDocFeatures: Equatable, Sendable {
         hasMermaid = !MarkdownParsing.mermaidBlocks(in: text).isEmpty
     }
 }
-
-/// The surfaces that were macOS-only until the parity audit: Graph, Mind Map
-/// and the command palette.
-///
-/// A `ViewModifier` rather than three more `.sheet` calls in `body` — that
-/// chain is already long enough to defeat the type-checker, which it did the
-/// first time these were added. Bindings and builders are passed explicitly:
-/// a modifier holding the host struct would be looking at a copy of its state.
-private struct ParitySheets<Graph: View, Mind: View, Palette: View>: ViewModifier {
-    @Binding var showGraph: Bool
-    @Binding var showMindMap: Bool
-    @Binding var showPalette: Bool
-    @ViewBuilder let graph: () -> Graph
-    @ViewBuilder let mindMap: () -> Mind
-    @ViewBuilder let palette: () -> Palette
-
-    func body(content: Content) -> some View {
-        content
-            .sheet(isPresented: $showGraph) {
-                NavigationStack {
-                    graph()
-                        .navigationTitle("Graph")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { showGraph = false }
-                            }
-                        }
-                }
-            }
-            .sheet(isPresented: $showMindMap) {
-                NavigationStack {
-                    mindMap()
-                        .navigationTitle("Mind Map")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { showMindMap = false }
-                            }
-                        }
-                }
-            }
-            .sheet(isPresented: $showPalette) { palette() }
-    }
-}
-
 
 #endif

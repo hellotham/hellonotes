@@ -277,4 +277,33 @@ struct ShellComplianceTests {
             }
         }
     }
+
+    /// An auxiliary surface is presented by the canvas, not by the platform.
+    ///
+    /// The Mac opened a `Window` for Graph, Ask Library, Assistant, the mind
+    /// map and the cloud browsers; the iPad presented a sheet for each. Two
+    /// lists, independently maintained, either of which could gain a surface
+    /// the other never heard about — and it had already produced a behaviour
+    /// difference, since the Mac's mind-map window read the note's file and
+    /// showed the last saved version while the iPad's sheet was handed the live
+    /// buffer.
+    ///
+    /// Both shells now call one `AuxiliaryOpener`, which chooses a window or a
+    /// sheet from the shell's width. Neither may hold presentation state of its
+    /// own for these surfaces.
+    @Test("Neither shell decides how an auxiliary surface is presented")
+    func auxiliarySurfacesArePresentedByWidth() throws {
+        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+            let source = try Self.source(file)
+            #expect(source.contains("AuxiliaryOpener(openWindow: openWindow, width: shellWidth)"),
+                    "\(file) does not route auxiliary surfaces through the shared opener")
+            #expect(source.contains(".sheet(item: $auxiliarySheet)"),
+                    "\(file) has no narrow-canvas fallback, so its surfaces are window-only")
+            for forbidden in ["showGraph", "showMindMap", "showAssistant", "showLibraryChat",
+                             "cloudBrowser"] {
+                #expect(!source.contains(forbidden),
+                        "\(file) still owns presentation state for an auxiliary surface (\(forbidden))")
+            }
+        }
+    }
 }

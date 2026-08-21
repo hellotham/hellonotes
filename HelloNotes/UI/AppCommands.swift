@@ -121,6 +121,14 @@ struct AppActions {
     /// focused collection is one. A command, so it belongs in a menu rather than
     /// only in a status bar that hides whenever a note is open.
     var refreshCloudCollection: (() -> Void)?
+    /// Jot a line into today's daily note without leaving what you are doing.
+    ///
+    /// A command on both platforms. On the Mac it existed *only* in the
+    /// menu-bar extra, so someone who hides the menu-bar icon — or who simply
+    /// looks in the app's menus, which is where commands live — could not reach
+    /// it at all. The iPad had it in the toolbar menu. The menu-bar item stays
+    /// as an extra route on the platform that has the concept.
+    var quickCapture: (() -> Void)? = nil
     /// Templates in the focused collection, and inserting one at the caret.
     ///
     /// Both are here rather than in `NoteMenuActions` because the list depends
@@ -275,6 +283,9 @@ struct HelloNotesCommands: Commands {
             Button("Open…") { actions?.openLauncher() }
                 .keyboardShortcut("o")
                 .disabled(actions == nil)
+            Button("Quick Capture…") { actions?.quickCapture?() }
+                .keyboardShortcut("k", modifiers: [.command, .control])
+                .disabled(actions?.quickCapture == nil)
             Button("Open Quickly…") { actions?.openQuickly() }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
                 .disabled(!(actions?.canOpenQuickly ?? false))
