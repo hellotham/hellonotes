@@ -99,7 +99,6 @@ struct iOSContentView: View {
     private var expandedFolders: Binding<Set<String>> {
         ExpandedFolders.binding($expandedFolderIDs)
     }
-    @State private var showImporter = false
     @State private var showSettings = false
     @State private var showWelcome = false
     /// Onboarding is queued during launch but only presented once the splash
@@ -338,6 +337,23 @@ struct iOSContentView: View {
                 }
             })
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shellWidth = $0 }
+            // `Library` asks for a picker rather than presenting one; the shell
+            // owns the picker, so the shell answers — **with what was asked
+            // for**. The request carries where to start and what to say, and
+            // discarding that is how "add a mounted cloud folder" opened
+            // nowhere near the providers and "choose a subfolder" reopened
+            // outside the folder it was narrowing.
+            .sheet(item: Binding(get: { library.pendingFolderPick },
+                                 set: { library.pendingFolderPick = $0 })) { request in
+                FolderPicker(startingAt: request.startDirectory,
+                             prompt: request.prompt,
+                             message: request.message) { urls in
+                    library.pendingFolderPick = nil
+                    guard !urls.isEmpty else { return }
+                    Task { await library.openPicked(urls) }
+                }
+            }
+
             // The same modifier the Mac carries: a window where the canvas has
             // room for one, this sheet where it has not.
             .sheet(item: $auxiliarySheet) { surface in
@@ -641,18 +657,6 @@ struct iOSContentView: View {
         // The large-folder warning, which iPad never had — see
         // `LargeFolderAlert`.
         .largeFolderAlert(library)
-        // `Library` asks for a picker rather than presenting one; the shell owns
-        // the picker, so the shell answers.
-        .onChange(of: library.pendingFolderPick) { _, request in
-            guard request != nil else { return }
-            library.pendingFolderPick = nil
-            showImporter = true
-        }
-        .onChange(of: library.pendingSubfolderPick) { _, url in
-            guard url != nil else { return }
-            library.pendingSubfolderPick = nil
-            showImporter = true
-        }
         .sheet(isPresented: $showLauncher) {
             // The same six affordances the Mac's launcher offers, wired to the
             // iOS routes for each: the folder picker stands in for NSOpenPanel,
@@ -670,27 +674,11 @@ struct iOSContentView: View {
                 onSaveLibrary: { name in
                     libraries.save(name: name, urls: library.collections.map(\.rootURL))
                 },
-                onOpenCollection: { showImporter = true },
-                onOpenObsidian: { showImporter = true },
+                onOpenCollection: { library.requestOpenCollections() },
+                onOpenObsidian: { library.requestOpenCollections() },
                 onClone: { showClone = true },
                 onNewRepository: { showNewRepo = true }
             )
-        }
-        .sheet(isPresented: $showImporter) {
-            // `UIDocumentPickerViewController`, not SwiftUI's `.fileImporter`.
-            //
-            // `.fileImporter` has no way to choose where the browser opens, and
-            // the note in `ObsidianVault` claiming the Files picker "can't be
-            // seeded with a start directory" was simply wrong: the UIKit picker
-            // has had `directoryURL` since iOS 13. So the picker now opens in
-            // Obsidian's iCloud folder instead of wherever Files was last.
-            FolderPicker(startingAt: ObsidianVault.browseStartDirectory,
-                         message: ObsidianVault.pickerMessage) { urls in
-                showImporter = false
-                guard !urls.isEmpty else { return }
-                Task { await library.openPicked(urls) }
-            }
-            .ignoresSafeArea()
         }
         .alert("Rename Note", isPresented: Binding(
             get: { renameTarget != nil },
@@ -794,8 +782,8 @@ struct iOSContentView: View {
         }
         .sheet(isPresented: $showWelcome, onDismiss: { hasSeenWelcome = true }) {
             WelcomeView(
-                onOpenCollection: { showWelcome = false; showImporter = true },
-                onOpenObsidian: { showWelcome = false; showImporter = true },
+                onOpenCollection: { showWelcome = false; library.requestOpenCollections() },
+                onOpenObsidian: { showWelcome = false; library.requestOpenCollections() },
                 onDismiss: { showWelcome = false }
             )
         }
@@ -906,7 +894,7 @@ struct iOSContentView: View {
                 } description: {
                     Text("Open a folder of Markdown notes, or an Obsidian vault, to get started.")
                 } actions: {
-                    Button("Open Collection…") { showImporter = true }
+                    Button("Open Collection…") { library.requestOpenCollections() }
                         .buttonStyle(.borderedProminent)
                     // The Mac's equivalent empty state offers the launcher, not
                     // the panel: after the first time, the way back in is a
@@ -920,12 +908,12 @@ struct iOSContentView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
-                        showImporter = true
+                        library.requestOpenCollections()
                     } label: {
                         Label("Open Collection…", systemImage: "folder.badge.plus")
                     }
                     Button {
-                        showImporter = true
+                        library.requestOpenCollections()
                     } label: {
                         Label("Open Obsidian Vault…", systemImage: "shippingbox")
                     }
@@ -1065,7 +1053,7 @@ struct iOSContentView: View {
         List {
             if library.isEmpty {
                 Section {
-                    Button("Open Collection") { showImporter = true }
+                    Button("Open Collection") { library.requestOpenCollections() }
                 }
             } else {
                 Section("Collections") {
@@ -1099,12 +1087,12 @@ struct iOSContentView: View {
                         }
                     }
                     Button {
-                        showImporter = true
+                        library.requestOpenCollections()
                     } label: {
                         Label("Open Collection", systemImage: "folder.badge.plus")
                     }
                     Button {
-                        showImporter = true
+                        library.requestOpenCollections()
                     } label: {
                         Label("Open Obsidian Vault…", systemImage: "shippingbox")
                     }
@@ -1286,7 +1274,7 @@ struct iOSContentView: View {
             },
             .init(title: "New Note from a Prompt…", symbol: "sparkles.square.filled.on.square",
                   isEnabled: scope != nil) { showCompose = true },
-            .init(title: "Open Collection", symbol: "folder.badge.plus") { showImporter = true },
+            .init(title: "Open Collection", symbol: "folder.badge.plus") { library.requestOpenCollections() },
             // The launcher, by touch. `openLauncher` reaches it from a hardware
             // keyboard's ⇧⌘O, which is not a route a keyboard-less iPad has —
             // and recents and saved libraries are the only way back to a vault
@@ -1672,7 +1660,7 @@ struct iOSContentView: View {
             .disabled(scope?.notes.isEmpty ?? true)
             Divider()
             Button {
-                showImporter = true
+                library.requestOpenCollections()
             } label: {
                 Label("Open Collection…", systemImage: "folder.badge.plus")
             }
@@ -2092,7 +2080,7 @@ struct iOSContentView: View {
             rescan: scope.map { c in { c.rescan() } },
             showsNonNoteFiles: scope?.showsNonNoteFiles,
             setShowsNonNoteFiles: scope.map { c in { (on: Bool) in c.showsNonNoteFiles = on } },
-            openCloudFolder: { showImporter = true },
+            openCloudFolder: { library.requestOpenCloudFolder() },
             refreshCloudCollection: (scope?.isRemote ?? false)
                 ? { Task { await scope?.refreshFromProvider() } } : nil,
             quickCapture: library.isEmpty ? nil : { showQuickCapture = true },

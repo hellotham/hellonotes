@@ -42,7 +42,6 @@ struct MacContentView: View {
     /// The folder picker for "Open Collection". A presented sheet on both
     /// platforms — the Mac ran an `NSOpenPanel` inline, which is why its open
     /// path and the iPad's were two functions that had drifted apart.
-    @State private var showImporter = false
     /// Quick Capture. The menu-bar extra is not the only way in any more — it
     /// was, which meant hiding the menu-bar icon hid the feature.
     @State private var showQuickCapture = false
@@ -392,6 +391,23 @@ struct MacContentView: View {
                 })
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shellWidth = $0 }
+        // `Library` asks for a picker rather than presenting one; the shell
+        // owns the picker, so the shell answers — **with what was asked
+        // for**. The request carries where to start and what to say, and
+        // discarding that is how "add a mounted cloud folder" opened
+        // nowhere near the providers and "choose a subfolder" reopened
+        // outside the folder it was narrowing.
+        .sheet(item: Binding(get: { library.pendingFolderPick },
+                         set: { library.pendingFolderPick = $0 })) { request in
+            FolderPicker(startingAt: request.startDirectory,
+                     prompt: request.prompt,
+                     message: request.message) { urls in
+                library.pendingFolderPick = nil
+                guard !urls.isEmpty else { return }
+                Task { await library.openPicked(urls) }
+            }
+        }
+
         // An auxiliary surface where the canvas is too narrow for a window.
         // Present on **both** platforms: a Mac window dragged below the shell's
         // compact threshold has no more room for a second window than an iPhone
@@ -661,21 +677,13 @@ struct MacContentView: View {
         .sheet(isPresented: $showWelcome, onDismiss: { hasSeenWelcome = true }) {
             WelcomeView(
                 onOpenCollection: { showWelcome = false; library.requestOpenCollections() },
-                onOpenObsidian: { showWelcome = false; showImporter = true },
+                onOpenObsidian: { showWelcome = false; library.requestOpenCollections() },
                 onDismiss: { showWelcome = false }
             )
         }
         .sheet(isPresented: $showQuickCapture) {
             QuickCaptureView(router: router)
                 .panelFrame(width: 460, height: 320)
-        }
-        .sheet(isPresented: $showImporter) {
-            FolderPicker(startingAt: ObsidianVault.browseStartDirectory,
-                         message: ObsidianVault.pickerMessage) { urls in
-                showImporter = false
-                guard !urls.isEmpty else { return }
-                Task { await library.openPicked(urls) }
-            }
         }
         .sheet(isPresented: $showLauncher) {
             LauncherView(
@@ -689,7 +697,7 @@ struct MacContentView: View {
                 },
                 onSaveLibrary: { name in libraries.save(name: name, urls: library.collections.map(\.rootURL)) },
                 onOpenCollection: { library.requestOpenCollections() },
-                onOpenObsidian: { showImporter = true },
+                onOpenObsidian: { library.requestOpenCollections() },
                 onClone: { showClone = true },
                 onNewRepository: { showNewRepo = true }
             )

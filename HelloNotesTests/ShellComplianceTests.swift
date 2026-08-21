@@ -324,4 +324,26 @@ struct ShellComplianceTests {
         #expect(source.contains("guard liveBuffer.text(for: rootURL) == nil else { return }"),
                 "MindMapWindowView reads the file even when the buffer has the note")
     }
+
+    /// A folder-pick request is answered with what it asked for.
+    ///
+    /// `Library.FolderPickRequest` was a bare two-case enum that the Mac never
+    /// consulted — it ran its own `NSOpenPanel` inline, with its own start
+    /// directory and message — while the iPad answered every case by opening
+    /// the same picker at Obsidian's iCloud folder. So on iPad "add a mounted
+    /// cloud folder" opened nowhere near the providers, and "choose a
+    /// subfolder" of a folder too large to index reopened the picker outside
+    /// the folder it was narrowing.
+    @Test("Both shells present the picker the request asked for")
+    func folderPickRequestsCarryTheirDestination() throws {
+        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+            let source = try Self.source(file)
+            #expect(source.contains("startingAt: request.startDirectory"),
+                    "\(file) opens the picker somewhere other than where the request named")
+            #expect(source.contains("message: request.message"),
+                    "\(file) does not say what the request asked for")
+            #expect(!source.contains("showImporter"),
+                    "\(file) still has a second folder-picking route beside the request channel")
+        }
+    }
 }

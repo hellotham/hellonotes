@@ -249,27 +249,11 @@ final class Library {
 
     /// Ask the user for folders to open as collections.
     ///
-    /// The panel is the Mac's; the *request* is not. On iOS a model cannot
-    /// present a picker, so it publishes the ask and the shell — which already
-    /// owns a `FolderPicker` — puts it on screen. Whatever comes back goes
-    /// through `openChecking` on both platforms, which is what gives iPad the
-    /// large-folder warning it never had.
-    func requestOpenCollections() {
-        #if os(macOS)
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Open"
-        panel.message = "Choose one or more folders to open as collections."
-
-        guard panel.runModal() == .OK else { return }
-        let urls = panel.urls
-        Task { await openChecking(urls) }
-        #else
-        pendingFolderPick = .anyFolder
-        #endif
-    }
+    /// The *request* is published, not presented: a model cannot put a picker
+    /// on screen, and the shell already owns one. On both platforms now — the
+    /// Mac ran an `NSOpenPanel` inline here, which is what let its start
+    /// directory and its message diverge from the iPad's.
+    func requestOpenCollections() { pendingFolderPick = .anyFolder }
 
     /// Add a folder from a cloud provider that is already mounted on this Mac.
     ///
@@ -284,31 +268,7 @@ final class Library {
     ///
     /// The sandbox cannot *list* that directory, but the panel runs out of
     /// process and can, and the user's selection is what grants access.
-    func requestOpenCloudFolder() {
-        #if os(macOS)
-        let installed = CloudProvider.installedClients()
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Open"
-        panel.directoryURL = CloudProvider.cloudStorageDirectory
-        panel.message = installed.isEmpty
-            ? "Choose a folder from a cloud provider mounted on this Mac."
-            : "Choose a folder from \(installed.map(\.name).formatted(.list(type: .and))) "
-                + "— no sign-in needed, the files are already on this Mac."
-
-        guard panel.runModal() == .OK else { return }
-        let urls = panel.urls
-        Task { await openChecking(urls) }
-        #else
-        // The Files picker lists whichever File Provider extensions are
-        // enabled, which is the same out-of-process answer the Mac's panel
-        // gives for `~/Library/CloudStorage` — so iOS asks for a folder and
-        // lets the picker say which providers exist.
-        pendingFolderPick = .cloudFolder
-        #endif
-    }
+    func requestOpenCloudFolder() { pendingFolderPick = .cloudFolder }
 
     /// Open `urls`, pausing to warn about any that look big enough to take a
     /// while. Adding a huge folder is never *blocked* — it is the user's folder
@@ -336,7 +296,7 @@ final class Library {
             case .chooseSubfolder:
                 // The shell reopens its own picker rooted here; whatever comes
                 // back re-enters this same check.
-                pendingSubfolderPick = url
+                pendingFolderPick = .subfolder(of: url)
             case .cancel:
                 continue
             }
@@ -345,9 +305,65 @@ final class Library {
 
     /// A folder-picking request the shell should present, or nil.
     ///
-    /// iOS only in practice — the Mac runs its panel inline — but declared for
-    /// both so the call site above is one function rather than two.
-    enum FolderPickRequest: Equatable { case anyFolder, cloudFolder }
+    /// **The request carries where to start and what to say**, and it did not.
+    /// It was a bare two-case enum that the Mac never used — the Mac ran its
+    /// own panel inline, with its own start directory and its own message —
+    /// while the iPad shell answered every case by opening the *same* picker at
+    /// Obsidian's iCloud folder. So on iPad "add a mounted cloud folder" opened
+    /// nowhere near the providers, and "choose a subfolder" of a folder too
+    /// large to index reopened the picker outside that folder, which is the one
+    /// thing that choice exists to do.
+    ///
+    /// `Library` is a model and cannot present a picker; that part was right.
+    /// What it can do is say precisely what it is asking for.
+    enum FolderPickRequest: Equatable, Identifiable {
+        /// Any folder, to open as a collection.
+        case anyFolder
+        /// A folder from a cloud provider already mounted on this machine.
+        case cloudFolder
+        /// Somewhere inside `url`, which was too large to open whole.
+        case subfolder(of: URL)
+
+        var id: String {
+            switch self {
+            case .anyFolder: "any"
+            case .cloudFolder: "cloud"
+            case .subfolder(let url): "sub:" + url.path
+            }
+        }
+
+        /// Where the picker should open. A hint it may ignore.
+        @MainActor
+        var startDirectory: URL? {
+            switch self {
+            case .anyFolder: ObsidianVault.browseStartDirectory
+            case .cloudFolder: CloudProvider.cloudStorageDirectory
+            case .subfolder(let url): url
+            }
+        }
+
+        /// What the picker says it is asking for. Shown by the Mac's panel; the
+        /// document picker has no such field and ignores it.
+        @MainActor
+        var message: String {
+            switch self {
+            case .anyFolder:
+                ObsidianVault.pickerMessage
+            case .cloudFolder:
+                {
+                    let installed = CloudProvider.installedClients()
+                    return installed.isEmpty
+                        ? "Choose a folder from a cloud provider mounted on this device."
+                        : "Choose a folder from \(installed.map(\.name).formatted(.list(type: .and))) "
+                            + "— no sign-in needed, the files are already here."
+                }()
+            case .subfolder(let url):
+                "Choose a folder inside “\(url.lastPathComponent)” to open instead."
+            }
+        }
+
+        var prompt: String { "Open" }
+    }
     var pendingFolderPick: FolderPickRequest?
 
     /// A folder that looks large, and the continuation waiting on the answer.
@@ -363,10 +379,6 @@ final class Library {
 
     /// The question waiting to be asked, or nil.
     var pendingLargeFolder: LargeFolderPrompt?
-
-    /// A folder the user asked to narrow. The shell reopens its picker here and
-    /// feeds the result back through `openChecking`.
-    var pendingSubfolderPick: URL?
 
     /// Answer the outstanding question.
     func resolveLargeFolder(_ choice: LargeFolderChoice) {
