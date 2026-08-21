@@ -2192,3 +2192,66 @@ in-panel tab strip on iPad, because five do not fit at 834pt. Every tab is
 reachable; it costs one more tap. Search is a toolbar field on the Mac and a
 `.searchable` on the sidebar on iPad — the same capability in each platform's
 own spelling.
+
+---
+
+## 27 · Two implementations is the bug (2026-08-22)
+
+Every fix in §25 and §26 made the second copy match the first. None of them
+removed a second copy. That is worth stating plainly, because it is the
+difference between parity today and parity as a property.
+
+A scan of the two shells:
+
+| | `MacContentView` | `iOSContentView` |
+|---|---|---|
+| Lines | 2,192 | 3,106 |
+| Members | 122 | 151 |
+| **Same name in both** | **55** | |
+
+Of 26 sampled by hand, **23 are logic, not views** — `openWikiLink`,
+`linkMention`, `runCompose`, `revalidateSelection`, `beginLinkReview`,
+`propertiesBinding`, `editorCollection`, `appActions`, `selectionActions`,
+`tree`, `closeTab`, `openTodaysNote`. Only `collectionTree`, `inspector` and
+`shellCore` are views — and `shellCore`, the shell's own composition root, is
+the same idea written twice under the same name.
+
+The model layer is genuinely shared: `Collection`, `Library`, `EditorModel`,
+`EditorTabs`, `NoteInspector`, `CollectionTree`, `AppActions`, the whole
+`NotesEditor` package. The *shell* layer is duplicated, and every parity defect
+this audit found lives in it.
+
+### The first extraction, and the shape of the rest
+
+`openWikiLink` is the case that proves it. The Mac's was 45 lines — web schemes,
+`[[#heading]]` meaning this note, the link graph's aliases and relative paths, a
+case-insensitive title match, create-on-miss, and a heading jump that waits for
+the tab to exist. The iPad's was six lines of title comparison. Same command,
+same gesture, different feature.
+
+`WikiLinkNavigation.resolve` now decides, and each shell keeps only what is
+genuinely platform-specific: which API opens a URL, and how that shell moves its
+own selection. Nine tests cover the decision on both platforms — tests that could
+not exist at all while the logic was a `private func` on a view struct, which is
+its own answer to how the two drifted so far without anything failing.
+
+The remaining extractions follow the same split, in rough order of how far they
+have already drifted:
+
+| Extract | Shared decision | Stays per-shell |
+|---|---|---|
+| Search | debounce, the two waves, snippet and attachment merge | the field's chrome |
+| Link review | proposal generation, accept/decline application | sheet vs panel |
+| Compose | permissions, run, create | sheet vs window |
+| Selection | revalidation, focus-follows-selection, tab pruning | — |
+| Actions | `appActions` / `selectionActions` / `aiActions` construction | — |
+
+Each is a `@MainActor` type with the decision and no view, plus tests. What is
+left in the two content views afterwards is layout, which is the one thing that
+*should* differ.
+
+The alternative — one content view with `#if` inside it — was considered and
+rejected: it produces a file neither platform's reader can follow, and the
+layouts genuinely differ (an `NSOutlineView` sidebar against a SwiftUI `List`, a
+column inspector against an overlay). The split is decision-shared,
+presentation-separate.

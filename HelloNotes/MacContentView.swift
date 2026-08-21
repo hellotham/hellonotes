@@ -2100,48 +2100,27 @@ struct MacContentView: View {
     /// open in the default app; otherwise the target is a note title — navigate
     /// to the matching note, or create it if it doesn't exist yet.
     private func openWikiLink(_ target: String) {
-        let webSchemes: Set<String> = ["http", "https", "mailto", "file"]
-        if let url = URL(string: target),
-           let scheme = url.scheme?.lowercased(),
-           webSchemes.contains(scheme) {
-            NSWorkspace.shared.open(url)
-            return
-        }
-
-        guard let c = editorCollection else { return }
-
-        let base: String
-        let heading: String?
-        if let hash = target.firstIndex(of: "#") {
-            base = String(target[..<hash])
-            let after = String(target[target.index(after: hash)...])
-            heading = after.isEmpty ? nil : after
-        } else {
-            base = target
-            heading = nil
-        }
-
+        // The *decision* is shared with the iPad — see `WikiLinkNavigation`.
+        // What stays here is the platform half: which API opens a URL, and how
+        // this shell moves its own selection.
         Task {
-            let destination: Note?
-            if base.isEmpty {
-                destination = selectedNote
-            } else if let url = c.linkGraph.resolve(base),
-                      let note = c.notes.first(where: { $0.fileURL == url }) {
-                destination = note
-            } else if let match = c.notes.first(where: { $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame }) {
-                destination = match
-            } else {
-                destination = await c.createNote(title: base)   // create-on-miss
-            }
-
-            guard let destination else { return }
-            let switching = selectedNoteID != destination.id
-            selectedNoteID = destination.id
-
-            if let heading {
-                await tabs.editor(for: destination)
-                if switching { try? await Task.sleep(for: .milliseconds(350)) }
-                scrollToHeading(heading)
+            switch await WikiLinkNavigation.resolve(target: target,
+                                                    in: editorCollection,
+                                                    current: selectedNote) {
+            case .web(let url):
+                NSWorkspace.shared.open(url)
+            case .note(let destination, let heading):
+                let switching = selectedNoteID != destination.id
+                selectedNoteID = destination.id
+                if let heading {
+                    // The tab has to exist before anything can scroll inside it,
+                    // and a fresh one needs a beat to lay out.
+                    await tabs.editor(for: destination)
+                    if switching { try? await Task.sleep(for: .milliseconds(350)) }
+                    scrollToHeading(heading)
+                }
+            case .none:
+                break
             }
         }
     }

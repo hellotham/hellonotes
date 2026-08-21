@@ -2831,68 +2831,35 @@ struct iOSContentView: View {
         )
     }
 
-    /// Handle a tapped link within the selection's collection — the Mac's
-    /// `openWikiLink`, which this was a fifth of.
+    /// Follow a `[[wiki link]]`.
     ///
-    /// It split on `#`, threw the anchor away, matched titles alone, scoped to
-    /// the focused collection rather than the note's own, and returned in
-    /// silence on a miss. So an external URL did nothing, a link written against
-    /// an alias or a path did nothing, `[[Note#Heading]]` landed at the top of
-    /// the note, a link to a note that does not exist yet did nothing at all
-    /// (the Mac creates it — that is how you write forward in a vault), and with
-    /// two collections open every one of those was answered by the wrong index.
+    /// The *decision* — web scheme, `[[#heading]]` meaning this note, the link
+    /// graph's aliases and paths, a case-insensitive title match, create-on-miss
+    /// — is shared with the Mac in `WikiLinkNavigation`. This used to be six
+    /// lines of title comparison against the Mac's forty-five: the same command,
+    /// the same gesture, a different feature. What stays here is the platform
+    /// half: which API opens a URL, and how this shell moves its selection.
     private func openWikiLink(_ target: String) {
-        // External URLs go to the system, as they do on the Mac — the same four
-        // schemes, through iOS's opener rather than NSWorkspace.
-        let webSchemes: Set<String> = ["http", "https", "mailto", "file"]
-        if let url = URL(string: target),
-           let scheme = url.scheme?.lowercased(),
-           webSchemes.contains(scheme) {
-            UIApplication.shared.open(url)
-            return
-        }
-
-        guard let c = editorCollection else { return }
-
-        let base: String
-        let heading: String?
-        if let hash = target.firstIndex(of: "#") {
-            base = String(target[..<hash])
-            let after = String(target[target.index(after: hash)...])
-            heading = after.isEmpty ? nil : after
-        } else {
-            base = target
-            heading = nil
-        }
-
         Task {
-            let destination: Note?
-            if base.isEmpty {
-                // `[[#Heading]]` — an anchor within this note.
-                destination = editor.note
-            } else if let url = c.linkGraph.resolve(base),
-                      let note = c.notes.first(where: { $0.fileURL == url }) {
-                // The link graph resolves aliases and paths, which a title
-                // comparison cannot.
-                destination = note
-            } else if let match = c.notes.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(base) == .orderedSame
-            }) {
-                destination = match
-            } else {
-                destination = await c.createNote(title: base)   // create-on-miss
-            }
-
-            guard let destination else { return }
-            let switching = selectedNoteID != destination.id
-            selectedNoteID = destination.id
-
-            if let heading {
-                // The tab has to exist before anything can scroll inside it,
-                // and a fresh one needs a beat to lay out.
-                await tabs.editor(for: destination)
-                if switching { try? await Task.sleep(for: .milliseconds(350)) }
-                scrollToHeading(heading)
+            switch await WikiLinkNavigation.resolve(target: target,
+                                                    in: editorCollection,
+                                                    current: editor.note) {
+            case .web(let url):
+                // `await`: inside a Task this resolves to the async overload,
+                // and the completion-handler one is deprecated.
+                await UIApplication.shared.open(url)
+            case .note(let destination, let heading):
+                let switching = selectedNoteID != destination.id
+                selectedNoteID = destination.id
+                if let heading {
+                    // The tab has to exist before anything can scroll inside it,
+                    // and a fresh one needs a beat to lay out.
+                    await tabs.editor(for: destination)
+                    if switching { try? await Task.sleep(for: .milliseconds(350)) }
+                    scrollToHeading(heading)
+                }
+            case .none:
+                break
             }
         }
     }
