@@ -462,11 +462,12 @@ struct NoteEditorView: View {
     /// The raw Markdown source in a plain monospaced editor, bound straight to
     /// the note buffer (so edits autosave like everywhere else).
     private var sourceEditor: some View {
-        TextEditor(text: $editor.text)
-            .font(.system(size: appearance.editorFontSize, design: .monospaced))
-            .lineSpacing(2)
-            .scrollContentBackground(.hidden)
-            .padding(.horizontal, 6)
+        // `SourceEditor`, not `TextEditor`: SwiftUI cannot turn typographic
+        // substitution off, and this shows the note's literal Markdown. `---`
+        // under a table header was becoming an em dash here and quietly
+        // breaking the table — the bug iOS found and fixed in its own copy of
+        // this view while the Mac kept typing curly quotes into source.
+        SourceEditor(text: $editor.text, fontSize: appearance.editorFontSize)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

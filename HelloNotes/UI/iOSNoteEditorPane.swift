@@ -113,7 +113,7 @@ struct iOSNoteEditorPane: View {
         // and this view shows the note's literal Markdown source. See
         // `iOSSourceEditor` — typing `---` under a table header was producing
         // an em dash and quietly breaking the table.
-        iOSSourceEditor(
+        SourceEditor(
             text: Binding(get: { editor.text }, set: { editor.text = $0 }),
             fontSize: appearance.editorFontSize
         )

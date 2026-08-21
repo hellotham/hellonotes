@@ -2628,3 +2628,27 @@ to record, because an import-only gate cannot make the two platforms behave
 differently. Re-validated after the change: an import-only gate passes, a real
 one-sided gate still rejects, and a gate mixing an import *with code* still
 rejects.
+
+### macOS was corrupting Markdown source
+
+Merging the source editors found the sharpest defect of the audit, and this time
+on the Mac.
+
+Markdown mode shows the note's *literal* source. iOS had `iOSSourceEditor` — a
+`UITextView` with `smartDashesType`, `smartQuotesType` and `smartInsertDeleteType`
+all `.no` — and its header explains why: `---` under a table header becomes an em
+dash, `"` becomes a curly quote, and the file on disk then holds characters no
+Markdown parser recognises, so a table silently stops being a table.
+
+macOS was still on SwiftUI's `TextEditor`, whose `NSTextView` follows the user's
+system substitution settings. Same corruption, on the platform where a
+hand-written table is most likely to live, in the mode whose entire purpose is
+showing what is actually in the file. iOS found the bug and fixed its own copy;
+nothing carried it across.
+
+`SourceEditor` is one type with two representables, and the settings are a named
+`makeSourceOnly(_:)` on each side rather than a run of assignments inside
+`makeNSView` — so the reason the type exists can be asserted instead of read. The
+test starts from a text view configured the way the *system* would leave it, so
+it fails if the call stops being made rather than passing on a view that happened
+to default correctly.
