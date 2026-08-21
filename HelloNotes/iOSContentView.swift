@@ -172,12 +172,7 @@ struct iOSContentView: View {
     @State private var showRewriteNote = false
 
     /// An in-progress link review, carrying the text its ranges describe.
-    private struct LinkReviewRequest: Identifiable {
-        let id = UUID()
-        let proposals: [LinkProposal]
-        let noteText: String
-    }
-    @State private var linkReview: LinkReviewRequest?
+    @State private var linkReview: LinkReviewFlow.Request?
 
     /// Write or research a new note — the Mac's ⌃⌘N, which on iOS lives beside
     /// New Note in the Library actions because that is the only fixed place a
@@ -1885,21 +1880,7 @@ struct iOSContentView: View {
     /// would freeze with it.
     private func linkMention(_ note: Note) {
         guard let target = editor.note, let c = editorCollection else { return }
-        let title = target.title
-        Task {
-            let updated = await offMain { () -> String? in
-                guard let text = try? FileIO.readString(at: note.fileURL),
-                      let updated = MentionScanner.linkingFirstMention(of: title, in: text)
-                else { return nil }
-                try? FileIO.write(Data(updated.utf8), to: note.fileURL)
-                return updated
-            }
-            guard let updated else { return }
-            // The note *set* is unchanged (one note's content), so no re-scan:
-            // patch the index incrementally and suppress the watcher for our
-            // own write.
-            c.noteDidSave(note.fileURL, text: updated)
-        }
+        Task { await MentionLinker.linkFirstMention(of: target.title, in: note, collection: c) }
     }
 
     // MARK: - Compact: the editor is the screen
@@ -2257,38 +2238,29 @@ struct iOSContentView: View {
     /// Start a composition run against the collection the rail is showing.
     private func runCompose(_ prompt: String, mode: NoteComposer.Mode, depth: Int) {
         guard let scope = railCollection ?? focused else { return }
-        switch mode {
-        case .write:
-            composer.compose(prompt: prompt, in: scope, settings: llmSettings)
-        case .research:
-            composer.research(
-                question: prompt, depth: depth,
-                context: ToolContext(collection: scope, search: scope.search, git: scope.git,
-                                     permissions: composePermissions, settings: llmSettings),
-                settings: llmSettings)
-        }
+        ComposeRun.start(prompt: prompt, mode: mode, depth: depth, in: scope,
+                         composer: composer, permissions: composePermissions,
+                         settings: llmSettings)
     }
 
     /// See the Mac's `beginLinkReview()` — proposals are generated once, up
     /// front, because every range is an offset into the text as it is now.
     private func beginLinkReview() {
-        // The open note's own collection: the proposals are offsets into *its*
-        // text and are looked up in *its* index.
-        guard let collection = editorCollection else { return }
         let text = editor.text
         Task {
-            let found = await collection.linkProposals(in: text, for: editor.note?.fileURL)
-            linkReview = LinkReviewRequest(proposals: found, noteText: text)
+            linkReview = await LinkReviewFlow.begin(text: text,
+                                                    noteURL: editor.note?.fileURL,
+                                                    in: editorCollection)
         }
     }
 
     private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
-        guard !accepted.isEmpty else { return }
-        guard editor.text == reviewedText else {
-            editorCollection?.lastError = "The note changed while you were reviewing, so no links were added. Run Review Links again."
-            return
+        switch LinkReviewFlow.apply(accepted, reviewedText: reviewedText,
+                                    currentText: editor.text) {
+        case .apply(let text):        editor.text = text
+        case .stale(let message):     editorCollection?.lastError = message
+        case .nothing:                break
         }
-        editor.text = LinkProposals.apply(accepted, to: editor.text)
     }
 
     /// Reveal the tab that shows this kind of answer, then ask for it.

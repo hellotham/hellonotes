@@ -2255,3 +2255,40 @@ rejected: it produces a file neither platform's reader can follow, and the
 layouts genuinely differ (an `NSOutlineView` sidebar against a SwiftUI `List`, a
 column inspector against an overlay). The split is decision-shared,
 presentation-separate.
+
+### Extractions 2–4: search, link review, compose
+
+**Search.** `LibrarySearch` owns the debounce, both waves, the minimum query
+length and the merge rule; each shell keeps only how it draws a result row. The
+two shells lose 238 lines for its 161. This removes the arrangement that produced
+the shipped defect rather than the defect: two debounces, two minimum query
+lengths, two merge rules, none of them tested, in two files nobody diffs.
+
+**Link review.** Extracting it found a defect in the *Mac* — the one platform
+this audit had been treating as the reference. `beginLinkReview` gathered
+proposals from `focused`; the iPad's used the open note's own collection, and its
+comment said why: the proposals are character offsets into that note's text and
+are looked up in that collection's index. With two collections open the Mac
+reviewed a note from one against the index of the other, and reported the failure
+onto the wrong collection's error banner. The iPad's copy had been fixed and this
+one had not, and nothing could notice.
+
+The re-derivation guard is now tested on both platforms, which it never was: a
+proposal is a range, a range describes only the text it was computed from, and
+applying accepted proposals to a note that moved would silently link different
+words. Both shells had the guard; neither had a test, because it lived in a
+`private func` on a view struct.
+
+**Compose and mentions.** `runCompose` differed only in how each shell spells
+"the collection the user is working in", so the scope stays a parameter and the
+decision moves out. `linkMention` differed by one identifier and was otherwise
+twenty byte-identical lines — including a coordinated file write and the comment
+explaining why both the read and the write go off the main actor.
+
+### What the metric is not
+
+The count of same-named members across the two shells reads 56, up from 55 —
+because `search` now appears in both, as the same shared type. Names in common
+say nothing about implementations in common; the honest measure is lines removed
+from the shells, which is now 5,150 against 5,298 with four shared types added
+under them.

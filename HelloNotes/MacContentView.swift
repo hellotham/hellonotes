@@ -104,12 +104,7 @@ struct MacContentView: View {
 
     /// An in-progress link review, with the text the proposals were generated
     /// against so stale ranges can be detected rather than applied.
-    private struct LinkReview: Identifiable {
-        let id = UUID()
-        let proposals: [LinkProposal]
-        let noteText: String
-    }
-    @State private var linkReview: LinkReview?
+    @State private var linkReview: LinkReviewFlow.Request?
 
     /// ⌃⌘N — write or research a new note. The composer owns the run so that
     /// closing the sheet mid-research cancels it rather than orphaning it.
@@ -787,17 +782,10 @@ struct MacContentView: View {
 
     /// Start a composition run against the focused collection.
     private func runCompose(_ prompt: String, mode: NoteComposer.Mode, depth: Int) {
-        guard let c = focused else { return }
-        switch mode {
-        case .write:
-            composer.compose(prompt: prompt, in: c, settings: llmSettings)
-        case .research:
-            composer.research(
-                question: prompt, depth: depth,
-                context: ToolContext(collection: c, search: c.search, git: c.git,
-                                     permissions: composePermissions, settings: llmSettings),
-                settings: llmSettings)
-        }
+        guard let scope = focused else { return }
+        ComposeRun.start(prompt: prompt, mode: mode, depth: depth, in: scope,
+                         composer: composer, permissions: composePermissions,
+                         settings: llmSettings)
     }
 
     /// Gather this note's unmade links, then hand them to the review sheet.
@@ -807,25 +795,29 @@ struct MacContentView: View {
     /// piecemeal while the note changed underneath would apply at the wrong
     /// offsets. Nothing is written until the review finishes.
     private func beginLinkReview() {
-        guard let collection = focused, let editor = activeEditor else { return }
+        guard let editor = activeEditor else { return }
         let text = editor.text
         Task {
-            let found = await collection.linkProposals(in: text, for: selectedNote?.fileURL)
-            linkReview = LinkReview(proposals: found, noteText: text)
+            // `editorCollection`, not `focused`: the proposals are offsets into
+            // *this* note's text and are looked up in *its* index. This asked
+            // the focused collection, so with two open it reviewed a note from
+            // one against the other's index — the iPad's copy had been fixed
+            // and this one had not. See `LinkReviewFlow`.
+            linkReview = await LinkReviewFlow.begin(text: text,
+                                                    noteURL: selectedNote?.fileURL,
+                                                    in: editorCollection)
         }
     }
 
     /// Apply the accepted links as one edit.
     private func applyAcceptedLinks(_ accepted: [LinkProposal], reviewedText: String) {
-        guard !accepted.isEmpty, let editor = activeEditor else { return }
-        // If the note changed while the sheet was open, the ranges no longer
-        // describe it. Re-deriving would silently link different words, so this
-        // says so instead — the review is cheap to repeat, a wrong link is not.
-        guard editor.text == reviewedText else {
-            focused?.lastError = "The note changed while you were reviewing, so no links were added. Run Review Links again."
-            return
+        guard let editor = activeEditor else { return }
+        switch LinkReviewFlow.apply(accepted, reviewedText: reviewedText,
+                                    currentText: editor.text) {
+        case .apply(let text):        editor.text = text
+        case .stale(let message):     editorCollection?.lastError = message
+        case .nothing:                break
         }
-        editor.text = LinkProposals.apply(accepted, to: editor.text)
     }
 
     /// The AI commands, or `nil` when they would only disappoint — no note
@@ -1973,24 +1965,7 @@ struct MacContentView: View {
     /// into a `[[link]]`, writing the change to disk and re-indexing.
     private func linkMention(_ note: Note) {
         guard let target = selectedNote, let c = editorCollection else { return }
-        let title = target.title
-        // The read *and* the write go off the main actor: both are coordinated,
-        // and a coordinated call against a File Provider blocks for as long as
-        // the provider takes. This runs from a button in the inspector, so the
-        // window would freeze with it.
-        Task {
-            let updated = await offMain { () -> String? in
-                guard let text = try? FileIO.readString(at: note.fileURL),
-                      let updated = MentionScanner.linkingFirstMention(of: title, in: text)
-                else { return nil }
-                try? FileIO.write(Data(updated.utf8), to: note.fileURL)
-                return updated
-            }
-            guard let updated else { return }
-            // The note set is unchanged (only one note's content), so no re-scan:
-            // patch the index incrementally and suppress the watcher for our write.
-            c.noteDidSave(note.fileURL, text: updated)
-        }
+        Task { await MentionLinker.linkFirstMention(of: target.title, in: note, collection: c) }
     }
 
     private func newNote() {
