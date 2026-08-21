@@ -140,16 +140,22 @@ struct iOSContentView: View {
     /// this platform. See `LibrarySearch`.
     @State private var search = LibrarySearch()
 
-    /// The sidebar's folder trees, cached against everything they are built
-    /// from (`treeInputsKey`).
-    ///
-    /// `CollectionTree.build` is a `pathComponents` split per note and per
-    /// attachment plus a recursive `localizedStandardCompare` sort, and it used
-    /// to run inline inside a `ForEach` over every open collection. Because
-    /// `expandedFolders` is one shared binding, opening a single folder
-    /// re-derived *every* collection's whole tree. Same fix as the Mac's
-    /// `outlineInputsKey`/`cachedRoots`.
-    @State private var cachedTrees: [Collection.ID: [CollectionTreeNode]] = [:]
+    /// The sidebar tree — built, cached and keyed by `SidebarTreeModel`, which
+    /// both shells share. Two caches under two different keys is how "show
+    /// non-note files" came to do nothing on the Mac and a tag filter came to
+    /// scope to a different collection on each platform.
+    @State private var sidebarTree = SidebarTreeModel()
+
+    /// Everything the sidebar tree is built from — and keyed on. One
+    /// construction, shared: see `SidebarTree.inputs`.
+    private var sidebarInputs: SidebarTree.Inputs {
+        SidebarTree.inputs(library: library, appearance: appearance, search: search,
+                           searchText: searchText, selectedTag: selectedTag,
+                           // The sidebar's selection, per CLAUDE.md — anything
+                           // keyed on a collection reads it, falling back to the
+                           // focused collection when the rail is on Library.
+                           scope: railCollection ?? focused)
+    }
 
     /// Whether the open note is a Marp deck / holds Mermaid fences.
     ///
@@ -496,7 +502,9 @@ struct iOSContentView: View {
             Task { await tabs.editor(for: note) }
         }
         .onChange(of: searchText) { _, query in scheduleContentSearch(query) }
-        .onChange(of: treeInputsKey, initial: true) { _, _ in rebuildTrees() }
+        .onChange(of: SidebarTreeModel.key(sidebarInputs), initial: true) { _, _ in
+            sidebarTree.refresh(sidebarInputs)
+        }
         .onChange(of: library.pendingRevealCollectionID) { _, id in
             // Something added a collection and asked us to show it —
             // `Library.openRemote` does this for a newly-connected cloud
@@ -853,8 +861,8 @@ struct iOSContentView: View {
         // and what a row *says* is `NoteRowContent`, both shared, so the widget
         // is the only thing left that differs.
         NoteOutlineList(
-            roots: sidebarRoots,
-            signature: treeInputsKey,
+            roots: sidebarTree.roots,
+            signature: sidebarTree.signature,
             selection: $selectedNoteID,
             revealID: .constant(nil),
             expandedFolders: expandedFolders,
@@ -1269,31 +1277,6 @@ struct iOSContentView: View {
     /// Whether a search or tag filter is narrowing the list.
     private var isFiltering: Bool { selectedTag != nil || !searchText.isEmpty }
 
-    /// A cheap fingerprint of everything the sidebar's trees are built from:
-    /// which collections are open, each one's structural `revision`, and whether
-    /// it is listing its non-note files. O(collections), not O(notes) — computed
-    /// every render, while the expensive rebuild runs only when it changes.
-    ///
-    /// The key names **every** open collection rather than the one being drawn.
-    /// A cache key must name everything the cached value depends on
-    /// (`CLAUDE.md`); keyed on one collection, opening or closing another left
-    /// the key unchanged and the tree never rebuilt — the exact defect the Mac's
-    /// `outlineInputsKey` carries a paragraph about.
-    /// The sidebar's items, from the shared construction.
-    private var sidebarRoots: [NoteOutlineItem] {
-        SidebarTree.roots(SidebarTree.Inputs(
-            collections: library.collections,
-            searchGroups: search.groups,
-            isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            selectedTag: selectedTag,
-            taggedNotes: selectedTag.map { tag in
-                (railCollection ?? focused).map { $0.search.notesTagged(tag) } ?? []
-            } ?? [],
-            recents: LibraryPlace.mostRecent(library.allNotes),
-            bookmarks: bookmarkedNotes,
-            tree: { tree(for: $0) }))
-    }
-
     /// The collection and folder URL a folder item's id names.
     ///
     /// The id is the owning collection's id followed by the folder's path
@@ -1311,46 +1294,6 @@ struct iOSContentView: View {
         if let (collection, url) = folder(forID: id) {
             folderActions(url, in: collection)
         }
-    }
-
-    private var treeInputsKey: String {
-        // The sort order is part of what the cached tree *is*, so it belongs in
-        // the key — the Mac's equivalent key has always named it, and a cache
-        // key that omits an input is how changing a setting looks like a
-        // setting that does nothing.
-        library.collections
-            .map { "\($0.id)#\($0.revision)#\($0.showsNonNoteFiles)" }
-            .joined(separator: "|")
-        + "|sort:\(appearance.noteSortOrder.rawValue)"
-    }
-
-    /// The folder tree for `collection`, built by the same shared builder the
-    /// Mac uses — so the two platforms cannot drift in what a folder contains
-    /// or how it is ordered — and read from the cache rather than re-derived.
-    ///
-    /// It used to call `CollectionTree.build` inline, inside a `ForEach` over
-    /// every open collection. Because `expandedFolders` is one binding shared by
-    /// the whole tree, opening a *single* folder re-derived every collection's
-    /// entire tree: a `pathComponents` split per note and per attachment, plus a
-    /// recursive `localizedStandardCompare` sort, on the main actor.
-    private func tree(for collection: Collection) -> [CollectionTreeNode] {
-        cachedTrees[collection.id] ?? []
-    }
-
-    /// Rebuild every open collection's tree. Called only when `treeInputsKey`
-    /// changes — one pass over the library, not one per collection per render.
-    private func rebuildTrees() {
-        var built: [Collection.ID: [CollectionTreeNode]] = [:]
-        for collection in library.collections {
-            built[collection.id] = CollectionTree.build(
-                from: collection.notes, attachments: collection.attachments,
-                folders: collection.folders, rootURL: collection.rootURL,
-                // Was hard-coded `.modified` here and an unwritten `@State` on
-                // the Mac — the same value by coincidence rather than by
-                // agreement. Both read the setting now.
-                sort: appearance.noteSortOrder)
-        }
-        cachedTrees = built
     }
 
     /// Re-check the selection after the note set changed underneath it.
@@ -2710,52 +2653,6 @@ private nonisolated struct NoteDocFeatures: Equatable, Sendable {
         hasMermaid = !MarkdownParsing.mermaidBlocks(in: text).isEmpty
     }
 }
-
-/// Presents `Collection.lastError` (a failed file operation) as an alert and
-/// clears it on dismiss.
-///
-/// A twin of the Mac's, which is `private` inside `MacContentView` — so on iOS
-/// the nineteen `report(…)` sites in `Collection` (create, rename, duplicate,
-/// delete, move, folder operations, append, cloud upload and download) plus
-/// `NoteComposer` all wrote somewhere nothing read. Renaming a note onto a name
-/// that already existed simply did nothing, with no message.
-private struct FileOperationErrorAlert: ViewModifier {
-    var collection: Collection?
-    func body(content: Content) -> some View {
-        content.alert(
-            "Couldn't complete that",
-            isPresented: Binding(
-                get: { collection?.lastError != nil },
-                set: { if !$0 { collection?.lastError = nil } }
-            ),
-            presenting: collection?.lastError
-        ) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { Text($0) }
-    }
-}
-
-/// Confirms a folder "Move to Trash", which trashes everything inside it. The
-/// Mac's twin, for the same reason: a tap that can take a hundred notes with it
-/// asks first.
-private struct FolderDeleteConfirmation: ViewModifier {
-    @Binding var folder: URL?
-    var onConfirm: (URL) -> Void
-    func body(content: Content) -> some View {
-        content.confirmationDialog(
-            folder.map { "Move “\($0.lastPathComponent)” and its contents to the Trash?" } ?? "",
-            isPresented: Binding(get: { folder != nil }, set: { if !$0 { folder = nil } }),
-            titleVisibility: .visible,
-            presenting: folder
-        ) { f in
-            Button("Move to Trash", role: .destructive) { onConfirm(f) }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("Everything inside the folder will be moved to the Trash. You can recover it from there.")
-        }
-    }
-}
-
 
 /// The surfaces that were macOS-only until the parity audit: Graph, Mind Map
 /// and the command palette.

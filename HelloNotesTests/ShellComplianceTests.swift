@@ -196,4 +196,35 @@ struct ShellComplianceTests {
             }
         }
     }
+
+    /// The sidebar tree is one cache under one key.
+    ///
+    /// It used to be two, and neither key was a superset of the other, so each
+    /// platform silently ignored an input the other honoured: the Mac's key
+    /// omitted `showsNonNoteFiles` (toggling it did nothing) and the iPad's
+    /// omitted the text scale, the bookmark count and the focused collection,
+    /// then rebuilt the whole tree in `body` on every render to compensate.
+    /// Neither was found by review; both were found by putting the two keys
+    /// side by side.
+    ///
+    /// This asserts the arrangement that makes that unrepeatable: neither shell
+    /// computes a key or builds a tree, and both go through
+    /// `SidebarTree.inputs` — the one construction — so an input added to the
+    /// build appears in the key for both platforms or neither.
+    @Test("Neither shell owns a sidebar-tree cache or key")
+    func sidebarTreeIsOneCache() throws {
+        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+            let source = try Self.source(file)
+            for forbidden in ["CollectionTree.build(", "SidebarTree.roots(",
+                              "cachedRoots", "cachedTrees",
+                              "outlineInputsKey", "treeInputsKey"] {
+                #expect(!source.contains(forbidden),
+                        "\(file) still builds or caches the sidebar tree itself (\(forbidden)), which is the second key the other platform will not have")
+            }
+            #expect(source.contains("SidebarTree.inputs("),
+                    "\(file) does not build its sidebar inputs through the shared construction")
+            #expect(source.contains("SidebarTreeModel.key(sidebarInputs)"),
+                    "\(file) does not key its rebuild on the shared key")
+        }
+    }
 }

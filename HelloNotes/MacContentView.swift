@@ -87,10 +87,22 @@ struct MacContentView: View {
     /// (each SpotlightSearch supersedes its own previous query).
     @State private var referenceSpotlight = SpotlightSearch()
 
-    /// Cached note-list outline, rebuilt only when its inputs change (see
-    /// `outlineInputsKey`) rather than re-derived (O(N log N)) every render.
-    @State private var cachedRoots: [NoteOutlineItem] = []
-    @State private var cachedSignature = ""
+    /// The sidebar tree — built, cached and keyed by `SidebarTreeModel`, which
+    /// both shells share. Two caches under two different keys is how "show
+    /// non-note files" came to do nothing on the Mac and a tag filter came to
+    /// scope to a different collection on each platform.
+    @State private var sidebarTree = SidebarTreeModel()
+
+    /// Everything the sidebar tree is built from — and keyed on. One
+    /// construction, shared: see `SidebarTree.inputs`.
+    private var sidebarInputs: SidebarTree.Inputs {
+        SidebarTree.inputs(library: library, appearance: appearance, search: search,
+                           searchText: searchText, selectedTag: selectedTag,
+                           // The sidebar's selection, per CLAUDE.md — anything
+                           // keyed on a collection reads it, falling back to the
+                           // focused collection when the rail is on Library.
+                           scope: railCollection ?? focused)
+    }
 
     /// References panel data, computed off-main and keyed on `referencesKey`.
     @State private var references = ReferencesData()
@@ -254,13 +266,6 @@ struct MacContentView: View {
     private var taggedRows: [NoteRow] {
         guard let selectedTag, let focused else { return [] }
         return focused.search.notesTagged(selectedTag).map { NoteRow(note: $0, snippet: nil) }
-    }
-
-    /// The folder tree for `collection` and the current sort order.
-    private func tree(for collection: Collection) -> [CollectionTreeNode] {
-        CollectionTree.build(from: collection.notes, attachments: collection.attachments,
-                             folders: collection.folders, rootURL: collection.rootURL,
-                             sort: appearance.noteSortOrder)
     }
 
     // MARK: - Editor derived data (for the selection's collection)
@@ -522,8 +527,8 @@ struct MacContentView: View {
         }
         // Rebuild the (cached) note-list outline only when its structural inputs
         // change — not on every unrelated body re-eval (selection, git, accent).
-        .onChange(of: outlineInputsKey, initial: true) { _, _ in
-            MainActorWatchdog.measure("rebuildOutline") { rebuildOutline() }
+        .onChange(of: SidebarTreeModel.key(sidebarInputs), initial: true) { _, _ in
+            MainActorWatchdog.measure("rebuildOutline") { sidebarTree.refresh(sidebarInputs) }
         }
         // Recompute the references panel off-main when the selection or index
         // changes — never inline in the body (would scan all notes on selection).
@@ -1049,7 +1054,7 @@ struct MacContentView: View {
                 NavigationStack {
                     switch place {
                     case .notes, .search:
-                        // One tree for both: `buildOutlineRoots` already
+                        // One tree for both: `SidebarTree.roots` already
                         // replaces it with result groups while a search runs,
                         // so "Search" is this list with the field focused.
                         collectionTree
@@ -1802,8 +1807,8 @@ struct MacContentView: View {
 
     private var outlineList: some View {
         NoteOutlineList(
-            roots: cachedRoots,
-            signature: cachedSignature,
+            roots: sidebarTree.roots,
+            signature: sidebarTree.signature,
             selection: $selectedNoteID,
             revealID: $revealOutlineID,
             // Expansion state is the shell's on both platforms now — the
@@ -1818,7 +1823,7 @@ struct MacContentView: View {
             // of them at once (D2) — so the owning collection is always read
             // from the group a node hangs under. The one exception is a tag
             // filter, whose rows are bare notes from the focused collection.
-            scopedCollectionID: selectedTag == nil ? nil : focused?.id,
+            scopedCollectionID: selectedTag == nil ? nil : (railCollection ?? focused)?.id,
             isBookmarked: { note in
                 library.collection(containing: note.fileURL)?.bookmarks.isBookmarked(note) ?? false
             },
@@ -1900,76 +1905,6 @@ struct MacContentView: View {
     }
 
     // MARK: - Outline items (NSOutlineView data)
-
-    /// The outline tree for the current mode. Ordinarily the roots are the
-    /// pinned places followed by every open collection, each expanding into its
-    /// folders (D2) — search and a tag filter replace that with their results.
-    private func buildOutlineRoots() -> [NoteOutlineItem] {
-        SidebarTree.roots(SidebarTree.Inputs(
-            collections: library.collections,
-            searchGroups: search.groups,
-            isSearching: isSearching,
-            selectedTag: selectedTag,
-            taggedNotes: taggedRows.map(\.note),
-            recents: LibraryPlace.mostRecent(library.allNotes),
-            bookmarks: library.collections.flatMap {
-                $0.bookmarks.bookmarkedNotes(from: $0.notes)
-            },
-            tree: { tree(for: $0) }))
-    }
-
-
-
-    /// A cheap fingerprint of everything the outline depends on — collection
-    /// membership + each collection's structural `revision` + sort/mode/search.
-    /// O(collections), not O(notes): computed every render, but the expensive
-    /// `buildOutlineRoots()` only re-runs when this key actually changes.
-    private var outlineInputsKey: String {
-        // Every branch must name each collection's `revision`. Search and tag
-        // mode used to key on the query alone — so while a filter was active, a
-        // rescan that changed the note set never rebuilt the outline. The
-        // sidebar went on drawing rows for notes that were no longer in
-        // `library.allNotes`, and clicking one silently did nothing, because
-        // that is what an unmatched id used to mean. Populated sidebar, dead
-        // clicks, idle main thread.
-        let collectionRevisions = library.collections
-            .map { "\($0.id)#\($0.revision)" }
-            .joined(separator: "|")
-        let mode: String
-        if isSearching {
-            mode = "s:\(search.revision):\(collectionRevisions)"
-        } else if let selectedTag {
-            mode = "t:\(selectedTag):\(focused?.id ?? ""):\(collectionRevisions)"
-        } else {
-            // **Every** open collection is in the tree now (D2), so the key has
-            // to name all of them. Keyed on one collection — which is what it
-            // did while a rail scoped the tree to a single one — opening or
-            // closing a collection left the key unchanged, so the outline never
-            // rebuilt: a newly-opened vault never appeared and Close Collection
-            // did nothing visible. Membership *and* each revision, because
-            // either can change the tree.
-            // The state rides along too: a collection going unavailable changes
-            // how its row is drawn without changing its `revision` (nothing was
-            // re-scanned — that is the whole point), so without it the row would
-            // keep looking healthy.
-            mode = "n:" + library.collections
-                .map { "\($0.id)#\($0.revision)#\($0.state)#\($0.showsScanProgress)" }
-                .joined(separator: ",")
-        }
-        // Pinned Recents/Bookmarks hang above the collections and are derived
-        // from notes across all of them, so they ride the same revisions —
-        // except bookmarking, which changes no revision and is counted here.
-        let bookmarkCount = library.collections.reduce(0) { $0 + $1.bookmarks.paths.count }
-        return "\(appearance.noteSortOrder.rawValue)|b\(bookmarkCount)|\(library.focusedID ?? "")"
-             + "|\(appearance.textScale)|\(mode)"
-    }
-
-    /// Rebuild and cache the outline tree + its signature. Called only when
-    /// `outlineInputsKey` changes.
-    private func rebuildOutline() {
-        cachedRoots = buildOutlineRoots()
-        cachedSignature = outlineInputsKey
-    }
 
     // MARK: - Actions
 
@@ -2061,42 +1996,4 @@ struct MacContentView: View {
     }
 }
 
-/// A note list row: the note plus an optional search snippet.
-/// Presents `Collection.lastError` (a failed file operation) as an alert and
-/// clears it on dismiss. Extracted from the shell body to keep it type-checkable.
-private struct FileOperationErrorAlert: ViewModifier {
-    var collection: Collection?
-    func body(content: Content) -> some View {
-        content.alert(
-            "Couldn't complete that",
-            isPresented: Binding(
-                get: { collection?.lastError != nil },
-                set: { if !$0 { collection?.lastError = nil } }
-            ),
-            presenting: collection?.lastError
-        ) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { Text($0) }
-    }
-}
-
-/// Confirms a folder "Move to Trash" (which trashes all its contents). Extracted
-/// from the shell body to keep it type-checkable.
-private struct FolderDeleteConfirmation: ViewModifier {
-    @Binding var folder: URL?
-    var onConfirm: (URL) -> Void
-    func body(content: Content) -> some View {
-        content.confirmationDialog(
-            folder.map { "Move “\($0.lastPathComponent)” and its contents to the Trash?" } ?? "",
-            isPresented: Binding(get: { folder != nil }, set: { if !$0 { folder = nil } }),
-            titleVisibility: .visible,
-            presenting: folder
-        ) { f in
-            Button("Move to Trash", role: .destructive) { onConfirm(f) }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("Everything inside the folder will be moved to the Trash. You can recover it from there.")
-        }
-    }
-}
 #endif
