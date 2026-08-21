@@ -2381,3 +2381,29 @@ rather than doing nothing.
 
 `PlatformParityTests.platformSpecific` is now empty, and the file says it is
 meant to stay that way.
+
+### One selection mechanism, and the floating bar goes
+
+`SelectionActionBar` was a floating panel over a macOS selection, positioned by
+an `onSelectionChange` hook UIKit did not have. iOS put the same three vault
+actions — Link to…, Find Related, Ask Your Library — into the system edit menu
+through `selectionMenuItems`, which AppKit did not have. Two implementations of
+one feature, each free to drift, and they had: "Rewrite with AI…" reached only
+the Mac's until this session, and the vault actions reached only the iPad's.
+
+Both platforms already show a menu on a selection — iOS floats the system one,
+macOS opens the context menu — and both already carried Rewrite through it. So
+`selectionMenuItems` becomes the one mechanism: `EditorMenuItem` moves out of the
+UIKit-gated file, `MarkdownTextView.menu(for:)` builds the same items in the same
+order, and `SelectionActions.menuItems(for:)` is the single builder both hosts
+call. Deleted: the 46-line bar, the `onSelectionChange` hook, `reportSelection`,
+`selectionEndRect`, and the two `@State` fields that positioned the bar.
+
+This is a visible change on the Mac — the actions are now a right-click rather
+than a bar that appears on selection. It is the unification that adds no code;
+the alternatives (a floating bar on both, or the actions in the toolbar proper)
+are equally valid resolutions of the same divergence and cost more to build.
+
+The editor hosts' builder surfaces now share 15 methods, with the remainder being
+framework conformances (`makeNSView`, `textViewDidChange`) and proxy methods
+rather than host-facing hooks — which is what the two hosts were waiting on.

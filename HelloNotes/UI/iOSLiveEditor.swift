@@ -96,24 +96,6 @@ struct iOSLiveEditor: View {
     /// Built per selection rather than once, so **Link** appears only when a
     /// note actually matches — an item that cannot apply is worse than a
     /// missing one, because you have to tap it to find out.
-    private func selectionMenu(for selected: String) -> [EditorMenuItem] {
-        guard let actions = selectionActions else { return [] }
-        var items: [EditorMenuItem] = []
-        if SelectionActions.isLinkable(selected), let target = actions.linkTarget(selected) {
-            items.append(EditorMenuItem(title: "Link to “\(target)”", systemImage: "link.badge.plus") { phrase in
-                NoteEdits.wikiLink(to: target, shownAs: phrase)
-            })
-        }
-        items.append(EditorMenuItem(title: "Find Related", systemImage: "text.magnifyingglass") { phrase in
-            actions.findRelated(phrase)
-            return nil       // read-only: the note is not touched
-        })
-        items.append(EditorMenuItem(title: "Ask Your Library", systemImage: "sparkles.rectangle.stack") { phrase in
-            actions.explain(phrase)
-            return nil
-        })
-        return items
-    }
 
     var body: some View {
         Group {
@@ -130,7 +112,7 @@ struct iOSLiveEditor: View {
                     }
                     .onPasteImage { pasteImage(into: document) }
                     .onPasteMarkdown { smartPaste(into: document) }
-                    .selectionMenuItems { selected in selectionMenu(for: selected) }
+                    .selectionMenuItems { selectionActions?.menuItems(for: $0) ?? [] }
                     .proxy(proxy)
                     // ↑ from the first line (or ← from character zero) lands
                     // in the inline title, as it does on the Mac. Posted on the

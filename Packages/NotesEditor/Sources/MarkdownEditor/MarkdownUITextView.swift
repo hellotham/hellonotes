@@ -815,26 +815,6 @@ final class ChromeOverlayView: UIView {
     }
 }
 
-/// A host-supplied action offered on a text selection.
-///
-/// Delivered into the **system** edit menu rather than a bar of our own. iOS
-/// already floats a menu over a selection, and a second one competing for the
-/// same few hundred points is the kind of thing that reads as a bug: the OS's
-/// menu is where a reader's hand already goes.
-public struct EditorMenuItem {
-    public let title: String
-    public let systemImage: String?
-    /// Given the selected text, return replacement text — or `nil` to act
-    /// without touching the document (search, ask, anything read-only).
-    public let perform: (String) -> String?
-
-    public init(title: String, systemImage: String? = nil,
-                perform: @escaping (String) -> String?) {
-        self.title = title
-        self.systemImage = systemImage
-        self.perform = perform
-    }
-}
 
 /// SwiftUI host for the iOS Markdown editor. Same public surface (`init`,
 /// `editable`, `onLinkTap`) as the macOS `MarkdownEditorView`.

@@ -21,6 +21,7 @@
 //
 
 import SwiftUI
+import MarkdownEditor   // EditorMenuItem
 
 /// What the collection can do with a selected phrase.
 struct SelectionActions {
@@ -43,49 +44,40 @@ struct SelectionActions {
     }
 }
 
-#if os(macOS)
-struct SelectionActionBar: View {
-    let text: String
-    let actions: SelectionActions
-    /// Called with the note title to link to, once the user asks for it.
-    var onLink: (String) -> Void
 
-    private var target: String? {
-        guard SelectionActions.isLinkable(text) else { return nil }
-        return actions.linkTarget(text)
-    }
+// MARK: - The menu both editors offer
 
-    var body: some View {
-        HStack(spacing: 2) {
-            if let target {
-                button("Link", "link.badge.plus",
-                       help: "Link this to “\(target)”") { onLink(target) }
-                Divider().frame(height: 14)
-            }
-            button("Related", "text.magnifyingglass",
-                   help: "Find notes about this") { actions.findRelated(text) }
-            Divider().frame(height: 14)
-            button("Ask", "sparkles.rectangle.stack",
-                   help: "Ask your library about this") { actions.explain(text) }
+extension SelectionActions {
+    /// The vault actions for `selected`, as menu items.
+    ///
+    /// One builder, used by the AppKit context menu and the UIKit edit menu
+    /// alike. It lived on `iOSLiveEditor` while macOS drew a floating
+    /// `SelectionActionBar` positioned by an `onSelectionChange` hook UIKit did
+    /// not have — two implementations of the same three commands, each free to
+    /// drift, and only one of them offering "Rewrite with AI…" until this
+    /// session.
+    ///
+    /// Built per selection rather than once, so **Link** appears only when a
+    /// note actually matches: an item that cannot apply is worse than a missing
+    /// one, because you have to tap it to find out.
+    func menuItems(for selected: String) -> [EditorMenuItem] {
+        var items: [EditorMenuItem] = []
+        if SelectionActions.isLinkable(selected), let target = linkTarget(selected) {
+            items.append(EditorMenuItem(title: "Link to “\(target)”",
+                                        systemImage: "link.badge.plus") { phrase in
+                NoteEdits.wikiLink(to: target, shownAs: phrase)
+            })
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
-    }
-
-    private func button(_ title: String, _ symbol: String,
-                        help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.caption)
-                .labelStyle(.titleAndIcon)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-        }
-        .buttonStyle(.plain)
-        .help(help)
+        items.append(EditorMenuItem(title: "Find Related",
+                                    systemImage: "text.magnifyingglass") { phrase in
+            findRelated(phrase)
+            return nil       // read-only: the note is not touched
+        })
+        items.append(EditorMenuItem(title: "Ask Your Library",
+                                    systemImage: "sparkles.rectangle.stack") { phrase in
+            explain(phrase)
+            return nil
+        })
+        return items
     }
 }
-#endif

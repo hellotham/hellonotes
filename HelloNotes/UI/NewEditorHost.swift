@@ -73,8 +73,6 @@ struct NewEditorHost: View {
     // The settled selection the floating bar is anchored to, and where to put
     // it. Cleared the moment the selection collapses, so the bar cannot outlive
     // the thing it acts on.
-    @State private var selectedRange: NSRange?
-    @State private var selectionRect: CGRect = .zero
 
     var body: some View {
         Group {
@@ -119,19 +117,12 @@ struct NewEditorHost: View {
                     .onInlineCompletionRequest { context in
                         inlineCompletions.request(context, intelligence: intelligence, proxy: proxy)
                     }
-                    // Stays in the builder chain (these return the
-                    // representable, not `some View`) — a SwiftUI modifier
-                    // above it puts the remaining builder calls out of reach.
-                    .onSelectionChange { range, rect in
-                        // A collapsed selection means the bar's subject is
-                        // gone; anything else re-anchors it.
-                        if range.length > 0 {
-                            selectedRange = range
-                            selectionRect = rect
-                        } else {
-                            selectedRange = nil
-                        }
-                    }
+                    // `selectionMenuItems`, not `onSelectionChange` plus a
+                    // floating bar: both platforms already show a menu on a
+                    // selection — iOS floats the system one, macOS opens the
+                    // context menu — and both already carry "Rewrite with AI…"
+                    // through it. One mechanism, one builder.
+                    .selectionMenuItems { selectionActions?.menuItems(for: $0) ?? [] }
                     .sheet(isPresented: Binding(
                         get: { rewriteRange != nil },
                         set: { if !$0 { rewriteRange = nil } }
@@ -148,35 +139,11 @@ struct NewEditorHost: View {
                             )
                         }
                     }
-                    // A selection belongs to the note it was made in. Switching
-                    // notes reuses this view, so without this the bar survives
-                    // into the next document pointing at a range that means
-                    // something else entirely.
-                    .onChange(of: editor.note?.fileURL) { _, _ in selectedRange = nil }
                     .overlay(alignment: .topLeading) {
                         let matches = activeCompletions
                         if !matches.isEmpty {
                             WikiLinkCompletionList(matches: matches, onSelect: accept)
                                 .offset(x: max(4, caretRect.minX), y: caretRect.maxY + 2)
-                        }
-                    }
-                    .overlay(alignment: .topLeading) {
-                        // Below the completion list in the stack, because when
-                        // both could show — you can select text inside a half
-                        // typed `[[link` — the completion is what the keyboard
-                        // is currently driving.
-                        if let selectionActions, let range = selectedRange, isEditable {
-                            SelectionActionBar(
-                                text: document.text(in: range),
-                                actions: selectionActions,
-                                onLink: { target in
-                                    proxy.replace(range: range,
-                                                  with: NoteEdits.wikiLink(to: target,
-                                                                          shownAs: document.text(in: range)))
-                                    selectedRange = nil
-                                }
-                            )
-                            .offset(x: max(4, selectionRect.minX), y: selectionRect.maxY + 4)
                         }
                     }
             } else {

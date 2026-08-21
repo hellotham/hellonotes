@@ -613,14 +613,11 @@ public final class MarkdownTextView: NSTextView {
     /// Host AI hook: when set (and the view is editable), the selection's
     /// context menu offers "Rewrite with AI…", delivering the selected range.
     var onRewriteSelection: ((NSRange) -> Void)?
+    /// Host actions added to the selection's context menu — the same hook UIKit
+    /// has, so the vault actions are offered by one mechanism on both platforms
+    /// rather than by a menu here and a floating bar there.
+    var selectionMenuItems: ((String) -> [EditorMenuItem])?
 
-    /// Reports a settled non-empty selection and the rect of its end, so a host
-    /// can float a bar under it. An empty selection reports a zero-length range
-    /// and `.zero`, which is how the bar learns to go away.
-    ///
-    /// Fired only when `stillSelecting` is false: reporting mid-drag would make
-    /// the bar chase the pointer across the paragraph being selected.
-    var onSelectionChange: ((NSRange, CGRect) -> Void)?
 
     /// Ghost text, drawn after the caret and **never** in the text storage.
     /// See `InlineSuggestion.swift` — the invariant is the feature.
@@ -691,15 +688,59 @@ public final class MarkdownTextView: NSTextView {
 
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)
-        if onRewriteSelection != nil, isEditable, selectedRange().length > 0 {
+        let selection = selectedRange()
+        guard selection.length > 0 else { return menu }
+
+        var inserted = 0
+        // Rewrite first, then the vault actions — the same order UIKit builds
+        // them in, so the two menus read the same way.
+        if onRewriteSelection != nil, isEditable {
             let item = NSMenuItem(title: String(localized: "Rewrite with AI…"),
                                   action: #selector(rewriteSelectionFromMenu(_:)),
                                   keyEquivalent: "")
             item.target = self
-            menu?.insertItem(item, at: 0)
-            menu?.insertItem(.separator(), at: 1)
+            menu?.insertItem(item, at: inserted)
+            inserted += 1
         }
+        if let selectionMenuItems {
+            let selected = (string as NSString).substring(with: selection)
+            for action in selectionMenuItems(selected) {
+                let item = NSMenuItem(title: action.title,
+                                      action: #selector(runSelectionItem(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                // The closure travels with the item, so the menu can be built
+                // fresh per selection without the view holding the actions.
+                item.representedObject = SelectionMenuAction(perform: action.perform,
+                                                             selected: selected)
+                if let symbol = action.systemImage {
+                    item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                }
+                menu?.insertItem(item, at: inserted)
+                inserted += 1
+            }
+        }
+        if inserted > 0 { menu?.insertItem(.separator(), at: inserted) }
         return menu
+    }
+
+    /// Carries one host action and the text it was offered for.
+    private final class SelectionMenuAction: NSObject {
+        let perform: (String) -> String?
+        let selected: String
+        init(perform: @escaping (String) -> String?, selected: String) {
+            self.perform = perform
+            self.selected = selected
+        }
+    }
+
+    @objc private func runSelectionItem(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem,
+              let action = item.representedObject as? SelectionMenuAction else { return }
+        guard let replacement = action.perform(action.selected) else { return }
+        // Through `performEdit`, the path typing takes, so the edit lands in the
+        // undo stack and the document's change notifications fire as usual.
+        performEdit(replacing: selectedRange(), with: replacement)
     }
 
     @objc private func rewriteSelectionFromMenu(_ sender: Any?) {
@@ -719,7 +760,6 @@ public final class MarkdownTextView: NSTextView {
         if !stillSelecting, let document {
             document.selectionDidChange(selectedRange())
             reportInlineContext()
-            reportSelection()
             // Moving the caret is not typing, so this clears without asking for
             // a new one — a suggestion that followed the caret around would be
             // answering a question nobody asked.
@@ -835,40 +875,6 @@ public final class MarkdownTextView: NSTextView {
         onInlineContextChange(context, caretRect(at: selection.location))
     }
 
-    func reportSelection() {
-        guard let onSelectionChange else { return }
-        let selection = selectedRange()
-        guard selection.length > 0 else {
-            onSelectionChange(NSRange(location: selection.location, length: 0), .zero)
-            return
-        }
-        onSelectionChange(selection, selectionEndRect(for: selection))
-    }
-
-    /// The rect of the selection's **last** line fragment, in the enclosing
-    /// scroll view's space.
-    ///
-    /// The last rather than the first because a bar anchored to the start of a
-    /// three-paragraph selection floats somewhere above the middle of it, over
-    /// text the user is still looking at. Anchored to the end it lands where a
-    /// drag finished, which is where the pointer already is.
-    private func selectionEndRect(for range: NSRange) -> CGRect {
-        guard let tlm = textLayoutManager,
-              let contentManager = tlm.textContentManager,
-              let start = contentManager.location(contentManager.documentRange.location,
-                                                  offsetBy: range.location),
-              let end = contentManager.location(start, offsetBy: range.length),
-              let textRange = NSTextRange(location: start, end: end)
-        else { return .zero }
-        var rect = CGRect.zero
-        tlm.enumerateTextSegments(in: textRange, type: .selection, options: [.rangeNotRequired]) { _, frame, _, _ in
-            rect = frame
-            return true    // keep going: we want the last fragment, not the first
-        }
-        rect = rect.offsetBy(dx: textContainerInset.width, dy: textContainerInset.height)
-        guard let scrollView = enclosingScrollView else { return rect }
-        return convert(rect, to: scrollView)
-    }
 
     /// The caret's rect in the enclosing scroll view's coordinate space —
     /// which is what a SwiftUI `.overlay` on the wrapper sees.
@@ -924,10 +930,10 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var isEditable = true
     private var onLinkTap: ((EditorLinkTap) -> Void)?
     private var onPasteMarkdown: (() -> String?)?
+    private var selectionMenuItemsBuilder: ((String) -> [EditorMenuItem])?
     private var onPasteImageHandler: (() -> String?)?
     private var onInlineContext: ((EditorDocument.InlineContext?, CGRect) -> Void)?
     private var onRewriteSelectionHandler: ((NSRange) -> Void)?
-    private var onSelectionChangeHandler: ((NSRange, CGRect) -> Void)?
     private var busDocumentId: String?
     private var editorProxy: EditorProxy?
     private var wrapGuideColumns = 0
@@ -986,6 +992,14 @@ public struct MarkdownEditorView: NSViewRepresentable {
         var copy = self; copy.onPasteImageHandler = handler; return copy
     }
 
+    /// Host actions added to the selection's menu. Called with the selected
+    /// text each time the menu is built, so the host can decide per selection
+    /// which items make sense — an item that cannot apply is better absent than
+    /// present and inert.
+    public func selectionMenuItems(_ build: @escaping (String) -> [EditorMenuItem]) -> Self {
+        var copy = self; copy.selectionMenuItemsBuilder = build; return copy
+    }
+
     /// Autocomplete context reporting (`[[link` / `#tag` at the caret, with
     /// the caret rect in the wrapper's coordinate space).
     public func onInlineContext(_ handler: @escaping (EditorDocument.InlineContext?, CGRect) -> Void) -> Self {
@@ -999,12 +1013,6 @@ public struct MarkdownEditorView: NSViewRepresentable {
         var copy = self; copy.onRewriteSelectionHandler = handler; return copy
     }
 
-    /// Settled-selection reporting, for a host that floats actions under the
-    /// selection. Delivers the range and the rect of its end in the wrapper's
-    /// coordinate space; a zero-length range means the selection is gone.
-    public func onSelectionChange(_ handler: @escaping (NSRange, CGRect) -> Void) -> Self {
-        var copy = self; copy.onSelectionChangeHandler = handler; return copy
-    }
 
     /// Join the app's per-document notification bus (Format menu commands,
     /// find bar queries, scroll-to-heading) under this document id.
@@ -1043,9 +1051,9 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.onCaretEscapeTop = onCaretEscapeTopHandler
         textView.onPasteMarkdown = onPasteMarkdown
         textView.onPasteImage = onPasteImageHandler
+        textView.selectionMenuItems = selectionMenuItemsBuilder
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
-        textView.onSelectionChange = onSelectionChangeHandler
         textView.onInlineCompletionRequest = onInlineCompletionRequestHandler
         editorProxy?.textView = textView
         applyProperties(textView)
