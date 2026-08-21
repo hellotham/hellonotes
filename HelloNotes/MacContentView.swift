@@ -1835,83 +1835,20 @@ struct MacContentView: View {
     /// pinned places followed by every open collection, each expanding into its
     /// folders (D2) — search and a tag filter replace that with their results.
     private func buildOutlineRoots() -> [NoteOutlineItem] {
-        if isSearching {
-            return search.groups.compactMap { group in
-                guard let collection = library.collections.first(where: { $0.id == group.id })
-                else { return nil }
-                return NoteOutlineItem(id: collection.id, kind: .collection(collection),
-                                       children: group.rows.map {
-                    NoteOutlineItem(id: $0.note.fileURL.path, kind: .note($0.note, snippet: $0.snippet))
-                } + group.files.map {
-                    NoteOutlineItem(id: $0.url.path, kind: .file($0))
-                })
-            }
-        } else if selectedTag != nil {
-            // A tag filter is already scoped to one collection, so a group row
-            // above it would say nothing the selection hasn't said.
-            return taggedRows.map {
-                NoteOutlineItem(id: $0.note.fileURL.path, kind: .note($0.note, snippet: nil))
-            }
-        } else {
-            // One tree: the pinned places, then every open collection with its
-            // folders nested beneath it (shell-chrome.md D2/D4). Apple Notes'
-            // sidebar — `Quick Notes` and `Shared`, then a section per account.
-            return pinnedPlaces + library.collections.map { collection in
-                NoteOutlineItem(id: collection.id, kind: .collection(collection),
-                                children: outlineItems(from: tree(for: collection),
-                                                       prefix: collection.id))
-            }
-        }
+        SidebarTree.roots(SidebarTree.Inputs(
+            collections: library.collections,
+            searchGroups: search.groups,
+            isSearching: isSearching,
+            selectedTag: selectedTag,
+            taggedNotes: taggedRows.map(\.note),
+            recents: LibraryPlace.mostRecent(library.allNotes),
+            bookmarks: library.collections.flatMap {
+                $0.bookmarks.bookmarkedNotes(from: $0.notes)
+            },
+            tree: { tree(for: $0) }))
     }
 
-    /// Recents and Bookmarks, above the collections. Both span every open
-    /// collection, which is exactly why they cannot be folders: there is no one
-    /// place on disk they correspond to.
-    ///
-    /// A place with nothing in it is omitted rather than shown empty — an
-    /// always-present "Bookmarks" that never opens teaches people to ignore it.
-    private var pinnedPlaces: [NoteOutlineItem] {
-        var places: [NoteOutlineItem] = []
 
-        let recents = LibraryPlace.mostRecent(library.allNotes)
-        if !recents.isEmpty {
-            places.append(NoteOutlineItem(
-                id: "hn:place:recents", kind: .place("Recents", symbol: "clock"),
-                children: recents.map {
-                    NoteOutlineItem(id: "hn:recents/" + $0.fileURL.path,
-                                    kind: .note($0, snippet: nil))
-                }))
-        }
-
-        let bookmarks = library.collections.flatMap {
-            $0.bookmarks.bookmarkedNotes(from: $0.notes)
-        }
-        if !bookmarks.isEmpty {
-            places.append(NoteOutlineItem(
-                id: "hn:place:bookmarks", kind: .place("Bookmarks", symbol: "bookmark"),
-                children: bookmarks.map {
-                    NoteOutlineItem(id: "hn:bookmarks/" + $0.fileURL.path,
-                                    kind: .note($0, snippet: nil))
-                }))
-        }
-        return places
-    }
-
-    /// `prefix` (the owning collection's id) namespaces folder ids so equal
-    /// relative paths in different collections stay distinct — and lets folder
-    /// actions (New Note Here) recover the collection + folder from the id.
-    private func outlineItems(from nodes: [CollectionTreeNode], prefix: String) -> [NoteOutlineItem] {
-        nodes.map { node in
-            if let note = node.note {
-                return NoteOutlineItem(id: node.id, kind: .note(note, snippet: nil))
-            } else if let file = node.file {
-                return NoteOutlineItem(id: node.id, kind: .file(file))
-            } else {
-                return NoteOutlineItem(id: prefix + node.id, kind: .folder(node.name),
-                                       children: outlineItems(from: node.children ?? [], prefix: prefix))
-            }
-        }
-    }
 
     /// A cheap fingerprint of everything the outline depends on — collection
     /// membership + each collection's structural `revision` + sort/mode/search.

@@ -2522,3 +2522,29 @@ grid, because 44pt targets do not fit on one line at sheet width. That is a
 width decision, taken by the caller, not a second set of controls.
 
 `AppearanceSettingsView` is 27 lines; `iOSSettingsView` lost 108.
+
+### The sidebar's contents, decided once
+
+The tint question — whether `NoteOutlineList` still needs to be an
+`NSOutlineView` because "SwiftUI's List forces the system-blue highlight" —
+blocks *deleting* the AppKit path. It does not block unifying, and treating it
+as a blocker was a category error: `FileViewerView` already shows the shape. One
+view, one API, two representables behind an `#else`. The decision is shared; only
+the widget differs.
+
+So `NoteOutlineItem` moves out of the macOS-gated file (nothing in it is
+platform-shaped: an id, a kind, children) and `SidebarTree.roots(_:)` becomes the
+one construction. It is the Mac's, because the Mac's was complete: pinned places
+above every collection, search replacing the tree by result groups carrying
+snippets *and* matching attachments, a tag filter flattening to bare notes with
+no group row.
+
+Those are exactly the five behaviours the iPad's tree had drifted away from, each
+of which was fixed earlier in this audit by editing the iPad's copy. Six tests
+now pin them over the shared construction — tests that could not exist while the
+tree was built by a `private func` on each shell, which is the whole reason
+five behaviours could drift without anything failing.
+
+Remaining on the sidebar: the iOS renderer still walks `CollectionTreeNode`
+rather than the shared `[NoteOutlineItem]`, so this is the model unified and the
+rendering not yet. That is the next step, and it needs no answer about tint.
