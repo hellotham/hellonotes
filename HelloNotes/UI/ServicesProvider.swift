@@ -27,4 +27,18 @@ final class ServicesProvider: NSObject {
         }
     }
 }
+
+#else
+/// iOS has no Services menu. The equivalent — offering "New Note from
+/// Selection" to other apps — is a Share or Action extension, which is a
+/// separate target with its own bundle and lifecycle, not an implementation of
+/// this type.
+///
+/// A no-op that exists is better than a type that does not: `TerminationGuard`
+/// installs it on both platforms and only one of them has anywhere to put it.
+@MainActor
+final class ServicesProvider {
+    /// Deliberately empty. See the comment above.
+    init() {}
+}
 #endif

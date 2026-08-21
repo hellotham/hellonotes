@@ -2566,3 +2566,32 @@ What is left of the split is the widget: `NSOutlineView` against SwiftUI `List`.
 Same shape as `FileViewerView`'s two representables — and the tint question,
 which decides whether the Mac keeps its native outline, is now a question about
 one view rather than a blocker on the sidebar's behaviour.
+
+### The OS-facility singles
+
+Three files existed on macOS and simply not on iOS. Two of them are genuine
+platform facilities and one was a real behavioural gap hiding among them.
+
+**`TerminationGuard` was the gap.** HelloNotes autosaves on a debounce, so at any
+moment up to half a second of typing exists only in an editor's buffer. macOS
+asks an app whether it may quit, and this held the quit open until every
+registered flush had run. iOS never asks — an app is backgrounded and later
+killed without a second word — so the file was `#if os(macOS)` end to end,
+`TerminationGuard.current` was **nil on iPad**, and every registration the iOS
+shell made was a no-op. `iOSNoteWindowView` had grown its own `scenePhase` flush
+to compensate, which covered the standalone window and left the main window's
+open tabs with no drain at all.
+
+Both platforms have a moment where "you are about to lose the buffer" is known —
+`applicationShouldTerminate` on one, `willResignActive` on the other — so the
+registry and the bounded five-second drain are shared and only that moment
+differs. The iPad's tabs register now, and the note window uses the shared guard
+instead of its own half-measure.
+
+**`GlobalHotKey` and `ServicesProvider` are genuinely macOS.** A background iOS
+app cannot register a system-wide hot key, and the Services menu's equivalent —
+offering "New Note from Selection" to other apps — is a Share extension, a
+separate target rather than an implementation of this type. Both now have an
+`#else` holding a no-op that says so. A no-op that exists beats a type that does
+not: the call site is one line on both platforms and the reason lives with the
+thing rather than in a `#if` wrapped around the caller.

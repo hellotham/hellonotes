@@ -32,7 +32,6 @@ struct iOSNoteWindowView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(LLMSettings.self) private var llmSettings
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.scenePhase) private var scenePhase
 
     @State private var editor = EditorModel()
     @State private var didLoad = false
@@ -88,13 +87,15 @@ struct iOSNoteWindowView: View {
             didLoad = true
             if let note { await editor.open(note) }
         }
-        // iOS has no `TerminationGuard` — the app is suspended rather than
-        // asked to quit — so the buffer is drained on the two edges that
-        // actually happen: leaving the foreground, and the scene going away.
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active { Task { await editor.flush() } }
+        // The same registration the Mac's `NoteWindowView` makes. It used to
+        // watch `scenePhase` here instead, because `TerminationGuard` was
+        // macOS-only — which covered this window and left the main window's
+        // tabs with no drain at all.
+        .task { TerminationGuard.current?.register(editor) { await editor.flush() } }
+        .onDisappear {
+            TerminationGuard.current?.unregister(editor)
+            Task { await editor.flush() }
         }
-        .onDisappear { Task { await editor.flush() } }
     }
 
     /// Mirror the main window's link handling, but open notes in new windows —

@@ -375,6 +375,11 @@ struct iOSContentView: View {
             // once it had somewhere to draw them. `Library.restore` calls this
             // for every restored collection too, so a relaunch re-seeds the
             // list rather than emptying it.
+            // Every open tab's buffer drains before the app leaves the
+            // foreground. The Mac has registered its tabs since the guard was
+            // written; on iPad the guard did not exist, so up to half a second
+            // of typing could be lost to a background-and-kill.
+            TerminationGuard.current?.register(tabs) { [tabs] in await tabs.flushAll() }
             library.onOpened = { recents.record($0) }
             if library.isEmpty {
                 await library.restore()

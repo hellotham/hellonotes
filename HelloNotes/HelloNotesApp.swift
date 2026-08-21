@@ -21,9 +21,16 @@ struct HelloNotesApp: App {
     /// switches and shell rearrangements don't re-parse the note or lose the
     /// caret. See EditorDocumentStore.
     @State private var documents = EditorDocumentStore()
-    #if os(macOS)
-    /// Drains pending editor autosaves on ⌘Q before the process exits.
+    /// Drains pending editor autosaves before the app goes away — ⌘Q on the
+    /// Mac, resigning active on iOS.
+    ///
+    /// The adaptor is macOS-only because `NSApplicationDelegateAdaptor` is; the
+    /// *guard* is not, and was, which meant `TerminationGuard.current` was nil
+    /// on iPad and every registration the shells made there did nothing.
+    #if canImport(AppKit)
     @NSApplicationDelegateAdaptor(TerminationGuard.self) private var terminationGuard
+    #else
+    @State private var terminationGuard = TerminationGuard()
     #endif
 
     init() {

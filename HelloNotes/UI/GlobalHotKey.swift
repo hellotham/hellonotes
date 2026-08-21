@@ -47,4 +47,22 @@ final class GlobalHotKey {
         }
     }
 }
+
+#else
+/// iOS has no system-wide hot key: a background app cannot register one, and
+/// the OS reserves the gesture space that would stand in for it. The nearest
+/// equivalents — a Control Center control, a Home Screen widget, a Shortcuts
+/// action — all *launch* the app rather than acting while another is frontmost,
+/// so they are different features rather than this one's implementation.
+///
+/// A no-op that exists is better than a type that does not: the call site stays
+/// one line on both platforms, and the reason is here rather than in a `#if`
+/// wrapped around the caller.
+@MainActor
+final class GlobalHotKey {
+    /// Deliberately empty. See the comment above.
+    init() {}
+
+    static func makeDefault() -> GlobalHotKey { GlobalHotKey() }
+}
 #endif
