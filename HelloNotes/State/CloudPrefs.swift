@@ -53,13 +53,11 @@ final class CloudPrefs {
         "noteSortOrder",
         // Folders (GeneralSettingsView / iOSSettingsView)
         "dailyNoteFolder", "dailyDateFormat", "templatesFolder", "attachmentFolder",
-        // Editor view mode. Two keys on purpose — the platforms persist it
-        // separately (AppCommands.swift:172-180), because reading the Mac's on
-        // iPad silently disabled every Format command. Mirroring *both* keeps
-        // that separation intact while letting each platform's setting follow
-        // the user to their other devices of that platform; mirroring only the
-        // iOS one, as before, left the Mac's mode syncing nowhere.
-        "editorViewMode", "iosEditorViewMode",
+        // Editor view mode. One key: the two-key split was a defect, not a
+        // policy — see the note in `HelloNotesCommands`. An iPad that had a
+        // stored `iosEditorViewMode` reverts once to Edit, which is where a
+        // fresh install starts anyway.
+        "editorViewMode",
     ]
 
     private init() {}

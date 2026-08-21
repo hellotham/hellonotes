@@ -207,6 +207,39 @@ private struct ConstellationView: View {
     }
 }
 
+// MARK: - Presentation
+
+/// Show the splash, from either platform.
+///
+/// The splash view itself was already shared; only its *presentation* was not,
+/// and because the presentation was macOS-only so was the command that uses it:
+/// About HelloNotes lived inside `#if os(macOS)` in `HelloNotesCommands`, the
+/// one menu both platforms build. iPadOS builds a menu bar from the same
+/// `.commands`, so that gate did not describe a platform without an About box —
+/// it removed one that would otherwise have been there.
+///
+/// A borderless floating window on the Mac and a full-screen overlay on iPad
+/// are genuinely different presentations, which is what the branch is for. The
+/// command above it is one command.
+@MainActor
+enum SplashPresenter {
+    static func show(autoDismiss: Bool) {
+        #if os(macOS)
+        SplashWindow.show(autoDismiss: autoDismiss)
+        #else
+        NotificationCenter.default.post(
+            name: .hnShowSplash, object: nil,
+            userInfo: ["autoDismiss": autoDismiss])
+        #endif
+    }
+}
+
+extension Notification.Name {
+    /// Ask the iOS shell to raise the splash overlay. It owns the overlay
+    /// because the overlay is part of its scene.
+    static let hnShowSplash = Notification.Name("hn.splash.show")
+}
+
 // MARK: - macOS presentation
 
 #if os(macOS)

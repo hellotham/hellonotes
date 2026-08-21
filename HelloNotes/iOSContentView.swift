@@ -38,7 +38,7 @@ struct iOSContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     /// How the editor presents the note (live Markdown / Preview / Split).
-    @AppStorage("iosEditorViewMode") private var storedMode = EditorMode.edit.rawValue
+    @AppStorage("editorViewMode") private var storedMode = EditorMode.edit.rawValue
     private var mode: EditorMode {
         EditorMode(rawValue: storedMode) ?? .edit
     }
@@ -192,6 +192,8 @@ struct iOSContentView: View {
 
     /// Launch splash overlay; fades out after a beat (or on tap).
     @State private var showSplash = true
+    /// The launch splash fades itself; the one About raises waits to be tapped.
+    @State private var splashAutoDismisses = true
     /// The whole-note rewrite sheet, raised from the editor's toolbar menu.
 
     /// An in-progress link review, carrying the text its ranges describe.
@@ -572,12 +574,19 @@ struct iOSContentView: View {
                 Task { await tabs.flushAll() }
             }
         }
+        // About HelloNotes raises the same splash the Mac shows in a floating
+        // window — and stays up until tapped, where the launch one fades.
+        .onReceive(NotificationCenter.default.publisher(for: .hnShowSplash)) { note in
+            splashAutoDismisses = note.userInfo?["autoDismiss"] as? Bool ?? true
+            withAnimation(.easeIn(duration: 0.2)) { showSplash = true }
+        }
         .overlay {
             if showSplash {
                 SplashScreenView { withAnimation(.easeOut(duration: 0.5)) { showSplash = false } }
                     .ignoresSafeArea()
                     .transition(.opacity)
-                    .task {
+                    .task(id: splashAutoDismisses) {
+                        guard splashAutoDismisses else { return }
                         try? await Task.sleep(for: .seconds(2.8))
                         withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
                     }

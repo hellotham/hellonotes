@@ -33,6 +33,14 @@ enum CloudBrowser: String, CaseIterable, Identifiable {
     case box = "remoteBrowserBox"
     case googleDrive = "remoteBrowserGDrive"
     case oneDrive = "remoteBrowserOneDrive"
+    /// A mock store, for exercising the browser without an account. Debug-only,
+    /// but a *case* rather than a separate menu item, because a separate item
+    /// is what made it macOS-only: it opened a `Window` directly, and iOS has
+    /// no scene for one. Through the shared case it takes whichever route the
+    /// platform already uses for the four real providers.
+    #if DEBUG
+    case mock = "remoteBrowserDemo"
+    #endif
 
     var id: String { rawValue }
     var windowID: String { rawValue }
@@ -43,6 +51,9 @@ enum CloudBrowser: String, CaseIterable, Identifiable {
         case .box: "Box"
         case .googleDrive: "Google Drive"
         case .oneDrive: "OneDrive"
+        #if DEBUG
+        case .mock: "Cloud Demo (Mock)"
+        #endif
         }
     }
 
@@ -59,6 +70,9 @@ enum CloudBrowser: String, CaseIterable, Identifiable {
         case .box: BoxStore()
         case .googleDrive: GoogleDriveStore()
         case .oneDrive: OneDriveStore()
+        #if DEBUG
+        case .mock: MockRemoteStore()
+        #endif
         }
     }
 }
@@ -196,14 +210,21 @@ struct HelloNotesCommands: Commands {
     @FocusedValue(\.appActions) private var actions
     @Environment(\.openWindow) private var openWindow
 
-    /// The editor view mode, shared with the editor's own picker. The two
-    /// platforms persist it under different keys, and reading the Mac's on iPad
-    /// silently disabled every Format command.
-    #if os(macOS)
+    /// The editor view mode, shared with the editor's own picker.
+    ///
+    /// **One key.** It used to be two — `editorViewMode` on the Mac and
+    /// `iosEditorViewMode` on iOS — justified on the grounds that reading the
+    /// Mac's on iPad "silently disabled every Format command". That was the
+    /// split describing its own symptom: this menu compared its key against
+    /// what the iPad's shell wrote, and they were different keys.
+    ///
+    /// The split then produced a second, worse defect. `NoteEditorView` reads
+    /// `editorViewMode` with no gate at all, and the iPad's detail column is
+    /// `NoteEditorView` now — so the View menu wrote one key while the editor
+    /// it controls read the other, and changing the mode on iPad changed
+    /// nothing. Two keys for one setting is not a platform difference; it is
+    /// two answers to one question.
     @AppStorage("editorViewMode") private var editorMode = EditorMode.edit.rawValue
-    #else
-    @AppStorage("iosEditorViewMode") private var editorMode = EditorMode.edit.rawValue
-    #endif
 
     /// Formatting applies only in the live-editing mode with a note focused.
     private var canFormat: Bool {
@@ -218,11 +239,12 @@ struct HelloNotesCommands: Commands {
     var body: some Commands {
         // MARK: App — About shows the splash (it carries the version, build,
         // and credits), staying up until clicked.
-        #if os(macOS)
+        // Both platforms: iPadOS builds its menu bar from these same commands,
+        // so gating this removed the iPad's About box rather than describing a
+        // platform that has none. See `SplashPresenter`.
         CommandGroup(replacing: .appInfo) {
-            Button("About HelloNotes") { SplashWindow.show(autoDismiss: false) }
+            Button("About HelloNotes") { SplashPresenter.show(autoDismiss: false) }
         }
-        #endif
 
         // MARK: File — creation and opening. ⌘N makes a note (the app's
         // primary object, the Mail convention); New Window moves to ⌥⌘N.
@@ -313,14 +335,6 @@ struct HelloNotesCommands: Commands {
                 ForEach(CloudBrowser.allCases) { provider in
                     Button("\(provider.displayName)…") { actions?.connectOverWeb?(provider) }
                 }
-                #if DEBUG && os(macOS)
-                Divider()
-                // Debug-only, so deliberately not a `CloudBrowser` case and not
-                // in the palette — it drives a mock store, not a real account.
-                // macOS only because it is a `Window`, and iOS has no scene for
-                // it; the four real providers are sheets on that platform.
-                Button("Cloud Demo (Mock)…") { openWindow(id: "remoteBrowserDemo") }
-                #endif
             }
             .disabled(actions?.connectOverWeb == nil)
         }
@@ -498,14 +512,14 @@ struct HelloNotesCommands: Commands {
             Divider()
         }
 
-        // MARK: Help — point the stock stub somewhere real.
-        #if os(macOS)
+        // MARK: Help — point the stock stub somewhere real. On both, for the
+        // same reason as About: the iPad has this menu too, and opening a URL
+        // is `FileReveal.openInDefaultApp` on either platform.
         CommandGroup(replacing: .help) {
             Button("HelloNotes Help") {
-                if let helpURL { NSWorkspace.shared.open(helpURL) }
+                if let helpURL { FileReveal.openInDefaultApp(helpURL) }
             }
         }
-        #endif
     }
 }
 
