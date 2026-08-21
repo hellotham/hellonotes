@@ -240,7 +240,6 @@ import UIKit
     }
     #endif
 
-    #if canImport(AppKit)
     /// Front matter folds (raw YAML concealed to near-zero height) when the
     /// caret is elsewhere, and reveals for direct editing when the caret is
     /// inside. Source stays byte-pure throughout.
@@ -260,9 +259,7 @@ import UIKit
         #expect((ns.attribute(.font, at: yamlLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != 0.1)
         #expect(document.text == text)
     }
-    #endif
 
-    #if canImport(AppKit)
     /// Toggling a callout's fold conceals/reveals its body, marks the header
     /// with the fold state, keeps the source byte-pure, and survives an edit
     /// above it (offset remap).
@@ -294,7 +291,6 @@ import UIKit
         _ = document.toggleCalloutFold(atHeaderOffset: newHeaderLoc)
         #expect((ns.attribute(.font, at: newBodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != 0.1)
     }
-    #endif
 
     #if canImport(AppKit)
     @Test func setextHeadingRendersLarge() {

@@ -389,6 +389,128 @@ import Testing
         #expect(during.contains { $0.input == UIKeyCommand.inputEscape })
     }
 
+    // MARK: - Chrome you can touch
+
+    /// A rendered checkbox you cannot tap is worse than no checkbox: the app
+    /// drew one on iOS from the day the chrome overlay landed, and nothing ever
+    /// handled the tap.
+    @Test func tappingATaskCheckboxTogglesIt() {
+        let document = EditorDocument(text: "- [ ] buy milk\n- [x] feed cat\n\nEnd.\n")
+        document.selectionDidChange(NSRange(location: (document.text as NSString).range(of: "End.").location, length: 0))
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+
+        let box = (document.text as NSString).range(of: "[ ]")
+        guard let position = tv.position(from: tv.beginningOfDocument, offset: box.location + 1),
+              case let caret = tv.caretRect(for: position), caret.height > 0 else {
+            Issue.record("no caret geometry for the checkbox")
+            return
+        }
+        #expect(tv.toggleTaskCheckbox(at: CGPoint(x: caret.midX, y: caret.midY)))
+        #expect(document.text.hasPrefix("- [x] buy milk"))
+
+        // The caret is now on that line, so the line shows its source and there
+        // is no drawn checkbox to tap — the same thing that happens when you tap
+        // any rendered line in this editor. Tapping away re-conceals it, and the
+        // toggle reads the current state rather than a remembered one.
+        document.selectionDidChange(NSRange(location: (document.text as NSString).range(of: "End.").location, length: 0))
+        // Re-conceal changes fonts, so TextKit has to lay the line out again
+        // before a point can be turned back into a character index. In the app
+        // this is what `ensureVisibleRangeStyled` and the runloop do between one
+        // tap and the next; here it has to be asked for.
+        tv.textLayoutManager?.invalidateLayout(charactersIn: NSRange(location: 0, length: document.storage.length))
+        tv.layoutIfNeeded()
+        guard let position2 = tv.position(from: tv.beginningOfDocument,
+                                          offset: (document.text as NSString).range(of: "[x]").location + 1)
+        else { return }
+        let caret2 = tv.caretRect(for: position2)
+        #expect(tv.toggleTaskCheckbox(at: CGPoint(x: caret2.midX, y: caret2.midY)))
+        #expect(document.text.hasPrefix("- [ ] buy milk"))
+    }
+
+    /// Ordinary text must not eat the tap, or the caret stops working wherever
+    /// a checkbox happens to be nearby.
+    @Test func tappingProseIsNotATaskToggle() {
+        let document = EditorDocument(text: "just prose here\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+        #expect(tv.toggleTaskCheckbox(at: CGPoint(x: 40, y: 10)) == false)
+        #expect(document.text == "just prose here\n")
+    }
+
+    /// The callout fold chevron is drawn at the right edge of the text
+    /// container by the same chrome pass on both platforms; only the tap was
+    /// missing here.
+    @Test func tappingTheCalloutChevronFoldsIt() {
+        let text = "# H\n\n> [!note] Title\n> Body one.\n> Body two.\n\nEnd.\n"
+        let document = EditorDocument(text: text)
+        document.selectionDidChange(NSRange(location: (text as NSString).range(of: "End.").location, length: 0))
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+
+        let headerLoc = (text as NSString).range(of: "> [!note] Title").location
+        let bodyLoc = (text as NSString).range(of: "Body one").location
+        #expect(document.storage.attribute(calloutFoldAttribute, at: headerLoc, effectiveRange: nil) as? Bool == false)
+
+        guard let position = tv.position(from: tv.beginningOfDocument, offset: headerLoc),
+              case let caret = tv.caretRect(for: position), caret.height > 0 else {
+            Issue.record("no caret geometry for the callout header")
+            return
+        }
+        // Right edge of the container, on the header's line.
+        let x = tv.textContainerInset.left + tv.textContainer.size.width
+            - RenderedBlockFragment.calloutChevronInset
+        #expect(tv.toggleCalloutFold(at: CGPoint(x: x, y: caret.midY)))
+        #expect(document.storage.attribute(calloutFoldAttribute, at: headerLoc, effectiveRange: nil) as? Bool == true)
+        #expect((document.storage.attribute(.font, at: bodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect(document.text == text)   // byte-pure, as always
+
+        // A tap on the *left* of the same line is a caret tap, not a fold.
+        #expect(tv.toggleCalloutFold(at: CGPoint(x: 8, y: caret.midY)) == false)
+    }
+
+    /// Inline `$…$` maths renders to a baseline image on iOS too. The drawing
+    /// half was already cross-platform (`PlatformDraw`, `drawChromeOnly`); only
+    /// the document half was gated.
+    @Test func inlineMathCollapsesToAnImage() async throws {
+        let text = "Euler said $e^{i\\pi}+1=0$ and left.\n\nEnd.\n"
+        let renderer = StubInlineMathRenderer(image: Self.swatch())
+        let document = EditorDocument(text: text,
+                                      services: EditorServices(blockRenderer: renderer))
+        // Caret in the *other* paragraph: a revealed block shows its source, so
+        // parking it at 0 would sit inside the maths and render nothing.
+        document.selectionDidChange(NSRange(location: (text as NSString).range(of: "End.").location, length: 0))
+        document.styleEverythingNow()
+
+        let mathLoc = (text as NSString).range(of: "$e^").location
+        var drawn = false
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            if document.storage.attribute(inlineImageAttribute, at: mathLoc, effectiveRange: nil) != nil {
+                drawn = true; break
+            }
+        }
+        #expect(drawn)
+        // The source is concealed, not removed.
+        #expect(document.text == text)
+        #expect((document.storage.attribute(.font, at: mathLoc + 1, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+    }
+
+    private struct StubInlineMathRenderer: BlockRenderer {
+        let image: PlatformImage
+        func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage? { nil }
+        func renderInlineMath(_ latex: String, fontSize: CGFloat, darkMode: Bool) async -> PlatformImage? { image }
+    }
+
+    /// A real UIImage — `UIImage(size:)` doesn't exist, and a zero-sized one
+    /// would reserve no width for the span it replaces.
+    private static func swatch() -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 40, height: 16)).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 16))
+        }
+    }
+
     /// A range past the end must clamp, not throw: the outline is built from
     /// the model's text, which can trail the document by a keystroke.
     @Test func theProxyClampsAnOutOfRangeSelection() {

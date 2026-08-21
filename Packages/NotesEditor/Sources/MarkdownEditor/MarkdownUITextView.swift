@@ -313,6 +313,10 @@ public final class MarkdownUITextView: UITextView {
         // the end of that line, which is all a tap there could otherwise ask
         // for. See `InlineSuggestion.swift`.
         if acceptInlineSuggestion(ifTappedAt: point) { return }
+        // A tap on a rendered task checkbox toggles `[ ]` ↔ `[x]`.
+        if toggleTaskCheckbox(at: point) { return }
+        // A tap on a foldable callout header's chevron folds it.
+        if toggleCalloutFold(at: point) { return }
         // Resolve the tapped character offset.
         guard let position = closestPosition(to: point) else { return }
         let index = offset(from: beginningOfDocument, to: position)
@@ -324,6 +328,55 @@ public final class MarkdownUITextView: UITextView {
             if let url = link as? URL { onLinkTap?(.url(url)) }
             else if let s = link as? String, let url = URL(string: s) { onLinkTap?(.url(url)) }
         }
+    }
+
+    /// If the tap landed on a concealed task box, toggle it (undoably) and
+    /// report the tap as spent. The box is three characters (`[ ]`); a tap
+    /// anywhere in that range, or just past it, counts.
+    ///
+    /// Unlike the Mac, the caret is *not* restored afterwards. AppKit lets us
+    /// intercept before the click moves it; here the text view's own recogniser
+    /// runs alongside ours, so there is no "before" to restore to. The line
+    /// therefore reveals its `- [x]` source — which is what tapping any line in
+    /// this editor does, so the checkbox behaves like everything around it.
+    func toggleTaskCheckbox(at point: CGPoint) -> Bool {
+        guard isEditable, let document else { return false }
+        let storage = document.storage
+        guard let position = closestPosition(to: point) else { return false }
+        let index = offset(from: beginningOfDocument, to: position)
+        for probe in stride(from: min(index, storage.length - 1), through: max(0, index - 3), by: -1) {
+            guard probe >= 0, probe < storage.length else { continue }
+            var effective = NSRange(location: 0, length: 0)
+            guard let checked = storage.attribute(taskCheckboxAttribute, at: probe,
+                                                  effectiveRange: &effective) as? Bool else { continue }
+            // The state character is the middle of `[ ]` / `[x]`.
+            let stateIndex = effective.location + 1
+            guard stateIndex < storage.length else { return false }
+            return performEdit(replacing: NSRange(location: stateIndex, length: 1),
+                               with: checked ? " " : "x")
+        }
+        return false
+    }
+
+    /// If the tap landed on a foldable callout header's right-aligned
+    /// disclosure chevron, toggle the fold and report the tap as spent.
+    func toggleCalloutFold(at point: CGPoint) -> Bool {
+        guard let document else { return false }
+        // The chevron sits at the right edge of the text container.
+        let containerRight = textContainerInset.left + textContainer.size.width
+        // A wider zone than the Mac's: this is a fingertip, not a pointer.
+        guard point.x >= containerRight - RenderedBlockFragment.calloutChevronInset - 22 else { return false }
+
+        guard let position = closestPosition(to: point) else { return false }
+        let index = offset(from: beginningOfDocument, to: position)
+        let ns = document.storage.mutableString
+        guard ns.length > 0, index >= 0, index <= ns.length else { return false }
+        let line = ns.lineRange(for: NSRange(location: min(index, ns.length - 1), length: 0))
+        guard document.isFoldableCalloutHeader(atCharacter: line.location) else { return false }
+        guard let blockRange = document.toggleCalloutFold(atHeaderOffset: line.location) else { return false }
+        textLayoutManager?.invalidateLayout(charactersIn: blockRange)
+        refreshChrome()
+        return true
     }
 
     /// ⌥⇥ accepts the ghost and Esc dismisses it, exactly as on the Mac —

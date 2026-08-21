@@ -353,9 +353,7 @@ public final class EditorDocument {
         guard !isApplyingStyles else { return }
         let oldRange = NSRange(location: editedRange.location, length: editedRange.length - delta)
         let edit = TextEdit(range: oldRange, replacementLength: editedRange.length)
-        #if canImport(AppKit)
         remapFoldedCallouts(oldRange: oldRange, delta: delta)
-        #endif
 
         var t0 = DispatchTime.now()
         let hadPendingStyling = styledBlocks.contains(false)
@@ -692,7 +690,6 @@ public final class EditorDocument {
                 refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index))
             }
         }
-        #if canImport(AppKit)
         for index in blockIndices {
             refreshFrontMatterFold(blockIndex: index, revealed: revealed.contains(index))
             refreshCalloutFold(blockIndex: index, revealed: revealed.contains(index))
@@ -702,7 +699,6 @@ public final class EditorDocument {
                 refreshInlineMath(blockIndex: index, revealed: revealed.contains(index))
             }
         }
-        #endif
     }
 
     // MARK: - Fenced-code syntax highlighting
@@ -975,10 +971,6 @@ public final class EditorDocument {
     /// the editor body starts at the first real content — the app's dedicated
     /// Properties panel is the front-matter editing surface. The source stays
     /// byte-pure in storage; caret entry (e.g. arrowing up into it) reveals
-    // Folds and inline math are still AppKit-only — they need the
-    // fold/replacement machinery, not just an image band. Tables,
-    // Mermaid, display maths and transclusions need only the band.
-    #if canImport(AppKit)
     /// the raw YAML for direct editing.
     private func refreshFrontMatterFold(blockIndex: Int, revealed: Bool) {
         guard blockIndex >= 0, blockIndex < parse.blocks.count else { return }
@@ -1075,7 +1067,7 @@ public final class EditorDocument {
 
     // MARK: - Inline math (`$…$` rendered as baseline images)
 
-    @ObservationIgnored private var inlineMathCache: [Int: NSImage] = [:]
+    @ObservationIgnored private var inlineMathCache: [Int: PlatformImage] = [:]
     @ObservationIgnored private var inlineMathInFlight: Set<Int> = []
 
     /// Render each inline `$…$` span in a block to an image drawn at its
@@ -1132,7 +1124,7 @@ public final class EditorDocument {
     /// color) and reserve exactly the image's width via kern on the last char,
     /// so the invisible span occupies precisely `image.width`. Mark the first
     /// char so the fragment draws the image there.
-    private func applyInlineMath(range: NSRange, image: NSImage) {
+    private func applyInlineMath(range: NSRange, image: PlatformImage) {
         guard range.length > 0, range.location + range.length <= storage.length else { return }
         isApplyingStyles = true
         storage.beginEditing()
@@ -1145,7 +1137,6 @@ public final class EditorDocument {
         storage.endEditing()
         isApplyingStyles = false
     }
-    #endif
 }
 
 // MARK: - Storage delegate bridge

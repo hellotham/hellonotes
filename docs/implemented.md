@@ -1888,13 +1888,37 @@ held: what was missing was usually the middle, not the feature.
   Drawing goes through `ChromeOverlayView` for the usual reason — UIKit does not
   invoke a subclass's `draw` over its own text.
 
+**Folds, inline maths, and chrome you can touch.** The last
+`#if canImport(AppKit)` in `EditorDocument` covered front-matter folds, callout
+folds and inline `$…$` maths, on the stated grounds that they need "the
+fold/replacement machinery, not just an image band". True when written, and no
+longer true by the time it was read: the *drawing* half had become
+cross-platform when the chrome overlay landed — `drawChromeOnly` already painted
+the fold chevron and the baseline math images through `PlatformDraw`. Only the
+document half was gated, plus two `NSImage` annotations that should have been
+`PlatformImage`. What was genuinely absent was the touch: a task checkbox has
+been *drawn* on iOS since the overlay shipped and nothing ever handled a tap on
+it, which is worse than not drawing one.
+
+The caret is deliberately not restored after a checkbox tap, unlike the Mac.
+AppKit lets `mouseDown` be intercepted before the click moves the caret; on iOS
+the text view's own recogniser runs alongside ours, so there is no "before" to
+restore to. The tapped line reveals its source instead — which is exactly what
+tapping any line in this editor does, so the checkbox behaves like everything
+around it.
+
 One ordering trap, found by testing rather than reasoning: UIKit fires
 `textViewDidChangeSelection` **before** `textViewDidChange` on an insertion, so
 reporting inline context only from the selection callback reads a parse one edit
 behind — the keystroke that completes `[[` would report nothing. It is reported
 from both.
 
-Sixteen iOS editor tests now cover this half (32 in the suite, up from 26), and
+Two more were found the same way: a stale layout cannot turn a point back into
+a character index (the second tap in a test landed at the end of the document),
+and the collapsed-block concealment test computed alpha only under AppKit — so
+on iOS every character read as concealed and the assertion was vacuous.
+
+Twelve new iOS editor tests (38 in the suite, up from 26), and
 the ranking that used to live inside the macOS-only `NoteEditorView` moved to a
 cross-platform `WikiCompletions.swift`, so there is one fuzzy ranker rather than
 two drifting.
