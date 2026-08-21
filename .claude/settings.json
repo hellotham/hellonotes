@@ -21,6 +21,16 @@
             "timeout": 120
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/platform-parity-check.py\"",
+            "timeout": 30
+          }
+        ]
       }
     ]
   }

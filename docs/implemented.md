@@ -2292,3 +2292,38 @@ because `search` now appears in both, as the same shared type. Names in common
 say nothing about implementations in common; the honest measure is lines removed
 from the shells, which is now 5,150 against 5,298 with four shared types added
 under them.
+
+### The enforcement point moves from the test to the hook
+
+Two parity tests already existed and both are tripwires: they fire after somebody
+has written the second implementation, which means the second implementation gets
+written. `.claude/hooks/platform-parity-check.py` refuses at the moment the gate
+is typed — a newly added `#if os(…)` in `HelloNotes/`, or a newly created file
+named `iOS*` / `Mac*` — unless the diff carries a written reason:
+
+    // PARITY-EXEMPT: <reason>
+
+Not forbidden, argued for. `revealInFinder` genuinely has no iOS meaning. What
+the hook stops is divergence *appearing*, which is how all three of this audit's
+worst defects arrived — each one added quietly, each one defended in a comment by
+whoever added it, none of them noticed again for months.
+
+Validated across six cases before being trusted: a new gate rejects, the same
+gate with an exemption passes, pre-existing gates pass, a new `iOS*` file rejects,
+a shared file passes, and paths outside `HelloNotes/` are left to the parity
+suites.
+
+### Every divergence defended in this audit turned out to be a substitution
+
+Worth recording, because the pattern is the finding:
+
+| Defended as | Actually about |
+|---|---|
+| "the iPad is never wide enough for a third column" | window width — which `ShellKind` already decides |
+| "touch sizing, not arrangement" (`prefersTouch`) | whether a pointer is attached — `GCMouse` answers it |
+| "Move to Trash" catching its own throw | whether the platform *has* a Trash for that location |
+| "the Mac shell's own sidebar view" | nothing; five row behaviours had simply drifted |
+
+In each case a platform was standing in for a fact, and the fact was available.
+The one exemption that survives is `revealInFinder`, and even that is "the OS has
+no such concept", not "our code should differ".
