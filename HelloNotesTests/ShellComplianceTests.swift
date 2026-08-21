@@ -346,4 +346,26 @@ struct ShellComplianceTests {
                     "\(file) still has a second folder-picking route beside the request channel")
         }
     }
+
+    /// Nothing walks the link graph in a view body.
+    ///
+    /// The Mac computed backlinks, outgoing links and unlinked mentions once,
+    /// off the typing path, keyed on the selection and the collection's
+    /// revision. The iPad computed the mentions the same way — a near-identical
+    /// function — and built the other two **inline in `body`**: two O(notes)
+    /// walks per evaluation, on a view the inspector re-evaluates every
+    /// keystroke. The feature was present on both, which is why review never
+    /// caught it; only the cost differed.
+    @Test("Neither shell derives references in a view body")
+    func referencesAreComputedOffTheTypingPath() throws {
+        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+            let source = try Self.source(file)
+            #expect(!source.contains("linkGraph.backlinks("),
+                    "\(file) walks the link graph itself instead of reading NoteReferences")
+            #expect(!source.contains("linkGraph.outgoingLinks("),
+                    "\(file) walks the link graph itself instead of reading NoteReferences")
+            #expect(source.contains("NoteReferences.key(note:"),
+                    "\(file) does not key its reference refresh on the shared key")
+        }
+    }
 }

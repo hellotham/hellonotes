@@ -110,8 +110,11 @@ struct MacContentView: View {
                            scope: railCollection ?? focused)
     }
 
-    /// References panel data, computed off-main and keyed on `referencesKey`.
-    @State private var references = ReferencesData()
+
+    /// Backlinks, outgoing links and unlinked mentions, computed off the
+    /// typing path — see `NoteReferences`. Shared, because the iPad built the
+    /// first two inline in `body`.
+    @State private var references = NoteReferences()
 
     /// Debounces the per-save git status refresh.
     @State private var gitStatusTask: Task<Void, Never>?
@@ -308,69 +311,6 @@ struct MacContentView: View {
     }
 
     // MARK: - Editor derived data (for the selection's collection)
-
-    private var currentNoteNames: [String] {
-        guard let selectedNote, let c = editorCollection else { return [] }
-        // Cached aliases from the index — available immediately from the
-        // persistent cache, even before note text streams in.
-        return [selectedNote.title] + c.search.aliases(of: selectedNote.fileURL)
-    }
-
-    /// Backlinks / outgoing links / unlinked mentions for the references panel.
-    private struct ReferencesData: Equatable {
-        var backlinks: [Note] = []
-        var outgoingLinks: [Note] = []
-        var unlinkedMentions: [Note] = []
-    }
-
-    /// Changes when the selection or the collection's index changes — the key
-    /// for recomputing `references`.
-    private var referencesKey: String {
-        "\(selectedNoteID?.path ?? "")|\(editorCollection?.derivedRevision ?? 0)"
-    }
-
-    /// Recompute the references panel off the main thread.
-    ///
-    /// Unlinked mentions no longer scan an in-memory corpus (note text isn't
-    /// kept resident any more): Spotlight names the files whose content
-    /// contains the note's title/aliases, and only those few candidates are
-    /// read and verified with the word-boundary scanner. On a volume without
-    /// a Spotlight index the panel degrades to backlinks + outgoing links.
-    private func computeReferences() async {
-        MainActorWatchdog.note("computeReferences started")
-        guard let note = selectedNote, let c = editorCollection else {
-            references = ReferencesData(); return
-        }
-        let back = MainActorWatchdog.measure("linkGraph.backlinks(\(c.notes.count) notes)") {
-            c.linkGraph.backlinks(for: note, in: c.notes)
-        }
-        let out = MainActorWatchdog.measure("linkGraph.outgoingLinks(\(c.notes.count) notes)") {
-            c.linkGraph.outgoingLinks(for: note, in: c.notes)
-        }
-        let names = currentNoteNames
-        let excluded = Set(back.map(\.fileURL)).union([note.fileURL])
-
-        var candidatePaths: Set<String> = []
-        for name in names {
-            let hits = await referenceSpotlight.search(name, in: [c.rootURL])
-            guard !Task.isCancelled else { return }
-            candidatePaths.formUnion(hits.map { $0.standardizedFileURL.path })
-        }
-        let candidates = c.notes.filter {
-            candidatePaths.contains($0.fileURL.standardizedFileURL.path)
-                && !excluded.contains($0.fileURL)
-        }
-
-        let mentions = await offMain { () -> [Note] in
-            candidates.compactMap { candidate in
-                guard let text = try? FileIO.readString(at: candidate.fileURL),
-                      MentionScanner.containsMention(of: names, in: text) else { return nil }
-                return candidate
-            }
-        }
-        guard !Task.isCancelled else { return }
-        references = ReferencesData(backlinks: back, outgoingLinks: out, unlinkedMentions: mentions)
-    }
 
     var body: some View {
         // Split in two deliberately: the scene wiring below (a dozen `onChange`
@@ -597,7 +537,10 @@ struct MacContentView: View {
         }
         // Recompute the references panel off-main when the selection or index
         // changes — never inline in the body (would scan all notes on selection).
-        .task(id: referencesKey) { await computeReferences() }
+        .task(id: NoteReferences.key(note: selectedNote, in: editorCollection)) {
+            await references.refresh(note: selectedNote, in: editorCollection,
+                                     spotlight: referenceSpotlight)
+        }
         .onChange(of: tabs.totalSavedRevision) { _, _ in
             guard let c = editorCollection else { return }
             // Never auto-commit a cloud-backed collection: libgit2 would churn

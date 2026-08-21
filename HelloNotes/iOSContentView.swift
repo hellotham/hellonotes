@@ -254,7 +254,13 @@ struct iOSContentView: View {
     /// `NSMetadataQuery` being Foundation, which is why the iPad's References
     /// tab showed backlinks and outgoing links but never unlinked mentions.
     @State private var referenceSpotlight = SpotlightSearch()
-    @State private var unlinkedMentions: [Note] = []
+    /// Backlinks, outgoing links and unlinked mentions — see `NoteReferences`.
+    ///
+    /// The mentions were computed here, off-main and cached, in a function
+    /// near-identical to the Mac's. The other two were built **inline in
+    /// `body`**: two O(notes) walks of the link graph per evaluation, and the
+    /// inspector re-evaluates on every character typed.
+    @State private var references = NoteReferences()
     @State private var showPalette = false
     @AppStorage("templatesFolder") private var templatesFolder = "Templates"
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
@@ -459,8 +465,10 @@ struct iOSContentView: View {
             let text = editor.text
             docFeatures = await offMain { NoteDocFeatures(text: text) }
         }
-        .task(id: "\(selectedNoteID?.path ?? "")|\(editorCollection?.derivedRevision ?? 0)") {
-            await computeUnlinkedMentions()
+        // The same key and the same call the Mac makes.
+        .task(id: NoteReferences.key(note: editor.note, in: editorCollection)) {
+            await references.refresh(note: editor.note, in: editorCollection,
+                                     spotlight: referenceSpotlight)
         }
         .onChange(of: showSplash) { _, visible in
             // Present onboarding only after the launch splash has faded.
@@ -1361,13 +1369,9 @@ struct iOSContentView: View {
                         .suggestTags(for: text, existing: existing)
                 },
                 onInsertTag: { editor.text = NoteEdits.addingTag($0, to: editor.text) },
-                backlinks: editor.note.map {
-                    collection.linkGraph.backlinks(for: $0, in: collection.notes)
-                } ?? [],
-                outgoingLinks: editor.note.map {
-                    collection.linkGraph.outgoingLinks(for: $0, in: collection.notes)
-                } ?? [],
-                unlinkedMentions: unlinkedMentions,
+                backlinks: references.backlinks,
+                outgoingLinks: references.outgoingLinks,
+                unlinkedMentions: references.unlinkedMentions,
                 onOpenNote: { selectedNoteID = $0.id },
                 // `NoteInspector` draws an enabled "Link" button per unlinked
                 // mention, promising to "turn this mention into a [[link]] in
@@ -1543,9 +1547,9 @@ struct iOSContentView: View {
             // reason for it.
             NoteEditorView(
                 editor: editor,
-                backlinks: c.linkGraph.backlinks(for: note, in: c.notes),
-                outgoingLinks: c.linkGraph.outgoingLinks(for: note, in: c.notes),
-                unlinkedMentions: unlinkedMentions,
+                backlinks: references.backlinks,
+                outgoingLinks: references.outgoingLinks,
+                unlinkedMentions: references.unlinkedMentions,
                 embedProvider: c.embedProvider,
                 git: c.git,
                 linkCandidates: c.search.linkTargets(),
@@ -1971,39 +1975,6 @@ struct iOSContentView: View {
     /// on the Mac it opened the note and scrolled to that section. The bus it
     /// needs is the one the inspector's outline already uses.
     @ViewBuilder
-    /// Notes whose text mentions this note's title or aliases without linking
-    /// to it. Same shape as the Mac's: Spotlight narrows the corpus, then each
-    /// candidate is read and checked with the word-boundary scanner, off the
-    /// main actor. Degrades to nothing on a volume with no Spotlight index,
-    /// which is the same way the Mac degrades.
-    private func computeUnlinkedMentions() async {
-        // The open note's own collection — a mention is a fact about the corpus
-        // the note lives in, and searching a different one comes back empty.
-        guard let note = editor.note, let c = editorCollection else { unlinkedMentions = []; return }
-        let names = [note.title] + c.search.aliases(of: note.fileURL)
-        let excluded = Set(c.linkGraph.backlinks(for: note, in: c.notes).map(\.fileURL))
-            .union([note.fileURL])
-
-        var candidatePaths: Set<String> = []
-        for name in names {
-            let hits = await referenceSpotlight.search(name, in: [c.rootURL])
-            guard !Task.isCancelled else { return }
-            candidatePaths.formUnion(hits.map { $0.standardizedFileURL.path })
-        }
-        let candidates = c.notes.filter {
-            candidatePaths.contains($0.fileURL.standardizedFileURL.path) && !excluded.contains($0.fileURL)
-        }
-        let found = await offMain { () -> [Note] in
-            candidates.compactMap { candidate in
-                guard let text = try? FileIO.readString(at: candidate.fileURL),
-                      MentionScanner.containsMention(of: names, in: text) else { return nil }
-                return candidate
-            }
-        }
-        guard !Task.isCancelled else { return }
-        unlinkedMentions = found
-    }
-
     /// The AI commands, or nil when there is nothing they could do.
     ///
     /// A greyed item says "not now"; an enabled one that always errors says
