@@ -245,6 +245,9 @@ struct iOSContentView: View {
     @State private var libraries = LibrariesStore()
     @State private var showQuickCapture = false
     @State private var gitAccounts = GitAccountsStore()
+    /// Opt-in background local auto-commit (never auto-pushes). The setting was
+    /// app-wide and read only on the Mac, so switching it on here did nothing.
+    @AppStorage("gitAutoCommit") private var autoCommit = false
     /// Spotlight names the files whose content mentions this note; only those
     /// few are read and verified. `SpotlightSearch` was macOS-gated despite
     /// `NSMetadataQuery` being Foundation, which is why the iPad's References
@@ -583,6 +586,14 @@ struct iOSContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .hnFocusLibrarySearch)) { _ in
             revealSearch(focusField: true)
+        }
+        // A save schedules an auto-commit (if enabled) and a debounced status
+        // refresh. The rules are `GitService.noteDidSave`'s — they were fifteen
+        // lines here and nothing at all in the other shell.
+        .onChange(of: tabs.totalSavedRevision) { _, _ in
+            guard let c = editorCollection else { return }
+            c.git.noteDidSave(autoCommitEnabled: autoCommit,
+                              isCloudBacked: CloudProvider.name(for: c.rootURL) != nil)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
@@ -1551,6 +1562,10 @@ struct iOSContentView: View {
                 unlinkedMentions: references.unlinkedMentions,
                 embedProvider: c.embedProvider,
                 git: c.git,
+                gitCollection: c,
+                // The iPad's Git identity and accounts live inside Settings;
+                // the Mac's are a sheet. Same screen, each platform's route.
+                onGitSettings: { showSettings = true },
                 linkCandidates: c.search.linkTargets(),
                 tagCandidates: c.search.allTags(),
                 headingProvider: { c.search.headings(forName: $0) },

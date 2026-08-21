@@ -37,6 +37,12 @@ struct NoteEditorView: View {
 
     /// Git state for the collection — drives the version-history button.
     var git: GitService
+    /// The collection the Git pane acts on. Separate from `git` because the
+    /// pane needs the folder too — for the cloud-provider guardrail.
+    var gitCollection: Collection?
+    /// Show Git identity and accounts. A sheet on one platform and a pushed
+    /// screen on the other, so the shell owns it.
+    var onGitSettings: (() -> Void)?
 
     /// Candidate note titles/aliases offered by `[[wiki-link]]` autocomplete.
     var linkCandidates: [String] = []
@@ -79,6 +85,7 @@ struct NoteEditorView: View {
     /// shell because this view is the one both platforms put in the editor
     /// column, so there is exactly one place the buffer is known.
     @Environment(LiveBuffer.self) private var liveBuffer
+    @State private var showGitPane = false
 
     /// Folder (relative to the note) where pasted images are saved; empty means
     /// the same folder as the note. Configured in Settings.
@@ -536,11 +543,30 @@ struct NoteEditorView: View {
                 .lineLimit(1)
             Divider().frame(height: 11)
             saveStatus.labelStyle(.titleAndIcon).lineLimit(1)
-            if git.status.isRepository, !git.status.isClean {
+            // The change count is a *button*: it is the only place on iPad
+            // that names Git at all, and naming a thing you cannot open is
+            // worse than not naming it. The Mac has a second route from its
+            // status bar; this is the one both platforms share.
+            if git.status.isRepository {
                 Divider().frame(height: 11)
-                Label("\(git.status.changeCount) changed", systemImage: "pencil.and.list.clipboard")
-                    .foregroundStyle(.orange)
-                    .lineLimit(1)
+                Button {
+                    showGitPane = true
+                } label: {
+                    Label(git.status.isClean ? "Clean" : "\(git.status.changeCount) changed",
+                          systemImage: "pencil.and.list.clipboard")
+                        .foregroundStyle(git.status.isClean ? Color.secondary : Color.orange)
+                        .lineLimit(1)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Git — branch, status, commit and sync")
+                .popover(isPresented: $showGitPane) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        GitPane(collection: gitCollection) { onGitSettings?() }
+                    }
+                    .padding(12)
+                    .frame(width: 300)
+                    .presentationCompactAdaptation(.popover)
+                }
             }
 
             Spacer(minLength: 12)

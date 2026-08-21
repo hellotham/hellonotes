@@ -116,8 +116,6 @@ struct MacContentView: View {
     /// first two inline in `body`.
     @State private var references = NoteReferences()
 
-    /// Debounces the per-save git status refresh.
-    @State private var gitStatusTask: Task<Void, Never>?
 
     /// Which compact place is showing, and whether the note is full-screen.
     /// Only read below the compact threshold, which a Mac window reaches only
@@ -537,27 +535,13 @@ struct MacContentView: View {
             await references.refresh(note: selectedNote, in: editorCollection,
                                      spotlight: referenceSpotlight)
         }
+        // A save schedules an auto-commit (if enabled) and a debounced status
+        // refresh. The rules are `GitService.noteDidSave`'s — they were fifteen
+        // lines here and nothing at all in the other shell.
         .onChange(of: tabs.totalSavedRevision) { _, _ in
             guard let c = editorCollection else { return }
-            // Never auto-commit a cloud-backed collection: libgit2 would churn
-            // the object store against online-only files. Nor a collection that
-            // is only *part* of a repository — commits there are scoped to this
-            // folder, but writing commits automatically into a repository
-            // someone is using for other work is not ours to decide.
-            // (Both are disabled in the toggle too; honour a pre-existing
-            // enabled flag as well.)
-            if autoCommit, CloudProvider.name(for: c.rootURL) == nil,
-               !c.git.status.isSubdirectory {
-                c.git.scheduleAutoCommit(message: autoCommitMessage)
-            }
-            // Debounce the status refresh — it fires on every autosave, so a
-            // burst of edits shouldn't spawn a git status walk per keystroke.
-            gitStatusTask?.cancel()
-            gitStatusTask = Task {
-                try? await Task.sleep(for: .milliseconds(800))
-                guard !Task.isCancelled else { return }
-                await c.git.refreshStatus()
-            }
+            c.git.noteDidSave(autoCommitEnabled: autoCommit,
+                              isCloudBacked: CloudProvider.name(for: c.rootURL) != nil)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase != .active {
@@ -1125,131 +1109,6 @@ struct MacContentView: View {
     /// it falls back to the focused one, so the button is never a dead end.
     private var gitCollection: Collection? { railCollection ?? focused }
 
-    @ViewBuilder
-    private var gitSection: some View {
-        if let git = gitCollection?.git {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.branch")
-                Text("GIT").font(.caption2).foregroundStyle(.secondary)
-                Spacer()
-                if git.isBusy { ProgressView().controlSize(.small) }
-                Button { showGitSettings = true } label: {
-                    Image(systemName: "gearshape")
-                }
-                .buttonStyle(.borderless)
-                .help("Git identity & accounts")
-                .accessibilityLabel("Git identity & accounts")
-            }
-
-            // Git-on-cloud guardrail: libgit2 reads the whole object store, so a
-            // repo whose objects are online-only thrashes (and coordinated access
-            // isn't wired through libgit2). Warn, and keep auto-commit off in a
-            // cloud folder.
-            if let root = gitCollection?.rootURL, let provider = CloudProvider.name(for: root) {
-                Label("In \(provider). Git works best when the folder is fully downloaded — online-only files can slow or break operations.",
-                      systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !git.status.isRepository {
-                Text("Not a Git repository")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button {
-                    Task { await git.initializeRepository() }
-                } label: {
-                    Label("Initialize Repository", systemImage: "plus.circle")
-                }
-                .disabled(git.isBusy)
-            } else {
-                HStack {
-                    Label(git.status.branch ?? "—", systemImage: "point.3.filled.connected.trianglepath.dotted")
-                        .font(.caption)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(git.status.isClean ? "Clean" : "\(git.status.changeCount) changed")
-                        .font(.caption)
-                        .foregroundStyle(git.status.isClean ? Color.secondary : Color.orange)
-                }
-
-                // This collection is only part of its repository — say where the
-                // repository starts, and that everything here is confined to
-                // this folder. Offering full Git controls without naming the
-                // wider repo is how someone ends up surprised by what a commit
-                // contained.
-                if git.status.isSubdirectory, let repoRoot = git.status.repositoryRoot {
-                    Text("Inside the repository at \(repoRoot.path(percentEncoded: false)) — commits, counts and history cover only this folder.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                HStack {
-                    Button {
-                        Task { await git.commitAll(message: autoCommitMessage) }
-                    } label: {
-                        Label("Commit", systemImage: "checkmark.seal")
-                    }
-                    .disabled(git.status.isClean || git.isBusy)
-
-                    if git.status.hasRemote {
-                        Menu {
-                            Button("Push") { Task { await git.push() } }
-                            Button("Fetch") { Task { await git.fetch() } }
-                        } label: {
-                            Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        .disabled(git.isBusy)
-                        .fixedSize()
-                    } else {
-                        Button { showGitSettings = true } label: {
-                            Label("Connect Remote", systemImage: "link.badge.plus")
-                        }
-                        .fixedSize()
-                    }
-                }
-
-                let cloudBacked = gitCollection.map { CloudProvider.name(for: $0.rootURL) != nil } ?? false
-                let partOfLargerRepo = git.status.isSubdirectory
-                Toggle("Auto-commit", isOn: $autoCommit)
-                    .font(.caption)
-                    .toggleStyle(.checkbox)
-                    .disabled(cloudBacked || partOfLargerRepo)
-                if cloudBacked {
-                    Text("Auto-commit is off in cloud folders — commit manually once files are downloaded.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if partOfLargerRepo {
-                    Text("Auto-commit is off inside a larger repository — commit this folder yourself when you're ready.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let error = git.lastError {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                        .lineLimit(4)
-                        .textSelection(.enabled)
-                        .help(error)
-                } else if let message = git.lastMessage {
-                    Text(message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
-    }
-
-    private var autoCommitMessage: String {
-        "Update notes — \(Date.now.formatted(date: .abbreviated, time: .shortened))"
-    }
-
     // MARK: - Column 3: Editor (with tabs)
 
     @ViewBuilder
@@ -1424,6 +1283,8 @@ struct MacContentView: View {
                     unlinkedMentions: references.unlinkedMentions,
                     embedProvider: c.embedProvider,
                     git: c.git,
+                    gitCollection: c,
+                    onGitSettings: { showGitSettings = true },
                     linkCandidates: c.search.linkTargets(),
                     tagCandidates: c.search.allTags(),
                     headingProvider: { c.search.headings(forName: $0) },
@@ -1583,7 +1444,9 @@ struct MacContentView: View {
             .foregroundStyle(.secondary)
             .help("Git — branch, status, commit and sync for “\(collection.name)”")
             .popover(isPresented: $showGitPanel, arrowEdge: .top) {
-                VStack(alignment: .leading, spacing: 8) { gitSection }
+                VStack(alignment: .leading, spacing: 8) {
+                    GitPane(collection: gitCollection) { showGitSettings = true }
+                }
                     .padding(12)
                     .frame(width: 300)
             }

@@ -57,6 +57,7 @@ final class GitService {
     var repositoryRoot: URL? { status.repositoryRoot ?? rootURL }
 
     private var autoCommitTask: Task<Void, Never>?
+    @ObservationIgnored private var statusRefreshTask: Task<Void, Never>?
 
     // MARK: - Status
 
@@ -237,6 +238,46 @@ final class GitService {
     }
 
     /// Debounced local auto-commit; only ever commits, never pushes.
+    /// What a commit this app makes says.
+    ///
+    /// It lived in `MacContentView`, so the iPad — which had no commit button
+    /// at all — also had no message. It belongs to the service that writes it.
+    static var autoCommitMessage: String {
+        "Update notes — \(Date.now.formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    /// What a save should set in motion: an auto-commit if the user asked for
+    /// one, and a debounced status refresh either way.
+    ///
+    /// This was fifteen lines of `.onChange(of: tabs.totalSavedRevision)` in
+    /// `MacContentView` and **nothing at all in the iPad's shell**, so on iPad
+    /// auto-commit could be switched on and never fire, and the change count
+    /// went stale the moment you typed. The rules it encodes are Git's, not a
+    /// shell's.
+    func noteDidSave(autoCommitEnabled: Bool, isCloudBacked: Bool) {
+        // Never auto-commit a cloud-backed collection: libgit2 would churn the
+        // object store against online-only files. Nor a collection that is only
+        // *part* of a repository — commits there are scoped to this folder, but
+        // writing commits automatically into a repository someone is using for
+        // other work is not ours to decide. (Both are disabled in the toggle
+        // too; this honours a pre-existing enabled flag as well.)
+        if autoCommitEnabled, !isCloudBacked, !status.isSubdirectory {
+            scheduleAutoCommit(message: Self.autoCommitMessage)
+        }
+        scheduleStatusRefresh()
+    }
+
+    /// Debounced, because a save fires on every autosave and a burst of edits
+    /// must not spawn a status walk per keystroke.
+    func scheduleStatusRefresh() {
+        statusRefreshTask?.cancel()
+        statusRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            await self?.refreshStatus()
+        }
+    }
+
     func scheduleAutoCommit(message: String) {
         autoCommitTask?.cancel()
         autoCommitTask = Task { [weak self] in
