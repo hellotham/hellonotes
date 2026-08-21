@@ -120,7 +120,7 @@ struct MacContentView: View {
     /// Which compact place is showing, and whether the note is full-screen.
     /// Only read below the compact threshold, which a Mac window reaches only
     /// when the OS forces it past the declared minimum.
-    @SceneStorage("compactPlace") private var compactPlaceRaw = CompactPlace.notes.rawValue
+    @SceneStorage(CompactPlace.storageKey) private var compactPlaceRaw = CompactPlace.notes.rawValue
     @State private var compactNoteExpanded = false
     /// Sidebar expansion, held by the shell so both platforms keep it across a
     /// rebuild. The AppKit outline manages its own and ignores these; they are
@@ -178,9 +178,8 @@ struct MacContentView: View {
     /// collection on first launch) from "chose Library", which is `""` — the
     /// two look identical otherwise, and a new window would keep snapping back
     /// to a collection the user had just navigated out of.
-    @SceneStorage("railPlace") private var railPlaceID = MacContentView.railPlaceUnset
+    @SceneStorage(RailPlaceStorage.key) private var railPlaceID = RailPlaceStorage.unset
 
-    static let railPlaceUnset = "?"
 
     /// An outline row to scroll into view once, set when something asks the
     /// window to *show* a collection (see `Library.pendingRevealCollectionID`).
@@ -459,7 +458,7 @@ struct MacContentView: View {
             }
             // A window that has never had its rail moved opens in the focused
             // collection, not on the Library place: the notes are the point.
-            if railPlaceID == Self.railPlaceUnset {
+            if railPlaceID == RailPlaceStorage.unset {
                 railPlaceID = library.focusedID ?? ""
             }
         }

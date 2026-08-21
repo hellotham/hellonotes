@@ -47,6 +47,14 @@ enum CompactPlace: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Where the compact shell's place is persisted.
+    ///
+    /// `@SceneStorage` on both. It was scene-persisted on the Mac and plain
+    /// `@State` on iOS — so the platform where the compact shell is the *only*
+    /// shell forgot which tab you were on every relaunch, while the platform
+    /// that rarely shows it remembered.
+    static let storageKey = "compactPlace"
+
     var title: String {
         switch self {
         case .notes: "Notes"

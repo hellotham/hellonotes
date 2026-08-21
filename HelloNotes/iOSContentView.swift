@@ -139,7 +139,18 @@ struct iOSContentView: View {
 
     /// Compact only: which place the bottom tab bar is showing, and whether the
     /// open note is filling the screen rather than sitting in the mini strip.
-    @State private var place: CompactPlace = .notes
+    /// The compact shell's place, per scene. It was plain `@State` here and
+    /// `@SceneStorage` on the Mac, so the platform where the compact shell is
+    /// the *only* shell forgot which tab you were on every relaunch.
+    @SceneStorage(CompactPlace.storageKey) private var compactPlaceRaw = CompactPlace.notes.rawValue
+    private var place: CompactPlace {
+        get { CompactPlace(rawValue: compactPlaceRaw) ?? .notes }
+        nonmutating set { compactPlaceRaw = newValue.rawValue }
+    }
+    /// The same binding the Mac hands `CompactShell`.
+    private var compactPlace: Binding<CompactPlace> {
+        Binding(get: { place }, set: { place = $0 })
+    }
     @State private var noteIsExpanded = false
 
     /// On iPhone (collapsed), open straight to the note list rather than the
@@ -201,8 +212,7 @@ struct iOSContentView: View {
 
     /// Which place the library rail is on — `""` is the Library place, the
     /// sentinel means "never chosen", so a first launch lands in the notes.
-    @SceneStorage("railPlace") private var railPlaceID = iOSContentView.railPlaceUnset
-    static let railPlaceUnset = "?"
+    @SceneStorage(RailPlaceStorage.key) private var railPlaceID = RailPlaceStorage.unset
 
     /// Launch splash overlay; fades out after a beat (or on tap).
     @State private var showSplash = true
@@ -444,7 +454,7 @@ struct iOSContentView: View {
             }
             // A window whose rail has never been moved opens in the focused
             // collection, not on the Library place: the notes are the point.
-            if railPlaceID == Self.railPlaceUnset { railPlaceID = library.focusedID ?? "" }
+            if railPlaceID == RailPlaceStorage.unset { railPlaceID = library.focusedID ?? "" }
         }
         .task { wireTabs() }
         .task(id: docFeaturesKey) {
@@ -1474,7 +1484,7 @@ struct iOSContentView: View {
 
     private var compactShell: some View {
         CompactShell(
-            place: $place,
+            place: compactPlace,
             openNoteTitle: editor.note?.title,
             noteIsExpanded: $noteIsExpanded,
             places: { place in

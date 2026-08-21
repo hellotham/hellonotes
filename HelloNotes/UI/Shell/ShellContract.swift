@@ -17,6 +17,16 @@ import MarkdownEditor   // PlatformFont
 
 /// Every size the shell is allowed to use. A number that isn't here is a number
 /// nobody decided; put it here (and in Part 3 of the design) before using it.
+/// The sidebar's persisted selection.
+///
+/// `railPlaceUnset` was a `static let` on *each* shell, with the same value —
+/// two constants that must agree is the shape this project keeps removing.
+enum RailPlaceStorage {
+    static let key = "railPlace"
+    /// No choice made yet, as distinct from "the Library place".
+    static let unset = "?"
+}
+
 enum ShellMetrics {
     // Rails and columns
 
