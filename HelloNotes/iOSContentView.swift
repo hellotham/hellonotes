@@ -131,6 +131,9 @@ struct iOSContentView: View {
     /// UIKit twin. Only the way in was missing: its sole caller was the macOS
     /// editor, so an iPad could hold a Marp deck and never present it.
     @State private var showSlides = false
+    @State private var showMermaid = false
+    @State private var showClone = false
+    @State private var showNewRepo = false
     @State private var gitAccounts = GitAccountsStore()
     /// Spotlight names the files whose content mentions this note; only those
     /// few are read and verified. `SpotlightSearch` was macOS-gated despite
@@ -255,6 +258,23 @@ struct iOSContentView: View {
         } message: {
             Text("Renaming updates [[links]] in notes that point at it.")
         }
+        .sheet(isPresented: $showClone) {
+            NavigationStack {
+                CloneRepositoryView(store: gitAccounts, git: focused?.git ?? GitService()) { url in
+                    Task { await library.open(url: url) }
+                }
+            }
+        }
+        .sheet(isPresented: $showNewRepo) {
+            NavigationStack {
+                NewRepositoryView(store: gitAccounts) { url in
+                    Task { await library.open(url: url) }
+                }
+            }
+        }
+        .sheet(isPresented: $showMermaid) {
+            MermaidPreviewView(sources: MarkdownParsing.mermaidBlocks(in: editor.text))
+        }
         .sheet(isPresented: $showSlides) {
             SlidesView(
                 markdown: editor.text,
@@ -264,11 +284,20 @@ struct iOSContentView: View {
         }
         .sheet(isPresented: $showOpenQuickly) {
             NavigationStack {
-                OpenQuicklyList(notes: (railCollection ?? focused)?.notes ?? []) { note in
-                    showOpenQuickly = false
-                    selectedTag = nil
-                    searchText = ""
-                    selectedNoteID = note.id
+                if let search = (railCollection ?? focused)?.search {
+                    OpenQuicklyView(search: search) { note in
+                        showOpenQuickly = false
+                        selectedTag = nil
+                        searchText = ""
+                        selectedNoteID = note.id
+                    }
+                    .navigationTitle("Open Quickly")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { showOpenQuickly = false }
+                        }
+                    }
                 }
             }
         }
@@ -525,6 +554,20 @@ struct iOSContentView: View {
                     } label: {
                         Label("Open Obsidian Vault…", systemImage: "shippingbox")
                     }
+                    Divider()
+                    // Both views were always cross-platform — they already
+                    // branch to a document picker where the Mac opens a panel.
+                    // Only a way in was missing.
+                    Button {
+                        showClone = true
+                    } label: {
+                        Label("Clone Repository…", systemImage: "arrow.down.circle")
+                    }
+                    Button {
+                        showNewRepo = true
+                    } label: {
+                        Label("New Repository…", systemImage: "plus.rectangle.on.folder")
+                    }
                     if !library.isEmpty {
                         Divider()
                         Button {
@@ -778,6 +821,20 @@ struct iOSContentView: View {
                         showImporter = true
                     } label: {
                         Label("Open Obsidian Vault…", systemImage: "shippingbox")
+                    }
+                    Divider()
+                    // Both views were always cross-platform — they already
+                    // branch to a document picker where the Mac opens a panel.
+                    // Only a way in was missing.
+                    Button {
+                        showClone = true
+                    } label: {
+                        Label("Clone Repository…", systemImage: "arrow.down.circle")
+                    }
+                    Button {
+                        showNewRepo = true
+                    } label: {
+                        Label("New Repository…", systemImage: "plus.rectangle.on.folder")
                     }
                     Divider()
                     Button {
@@ -1456,6 +1513,14 @@ struct iOSContentView: View {
                         Label("Present as Slides", systemImage: "rectangle.on.rectangle")
                     }
                 }
+                // Only when there is one to preview — the Mac's bar button is
+                // always there, but a menu row that opens an empty sheet reads
+                // as a broken command rather than an empty note.
+                if !MarkdownParsing.mermaidBlocks(in: editor.text).isEmpty {
+                    Button { showMermaid = true } label: {
+                        Label("Mermaid Diagrams", systemImage: "chart.xyaxis.line")
+                    }
+                }
             }
             if let ai = aiActions {
                 Divider()
@@ -1806,48 +1871,6 @@ private struct CollectionTreeRow: View {
             // viewer to show.
             Label(file.name, systemImage: file.kind.symbol)
                 .tag(file.url)
-        }
-    }
-}
-
-
-
-
-/// Jump to a note by name — the iPad's Open Quickly.
-///
-/// A plain searchable list rather than the Mac's fuzzy-scored sheet: on a
-/// touch device the keyboard is already the slow part, and a list you can also
-/// *scroll* is more use than one you can only type at.
-private struct OpenQuicklyList: View {
-    let notes: [Note]
-    let onOpen: (Note) -> Void
-
-    @State private var query = ""
-    @Environment(\.dismiss) private var dismiss
-
-    private var matches: [Note] {
-        guard !query.isEmpty else { return Array(notes.prefix(50)) }
-        return notes.filter { $0.title.localizedCaseInsensitiveContains(query) }
-    }
-
-    var body: some View {
-        List(matches) { note in
-            Button { onOpen(note) } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(note.title)
-                    Text(note.lastModified, format: .dateTime.year().month().day())
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .foregroundStyle(.primary)
-        }
-        .searchable(text: $query, prompt: "Open Quickly")
-        .navigationTitle("Open Quickly")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
         }
     }
 }

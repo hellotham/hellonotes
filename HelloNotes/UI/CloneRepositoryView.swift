@@ -68,7 +68,11 @@ struct CloneRepositoryView: View {
             Divider()
             footer
         }
+#if os(macOS)
+        // A fixed sheet on the Mac; on iPhone and iPad the sheet is sized by
+        // the presentation, and a hard 560pt would overflow a phone.
         .frame(width: 560, height: 640)
+#endif
         #if os(iOS)
         .sheet(isPresented: $showFolderPicker) {
             FolderPicker(startingAt: nil) { urls in

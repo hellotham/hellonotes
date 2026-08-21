@@ -100,7 +100,11 @@ struct NewRepositoryView: View {
             }
             .padding()
         }
+#if os(macOS)
+        // A fixed sheet on the Mac; on iPhone and iPad the sheet is sized by
+        // the presentation, and a hard 560pt would overflow a phone.
         .frame(width: 460, height: 440)
+#endif
         .onAppear { if selectedHost.isEmpty { selectedHost = store.accounts.first?.host ?? "" } }
         #if os(iOS)
         // The Mac opens an NSOpenPanel; iPad presents the document

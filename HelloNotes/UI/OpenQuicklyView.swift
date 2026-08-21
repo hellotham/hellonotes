@@ -5,12 +5,16 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
 import SwiftUI
 
 /// A command-palette-style sheet (⌘O) for jumping to a note or heading by
 /// fuzzy-matching its name. Type to filter, press Return to open the top hit,
-/// or click any row.
+/// or tap any row.
+///
+/// Cross-platform since the parity audit. iPad had a list of its own that
+/// filtered `notes` by substring — no headings, no ranking, no debounce — so
+/// ⌘O found a different set of things on each platform. One view, one
+/// `quickOpenResults`, and the sheet chrome differs where the platform's does.
 struct OpenQuicklyView: View {
     let search: CollectionSearchModel
     let onOpen: (Note) -> Void
@@ -41,6 +45,11 @@ struct OpenQuicklyView: View {
                 .padding(12)
                 .focused($fieldFocused)
                 .onSubmit(openSelected)
+                .autocorrectionDisabled()
+#if os(iOS)
+                .textInputAutocapitalization(.never)
+                .submitLabel(.go)
+#endif
 
             Divider()
 
@@ -52,10 +61,14 @@ struct OpenQuicklyView: View {
             }
             .listStyle(.plain)
         }
+#if os(macOS)
+        // A palette, not a document: fixed, and sized to the window rather than
+        // to whatever the results happen to be.
         .frame(width: 540, height: 420)
         // Escape must always dismiss, even if the text field has lost first-
         // responder status — don't rely on the sheet's implicit cancel action.
         .onExitCommand { dismiss() }
+#endif
         .onAppear { fieldFocused = true; results = search.quickOpenResults(query: "") }
         .onChange(of: query) { _, q in scheduleQuery(q) }
         .onChange(of: results) { _, newResults in
@@ -96,4 +109,3 @@ struct OpenQuicklyView: View {
         }
     }
 }
-#endif
