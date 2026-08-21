@@ -15,6 +15,15 @@ extension Notification.Name {
     /// sheet belongs to the editor, which owns the text and the replace path,
     /// while the command belongs to the menu bar.
     static let hnRewriteNote = Notification.Name("hn.editor.rewriteNote")
+
+    /// Show the note as Marp slides / preview its Mermaid diagrams.
+    ///
+    /// Posted rather than called because the sheets live on `NoteEditorView`
+    /// and the commands that ask for them live in the shell's menus — the same
+    /// split `hnRewriteNote` already had. Before this, iOS kept its own copies
+    /// of both sheets so its menu had something local to set.
+    static let hnShowSlides = Notification.Name("hn.editor.showSlides")
+    static let hnShowMermaid = Notification.Name("hn.editor.showMermaid")
     /// Host → engine: scroll to (and briefly highlight) the first match of a
     /// query in the editor's displayed text. Used for table-of-contents jumps.
     static let hnEditorFindQuery = Notification.Name("hn.editor.findQuery")

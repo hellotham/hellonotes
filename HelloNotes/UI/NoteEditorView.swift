@@ -677,6 +677,12 @@ private struct NoteEditorSheets: ViewModifier {
                 baseURL: editor.note?.fileURL.deletingLastPathComponent()
             )
         }
+        .onReceive(NotificationCenter.default.publisher(for: .hnShowSlides)) { _ in
+            showSlides = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .hnShowMermaid)) { _ in
+            showMermaid = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .hnRewriteNote)) { _ in
             showRewriteNote = true
         }

@@ -169,7 +169,6 @@ struct iOSContentView: View {
     /// Launch splash overlay; fades out after a beat (or on tap).
     @State private var showSplash = true
     /// The whole-note rewrite sheet, raised from the editor's toolbar menu.
-    @State private var showRewriteNote = false
 
     /// An in-progress link review, carrying the text its ranges describe.
     @State private var linkReview: LinkReviewFlow.Request?
@@ -194,8 +193,6 @@ struct iOSContentView: View {
     /// cross-platform apart from one web-view representable that already has a
     /// UIKit twin. Only the way in was missing: its sole caller was the macOS
     /// editor, so an iPad could hold a Marp deck and never present it.
-    @State private var showSlides = false
-    @State private var showMermaid = false
     @State private var showClone = false
     @State private var showNewRepo = false
     /// The "open" launcher and its backing stores — recents plus saved
@@ -712,16 +709,6 @@ struct iOSContentView: View {
                     Task { await library.open(url: url) }
                 }
             }
-        }
-        .sheet(isPresented: $showMermaid) {
-            MermaidPreviewView(sources: MarkdownParsing.mermaidBlocks(in: editor.text))
-        }
-        .sheet(isPresented: $showSlides) {
-            SlidesView(
-                markdown: editor.text,
-                title: editor.note?.title ?? "Slides",
-                baseURL: editor.note?.fileURL.deletingLastPathComponent()
-            )
         }
         .sheet(isPresented: $showOpenQuickly) {
             NavigationStack {
@@ -1980,17 +1967,6 @@ struct iOSContentView: View {
                     )
                 }
             }
-            .sheet(isPresented: $showRewriteNote) {
-                NavigationStack {
-                    RewriteSelectionView(
-                        intelligence: IntelligenceService(settings: llmSettings),
-                        original: FrontMatter.body(of: editor.text),
-                        onReplace: { replaceBody(with: $0) },
-                        onInsertBelow: { editor.text = editor.text.trimmingTrailingNewlines() + "\n\n\($0)\n" },
-                        subject: .wholeNote
-                    )
-                }
-            }
         } else {
             ContentUnavailableView(
                 "Select a Note",
@@ -2130,7 +2106,9 @@ struct iOSContentView: View {
                 Button("Suggest Tags", systemImage: "number") { askInspector(.suggestTags) }
                 Button("Suggest Links", systemImage: "link.badge.plus") { askInspector(.suggestLinks) }
                 Divider()
-                Button("Rewrite or Expand Note…", systemImage: "wand.and.stars") { showRewriteNote = true }
+                Button("Rewrite or Expand Note…", systemImage: "wand.and.stars") {
+                        NotificationCenter.default.post(name: .hnRewriteNote, object: nil)
+                    }
                 Divider()
                 Text("via \(intelligence.providerName)")
             } label: {
@@ -2366,7 +2344,7 @@ struct iOSContentView: View {
                 // ViewBuilder, so anything in this closure runs at construction
                 // time on the main actor whether or not the menu is ever opened.
                 if docFeatures.isMarp {
-                    Button { showSlides = true } label: {
+                    Button { NotificationCenter.default.post(name: .hnShowSlides, object: nil) } label: {
                         Label("Present as Slides", systemImage: "rectangle.on.rectangle")
                     }
                 }
@@ -2374,7 +2352,7 @@ struct iOSContentView: View {
                 // always there, but a menu row that opens an empty sheet reads
                 // as a broken command rather than an empty note.
                 if docFeatures.hasMermaid {
-                    Button { showMermaid = true } label: {
+                    Button { NotificationCenter.default.post(name: .hnShowMermaid, object: nil) } label: {
                         Label("Mermaid Diagrams", systemImage: "chart.xyaxis.line")
                     }
                 }
@@ -2521,7 +2499,7 @@ struct iOSContentView: View {
             summarize: { askInspector(.summarize) },
             suggestTags: { askInspector(.suggestTags) },
             suggestLinks: { askInspector(.suggestLinks) },
-            rewriteNote: { showRewriteNote = true })
+            rewriteNote: { NotificationCenter.default.post(name: .hnRewriteNote, object: nil) })
     }
 
     /// What this window offers the menu bar.
