@@ -990,7 +990,13 @@ struct MacContentView: View {
         VStack(spacing: 0) {
             SearchCompletenessNotice(collections: library.collections, isSearching: isSearching)
             outlineList
-                .overlay { noteListEmptyState }
+                .overlay { SidebarEmptyState(
+                library: library, search: search, searchText: searchText,
+                selectedTag: selectedTag, scope: railCollection ?? focused,
+                hasRecents: !(recents.entries.isEmpty && libraries.libraries.isEmpty),
+                openCollection: { library.requestOpenCollections() },
+                openRecent: { showLauncher = true },
+                newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) }) }
         }
     }
 
@@ -1499,34 +1505,6 @@ struct MacContentView: View {
             onCloseCollection: { actions.closeCollection($0) },
             onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) }
         )
-    }
-
-    @ViewBuilder
-    private var noteListEmptyState: some View {
-        if library.isEmpty {
-            ContentUnavailableView {
-                Label("No Collections", systemImage: "folder")
-            } description: {
-                Text("Open a collection, an Obsidian vault, or a saved library to begin.")
-            } actions: {
-                Button("Open…") { showLauncher = true }
-                    .buttonStyle(.borderedProminent)
-            }
-        } else if isSearching {
-            if search.isEmpty && !search.isInFlight {
-                ContentUnavailableView.search(text: searchText)
-            }
-        } else if selectedTag == nil, let collection = focused, collection.notes.isEmpty,
-                  library.collections.count == 1 {
-            ContentUnavailableView {
-                Label("No Notes", systemImage: "square.and.pencil")
-            } description: {
-                Text("“\(collection.name)” is empty. Create your first note to get started.")
-            } actions: {
-                Button("New Note") { newNote() }
-                    .buttonStyle(.borderedProminent)
-            }
-        }
     }
 
     // MARK: - Outline items (NSOutlineView data)

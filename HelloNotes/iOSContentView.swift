@@ -915,27 +915,13 @@ struct iOSContentView: View {
                     placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search all collections")
         .searchFocused($searchFocused)
-        .overlay {
-            // **Closing the last collection must not be a dead end.** The way
-            // back in lived only in the Library place's menu, which the iPad
-            // sidebar is not, so closing everything left a blank column and a
-            // lone "+" whose meaning you had to already know.
-            if library.isEmpty {
-                ContentUnavailableView {
-                    Label("No Collections", systemImage: "books.vertical")
-                } description: {
-                    Text("Open a folder of Markdown notes, or an Obsidian vault, to get started.")
-                } actions: {
-                    Button("Open Collection…") { library.requestOpenCollections() }
-                        .buttonStyle(.borderedProminent)
-                    // The Mac's equivalent empty state offers the launcher, not
-                    // the panel: after the first time, the way back in is a
-                    // vault you have already opened, not a folder to re-find.
-                    Button("Open Recent…") { showLauncher = true }
-                        .disabled(recents.entries.isEmpty && libraries.libraries.isEmpty)
-                }
-            }
-        }
+        .overlay { SidebarEmptyState(
+                library: library, search: search, searchText: searchText,
+                selectedTag: selectedTag, scope: railCollection ?? focused,
+                hasRecents: !(recents.entries.isEmpty && libraries.libraries.isEmpty),
+                openCollection: { library.requestOpenCollections() },
+                openRecent: { showLauncher = true },
+                newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) }) }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
