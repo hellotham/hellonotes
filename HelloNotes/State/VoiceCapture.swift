@@ -39,17 +39,39 @@ actor VoiceCapture {
     /// Whether on-device transcription is supported at all.
     static func isSupported() async -> Bool { !(await SpeechTranscriber.supportedLocales).isEmpty }
 
+    /// Ask for the microphone, whichever way the platform asks.
+    ///
+    /// `AVAudioApplication.requestRecordPermission` is iOS-only;
+    /// `AVCaptureDevice.requestAccess(for: .audio)` is on both and is what
+    /// macOS's TCC prompt hangs off. Same question, same answer type.
+    private static func microphoneAuthorised() async -> Bool {
+        #if os(iOS)
+        return await AVAudioApplication.requestRecordPermission()
+        #else
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return true
+        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .audio)
+        default: return false
+        }
+        #endif
+    }
+
     /// Start transcribing. `onTranscript` receives the running transcript (final
     /// text + the current volatile tail) as it grows.
     func start(onTranscript: @escaping @Sendable (String) -> Void) async throws {
-        #if os(iOS)
         // Asked first, before the model download below, so the permission alert
         // lands on the tap that asked for dictation rather than some seconds
         // after it. Already-answered requests return immediately.
-        guard await AVAudioApplication.requestRecordPermission() else {
+        //
+        // **On both platforms.** This was `#if os(iOS)`, so a Mac whose
+        // microphone permission had been denied got no prompt and no error:
+        // `engine.start()` simply produced no samples, and
+        // `DictationController` swallows the throw that never came. The same
+        // silent failure the iOS comment below describes, on the platform
+        // nobody checked.
+        guard await Self.microphoneAuthorised() else {
             throw VoiceCaptureError.microphoneDenied
         }
-        #endif
 
         let transcriber = SpeechTranscriber(
             locale: Locale.current,
