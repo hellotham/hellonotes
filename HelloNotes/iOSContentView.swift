@@ -1932,28 +1932,32 @@ struct iOSContentView: View {
                 .navigationTitle(file.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .ignoresSafeArea(.container, edges: .bottom)
-        } else if let note = editor.note {
-            VStack(spacing: 0) {
-                // Both of these are raised by the shared `EditorModel` on either
-                // platform and were presented only by `NoteEditorView`, which is
-                // `#if os(macOS)` end to end.
-                // The pane, the banners and the four modes are shared with the
-                // standalone note window — see `NoteEditorPane`.
-                NoteEditorPane(
-                    editor: editor,
-                    note: note,
-                    // The note's own collection, never the focused one: an iPad
-                    // with two collections open completed `[[links]]` against
-                    // the wrong vocabulary and wrote links resolving to nothing.
-                    collection: editorCollection,
-                    appearance: appearance,
-                    llmSettings: llmSettings,
-                    mode: mode,
-                    onOpenWikiLink: { openWikiLink($0) },
-                    selectionActions: editorCollection.map(selectionActions(in:)),
-                    onRename: { renameNote(note, to: $0) }
-                )
-            }
+        } else if let note = editor.note, let c = editorCollection {
+            // `NoteEditorView`, the same editor column the Mac uses — not the
+            // bare pane. The pane is banners, title and the four modes; the
+            // *view* adds the find bar, the mode sheets and the bottom bar, and
+            // iPad had none of that bar: no word count, no save status, no Git
+            // change count. `DocStats` even carried a comment about "the word
+            // count that nothing on iOS shows" — which was the gap, not the
+            // reason for it.
+            NoteEditorView(
+                editor: editor,
+                backlinks: c.linkGraph.backlinks(for: note, in: c.notes),
+                outgoingLinks: c.linkGraph.outgoingLinks(for: note, in: c.notes),
+                unlinkedMentions: unlinkedMentions,
+                embedProvider: c.embedProvider,
+                git: c.git,
+                linkCandidates: c.search.linkTargets(),
+                tagCandidates: c.search.allTags(),
+                headingProvider: { c.search.headings(forName: $0) },
+                onOpenWikiLink: { openWikiLink($0) },
+                onOpenNote: { selectedNoteID = $0.id },
+                onLinkMention: linkMention,
+                onRenameNote: { renameNote(note, to: $0) },
+                onShowMindMap: { showMindMap = true },
+                ai: aiActions,
+                selectionActions: selectionActions(in: c)
+            )
             // S3: the detail column is a viewport, whatever mode it is in.
             // Without the clamp the editor's or preview's ideal height sizes
             // the column, and the split view follows it past the screen.

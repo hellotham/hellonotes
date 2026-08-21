@@ -2937,3 +2937,26 @@ selection colour, which is why the Mac keeps an `NSOutlineView` — remains
 **untested**. It no longer blocks anything: the API is one either way, and if the
 claim turns out to be stale the AppKit branch can be deleted without touching a
 single call site. Settling it needs `screencapture -l` on a running window.
+
+### iPad had no word count and no save status
+
+The Mac's detail column is `NoteEditorView`; the iPad's was `NoteEditorPane`. The
+pane is banners, the inline title and the four modes. The *view* is the pane plus
+this window's chrome — the find bar, the mode sheets, and a bottom bar carrying
+the word count, the save status and the Git change count.
+
+iPad had none of that bar. `DocStats` carried the evidence in a comment — "the
+Mac's `DocStats`, minus the word count that nothing on iOS shows" — which
+described the gap and read as its justification. Nothing on iOS showed it because
+nothing on iOS drew the bar that shows it.
+
+Both platforms render `NoteEditorView` now, so the iPad gains the word count, the
+save indicator, the Git change count, the find-and-replace bar and the
+front-matter properties button. This is a visible change to the iPad's editor:
+there is a status bar along the bottom of the note that was not there before.
+
+Still duplicated after this step: iOS keeps its own Mermaid, Slides and Rewrite
+sheet state, which `NoteEditorSheets` now also provides. They do not conflict —
+each set of buttons drives its own — but they are two of the same thing, and
+collapsing them means routing the iPad's menu through the notifications
+`NoteEditorView` already listens on.
