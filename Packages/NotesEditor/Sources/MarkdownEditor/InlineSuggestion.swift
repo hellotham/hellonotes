@@ -273,3 +273,185 @@ private extension String {
     }
 }
 #endif
+
+#if canImport(UIKit) && !canImport(AppKit)
+import UIKit
+
+//  The UIKit half.
+//
+//  Same invariant, same three operations, two differences that are not
+//  cosmetic:
+//
+//  * **Drawing.** `UITextView` does not invoke a subclass's `draw(_:)` over its
+//    own text the way `NSTextView` does, which is why every other piece of
+//    chrome in this editor is painted by `ChromeOverlayView`. The ghost goes
+//    there too, in the same content coordinate space the fragments use.
+//  * **Acceptance.** ⌥⇥ / → / Esc are a hardware keyboard's answer, and an iPad
+//    often has none. The gesture is therefore **a tap on the ghost itself**:
+//    it is the only region on screen where a tap currently means nothing (the
+//    caret is already at the end of that line, which is what a tap there would
+//    otherwise ask for), so nothing is taken away to make room for it. ⌥⇥ and
+//    Esc are still offered when a keyboard is attached, so an iPad with a Magic
+//    Keyboard behaves exactly like the Mac.
+
+extension MarkdownUITextView {
+
+    // MARK: - Offering
+
+    /// The suggestion, if one is genuinely live. Validated on read rather than
+    /// invalidated on change — see the AppKit half above for why that is the
+    /// load-bearing decision and not a stylistic one.
+    var inlineSuggestion: InlineSuggestion? {
+        guard let stored = storedInlineSuggestion else { return nil }
+        let selection = selectedRange
+        guard selection.length == 0, selection.location == stored.location else { return nil }
+        return stored
+    }
+
+    func showInlineSuggestion(_ suggestion: InlineSuggestion?) {
+        let previous = storedInlineSuggestion
+        guard previous != suggestion else { return }
+        if let suggestion {
+            let selection = selectedRange
+            guard selection.length == 0,
+                  selection.location == suggestion.location,
+                  isEditable,
+                  canOfferSuggestion(at: selection.location)
+            else {
+                storedInlineSuggestion = nil
+                if previous != nil { refreshChrome() }
+                return
+            }
+        }
+        storedInlineSuggestion = suggestion
+        refreshChrome()
+    }
+
+    func clearInlineSuggestion() {
+        guard storedInlineSuggestion != nil else { return }
+        storedInlineSuggestion = nil
+        refreshChrome()
+    }
+
+    /// Ghost text is offered only where it can be drawn honestly: an empty
+    /// selection at the end of a line, with no `[[link` / `#tag` completion
+    /// already open at the caret. Two completion UIs on one character, both
+    /// wanting the same tap, is one more than anybody wants.
+    func canOfferSuggestion(at location: Int) -> Bool {
+        let ns = (text ?? "") as NSString
+        guard location >= 0, location <= ns.length else { return false }
+        guard document?.inlineContext(at: location) == nil else { return false }
+        guard location < ns.length else { return true }   // end of document
+        return ns.character(at: location) == 10           // newline
+    }
+
+    // MARK: - Drawing
+
+    /// Where the ghost is painted, in the text view's content coordinates —
+    /// which is also the chrome overlay's space, and the space a tap arrives in.
+    /// One function answers both "where do I draw it" and "was that tap on it",
+    /// so the two can never disagree about where the ghost is.
+    func inlineSuggestionRect() -> CGRect? {
+        guard let suggestion = inlineSuggestion, let document else { return nil }
+        guard let position = position(from: beginningOfDocument, offset: suggestion.location)
+        else { return nil }
+        let caret = caretRect(for: position)
+        guard caret.origin.x.isFinite, caret.origin.y.isFinite, caret.height > 0 else { return nil }
+
+        let available = bounds.width - caret.maxX
+            - textContainerInset.right - textContainer.lineFragmentPadding
+        guard available > 12 else { return nil }
+
+        let drawn = suggestion.text.fittingWidth(available, attributes: ghostAttributes(document))
+        guard !drawn.isEmpty else { return nil }
+        let size = (drawn as NSString).size(withAttributes: ghostAttributes(document))
+        return CGRect(x: caret.maxX, y: caret.midY - size.height / 2,
+                      width: size.width, height: size.height)
+    }
+
+    private func ghostAttributes(_ document: EditorDocument) -> [NSAttributedString.Key: Any] {
+        [.font: document.theme.body,
+         .foregroundColor: document.theme.text.withAlphaComponent(0.38)]
+    }
+
+    /// Paint the ghost. Called by `ChromeOverlayView.draw` after the fragments.
+    func drawInlineSuggestion(in rect: CGRect) {
+        guard let suggestion = inlineSuggestion, let document else { return }
+        guard let frame = inlineSuggestionRect(), frame.intersects(rect) else { return }
+        let attributes = ghostAttributes(document)
+        // Trim the *suggestion*, not the drawing: what is shown and what
+        // accepting inserts have to be the same string by construction.
+        let drawn = suggestion.text.fittingWidth(frame.width + 1, attributes: attributes)
+        guard !drawn.isEmpty else { return }
+        (drawn as NSString).draw(at: frame.origin, withAttributes: attributes)
+    }
+
+    // MARK: - Accepting
+
+    /// Insert the suggestion at the caret. The **only** path from ghost text to
+    /// the document, through `performEdit` — the same undoable route typing
+    /// takes, so an accepted completion is indistinguishable from text the user
+    /// wrote, because by then it is.
+    @discardableResult
+    public func acceptInlineSuggestion() -> Bool {
+        guard let suggestion = inlineSuggestion else {
+            clearInlineSuggestion()
+            return false
+        }
+        clearInlineSuggestion()
+        return performEdit(replacing: NSRange(location: suggestion.location, length: 0),
+                           with: suggestion.text)
+    }
+
+    /// A tap lands on the ghost: accept it, and report that the tap is spent so
+    /// the caret is not moved as well.
+    func acceptInlineSuggestion(ifTappedAt point: CGPoint) -> Bool {
+        guard let frame = inlineSuggestionRect() else { return false }
+        // Generously, vertically: the ghost is one line of text and a fingertip
+        // is not.
+        guard frame.insetBy(dx: -4, dy: -8).contains(point) else { return false }
+        return acceptInlineSuggestion()
+    }
+
+    @objc func acceptInlineSuggestionCommand(_ sender: Any?) { acceptInlineSuggestion() }
+    @objc func dismissInlineSuggestionCommand(_ sender: Any?) { clearInlineSuggestion() }
+
+    // MARK: - Requesting
+
+    /// Ask the host for a completion at the caret, if one could be shown here.
+    func requestInlineCompletion() {
+        guard isEditable, let onInlineCompletionRequest else { return }
+        let selection = selectedRange
+        guard selection.length == 0, canOfferSuggestion(at: selection.location) else {
+            clearInlineSuggestion()
+            return
+        }
+        let ns = (text ?? "") as NSString
+        let budget = 1_200
+        let start = max(0, selection.location - budget)
+        let after = min(ns.length - selection.location, 400)
+        onInlineCompletionRequest(InlineCompletionContext(
+            location: selection.location,
+            prefix: ns.substring(with: NSRange(location: start, length: selection.location - start)),
+            suffix: ns.substring(with: NSRange(location: selection.location, length: after))))
+    }
+}
+
+private extension String {
+    /// The longest prefix of this string that fits `width`, cut at a word
+    /// boundary. Empty when even the first word doesn't fit.
+    func fittingWidth(_ width: CGFloat, attributes: [NSAttributedString.Key: Any]) -> String {
+        guard width > 0 else { return "" }
+        if (self as NSString).size(withAttributes: attributes).width <= width { return self }
+
+        var candidate = ""
+        var result = ""
+        for piece in split(separator: " ", omittingEmptySubsequences: false) {
+            candidate += (candidate.isEmpty ? "" : " ") + piece
+            if (candidate as NSString).size(withAttributes: attributes).width > width { break }
+            result = candidate
+        }
+        return result
+    }
+}
+#endif

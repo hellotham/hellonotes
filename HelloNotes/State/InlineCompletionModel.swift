@@ -21,14 +21,12 @@
 //  time you stop typing is worse than one that never completes.
 //
 
-//  **macOS only.** Not a gate around otherwise-shared code: the iOS editor is
-//  a different view (`MarkdownUITextView`, whose chrome goes through
-//  `ChromeOverlayView`) with no ghost-drawing path, and the whole interaction
-//  is Mac keys — ⌥⇥, →, Esc — none of which exist on a soft keyboard. Bringing
-//  it to iPad means designing an acceptance gesture first, not adding a
-//  platform to a list. Recorded in docs/unimplemented.md.
+//  Cross-platform. It was macOS-only until the iOS editor grew somewhere to
+//  draw a ghost (`ChromeOverlayView`) and — the part that actually needed
+//  deciding — an acceptance gesture that works without a keyboard: you tap the
+//  ghost. ⌥⇥ and Esc are still there when a keyboard is attached. Nothing in
+//  this file changed to make that true, which is the point of the split.
 
-#if os(macOS)
 import Foundation
 import MarkdownEditor
 
@@ -105,4 +103,3 @@ final class InlineCompletionModel {
         }
     }
 }
-#endif

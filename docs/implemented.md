@@ -1854,3 +1854,47 @@ Raised to **26.5** on both platforms. The Intelligence features are built on
 Foundation Models, and the Quick Look extensions already required 26.5 while the
 app claimed macOS 15.0 — an app cannot promise an OS its own embedded extensions
 refuse to run on.
+
+### The parity audit (2026-08-21)
+
+Reachability, twice more. A sweep for `#if os(macOS)` was the wrong instrument —
+it reports that a file *contains* a gate, not what the gate covers or whether iOS
+has a call site — so the audit went feature by feature instead, and the pattern
+held: what was missing was usually the middle, not the feature.
+
+- **Marp slides.** `SlidesView` already had a `#else` `UIViewRepresentable`
+  twin. Only a caller was missing.
+- **Find & Replace.** `presentFindNavigator(showingReplace: false)`. One
+  argument.
+- **`[[wiki-link]]` / `#tag` autocomplete.** `EditorDocument.inlineContext(at:)`
+  has been public and cross-platform since it was written, and the popup list was
+  pure SwiftUI behind a gate that guarded nothing platform-specific. What iOS had
+  no equivalent of was the seam between them: nothing asked the document what the
+  caret was inside, and nothing could write an answer back. That is now
+  `onInlineContextChange` plus a UIKit `EditorProxy`. The caret rect is reported
+  in **viewport** coordinates — a `UITextView` scrolls its own content, so a rect
+  in content space is correct exactly once, and the popup would then drift up the
+  screen as the note scrolled.
+- **Heading navigation.** iOS was already posting on the find bus with no
+  listener, for want of a proxy to scroll with. It has one now.
+- **Inline completion (ghost text).** The one item that genuinely needed
+  designing rather than wiring, and only in one place: the acceptance gesture.
+  ⌥⇥ / → / Esc assume a keyboard. The touch answer is **a tap on the ghost
+  itself**, which works because that region is the only place on screen where a
+  tap currently means nothing — the caret is already at the end of that line,
+  which is all a tap there could otherwise ask for. So nothing was taken away to
+  make room for it. ⌥⇥ and Esc are still offered while a suggestion shows, and
+  only then; offered unconditionally, Esc would be a key nobody gets back.
+  Drawing goes through `ChromeOverlayView` for the usual reason — UIKit does not
+  invoke a subclass's `draw` over its own text.
+
+One ordering trap, found by testing rather than reasoning: UIKit fires
+`textViewDidChangeSelection` **before** `textViewDidChange` on an insertion, so
+reporting inline context only from the selection callback reads a parse one edit
+behind — the keystroke that completes `[[` would report nothing. It is reported
+from both.
+
+Sixteen iOS editor tests now cover this half (32 in the suite, up from 26), and
+the ranking that used to live inside the macOS-only `NoteEditorView` moved to a
+cross-platform `WikiCompletions.swift`, so there is one fuzzy ranker rather than
+two drifting.

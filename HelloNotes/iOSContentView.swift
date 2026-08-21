@@ -1668,7 +1668,8 @@ struct iOSContentView: View {
                 tags: focused?.search.allTags() ?? [],
                 headings: { name in focused?.search.headings(forName: name) ?? [] },
                 currentText: { editor.text }
-            )
+            ),
+            intelligence: IntelligenceService(settings: llmSettings)
         )
     }
 

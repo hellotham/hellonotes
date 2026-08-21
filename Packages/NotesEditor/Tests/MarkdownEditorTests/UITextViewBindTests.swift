@@ -265,6 +265,130 @@ import Testing
         #expect(tv.contentOffset.y > 0)
     }
 
+    // MARK: - Ghost text
+
+    /// The invariant the whole feature rests on: a suggestion that is showing
+    /// is *not* in the document.
+    @Test func aShowingSuggestionIsNotInTheDocument() {
+        let document = EditorDocument(text: "The quick brown fox\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+        let caret = (document.text as NSString).range(of: "fox").upperBound
+
+        tv.selectedRange = NSRange(location: caret, length: 0)
+        tv.showInlineSuggestion(InlineSuggestion(location: caret, text: " jumps over the lazy dog"))
+
+        #expect(tv.inlineSuggestion != nil)
+        #expect(document.text == "The quick brown fox\n")
+        #expect(tv.textStorage.length == (document.text as NSString).length)
+    }
+
+    /// Offered only where it can be drawn honestly — never mid-line, and never
+    /// on top of the `[[link]]` completion, which wants the same tap.
+    @Test func aSuggestionIsRefusedWhereItCannotBeDrawnHonestly() {
+        let document = EditorDocument(text: "one two three\n\nsee [[Sec\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+        let ns = document.text as NSString
+
+        // Mid-line.
+        let midLine = ns.range(of: "two").location
+        tv.selectedRange = NSRange(location: midLine, length: 0)
+        tv.showInlineSuggestion(InlineSuggestion(location: midLine, text: "nope"))
+        #expect(tv.inlineSuggestion == nil)
+
+        // Inside a half-typed wiki link.
+        let inLink = ns.range(of: "[[Sec").upperBound
+        tv.selectedRange = NSRange(location: inLink, length: 0)
+        tv.showInlineSuggestion(InlineSuggestion(location: inLink, text: "nope"))
+        #expect(tv.inlineSuggestion == nil)
+
+        // End of a line: allowed.
+        let endOfLine = ns.range(of: "three").upperBound
+        tv.selectedRange = NSRange(location: endOfLine, length: 0)
+        tv.showInlineSuggestion(InlineSuggestion(location: endOfLine, text: " and four"))
+        #expect(tv.inlineSuggestion != nil)
+    }
+
+    /// A reply that lost the race to the user's typing must not be shown at a
+    /// caret it was never computed for.
+    @Test func aStaleSuggestionIsNeitherShownNorAccepted() {
+        let document = EditorDocument(text: "The quick brown fox\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+        let caret = (document.text as NSString).range(of: "fox").upperBound
+
+        tv.selectedRange = NSRange(location: caret, length: 0)
+        tv.showInlineSuggestion(InlineSuggestion(location: caret, text: " jumps"))
+        #expect(tv.inlineSuggestion != nil)
+
+        // The caret moves; the stored suggestion no longer describes it.
+        tv.selectedRange = NSRange(location: caret - 4, length: 0)
+        #expect(tv.inlineSuggestion == nil)
+        #expect(tv.acceptInlineSuggestion() == false)
+        #expect(document.text == "The quick brown fox\n")
+    }
+
+    /// Accepting inserts exactly the string that was showing, through the
+    /// undoable path — so it reaches the document, not just the storage.
+    @Test func acceptingGhostTextInsertsItAtTheCaret() {
+        let document = EditorDocument(text: "The quick brown fox\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+        let caret = (document.text as NSString).range(of: "fox").upperBound
+
+        tv.selectedRange = NSRange(location: caret, length: 0)
+        tv.showInlineSuggestion(InlineSuggestion(location: caret, text: " jumps over"))
+        #expect(tv.acceptInlineSuggestion())
+
+        #expect(document.text == "The quick brown fox jumps over\n")
+        #expect(tv.textStorage.length == (document.text as NSString).length)
+        #expect(tv.inlineSuggestion == nil)
+    }
+
+    /// The acceptance gesture on a device with no keyboard. A tap on the ghost
+    /// accepts; a tap anywhere else is left alone for the caret.
+    @Test func tappingTheGhostAcceptsItAndTappingElsewhereDoesNot() {
+        let document = EditorDocument(text: "The quick brown fox\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+        let caret = (document.text as NSString).range(of: "fox").upperBound
+
+        tv.selectedRange = NSRange(location: caret, length: 0)
+        tv.showInlineSuggestion(InlineSuggestion(location: caret, text: " jumps over"))
+
+        let ghost = tv.inlineSuggestionRect()
+        #expect(ghost != nil)
+        guard let ghost else { return }
+        #expect(ghost.width > 0 && ghost.height > 0)
+
+        // Far from the ghost: the tap belongs to the caret.
+        #expect(tv.acceptInlineSuggestion(ifTappedAt: CGPoint(x: ghost.midX, y: ghost.maxY + 200)) == false)
+        #expect(document.text == "The quick brown fox\n")
+
+        // On it: accepted.
+        #expect(tv.acceptInlineSuggestion(ifTappedAt: CGPoint(x: ghost.midX, y: ghost.midY)))
+        #expect(document.text == "The quick brown fox jumps over\n")
+    }
+
+    /// ⌥⇥ and Esc are offered only while a suggestion is showing — Esc taken
+    /// unconditionally from a text view is a key nobody gets back.
+    @Test func theGhostKeyCommandsExistOnlyWhileItIsShowing() {
+        let document = EditorDocument(text: "The quick brown fox\n")
+        document.styleEverythingNow()
+        let (tv, _) = hosted(document)
+        let caret = (document.text as NSString).range(of: "fox").upperBound
+
+        let before = (tv.keyCommands ?? []).filter { $0.input == UIKeyCommand.inputEscape }
+        #expect(before.isEmpty)
+
+        tv.selectedRange = NSRange(location: caret, length: 0)
+        tv.showInlineSuggestion(InlineSuggestion(location: caret, text: " jumps"))
+        let during = tv.keyCommands ?? []
+        #expect(during.contains { $0.input == "\t" && $0.modifierFlags == .alternate })
+        #expect(during.contains { $0.input == UIKeyCommand.inputEscape })
+    }
+
     /// A range past the end must clamp, not throw: the outline is built from
     /// the model's text, which can trail the document by a keystroke.
     @Test func theProxyClampsAnOutOfRangeSelection() {

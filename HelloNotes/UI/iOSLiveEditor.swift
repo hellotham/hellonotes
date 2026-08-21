@@ -30,6 +30,8 @@ struct iOSLiveEditor: View {
     /// What `[[` and `#` can complete to. Ranking is shared with the Mac —
     /// see `WikiCompletions.swift`.
     var completionSource = WikiCompletionSource()
+    /// The provider-backed intelligence service, for ghost text. Nil disables it.
+    var intelligence: IntelligenceService? = nil
 
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
     @Environment(\.colorScheme) private var colorScheme
@@ -38,9 +40,12 @@ struct iOSLiveEditor: View {
     /// every rotation would re-parse the note and drop the caret.
     @Environment(EditorDocumentStore.self) private var documents
     @State private var document: EditorDocument?
-    /// The handle programmatic edits go through: accepting a completion, and
-    /// the outline's scroll-to-heading.
+    /// The handle programmatic edits go through: accepting a completion,
+    /// offering ghost text, and the outline's scroll-to-heading.
     @State private var proxy = EditorProxy()
+    /// Ghost text. Owned per host, so switching notes cancels whatever was in
+    /// flight for the note you left.
+    @State private var inlineCompletions = InlineCompletionModel()
 
     // Autocomplete popup state, reported by the editor on every caret move.
     @State private var inlineContext: EditorDocument.InlineContext?
@@ -89,6 +94,12 @@ struct iOSLiveEditor: View {
                     .onInlineContext { context, rect in
                         if inlineContext != context { inlineContext = context }
                         caretRect = rect
+                    }
+                    // Ghost text. The editor asks whenever the caret settles
+                    // somewhere a completion could be drawn; the debounce, the
+                    // provider check and the cancellation all live host-side.
+                    .onInlineCompletionRequest { context in
+                        inlineCompletions.request(context, intelligence: intelligence, proxy: proxy)
                     }
                     .ignoresSafeArea(.container, edges: .bottom)
                     .overlay(alignment: .topLeading) {
@@ -150,9 +161,15 @@ struct iOSLiveEditor: View {
             }
             document = built
         }
-        .onDisappear { editor.willFlush = nil }
+        .onDisappear {
+            editor.willFlush = nil
+            inlineCompletions.cancel()
+        }
         // A completion belongs to the note it was typed in.
-        .onChange(of: note.fileURL) { _, _ in inlineContext = nil }
+        .onChange(of: note.fileURL) { _, _ in
+            inlineContext = nil
+            inlineCompletions.cancel()
+        }
     }
 
     /// Suggestions for whatever the caret is inside right now, or none.

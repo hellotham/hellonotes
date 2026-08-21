@@ -38,7 +38,6 @@ struct LLMSettingsView: View {
 struct LLMSettingsForm: View {
     @Bindable var settings: LLMSettings
 
-    #if os(macOS)
     /// Same key `InlineCompletionModel` reads, so the toggle takes effect in
     /// editors that are already open.
     @AppStorage(InlineCompletionModel.enabledKey) private var inlineCompletion = false
@@ -46,7 +45,15 @@ struct LLMSettingsForm: View {
     private var ghostTextUnavailable: String? {
         InlineCompletionModel.unavailableReason(IntelligenceService(settings: settings))
     }
-    #endif
+
+    /// How you take the suggestion. Different sentence per platform because it
+    /// is a different gesture, and a keyboard shortcut nobody can press reads
+    /// as a feature that does not work.
+#if os(iOS)
+    private let ghostTextHelp = "Grey text appears after the cursor when you pause at the end of a line. Tap it to accept — or ⌥⇥ with a keyboard attached; Esc dismisses it. Nothing is added to the note until you accept."
+#else
+    private let ghostTextHelp = "Grey text appears after the cursor when you pause at the end of a line. ⌥⇥ or → accepts it; Esc dismisses it. Nothing is added to the note until you accept."
+#endif
 
     /// What the chosen intelligence provider can actually do, and which feature
     /// that rules out.
@@ -100,7 +107,6 @@ struct LLMSettingsForm: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            #if os(macOS)
             Section("Inline completion") {
                 Toggle("Suggest as I type", isOn: $inlineCompletion)
                     .disabled(ghostTextUnavailable != nil)
@@ -112,11 +118,10 @@ struct LLMSettingsForm: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("Grey text appears after the cursor when you pause at the end of a line. ⌥⇥ or → accepts it; Esc dismisses it. Nothing is added to the note until you accept.")
+                    Text(ghostTextHelp)
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            #endif
 
             ForEach(ProviderKind.allCases) { kind in
                 ProviderSection(settings: settings, kind: kind)
