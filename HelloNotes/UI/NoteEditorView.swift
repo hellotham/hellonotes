@@ -2,10 +2,16 @@
 //  NoteEditorView.swift
 //  HelloNotes
 //
+//  Cross-platform. It was `#if os(macOS)` end to end, and by the time the pane
+//  was extracted the only AppKit left in it was three members nothing called:
+//  `blockRenderAdapter`, `pasteImage` and `smartPaste`, all of which moved into
+//  `EditorHost` when the hosts merged. What remains is a note's chrome — the
+//  find bar, the bottom bar, the mode sheets — which is chrome both platforms
+//  want and only one of them had.
+//
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
 import SwiftUI
 import GFMRender
 import MarkdownEditor
@@ -126,46 +132,6 @@ struct NoteEditorView: View {
     @State private var docStats = DocStats()
     @State private var didInitialStats = false
 
-    /// The new editor's inline block-embed renderer. Resolves `![[file]]`
-    /// image embeds relative to the note (sibling, then the attachments
-    /// subfolder), and renders ```mermaid fences via the app's Mermaid
-    /// renderer. Rebuilt per note; nil when no note is open.
-    private var blockRenderAdapter: BlockRenderAdapter? {
-        guard let noteDir = editor.note?.fileURL.deletingLastPathComponent() else { return nil }
-        let subfolder = attachmentFolder.trimmingCharacters(in: .whitespaces)
-        let embed = embedProvider
-        return BlockRenderAdapter(
-            resolve: { target in
-                let name = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
-                let candidates = [
-                    noteDir.appendingPathComponent(name),
-                    subfolder.isEmpty ? nil : noteDir.appendingPathComponent(subfolder).appendingPathComponent(name),
-                ].compactMap { $0 }
-                return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
-            },
-            renderMermaid: { source, isDark in
-                // Main-actor: the macOS upright flip uses AppKit image drawing.
-                await MainActor.run { MermaidDiagramRenderer.standaloneImage(source: source, isDark: isDark) }
-            },
-            renderMath: { source, isDark in
-                await MainActor.run { NoteTranscluder.blockLatexImage(source: source, isDark: isDark) }
-            },
-            renderTransclusion: { target, isDark in
-                // The app's embed provider renders `![[Note]]` to a titled
-                // card (main-actor: it draws with the platform graphics context).
-                await embed.image(forName: target, isDark: isDark)
-            },
-            renderTable: { [fontSize = appearance.editorFontSize] source, maxWidth, isDark in
-                await MainActor.run { TableImageRenderer.image(source: source, maxWidth: maxWidth, fontSize: fontSize, isDark: isDark) }
-            },
-            renderInlineMath: { latex, fontSize, isDark in
-                await MainActor.run {
-                    let color: NSColor = isDark ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.1, alpha: 1)
-                    return MathImageRenderer.image(latex: latex, fontSize: fontSize, color: color)
-                }
-            }
-        )
-    }
 
     private nonisolated static func computeStats(for text: String) -> DocStats {
         DocStats(
@@ -341,44 +307,7 @@ struct NoteEditorView: View {
 
     // MARK: - Smart paste
 
-    /// Persist a pasted image beside the note and return the Markdown to insert.
-    /// The alt text is filled in asynchronously from on-device vision.
-    private func pasteImage(_ pasteboard: NSPasteboard) -> String? {
-        guard let noteURL = editor.note?.fileURL else { return nil }
-        guard let markdown = ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(pasteboard),
-                                                  nextTo: noteURL,
-                                                  subfolder: attachmentFolder, timestamp: .now) else { return nil }
 
-        // markdown == "![](relative/path.png)" — resolve and describe it.
-        if let rel = markdown.range(of: "](").map({ String(markdown[$0.upperBound...].dropLast()) }) {
-            let assetURL = noteURL.deletingLastPathComponent().appendingPathComponent(rel)
-            let placeholder = markdown
-            Task { @MainActor in
-                if let alt = await VisionAlt.describe(assetURL) {
-                    replaceFirst(placeholder, with: "![\(alt)](\(rel))")
-                }
-            }
-        }
-        return markdown
-    }
-
-    /// Convert a URL to a Markdown link (title filled in asynchronously) or rich
-    /// text to Markdown. Returns `nil` to fall through to the default paste.
-    private func smartPaste(_ pasteboard: NSPasteboard) -> String? {
-        if let (markdown, url) = SmartPaste.urlLink(fromString: SmartPaste.pasteboardString(pasteboard)) {
-            Task { @MainActor in
-                if let title = await SmartPaste.fetchTitle(url) {
-                    replaceFirst(markdown, with: "[\(title)](\(url.absoluteString))")
-                }
-            }
-            return markdown
-        }
-
-        // Rich text → Markdown. The HTML importer is main-thread-only and O(size);
-        // `markdownFromHTML` caps the size it will convert, so a huge clipboard
-        // falls through to a plain-text paste instead of freezing the editor.
-        return SmartPaste.markdownFromHTML(html: SmartPaste.pasteboardHTML(pasteboard))
-    }
 
     /// Replace the first occurrence of `target` in the note body — used to
     /// upgrade a just-pasted placeholder (image alt text, URL title).
@@ -771,5 +700,3 @@ private struct NoteEditorSheets: ViewModifier {
         }
     }
 }
-
-#endif

@@ -2,10 +2,15 @@
 //  FindReplaceBar.swift
 //  HelloNotes
 //
+//  Cross-platform. It was `#if os(macOS)` and contains no AppKit — pure SwiftUI
+//  over bindings — so the gate was the only thing making find-and-**replace** a
+//  Mac feature. iOS has UIKit's find navigator, which finds and replaces in the
+//  live editor; it does not exist in Markdown mode or Preview, and it is not
+//  reachable at all without a hardware keyboard.
+//
 //  Created by Chris Tham on 11/7/2026.
 //
 
-#if os(macOS)
 import SwiftUI
 
 /// A find/replace bar shown above the editor. It drives the editor's find
@@ -85,4 +90,3 @@ struct FindReplaceBar: View {
         .onAppear { findFocused = true }
     }
 }
-#endif

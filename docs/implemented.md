@@ -2680,3 +2680,27 @@ The split layout is the one genuine platform branch inside the pane:
 `HSplitView` / `VSplitView` give the Mac a *draggable* divider and exist only
 there. The arrangement — side by side in a landscape column, stacked in a
 portrait one — is shared; the splitter is not.
+
+### `NoteEditorView` and the note windows go cross-platform
+
+Once the pane was extracted, the only AppKit left in `NoteEditorView` was three
+members nothing called — `blockRenderAdapter`, `pasteImage` and `smartPaste`, all
+of which had moved into `EditorHost` when the hosts merged. Removing them left a
+file with no platform API in it at all, and the gate came off. `FindReplaceBar`
+went the same way: pure SwiftUI over bindings, gated for no reason left standing.
+
+That matters beyond tidiness. **The iPad's note window had no find bar, no mode
+switcher and no mode sheets**, because the view carrying them was macOS-only —
+so "Open in New Window" on iPad opened a strictly lesser editor than the same
+command on the Mac.
+
+`NoteWindowView` is one view now. Its two copies had drifted the way the rest
+have: the Mac's `openWikiLink` compared titles while the iPad's, written four
+weeks later, used the link graph — so a `[[Alias]]` opened a window on iPad and
+did nothing on the Mac. Both go through `WikiLinkNavigation`, with
+`createOnMiss: false`, because a link followed in a single-note window should not
+silently write a new note into the vault.
+
+What is left platform-shaped in it: a minimum window size and
+`navigationDocument` (which restores the title-bar proxy icon) on one side, a
+`NavigationStack` to hang a title bar off on the other.

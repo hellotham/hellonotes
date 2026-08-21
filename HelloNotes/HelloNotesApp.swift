@@ -116,11 +116,7 @@ struct HelloNotesApp: App {
         // New Window" on both — an item that drew, enabled, and did nothing.
         WindowGroup(for: NoteRef.self) { $ref in
             if let ref {
-                #if os(macOS)
                 rooted(NoteWindowView(fileURL: ref.url))
-                #else
-                rooted(iOSNoteWindowView(fileURL: ref.url))
-                #endif
             }
         }
 
