@@ -90,8 +90,20 @@ except Exception:
     sys.exit(0)
 
 
+IMPORT = re.compile(r'^\s*(?:@_\w+\s+)?import\s')
+
+
 def one_sided_gates(lines: list[str]) -> list[tuple[int, str]]:
-    """Gates whose block contains no `#else` / `#elseif` at their own depth."""
+    """Gates whose block contains no `#else` / `#elseif` at their own depth.
+
+    A gate whose body is nothing but `import` lines is not one of them. The rule
+    is about *behaviour* — a capability one platform has and the other does not
+    — and naming a framework that exists on one platform grants nothing by
+    itself. The code that uses it is what gets checked, and it is checked. This
+    is the rule being precise rather than an exemption: there is nothing to
+    argue and nothing to record, because an import-only gate cannot make the two
+    platforms behave differently.
+    """
     found: list[tuple[int, str]] = []
     stack: list[tuple[int, str, bool]] = []   # (line index, text, saw_else)
     for index, line in enumerate(lines):
@@ -102,8 +114,13 @@ def one_sided_gates(lines: list[str]) -> list[tuple[int, str]]:
             stack[-1] = (start, text, True)
         elif ENDIF.match(line) and stack:
             start, text, saw_else = stack.pop()
-            if GATE.match(lines[start]) and not saw_else:
-                found.append((start, text))
+            if not GATE.match(lines[start]) or saw_else:
+                continue
+            body = [l for l in lines[start + 1:index]
+                    if l.strip() and not l.strip().startswith("//")]
+            if body and all(IMPORT.match(l) for l in body):
+                continue
+            found.append((start, text))
     return found
 
 

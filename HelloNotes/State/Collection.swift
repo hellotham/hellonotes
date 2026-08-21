@@ -410,16 +410,20 @@ final class Collection: Identifiable {
     /// is unchanged, so no re-scan is needed — only the content-derived index).
     private var deriveTask: Task<Void, Never>?
 
+    /// Whatever this platform notices changes with — FSEvents or a file
+    /// presenter. One property, because `Collection` only ever asks it to start
+    /// and stop; the mechanisms differ inside `DirectoryObserver`.
     #if os(macOS)
-    private var fileWatcher: FileWatcher?
+    private var observer: FileWatcher?
+    #else
+    private var observer: DirectoryPresenter?
+    #endif
 
     /// Coalesces `.git` churn into one status read (a checkout touches hundreds
-    /// of files in there).
+    /// of files in there). Was macOS-only, so an external pull on iPad moved the
+    /// branch and the change count and the status bar went on asserting the old
+    /// ones indefinitely.
     private var gitRefreshTask: Task<Void, Never>?
-    #else
-    /// iOS's stand-in for the macOS file watcher.
-    private var presenter: DirectoryPresenter?
-    #endif
 
     private var securityScoped = false
 
@@ -1116,27 +1120,43 @@ final class Collection: Identifiable {
 
     // MARK: Watching the folder
 
-    #if os(macOS)
-    /// FSEvents where it exists: it reports the things a file presenter cannot —
-    /// a moved root, an unmounted volume, a dropped batch, and the paths that
-    /// actually changed.
+    /// Start noticing changes. The mechanism is the platform's; the events and
+    /// what they mean are not.
     private func startObserving(onExternalChange: @escaping @MainActor () -> Void) {
+        stopObserving()
+        #if os(macOS)
         let watcher = FileWatcher { [weak self] event in
             Task { @MainActor [weak self] in
                 self?.handle(event, onExternalChange: onExternalChange)
             }
         }
         watcher.start(url: rootURL)
-        fileWatcher = watcher
+        observer = watcher
+        #else
+        let presenter = DirectoryPresenter(root: rootURL) { [weak self] url in
+            Task { @MainActor [weak self] in
+                // A presenter names one subitem or nothing at all; both map onto
+                // the shared vocabulary rather than onto a second handler.
+                self?.handle(url.map { .itemsChanged([$0.path]) } ?? .unspecifiedChange,
+                             onExternalChange: onExternalChange)
+            }
+        }
+        presenter.start()
+        observer = presenter
+        #endif
     }
 
     private func stopObserving() {
-        fileWatcher?.stop()
-        fileWatcher = nil
+        observer?.stop()
+        observer = nil
     }
 
-    /// Turn what FSEvents said into what the collection should do about it.
-    private func handle(_ event: FileWatcherEvent,
+    /// Turn what the observer said into what the collection should do about it.
+    ///
+    /// One handler for both platforms. It used to be two — `handle(_:)` over
+    /// FSEvents flags and `presenterDidReportChange(at:)` over a URL — and they
+    /// had drifted: only the macOS one refreshed Git status when `.git` churned.
+    private func handle(_ event: DirectoryEvent,
                         onExternalChange: @escaping @MainActor () -> Void) {
         switch event {
         case .rootChanged:
@@ -1155,9 +1175,10 @@ final class Collection: Identifiable {
             onExternalChange()
 
         case .eventsDropped:
-            // FSEvents is telling us its own change list is incomplete. Nothing
-            // short of a full rescan can be trusted after this, and until that
-            // lands the index is admittedly behind — which search must disclose.
+            // The observer is telling us its own change list is incomplete.
+            // Nothing short of a full rescan can be trusted after this, and
+            // until that lands the index is admittedly behind — which search
+            // must disclose.
             markStale(.eventsDropped)
             reconcileSoon(onExternalChange: onExternalChange)
 
@@ -1165,11 +1186,20 @@ final class Collection: Identifiable {
             // `.git` churn is not a *content* change — `hasExternalChanges`
             // rightly filters it out, or every auto-commit would re-scan the
             // vault. But it is still news: an external `git pull`, checkout or
-            // rebase moves the branch and the change count, and the status bar
-            // would otherwise go on asserting the old ones indefinitely.
+            // rebase moves the branch and the change count.
             if paths.contains(where: Self.isGitMetadata) { refreshGitSoon() }
             guard hasExternalChanges(in: paths) else { return }
             reconcileSoon(onExternalChange: onExternalChange)
+
+        case .unspecifiedChange:
+            // No path list, so nothing can be filtered — wait out whatever is
+            // left of our own write window rather than re-scanning on our own
+            // autosave.
+            guard let settling = selfWriteSettleDelay else {
+                reconcileSoon(onExternalChange: onExternalChange)
+                return
+            }
+            reconcileSoon(onExternalChange: onExternalChange, after: settling)
         }
     }
 
@@ -1189,62 +1219,6 @@ final class Collection: Identifiable {
         }
     }
 
-    #else
-    /// iOS has no FSEvents, so before this it had **no change detection at
-    /// all**: an iPad showing a vault edited on a Mac stayed stale until
-    /// relaunch. A file-coordination presenter is the portable substitute —
-    /// coarser than FSEvents (no flags, no path list), so it maps onto a plain
-    /// debounced rescan and claims nothing more.
-    private func startObserving(onExternalChange: @escaping @MainActor () -> Void) {
-        presenter?.stop()
-        let presenter = DirectoryPresenter(root: rootURL) { [weak self] url in
-            Task { @MainActor [weak self] in
-                self?.presenterDidReportChange(at: url, onExternalChange: onExternalChange)
-            }
-        }
-        presenter.start()
-        self.presenter = presenter
-    }
-
-    private func stopObserving() {
-        presenter?.stop()
-        presenter = nil
-    }
-
-    /// A coordinated change arrived. Decide whether it is ours, and how long to
-    /// let it settle.
-    ///
-    /// `FileIO.write` coordinates with `filePresenter: nil`, which excludes *no*
-    /// presenter — so the app is told about its own autosaves, once every
-    /// 600 ms while anyone is typing. Left unfiltered each one cost a full
-    /// off-main vault walk plus a full index rebuild, work macOS has never done
-    /// because its watcher is handed the changed paths and asks
-    /// `hasExternalChanges(in:)` about them.
-    ///
-    /// The presenter knows the same thing, so it is asked the same question:
-    /// a named subitem we wrote in the last few seconds is not news and is
-    /// dropped outright, exactly as on macOS. One filter, one answer.
-    ///
-    /// `presentedItemDidChange` names no path (`url == nil`), and there the
-    /// strongest question left is the weaker *"did we write anything just
-    /// now?"* — which must be acted on by **waiting, never by dropping**: an
-    /// edit made on another device landing in the same window as one of our own
-    /// saves has to survive. So it is pushed past the end of that window
-    /// instead.
-    private func presenterDidReportChange(at url: URL?,
-                                          onExternalChange: @escaping @MainActor () -> Void) {
-        if let url {
-            guard hasExternalChanges(in: [url.path]) else { return }
-            reconcileSoon(onExternalChange: onExternalChange)
-            return
-        }
-        guard let settling = selfWriteSettleDelay else {
-            reconcileSoon(onExternalChange: onExternalChange)
-            return
-        }
-        reconcileSoon(onExternalChange: onExternalChange, after: settling)
-    }
-
     /// How much of the self-write window is left to wait out, or `nil` when
     /// nothing we wrote can account for this notification.
     private var selfWriteSettleDelay: Duration? {
@@ -1255,7 +1229,6 @@ final class Collection: Identifiable {
         guard remaining > Self.reconcileDebounce else { return nil }
         return remaining
     }
-    #endif
 
     /// Debounced rescan + reindex.
     ///

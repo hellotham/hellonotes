@@ -1,14 +1,52 @@
 //
-//  FileWatcher.swift
+//  DirectoryObserver.swift
 //  HelloNotes
 //
-//  Created by Chris Tham on 11/7/2026.
+//  Noticing that a collection changed underneath us — one event, two mechanisms.
+//
+//  These were two files: `FileWatcher.swift`, gated to macOS, and
+//  `DirectoryPresenter.swift`, ungated but used only on iOS. `Collection`
+//  already had one `startObserving` / `stopObserving` pair over them, which was
+//  the right shape — and underneath it two properties, two callbacks and two
+//  handlers, which had drifted. The macOS handler refreshes Git status when
+//  `.git` churns, because an external pull moves the branch and the change
+//  count and the status bar would otherwise assert the old ones forever. The
+//  iOS handler did not.
+//
+//  So the *event* is shared and the mechanisms are not. FSEvents genuinely
+//  reports more than a file presenter can — which paths changed, a moved root,
+//  an unmounted volume, a dropped batch — and that is a capability difference
+//  rather than a divergence: the presenter never emits those cases, and the one
+//  handler treats each as the rescan it always meant.
 //
 
-#if os(macOS)
 import Foundation
+#if os(macOS)
 import CoreServices
+#endif
 
+/// What an observer noticed.
+///
+/// A superset, deliberately. `FileWatcher` fills in every case and a presenter
+/// only the first two — levelling both down to the coarser vocabulary would
+/// throw away information the Mac can act on, and a dropped FSEvents batch
+/// means something specific.
+nonisolated enum DirectoryEvent: Equatable, Sendable {
+    /// Ordinary changes to items inside the watched tree, by path.
+    case itemsChanged([String])
+    /// Something inside the tree changed and the mechanism cannot say what —
+    /// a presenter's `presentedItemDidChange`, where no path list exists.
+    case unspecifiedChange
+    /// The watched root itself was renamed, moved, or deleted.
+    case rootChanged
+    /// The volume holding the watched root was unmounted.
+    case unmounted
+    /// The change list is incomplete. The only correct response is a full
+    /// rescan, because there is no way to learn what was missed.
+    case eventsDropped
+}
+
+#if os(macOS)
 /// What FSEvents actually reported.
 ///
 /// The stream carries more than "these paths changed", and the rest of it is
@@ -16,20 +54,6 @@ import CoreServices
 /// out from under it, that its volume went away, or that the kernel dropped
 /// events and the index is now a guess. Discarding `eventFlags` meant every one
 /// of those arrived as silence.
-nonisolated enum FileWatcherEvent: Equatable, Sendable {
-    /// Ordinary changes to items inside the watched tree.
-    case itemsChanged([String])
-    /// The watched root itself was renamed, moved, or deleted. Requires
-    /// `kFSEventStreamCreateFlagWatchRoot`, without which it is never sent.
-    case rootChanged
-    /// The volume holding the watched root was unmounted.
-    case unmounted
-    /// FSEvents dropped events — its queue overflowed, or the kernel's did.
-    /// It is telling us the change list is incomplete; the only correct
-    /// response is a full rescan, because there is no way to learn what was
-    /// missed. A big `git checkout` or a cloud sync burst can trigger this.
-    case eventsDropped
-}
 
 /// Watches a directory subtree with FSEvents and invokes `onEvent` when the
 /// collection changes on disk (external edits, a `git pull`, Finder operations).
@@ -41,12 +65,12 @@ nonisolated enum FileWatcherEvent: Equatable, Sendable {
 /// itself. Start/stop are only called from the main actor.
 final class FileWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
-    private let onEvent: @Sendable (FileWatcherEvent) -> Void
+    private let onEvent: @Sendable (DirectoryEvent) -> Void
     /// A dedicated serial queue for the stream's callbacks, so `stop()` can
     /// drain any in-flight callback (see `stop()`).
     private let queue = DispatchQueue(label: "com.hellonotes.filewatcher", qos: .utility)
 
-    init(onEvent: @escaping @Sendable (FileWatcherEvent) -> Void) {
+    init(onEvent: @escaping @Sendable (DirectoryEvent) -> Void) {
         self.onEvent = onEvent
     }
 
@@ -149,5 +173,66 @@ final class FileWatcher: @unchecked Sendable {
     }
 
     deinit { stop() }
+}
+
+#else
+/// Watches a directory through the file-coordination system.
+///
+/// Used on iOS; on macOS `FileWatcher` remains the better instrument, because
+/// FSEvents reports the things a presenter cannot — a moved root, an unmounted
+/// volume, a dropped batch.
+final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
+
+    private let root: URL
+    /// The subitem that changed, or `nil` when the folder changed wholesale and
+    /// there is no one path to name.
+    private let onChange: @Sendable (URL?) -> Void
+    private var isRegistered = false
+
+    /// A private queue is required: the coordination system delivers callbacks
+    /// here, and using `.main` risks re-entrancy against a coordinated read that
+    /// is already blocking it.
+    let presentedItemOperationQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "com.hellonotes.directory-presenter"
+        queue.maxConcurrentOperationCount = 1
+        return queue
+    }()
+
+    var presentedItemURL: URL? { root }
+
+    init(root: URL, onChange: @escaping @Sendable (URL?) -> Void) {
+        self.root = root
+        self.onChange = onChange
+        super.init()
+    }
+
+    func start() {
+        guard !isRegistered else { return }
+        isRegistered = true
+        NSFileCoordinator.addFilePresenter(self)
+    }
+
+    func stop() {
+        guard isRegistered else { return }
+        isRegistered = false
+        NSFileCoordinator.removeFilePresenter(self)
+    }
+
+    deinit { stop() }
+
+    // MARK: NSFilePresenter
+
+    /// Something inside the folder changed — a note edited on another device and
+    /// streamed down, a file added in the Files app.
+    func presentedSubitemDidChange(at url: URL) { onChange(url) }
+
+    /// The folder itself changed (contents replaced wholesale). No single path
+    /// describes it, so the caller gets `nil` and has to assume the worst.
+    func presentedItemDidChange() { onChange(nil) }
+
+    func presentedSubitemDidAppear(at url: URL) { onChange(url) }
+
+    func accommodatePresentedSubitemDeletion(at url: URL) async throws { onChange(url) }
 }
 #endif

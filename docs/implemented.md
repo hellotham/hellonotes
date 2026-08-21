@@ -2595,3 +2595,36 @@ separate target rather than an implementation of this type. Both now have an
 `#else` holding a no-op that says so. A no-op that exists beats a type that does
 not: the call site is one line on both platforms and the reason lives with the
 thing rather than in a `#if` wrapped around the caller.
+
+### One change-observer, and the Git status iPad never refreshed
+
+`FileWatcher.swift` (FSEvents, macOS-gated) and `DirectoryPresenter.swift`
+(`NSFilePresenter`, ungated but used only on iOS) merge into `DirectoryObserver`.
+`Collection` already had one `startObserving` / `stopObserving` pair over them —
+the right shape — and underneath it two properties, two callbacks and two
+handlers. The handlers had drifted: the macOS one refreshes Git status when
+`.git` churns, because an external pull moves the branch and the change count
+and the status bar would otherwise assert the old ones indefinitely. **The iOS
+one did not**, so a `git pull` on another device left an iPad's status bar
+permanently wrong.
+
+The event is shared and the mechanisms are not. FSEvents genuinely reports more
+than a presenter can — which paths changed, a moved root, an unmounted volume, a
+dropped batch — and `DirectoryEvent` is a superset rather than the coarser
+vocabulary of the two, because levelling down would throw away information the
+Mac can act on. A presenter emits `.itemsChanged([one])` or
+`.unspecifiedChange`; one handler treats each case as the rescan it always meant.
+
+### The rule got more precise
+
+The hook rejected `DirectoryObserver`'s own `#if os(macOS) import CoreServices
+#endif`. That is the rule being literal rather than a divergence: naming a
+framework that exists on one platform grants no capability by itself, and the
+code that uses it is checked on its own terms. Gates whose body is nothing but
+`import` lines are no longer one-sided gates.
+
+This is a refinement, not an exemption — there is nothing to argue and nothing
+to record, because an import-only gate cannot make the two platforms behave
+differently. Re-validated after the change: an import-only gate passes, a real
+one-sided gate still rejects, and a gate mixing an import *with code* still
+rejects.
