@@ -334,6 +334,10 @@ struct MacContentView: View {
         AdaptiveShell(
             inspectorPresented: $inspectorPresented,
             columnVisibility: $columnVisibility,
+            // Asked of the hardware, not of the OS — see `PointerPresence`. It
+            // decides whether the format bar exists at all, so hard-coding it
+            // per platform was the layout differing by device.
+            prefersTouch: PointerPresence.shared.prefersTouch,
             sidebar: { collectionTree },
             pane: { editorColumn },
             inspector: { inspector },

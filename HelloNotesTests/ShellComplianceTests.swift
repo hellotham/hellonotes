@@ -38,11 +38,16 @@ struct ShellComplianceTests {
         // The slots — this *is* the presentation, and the whole point of the
         // shell taking them as closures.
         "sidebar", "pane", "inspector", "compact",
-        // Input sizing, not arrangement: 44pt targets and the keyboard
-        // accessory bar instead of a persistent format bar. `ShellContractTests`
-        // asserts it changes no region's presence.
-        "prefersTouch",
     ]
+
+    // `prefersTouch` used to be listed here, on the grounds that it is input
+    // sizing rather than arrangement. That was wrong:
+    // `ShellContext.showsFormatBar` is `!prefersTouch && …`, so it removes a
+    // region, and `tabBarHeight` changes with it. Hard-coded false on the Mac
+    // and true on iPad, it made a Mac window and an iPad of the same size render
+    // different shells — the exact thing the contract forbids. Both shells now
+    // ask `PointerPresence`, so the argument is identical and the allowlist does
+    // not need it.
 
     private static func source(_ name: String) throws -> String {
         try String(contentsOf: URL(filePath: #filePath)

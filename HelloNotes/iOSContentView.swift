@@ -343,9 +343,10 @@ struct iOSContentView: View {
             // `AdaptiveShell` only draws the column for `.wideInspector`.
             inspectorPresented: $inspectorPresented,
             columnVisibility: $columnVisibility,
-            // Touch sizing: 44pt targets, and the keyboard accessory bar
-            // instead of a persistent format bar (decision 3).
-            prefersTouch: true,
+            // Asked of the hardware, not of the OS — see `PointerPresence`. It
+            // decides whether the format bar exists at all, so hard-coding it
+            // per platform was the layout differing by device.
+            prefersTouch: PointerPresence.shared.prefersTouch,
             sidebar: { collectionTree },
             pane: { detail(showsShellCommands: true) },
             inspector: { inspector },
