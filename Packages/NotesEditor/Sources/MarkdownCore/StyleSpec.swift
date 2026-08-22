@@ -134,18 +134,24 @@ public enum StyleSpec {
             return [content]
 
         case .fencedCode(let info, let closed):
+            // The fences conceal like every other syntax marker: GitHub renders
+            // a `<pre>` box with 16px of padding and no ``` in sight, and the
+            // editor's fence lines are given exactly that padding's height (see
+            // `StyleApplier.applyFenceBand`), so caret-away they *are* the
+            // padding and caret-inside they are there to edit.
             let openLine = lines.contentRange(first, in: text)
-            runs.append(StyleRun(range: openLine, role: .marker))
+            runs.append(StyleRun(range: openLine, role: .marker, concealment: .whenInactive))
             if !info.isEmpty {
                 // The info string sits at the end of the open line.
                 let infoLen = (info as NSString).length
                 let infoRange = NSRange(location: openLine.location + openLine.length - infoLen, length: infoLen)
-                runs.append(StyleRun(range: infoRange, role: .codeInfo))
+                runs.append(StyleRun(range: infoRange, role: .codeInfo, concealment: .whenInactive))
             }
             let bodyFirst = first + 1
             let bodyLast = closed ? last - 1 : last
             if closed {
-                runs.append(StyleRun(range: lines.contentRange(last, in: text), role: .marker))
+                runs.append(StyleRun(range: lines.contentRange(last, in: text),
+                                     role: .marker, concealment: .whenInactive))
             }
             if bodyFirst <= bodyLast {
                 let start = lines.lineRange(bodyFirst).location
@@ -157,6 +163,24 @@ public enum StyleSpec {
 
         case .indentedCode:
             runs.append(StyleRun(range: trimmedBlockRange(block, text: text), role: .codeBlock))
+            // cmark strips the four columns that *make* it a code block, so the
+            // rendered listing starts at the box's padding and not four
+            // characters inside it. Concealing them here puts the editor's
+            // first glyph on the same column as the Preview's.
+            for lineNumber in first...last {
+                let line = lines.contentRange(lineNumber, in: text)
+                var width = 0, i = line.location
+                let end = line.location + line.length
+                while i < end, width < 4 {
+                    let c = text.character(at: i)
+                    if c == 0x20 { width += 1 } else if c == 0x09 { width = 4 } else { break }
+                    i += 1
+                }
+                if i > line.location {
+                    runs.append(StyleRun(range: NSRange(location: line.location, length: i - line.location),
+                                         role: .marker, concealment: .whenInactive))
+                }
+            }
             return []
 
         case .mathBlock:
@@ -242,6 +266,18 @@ public enum StyleSpec {
                 if boxLen == 3 {
                     runs.append(StyleRun(range: NSRange(location: boxStart, length: 3),
                                          role: .taskMarker(checked: task == .checked)))
+                    // …and the space after it conceals. GitHub pulls the
+                    // checkbox out into the list's gutter, so a task item's
+                    // text starts on exactly the same column as every other
+                    // item's. Here the box keeps its width and the space gives
+                    // its own up, which lands the text on that column instead
+                    // of a checkbox-and-a-space to the right of it.
+                    let after = boxStart + 3
+                    if after < markerLine.location + markerLine.length,
+                       text.character(at: after) == 0x20 {
+                        runs.append(StyleRun(range: NSRange(location: after, length: 1),
+                                             role: .marker, concealment: .whenInactive))
+                    }
                 }
             }
             let contentStart = markerLine.location + info.contentOffset

@@ -692,9 +692,20 @@ public final class EditorDocument {
 
     private func restyle(blockIndices: Set<Int>, revealed: Set<Int>, revealedLines: Set<Int>) {
         guard !blockIndices.isEmpty else { return }
+        // A block's trailing gap is the *collapsed* margin between it and its
+        // neighbour, so it belongs to two blocks: typing `#` in front of a
+        // paragraph changes the space above it, which is spacing stored on the
+        // block *before*. Restyling only the block that changed left that
+        // neighbour holding the old gap. Still O(damage) — one block wider on
+        // each side, not a document pass.
+        var indices = blockIndices
+        for index in blockIndices {
+            if index > 0 { indices.insert(index - 1) }
+            if index + 1 < parse.blocks.count { indices.insert(index + 1) }
+        }
         isApplyingStyles = true
         StyleApplier.apply(
-            blockIndices: blockIndices.sorted(),
+            blockIndices: indices.sorted(),
             parse: parse,
             text: storage.mutableString,
             to: storage,
@@ -704,9 +715,15 @@ public final class EditorDocument {
             gfmRuns: currentGFMRuns()
         )
         isApplyingStyles = false
-        notifyRestyled(blockIndices)
+        notifyRestyled(indices)
+        // Everything below re-applies attributes that `StyleApplier` has just
+        // wiped, so it has to run over the same widened set. Running it over
+        // the narrow one left the extra neighbour freshly base-styled and
+        // stripped: a folded callout one block away from an edit came unfolded,
+        // its highlighted code lost its colours, and its rendered table came
+        // back as pipes.
         if services.codeHighlighter != nil {
-            for index in blockIndices {
+            for index in indices {
                 refreshHighlight(blockIndex: index, revealed: revealed.contains(index))
             }
         }
@@ -717,12 +734,12 @@ public final class EditorDocument {
         // not arrangement: a fold conceals a range and an embed replaces one,
         // and which goes last decides what a callout containing a fence looks
         // like. An unexplained change to that is a change nobody chose.
-        for index in blockIndices {
+        for index in indices {
             refreshFrontMatterFold(blockIndex: index, revealed: revealed.contains(index))
             refreshCalloutFold(blockIndex: index, revealed: revealed.contains(index))
         }
         if services.blockRenderer != nil {
-            for index in blockIndices {
+            for index in indices {
                 refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index))
                 refreshInlineMath(blockIndex: index, revealed: revealed.contains(index))
             }

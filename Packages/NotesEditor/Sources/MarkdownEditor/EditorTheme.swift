@@ -9,6 +9,7 @@
 //
 
 import MarkdownCore
+import CoreGraphics
 #if canImport(AppKit)
 import AppKit
 public typealias PlatformFont = NSFont
@@ -27,6 +28,14 @@ public typealias PlatformImage = UIImage
 nonisolated public struct EditorTheme: @unchecked Sendable {
     public let fontSize: CGFloat
     public let accent: PlatformColor
+
+    /// The box model this theme is measured against — the same table the
+    /// Preview's stylesheet is generated from. Every size below is derived
+    /// from it rather than from a ratio written out here, because a ratio
+    /// written out here is a ratio that can disagree with the stylesheet, and
+    /// for a year it did: 1.7/1.4/1.2/1.1/1/1 against GitHub's
+    /// 2/1.5/1.25/1/.875/.85, so an h1 was 26pt in Edit and 32pt in Preview.
+    public let metrics: GFMBoxMetrics
 
     // Prebuilt fonts.
     let body: PlatformFont
@@ -48,8 +57,10 @@ nonisolated public struct EditorTheme: @unchecked Sendable {
     let highlightBackground: PlatformColor
     let brokenLink: PlatformColor
 
-    public init(fontSize: CGFloat = 15, accent: PlatformColor? = nil) {
+    public init(fontSize: CGFloat = 16, accent: PlatformColor? = nil) {
         self.fontSize = fontSize
+        let metrics = GFMBoxMetrics(base: fontSize)
+        self.metrics = metrics
 
         #if canImport(AppKit)
         let accentColor = accent ?? .controlAccentColor
@@ -57,16 +68,18 @@ nonisolated public struct EditorTheme: @unchecked Sendable {
         bodyBold = .boldSystemFont(ofSize: fontSize)
         bodyItalic = NSFontManager.shared.convert(body, toHaveTrait: .italicFontMask)
         bodyBoldItalic = NSFontManager.shared.convert(bodyBold, toHaveTrait: .italicFontMask)
-        mono = .monospacedSystemFont(ofSize: fontSize - 1, weight: .regular)
-        monoSmall = .monospacedSystemFont(ofSize: max(9, fontSize - 4), weight: .regular)
+        mono = .monospacedSystemFont(ofSize: metrics.codeSize, weight: .regular)
+        monoSmall = .monospacedSystemFont(ofSize: max(9, metrics.codeSize - 3), weight: .regular)
         text = .labelColor
         secondary = .secondaryLabelColor
         markerColor = .tertiaryLabelColor
         codeBackground = .quaternarySystemFill
         highlightBackground = accentColor.withAlphaComponent(0.28)
         brokenLink = .tertiaryLabelColor
-        var sizes: [CGFloat] = [1.7, 1.4, 1.2, 1.1, 1.0, 1.0]
-        headings = sizes.map { .boldSystemFont(ofSize: (fontSize * $0).rounded()) }
+        // GitHub's headings are semibold (600), not bold (700).
+        headings = (1...6).map {
+            .systemFont(ofSize: metrics.headingSize($0), weight: .semibold)
+        }
         concealed = .systemFont(ofSize: 0.1)
         #else
         let accentColor = accent ?? .tintColor
@@ -78,16 +91,18 @@ nonisolated public struct EditorTheme: @unchecked Sendable {
                 .withSymbolicTraits([.traitBold, .traitItalic])
             return d.map { UIFont(descriptor: $0, size: fontSize) } ?? .boldSystemFont(ofSize: fontSize)
         }()
-        mono = .monospacedSystemFont(ofSize: fontSize - 1, weight: .regular)
-        monoSmall = .monospacedSystemFont(ofSize: max(9, fontSize - 4), weight: .regular)
+        mono = .monospacedSystemFont(ofSize: metrics.codeSize, weight: .regular)
+        monoSmall = .monospacedSystemFont(ofSize: max(9, metrics.codeSize - 3), weight: .regular)
         text = .label
         secondary = .secondaryLabel
         markerColor = .tertiaryLabel
         codeBackground = .quaternarySystemFill
         highlightBackground = accentColor.withAlphaComponent(0.28)
         brokenLink = .tertiaryLabel
-        var sizes: [CGFloat] = [1.7, 1.4, 1.2, 1.1, 1.0, 1.0]
-        headings = sizes.map { .boldSystemFont(ofSize: (fontSize * $0).rounded()) }
+        // GitHub's headings are semibold (600), not bold (700).
+        headings = (1...6).map {
+            .systemFont(ofSize: metrics.headingSize($0), weight: .semibold)
+        }
         concealed = .systemFont(ofSize: 0.1)
         #endif
         self.accent = accentColor
@@ -100,4 +115,21 @@ nonisolated public struct EditorTheme: @unchecked Sendable {
     public func headingFont(level: Int) -> PlatformFont {
         headings[max(1, min(level, 6)) - 1]
     }
+
+    /// A monospaced font at `size`. Inline code inherits its context's size in
+    /// GitHub's stylesheet (`h1 code { font-size: inherit }`) and is 85% of the
+    /// body size everywhere else; the editor used one fixed mono size for both,
+    /// so `` `code` `` in an h1 shrank to body size in Edit and stayed heading-
+    /// sized in Preview.
+    func monoFont(matching font: PlatformFont?) -> PlatformFont {
+        let current = font?.pointSize ?? fontSize
+        // Body-sized text takes the 85% code size; anything else (a heading)
+        // keeps its own size, which is what `inherit` does.
+        let size = abs(current - fontSize) < 0.01 ? metrics.codeSize : current
+        return .monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    /// GitHub tints h6 with the muted foreground; every other level takes the
+    /// default text colour.
+    func headingColor(level: Int) -> PlatformColor { level >= 6 ? secondary : text }
 }

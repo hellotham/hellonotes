@@ -40,6 +40,10 @@ let package = Package(
         .target(
             name: "GFMRender",
             dependencies: [
+                // The shared box model (`GFMBoxMetrics`). GFMRender owns the
+                // *page*, the editor owns the *text view*, and both measure
+                // from the same table — which only works if both can see it.
+                "MarkdownCore",
                 .product(name: "cmark-gfm", package: "swift-cmark"),
                 .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
             ],
@@ -64,7 +68,7 @@ let package = Package(
         ),
         .testTarget(
             name: "GFMRenderTests",
-            dependencies: ["GFMRender"],
+            dependencies: ["GFMRender", "MarkdownCore"],
             resources: [
                 .copy("spec.txt"),
                 .copy("github-parity-input.md"),

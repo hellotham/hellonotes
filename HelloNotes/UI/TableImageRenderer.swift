@@ -20,17 +20,21 @@ import AppKit
 #else
 import UIKit
 #endif
+import MarkdownCore
 
 @MainActor
 enum TableImageRenderer {
     private enum Align { case left, center, right }
-    // GitHub's github-markdown-css: `th, td { padding: 6px 13px }`.
-    private static let cellPadX: CGFloat = 13
-    private static let cellPadY: CGFloat = 6
 
     static func image(source: String, maxWidth: CGFloat, fontSize: CGFloat = 15, isDark: Bool) -> PlatformImage? {
         let lines = source.components(separatedBy: "\n").filter { $0.contains("|") }
         guard lines.count >= 2 else { return nil }
+
+        // The shared box model, so a table's cells are padded and spaced the
+        // same way the Preview's `<td>`s are — and so they scale with Text Size
+        // instead of staying at their 16pt-base values.
+        let m = GFMBoxMetrics(base: fontSize)
+        let cellPadX = m.cellPadX, cellPadY = m.cellPadY
 
         let rows = lines.map(cells)
         // Row 1 is the delimiter (`|:---|`); its cells give per-column alignment.
@@ -50,7 +54,8 @@ enum TableImageRenderer {
         let grid: PlatformColor = isDark ? .hexColor(0x3d444d) : .hexColor(0xd1d9e0)
         let zebraBG: PlatformColor = isDark ? .hexColor(0x151b23) : .hexColor(0xf6f8fa)
         let body = PlatformFont.appSystem(fontSize)
-        let bold = PlatformFont.appSystem(fontSize, weight: .bold)
+        // `th { font-weight: 600 }` — semibold, not bold.
+        let bold = PlatformFont.appSystem(fontSize, weight: .semibold)
 
         // Measure natural column widths, then scale down to fit maxWidth.
         func attr(_ s: String, _ f: PlatformFont) -> NSAttributedString {
@@ -64,7 +69,11 @@ enum TableImageRenderer {
                 let s = c < row.count ? row[c] : ""
                 let size = attr(s, f).size()
                 colW[c] = max(colW[c], ceil(size.width) + cellPadX * 2)
-                rowH[r] = max(rowH[r], ceil(size.height) + cellPadY * 2)
+                // A cell's line box is the document's line height, not the
+                // font's natural one: the Preview's cells inherit
+                // `line-height: 1.5` like everything else, so measuring the
+                // glyphs alone made every row five points short.
+                rowH[r] = max(rowH[r], max(ceil(size.height), m.bodyLineHeight) + cellPadY * 2)
             }
         }
         let totalW = colW.reduce(0, +)

@@ -113,44 +113,32 @@ struct AccentContrastTests {
 
     // MARK: - Text width
 
-    /// The measure has to be resolved against the font in use, and the two
-    /// fonts have to actually differ — otherwise "80 characters" means two
-    /// different widths in Source and Preview and nobody can tell which.
-    @Test func characterWidthIsMeasuredPerFont() {
-        let proportional = TextWidth.characterWidth(size: 16, monospaced: false)
-        let mono = TextWidth.characterWidth(size: 16, monospaced: true)
-        #expect(proportional > 0)
-        #expect(mono > 0)
-        #expect(abs(mono - proportional) > 0.01)
-        // And it scales with the size, or the setting stops biting as text grows.
-        #expect(TextWidth.characterWidth(size: 32, monospaced: true) > mono * 1.5)
+    /// The measure is resolved against the body font, and it has to scale with
+    /// the text size or the setting stops biting as the text grows.
+    @Test func characterWidthScalesWithSize() {
+        let small = TextWidth.characterWidth(size: 16)
+        #expect(small > 0)
+        #expect(TextWidth.characterWidth(size: 32) > small * 1.5)
     }
 
-    @Test func readingCentresAFixedMeasureAndEditingDoesNot() {
-        let width = TextWidth.characterWidth(size: 16, monospaced: false)
-        let reading = TextWidth.resolve(intent: .reading, paneWidth: 1400,
-                                        characterWidth: width, reading: .normal, editing: .full)
-        #expect(reading.centred)
-        #expect(reading.width < 1400)
-
-        let editing = TextWidth.resolve(intent: .editing, paneWidth: 1400,
-                                        characterWidth: width, reading: .normal, editing: .full)
-        #expect(!editing.centred)
+    @Test func aMeasureIsCentredAndAProportionIsNot() {
+        let width = TextWidth.characterWidth(size: 16)
+        let measured = TextWidth.resolve(paneWidth: 1400, characterWidth: width,
+                                         reading: .normal, editing: .full)
+        #expect(measured.centred)
+        #expect(measured.width < 1400)
 
         // `.full` reading takes the pane — the setting's own escape hatch.
-        let full = TextWidth.resolve(intent: .reading, paneWidth: 1400,
-                                     characterWidth: width, reading: .full, editing: .full)
+        let full = TextWidth.resolve(paneWidth: 1400, characterWidth: width,
+                                     reading: .full, editing: .full)
         #expect(!full.centred)
     }
 
     /// A narrow pane collapses the distinction rather than overflowing it.
     @Test func aNarrowPaneNeverExceedsItself() {
-        let width = TextWidth.characterWidth(size: 16, monospaced: false)
-        for intent in [TextIntent.reading, .editing] {
-            let resolved = TextWidth.resolve(intent: intent, paneWidth: 320,
-                                             characterWidth: width,
-                                             reading: .wide, editing: .full)
-            #expect(resolved.width <= 320)
-        }
+        let width = TextWidth.characterWidth(size: 16)
+        let resolved = TextWidth.resolve(paneWidth: 320, characterWidth: width,
+                                         reading: .wide, editing: .full)
+        #expect(resolved.width <= 320)
     }
 }

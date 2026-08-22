@@ -2960,3 +2960,179 @@ sheet state, which `NoteEditorSheets` now also provides. They do not conflict �
 each set of buttons drives its own — but they are two of the same thing, and
 collapsing them means routing the iPad's menu through the notifications
 `NoteEditorView` already listens on.
+
+---
+
+## 23. Edit and Preview render the same document
+
+> **The problem, stated as the user did:** *"Edit and Preview must render Markdown
+> identically (to pixel level) and pass all GFM compliance tests. Currently there is
+> significant layout shift switching between them."*
+
+HelloNotes draws every note two ways. Edit lays it out in **TextKit**; Preview lays it
+out in **WebKit** under GitHub's own `github-markdown-css`. Two engines will only agree
+if they are given the same numbers, and they were given none: they had no shared
+description of the document's geometry at all.
+
+### What was actually different
+
+| | Edit | Preview |
+|---|---|---|
+| Heading scale | ×1.7 / 1.4 / 1.2 / 1.1 / 1 / 1 | ×2 / 1.5 / 1.25 / 1 / .875 / .85 |
+| Heading weight | bold (700) | semibold (600) |
+| Line height | the system font's own | 1.5 |
+| Space between blocks | **none** — whatever the blank line measured | 16, or 24 above a heading |
+| List indent | `14 + 13 × source columns` | 2em per nesting level |
+| Blockquote indent | `12 × depth + 8` | `.25em` border + `1em` padding |
+| Code block | a background behind the glyphs | a 16pt-padded rounded box |
+| Column | the whole pane | 980pt, centred |
+| Text Size | scaled everything | scaled **nothing** |
+
+The last two are worth separating out, because neither is typography.
+
+**The column.** The note pane asked for its width by *mode*: Preview asked for the
+reading measure and got 80 characters centred, Edit asked for the editing measure and
+got the pane. So the first thing switching Edit→Preview did was move the text sideways
+and re-break every line in the note. No amount of matching type fixes a column that
+changes width.
+
+**Text Size.** `GFMRenderer.page` applied the scale as `html { font-size: N% }`. But
+`.markdown-body { font-size: 16px }` is absolute and overrides it, so the setting moved
+the editor and left the Preview at 16px — and every margin in the stylesheet is an
+absolute px constant besides, so even a working scale would have grown the type and left
+the spacing.
+
+### One table, two consumers
+
+`MarkdownCore/GFMBoxMetrics.swift` holds GitHub's box model as numbers, expressed as
+multiples of a base font size. `EditorTheme` and `StyleApplier` turn it into fonts and
+`NSParagraphStyle`s; `GFMRenderer.page` emits it as a CSS override block. If a number is
+wrong, both surfaces are wrong *together* — which is a bug you can see. Before, one
+surface was wrong alone, which is a bug you can only measure.
+
+`GFMRender` gained a dependency on `MarkdownCore` for this. It is the only way two
+targets can share a number.
+
+### The two rules that are easy to get wrong, and were
+
+**Margins collapse.** The space between a paragraph (`margin-bottom: 16`) and the
+heading after it (`margin-top: 24`) is 24 — the larger, not the sum. TextKit's
+`paragraphSpacing` and `paragraphSpacingBefore` simply add. So the editor never sets
+both: it asks `GFMBoxMetrics.gap(after:before:)` for the one collapsed number and puts it
+below the earlier block. And `paragraphSpacing` is per *paragraph*, not per block —
+TextKit ends one at every newline — so the gap lands on the block's **last line** only,
+or a five-line blockquote spaces its own lines apart.
+
+**A blank line is not a margin.** The editor's storage is raw Markdown, so the blank line
+a writer types between two paragraphs is a real line with a real height: ~24pt where
+GitHub's margin is 16, and 48 where the writer left two blank lines and GitHub still
+shows 16. That single fact accounted for most of the drift down a long note. A run of
+blank lines is now given exactly the gap the stylesheet would have left, shared between
+its lines — the source is unchanged and the caret still has somewhere to sit on each one.
+
+The same treatment covers the lines the source has and the render does not: a setext
+heading's `===` underline, and the blank lines the parser leaves inside an indented code
+block. They do not collapse to nothing — a line the caret cannot be seen on is a line you
+cannot edit your way out of — and they do not collapse to a hairline either, because a
+hairline only ever *adds* (it drifts once per setext heading down a long document) and
+because a sub-point line height is one TextKit rounds, which it did differently at
+different pane widths. Instead the gap between the two boxes is **shared** between the
+blank lines and the collapsed ones, so nothing is sub-point and the total is exact.
+
+### Things only measuring could have found
+
+`Tools/RenderParity` lays the same note out in both engines offscreen and prints where
+every block landed. Five of these were invisible in the numbers:
+
+- **WebKit does not use a fractional line height as given.** `line-height: 19.72px` on a
+  code block laid its lines out 19px apart. Every line height is now a whole point, on
+  both sides, so there is nothing left to round.
+- **An inline `code` span grew its line by a point in WebKit** and not in TextKit, which
+  pins the line height. Any paragraph containing code was a point taller on one side.
+- **cmark-gfm emits a bare `<input type=checkbox>`** with none of the classes
+  github.com's pipeline adds, so GitHub's rule pulling the box into the list's gutter
+  never matched and a task item's text started a checkbox-width right of every other
+  item's.
+- **`.markdown-body { font-size: 16px }` overriding the root scale**, above.
+- **Inline `code` reserves no space in the editor.** `code { padding: .2em .4em }`
+  advances the text in CSS, so every word after an inline code span on the same line sat
+  **9.56pt** left of where the Preview put it. The editor reserves it now as `.kern` on
+  the concealed backticks either side — the only characters in the right places, and
+  already invisible — and the fragment paints the rounded pill, padding included. A
+  `.backgroundColor` attribute cannot: it paints behind the glyphs and nowhere else.
+- **The cmark overlay was un-concealing setext underlines.** `StyleSpec` conceals a
+  setext heading's `===` line, and the whole-document GFM overlay — which runs *after* it
+  — restyled cmark's heading node, whose range covers the underline as well as the text.
+  So the underline got the heading's own 32pt font back. It stayed invisible until a note
+  was narrow enough for 19 `=` at 32pt to wrap, at which point a concealed line silently
+  occupied two of them. Found only because the harness sweeps pane widths.
+
+### Where it ended up
+
+Across a sample exercising every construct — all six heading levels, tight/loose/mixed
+and nested lists, task lists, blockquotes, fenced and indented code, setext headings,
+thematic breaks, tables, and paragraphs separated by one and two blank lines:
+
+**worst per-block vertical drift 0.03pt; worst indent drift 0.83pt**, across every
+combination of five text sizes (0.8×…1.5×) and three pane widths (420 / 800 / 1200pt).
+The indent residual is the two engines rounding glyph advances differently inside a code
+block; it does not accumulate.
+
+`scripts/render-parity.sh` runs that comparison across the whole matrix — five text sizes
+× three pane widths — and exits non-zero on drift over a point.
+
+It is a script and not a test **because it cannot be a test**: a `WKWebView` will not
+start its content process under `swift test` *or* under XCTest in the app's own test host
+("Could not signal service com.apple.WebKit.WebContent"), so every load hangs and every
+case times out. An ordinary executable renders fine. Both were tried before settling
+here.
+
+`GFMBoxMetricsTests` covers the half that *can* be a unit test, and is where a routine
+regression will be caught first: that the stylesheet states the same numbers the editor
+lays out with, that no line height is left as a unitless ratio, and that margins collapse
+rather than sum.
+
+### And one thing only a picture could have found
+
+Every number agreed, and the h1/h2 rules still stopped at the end of the heading's text
+while the code block's background ended at its longest line. An `NSTextLayoutFragment` is
+clipped to its `renderingSurfaceBounds`, which defaults to the width of the text it holds
+— so chrome drawn across the container was being cut off at the words. The geometry was
+right and the paint was clipped, which no measurement of *where blocks land* can see.
+`drawsFullWidthChrome` now widens those bounds for heading rules, code bands, thematic
+breaks and callouts alike.
+
+This is the argument for `EditorFidelitySnapshotTests` continuing to exist alongside the
+geometry harness. It renders the real editor to a PNG **inside the app**, which is the
+only place an `NSTextView` will draw: `cacheDisplay` outside an app process returns the
+coloured runs and none of the body text — a page of list markers on white. A picture
+taken anywhere else would be a picture of the instrument.
+
+### Visible changes to the editor
+
+- Code fences conceal when the caret is elsewhere, and the fence lines *are* the code
+  box's 16pt vertical padding. The box itself is now drawn by the fragment — a rounded,
+  full-width band — rather than being a background attribute behind the glyphs.
+- A `---` is drawn as GitHub's 4pt bar; the source returns when the caret is on the line.
+- An indented code block's four leading columns conceal, so its listing starts at the
+  box's padding rather than four characters inside it.
+- h6 takes GitHub's muted colour; inline code inherits its context's size, so `` `code` ``
+  in a heading is heading-sized, and it draws as a rounded pill with GitHub's padding
+  rather than a tight rectangle behind the glyphs.
+- An ordered list's `1.` takes the document's text colour. It was the accent, which read
+  as a link — the one thing GitHub renders in plain text, in the one colour it reserves
+  for links.
+- **Reading width now applies to the whole note pane, not to Preview alone**, and its
+  default becomes Full. The pane's column is the Editor width proportion capped by the
+  Reading width measure, centred only when the measure is what bit. `TextIntent` is gone:
+  a pane has one column, and a mode cannot change it.
+
+### The incremental-restyle consequence
+
+A block's trailing gap is the collapsed margin between it and its neighbour, so it
+belongs to two blocks: typing `#` in front of a paragraph changes spacing stored on the
+block *before*. `EditorDocument.restyle` widens its damage set by one block on each side
+— still O(damage) — and the passes that run *after* the styler (syntax highlighting,
+folds, block embeds) had to widen with it. They did not at first, and the neighbour came
+back freshly base-styled and stripped: a folded callout one block from an edit came
+unfolded and a rendered table came back as pipes.

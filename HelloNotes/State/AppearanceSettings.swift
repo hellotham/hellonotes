@@ -144,7 +144,13 @@ final class AppearanceSettings {
         let stored = defaults.double(forKey: "textScale")
         textScale = stored == 0 ? 1.0 : min(max(stored, Self.minScale), Self.maxScale)
         increaseContrast = defaults.bool(forKey: "increaseContrast")
-        readingWidth = ReadingWidth(rawValue: defaults.string(forKey: "readingWidth") ?? "") ?? .normal
+        // Full by default. The measure now applies to the *pane* rather than to
+        // Preview alone, so a default of 80 characters would have narrowed the
+        // live editor for everyone who never opened the setting — and "the pane
+        // is the workspace" is the editor's documented default. Anyone who does
+        // choose a measure now gets it in every mode, which is what choosing it
+        // always looked like it meant.
+        readingWidth = ReadingWidth(rawValue: defaults.string(forKey: "readingWidth") ?? "") ?? .full
         editorWidth = EditorWidth(rawValue: defaults.string(forKey: "editorWidth") ?? "") ?? .full
         wrapGuide = defaults.integer(forKey: "wrapGuide")
         noteSortOrder = SortOrder(rawValue: defaults.string(forKey: "noteSortOrder") ?? "") ?? .modified

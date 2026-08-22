@@ -56,9 +56,6 @@ struct EditorHost: View {
     /// the iPad's on the system tint. Contrast-corrected on both platforms now;
     /// see `AccentContrast.swift`.
     var accent: PlatformColor? = nil
-    /// Prose measure, from Settings. `nil` means "fill the pane", which is what
-    /// iOS did unconditionally while the Mac honoured the setting.
-    var textWidth: (reading: ReadingWidth, editing: EditorWidth)? = nil
     /// Columns for the wrap guide, 0 for none.
     var wrapGuide: Int = 0
     /// Preview mode is this host with no caret — syntax then stays fully
@@ -222,12 +219,12 @@ struct EditorHost: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        // S3: the editor fills whatever the detail column offers — then the
-        // user's Editor width narrows it, exactly as on the Mac. `textWidth`
-        // being optional keeps that a host decision: a caller with no settings
-        // to consult (a preview, a test) still gets the full pane.
+        // S3: the editor fills whatever the detail column offers. The user's
+        // measure is applied by `NoteEditorPane`, around the mode switch, so
+        // that every mode gets the same column — measuring here as well would
+        // put the decision in two places, and two places is how Preview came to
+        // be measured differently from Edit.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(OptionalMeasure(intent: .editing, fontSize: fontSize, width: textWidth))
         .task(id: taskKey) {
             // Whatever the previous note's debounce was still holding lands
             // now, into the model it was held for. Cancelling it instead — the

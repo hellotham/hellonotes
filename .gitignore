@@ -24,3 +24,4 @@ dist/
 
 # Per-developer API credentials (copy Config/Secrets.example.xcconfig)
 Config/Secrets.xcconfig
+Tools/RenderParity/.build/

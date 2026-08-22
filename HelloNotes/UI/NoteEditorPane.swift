@@ -75,12 +75,21 @@ struct NoteEditorPane: View {
                 )
                 .disabled(onRename == nil)
             }
-            switch mode {
-            case .edit:     liveEditor
-            case .markdown: sourceEditor
-            case .split:    splitEditor
-            default:        preview
+            // The measure is the *pane's*, applied once, outside the mode
+            // switch. It used to be applied per mode — Preview at the reading
+            // measure, everything else at the editing one — so switching mode
+            // changed the column's width and re-broke every line in the note.
+            Group {
+                switch mode {
+                case .edit:     liveEditor
+                case .markdown: sourceEditor
+                case .split:    splitEditor
+                default:        preview
+                }
             }
+            .measuredText(fontSize: appearance.editorFontSize,
+                          reading: appearance.readingWidth,
+                          editing: appearance.editorWidth)
         }
         .onReceive(NotificationCenter.default.publisher(for: .hnEditorCaretEscapedTop)) { notification in
             // The caret left the top of the note — catch it in the title. Only
@@ -105,7 +114,6 @@ struct NoteEditorPane: View {
             linkTargets: linkTargets ?? collection?.search.linkTargets() ?? [],
             fontSize: appearance.editorFontSize,
             accent: appearance.editorAccentPlatformColor,
-            textWidth: (appearance.readingWidth, appearance.editorWidth),
             wrapGuide: appearance.wrapGuide,
             isEditable: isEditable,
             embedProvider: embedProvider ?? collection?.embedProvider,
@@ -131,15 +139,6 @@ struct NoteEditorPane: View {
             text: Binding(get: { editor.text }, set: { editor.text = $0 }),
             fontSize: appearance.editorFontSize
         )
-        // `.editing`, monospaced — the Mac measures its source mode the same
-        // way, and the character width has to be resolved against the
-        // monospaced font or the column count means a different pane width on
-        // each platform.
-        .measuredText(.editing,
-                      fontSize: appearance.editorFontSize,
-                      monospaced: true,
-                      reading: appearance.readingWidth,
-                      editing: appearance.editorWidth)
     }
 
     /// Read-only rendered preview (WKWebView over the shared HTML export),
@@ -153,12 +152,6 @@ struct NoteEditorPane: View {
             baseURL: note.fileURL.deletingLastPathComponent(),
             fontScale: appearance.textScale
         )
-        // Reading width, centred — the setting exists for prose, and the
-        // preview is the one mode that is purely prose.
-        .measuredText(.reading,
-                      fontSize: appearance.editorFontSize,
-                      reading: appearance.readingWidth,
-                      editing: appearance.editorWidth)
     }
 
     /// Source + preview together — side by side on a wide (landscape) screen,

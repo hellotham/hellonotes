@@ -73,52 +73,55 @@ struct ShellContractTests {
 
     // MARK: - Decision 5: reading is fixed and centred, editing fills the pane
 
-    @Test("Editing fills a wide pane; reading holds its measure")
-    func textWidthFollowsIntent() {
+    @Test("The pane has one column: a proportion, capped by a measure")
+    func textWidthComposesBothSettings() {
         let characterWidth: CGFloat = 7      // ~14pt system font
         let pane: CGFloat = 3200             // a single pane on a 3840pt display
 
-        let editing = TextWidth.resolve(intent: .editing, paneWidth: pane,
-                                        characterWidth: characterWidth,
-                                        reading: .normal, editing: .full)
-        #expect(editing.width == pane - 2 * ShellMetrics.insets)
-        #expect(editing.centred == false, "editing is left-aligned, VS Code style")
+        // No measure: the proportion alone, left-aligned, VS Code style.
+        let full = TextWidth.resolve(paneWidth: pane, characterWidth: characterWidth,
+                                     reading: .full, editing: .full)
+        #expect(full.width == pane - 2 * ShellMetrics.insets)
+        #expect(full.centred == false, "a full-width column is left-aligned")
 
-        let reading = TextWidth.resolve(intent: .reading, paneWidth: pane,
-                                        characterWidth: characterWidth,
-                                        reading: .normal, editing: .full)
-        #expect(reading.width == 80 * characterWidth)
-        #expect(reading.centred, "a measure is only a measure if it is centred")
+        // A measure caps it, and a capped column is centred.
+        let measured = TextWidth.resolve(paneWidth: pane, characterWidth: characterWidth,
+                                         reading: .normal, editing: .full)
+        #expect(measured.width == 80 * characterWidth)
+        #expect(measured.centred, "a measure is only a measure if it is centred")
+
+        // Editor width alone narrows without centring.
+        let half = TextWidth.resolve(paneWidth: pane, characterWidth: characterWidth,
+                                     reading: .full, editing: .half)
+        #expect(half.width == (pane - 2 * ShellMetrics.insets) / 2)
+        #expect(half.centred == false)
+    }
+
+    /// The whole point of collapsing the two intents: the column cannot depend
+    /// on what the pane is *showing*, or switching Edit→Preview moves the text.
+    @Test("One pane, one column — mode cannot change it")
+    func theColumnDoesNotDependOnTheMode() {
+        for pane in [CGFloat(320), 860, 1470, 3200] {
+            for reading in ReadingWidth.allCases {
+                for editing in EditorWidth.allCases {
+                    let a = TextWidth.resolve(paneWidth: pane, characterWidth: 7,
+                                              reading: reading, editing: editing)
+                    let b = TextWidth.resolve(paneWidth: pane, characterWidth: 7,
+                                              reading: reading, editing: editing)
+                    #expect(a == b)
+                    #expect(a.width <= pane, "pane \(Int(pane)) \(reading) \(editing)")
+                }
+            }
+        }
     }
 
     @Test("A narrow pane collapses the distinction — neither setting bites")
     func narrowPaneIgnoresBothSettings() {
         let pane: CGFloat = 375              // a phone
         let available = pane - 2 * ShellMetrics.insets
-        for intent in [TextIntent.reading, .editing] {
-            let resolved = TextWidth.resolve(intent: intent, paneWidth: pane,
-                                             characterWidth: 7,
-                                             reading: .normal, editing: .full)
-            #expect(resolved.width <= available,
-                    "\(intent) must never exceed the pane it lives in")
-        }
-    }
-
-    @Test("Prose never exceeds its pane, at any setting or size")
-    func proseNeverExceedsPane() {
-        for pane in [CGFloat(250), 320, 560, 860, 1470, 3840] {
-            for reading in ReadingWidth.allCases {
-                for editing in EditorWidth.allCases {
-                    for intent in [TextIntent.reading, .editing] {
-                        let resolved = TextWidth.resolve(
-                            intent: intent, paneWidth: pane, characterWidth: 7,
-                            reading: reading, editing: editing)
-                        #expect(resolved.width <= pane,
-                                "pane \(Int(pane)) \(intent) \(reading) \(editing)")
-                    }
-                }
-            }
-        }
+        let resolved = TextWidth.resolve(paneWidth: pane, characterWidth: 7,
+                                         reading: .normal, editing: .full)
+        #expect(resolved.width <= available, "the column must never exceed its pane")
     }
 
     // MARK: - Decision 3 / switching / affordances

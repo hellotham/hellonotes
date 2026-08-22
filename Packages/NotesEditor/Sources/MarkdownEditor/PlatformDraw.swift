@@ -69,6 +69,33 @@ enum PlatformDraw {
         context.fillEllipse(in: rect)
     }
 
+    /// Fill a rectangle whose top and/or bottom corners are rounded — a code
+    /// block's background, which is painted a line at a time because each line
+    /// of it is its own layout fragment, so only the first and last round.
+    nonisolated static func fill(_ rect: CGRect, _ color: PlatformColor, radius: CGFloat,
+                                 roundTop: Bool, roundBottom: Bool, in context: CGContext) {
+        let r = min(radius, min(rect.width, rect.height) / 2)
+        guard r > 0, roundTop || roundBottom else { return fill(rect, color, in: context) }
+        let top = roundTop ? r : 0, bottom = roundBottom ? r : 0
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + top))
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY),
+                    tangent2End: CGPoint(x: rect.minX + top, y: rect.minY), radius: top)
+        path.addLine(to: CGPoint(x: rect.maxX - top, y: rect.minY))
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
+                    tangent2End: CGPoint(x: rect.maxX, y: rect.minY + top), radius: top)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - bottom))
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
+                    tangent2End: CGPoint(x: rect.maxX - bottom, y: rect.maxY), radius: bottom)
+        path.addLine(to: CGPoint(x: rect.minX + bottom, y: rect.maxY))
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
+                    tangent2End: CGPoint(x: rect.minX, y: rect.maxY - bottom), radius: bottom)
+        path.closeSubpath()
+        context.setFillColor(color.cgColor)
+        context.addPath(path)
+        context.fillPath()
+    }
+
     /// Stroke an ellipse inscribed in `rect`.
     nonisolated static func strokeEllipse(_ rect: CGRect, _ color: PlatformColor, lineWidth: CGFloat, in context: CGContext) {
         context.setStrokeColor(color.cgColor)
@@ -86,6 +113,11 @@ extension PlatformColor {
         return .separator
         #endif
     }
+    /// `pre { background-color: var(--bgColor-muted) }` — the code block box.
+    /// Spelled once: the two platforms name this fill identically, and a `#if`
+    /// around two equal values is a difference the code claims and does not
+    /// have.
+    nonisolated static var editorCodeBackground: PlatformColor { .quaternarySystemFill }
     nonisolated static var editorLabel: PlatformColor {
         #if canImport(AppKit)
         return .labelColor

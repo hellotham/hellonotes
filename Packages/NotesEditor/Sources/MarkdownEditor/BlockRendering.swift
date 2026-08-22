@@ -16,6 +16,7 @@
 //
 
 import Foundation
+import MarkdownCore
 #if canImport(AppKit)
 import AppKit
 #else
@@ -75,6 +76,23 @@ nonisolated public let blockquotePlainAttribute = NSAttributedString.Key("hn.blo
 /// Custom attribute (Int level) on an h1/h2 heading line — the fragment draws a
 /// full-width bottom rule below it, matching GitHub's heading borders.
 nonisolated public let headingRuleAttribute = NSAttributedString.Key("hn.headingRule")
+/// Custom attribute (CGFloat) carrying the document's base font size on every
+/// styled run. Chrome drawing happens inside an `NSTextLayoutFragment`, which
+/// has a text storage and no theme; without this the fragment had to hard-code
+/// the gutter step, the rule offset and the bar width, so they stayed at their
+/// 16pt-base values while Text Size moved everything around them.
+nonisolated public let gfmBaseAttribute = NSAttributedString.Key("hn.gfmBase")
+/// Custom attribute (CGFloat thickness) on a collapsed `---` line — the
+/// fragment fills it as GitHub's `hr` bar.
+nonisolated public let thematicBreakAttribute = NSAttributedString.Key("hn.thematicBreak")
+/// Custom attribute (Int: 0 top, 1 middle, 2 bottom, 3 whole) on each line of a
+/// code block — the fragment paints `pre`'s rounded background behind it.
+nonisolated public let codeBandAttribute = NSAttributedString.Key("hn.codeBand")
+/// Custom attribute (CGFloat horizontal padding) on an inline `code` span — the
+/// fragment paints its rounded pill. The padding itself is reserved by `.kern`
+/// on the concealed backticks either side, so the text after the span lands
+/// where the Preview puts it.
+nonisolated public let inlineCodeAttribute = NSAttributedString.Key("hn.inlineCode")
 
 /// Custom attribute (PlatformImage) on the first char of a concealed inline
 /// `$…$` math span — the fragment draws it at the baseline. The span's source
@@ -120,11 +138,14 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
     }
 
     override nonisolated func draw(at point: CGPoint, in context: CGContext) {
+        drawCodeBand(at: point, in: context)       // behind everything
         drawCalloutBands(at: point, in: context)   // behind the text
+        drawInlineCodePills(at: point, in: context)
         super.draw(at: point, in: context)   // concealed source (invisible)
         drawTaskCheckboxes(at: point, in: context)
         drawListBullets(at: point, in: context)
         drawHeadingRule(at: point, in: context)
+        drawThematicBreak(at: point, in: context)
         drawInlineImages(at: point, in: context)
 
         drawBlockImage(at: point, in: context)
@@ -150,10 +171,13 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
     /// a band is reserved for the image either way, so omitting the draw left
     /// an empty band rather than a table.
     nonisolated func drawChromeOnly(at point: CGPoint, in context: CGContext) {
+        drawCodeBand(at: point, in: context)
         drawCalloutBands(at: point, in: context)
+        drawInlineCodePills(at: point, in: context)
         drawTaskCheckboxes(at: point, in: context)
         drawListBullets(at: point, in: context)
         drawHeadingRule(at: point, in: context)
+        drawThematicBreak(at: point, in: context)
         drawInlineImages(at: point, in: context)
         drawBlockImage(at: point, in: context)
     }
@@ -185,13 +209,74 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
     private nonisolated func drawHeadingRule(at point: CGPoint, in context: CGContext) {
         guard let ts = textStorage, let range = fragmentRange, range.length > 0,
               range.location < ts.length,
-              ts.attribute(headingRuleAttribute, at: range.location, effectiveRange: nil) != nil,
+              let level = ts.attribute(headingRuleAttribute, at: range.location,
+                                       effectiveRange: nil) as? Int,
               let lastLine = textLineFragments.last else { return }
+        let m = metrics(at: range.location)
         let tb = lastLine.typographicBounds
         let width = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
         let leftEdge = point.x - layoutFragmentFrame.origin.x
-        let y = point.y + tb.origin.y + tb.height + 7
-        PlatformDraw.fill(CGRect(x: leftEdge, y: y, width: width, height: 1), .editorSeparator, in: context)
+        // `h1, h2 { padding-bottom: .3em }` then the border itself — .3 of the
+        // *heading's* size, so an h1's rule sits further below its text than an
+        // h2's. A fixed 7pt put both in the wrong place at every text size.
+        let y = point.y + tb.origin.y + tb.height + m.headingSize(level) * GFMBoxMetrics.headingRulePadRatio
+        PlatformDraw.fill(CGRect(x: leftEdge, y: y, width: width, height: m.hairline),
+                          .editorSeparator, in: context)
+    }
+
+    /// The document's box model, read off the text itself.
+    private nonisolated func metrics(at location: Int) -> GFMBoxMetrics {
+        guard let ts = textStorage, location < ts.length,
+              let base = ts.attribute(gfmBaseAttribute, at: location, effectiveRange: nil) as? CGFloat
+        else { return GFMBoxMetrics() }
+        return GFMBoxMetrics(base: base)
+    }
+
+    // MARK: - Thematic break
+
+    /// `hr` — a bar of its own height, not a line of dashes.
+    private nonisolated func drawThematicBreak(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentRange, range.length > 0,
+              range.location < ts.length,
+              let thickness = ts.attribute(thematicBreakAttribute, at: range.location,
+                                           effectiveRange: nil) as? CGFloat,
+              let line = textLineFragments.first else { return }
+        let tb = line.typographicBounds
+        let width = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+        let leftEdge = point.x - layoutFragmentFrame.origin.x
+        PlatformDraw.fill(CGRect(x: leftEdge, y: point.y + tb.origin.y, width: width, height: thickness),
+                          .editorSeparator, in: context)
+    }
+
+    // MARK: - Code block background
+
+    /// `pre { background: var(--bgColor-muted); border-radius: 6px }`.
+    ///
+    /// A code block is many paragraphs and therefore many layout fragments, so
+    /// the box is painted a line at a time and only the first and last line
+    /// round their corners. Painting it as a text background attribute (which
+    /// is what the editor did) fills behind the glyphs and nothing else: a
+    /// short line left a ragged right edge and the 16pt padding had no colour
+    /// at all.
+    private nonisolated func drawCodeBand(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentRange, range.length > 0,
+              range.location < ts.length,
+              let position = ts.attribute(codeBandAttribute, at: range.location,
+                                          effectiveRange: nil) as? Int else { return }
+        let m = metrics(at: range.location)
+        let width = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+        let leftEdge = point.x - layoutFragmentFrame.origin.x
+        var top = CGFloat.greatestFiniteMagnitude, bottom = -CGFloat.greatestFiniteMagnitude
+        for line in textLineFragments {
+            let tb = line.typographicBounds
+            top = min(top, tb.origin.y)
+            bottom = max(bottom, tb.origin.y + tb.height)
+        }
+        guard bottom > top else { return }
+        let rect = CGRect(x: leftEdge, y: point.y + top, width: width, height: bottom - top)
+        PlatformDraw.fill(rect, .editorCodeBackground, radius: m.codeRadius,
+                          roundTop: position == 0 || position == 3,
+                          roundBottom: position == 2 || position == 3, in: context)
     }
 
     // MARK: - List bullets
@@ -220,6 +305,45 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         }
     }
 
+    /// `code { padding: .2em .4em; border-radius: 6px; background: … }`.
+    ///
+    /// A `.backgroundColor` attribute paints behind the glyphs and nowhere
+    /// else, so it drew a tight rectangle with no padding at all — and the
+    /// padding is not decoration: in the Preview it advances the text, so every
+    /// word after an inline code span on the same line sat nine and a half
+    /// points left of where the Preview put it.
+    private nonisolated func drawInlineCodePills(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentRange, range.length > 0 else { return }
+        ts.enumerateAttribute(inlineCodeAttribute, in: range, options: []) { value, span, _ in
+            guard let pad = value as? CGFloat, span.length > 0,
+                  let line = lineFragment(forDocumentCharAt: span.location),
+                  let start = charPosition(forDocumentCharAt: span.location, point: point)
+            else { return }
+            // The span's right-hand edge is the closing backtick's position:
+            // it is concealed to nothing and carries the trailing padding as
+            // kerning, so it sits exactly where the pill ends.
+            let after = NSMaxRange(span)
+            let end = after < ts.length
+                ? charPosition(forDocumentCharAt: after, point: point)?.x
+                : nil
+            let left = start.x - pad
+            let right = end ?? (start.x + pad)
+            guard right > left else { return }
+            // The pill covers the code font's own content box plus `.2em`
+            // above and below, centred on the line — which is what an inline
+            // box's background covers in CSS, and not the whole 1.5 line box.
+            let size = (ts.attribute(.font, at: span.location, effectiveRange: nil)
+                        as? PlatformFont)?.pointSize ?? pad * 2.5
+            let tb = line.typographicBounds
+            let height = min(tb.height, size * 1.56)
+            let rect = CGRect(x: left, y: point.y + tb.origin.y + (tb.height - height) / 2,
+                              width: right - left, height: height)
+            PlatformDraw.fill(rect, .editorCodeBackground,
+                              radius: metrics(at: span.location).codeRadius,
+                              roundTop: true, roundBottom: true, in: context)
+        }
+    }
+
     // MARK: - Callouts
 
     override nonisolated var renderingSurfaceBounds: CGRect {
@@ -227,16 +351,28 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         if let (image, bandTop) = blockImage() {
             bounds = bounds.union(CGRect(x: 0, y: bandTop, width: image.size.width, height: image.size.height))
         }
-        if hasCallout, let width = textLayoutManager?.textContainer?.size.width {
+        if drawsFullWidthChrome, let width = textLayoutManager?.textContainer?.size.width {
             bounds.origin.x = -layoutFragmentFrame.origin.x
             bounds.size.width = width
         }
         return bounds
     }
 
-    private nonisolated var hasCallout: Bool {
+    /// Whether this fragment paints something that spans the text container
+    /// rather than the fragment's own text.
+    ///
+    /// A fragment is clipped to its `renderingSurfaceBounds`, which by default
+    /// is the width of the text it holds — so an h1's bottom rule stopped at
+    /// the end of the word "Introduction" instead of crossing the column, and a
+    /// code block's background ended at its longest line. Both are drawn full
+    /// width and both were being cut off, which is only visible in a picture:
+    /// the geometry is right, the paint is clipped.
+    private nonisolated var drawsFullWidthChrome: Bool {
         guard let ts = textStorage, let range = fragmentRange, range.length > 0,
               range.location < ts.length else { return false }
+        if ts.attribute(headingRuleAttribute, at: range.location, effectiveRange: nil) != nil { return true }
+        if ts.attribute(codeBandAttribute, at: range.location, effectiveRange: nil) != nil { return true }
+        if ts.attribute(thematicBreakAttribute, at: range.location, effectiveRange: nil) != nil { return true }
         var found = false
         ts.enumerateAttribute(calloutTintAttribute, in: range, options: []) { v, _, stop in
             if v != nil { found = true; stop.pointee = true }
@@ -249,7 +385,8 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
     private nonisolated func drawCalloutBands(at point: CGPoint, in context: CGContext) {
         guard let ts = textStorage, let range = fragmentRange, range.length > 0 else { return }
         let containerWidth = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
-        let barWidth: CGFloat = 3
+        // `blockquote { border-left: .25em }` — the same bar GitHub draws.
+        let barWidth = metrics(at: range.location).quoteBorder
         let leftEdge = point.x - layoutFragmentFrame.origin.x
         for line in textLineFragments {
             let docStart = range.location + line.characterRange.location
@@ -261,9 +398,10 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
             // Plain blockquotes: one gutter bar per `>` nesting level, no fill.
             // Callouts: a tinted band + a single accent bar.
             if let depth = ts.attribute(blockquotePlainAttribute, at: docStart, effectiveRange: nil) as? Int {
+                let m = metrics(at: docStart)
                 for level in 0..<max(1, depth) {
-                    let x = leftEdge + CGFloat(level) * RenderedBlockFragment.quoteBarStep
-                    PlatformDraw.fill(CGRect(x: x, y: band.minY, width: barWidth, height: tb.height),
+                    let x = leftEdge + CGFloat(level) * m.quoteIndent
+                    PlatformDraw.fill(CGRect(x: x, y: band.minY, width: m.quoteBorder, height: tb.height),
                                       tint.withAlphaComponent(0.55), in: context)
                 }
             } else {
@@ -293,9 +431,6 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
 
     /// Distance from the band's right edge to the fold chevron's left edge.
     static let calloutChevronInset: CGFloat = 22
-    /// Horizontal distance between successive nested blockquote bars (matches
-    /// `StyleApplier.quoteBarStep`).
-    static let quoteBarStep: CGFloat = 12
 
     // MARK: - Inline images (inline `$…$` math)
 

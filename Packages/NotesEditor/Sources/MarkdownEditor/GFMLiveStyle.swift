@@ -27,6 +27,30 @@ nonisolated public enum GFMLiveStyle {
         return runs
     }
 
+    /// The length of a setext heading's *text*, with the `===` / `---`
+    /// underline (and the newline before it) trimmed off.
+    private static func setextTextLength(_ range: NSRange, in text: NSString) -> Int {
+        var end = range.location + range.length
+        // Back over any trailing whitespace, then over the underline itself.
+        while end > range.location, isSpace(text.character(at: end - 1)) { end -= 1 }
+        var start = end
+        while start > range.location {
+            let c = text.character(at: start - 1)
+            guard c == 0x3D || c == 0x2D else { break }   // '=' or '-'
+            start -= 1
+        }
+        guard start < end else { return range.length }    // no underline found
+        // Everything left of the underline, minus the newline that ends the
+        // text line and any indentation before the underline.
+        var textEnd = start
+        while textEnd > range.location, isSpace(text.character(at: textEnd - 1)) { textEnd -= 1 }
+        return max(0, textEnd - range.location)
+    }
+
+    private static func isSpace(_ c: unichar) -> Bool {
+        c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D
+    }
+
     private static func emit(_ node: GFMNode, text: NSString, into runs: inout [StyleRun]) {
         let r = node.range
         guard r.length >= 0, r.location >= 0, r.location + r.length <= text.length else { return }
@@ -44,7 +68,14 @@ nonisolated public enum GFMLiveStyle {
                 append(&runs, r.location, i - r.location, .marker, .whenInactive)
                 append(&runs, i, end - i, .headingText(level: level))
             } else {
-                append(&runs, r.location, r.length, .headingText(level: level))
+                // Setext. cmark's node covers the underline as well as the
+                // text, and this overlay runs *after* `StyleSpec` has concealed
+                // that underline — so styling the whole node put the heading's
+                // own font back on it. It stayed invisible until a line long
+                // enough to wrap at the heading size appeared, at which point
+                // the concealed underline silently occupied two lines.
+                append(&runs, r.location, setextTextLength(r, in: text),
+                       .headingText(level: level))
             }
 
         case "strong":

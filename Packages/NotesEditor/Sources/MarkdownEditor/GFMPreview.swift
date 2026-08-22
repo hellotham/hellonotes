@@ -33,8 +33,18 @@ public struct GFMPreview: View {
     /// caller that cared had to reach for `GFMRenderer.page` and the `html:`
     /// form instead. One of them did and one did not, which is how Text Size
     /// scaled the preview on iPad and did nothing on the Mac.
+    /// The page is measured as a **pane**, not a document: the same top inset
+    /// and the same distance from the leading edge to the first glyph that the
+    /// live editor uses, and no measure of its own. Preview used the export
+    /// page's box — a 980pt centred column — so switching out of Edit moved
+    /// the text sideways before a single glyph had been re-measured.
     public init(markdown: String, baseURL: URL? = nil, fontScale: Double = 1) {
-        self.init(html: GFMRenderer.page(markdown, fontScale: fontScale), baseURL: baseURL)
+        self.init(html: GFMRenderer.page(
+            markdown,
+            fontScale: fontScale,
+            box: .pane(inset: EditorMetrics.textContainerInset,
+                       leading: EditorMetrics.textLeadingInset)),
+                  baseURL: baseURL)
     }
 
     public var body: some View {

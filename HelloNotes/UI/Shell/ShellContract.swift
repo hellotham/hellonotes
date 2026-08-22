@@ -147,15 +147,20 @@ func shellKind(width: CGFloat, height: CGFloat) -> ShellKind {
     return width >= ShellMetrics.inspectorMin ? .wideInspector : .wide
 }
 
-// MARK: - Reading vs editing (Part 2, decision 5)
+// MARK: - The pane's text column (Part 2, decision 5)
 
-/// What the person is doing, which decides how wide their text is.
-///
-/// Reading gets a fixed measure, centred — line length is the whole point.
-/// Editing fills the pane, left-aligned, like VS Code: the pane *is* the
-/// workspace, and a fixed 80ch column stranded in 1300pt of gutter on each side
-/// isn't restraint, it just looks broken.
-enum TextIntent: Equatable, Sendable { case reading, editing }
+//  There used to be a `TextIntent` here — `.reading` or `.editing` — and the
+//  note pane chose between them by *mode*: Preview asked for the reading
+//  measure and got 80 characters centred, while Edit asked for the editing
+//  measure and got the whole pane. So the first thing switching Edit→Preview
+//  did was move the text sideways and change every line break in the document,
+//  before a single glyph had been re-measured. No amount of matching the
+//  typography fixes a column that changes width.
+//
+//  A pane has one column. Both settings still apply, and they answer different
+//  questions: Editor width is a proportion of the pane, Reading width is a
+//  maximum measure in characters. The column is the proportion, capped by the
+//  measure — and centred only when the measure is what bit.
 
 /// The user's preferred reading measure, in characters.
 enum ReadingWidth: String, CaseIterable, Sendable {
@@ -200,44 +205,43 @@ enum EditorWidth: String, CaseIterable, Sendable {
 }
 
 enum TextWidth {
-    /// Widths are always resolved against the *current* font, never stored as
-    /// points: source mode is monospace, so the same character count is a
-    /// different width there.
+    /// The pane's text column: one width, whatever mode the pane is showing.
     ///
     /// - Returns: the width the prose should occupy, and whether to centre it.
-    static func resolve(intent: TextIntent,
-                        paneWidth: CGFloat,
+    static func resolve(paneWidth: CGFloat,
                         characterWidth: CGFloat,
                         reading: ReadingWidth,
                         editing: EditorWidth) -> (width: CGFloat, centred: Bool) {
         let available = max(1, paneWidth - 2 * ShellMetrics.insets)
-        switch intent {
-        case .reading:
-            guard let characters = reading.characters else { return (available, false) }
-            // A fixed measure, centred — and `min` means a narrow pane never
-            // sees the setting bite.
-            return (min(characters * characterWidth, available), true)
-        case .editing:
-            // Proportional to the pane, left-aligned, with the floor from
-            // Part 3 — but never wider than the pane itself.
-            return (min(available, max(ShellMetrics.editorFloor,
-                                       available * editing.proportion)), false)
-        }
+        // Editor width: proportional to the pane, with the floor from Part 3,
+        // and never wider than the pane itself.
+        let proportion = min(available, max(ShellMetrics.editorFloor,
+                                            available * editing.proportion))
+        // Reading width then caps it as a measure in characters. `.full` has no
+        // measure, which is the setting's own escape hatch.
+        guard let characters = reading.characters else { return (proportion, false) }
+        let measure = min(proportion, characters * characterWidth)
+        // Centre only when the measure is doing the work: a column narrowed by
+        // Editor width alone stays left-aligned, VS Code style, because the
+        // pane *is* the workspace.
+        return (measure, measure < proportion - 0.5)
     }
 
-    /// Measured, not assumed: a character count means a different point width
-    /// in the proportional body font than in the monospaced source font, so the
-    /// width is always resolved against the font actually in use.
+    /// Measured, not assumed — and always against the *body* font, whatever the
+    /// pane is currently showing.
+    ///
+    /// It used to be resolved against "the font actually in use", which meant
+    /// the monospaced one in Source mode: the same "80 characters" was a wider
+    /// column there than in Edit or Preview, so the column changed width when
+    /// the mode did. A measure is about prose line length; the pane's column is
+    /// the pane's, not the mode's.
     ///
     /// Cross-platform, and here rather than in a view, because it used to be a
     /// `private static` on the macOS-only `NoteEditorView` written in `NSFont`
     /// — which is the whole reason Reading width and Editor width were settings
     /// the iPad stored and never applied.
-    static func characterWidth(size: CGFloat, monospaced: Bool) -> CGFloat {
-        let font: PlatformFont = monospaced
-            ? .monospacedSystemFont(ofSize: size, weight: .regular)
-            : .systemFont(ofSize: size)
-        return ("0" as NSString).size(withAttributes: [.font: font]).width
+    static func characterWidth(size: CGFloat) -> CGFloat {
+        ("0" as NSString).size(withAttributes: [.font: PlatformFont.systemFont(ofSize: size)]).width
     }
 }
 
@@ -249,9 +253,7 @@ enum TextWidth {
 /// `iOSLiveEditor` were two answers to one question, and only one of them had
 /// read the setting.
 struct MeasuredText: ViewModifier {
-    let intent: TextIntent
     let fontSize: CGFloat
-    var monospaced: Bool = false
     let reading: ReadingWidth
     let editing: EditorWidth
 
@@ -262,9 +264,8 @@ struct MeasuredText: ViewModifier {
 
     func body(content: Content) -> some View {
         let resolved = TextWidth.resolve(
-            intent: intent,
             paneWidth: shell.paneWidth,
-            characterWidth: TextWidth.characterWidth(size: fontSize, monospaced: monospaced),
+            characterWidth: TextWidth.characterWidth(size: fontSize),
             reading: reading,
             editing: editing
         )
@@ -279,13 +280,10 @@ struct MeasuredText: ViewModifier {
 
 extension View {
     /// Lay this content out at the user's Reading / Editor width.
-    func measuredText(_ intent: TextIntent,
-                      fontSize: CGFloat,
-                      monospaced: Bool = false,
+    func measuredText(fontSize: CGFloat,
                       reading: ReadingWidth,
                       editing: EditorWidth) -> some View {
-        modifier(MeasuredText(intent: intent, fontSize: fontSize,
-                              monospaced: monospaced, reading: reading, editing: editing))
+        modifier(MeasuredText(fontSize: fontSize, reading: reading, editing: editing))
     }
 }
 
@@ -297,15 +295,11 @@ extension View {
 /// view down and rebuilds it — dropping the caret every time the setting is
 /// touched.
 struct OptionalMeasure: ViewModifier {
-    let intent: TextIntent
     let fontSize: CGFloat
-    var monospaced: Bool = false
     let width: (reading: ReadingWidth, editing: EditorWidth)?
 
     func body(content: Content) -> some View {
-        content.measuredText(intent,
-                             fontSize: fontSize,
-                             monospaced: monospaced,
+        content.measuredText(fontSize: fontSize,
                              reading: width?.reading ?? .full,
                              editing: width?.editing ?? .full)
     }
