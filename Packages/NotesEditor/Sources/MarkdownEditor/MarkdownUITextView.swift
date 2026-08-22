@@ -1083,6 +1083,10 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         nonisolated(unsafe) private var busTokens: [NSObjectProtocol] = []
         private var busDocumentId: String?
         private weak var busView: MarkdownUITextView?
+        /// The find bar's query and position, so Next/Previous and Replace act
+        /// on the same match the bar is showing.
+        private var findQuery = ""
+        private var findIndex = 0
 
         /// Block observers are retained by `NotificationCenter` until they are
         /// removed by token, so a coordinator that just goes away leaves its
@@ -1142,6 +1146,65 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                     // Find & Replace needs no iOS counterpart written. It was
                     // passing `false` and offering half the feature.
                     view.findInteraction?.presentFindNavigator(showingReplace: true)
+                }
+            })
+            // The app's own find bar, and every jump to a heading. These four
+            // are the AppKit view's, and they had no listener here — see
+            // `showMatch(of:index:)`.
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hn.editor.findQuery"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let query = note.userInfo?["query"] as? String ?? ""
+                let index = note.userInfo?["currentIndex"] as? Int
+                MainActor.assumeIsolated { [query, index] in
+                    guard let self, let textView = self.busView, textView.window != nil else { return }
+                    if query != self.findQuery { self.findIndex = 0 }
+                    self.findQuery = query
+                    if let index { self.findIndex = index }
+                    let count = textView.showMatch(of: query, index: self.findIndex)
+                    NotificationCenter.default.post(
+                        name: Notification.Name("hn.editor.findResults"),
+                        object: nil, userInfo: ["count": count])
+                }
+            })
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hn.editor.replaceCurrent"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let replacement = note.userInfo?["replacement"] as? String
+                MainActor.assumeIsolated { [replacement] in
+                    guard let self, let textView = self.busView, textView.window != nil,
+                          let replacement else { return }
+                    let sel = textView.selectedRange
+                    if sel.length > 0 { textView.performEdit(replacing: sel, with: replacement) }
+                    _ = textView.showMatch(of: self.findQuery, index: self.findIndex)
+                }
+            })
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hn.editor.replaceAll"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let replacement = note.userInfo?["replacement"] as? String
+                MainActor.assumeIsolated { [replacement] in
+                    guard let self, let textView = self.busView, textView.window != nil,
+                          let replacement, !self.findQuery.isEmpty,
+                          let document = textView.document else { return }
+                    // Back to front, so earlier ranges stay valid.
+                    for range in document.findMatches(of: self.findQuery).reversed() {
+                        textView.performEdit(replacing: range, with: replacement)
+                    }
+                }
+            })
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hn.editor.clearHighlights"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let textView = self.busView, textView.window != nil else { return }
+                    self.findQuery = ""
+                    self.findIndex = 0
+                    textView.selectedRange = NSRange(location: textView.selectedRange.location, length: 0)
                 }
             })
         }
@@ -1261,6 +1324,27 @@ extension MarkdownUITextView: MarkdownFormatting {
         replace(textRange, withText: text)
         selectedRange = NSRange(location: range.location + (text as NSString).length, length: 0)
         return true
+    }
+
+    /// Select and scroll to the `index`-th match of `query`; returns the match
+    /// count (the app's find bar shows it).
+    ///
+    /// This existed only on the AppKit view, and it is not a protocol
+    /// requirement, so nothing failed to compile — the four find notifications
+    /// simply had no listener here. What that cost was not only the app's own
+    /// find bar (iOS has `UIFindInteraction` for that) but **every jump to a
+    /// heading**: `hnJumpToHeadingInEditor` posts `hn.editor.findQuery`, so
+    /// tapping an outline row, a mind-map section or a `[[link#heading]]` did
+    /// nothing at all on this platform.
+    @discardableResult
+    public func showMatch(of query: String, index: Int) -> Int {
+        guard let document else { return 0 }
+        let matches = document.findMatches(of: query)
+        guard !matches.isEmpty else { return 0 }
+        let target = matches[max(0, min(index, matches.count - 1))]
+        selectedRange = target
+        reliablyScroll(to: target)
+        return matches.count
     }
 }
 

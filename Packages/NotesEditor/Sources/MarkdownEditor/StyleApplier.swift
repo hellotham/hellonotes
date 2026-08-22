@@ -304,6 +304,11 @@ nonisolated enum StyleApplier {
                 attrs[.link] = url
                 #if canImport(AppKit)
                 attrs[.cursor] = NSCursor.pointingHand
+                #else
+                // No `.cursor` attribute in UIKit — a pointer over a link on
+                // iPadOS gets its hover effect from the text view's own pointer
+                // interaction rather than from an attribute. The *link* is
+                // there either way; only the cursor hint has no key to set.
                 #endif
             }
             target.addAttributes(attrs, range: range)

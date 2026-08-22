@@ -408,4 +408,34 @@ struct ShellComplianceTests {
         #expect(!body.contains("selection.wrappedValue = "),
                 "revalidateSelection writes the selection — it must only ever read it")
     }
+
+    /// Both editors answer the same command bus.
+    ///
+    /// `MarkdownTextView` and `MarkdownUITextView` are one view written twice —
+    /// AppKit and UIKit, each inside its own file's one-sided gate, so neither
+    /// can see the other. `MarkdownFormatting` catches the members it declares,
+    /// but `showMatch(of:index:)` is not one of them: it existed on the AppKit
+    /// side only, and nothing failed to compile.
+    ///
+    /// What that cost was not the find bar — iOS has `UIFindInteraction` for
+    /// that — but **every jump to a heading**. `hnJumpToHeadingInEditor` posts
+    /// `hn.editor.findQuery`, so tapping an outline row, a mind-map section or
+    /// a `[[link#heading]]` did nothing at all on one platform.
+    @Test("Both editors listen on the same editor notifications")
+    func bothEditorsAnswerTheCommandBus() throws {
+        let package = URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Packages/NotesEditor/Sources/MarkdownEditor")
+        let appKit = try String(contentsOf: package.appending(path: "MarkdownTextView.swift"),
+                                encoding: .utf8)
+        let uiKit = try String(contentsOf: package.appending(path: "MarkdownUITextView.swift"),
+                               encoding: .utf8)
+        for name in ["hn.editor.findQuery", "hn.editor.replaceCurrent",
+                     "hn.editor.replaceAll", "hn.editor.clearHighlights"] {
+            #expect(appKit.contains(name), "the AppKit editor stopped listening for \(name)")
+            #expect(uiKit.contains(name), "the UIKit editor does not listen for \(name)")
+        }
+        #expect(uiKit.contains("public func showMatch(of query: String, index: Int) -> Int"),
+                "the UIKit editor cannot jump to a match, so no heading link can scroll to one")
+    }
 }
