@@ -453,7 +453,7 @@ struct ContentView: View {
         // handlers, a `task`, and a stack of sheets and alerts) is one
         // expression to the type checker, and this chain has already defeated
         // it once. Two opaque halves are two smaller problems.
-        presentations(shellCore)
+        presentations(sceneLifecycle(sceneWiring(shellCore)))
             // **`erroringCollection`, not `focused`.** Nineteen `report(…)`
             // sites write `Collection.lastError`, and the sidebar holds one
             // tree over *every* open collection whose note actions resolve
@@ -493,7 +493,6 @@ struct ContentView: View {
             }
     }
 
-    #if os(macOS)
 
     private var shellCore: some View {
         AdaptiveShell(
@@ -504,7 +503,18 @@ struct ContentView: View {
             // per platform was the layout differing by device.
             prefersTouch: PointerPresence.shared.prefersTouch,
             sidebar: { collectionTree },
-            pane: { editorColumn },
+            // The one slot still drawn per platform, and the gate has both
+            // branches: each supplies an editor column, and what differs is
+            // the *toolbar* over it — `shell-chrome.md` Part 5 measures the
+            // Mac's positions in ChromeLab, and the touch column carries the
+            // tab strip and note menu the same contract asks for at that size.
+            pane: {
+                #if os(macOS)
+                editorColumn
+                #else
+                detail(showsShellCommands: true)
+                #endif
+            },
             inspector: { inspector },
             compact: { compactShell }
         )
@@ -527,6 +537,17 @@ struct ContentView: View {
         // between one clean row and a `»` that swallows search and every
         // inspector tab — measured in ChromeLab, designs 8 vs 10.
         .toolbar(removing: .title)
+    }
+
+    /// Everything that wires the shell to its scene — the `onChange` handlers,
+    /// the launch `task`, the receivers and the splash overlay.
+    ///
+    /// Its own function because the chain is one expression to the type
+    /// checker, and joined to `shellCore` it trips "unable to type-check in
+    /// reasonable time". The two shells each carried a note predicting exactly
+    /// that; merging them proved it.
+    private func sceneWiring<V: View>(_ content: V) -> some View {
+        content
         .onReceive(NotificationCenter.default.publisher(for: .hnFocusLibrarySearch)) { _ in
             // Opening the sidebar too: a search whose results land in a hidden
             // panel is a dead end, and ⌥⌘F is a request to *look* for something.
@@ -547,38 +568,30 @@ struct ContentView: View {
             // reason the suite crawled: 2,000 notes of coordinated cloud I/O
             // land on the same main actor the tests run on. See TestEnvironment.
             guard !TestEnvironment.isRunningTests else { return }
+            // Once per process, through `SplashPresenter` — a floating window
+            // on one platform and the overlay below on the other.
             if !Self.didShowSplash {
                 Self.didShowSplash = true
-                SplashWindow.show(autoDismiss: true)
+                SplashPresenter.show(autoDismiss: true)
             }
             library.onExternalChange = { @MainActor in
                 Task { await tabs.reconcileAll() }
                 actions.revalidateSelection()
             }
-            // A note's autosave marks the write as the collection's own (so its
-            // file watcher ignores it) and refreshes that collection's index
-            // without a full re-scan — keeping typing off the vault-read path.
-            tabs.onNoteSaved = { @MainActor url, text in
-                library.collection(containing: url)?.noteDidSave(url, text: text)
-            }
-            tabs.prepareToOpen = { @MainActor url in
-                await library.collection(containing: url)?.hydrateIfNeeded(url)
-            }
-            // Never write into a folder that isn't there. The edit stays in the
-            // buffer and lands as soon as the collection is readable again.
-            tabs.saveBlocked = { @MainActor url in
-                guard let collection = library.collection(containing: url),
-                      case .unavailable(let reason) = collection.state else { return nil }
-                let title = url.deletingPathExtension().lastPathComponent
-                return "Can’t save “\(title)” — \(reason.explanation) Your changes are kept here until it’s back."
-            }
+            wireTabs()
+            TerminationGuard.current?.register(tabs) { [tabs] in await tabs.flushAll() }
             library.onOpened = { recents.record($0) }
             if library.isEmpty {
                 await library.restore()
                 // First run with nothing to restore: onboard a brand-new user,
                 // otherwise (welcome already seen) go straight to the launcher.
                 if library.isEmpty {
-                    if hasSeenWelcome { showLauncher = true } else { showWelcome = true }
+                    // `pendingWelcome`, not `showWelcome`: onboarding opened
+                    // *over* the launch splash on one platform. And the
+                    // launcher, which the other platform never offered — an
+                    // empty library with onboarding already seen got a blank
+                    // shell and no prompt.
+                    if hasSeenWelcome { showLauncher = true } else { pendingWelcome = true }
                 }
             }
             // Reopen the last-focused collection + note (if still present).
@@ -686,6 +699,12 @@ struct ContentView: View {
             c.git.noteDidSave(autoCommitEnabled: autoCommit,
                               isCloudBacked: CloudProvider.name(for: c.rootURL) != nil)
         }
+    }
+
+    /// The second half of the wiring. Split for the same reason as the first:
+    /// SwiftUI modifier chains are one expression, and this one is long.
+    private func sceneLifecycle<V: View>(_ content: V) -> some View {
+        content
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase != .active {
                 Task { await tabs.flushAll() }
@@ -697,87 +716,6 @@ struct ContentView: View {
             TerminationGuard.current?.register(tabs) { [tabs] in await tabs.flushAll() }
         }
         .onDisappear { TerminationGuard.current?.unregister(tabs) }
-    }
-
-    #else
-
-    /// The shell itself plus everything that wires it to the scene.
-    private var shellCore: some View {
-        AdaptiveShell(
-            // **The same layout at the same size.** This was
-            // `.constant(false)`, with a comment saying the iPad is never wide
-            // enough for a third column — which is a claim about width, and
-            // width is the one thing the shell already decides. `ShellKind`
-            // resolves `.wideInspector` at 1400pt and an iPad reaches that in
-            // Stage Manager and on a 13" in landscape, so the rule was not "too
-            // narrow", it was "not on this OS". That is the definition of
-            // non-parity: a Mac window and an iPad of the same size were
-            // getting different layouts.
-            //
-            // Narrower shells still overlay it, on **both** platforms, because
-            // `AdaptiveShell` only draws the column for `.wideInspector`.
-            inspectorPresented: $inspectorPresented,
-            columnVisibility: $columnVisibility,
-            // Asked of the hardware, not of the OS — see `PointerPresence`. It
-            // decides whether the format bar exists at all, so hard-coding it
-            // per platform was the layout differing by device.
-            prefersTouch: PointerPresence.shared.prefersTouch,
-            sidebar: { collectionTree },
-            pane: { detail(showsShellCommands: true) },
-            inspector: { inspector },
-            compact: { compactShell }
-        )
-        .task {
-            // Not under a test host — see TestEnvironment.
-            guard !TestEnvironment.isRunningTests else { return }
-            // **External changes reach the editor.** `Library.onExternalChange`
-            // defaults to a no-op and only macOS ever set it, so on iOS a note
-            // edited elsewhere — Obsidian on another device, a sync landing —
-            // updated the note list while the open editor kept showing the old
-            // text, and a selection pointing at a note that had gone was never
-            // re-checked.
-            library.onExternalChange = { @MainActor in
-                // **Every** open tab, not just the front one. This reconciled
-                // `tabs.editor(withID: selectedNoteID)` alone, so a background
-                // tab never saw a remote change, never raised `hasConflict`,
-                // and its next save wrote stale text over the newer file.
-                // `EditorTabs.reconcileAll()` was cross-platform all along.
-                Task { await tabs.reconcileAll() }
-                actions.revalidateSelection()
-            }
-            // Nothing recorded opens on iOS, so the launcher's Recents and
-            // Obsidian Vaults lists would have stayed permanently empty even
-            // once it had somewhere to draw them. `Library.restore` calls this
-            // for every restored collection too, so a relaunch re-seeds the
-            // list rather than emptying it.
-            // Every open tab's buffer drains before the app leaves the
-            // foreground. The Mac has registered its tabs since the guard was
-            // written; on iPad the guard did not exist, so up to half a second
-            // of typing could be lost to a background-and-kill.
-            TerminationGuard.current?.register(tabs) { [tabs] in await tabs.flushAll() }
-            library.onOpened = { recents.record($0) }
-            if library.isEmpty {
-                await library.restore()
-                if library.isEmpty && !hasSeenWelcome { pendingWelcome = true }
-            }
-            // Reopen the last-focused collection and the note that was open,
-            // as the Mac does. `railPlace` alone was restored here, so an iPad
-            // came back to the right *tree* with an empty editor, and
-            // `library.focused` was left at whichever collection happened to
-            // finish restoring last.
-            if !restoredCollectionID.isEmpty,
-               library.collections.contains(where: { $0.id == restoredCollectionID }) {
-                library.focusedID = restoredCollectionID
-            }
-            if !restoredNotePath.isEmpty {
-                let url = URL(fileURLWithPath: restoredNotePath)
-                if library.allNotes.contains(where: { $0.id == url }) { selectedNoteID = url }
-            }
-            // A window whose rail has never been moved opens in the focused
-            // collection, not on the Library place: the notes are the point.
-            if railPlaceID == RailPlaceStorage.unset { railPlaceID = library.focusedID ?? "" }
-        }
-        .task { wireTabs() }
         .task(id: docFeaturesKey) {
             // Off the main actor, memoized, and keyed on something that changes
             // at most once per autosave.
@@ -798,11 +736,7 @@ struct ContentView: View {
             let text = editor.text
             docFeatures = await offMain { NoteDocFeatures(text: text) }
         }
-        // The same key and the same call the Mac makes.
-        .task(id: NoteReferences.key(note: editor.note, in: editorCollection)) {
-            await references.refresh(note: editor.note, in: editorCollection,
-                                     spotlight: referenceSpotlight)
-        }
+
         .onChange(of: showSplash) { _, visible in
             // Present onboarding only after the launch splash has faded.
             if !visible && pendingWelcome {
@@ -810,144 +744,16 @@ struct ContentView: View {
                 showWelcome = true
             }
         }
-        .onChange(of: library.focusedID) { _, newID in
-            restoredCollectionID = newID ?? ""
-            // Switching collections resets the in-collection tag filter.
-            //
-            // The *search* deliberately survives, as it does on the Mac: focus
-            // now follows the selection, so opening a search hit that lives in
-            // another collection would otherwise empty the field the hit came
-            // from and drop the rest of the results with it.
-            selectedTag = nil
-            // **Only deselect a note that the new focus doesn't contain.**
-            // This used to clear the selection unconditionally, so any focus
-            // change — including one the app made itself while opening a note
-            // in another collection — closed whatever was on screen. Nothing
-            // outside the editor may close the file being edited.
-            if let selectedNoteID,
-               !library.allNotes.contains(where: { $0.id == selectedNoteID
-                   && library.collection(containing: $0.fileURL)?.id == newID }) {
-                self.selectedNoteID = nil
-            }
-            // The rail follows the focus while it is standing in a collection;
-            // on the Library place it stays put — you went there on purpose.
-            if railPlace != .library, let newID { railPlaceID = newID }
-        }
-        .onChange(of: library.collections.count) { was, now in
-            if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
-        }
-        .focusedSceneValue(\.appActions, appActions)
-        .onChange(of: library.allNotes) { _, notes in
-            // A cached document captured which wiki-link targets existed when
-            // it was built — neither the store key nor the task key names the
-            // note set — so once that set changes it would go on colouring
-            // `[[links]]` by a stale answer: a brand-new note stayed painted as
-            // broken in every open document until the 8-entry LRU evicted it.
-            documents.forgetAll()
-            // Closes tabs for notes that are gone — flushing first, which is
-            // the part that stops a rename or an external change taking pending
-            // keystrokes with it.
-            tabs.prune(keeping: Set(notes.map(\.id)))
-            // The Recent Notes widget is built and embedded for iOS, and its
-            // snapshot file was never written here — so it was permanently
-            // empty on the one platform that puts widgets on the home screen.
-            library.writeWidgetSnapshot()
-            Task { await router.donateNotesToSpotlight() }   // system Spotlight
-        }
-        .onChange(of: selectedNoteID) { _, newID in
-            restoredNotePath = newID?.path ?? ""
-            // A selection that resolves to nothing must not blank the editor.
-            // The same bare lookup on macOS was the "populated sidebar, clicks
-            // do nothing" bug; here the failure is worse, because opening `nil`
-            // actively closes the open note. Deselecting is the one case where
-            // clearing is what was asked for.
-            guard newID != nil else { return }
-            guard let note = library.allNotes.first(where: { $0.id == newID }) else { return }
-            // **Focus follows the selection**, as it does on both branches of
-            // the Mac's `openSelectedNote`. `focusCollection` had no iOS caller
-            // at all, and the only other writer of focus lived in the compact
-            // shell — which no iPad ever shows — so with two collections open,
-            // tapping a note under the second left the scope on the first. That
-            // scope drives New Note, the graph, tags, Open Quickly, the note
-            // list and Show Non-Note Files, so every one of them answered about
-            // a collection the user was not in.
-            library.focusCollection(containing: note.fileURL)
-            Task { await tabs.editor(for: note) }
-        }
-        .onChange(of: searchText) { _, query in search.update(query: query, in: library.collections) }
-        .onChange(of: SidebarTreeModel.key(sidebarInputs), initial: true) { _, _ in
-            sidebarTree.refresh(sidebarInputs)
-        }
-        .onChange(of: library.pendingRevealCollectionID) { _, id in
-            // Something added a collection and asked us to show it —
-            // `Library.openRemote` does this for a newly-connected cloud
-            // collection. Unlike a passing focus change this moves the rail
-            // unconditionally: the user asked for this collection by name, so
-            // leaving them looking at a different tree makes a successful add
-            // look like a failed one.
-            guard let id else { return }
-            selectedTag = nil
-            library.focusedID = id
-            railPlaceID = id
-            // Scroll it into view too. This was the Mac's line and not the
-            // iPad's, and the outline's SwiftUI branch ignored `revealID`
-            // entirely — so a newly added collection landed below the fold and
-            // a successful add looked like a failed one.
-            revealOutlineID = id
-            library.pendingRevealCollectionID = nil
-        }
-        .onChange(of: library.pendingOpenNoteID) { _, id in
-            // A `hellonotes://` deep link, an App Intent (Open Note, Create
-            // Note, Append to Daily Note), the widget, or Quick Capture asking
-            // to show a note. iOS observed none of them: the links resolved and
-            // opened nothing, every Siri shortcut landed nowhere, and Quick
-            // Capture appended its line and then reported success over a shell
-            // that had not moved.
-            guard let id else { return }
-            showOpenQuickly = false
-            selectedTag = nil
-            searchText = ""
-            selectedNoteID = id
-            // The phone keeps the open note in a mini strip behind a tab bar;
-            // being *asked* to open one is a request to read it.
-            place = .notes
-            noteIsExpanded = true
-            library.pendingOpenNoteID = nil
-        }
-        .onChange(of: router.pendingSearch) { _, query in
-            // `hellonotes://search?q=…` and the Search Notes intent.
-            guard let query else { return }
-            showOpenQuickly = false
-            selectedTag = nil
-            searchText = query
-            revealSearch(focusField: false)
-            router.pendingSearch = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .hnFocusLibrarySearch)) { _ in
-            revealSearch(focusField: true)
-        }
-        // A save schedules an auto-commit (if enabled) and a debounced status
-        // refresh. The rules are `GitService.noteDidSave`'s — they were fifteen
-        // lines here and nothing at all in the other shell.
-        .onChange(of: tabs.totalSavedRevision) { _, _ in
-            guard let c = editorCollection else { return }
-            c.git.noteDidSave(autoCommitEnabled: autoCommit,
-                              isCloudBacked: CloudProvider.name(for: c.rootURL) != nil)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active {
-                Task { await tabs.flushAll() }
-            }
-        }
-        // About HelloNotes raises the same splash the Mac shows in a floating
-        // window — and stays up until tapped, where the launch one fades.
+
         .onReceive(NotificationCenter.default.publisher(for: .hnOpenAISettings)) { _ in
             showLLMSettings = true
         }
+
         .onReceive(NotificationCenter.default.publisher(for: .hnShowSplash)) { note in
             splashAutoDismisses = note.userInfo?["autoDismiss"] as? Bool ?? true
             withAnimation(.easeIn(duration: 0.2)) { showSplash = true }
         }
+
         .overlay {
             if showSplash {
                 SplashScreenView { withAnimation(.easeOut(duration: 0.5)) { showSplash = false } }
@@ -962,7 +768,7 @@ struct ContentView: View {
         }
     }
 
-    #endif
+
 
 
     /// Every sheet, alert and scene value the window owns — the second half of
@@ -2011,7 +1817,11 @@ struct ContentView: View {
     @State private var docFeatures = NoteDocFeatures()
 
     /// Launch splash overlay; fades out after a beat (or on tap).
-    @State private var showSplash = true
+    /// Starts hidden on both. The launch splash is raised by
+    /// `SplashPresenter.show(autoDismiss:)` in `shellCore`, which opens a
+    /// window on one platform and posts to this overlay on the other — so a
+    /// default of `true` would have drawn the overlay *and* the window.
+    @State private var showSplash = false
 
     /// The launch splash fades itself; the one About raises waits to be tapped.
     @State private var splashAutoDismisses = true
