@@ -173,6 +173,14 @@ extension MarkdownFormatting {
 
 }
 
+// The conformance, both halves, in one gate.
+//
+// They used to sit in two files — this one and `MarkdownUITextView.swift` —
+// each inside its own one-sided gate, which is how `showMatch(of:index:)` came
+// to exist on one editor and not the other. `MarkdownFormatting` keeps the
+// members it *declares* in step; `showMatch` is not one of them, so nothing
+// failed to compile and every heading jump on the other platform silently did
+// nothing. Adjacent, the difference is a diff.
 #if canImport(AppKit)
 extension MarkdownTextView: MarkdownFormatting {
 
@@ -209,4 +217,53 @@ extension MarkdownTextView: MarkdownFormatting {
         return matches.count
     }
 }
+
+#else
+
+extension MarkdownUITextView: MarkdownFormatting {
+
+    public var formattingText: String { text ?? "" }
+    public func formattingSelection() -> NSRange { selectedRange }
+    public func setFormattingSelection(_ range: NSRange) { selectedRange = range }
+
+    /// Replace `range` with `text`, undoably.
+    ///
+    /// `replace(_:withText:)` rather than poking `textStorage`: it is the
+    /// `UITextInput` path, so it registers undo, notifies the delegate, and
+    /// therefore reaches the document's incremental reparse — the same route a
+    /// keystroke takes. Writing to the storage directly would format the text
+    /// and leave the parse, the undo stack and the delegate all behind.
+    @discardableResult
+    public func performEdit(replacing range: NSRange, with text: String) -> Bool {
+        guard let start = position(from: beginningOfDocument, offset: range.location),
+              let end = position(from: start, offset: range.length),
+              let textRange = textRange(from: start, to: end)
+        else { return false }
+        replace(textRange, withText: text)
+        selectedRange = NSRange(location: range.location + (text as NSString).length, length: 0)
+        return true
+    }
+
+    /// Select and scroll to the `index`-th match of `query`; returns the match
+    /// count (the app's find bar shows it).
+    ///
+    /// This existed only on the AppKit view, and it is not a protocol
+    /// requirement, so nothing failed to compile — the four find notifications
+    /// simply had no listener here. What that cost was not only the app's own
+    /// find bar (iOS has `UIFindInteraction` for that) but **every jump to a
+    /// heading**: `hnJumpToHeadingInEditor` posts `hn.editor.findQuery`, so
+    /// tapping an outline row, a mind-map section or a `[[link#heading]]` did
+    /// nothing at all on this platform.
+    @discardableResult
+    public func showMatch(of query: String, index: Int) -> Int {
+        guard let document else { return 0 }
+        let matches = document.findMatches(of: query)
+        guard !matches.isEmpty else { return 0 }
+        let target = matches[max(0, min(index, matches.count - 1))]
+        selectedRange = target
+        reliablyScroll(to: target)
+        return matches.count
+    }
+}
+
 #endif

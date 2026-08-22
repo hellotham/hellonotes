@@ -118,20 +118,30 @@ struct ShellComplianceTests {
     /// "both shells do X" assertion below.
     @Test("No platform gate in the app has only one branch")
     func nothingIsOneSided() throws {
-        let root = URL(filePath: #filePath)
+        let repo = URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes")
-        for gone in ["MacContentView.swift", "iOSContentView.swift"] {
-            #expect(!FileManager.default.fileExists(atPath: root.appending(path: gone).path),
-                    "\(gone) is back — the shell is two files again")
+        let roots = [repo.appending(path: "HelloNotes"),
+                     repo.appending(path: "Packages/NotesEditor/Sources")]
+        // The files whose split *was* the divergence. Each pair was one thing
+        // written twice in two files that could not see each other, and each
+        // hid something: two cache keys, two `revalidateSelection`s, two
+        // `EditorProxy`s with different members, a `showMatch` on one side only.
+        for gone in ["HelloNotes/MacContentView.swift",
+                     "HelloNotes/iOSContentView.swift",
+                     "Packages/NotesEditor/Sources/MarkdownEditor/MarkdownTextView.swift",
+                     "Packages/NotesEditor/Sources/MarkdownEditor/MarkdownUITextView.swift"] {
+            #expect(!FileManager.default.fileExists(atPath: repo.appending(path: gone).path),
+                    "\(gone) is back — that pair is two files again")
         }
 
         let platform = ["os(macOS)", "os(iOS)", "os(visionOS)",
                         "canImport(AppKit)", "canImport(UIKit)", "targetEnvironment("]
         var offenders: [String] = []
-        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" } ?? []
+        let files = roots.flatMap { root in
+            FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" } ?? []
+        }
         #expect(files.count > 50, "the scan found almost no sources — the layout changed")
 
         for file in files {
@@ -426,17 +436,22 @@ struct ShellComplianceTests {
         let package = URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "Packages/NotesEditor/Sources/MarkdownEditor")
-        let appKit = try String(contentsOf: package.appending(path: "MarkdownTextView.swift"),
+        let source = try String(contentsOf: package.appending(path: "MarkdownEditorView.swift"),
                                 encoding: .utf8)
-        let uiKit = try String(contentsOf: package.appending(path: "MarkdownUITextView.swift"),
-                               encoding: .utf8)
+        // Both halves are in one file now, so each name must appear twice —
+        // once on each side of the gate. Counting is the point: a single
+        // occurrence is exactly the state this test exists to catch.
         for name in ["hn.editor.findQuery", "hn.editor.replaceCurrent",
                      "hn.editor.replaceAll", "hn.editor.clearHighlights"] {
-            #expect(appKit.contains(name), "the AppKit editor stopped listening for \(name)")
-            #expect(uiKit.contains(name), "the UIKit editor does not listen for \(name)")
+            #expect(source.ranges(of: name).count >= 2,
+                    "\(name) is observed by one editor only")
         }
-        #expect(uiKit.contains("public func showMatch(of query: String, index: Int) -> Int"),
-                "the UIKit editor cannot jump to a match, so no heading link can scroll to one")
+        // `showMatch` lives with the rest of the `MarkdownFormatting`
+        // conformance, whose two halves are also one gate now.
+        let commands = try String(contentsOf: package.appending(path: "EditorCommands.swift"),
+                                  encoding: .utf8)
+        #expect(commands.ranges(of: "func showMatch(of query: String, index: Int) -> Int").count >= 2,
+                "one editor cannot jump to a match, so no heading link can scroll to one there")
     }
 
     /// The host's handle on the editor offers the same thing on both.
@@ -450,8 +465,10 @@ struct ShellComplianceTests {
         let package = URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "Packages/NotesEditor/Sources/MarkdownEditor")
-        func api(_ file: String) throws -> Set<String> {
-            let source = try String(contentsOf: package.appending(path: file), encoding: .utf8)
+        let whole = try String(contentsOf: package.appending(path: "MarkdownEditorView.swift"),
+                               encoding: .utf8)
+        func api(_ half: Int) throws -> Set<String> {
+            let source = half == 0 ? whole : String(whole[whole.range(of: "\n#else\n")!.upperBound...])
             guard let start = source.range(of: "public final class EditorProxy {") else { return [] }
             var depth = 0
             var body = ""
@@ -466,8 +483,8 @@ struct ShellComplianceTests {
             return Set(body.matches(of: /public (?:var|func) ([A-Za-z_][A-Za-z0-9_]*)/)
                 .map { String($0.1) })
         }
-        let appKit = try api("MarkdownTextView.swift")
-        let uiKit = try api("MarkdownUITextView.swift")
+        let appKit = try api(0)
+        let uiKit = try api(1)
         #expect(appKit.count > 8, "the scan found almost nothing — the declaration shape changed")
         #expect(appKit == uiKit, """
             The two `EditorProxy` declarations differ, so a host holding one \
