@@ -272,9 +272,11 @@ private extension String {
         return result
     }
 }
-#endif
+#else
 
-#if canImport(UIKit) && !canImport(AppKit)
+// The other branch. Written as two one-sided gates facing opposite ways,
+// which is the same defect wearing a disguise: nothing pairs them, so one
+// can gain an operation the other never hears about.
 import UIKit
 
 //  The UIKit half.

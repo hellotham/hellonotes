@@ -438,4 +438,42 @@ struct ShellComplianceTests {
         #expect(uiKit.contains("public func showMatch(of query: String, index: Int) -> Int"),
                 "the UIKit editor cannot jump to a match, so no heading link can scroll to one")
     }
+
+    /// The host's handle on the editor offers the same thing on both.
+    ///
+    /// `EditorProxy` is declared once per platform, in two files that cannot
+    /// see each other — so `apply(_:)` and `performAITransform(_:)` existed on
+    /// one of them, and nothing failed to compile. A host holding a proxy could
+    /// format on one platform and not the other.
+    @Test("Both editor proxies offer the same API")
+    func editorProxiesMatch() throws {
+        let package = URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Packages/NotesEditor/Sources/MarkdownEditor")
+        func api(_ file: String) throws -> Set<String> {
+            let source = try String(contentsOf: package.appending(path: file), encoding: .utf8)
+            guard let start = source.range(of: "public final class EditorProxy {") else { return [] }
+            var depth = 0
+            var body = ""
+            for character in source[start.upperBound...] {
+                if character == "{" { depth += 1 }
+                if character == "}" {
+                    if depth == 0 { break }
+                    depth -= 1
+                }
+                body.append(character)
+            }
+            return Set(body.matches(of: /public (?:var|func) ([A-Za-z_][A-Za-z0-9_]*)/)
+                .map { String($0.1) })
+        }
+        let appKit = try api("MarkdownTextView.swift")
+        let uiKit = try api("MarkdownUITextView.swift")
+        #expect(appKit.count > 8, "the scan found almost nothing — the declaration shape changed")
+        #expect(appKit == uiKit, """
+            The two `EditorProxy` declarations differ, so a host holding one \
+            can do something on one platform and not the other:
+            only AppKit: \(appKit.subtracting(uiKit).sorted())
+            only UIKit:  \(uiKit.subtracting(appKit).sorted())
+            """)
+    }
 }

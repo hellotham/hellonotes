@@ -683,6 +683,28 @@ public final class EditorProxy {
     /// The caret arrived from above with no column to honour.
     public func focusStart() { focusFirstLine(atX: 0) }
 
+    /// Apply a formatting command — bold, a list, a heading level.
+    ///
+    /// `EditorProxy` is declared once per platform, in two files that cannot
+    /// see each other, so this and `performAITransform` existed on one of them
+    /// and nothing failed to compile. A host holding a proxy could format on
+    /// one platform and not the other.
+    public func apply(_ command: EditorFormatCommand) {
+        textView?.apply(command)
+    }
+
+    /// Wrap an AI-driven mutation so the document pauses its styling while the
+    /// transform streams in, then restyles once at the end.
+    ///
+    /// Without it a streaming rewrite restyles per chunk — the whole-document
+    /// highlight running once per token — which is the difference between a
+    /// rewrite that streams and one that stutters.
+    public func performAITransform(_ body: (EditorProxy) -> Void) {
+        textView?.document?.beginExternalTextSession()
+        body(self)
+        textView?.document?.endExternalTextSession()
+    }
+
     /// Discard the undo stack after the document's text has been replaced
     /// wholesale (`EditorDocument.replaceText`). See `resetUndoStack` for why
     /// the document clearing its own `UndoManager` is not enough on UIKit.
