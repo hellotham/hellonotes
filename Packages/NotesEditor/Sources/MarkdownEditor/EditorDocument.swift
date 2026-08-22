@@ -204,11 +204,36 @@ public final class EditorDocument {
     /// `replaceText` is the wrong tool for this: it reparses everything and
     /// clears undo, which for filling in an image's alt text a second after it
     /// was pasted would throw away the paste itself.
+    /// - Parameter near: where the text being replaced was inserted, if known.
+    ///   The search starts there and only falls back to the whole document if
+    ///   it finds nothing — because `range(of:)` alone matches the **first**
+    ///   occurrence anywhere, so pasting the same URL twice and letting the
+    ///   title arrive rewrote the earlier link instead of the one just pasted.
     @discardableResult
-    public func replaceFirst(_ needle: String, with replacement: String) -> Bool {
+    public func replaceFirst(_ needle: String, with replacement: String,
+                             near hint: Int? = nil) -> Bool {
         let ns = storage.mutableString
-        let found = ns.range(of: needle)
+        var found = NSRange(location: NSNotFound, length: 0)
+        if let hint, hint != NSNotFound, hint <= ns.length {
+            let start = max(0, hint - needle.utf16.count)
+            found = ns.range(of: needle, options: [],
+                             range: NSRange(location: start, length: ns.length - start))
+        }
+        if found.location == NSNotFound { found = ns.range(of: needle) }
         guard found.location != NSNotFound else { return false }
+
+        // Register the inverse before mutating, on the same `UndoManager` the
+        // text view uses (`undoManager(for:)` hands it this one). The edit goes
+        // straight into the storage rather than through
+        // `shouldChangeText`/`didChangeText`, so without this the substitution
+        // is invisible to undo: ⌘Z replayed the *paste*'s registration against
+        // ranges the substitution had already shifted, eating or stranding
+        // fragments of whatever sat next to it.
+        let previous = ns.substring(with: found)
+        let location = found.location
+        undoManager.registerUndo(withTarget: self) { document in
+            document.replaceFirst(replacement, with: previous, near: location)
+        }
         storage.replaceCharacters(in: found, with: replacement)
         return true
     }

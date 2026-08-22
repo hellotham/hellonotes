@@ -57,6 +57,15 @@ struct SourceEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        // The coordinator is made once per view *identity*, and this view's
+        // identity does not change when the active tab does — nothing between
+        // `ContentView` and here carries an `.id(…)`. The binding, however, is
+        // rebuilt every body pass around whichever `EditorModel` is active, so
+        // a coordinator holding the one it was born with writes the visible
+        // note's text into the previously active note's model, and the debounce
+        // saves it over that note's file. Re-seat it, exactly as
+        // `InlineTitleField` does.
+        context.coordinator.text = $text
         guard let tv = scroll.documentView as? NSTextView else { return }
         if tv.font?.pointSize != fontSize {
             tv.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
@@ -91,7 +100,8 @@ struct SourceEditor: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        private let text: Binding<String>
+        /// Re-seated by `updateNSView` on every body pass — see the note there.
+        var text: Binding<String>
         init(text: Binding<String>) { self.text = text }
 
         func textDidChange(_ notification: Notification) {
@@ -130,6 +140,15 @@ struct SourceEditor: UIViewRepresentable {
     }
 
     func updateUIView(_ tv: UITextView, context: Context) {
+        // The coordinator is made once per view *identity*, and this view's
+        // identity does not change when the active tab does — nothing between
+        // `ContentView` and here carries an `.id(…)`. The binding, however, is
+        // rebuilt every body pass around whichever `EditorModel` is active, so
+        // a coordinator holding the one it was born with writes the visible
+        // note's text into the previously active note's model, and the debounce
+        // saves it over that note's file. Re-seat it, exactly as
+        // `InlineTitleField` does.
+        context.coordinator.text = $text
         if tv.font?.pointSize != fontSize {
             tv.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         }
@@ -158,7 +177,8 @@ struct SourceEditor: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
     final class Coordinator: NSObject, UITextViewDelegate {
-        private let text: Binding<String>
+        /// Re-seated by `updateUIView` on every body pass — see the note there.
+        var text: Binding<String>
         init(text: Binding<String>) { self.text = text }
 
         func textViewDidChange(_ textView: UITextView) {

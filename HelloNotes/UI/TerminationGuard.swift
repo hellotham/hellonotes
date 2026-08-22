@@ -77,6 +77,27 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
     /// reaching for Force Quit.
     private static let flushDeadline: Duration = .seconds(5)
 
+    /// Drain the registry now, under whatever assurance the platform offers
+    /// that the process will live long enough.
+    ///
+    /// The Mac's assurance is that leaving the foreground is not suspension —
+    /// nothing is about to reclaim the process — so this is the bounded drain
+    /// and nothing more. iOS has to take a background-task assertion for the
+    /// same guarantee. One name, so the shell's `scenePhase` handler does not
+    /// have to know which it is talking to.
+    func flushUnderAssertion() async {
+        guard !flushHooks.isEmpty else { return }
+        let hooks = Array(flushHooks.values)
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                for hook in hooks { await hook() }
+            }
+            group.addTask { try? await Task.sleep(for: Self.flushDeadline) }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !flushHooks.isEmpty else { return .terminateNow }
         let hooks = Array(flushHooks.values)
@@ -118,7 +139,7 @@ final class TerminationGuard: NSObject {
             forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main
         ) { _ in
-            Task { @MainActor in await TerminationGuard.current?.flushAll() }
+            Task { @MainActor in await TerminationGuard.current?.flushUnderAssertion() }
         }
     }
 
@@ -138,6 +159,37 @@ final class TerminationGuard: NSObject {
     /// never answers must not hold the app open — or, here, eat the background
     /// execution time the rest of the flushes need.
     private static let flushDeadline: Duration = .seconds(5)
+
+    /// Drain the registry while holding a background-task assertion.
+    ///
+    /// The Mac's half returns `.terminateLater` and replies only once the drain
+    /// lands, so the process genuinely cannot die mid-write. This half fired an
+    /// un-awaited `Task` off `willResignActive` and returned — nothing held the
+    /// process at all, so a coordinated write to a slow File Provider could be
+    /// cut off by suspension and the last debounce window of typing was simply
+    /// lost. That is the one thing this class exists to prevent, and the 5s
+    /// deadline above is meaningless without an assertion to budget against.
+    ///
+    /// Suspension mid-coordinated-write is also the `0xdead10cc` termination
+    /// case, which the assertion avoids by keeping the app awake until the
+    /// coordinator has let go.
+    func flushUnderAssertion() async {
+        guard !flushHooks.isEmpty else { return }
+        var assertion = UIBackgroundTaskIdentifier.invalid
+        assertion = UIApplication.shared.beginBackgroundTask(withName: "HelloNotes.flush") {
+            // Expired: the system wants the time back. Ending it here is what
+            // keeps the app from being killed outright.
+            if assertion != .invalid {
+                UIApplication.shared.endBackgroundTask(assertion)
+                assertion = .invalid
+            }
+        }
+        await flushAll()
+        if assertion != .invalid {
+            UIApplication.shared.endBackgroundTask(assertion)
+            assertion = .invalid
+        }
+    }
 
     private func flushAll() async {
         let hooks = Array(flushHooks.values)

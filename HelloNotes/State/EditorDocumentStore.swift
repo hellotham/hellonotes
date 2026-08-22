@@ -33,11 +33,21 @@ final class EditorDocumentStore {
         /// sub-point differences don't warrant a reparse.
         let fontSize: Int
         let isDark: Bool
+        /// The accent the theme was built from, as a comparable token.
+        ///
+        /// The key named the appearance but not the accent, while
+        /// `EditorTheme(fontSize:accent:)` takes both — so after changing the
+        /// accent (or toggling Increase Contrast) this store handed back the
+        /// document built with the old one, and links, wiki links, tags,
+        /// footnotes, list markers and `==highlights==` kept the previous
+        /// colour until the note fell out of the cache.
+        let accent: String
 
-        init(path: String, fontSize: CGFloat, isDark: Bool) {
+        init(path: String, fontSize: CGFloat, isDark: Bool, accent: String) {
             self.path = path
             self.fontSize = Int(fontSize.rounded())
             self.isDark = isDark
+            self.accent = accent
         }
     }
 

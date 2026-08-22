@@ -154,8 +154,17 @@ struct ShellComplianceTests {
                 } else if text.hasPrefix("#else") || text.hasPrefix("#elseif") {
                     if !stack.isEmpty { stack[stack.count - 1].hasElse = true }
                 } else if text.hasPrefix("#endif") {
-                    if let gate = stack.popLast(), gate.isPlatform, !gate.hasElse, gate.body {
-                        offenders.append("\(file.lastPathComponent):\(gate.line)")
+                    if let gate = stack.popLast() {
+                        if gate.isPlatform, !gate.hasElse, gate.body {
+                            offenders.append("\(file.lastPathComponent):\(gate.line)")
+                        }
+                        // A nested gate's body is the enclosing gate's body too.
+                        // Without this the scanner recorded `body` only on the
+                        // *innermost* `#if`, so `#if os(macOS)` wrapping nothing
+                        // but `#if DEBUG` … real code … `#endif` popped with
+                        // `body == false` and passed — a genuinely one-sided
+                        // platform gate the check could not see.
+                        if gate.body, !stack.isEmpty { stack[stack.count - 1].body = true }
                     }
                 } else if !text.isEmpty, !text.hasPrefix("//"), !text.hasPrefix("import"),
                           !stack.isEmpty {

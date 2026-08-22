@@ -46,7 +46,23 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
     /// false so a stored "shown" never covers the note at launch.
     @State private var openedByHand = false
 
-    private var hasColumn: Bool { shell.kind == .wideInspector }
+    /// Whether the shell is already drawing an inspector *column*, in which
+    /// case there is nothing for this overlay to do.
+    ///
+    /// Two shells draw one: `.wideInspector` always, and `.tall` once it is
+    /// also wide enough for its right rail (`AdaptiveShell.tallShell`). This
+    /// asked only about `.wideInspector`, so on anything tall and ≥900pt — an
+    /// iPad Pro 13" in portrait, a 1000×1200 Mac window — toggling the
+    /// inspector off and on again set `openedByHand` and then presented the
+    /// modal panel *over* the column that was already there: the inspector
+    /// twice, the second copy behind a scrim, with the note dimmed underneath.
+    private var hasColumn: Bool {
+        switch shell.kind {
+        case .wideInspector: return true
+        case .tall: return shell.size.width >= ShellMetrics.tallRailMin
+        default: return false
+        }
+    }
 
     func body(content: Content) -> some View {
         content

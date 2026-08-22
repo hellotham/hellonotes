@@ -45,6 +45,14 @@ enum CloudBrowser: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var windowID: String { rawValue }
 
+    /// What the window is called.
+    ///
+    /// `RemoteBrowserView` sets no `navigationTitle`, and these scenes lost the
+    /// titles they carried as `Window("Box (Direct)", …)` when they became
+    /// `WindowGroup`s — a `WindowGroup` with no title falls back to the app's
+    /// name, so opening all four gave four windows called "HelloNotes".
+    var windowTitle: String { "\(displayName) (Direct)" }
+
     var displayName: String {
         switch self {
         case .dropbox: "Dropbox"

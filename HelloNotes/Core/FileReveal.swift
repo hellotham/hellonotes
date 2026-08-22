@@ -63,19 +63,44 @@ enum FileReveal {
     @discardableResult
     static func reveal(_ url: URL) -> Bool {
         guard canReveal(url) else { return false }
+        return handToFileManager(url)
+    }
+
+    /// Ask the platform's file manager to show `url`.
+    ///
+    /// One question — "put this file in front of the user" — answered with the
+    /// call each platform has for it.
+    ///
+    /// The iOS branch used to guard on `canOpenURL`. Since iOS 9 that answers
+    /// `false` for any scheme not listed in `LSApplicationQueriesSchemes`, and
+    /// `shareddocuments` is an undocumented Files scheme this app has never
+    /// declared — so the guard returned `false` on every device, for every file,
+    /// and "Reveal in Files" was an enabled menu item that did nothing at all.
+    /// The allowlist gates `canOpenURL` alone; `open(_:)` is not subject to it.
+    @discardableResult
+    private static func handToFileManager(_ url: URL) -> Bool {
         #if canImport(AppKit)
         NSWorkspace.shared.activateFileViewerSelecting([url])
         return true
         #else
-        // `shareddocuments:` is how Files is opened at a location. The path is
-        // percent-encoded because a note's name may contain spaces and anything
-        // else a filename allows, and an unencoded URL simply fails to build.
+        // The path is percent-encoded because a note's name may contain spaces
+        // and anything else a filename allows, and an unencoded URL simply
+        // fails to build.
         let encoded = url.path.addingPercentEncoding(
             withAllowedCharacters: .urlPathAllowed) ?? url.path
-        guard let target = URL(string: "shareddocuments://\(encoded)"),
-              UIApplication.shared.canOpenURL(target) else { return false }
+        guard let target = URL(string: "shareddocuments://\(encoded)") else { return false }
         UIApplication.shared.open(target)
         return true
+        #endif
+    }
+
+    /// The title for `openInDefaultApp`, so both shells spell it the way their
+    /// platform actually behaves.
+    static var openInDefaultAppTitle: String {
+        #if canImport(AppKit)
+        return "Open in Default App"
+        #else
+        return "Open in Files"
         #endif
     }
 
@@ -83,16 +108,19 @@ enum FileReveal {
     ///
     /// The Mac's sidebar offered this on an attachment and iOS did not, on the
     /// same reasoning that kept "Reveal" macOS-only — `NSWorkspace.open` has no
-    /// iOS twin. It has: `UIApplication.open`, which hands the URL to the
-    /// document provider. Same command, different call.
+    /// iOS twin.
+    ///
+    /// It has no *direct* twin: `UIApplication.open` does not handle `file:`
+    /// URLs — no app registers for that scheme — so the previous iOS branch
+    /// returned `false` unconditionally and the menu item was dead on every
+    /// attachment. What iOS does have is the hand-off to Files, from where the
+    /// file opens in whatever claims it. Same command, one more tap.
     @discardableResult
     static func openInDefaultApp(_ url: URL) -> Bool {
         #if canImport(AppKit)
         return NSWorkspace.shared.open(url)
         #else
-        guard UIApplication.shared.canOpenURL(url) else { return false }
-        UIApplication.shared.open(url)
-        return true
+        return handToFileManager(url)
         #endif
     }
 }

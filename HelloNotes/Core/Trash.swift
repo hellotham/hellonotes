@@ -58,11 +58,38 @@ enum Trash {
             // must not be escalated into an unrecoverable delete.
             throw error
             #else
-            // iOS: no Trash for this location. Removing it is what the user
-            // asked for; leaving it is the bug.
+            // iOS: fall back to removing it **only** when the failure actually
+            // says "this location has no Trash". The catch used to take any
+            // error at all, so a File Provider that was merely unreachable, or
+            // a placeholder still materialising, turned a retryable hiccup into
+            // an irreversible delete of the note — under a confirmation sheet
+            // that had just promised the user they could recover it.
+            guard isMissingTrash(error) else { throw error }
             try FileManager.default.removeItem(at: url)
             return .deleted
             #endif
+        }
+    }
+
+    /// Whether `error` means "there is no Trash for this location" rather than
+    /// "the move failed".
+    ///
+    /// Only the first justifies deleting outright. Anything else — no
+    /// permission, the volume is read-only, the provider did not answer — is a
+    /// failure the caller must see, because the note is still on disk and the
+    /// user was told it would be recoverable. The question is the same on both
+    /// platforms; what differs is that the Mac never answers yes, which is why
+    /// only the `#else` branch above consults it.
+    static func isMissingTrash(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == NSCocoaErrorDomain else { return false }
+        switch ns.code {
+        case NSFeatureUnsupportedError,
+             NSFileWriteUnsupportedSchemeError,
+             NSFileWriteInvalidFileNameError:
+            return true
+        default:
+            return false
         }
     }
 }

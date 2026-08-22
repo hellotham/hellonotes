@@ -752,7 +752,14 @@ struct LayoutRelaxationTests {
 
 // MARK: - Mind map model (idea tree from Markdown)
 
-#if os(macOS)   // MindMapModel/View is macOS-only
+// Not gated. The comment that used to stand here said "MindMapModel/View is
+// macOS-only", and `MindMapView.swift` says the opposite in its own header:
+// "This file was `#if os(macOS)` and used no AppKit and no Mac-only API — the
+// gate was the only thing keeping it off iPad." Ungating the view and leaving
+// its tests gated is the same divergence one level down — the iOS run was
+// quietly a hundred-odd tests short of the macOS one, and nothing said so
+// because `ShellComplianceTests` scans `HelloNotes/` and `Packages/`, not the
+// test target.
 @MainActor
 struct MindMapModelTests {
 
@@ -843,6 +850,11 @@ struct MindMapModelTests {
     }
 }
 
+// The gate starts here, and only here. What actually needs macOS in this
+// stretch is `FileWatcherFlagTests`, which calls `FileWatcher.verdict(for:)` —
+// FSEvents, and genuinely macOS-only. The four suites above it were gated by
+// association.
+#if os(macOS)
 /// The Git tests, on their own serialized suite.
 ///
 /// They are the only tests here that do real work through libgit2 — init, add

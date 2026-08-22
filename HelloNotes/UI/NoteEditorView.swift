@@ -118,10 +118,6 @@ struct NoteEditorView: View {
     // just posts queries and reflects the match count it posts back.
     @State private var showReferences = false
 
-    /// Bumped when the caret leaves the top of the note, to pull focus into
-    /// the title. A counter, so arrowing up twice in a row still works.
-    @State private var titleFocusRequest = CaretHandoff()
-
     @State private var showFindBar = false
     @State private var findText = ""
     @State private var replaceText = ""
@@ -244,13 +240,13 @@ struct NoteEditorView: View {
                 // VStack adopts the largest child's ideal height and pushes the
                 // whole column past its window.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onReceive(NotificationCenter.default.publisher(for: .hnEditorCaretEscapedTop)) { note in
-                    // The caret left the top of the note — catch it in the
-                    // title, in the column it left from (absent for ← / ⌃B,
-                    // which have no column and mean "the far end").
-                    guard appearance.showInlineTitle else { return }
-                    titleFocusRequest = titleFocusRequest.next(x: note.userInfo?["x"] as? CGFloat)
-                }
+                // No `hnEditorCaretEscapedTop` observer here. The inline title
+                // moved into `NoteEditorPane`, which owns the focus token and
+                // listens for itself — and which additionally refuses the
+                // handoff when the pane cannot rename, a guard this copy never
+                // had. What was left was a `@State` written on every ↑ off the
+                // first line and read by nothing, invalidating the whole editor
+                // column for no effect.
                 .navigationTitle(editor.note?.title ?? "")
                 .task(id: editor.note?.fileURL) {
                     properties = FrontMatter.properties(in: editor.text)

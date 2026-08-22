@@ -369,7 +369,7 @@ final class Collection: Identifiable {
     var lastError: String?
 
     /// Record a user-facing file-operation failure.
-    private func report(_ message: String) { lastError = message }
+    func report(_ message: String) { lastError = message }
 
     /// Renders `![[Note]]` transclusions to inline images (cross-platform: the
     /// live editor's block-embed renderer uses it on both macOS and iOS).
@@ -995,6 +995,29 @@ final class Collection: Identifiable {
         return fetched
     }
 
+    /// Download one item, whichever kind of "not here" it is.
+    ///
+    /// The two menu call sites used to go straight to
+    /// `try? FileIO.download(at:)` — `startDownloadingUbiquitousItem`, which is
+    /// only meaningful for a File-Provider item. A direct-API mirror note is a
+    /// zero-byte placeholder in the app's own container, not a ubiquitous item,
+    /// so that call threw, the `try?` ate it, and "Download" was an enabled menu
+    /// row that did nothing on every Dropbox/Box/Drive/OneDrive collection.
+    /// This is the same dispatch `downloadAllForSearch` already makes.
+    func download(_ url: URL) async {
+        do {
+            if let remote {
+                try await remote.hydrate(localURL: url)
+                adopt(hydrated: url)
+                reindexSoon()
+            } else {
+                try await Task.detached(priority: .utility) { try FileIO.download(at: url) }.value
+            }
+        } catch {
+            report("Couldn't download “\(url.lastPathComponent)”: \(error.localizedDescription)")
+        }
+    }
+
     /// How many of this collection's items a content search cannot see.
     ///
     /// Counts **both** kinds of "not here": a File-Provider note the OS is
@@ -1133,12 +1156,12 @@ final class Collection: Identifiable {
         watcher.start(url: rootURL)
         observer = watcher
         #else
-        let presenter = DirectoryPresenter(root: rootURL) { [weak self] url in
+        let presenter = DirectoryPresenter(root: rootURL) { [weak self] event in
             Task { @MainActor [weak self] in
-                // A presenter names one subitem or nothing at all; both map onto
-                // the shared vocabulary rather than onto a second handler.
-                self?.handle(url.map { .itemsChanged([$0.path]) } ?? .unspecifiedChange,
-                             onExternalChange: onExternalChange)
+                // The presenter speaks the same vocabulary the watcher does —
+                // including `.rootChanged`, which it could not say at all while
+                // its callback was "a subitem, or nothing".
+                self?.handle(event, onExternalChange: onExternalChange)
             }
         }
         presenter.start()

@@ -67,10 +67,16 @@ enum SidebarMenu {
         /// document.
         var isOpenInEditor: (Note) -> Bool = { _ in false }
         var reviewLinks: (Note) -> Void = { _ in }
-        /// The note's current text — the editor's buffer when it is open, the
-        /// file otherwise. Exporting the file while the editor holds unsaved
-        /// edits exports the wrong thing.
-        var text: (Note) -> String = { _ in "" }
+        /// Export or print the note. Prefers the editor's buffer when it is
+        /// open — exporting the file while the editor holds unsaved edits
+        /// exports the wrong thing — and downloads a cloud note that is not.
+        var export: (Note, ShellActions.ExportKind) -> Void = { _, _ in }
+
+        /// Fetch a note that is not on this device, whether it is a
+        /// File-Provider placeholder or a direct-API mirror entry.
+        var download: (Note) -> Void = { _ in }
+        /// Give back the space a downloaded note is using.
+        var removeDownload: (Note) -> Void = { _ in }
 
         var newNote: (Collection?, String?) -> Void = { _, _ in }
         var newFolder: (Collection?, String?) -> Void = { _, _ in }
@@ -117,11 +123,11 @@ enum SidebarMenu {
                 menu.append(separator())
                 if note.isOnlineOnly {
                     menu.append(entry("Download", "arrow.down.circle") {
-                        try? FileIO.download(at: note.fileURL)
+                        actions.download(note)
                     })
                 } else {
                     menu.append(entry("Remove Download", "icloud.slash") {
-                        try? FileIO.evict(at: note.fileURL)
+                        actions.removeDownload(note)
                     })
                 }
             }
@@ -135,14 +141,11 @@ enum SidebarMenu {
             menu.append(Item(id: next(), title: "Export", symbol: "square.and.arrow.up",
                              children: [
                                 Item(id: next(), title: "Export as HTML…", symbol: "doc.richtext",
-                                     run: { EditorExport.exportHTML(markdown: actions.text(note),
-                                                                    title: note.title) }),
+                                     run: { actions.export(note, .html) }),
                                 Item(id: next(), title: "Export as PDF…", symbol: "doc.text",
-                                     run: { EditorExport.exportPDF(markdown: actions.text(note),
-                                                                   title: note.title) }),
+                                     run: { actions.export(note, .pdf) }),
                                 Item(id: next(), title: "Print…", symbol: "printer",
-                                     run: { EditorExport.printNote(markdown: actions.text(note),
-                                                                   title: note.title) }),
+                                     run: { actions.export(note, .print) }),
                              ]))
             menu.append(separator())
             menu.append(entry("Move to Trash", "trash", destructive: true) {
@@ -152,7 +155,7 @@ enum SidebarMenu {
         }
 
         if let file = item.file {
-            var menu = [entry("Open in Default App", "arrow.up.forward.app") {
+            var menu = [entry(FileReveal.openInDefaultAppTitle, "arrow.up.forward.app") {
                 FileReveal.openInDefaultApp(file.url)
             }]
             if FileReveal.canReveal(file.url) {

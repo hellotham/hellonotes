@@ -192,20 +192,6 @@ struct NoteEditorPane: View {
     }
 }
 
-/// Preview / Markdown / Split switcher — the same control in the main window's
-/// toolbar and a note window's.
-struct iOSEditorModePicker: View {
-    @Binding var mode: EditorMode
-
-    var body: some View {
-        Picker("View mode", selection: $mode) {
-            ForEach(EditorMode.platformCases) { m in
-                Image(systemName: m.symbol)
-                    .accessibilityLabel(m.label)
-                    .tag(m)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-    }
-}
+// `iOSEditorModePicker` used to sit here — a near-copy of
+// `NoteEditorView.modePicker` with no call sites anywhere, and an `iOS` prefix
+// in a tree whose whole point is one code base. `modePicker` is the one in use.

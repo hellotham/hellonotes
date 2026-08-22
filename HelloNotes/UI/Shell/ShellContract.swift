@@ -336,6 +336,41 @@ struct ShellContext: Equatable, Sendable {
     var maxPanes: Int { ShellMetrics.maxPanes(detailWidth: paneWidth) }
 }
 
+// MARK: - The declared window minimum (decision 9)
+
+extension View {
+    /// Declare the shell's window minimum where the app owns its window size.
+    ///
+    /// A minimum on the content is how a resizable window's floor is declared:
+    /// the window manager reads it and refuses to go smaller. Where the app
+    /// does *not* own the window size, the same modifier means something else
+    /// entirely — SwiftUI honours a minimum over the proposal, so the shell
+    /// lays out at 860pt inside a 393pt iPhone and the result is centred and
+    /// clipped off both edges, unreachable.
+    ///
+    /// This was applied unconditionally when the two shells merged: only
+    /// `MacContentView` had carried it, inside that file's whole-file gate, and
+    /// merging the files silently handed the Mac's floor to every phone and to
+    /// any iPad narrower than 860pt — which includes an 11" iPad in portrait.
+    ///
+    /// Both branches answer the same question. Where the size is imposed, the
+    /// floor is not a declaration to make but a case to degrade through, which
+    /// `shellKind` already does — `.compact` *is* the answer for below 600pt.
+    func declaredWindowMinimum() -> some View {
+        #if os(macOS)
+        return frame(minWidth: ShellMetrics.windowMinWidth,
+                     minHeight: ShellMetrics.windowMinHeight)
+            // S2 (docs/layout-architecture.md): a minimum is a floor, not a
+            // ceiling. Without a maximum, any column child with a large ideal
+            // size inflates the split view past the window and offsets it
+            // off-screen.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #else
+        return frame(maxWidth: .infinity, maxHeight: .infinity)
+        #endif
+    }
+}
+
 private struct ShellContextKey: EnvironmentKey {
     static let defaultValue = ShellContext()
 }

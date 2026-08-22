@@ -111,11 +111,75 @@ struct ShellActions {
     /// The note's current text: the editor's buffer when it holds this note,
     /// the file otherwise. Exporting the file while an editor holds unsaved
     /// edits exports the wrong thing.
-    func text(of note: Note) -> String {
+    ///
+    /// - Returns: `nil` when the text is not available, rather than `""`.
+    ///   Every caller of this is an export, and an export that quietly
+    ///   substitutes an empty document writes a blank PDF named after the note
+    ///   and tells the user nothing. Two ways that happened: a coordinated read
+    ///   that threw (a dataless File Provider note while offline), and a
+    ///   direct-API mirror note that has not been downloaded — those are real
+    ///   zero-byte placeholders on disk, so the read *succeeded* and returned
+    ///   nothing at all.
+    func text(of note: Note) -> String? {
         if let editor = tabs.editor(withID: note.id), editor.note?.fileURL == note.fileURL {
             return editor.text
         }
-        return (try? FileIO.readString(at: note.fileURL)) ?? ""
+        guard let text = try? FileIO.readString(at: note.fileURL) else { return nil }
+        // A zero-byte file for a note the collection knows is online-only is a
+        // placeholder, not an empty note.
+        if text.isEmpty && note.isOnlineOnly { return nil }
+        return text
+    }
+
+    /// The note's text, downloading it first if the collection keeps it in a
+    /// remote mirror.
+    ///
+    /// The synchronous `text(of:)` cannot do this — hydration is async — which
+    /// is why exporting a cloud note that was never opened used to produce an
+    /// empty document. `hydrateIfNeeded` is cheap and safe for local
+    /// collections and for anything already downloaded.
+    func exportText(of note: Note) async -> String? {
+        if let editor = tabs.editor(withID: note.id), editor.note?.fileURL == note.fileURL {
+            return editor.text
+        }
+        await library.collection(containing: note.fileURL)?.hydrateIfNeeded(note.fileURL)
+        return text(of: note)
+    }
+
+    /// Fetch a note that is not on this device.
+    ///
+    /// Routed through the collection because only it knows whether the note is
+    /// a File-Provider placeholder or an entry in a direct-API mirror, and the
+    /// two need different calls. Going straight to `FileIO.download` — which is
+    /// `startDownloadingUbiquitousItem` — silently did nothing for the second.
+    func download(_ note: Note) {
+        guard let collection = library.collection(containing: note.fileURL) else { return }
+        Task { await collection.download(note.fileURL) }
+    }
+
+    /// Which rendering of a note an export produces.
+    enum ExportKind { case html, pdf, print }
+
+    /// Export or print `note`, downloading it first if need be, and say so when
+    /// there is nothing to export.
+    ///
+    /// One place, because the three-way `exportHTML` / `exportPDF` / `printNote`
+    /// fan-out was written out twice — in the sidebar's menu and in the note
+    /// menu — and both handed `EditorExport` whatever `text(of:)` returned
+    /// without looking at it.
+    func export(_ note: Note, as kind: ExportKind) {
+        Task {
+            guard let markdown = await exportText(of: note), !markdown.isEmpty else {
+                library.collection(containing: note.fileURL)?
+                    .report("Couldn't read “\(note.title)” to export it.")
+                return
+            }
+            switch kind {
+            case .html: EditorExport.exportHTML(markdown: markdown, title: note.title)
+            case .pdf: EditorExport.exportPDF(markdown: markdown, title: note.title)
+            case .print: EditorExport.printNote(markdown: markdown, title: note.title)
+            }
+        }
     }
 
     /// Append an expanded template to the open note.
@@ -251,7 +315,9 @@ struct ShellActions {
             delete: { delete($0) },
             isOpenInEditor: { isOpenInEditor($0) },
             reviewLinks: { _ in reviewLinks() },
-            text: { text(of: $0) },
+            export: { note, kind in export(note, as: kind) },
+            download: { note in download(note) },
+            removeDownload: { note in try? FileIO.evict(at: note.fileURL) },
             newNote: { createNote(in: $0, folderID: $1) },
             newFolder: { beginNewFolder(in: $0, folderID: $1) },
             deleteFolder: { folderID in

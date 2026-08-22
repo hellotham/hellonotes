@@ -207,16 +207,17 @@ struct EditorHost: View {
                     // is reused across notes, so without this the sheet could
                     // open onto a range that means something else entirely.
                     .onChange(of: note.fileURL) { _, _ in rewriteRange = nil }
-                    .onReceive(NotificationCenter.default.publisher(for: .hnEditorFindQuery)) { notification in
-                        guard let query = notification.userInfo?["query"] as? String,
-                              !query.isEmpty else { return }
-                        let found = (document.text as NSString).range(of: query)
-                        guard found.location != NSNotFound else { return }
-                        // Caret at the heading, not a selection over it: a
-                        // selection would pop the edit menu on arrival.
-                        proxy.setSelection(NSRange(location: found.location, length: 0))
-                        proxy.scroll(to: found)
-                    }
+                    // No `hnEditorFindQuery` observer here. The editor's own
+                    // coordinator already listens on both platforms and answers
+                    // with `showMatch(of:index:)`, which honours the
+                    // `currentIndex` the find bar sends and *selects* the match.
+                    // A second listener stood here that ignored the index, took
+                    // `range(of:)` — always the first match — and set a
+                    // zero-length selection: two observers on one channel, in
+                    // undefined order, so Find Next appeared to advance the
+                    // counter while the caret snapped back to match 1, nothing
+                    // was highlighted, and Replace (which requires a non-empty
+                    // selection) became a no-op.
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -236,7 +237,8 @@ struct EditorHost: View {
 
             let key = EditorDocumentStore.Key(path: note.fileURL.path,
                                               fontSize: fontSize,
-                                              isDark: colorScheme == .dark)
+                                              isDark: colorScheme == .dark,
+                                              accent: accentToken)
             let built: EditorDocument
             if let existing = documents.document(for: key) {
                 built = existing
@@ -414,8 +416,11 @@ struct EditorHost: View {
         Task { @MainActor in
             guard let alt = await VisionAlt.describe(assetURL) else { return }
             // Rewrite through the document so the edit reaches the parser and
-            // the undo stack, exactly as typing would.
-            document.replaceFirst(markdown, with: "![\(alt)](\(rel))")
+            // the undo stack, exactly as typing would. `near:` is the caret —
+            // the placeholder was just inserted there, and a document-wide
+            // search would rewrite an identical earlier embed instead.
+            document.replaceFirst(markdown, with: "![\(alt)](\(rel))",
+                                  near: proxy.selection().location)
         }
         return markdown
     }
@@ -428,7 +433,8 @@ struct EditorHost: View {
         if let (markdown, url) = SmartPaste.urlLink(fromString: SmartPaste.pasteboardString()) {
             Task { @MainActor in
                 guard let title = await SmartPaste.fetchTitle(url) else { return }
-                document.replaceFirst(markdown, with: "[\(title)](\(url.absoluteString))")
+                document.replaceFirst(markdown, with: "[\(title)](\(url.absoluteString))",
+                                      near: proxy.selection().location)
             }
             return markdown
         }
@@ -450,10 +456,11 @@ struct EditorHost: View {
         // the styling pass may run from any context that owns the document, so
         // it captures a value rather than reaching back into a `@MainActor`
         // index. The cost is that adding or deleting a note is invisible to an
-        // already-built document — which is why `MacContentView` drops every
-        // cached document (`documents.forgetAll()`) when the note set changes.
-        // The iOS shell's `onChange(of: library.allNotes)` still needs the
-        // same call.
+        // already-built document — which is why `ContentView` drops every
+        // cached document (`documents.forgetAll()`) from its
+        // `onChange(of: library.allNotes)`. One shell, one call; this used to
+        // name `MacContentView` and say the iOS shell "still needs the same
+        // call", and both of those files are gone.
         let titles = Set(linkTargets.map { $0.lowercased() })
         return EditorServices(
             wikiLinkExists: { titles.contains($0.lowercased()) },
@@ -506,6 +513,28 @@ struct EditorHost: View {
     /// by `.onChange(of: editor.loadRevision)`, because rebuilding drops the
     /// caret and the scroll position and re-renders every block embed.
     private var taskKey: String {
-        "\(note.fileURL.path)|\(Int(fontSize))|\(colorScheme == .dark ? "d" : "l")"
+        "\(note.fileURL.path)|\(Int(fontSize))|\(colorScheme == .dark ? "d" : "l")|\(accentToken)"
+    }
+
+    /// The accent, as a value a cache key can name.
+    ///
+    /// The key used to be path + font size + appearance only, while the theme
+    /// it builds takes the accent too — so changing the accent, or toggling
+    /// Increase Contrast, re-ran nothing and returned the document built with
+    /// the old one. Link, wiki-link, tag, footnote, list-marker and highlight
+    /// colours all stayed on the previous accent until the note fell out of the
+    /// 8-entry cache. "A cache key must name everything the cached value
+    /// depends on" (CLAUDE.md) — this is the part it did not name.
+    private var accentToken: String {
+        guard let accent else { return "-" }
+        #if canImport(AppKit)
+        let rgb = accent.usingColorSpace(.sRGB) ?? accent
+        return String(format: "%.3f,%.3f,%.3f",
+                      rgb.redComponent, rgb.greenComponent, rgb.blueComponent)
+        #else
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        accent.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "%.3f,%.3f,%.3f", r, g, b)
+        #endif
     }
 }

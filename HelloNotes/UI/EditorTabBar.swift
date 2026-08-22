@@ -50,13 +50,10 @@ struct EditorTabBar: View {
     private func tab(_ note: Note) -> some View {
         let isActive = note.id == activeID
         return HStack(spacing: 4) {
-            Button { onSelect(note.id) } label: {
-                Text(note.title)
-                    .lineLimit(1)
-                    .font(.subheadline)
-                    .fontWeight(isActive ? .semibold : .regular)
-            }
-            .buttonStyle(.plain)
+            Text(note.title)
+                .lineLimit(1)
+                .font(.subheadline)
+                .fontWeight(isActive ? .semibold : .regular)
 
             Button { onClose(note.id) } label: {
                 Image(systemName: "xmark")
@@ -68,9 +65,16 @@ struct EditorTabBar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
+        .frame(minHeight: shell.tabBarHeight - 8)
         .background(isActive ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
                     in: RoundedRectangle(cornerRadius: 7))
         .foregroundStyle(isActive ? Color.primary : .secondary)
+        // The whole tab selects, padding and vertical slack included. Wrapping
+        // only the `Text` in a `Button` shrank the target to the title's glyph
+        // box — about 17pt tall inside a 44pt touch bar — and left this
+        // `contentShape` with no gesture attached to it, so tapping beside a
+        // title or anywhere in the margin did nothing.
         .contentShape(.rect)
+        .onTapGesture { onSelect(note.id) }
     }
 }

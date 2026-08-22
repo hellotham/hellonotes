@@ -41,6 +41,18 @@ final class EditorTabs {
     /// shell can refresh derived data (links, search) after edits.
     var totalSavedRevision: Int { editors.reduce(0) { $0 + $1.savedRevision } }
 
+    /// Sum of every tab's *load* revision, plus the number of tabs.
+    ///
+    /// A tab is appended only after its note has been read, so this is what
+    /// changes when text first becomes available for a newly opened note.
+    /// Anything deriving from an open note's text must name it: keying on
+    /// `totalSavedRevision` alone means the derived value is computed against
+    /// the empty placeholder editor and never recomputed, because opening a
+    /// note saves nothing.
+    var totalLoadRevision: Int {
+        editors.reduce(editors.count) { $0 + $1.loadRevision }
+    }
+
     /// The editor for `note`, opening a new tab (and loading it) if needed.
     @discardableResult
     func editor(for note: Note) async -> EditorModel {

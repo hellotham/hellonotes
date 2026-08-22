@@ -72,7 +72,25 @@ struct PlatformParityTests {
         }
         #expect(fields.count > 30, "the scan found no fields — the declaration shape changed")
 
-        let missing = fields.sorted().filter { !shell.contains("\($0):") }
+        // Matched against *argument labels the shell actually passes*, not
+        // against the raw text. `shell.contains("note:")` was true because
+        // `func noteRow(_ note: Note` and a comment reading "there was no note:"
+        // are both in the file — so a field could go unwired and this still
+        // reported green, on exactly the "draws, enables, does nothing" defect
+        // it exists to catch. A label is `name:` at the start of a line or after
+        // an open paren or comma, and followed by a value.
+        let wired: Set<String> = {
+            let label = /(?:^|[(,])\s*([A-Za-z_][A-Za-z0-9_]*):\s*\S/
+            var found: Set<String> = []
+            for line in shell.split(separator: "\n", omittingEmptySubsequences: false) {
+                let text = String(line)
+                // Comments are prose, not wiring.
+                guard !text.trimmingCharacters(in: .whitespaces).hasPrefix("//") else { continue }
+                for match in text.matches(of: label) { found.insert(String(match.1)) }
+            }
+            return found
+        }()
+        let missing = fields.sorted().filter { !wired.contains($0) }
 
         #expect(missing.isEmpty, """
             These commands are declared and never wired. An unwired optional \

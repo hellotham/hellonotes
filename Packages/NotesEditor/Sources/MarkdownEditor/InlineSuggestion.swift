@@ -173,12 +173,7 @@ extension MarkdownTextView {
             .font: document.theme.body,
             .foregroundColor: document.theme.text.withAlphaComponent(0.38),
         ]
-        let available = bounds.width - caret.maxX
-            - textContainerInset.width - (textContainer?.lineFragmentPadding ?? 0)
-        guard available > 12 else { return }
-
-        let drawn = suggestion.text.fitting(width: available, attributes: attributes)
-        guard !drawn.isEmpty else { return }
+        guard let drawn = drawableSuggestionText(suggestion, attributes: attributes) else { return }
 
         // Baseline-align with the caret's line rather than filling its rect:
         // the caret rect is the *line* height, and drawing at its origin sits
@@ -187,6 +182,43 @@ extension MarkdownTextView {
         let size = string.size()
         let y = caret.midY - size.height / 2
         string.draw(at: CGPoint(x: caret.maxX, y: y))
+    }
+
+    /// How much of `suggestion` actually fits on the caret's line — `nil` when
+    /// none of it does.
+    ///
+    /// The single answer used by **both** drawing and accepting. It used to be
+    /// computed only while drawing: `acceptInlineSuggestion` inserted
+    /// `suggestion.text` whole, so a completion trimmed at a word boundary to
+    /// the ~40 characters that fit inserted all 160 of them, and the two
+    /// early-outs here (no room at all, first word too wide) returned without
+    /// drawing while leaving the suggestion live — so a plain → at the end of a
+    /// line inserted a completion that had never been on screen. This file's
+    /// contract is that "the drawn text and the accepted text must be the same
+    /// string"; one function is how that stays true.
+    func drawableSuggestionText(_ suggestion: InlineSuggestion,
+                                attributes: [NSAttributedString.Key: Any]) -> String? {
+        let caret = caretRectInView(at: suggestion.location)
+        // No geometry yet — an unlaid-out view, or a caret whose fragment TextKit
+        // has not produced. Nothing can be *drawn*, but nothing has been hidden
+        // from the user either, so accepting still means the whole suggestion.
+        // Only a measured line can shorten it.
+        guard caret != .zero, bounds.width > 0 else { return suggestion.text }
+        let available = bounds.width - caret.maxX
+            - textContainerInset.width - (textContainer?.lineFragmentPadding ?? 0)
+        guard available > 12 else { return nil }
+        let drawn = suggestion.text.fitting(width: available, attributes: attributes)
+        return drawn.isEmpty ? nil : drawn
+    }
+
+    /// The text accepting would insert, given where the caret is now.
+    var acceptableSuggestionText: String? {
+        guard let suggestion = inlineSuggestion, let document else { return nil }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: document.theme.body,
+            .foregroundColor: document.theme.text.withAlphaComponent(0.38),
+        ]
+        return drawableSuggestionText(suggestion, attributes: attributes)
     }
 
     /// The caret rect in this view's own coordinates.
@@ -222,13 +254,16 @@ extension MarkdownTextView {
         // `inlineSuggestion` is nil unless it still matches the caret, so a
         // reply that arrived for a sentence the user has moved on from cannot
         // be accepted at all.
-        guard let suggestion = inlineSuggestion else {
+        guard let suggestion = inlineSuggestion,
+              // Exactly what is on screen — never more, and nothing at all when
+              // nothing was drawn. See `acceptableSuggestionText`.
+              let text = acceptableSuggestionText else {
             clearInlineSuggestion()
             return false
         }
         clearInlineSuggestion()
         return performEdit(replacing: NSRange(location: suggestion.location, length: 0),
-                           with: suggestion.text)
+                           with: text)
     }
 
     // MARK: - Requesting
@@ -378,14 +413,39 @@ extension MarkdownUITextView {
 
     /// Paint the ghost. Called by `ChromeOverlayView.draw` after the fragments.
     func drawInlineSuggestion(in rect: CGRect) {
-        guard let suggestion = inlineSuggestion, let document else { return }
+        guard let document else { return }
         guard let frame = inlineSuggestionRect(), frame.intersects(rect) else { return }
-        let attributes = ghostAttributes(document)
-        // Trim the *suggestion*, not the drawing: what is shown and what
-        // accepting inserts have to be the same string by construction.
-        let drawn = suggestion.text.fittingWidth(frame.width + 1, attributes: attributes)
-        guard !drawn.isEmpty else { return }
-        (drawn as NSString).draw(at: frame.origin, withAttributes: attributes)
+        guard let drawn = acceptableSuggestionText else { return }
+        (drawn as NSString).draw(at: frame.origin, withAttributes: ghostAttributes(document))
+    }
+
+    /// The text accepting would insert, given where the caret is now — which is
+    /// exactly what `drawInlineSuggestion` paints.
+    ///
+    /// Drawing already trimmed to what fits; accepting did not, and inserted
+    /// `suggestion.text` whole. So a 160-character completion trimmed at a word
+    /// boundary to the ~40 that fit inserted all 160 — and when
+    /// `inlineSuggestionRect()` returned `nil` (no room on the line, or the
+    /// first word too wide) nothing was drawn at all while the suggestion
+    /// stayed live, so ⌥⇥ on an iPad keyboard inserted a completion that had
+    /// never been on screen.
+    var acceptableSuggestionText: String? {
+        guard let suggestion = inlineSuggestion, let document else { return nil }
+        guard let position = position(from: beginningOfDocument, offset: suggestion.location)
+        else { return suggestion.text }
+        let caret = caretRect(for: position)
+        // No geometry yet — an unlaid-out view, or a caret rect UIKit will not
+        // give up. Nothing can be *drawn*, but nothing has been hidden from the
+        // user either, so accepting still means the whole suggestion. Only a
+        // measured line can shorten it.
+        guard caret.origin.x.isFinite, caret.origin.y.isFinite, caret.height > 0,
+              bounds.width > 0
+        else { return suggestion.text }
+        let available = bounds.width - caret.maxX
+            - textContainerInset.right - textContainer.lineFragmentPadding
+        guard available > 12 else { return nil }
+        let drawn = suggestion.text.fittingWidth(available, attributes: ghostAttributes(document))
+        return drawn.isEmpty ? nil : drawn
     }
 
     // MARK: - Accepting
@@ -396,13 +456,16 @@ extension MarkdownUITextView {
     /// wrote, because by then it is.
     @discardableResult
     public func acceptInlineSuggestion() -> Bool {
-        guard let suggestion = inlineSuggestion else {
+        guard let suggestion = inlineSuggestion,
+              // Exactly what is on screen — never more, and nothing at all when
+              // nothing was drawn. See `acceptableSuggestionText`.
+              let text = acceptableSuggestionText else {
             clearInlineSuggestion()
             return false
         }
         clearInlineSuggestion()
         return performEdit(replacing: NSRange(location: suggestion.location, length: 0),
-                           with: suggestion.text)
+                           with: text)
     }
 
     /// A tap lands on the ghost: accept it, and report that the tap is spent so

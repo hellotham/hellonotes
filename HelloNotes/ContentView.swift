@@ -556,12 +556,7 @@ struct ContentView: View {
             }
             searchFocused = true
         }
-        .frame(minWidth: ShellMetrics.windowMinWidth, minHeight: ShellMetrics.windowMinHeight)
-        // S2 (docs/layout-architecture.md): a minimum is a floor, not a
-        // ceiling. Without a maximum, any column child with a large ideal size
-        // (note list, editor, file viewer) inflates the split view past the
-        // window and offsets it off-screen.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .declaredWindowMinimum()
         .task {
             // A hosted test bundle launches this app to run in. Restoring the
             // user's real library there is both a privacy surprise and the
@@ -591,7 +586,18 @@ struct ContentView: View {
                     // launcher, which the other platform never offered — an
                     // empty library with onboarding already seen got a blank
                     // shell and no prompt.
-                    if hasSeenWelcome { showLauncher = true } else { pendingWelcome = true }
+                    // `splashFinished` matters because the restore can outrun
+                    // the splash *or* trail it: a 2,000-note vault takes longer
+                    // than the 3.5s linger, and pending a handoff that has
+                    // already happened strands onboarding just as surely as
+                    // waiting on a signal that never comes.
+                    if hasSeenWelcome {
+                        showLauncher = true
+                    } else if splashFinished {
+                        showWelcome = true
+                    } else {
+                        pendingWelcome = true
+                    }
                 }
             }
             // Reopen the last-focused collection + note (if still present).
@@ -707,7 +713,11 @@ struct ContentView: View {
         content
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase != .active {
-                Task { await tabs.flushAll() }
+                // Through the guard, so the drain runs under a background-task
+                // assertion rather than racing suspension. A bare
+                // `Task { await tabs.flushAll() }` here is exactly the
+                // unprotected flush the guard was written to replace.
+                Task { await TerminationGuard.current?.flushUnderAssertion() }
             }
         }
         .onAppear {
@@ -737,9 +747,18 @@ struct ContentView: View {
             docFeatures = await offMain { NoteDocFeatures(text: text) }
         }
 
-        .onChange(of: showSplash) { _, visible in
-            // Present onboarding only after the launch splash has faded.
-            if !visible && pendingWelcome {
+        .onReceive(NotificationCenter.default.publisher(for: .hnSplashDidFinish)) { _ in
+            // Present onboarding only after the launch splash has gone.
+            //
+            // Driven by the notification both presentations post, not by
+            // `showSplash`: that flag is the *overlay's*, and only the platform
+            // with an overlay ever sets it. Reading it here meant the Mac — a
+            // separate splash window, flag never true — never reached this at
+            // all, so a fresh install got no Welcome sheet and, since
+            // `hasSeenWelcome` is written only when that sheet is dismissed, no
+            // launcher on any launch afterwards either.
+            splashFinished = true
+            if pendingWelcome {
                 pendingWelcome = false
                 showWelcome = true
             }
@@ -756,16 +775,24 @@ struct ContentView: View {
 
         .overlay {
             if showSplash {
-                SplashScreenView { withAnimation(.easeOut(duration: 0.5)) { showSplash = false } }
+                SplashScreenView { dismissSplashOverlay() }
                     .ignoresSafeArea()
                     .transition(.opacity)
                     .task(id: splashAutoDismisses) {
                         guard splashAutoDismisses else { return }
                         try? await Task.sleep(for: .seconds(2.8))
-                        withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
+                        dismissSplashOverlay()
                     }
             }
         }
+    }
+
+    /// Take the splash overlay down and say so, on the same channel the Mac's
+    /// splash window uses — the shell has work waiting on it (onboarding).
+    private func dismissSplashOverlay() {
+        guard showSplash else { return }
+        withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
+        NotificationCenter.default.post(name: .hnSplashDidFinish, object: nil)
     }
 
 
@@ -814,8 +841,17 @@ struct ContentView: View {
                 availability: { NoteComposer.unavailableReason(for: $0, settings: llmSettings) },
                 onRun: { prompt, mode, depth in runCompose(prompt, mode: mode, depth: depth) },
                 onCreate: { draft in
-                    guard let c = focused else { return }
-                    Task { if let note = await composer.create(draft, in: c) { selectedNoteID = note.id } }
+                    // `railCollection ?? focused`, matching `runCompose`. Asking
+                    // `focused` alone meant that with two collections open,
+                    // Create wrote the note into a different one than Run did —
+                    // two buttons in one sheet disagreeing about where the note
+                    // lands.
+                    guard let c = railCollection ?? focused else { return }
+                    Task {
+                        if let note = await composer.create(draft, in: c) {
+                            selectedNoteID = note.id
+                        }
+                    }
                 })
         }
         .sheet(isPresented: $showOpenQuickly) {
@@ -977,19 +1013,15 @@ struct ContentView: View {
                     revealInFileManager: FileReveal.canReveal(note.fileURL)
                         ? { FileReveal.reveal(note.fileURL) } : nil,
                     openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
-                    // `actions.text(of:)`, not the active editor's buffer: read
+                    // `actions.export`, not the active editor's buffer: read
                     // that way, exporting or printing a note that was not open
-                    // in an editor did nothing at all. The shared accessor
-                    // prefers the live buffer and falls back to the file.
-                    exportHTML: {
-                        EditorExport.exportHTML(markdown: actions.text(of: note), title: note.title)
-                    },
-                    exportPDF: {
-                        EditorExport.exportPDF(markdown: actions.text(of: note), title: note.title)
-                    },
-                    printNote: {
-                        EditorExport.printNote(markdown: actions.text(of: note), title: note.title)
-                    },
+                    // in an editor did nothing at all. The shared action prefers
+                    // the live buffer, downloads a cloud note that has never
+                    // been opened, and reports rather than writing a blank file
+                    // when there is nothing to export.
+                    exportHTML: { actions.export(note, as: .html) },
+                    exportPDF: { actions.export(note, as: .pdf) },
+                    printNote: { actions.export(note, as: .print) },
                     moveToTrash: { actions.delete(note) }
                 )
             },
@@ -1050,7 +1082,11 @@ struct ContentView: View {
     /// says "not now"; an enabled one that always errors says "this app is
     /// broken", and the second is the lie.
     private var aiActions: AIActions? {
-        guard activeEditor?.note != nil else { return nil }
+        // `!showOpenQuickly` as every sibling in `appActions` has: each of these
+        // runs `askInspector`, which mutates the inspector's tab and
+        // presentation underneath a sheet that is already up. The merge kept
+        // the note check and dropped this one.
+        guard !showOpenQuickly, activeEditor?.note != nil else { return nil }
         let intelligence = IntelligenceService(settings: llmSettings)
         guard intelligence.isAvailable else { return nil }
         return AIActions(
@@ -1799,12 +1835,12 @@ struct ContentView: View {
     @State private var showSettings = false
 
     /// Onboarding is queued during launch but only presented once the splash
-    /// overlay has faded, so it doesn't pop up over the splash.
+    /// has gone, so it doesn't pop up over the splash.
     @State private var pendingWelcome = false
 
-    /// On iPhone (collapsed), open straight to the note list rather than the
-    /// filter sidebar.
-    @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
+    /// Whether the launch splash has already finished — see `hnSplashDidFinish`.
+    /// The restore that queues onboarding can land on either side of it.
+    @State private var splashFinished = false
 
     /// Whether the open note is a Marp deck / holds Mermaid fences.
     ///
@@ -1871,11 +1907,21 @@ struct ContentView: View {
         library.collections.first { url.path == $0.id || url.path.hasPrefix($0.id + "/") }
     }
 
-    /// What `docFeatures` is computed against: which note is open, and the
-    /// tabs' combined save revision. Cheap to read every render, and it changes
-    /// at most once per autosave rather than once per keystroke.
+    /// What `docFeatures` is computed against: which note is open, the tabs'
+    /// combined save revision, and their combined *load* revision. Cheap to
+    /// read every render, and it changes at most once per open or autosave
+    /// rather than once per keystroke.
+    ///
+    /// `totalLoadRevision` is here because selecting a note runs this task
+    /// *before* the tab exists: `EditorTabs.editor(for:)` appends the model
+    /// only after awaiting the read, so the task body — which reads
+    /// `editor.text` synchronously — saw the empty placeholder. Opening a note
+    /// saves nothing, so neither of the other two components moved afterwards
+    /// and the task never re-ran: a note full of Mermaid fences reached the
+    /// menu with "Mermaid Diagrams" and "Present as Slides" both missing, and
+    /// they stayed missing until something unrelated saved.
     private var docFeaturesKey: String {
-        "\(selectedNoteID?.path ?? "")|\(tabs.totalSavedRevision)"
+        "\(selectedNoteID?.path ?? "")|\(tabs.totalSavedRevision)|\(tabs.totalLoadRevision)"
     }
 
     /// The same single sidebar the Mac has (`docs/shell-chrome.md` D2/D4):
@@ -1915,17 +1961,12 @@ struct ContentView: View {
         .draggable(note.fileURL)
     }
 
-    /// The collection and folder URL a folder item's id names.
-    ///
-    /// The id is the owning collection's id followed by the folder's path
-    /// relative to it — namespaced exactly so equal relative paths in two
-    /// collections stay distinct. Same lookup the Mac's outline makes.
-    private func folder(forID id: String) -> (Collection, URL)? {
-        guard let collection = library.collections.first(where: {
-            id == $0.id || id.hasPrefix($0.id)
-        }) else { return nil }
-        return (collection, URL(fileURLWithPath: id, isDirectory: true))
-    }
+    // `folder(forID:)` used to sit here: a third copy of the folder-id →
+    // collection lookup with no callers, and the only one of the three that
+    // tested `id.hasPrefix($0.id)` without the `"/"` separator — so
+    // `/Vault` would have claimed a folder in `/VaultArchive`. The live
+    // answers are `collection(owningFolder:)` above and
+    // `ShellActions.collection(forFolderID:)`.
 
     private var bookmarkedNotes: [Note] {
         library.collections.flatMap { $0.bookmarks.bookmarkedNotes(from: $0.notes) }
@@ -1950,7 +1991,6 @@ struct ContentView: View {
         selectedTag = nil
         searchText = ""
         selectedNoteID = nil
-        preferredCompactColumn = .content
         switch place {
         case .library: railPlaceID = ""
         case .collection(let id): railPlaceID = id
@@ -2072,7 +2112,6 @@ struct ContentView: View {
     private func filterRow(title: String, systemImage: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button {
             action()
-            preferredCompactColumn = .content   // on iPhone, push to the note list
         } label: {
             HStack {
                 Label(title, systemImage: systemImage)
@@ -2130,7 +2169,12 @@ struct ContentView: View {
                     .swipeActions(edge: .leading) {
                         if note.isOnlineOnly {
                             Button {
-                                try? FileIO.download(at: note.fileURL)
+                                // Through the collection: it knows whether this
+                                // is a File-Provider placeholder or a mirror
+                                // entry, and `FileIO.download` only handles the
+                                // first — it threw for every direct-API
+                                // provider and the `try?` swallowed it.
+                                actions.download(note)
                             } label: {
                                 Label("Download", systemImage: "arrow.down.circle")
                             }

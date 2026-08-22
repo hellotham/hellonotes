@@ -114,6 +114,12 @@ public final class EditorProxy {
         tv.document?.selectionDidChange(clamped)
     }
 
+    /// Where the caret is. Lets a deferred rewrite (an image's alt text, a
+    /// pasted link's title) name *which* occurrence it meant.
+    public func selection() -> NSRange {
+        textView?.selectedRange() ?? NSRange(location: NSNotFound, length: 0)
+    }
+
     /// Offer ghost text at `location`, or clear it with `nil`.
     ///
     /// Pushed through the proxy rather than through a SwiftUI binding on
@@ -1756,13 +1762,29 @@ public final class MarkdownUITextView: UITextView {
     /// The caret left the top of the text; the host decides what is above it.
     var onCaretEscapeTop: ((CaretEscape) -> Void)?
 
+    /// Where the note's *text* begins — after any front matter.
+    ///
+    /// The same answer AppKit's `MarkdownTextView.firstBodyLineStart` gives, and
+    /// for the same reason: front matter is concealed until the caret enters it,
+    /// so landing on literal offset 0 of a note that has some pops the whole
+    /// `---` block open — the note's metadata unfolding between the title and
+    /// the prose. This half used literal `0` in all three places, so ↓ from the
+    /// inline title, ← from the first body line and `focusFirstLine` each landed
+    /// *inside* the front matter on iPad while the Mac skipped past it.
+    var firstBodyLineStart: Int {
+        guard let document,
+              let front = document.parse.blocks.first(where: { $0.kind == .frontMatter })
+        else { return 0 }
+        return min(NSMaxRange(front.range), (text as NSString).length)
+    }
+
     private var caretIsAtStart: Bool {
-        selectedRange.length == 0 && selectedRange.location == 0
+        selectedRange.length == 0 && selectedRange.location <= firstBodyLineStart
     }
 
     private var caretIsOnFirstLine: Bool {
         guard selectedRange.length == 0 else { return false }
-        if selectedRange.location == 0 { return true }
+        if selectedRange.location <= firstBodyLineStart { return true }
         // Compare caret rects, not fragment frames. The obvious version asks
         // `textLayoutFragment(for:)` for the caret's fragment and tests whether
         // its frame sits at the top — and a fragment TextKit has not laid out
@@ -1774,10 +1796,13 @@ public final class MarkdownUITextView: UITextView {
         // "same line" means on screen — which is also the right answer for a
         // wrapped first paragraph, where the second visual line is not the
         // first line even though it shares a fragment.
-        guard let position = position(from: beginningOfDocument, offset: selectedRange.location)
+        guard let caretPosition = position(from: beginningOfDocument, offset: selectedRange.location),
+              let bodyStart = position(from: beginningOfDocument, offset: firstBodyLineStart)
         else { return false }
-        let here = caretRect(for: position)
-        let start = caretRect(for: beginningOfDocument)
+        let here = caretRect(for: caretPosition)
+        // Measured against the first *body* line, not the document's, so a note
+        // with front matter compares against the line the user can actually see.
+        let start = caretRect(for: bodyStart)
         guard here.minY.isFinite, start.minY.isFinite else { return false }
         return abs(here.minY - start.minY) < 0.5
     }
@@ -1926,12 +1951,19 @@ public final class EditorProxy {
         guard let tv = textView else { return }
         tv.becomeFirstResponder()
         let inset = tv.textContainerInset.left + tv.textContainer.lineFragmentPadding
-        let firstLineY = tv.caretRect(for: tv.beginningOfDocument).midY
+        // The first *body* line: arrowing down from the title means "the first
+        // line I would write on". Targeting the document's line 0 landed the
+        // caret inside concealed front matter and unfolded it, which is the
+        // note's metadata appearing between the title and the prose.
+        let bodyStart = tv.firstBodyLineStart
+        let anchor = tv.position(from: tv.beginningOfDocument, offset: bodyStart)
+            ?? tv.beginningOfDocument
+        let firstLineY = tv.caretRect(for: anchor).midY
         let point = CGPoint(x: inset + max(0, x), y: firstLineY)
         let location = tv.closestPosition(to: point).map {
             tv.offset(from: tv.beginningOfDocument, to: $0)
-        } ?? 0
-        let range = NSRange(location: location, length: 0)
+        } ?? bodyStart
+        let range = NSRange(location: max(location, bodyStart), length: 0)
         tv.selectedRange = range
         tv.document?.selectionDidChange(range)
         tv.scrollRangeToVisible(range)
@@ -1977,6 +2009,12 @@ public final class EditorProxy {
                               length: min(max(0, range.length), length - location))
         tv.selectedRange = clamped
         tv.document?.selectionDidChange(clamped)
+    }
+
+    /// Where the caret is. Lets a deferred rewrite (an image's alt text, a
+    /// pasted link's title) name *which* occurrence it meant.
+    public func selection() -> NSRange {
+        textView?.selectedRange ?? NSRange(location: NSNotFound, length: 0)
     }
 }
 
@@ -2333,6 +2371,15 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         assert(tv.document === document,
                "the text view is showing a different document than it was handed")
         tv.isEditable = isEditable
+        // These three were set in `makeUIView` only, while `updateNSView`
+        // re-applies all ten. The view's identity is the *document*, so nothing
+        // rebuilds it when a setting changes: the wrap guide could not be turned
+        // on or off from Settings on iPad until the note was evicted from the
+        // document cache, and the two closures kept whatever they captured on
+        // first render.
+        tv.wrapGuideColumns = wrapGuideColumns
+        tv.onCaretEscapeTop = onCaretEscapeTopHandler
+        tv.onRewriteSelection = onRewriteSelectionHandler
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
         tv.onPasteMarkdown = onPasteMarkdown

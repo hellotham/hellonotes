@@ -238,6 +238,18 @@ extension Notification.Name {
     /// Ask the iOS shell to raise the splash overlay. It owns the overlay
     /// because the overlay is part of its scene.
     static let hnShowSplash = Notification.Name("hn.splash.show")
+
+    /// The launch splash has gone. Posted by *both* presentations, because the
+    /// shell has work that waits on it — first-run onboarding opens over the
+    /// splash otherwise.
+    ///
+    /// This channel exists because the shell used to infer it from its own
+    /// `showSplash` overlay flag, which only one platform ever sets: on the Mac
+    /// the splash is a separate `NSWindow`, the flag stayed `false` for the
+    /// process lifetime, and the Welcome sheet it gated was unreachable — a
+    /// fresh install got an empty shell, and because `hasSeenWelcome` is only
+    /// written when that sheet is dismissed, it got one on every launch after.
+    static let hnSplashDidFinish = Notification.Name("hn.splash.didFinish")
 }
 
 // MARK: - macOS presentation
@@ -297,13 +309,20 @@ enum SplashWindow {
     static func close() {
         dismissTask?.cancel()
         dismissTask = nil
-        guard let panel = window else { return }
+        guard let panel = window else {
+            // Nothing on screen: the shell may still be waiting on the signal
+            // (About was never opened, or the splash was suppressed), and a
+            // handoff that never arrives is the bug this channel exists for.
+            NotificationCenter.default.post(name: .hnSplashDidFinish, object: nil)
+            return
+        }
         window = nil
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.45
             panel.animator().alphaValue = 0
         }, completionHandler: {
             panel.orderOut(nil)
+            NotificationCenter.default.post(name: .hnSplashDidFinish, object: nil)
         })
     }
 }

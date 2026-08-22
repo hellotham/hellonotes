@@ -183,10 +183,17 @@ final class FileWatcher: @unchecked Sendable {
 /// volume, a dropped batch.
 final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
-    private let root: URL
-    /// The subitem that changed, or `nil` when the folder changed wholesale and
-    /// there is no one path to name.
-    private let onChange: @Sendable (URL?) -> Void
+    private var root: URL
+    /// What happened, in the same vocabulary `FileWatcher` speaks.
+    ///
+    /// This used to be `(URL?) -> Void` — a subitem or nothing — which is why
+    /// `.rootChanged` was unreachable on iOS: the presenter had no way to say
+    /// it, and the presenter callbacks that carry the news
+    /// (`presentedItemDidMove(to:)`, `accommodatePresentedItemDeletion`) were
+    /// not implemented either. Renaming or deleting an open collection's folder
+    /// in the Files app left the sidebar rendering a tree that no longer
+    /// existed, with the collection still `.ready`.
+    private let onEvent: @Sendable (DirectoryEvent) -> Void
     private var isRegistered = false
 
     /// A private queue is required: the coordination system delivers callbacks
@@ -201,9 +208,9 @@ final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
     var presentedItemURL: URL? { root }
 
-    init(root: URL, onChange: @escaping @Sendable (URL?) -> Void) {
+    init(root: URL, onEvent: @escaping @Sendable (DirectoryEvent) -> Void) {
         self.root = root
-        self.onChange = onChange
+        self.onEvent = onEvent
         super.init()
     }
 
@@ -225,14 +232,34 @@ final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
     /// Something inside the folder changed — a note edited on another device and
     /// streamed down, a file added in the Files app.
-    func presentedSubitemDidChange(at url: URL) { onChange(url) }
+    func presentedSubitemDidChange(at url: URL) { onEvent(.itemsChanged([url.path])) }
 
     /// The folder itself changed (contents replaced wholesale). No single path
-    /// describes it, so the caller gets `nil` and has to assume the worst.
-    func presentedItemDidChange() { onChange(nil) }
+    /// describes it, so the caller has to assume the worst.
+    func presentedItemDidChange() { onEvent(.unspecifiedChange) }
 
-    func presentedSubitemDidAppear(at url: URL) { onChange(url) }
+    func presentedSubitemDidAppear(at url: URL) { onEvent(.itemsChanged([url.path])) }
 
-    func accommodatePresentedSubitemDeletion(at url: URL) async throws { onChange(url) }
+    func accommodatePresentedSubitemDeletion(at url: URL) async throws {
+        onEvent(.itemsChanged([url.path]))
+    }
+
+    /// The watched folder was moved or renamed.
+    ///
+    /// `FileWatcher` gets this from `kFSEventStreamCreateFlagWatchRoot`, whose
+    /// own comment says that without it "the stream stays silently alive after
+    /// the folder is moved or deleted, and the collection goes on displaying a
+    /// tree that no longer exists." This is the presenter's version of the same
+    /// news, and it was simply not implemented.
+    func presentedItemDidMove(to newURL: URL) {
+        root = newURL
+        onEvent(.rootChanged)
+    }
+
+    /// The watched folder is about to be deleted.
+    func accommodatePresentedItemDeletion(completionHandler: @escaping (Error?) -> Void) {
+        onEvent(.rootChanged)
+        completionHandler(nil)
+    }
 }
 #endif

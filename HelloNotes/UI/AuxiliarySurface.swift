@@ -124,14 +124,32 @@ struct AuxiliaryOpener {
             return
         }
         // The mind map's scene is keyed on the note it maps, so it opens by
-        // value — the same shape a note window has. Everything else is a
-        // singleton scene named by id.
+        // value — the same shape a note window has, and already a singleton per
+        // note for the same reason.
         if case .mindMap(let url) = surface {
             openWindow(value: MindMapRef(url))
         } else {
-            openWindow(id: surface.windowID)
+            // Everything else is one window per scene, and *stays* one: these
+            // used to be macOS-only `Window` scenes, which `openWindow(id:)`
+            // refocuses. `WindowGroup(id:)` — needed because `Window` does not
+            // exist on iOS — makes a *new* window on every call instead, so
+            // clicking Graph three times gave three Graph windows. Passing the
+            // scene's own id as the presentation value restores the singleton:
+            // SwiftUI brings the existing window forward when one is already
+            // open with the same value.
+            openWindow(id: surface.windowID, value: AuxiliaryRef(surface.windowID))
         }
     }
+}
+
+/// The presentation value that makes an id-named auxiliary scene a singleton.
+///
+/// One value per scene, so "already open with this value" and "this scene is
+/// already open" are the same question — which is what `Window` used to answer
+/// on the Mac and nothing answered after the merge.
+struct AuxiliaryRef: Hashable, Codable {
+    let id: String
+    init(_ id: String) { self.id = id }
 }
 
 /// The content of an auxiliary surface, wherever it is presented.

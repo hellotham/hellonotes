@@ -105,17 +105,24 @@ struct HelloNotesApp: App {
         // note windows shipped, and these were simply never given one. Which of
         // window or sheet a canvas gets is `AuxiliaryPresentation`, keyed on
         // width rather than on the OS.
-        WindowGroup(id: AuxiliarySurface.graph.windowID) {
+        //
+        // `for: AuxiliaryRef.self` is what keeps them singletons. A plain
+        // `WindowGroup(id:)` opens a *new* window on every `openWindow(id:)`,
+        // where `Window` refocused the existing one — so three clicks on Graph
+        // gave three Graph windows, each with its own state. A group keyed on a
+        // value dedupes on that value, and `AuxiliaryOpener` passes the scene's
+        // own id, one value per scene.
+        WindowGroup(id: AuxiliarySurface.graph.windowID, for: AuxiliaryRef.self) { _ in
             rooted(GraphWindowView())
         }
         .defaultSize(AuxiliarySurface.graph.defaultSize)
 
-        WindowGroup(id: AuxiliarySurface.askLibrary.windowID) {
+        WindowGroup(id: AuxiliarySurface.askLibrary.windowID, for: AuxiliaryRef.self) { _ in
             rooted(LibraryChatWindowView())
         }
         .defaultSize(AuxiliarySurface.askLibrary.defaultSize)
 
-        WindowGroup(id: AuxiliarySurface.assistant.windowID) {
+        WindowGroup(id: AuxiliarySurface.assistant.windowID, for: AuxiliaryRef.self) { _ in
             rooted(AssistantWindowView())
         }
         .defaultSize(AuxiliarySurface.assistant.defaultSize)
@@ -123,34 +130,39 @@ struct HelloNotesApp: App {
         // Direct-API cloud browsers: connect a provider over REST and edit
         // notes without a sync folder. One scene per `CloudBrowser` case, so a
         // provider added to the enum is a provider both platforms can open.
-        WindowGroup(id: CloudBrowser.dropbox.windowID) {
+        WindowGroup(id: CloudBrowser.dropbox.windowID, for: AuxiliaryRef.self) { _ in
             rooted(RemoteBrowserView(store: DropboxStore(),
-                                     onAddAsCollection: library.addRemoteCollection))
+                                     onAddAsCollection: library.addRemoteCollection)
+                .navigationTitle(CloudBrowser.dropbox.windowTitle))
         }
         .defaultSize(width: 480, height: 580)
 
-        WindowGroup(id: CloudBrowser.box.windowID) {
+        WindowGroup(id: CloudBrowser.box.windowID, for: AuxiliaryRef.self) { _ in
             rooted(RemoteBrowserView(store: BoxStore(),
-                                     onAddAsCollection: library.addRemoteCollection))
+                                     onAddAsCollection: library.addRemoteCollection)
+                .navigationTitle(CloudBrowser.box.windowTitle))
         }
         .defaultSize(width: 480, height: 580)
 
-        WindowGroup(id: CloudBrowser.googleDrive.windowID) {
+        WindowGroup(id: CloudBrowser.googleDrive.windowID, for: AuxiliaryRef.self) { _ in
             rooted(RemoteBrowserView(store: GoogleDriveStore(),
-                                     onAddAsCollection: library.addRemoteCollection))
+                                     onAddAsCollection: library.addRemoteCollection)
+                .navigationTitle(CloudBrowser.googleDrive.windowTitle))
         }
         .defaultSize(width: 480, height: 580)
 
-        WindowGroup(id: CloudBrowser.oneDrive.windowID) {
+        WindowGroup(id: CloudBrowser.oneDrive.windowID, for: AuxiliaryRef.self) { _ in
             rooted(RemoteBrowserView(store: OneDriveStore(),
-                                     onAddAsCollection: library.addRemoteCollection))
+                                     onAddAsCollection: library.addRemoteCollection)
+                .navigationTitle(CloudBrowser.oneDrive.windowTitle))
         }
         .defaultSize(width: 480, height: 580)
 
         #if DEBUG
-        WindowGroup(id: CloudBrowser.mock.windowID) {
+        WindowGroup(id: CloudBrowser.mock.windowID, for: AuxiliaryRef.self) { _ in
             rooted(RemoteBrowserView(store: MockRemoteStore(),
-                                     onAddAsCollection: library.addRemoteCollection))
+                                     onAddAsCollection: library.addRemoteCollection)
+                .navigationTitle(CloudBrowser.mock.windowTitle))
         }
         .defaultSize(width: 480, height: 580)
         #endif
