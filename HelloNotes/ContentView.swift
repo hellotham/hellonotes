@@ -1234,6 +1234,48 @@ struct ContentView: View {
     /// `FileViewerView` makes for PDFs. What is *in* the tree is
     /// `SidebarTree.roots` and what a row *says* is `NoteRowContent`, both
     /// shared, so the widget is the only thing that differs.
+    /// The library search field.
+    ///
+    /// **In the toolbar, leading, on both platforms**, which is what CLAUDE.md
+    /// and `shell-chrome.md` D9 both say: commands live in the toolbar, search
+    /// at the leading end, and never inside the collapsible column — a hidden
+    /// command is an unreachable one.
+    ///
+    /// It was briefly `.searchable(placement: .sidebar)` here, in the name of
+    /// using a native field on both platforms. That was one implementation, but
+    /// it put search *inside* the sidebar and reversed a decision the docs
+    /// record with two measured reasons (D9: `.searchable` collapses to a glyph
+    /// at 860pt — the width where search matters most — and claims the trailing
+    /// end of the band, pushing the inspector's tabs off the panel they belong
+    /// to). Parity is not a licence to overrule the chrome contract; the answer
+    /// that satisfies both is one hand-built field, placed leading, shared.
+    private var searchField: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search", text: $searchText)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+                .onSubmit { searchFocused = false }
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    searchFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .frame(width: 190)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityLabel("Search all collections")
+    }
+
     private var collectionTree: some View {
         VStack(spacing: 0) {
             // A search over a half-built index comes back short. A false
@@ -1245,9 +1287,6 @@ struct ContentView: View {
             outlineList
         }
         .navigationTitle("Collections")
-        // Against the panel it searches (D9), natively on both — see
-        // `librarySearchable`.
-        .librarySearchable(text: $searchText, focused: $searchFocused)
         .overlay { SidebarEmptyState(
             library: library, search: search, searchText: searchText,
             selectedTag: selectedTag, scope: railCollection ?? focused,
@@ -1260,6 +1299,10 @@ struct ContentView: View {
         // "open something into this list". In the sidebar's own toolbar, which
         // is where the contract puts commands.
         .toolbar {
+            // Search sits against the panel it searches — files and folders —
+            // which is where Xcode, VS Code and Obsidian put theirs, and at the
+            // leading end, which is what the contract asks for.
+            ToolbarItem(placement: .barLeading) { searchField }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
@@ -1499,15 +1542,8 @@ struct ContentView: View {
             }
             .help("Open a collection, or add a folder to this one")
         }
-        // Search sits against the panel it searches — files and folders — which
-        // is where Xcode, VS Code and Obsidian put theirs. It lives on
-        // `collectionTree` now, through `librarySearchable`: the two measured
-        // objections to `.searchable` (collapsing to a glyph at 860pt, and
-        // claiming the trailing end of the band) are behaviours of a field
-        // placed `.automatic` in a *window* toolbar, not of one placed
-        // `.sidebar`. A hand-built field was a second search implementation,
-        // and the two platforms had come to focus, clear and reveal it
-        // differently.
+        // Search is on `collectionTree`'s toolbar — the sidebar's own, which
+        // is the panel it searches — at the leading end, on both platforms.
 
         // Centred, so they sit over the *editor* and survive the sidebar being
         // collapsed — which is exactly when P2 needs Open Quickly to navigate.

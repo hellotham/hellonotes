@@ -502,4 +502,48 @@ struct ShellComplianceTests {
             only UIKit:  \(uiKit.subtracting(appKit).sorted())
             """)
     }
+
+    /// Search lives in the toolbar, at the leading end — not inside the sidebar.
+    ///
+    /// CLAUDE.md: "no command may live inside it (a hidden command is an
+    /// unreachable command). Commands go in the toolbar: search leading."
+    /// `shell-chrome.md` D9 marks `.searchable` ❌ with two measured reasons —
+    /// it collapses to a glyph at 860pt, the width where search matters most,
+    /// and claims the trailing end of the band.
+    ///
+    /// Unifying the two shells' search briefly reached for
+    /// `.searchable(placement: .sidebar)` because it is one native call on both
+    /// platforms. It is — and it put search inside the collapsible column and
+    /// reversed a documented decision. Parity is not a licence to overrule the
+    /// chrome contract; one hand-built field placed leading satisfies both.
+    @Test("Search is a toolbar item at the leading end, on both platforms")
+    func searchIsInTheToolbarLeading() throws {
+        let source = try Self.source("ContentView.swift")
+        let sidebar = try #require(Self.propertyBody(named: "collectionTree", in: source),
+                                   "collectionTree is not a `some View` property any more")
+        // Scoped to the sidebar. The *compact* shell's Search tab uses
+        // `.searchable` and should: there the search screen is the place, and
+        // D9's objections are about the band in the column shell.
+        #expect(!sidebar.contains(".searchable("),
+                "the sidebar uses `.searchable`, which D9 rejects and which puts search inside the collapsible column")
+        #expect(sidebar.contains("ToolbarItem(placement: .barLeading) { searchField }"),
+                "the search field is not a leading toolbar item on the sidebar")
+    }
+
+    /// A platform placement means the edge it is named after.
+    ///
+    /// `barTrailing` mapped to `.primaryAction`, which Apple documents as the
+    /// *leading* edge on macOS — so an inspector toggle asking for the trailing
+    /// end landed on the wrong side of the window. The Mac's own measured
+    /// chrome uses an unplaced `ToolbarItemGroup`, which is `.automatic`.
+    @Test("barTrailing is not macOS's leading placement")
+    func trailingPlacementIsActuallyTrailing() throws {
+        let source = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes/UI/Shell/ToolbarPlacement.swift"), encoding: .utf8)
+        let trailing = source.components(separatedBy: "static var barTrailing")[1]
+            .components(separatedBy: "}")[0]
+        #expect(!trailing.contains(".primaryAction"),
+                "barTrailing maps to `.primaryAction`, which is macOS's leading edge")
+    }
 }

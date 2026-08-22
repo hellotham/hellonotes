@@ -1068,6 +1068,9 @@ public struct MarkdownEditorView: NSViewRepresentable {
 
     public func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? MarkdownTextView else { return }
+        // The other half of the re-target: the Coordinator outlives a note
+        // switch here, so `make` alone is not enough.
+        context.coordinator.subscribeToBus(documentId: busDocumentId)
         if textView.document !== document {
             textView.bind(to: document)
         }
@@ -1101,6 +1104,9 @@ public struct MarkdownEditorView: NSViewRepresentable {
         weak var textView: MarkdownTextView?
         // Registered/removed on the main thread; deinit only removes.
         nonisolated(unsafe) private var busTokens: [NSObjectProtocol] = []
+        /// What the tokens above are addressed to, so a note switch re-targets
+        /// them rather than leaving them pointed at the note you left.
+        private var busDocumentId: String?
         private var findQuery = ""
         private var findIndex = 0
 
@@ -1145,8 +1151,24 @@ public struct MarkdownEditorView: NSViewRepresentable {
         // MARK: App command bus (same notification names the app's Format
         // menu, find bar, and outline already post).
 
+        /// Observe formatting and find commands addressed to `documentId`.
+        ///
+        /// **Re-targets.** This guarded on `busTokens.isEmpty` and was called
+        /// only from `makeNSView`, while the UIKit half keys on the id and
+        /// re-registers from both `make` and `update`. The AppKit representable
+        /// carries no `.id()` — the iOS one wraps itself in
+        /// `.id(ObjectIdentifier(document))` — so its Coordinator survives a
+        /// note switch, and after the first switch it was still listening on
+        /// `hnEditorFormat.<kind>.<note A>` while the Format menu posted
+        /// `<note B>`. Bold, Italic and Heading did nothing from the second
+        /// note onward, silently. Find kept working, which is why it never
+        /// looked like a dead bus: those names carry no document id.
         func subscribeToBus(documentId: String?) {
-            guard let documentId, busTokens.isEmpty else { return }
+            guard busDocumentId != documentId else { return }
+            for token in busTokens { NotificationCenter.default.removeObserver(token) }
+            busTokens.removeAll()
+            busDocumentId = documentId
+            guard let documentId, !documentId.isEmpty else { return }
             let center = NotificationCenter.default
 
             let formats: [(String, EditorFormatCommand)] = [
@@ -1812,7 +1834,10 @@ public final class MarkdownUITextView: UITextView {
     private var caretXOffset: CGFloat {
         guard let position = position(from: beginningOfDocument, offset: selectedRange.location)
         else { return 0 }
-        return caretRect(for: position).minX - textContainerInset.left - textContainer.lineFragmentPadding
+        // `max(0, …)` as on the Mac: this is posted as the caret's column for
+        // the inline title to honour, and a negative column is not a column.
+        return max(0, caretRect(for: position).minX
+                      - textContainerInset.left - textContainer.lineFragmentPadding)
     }
 
     @objc private func escapeTopVertical(_ sender: Any?) {
@@ -2614,7 +2639,13 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             // *before* it moves the caret, so asking now would describe the
             // caret's old position and the host's reply would be refused as
             // stale. The host debounces anyway, so the hop is free.
-            DispatchQueue.main.async { tv?.requestInlineCompletion() }
+            // `[weak self]`, as the AppKit twin has always had. Capturing the
+            // text view strongly here retains it — and through it the whole
+            // TextKit 2 stack and its `EditorDocument` — past the point SwiftUI
+            // tears it down, once per keystroke. A detached view then answers
+            // an inline-completion request describing the note you just left,
+            // through the shared proxy that now points at the new one.
+            DispatchQueue.main.async { [weak tv] in tv?.requestInlineCompletion() }
         }
 
         public func scrollViewDidScroll(_ scrollView: UIScrollView) {

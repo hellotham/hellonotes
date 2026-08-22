@@ -710,17 +710,20 @@ public final class EditorDocument {
                 refreshHighlight(blockIndex: index, revealed: revealed.contains(index))
             }
         }
-        if services.blockRenderer != nil {
-            for index in blockIndices {
-                refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index))
-            }
-        }
+        // Folds before embeds, as this has always run. The `#if canImport(AppKit)`
+        // around this block came off when block embeds reached iOS — correctly —
+        // but the two loops were reordered on the way, with nothing to say why.
+        // These apply attributes to the same blocks, so the order is behaviour,
+        // not arrangement: a fold conceals a range and an embed replaces one,
+        // and which goes last decides what a callout containing a fence looks
+        // like. An unexplained change to that is a change nobody chose.
         for index in blockIndices {
             refreshFrontMatterFold(blockIndex: index, revealed: revealed.contains(index))
             refreshCalloutFold(blockIndex: index, revealed: revealed.contains(index))
         }
         if services.blockRenderer != nil {
             for index in blockIndices {
+                refreshBlockEmbed(blockIndex: index, revealed: revealed.contains(index))
                 refreshInlineMath(blockIndex: index, revealed: revealed.contains(index))
             }
         }

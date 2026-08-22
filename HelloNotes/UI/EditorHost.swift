@@ -240,13 +240,19 @@ struct EditorHost: View {
                                               isDark: colorScheme == .dark,
                                               accent: accentToken)
             let built: EditorDocument
+            /// Whether a cached document had its text replaced wholesale on the
+            /// way in — see the `resetUndo()` after `document = built`.
+            var replacedCachedText = false
             if let existing = documents.document(for: key) {
                 built = existing
                 // Whatever happened while this note was off screen wins. No
                 // caret to restore around this one, unlike the reload below:
                 // the document is only now being handed to a view, so there is
                 // no live text view holding a selection to put back.
-                if built.text != editor.text { built.replaceText(editor.text) }
+                if built.text != editor.text {
+                    built.replaceText(editor.text)
+                    replacedCachedText = true
+                }
             } else {
                 let made = await EditorDocument.make(
                     text: editor.text,
@@ -282,6 +288,23 @@ struct EditorHost: View {
             document = built
             builtNotePath = note.fileURL.path
             appliedLoadRevision = editor.loadRevision
+
+            // The same rule the reload below applies, and this path was missing
+            // it: `replaceText` clears the *document's* UndoManager, which is
+            // where undo lives on AppKit — but UIKit resolves `undoManager` up
+            // the responder chain, so the window's stack survives the text
+            // view and still describes the text that was just replaced.
+            // Undoing into it applies a patch at offsets that no longer mean
+            // anything, silently corrupting the note.
+            //
+            // After `document = built`, not beside the `replaceText` above:
+            // the proxy reaches a text view only once the representable has
+            // been built from this document, so calling it there would be a
+            // no-op — which is what makes this the harder half of the pair.
+            if replacedCachedText {
+                await Task.yield()
+                proxy.resetUndo()
+            }
         }
         // An external reload (a co-editing app, iCloud, a resolved conflict) of
         // the note that is open: patch the live document in place. `taskKey`
