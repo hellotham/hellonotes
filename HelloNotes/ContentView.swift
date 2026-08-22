@@ -1305,50 +1305,66 @@ struct ContentView: View {
         }
     }
 
-    #if os(macOS)
-
     /// The command surface published to the menu bar for this window.
+    ///
+    /// One value on both platforms, so a command cannot mean two things. Where
+    /// the two versions of this disagreed, the disagreements were bugs:
+    ///
+    ///   · the Mac scoped New Note, Open Quickly, Graph and Rescan to
+    ///     `library.focused` and the iPad to the sidebar's selection. CLAUDE.md
+    ///     says the sidebar's selection, and with two collections open the
+    ///     Mac's commands acted on the wrong one.
+    ///   · the iPad ran commands without dismissing the Open Quickly palette,
+    ///     so Rename stacked an alert on the sheet and Find toggled a bar
+    ///     nobody could see.
+    ///   · Quick Capture was unconditional on the Mac; it writes to today's
+    ///     daily note, which needs a collection.
+    ///   · `canCloseTab` asked only whether a note was selected on the iPad, so
+    ///     ⌘W was enabled over a tab that had no editor behind it yet.
     private var appActions: AppActions {
-        AppActions(
-            canNewNote: focused != nil,
+        let scope = railCollection ?? focused
+        return AppActions(
+            canNewNote: scope != nil,
             newNote: closingOpenQuickly { newNote() },
             todaysNote: closingOpenQuickly { openTodaysNote() },
             openLauncher: closingOpenQuickly { showLauncher = true },
-            canOpenQuickly: !(focused?.notes.isEmpty ?? true),
+            canOpenQuickly: !(scope?.notes.isEmpty ?? true),
             openQuickly: { showOpenQuickly = true },
-            canGraph: !(focused?.notes.isEmpty ?? true),
+            canGraph: !(scope?.notes.isEmpty ?? true),
             graphView: closingOpenQuickly { auxiliary.open(.graph) },
+            // Asking the library needs notes to ask *about*, not a collection
+            // to stand in.
             canAsk: !library.allNotes.isEmpty,
             askLibrary: closingOpenQuickly { auxiliary.open(.askLibrary) },
             assistant: closingOpenQuickly { auxiliary.open(.assistant) },
-            canCloseTab: tabs.openNotes.count > 1 && tabs.editor(withID: selectedNoteID) != nil,
+            canCloseTab: tabs.openNotes.count > 1 && activeEditor != nil,
             closeTab: closingOpenQuickly { if let id = selectedNoteID { closeTab(id) } },
             // Format and Note commands target the note *behind* the palette
             // (Rename would even stack an alert on the sheet), so they grey
             // out while it's presented instead of dismissing it.
-            format: showOpenQuickly ? nil : selectedNote.map { note in
-                { action in
+            format: showOpenQuickly ? nil : activeEditor?.note.map { note in
+                { (action: FormatAction) in
                     NotificationCenter.default.post(
                         name: .hnFormat(action.kind, documentId: note.fileURL.path),
                         object: nil, userInfo: action.userInfo)
                 }
             },
-            note: showOpenQuickly ? nil : selectedNote.map { note in
+            note: showOpenQuickly ? nil : activeEditor?.note.map { note in
                 NoteMenuActions(
                     isBookmarked: actions.isBookmarked(note),
                     rename: { actions.beginRename(note) },
                     duplicate: { actions.duplicate(note) },
-                    toggleBookmark: { library.collection(containing: note.fileURL)?.bookmarks.toggle(note) },
+                    toggleBookmark: {
+                        library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
+                    },
                     copyWikiLink: { Clipboard.copy(note.wikiLink) },
                     revealInFileManager: FileReveal.canReveal(note.fileURL)
                         ? { FileReveal.reveal(note.fileURL) } : nil,
                     openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
-                    // `actions.text(of:)`, not the active editor's buffer. These
-                    // read `if let editor = activeEditor`, so exporting or
-                    // printing a note that was not open in an editor did
-                    // nothing at all — an enabled menu item with no effect. The
-                    // shared accessor prefers the live buffer and falls back to
-                    // the file, which is what the iPad already did.
+                    // `actions.text(of:)`, not the active editor's buffer: read
+                    // that way, exporting or printing a note that was not open
+                    // in an editor did nothing at all. The shared accessor
+                    // prefers the live buffer and falls back to the file.
                     exportHTML: {
                         EditorExport.exportHTML(markdown: actions.text(of: note), title: note.title)
                     },
@@ -1361,32 +1377,36 @@ struct ContentView: View {
                     moveToTrash: { actions.delete(note) }
                 )
             },
-            rescan: focused.map { collection in
-                { collection.rescan() }
-            },
-            showsNonNoteFiles: focused?.showsNonNoteFiles,
-            setShowsNonNoteFiles: focused.map { collection in
+            rescan: scope.map { collection in { collection.rescan() } },
+            showsNonNoteFiles: scope?.showsNonNoteFiles,
+            setShowsNonNoteFiles: scope.map { collection in
                 { collection.showsNonNoteFiles = $0 }
             },
             openCloudFolder: { library.requestOpenCloudFolder() },
-            refreshCloudCollection: focused.flatMap { collection in
+            refreshCloudCollection: scope.flatMap { collection in
                 collection.isRemote ? { Task { await collection.refreshFromProvider() } } : nil
             },
-            quickCapture: { showQuickCapture = true },
-            templates: Templates.available(in: railCollection ?? focused, folder: templatesFolder),
+            // Quick Capture writes into today's daily note, so it needs a
+            // collection to write into.
+            quickCapture: library.isEmpty ? nil : { showQuickCapture = true },
+            templates: Templates.available(in: scope, folder: templatesFolder),
             insertTemplate: activeEditor == nil ? nil : { actions.insertTemplate($0) },
             commandPalette: { showPalette = true },
             ai: aiActions,
-            reviewLinks: (!showOpenQuickly && selectedNote != nil && focused != nil)
+            reviewLinks: (!showOpenQuickly && activeEditor?.note != nil && editorCollection != nil)
                 ? { beginLinkReview() } : nil,
             // Needs a collection to put the note in, but no note open and no
             // particular provider: the sheet itself says which modes can run,
             // which is more useful than a menu item that is simply absent.
-            composeNote: focused == nil ? nil : closingOpenQuickly { showCompose = true },
+            composeNote: scope == nil ? nil : closingOpenQuickly { showCompose = true },
             newWindow: { openWindow(id: "main") },
             // Find targets the note *behind* the palette, so it greys out while
             // that is up rather than toggling a find bar nobody can see.
-            find: (showOpenQuickly || selectedNote == nil) ? nil : {
+            // `hnEditorToggleFind` is what `NoteEditorView` listens on, and
+            // `NoteEditorView` is the editor column on both platforms — the
+            // iPad posted `hnFind(documentId:)` instead, which nothing in the
+            // shell receives.
+            find: (showOpenQuickly || activeEditor?.note == nil) ? nil : {
                 NotificationCenter.default.post(name: .hnEditorToggleFind, object: nil)
             },
             searchAllCollections: closingOpenQuickly {
@@ -1398,103 +1418,6 @@ struct ContentView: View {
         )
     }
 
-    #else
-
-    /// What this window offers the menu bar.
-    ///
-    /// The same value the Mac publishes, so both platforms drive one command
-    /// set and cannot drift on what a command means. Anything iPad has no
-    /// answer for stays `nil` and the menu item disables itself — which is why
-    /// the type's optionals exist, and better than an item that is present and
-    /// inert.
-    private var appActions: AppActions {
-        let scope = railCollection ?? focused
-        return AppActions(
-            canNewNote: scope != nil,
-            newNote: { newNoteInScope() },
-            todaysNote: { openTodaysNote() },
-            openLauncher: { showLauncher = true },
-            canOpenQuickly: !(scope?.notes.isEmpty ?? true),
-            openQuickly: { showOpenQuickly = true },
-            canGraph: !(scope?.notes.isEmpty ?? true),
-            graphView: { auxiliary.open(.graph) },
-            // Asking the library needs notes to ask *about*, not a collection to
-            // stand in — the Mac's rule, and iOS's own `libraryActions` row used
-            // it while this one used a third, looser one.
-            canAsk: !library.allNotes.isEmpty,
-            askLibrary: { auxiliary.open(.askLibrary) },
-            assistant: { auxiliary.open(.assistant) },
-            // File ▸ Close Tab exists on iPad now that the `#if os(macOS)` gate
-            // around it is gone, and this hard-coded `false` would have left it
-            // permanently greyed over a `tabStrip` full of real, closable tabs.
-            canCloseTab: tabs.openNotes.count > 1 && selectedNoteID != nil,
-            closeTab: { if let id = selectedNoteID { closeTab(id) } },
-            format: editor.note.map { note in
-                { (action: FormatAction) in
-                    NotificationCenter.default.post(
-                        name: .hnFormat(action.kind, documentId: note.fileURL.path),
-                        object: nil, userInfo: action.userInfo)
-                }
-            },
-            note: editor.note.map { note in
-                NoteMenuActions(
-                    isBookmarked: actions.isBookmarked(note),
-                    rename: { actions.beginRename(note) },
-                    duplicate: { actions.duplicate(note) },
-                    toggleBookmark: {
-                        library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
-                    },
-                    copyWikiLink: { Clipboard.copy(note.wikiLink) },
-                    // Same command as the Mac's, through `FileReveal` — this
-                    // was nil on iOS because the menu item was gated away.
-                    revealInFileManager: FileReveal.canReveal(note.fileURL)
-                        ? { FileReveal.reveal(note.fileURL) } : nil,
-                    // Was nil, so File ▸ Open in New Window and the palette's
-                    // "Open in New Window" both drew, enabled, and did nothing.
-                    openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
-                    exportHTML: { EditorExport.exportHTML(markdown: actions.text(of: note), title: note.title) },
-                    exportPDF: { EditorExport.exportPDF(markdown: actions.text(of: note), title: note.title) },
-                    printNote: { EditorExport.printNote(markdown: actions.text(of: note), title: note.title) },
-                    moveToTrash: { actions.delete(note) })
-            },
-            rescan: scope.map { c in { c.rescan() } },
-            showsNonNoteFiles: scope?.showsNonNoteFiles,
-            setShowsNonNoteFiles: scope.map { c in { (on: Bool) in c.showsNonNoteFiles = on } },
-            openCloudFolder: { library.requestOpenCloudFolder() },
-            refreshCloudCollection: (scope?.isRemote ?? false)
-                ? { Task { await scope?.refreshFromProvider() } } : nil,
-            quickCapture: library.isEmpty ? nil : { showQuickCapture = true },
-            templates: Templates.available(in: railCollection ?? focused, folder: templatesFolder),
-            insertTemplate: editor.note == nil ? nil : { actions.insertTemplate($0) },
-            commandPalette: { showPalette = true },
-            ai: aiActions,
-            reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
-            // Needs a collection to put the note in. Unconditional, ⌃⌘N opened
-            // a composer on iPad that then died on `guard let scope` in both
-            // `runCompose` and the sheet's `onCreate` — a live command that
-            // cannot complete, where the Mac greys the item out and says so.
-            composeNote: (railCollection ?? focused) == nil ? nil : { showCompose = true },
-            // iPadOS makes a second scene from the same call the Mac uses.
-            newWindow: { openWindow(id: "main") },
-            find: editor.note.map { note in
-                { NotificationCenter.default.post(name: .hnFind(documentId: note.fileURL.path), object: nil) }
-            },
-            // ⌥⌘F focuses the search field. It used to `select(.library)`,
-            // which clears `selectedNoteID` — so the shortcut closed the note
-            // you were reading and offered nothing to type into.
-            searchAllCollections: {
-                NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
-            },
-            // The four direct-API browsers exist on iOS and were reachable only
-            // from Settings, so File ▸ Connect Over the Web did nothing.
-            connectOverWeb: { auxiliary.open(.cloud($0)) },
-            editorMode: mode,
-            setEditorMode: { storedMode = $0.rawValue }
-        )
-    }
-
-    #endif
-
     /// Start a composition run against the focused collection.
     private func runCompose(_ prompt: String, mode: NoteComposer.Mode, depth: Int) {
         // The sidebar's selection, per CLAUDE.md — anything keyed on a
@@ -1505,8 +1428,6 @@ struct ContentView: View {
                          composer: composer, permissions: composePermissions,
                          settings: llmSettings)
     }
-
-    #if os(macOS)
 
     /// The AI commands, or `nil` when they would only disappoint — no note
     /// open, or no provider that can actually answer. A greyed-out menu item
@@ -1524,26 +1445,6 @@ struct ContentView: View {
             rewriteNote: { NotificationCenter.default.post(name: .hnRewriteNote, object: nil) }
         )
     }
-
-    #else
-
-    /// The AI commands, or nil when there is nothing they could do.
-    ///
-    /// A greyed item says "not now"; an enabled one that always errors says
-    /// "this app is broken", and the second is the lie. Same gate as the Mac.
-    private var aiActions: AIActions? {
-        guard editor.note != nil else { return nil }
-        let intelligence = IntelligenceService(settings: llmSettings)
-        guard intelligence.isAvailable else { return nil }
-        return AIActions(
-            providerName: intelligence.providerName,
-            summarize: { askInspector(.summarize) },
-            suggestTags: { askInspector(.suggestTags) },
-            suggestLinks: { askInspector(.suggestLinks) },
-            rewriteNote: { NotificationCenter.default.post(name: .hnRewriteNote, object: nil) })
-    }
-
-    #endif
 
     /// What the floating bar offers over a selection in `collection`.
     ///
@@ -1869,7 +1770,6 @@ struct ContentView: View {
 
     #endif
 
-    #if os(macOS)
 
     /// "What is this, and what touches it?" — outline, tags, references,
     /// properties and history, in one place instead of four (decisions 1, 8, 10).
@@ -1927,77 +1827,6 @@ struct ContentView: View {
         }
     }
 
-    #else
-
-    /// The same rail the Mac has, on the iPad shells wide or tall enough for
-    /// it. Below that it isn't offered at all — every point goes to the list
-    /// and the text, which is exactly where they are tightest.
-    @ViewBuilder
-    private var inspector: some View {
-        // The *selection's* collection, not the focused one. Every panel here
-        // answers a question about the open note — its tags, its link
-        // candidates, its git history, the corpus its backlinks are searched in
-        // — and asking a different collection returns confidently wrong answers
-        // (and, for backlinks, an empty list).
-        if let collection = editorCollection {
-            NoteInspector(
-                noteText: editor.text,
-                onSelectHeading: { scrollToHeading($0.title) },
-                summarize: { text in
-                    try await IntelligenceService(settings: llmSettings).summarize(text)
-                },
-                onInsertSummary: { editor.text = NoteEdits.insertingSummaryCallout($0, into: editor.text) },
-                allTags: collection.search.allTags(),
-                noteCount: { collection.search.notesTagged($0).count },
-                selectedTag: Binding(
-                    get: { selectedTag },
-                    set: { selectedTag = $0; if $0 != nil { searchText = "" } }
-                ),
-                suggestTags: { text, existing in
-                    try await IntelligenceService(settings: llmSettings)
-                        .suggestTags(for: text, existing: existing)
-                },
-                onInsertTag: { editor.text = NoteEdits.addingTag($0, to: editor.text) },
-                backlinks: references.backlinks,
-                outgoingLinks: references.outgoingLinks,
-                unlinkedMentions: references.unlinkedMentions,
-                onOpenNote: { selectedNoteID = $0.id },
-                // `NoteInspector` draws an enabled "Link" button per unlinked
-                // mention, promising to "turn this mention into a [[link]] in
-                // that note" — and this was `{ _ in }`, so on iPad it promised
-                // and did nothing.
-                onLinkMention: linkMention,
-                linkCandidates: collection.search.linkTargets(),
-                suggestLinks: { text, _ in
-                    // Retrieval first, model second — see the Mac's
-                    // `suggestLinks(for:in:)` for why the full title list is
-                    // the wrong candidate set.
-                    let neighbours = await collection.relatedNotes(
-                        to: text, excluding: editor.note?.fileURL, limit: 40)
-                    guard !neighbours.isEmpty else { return [] }
-                    return try await IntelligenceService(settings: llmSettings)
-                        .suggestLinks(for: text, candidates: neighbours.map(\.title))
-                },
-                onInsertLink: { editor.text = NoteEdits.addingRelatedLink($0, to: editor.text) },
-                properties: propertiesBinding,
-                // Writing goes through the binding's setter, which is also the
-                // path the note buffer autosaves by.
-                onPropertiesChanged: {},
-                fileURL: editor.note?.fileURL,
-                git: collection.git,
-                onRestoreRevision: { editor.text = $0 },
-                tab: inspectorTab,
-                request: inspectorRequest
-            )
-        } else {
-            ContentUnavailableView("No Collection", systemImage: "sidebar.right",
-                                   description: Text("Open a collection to inspect its notes."))
-        }
-    }
-
-    // MARK: - Compact: the editor is the screen
-
-    #endif
 
     /// Ask the model which of the *retrieved* neighbours this note should link
     /// to — retrieval narrows thousands of notes to a shortlist, the model
@@ -3093,7 +2922,7 @@ struct ContentView: View {
         let scope = railCollection ?? focused
         return Menu {
             Button {
-                newNoteInScope()
+                newNote()
             } label: {
                 Label("New Note", systemImage: "square.and.pencil")
             }
@@ -3158,15 +2987,9 @@ struct ContentView: View {
         } label: {
             Label("New Note", systemImage: "square.and.pencil")
         } primaryAction: {
-            newNoteInScope()
+            newNote()
         }
         .accessibilityLabel("New Note, and app commands")
-    }
-
-    /// New Note in the collection the shell is scoped to.
-    private func newNoteInScope() {
-        guard let scope = railCollection ?? focused else { return }
-        Task { if let note = await scope.createNote() { selectedNoteID = note.id } }
     }
 
     // MARK: - AI on the open note
