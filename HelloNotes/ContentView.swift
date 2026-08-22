@@ -220,7 +220,23 @@ struct ContentView: View {
 
     /// The right inspector rail. Per window, and remembered, because it is a
     /// place the user works in rather than something they summon (decision 10).
-    @SceneStorage("inspectorPresented") private var inspectorPresented = true
+    /// Whether the inspector is showing. **`false` by default, on both.**
+    ///
+    /// It was `true` on the Mac and `false` on iOS — one key, two answers — and
+    /// picking the Mac's created a worse problem: below 1400pt there is no
+    /// inspector *column*, so a stored `true` meant the window opened with a
+    /// modal panel over the note. Suppressing that with a hidden "opened by
+    /// hand this session" flag made the toolbar toggle draw as selected while
+    /// nothing was on screen — a control saying on with nothing shown, which is
+    /// the defect this whole pass exists to remove.
+    ///
+    /// `false` is the only value with no inconsistency: a fresh scene has the
+    /// toggle off and no panel, turning it on gives a column where there is
+    /// room and an overlay where there is not, and the toggle always reports
+    /// what is actually visible. The cost is that a wide Mac no longer opens
+    /// with the inspector already showing, which is a real change and worth it
+    /// for a control that never lies.
+    @SceneStorage("inspectorPresented") private var inspectorPresented = false
 
     /// Left-rail visibility, so the native sidebar toggle works. Below 960pt
     /// the shell overrides this and the library becomes an overlay (decision 12).

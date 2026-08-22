@@ -42,9 +42,6 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
     @ViewBuilder let inspector: () -> Inspector
 
     @Environment(\.shell) private var shell
-    /// Opened by hand, in this session, while there was no column. Starts
-    /// false so a stored "shown" never covers the note at launch.
-    @State private var openedByHand = false
 
     /// Whether the shell is already drawing an inspector *column*, in which
     /// case there is nothing for this overlay to do.
@@ -52,8 +49,7 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
     /// Two shells draw one: `.wideInspector` always, and `.tall` once it is
     /// also wide enough for its right rail (`AdaptiveShell.tallShell`). This
     /// asked only about `.wideInspector`, so on anything tall and ≥900pt — an
-    /// iPad Pro 13" in portrait, a 1000×1200 Mac window — toggling the
-    /// inspector off and on again set `openedByHand` and then presented the
+    /// iPad Pro 13" in portrait, a 1000×1200 Mac window — this presented the
     /// modal panel *over* the column that was already there: the inspector
     /// twice, the second copy behind a scrim, with the note dimmed underneath.
     private var hasColumn: Bool {
@@ -67,7 +63,7 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay {
-                if !hasColumn, presented, openedByHand {
+                if !hasColumn, presented {
                     ZStack(alignment: .trailing) {
                         // Tap anywhere on the note to dismiss — the panel is
                         // modal over the note, so there is no reason to hunt
@@ -83,14 +79,6 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
                     }
                 }
             }
-            .onChange(of: presented) { _, shown in
-                // Turning it on while there is no column *is* the intent.
-                if shown && !hasColumn { openedByHand = true }
-                if !shown { openedByHand = false }
-            }
-            // Widening past the threshold and back should not resurrect an
-            // overlay the user never asked for.
-            .onChange(of: hasColumn) { _, _ in openedByHand = false }
     }
 
     private func close() {

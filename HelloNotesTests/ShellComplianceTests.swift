@@ -583,4 +583,29 @@ struct ShellComplianceTests {
                     "a sidebar re-derives `\(derived)` instead of reading CollectionRowContent")
         }
     }
+
+    /// The inspector toggle reports what is actually on screen.
+    ///
+    /// `inspectorPresented` was `true` on the Mac and `false` on iOS — one
+    /// `@SceneStorage` key, two answers. Picking the Mac's created a worse
+    /// problem: below the column threshold there is no inspector *column*, so
+    /// a stored `true` meant the window opened with a modal panel over the
+    /// note. Suppressing that with a session-scoped "opened by hand" flag made
+    /// the toolbar toggle draw as selected while nothing was visible — a
+    /// control saying on with nothing shown, which is the defect rather than
+    /// the fix.
+    ///
+    /// `false` is the only default with no inconsistency, and it lets the
+    /// overlay follow `presented` directly.
+    @Test("The inspector default cannot reintroduce a lying toggle")
+    func inspectorDefaultIsOffAndTheOverlayHasNoHiddenGate() throws {
+        let shell = try Self.source("ContentView.swift")
+        #expect(shell.contains(#"@SceneStorage("inspectorPresented") private var inspectorPresented = false"#),
+                "the inspector default is not `false`, so a fresh scene can show a toggle with nothing behind it")
+        let overlay = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes/UI/InspectorOverlay.swift"), encoding: .utf8)
+        #expect(!overlay.contains("openedByHand"),
+                "the overlay has a second condition again, which the toolbar toggle cannot see")
+    }
 }
