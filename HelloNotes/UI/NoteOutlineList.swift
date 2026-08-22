@@ -57,15 +57,14 @@ struct NoteOutlineList: NSViewRepresentable {
     var scopedCollection: Collection? = nil
     /// Close a collection from the row's own button (not the menu).
     var onCloseCollection: (Collection) -> Void = { _ in }
-    /// A note/attachment was dropped on a folder or collection row: move every
-    /// URL into the folder whose absolute path is the outline-item id.
-    var onDropIntoFolder: (String, [URL]) -> Bool = { _, _ in false }
-
     /// Accepted so the call site is one call site. AppKit builds its own cells
     /// from `NoteOutlineItem`; the SwiftUI branch asks the shell, because a
     /// SwiftUI row *is* a view. Both draw `NoteRowContent`, which is what keeps
     /// them agreeing about what a row says.
     var row: (Note, String?) -> AnyView = { _, _ in AnyView(EmptyView()) }
+    /// A note/attachment was dropped on a folder or collection row: move every
+    /// URL into the folder whose absolute path is the outline-item id.
+    var onDropIntoFolder: (String, [URL]) -> Bool = { _, _ in false }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 

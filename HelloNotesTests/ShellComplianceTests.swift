@@ -104,63 +104,59 @@ struct ShellComplianceTests {
         return labelled
     }
 
-    @Test("Both shells configure the same AdaptiveShell")
-    func bothShellsConfigureTheSameShell() throws {
-        let mac = Self.shellArguments(in: try Self.source("MacContentView.swift"))
-        let ios = Self.shellArguments(in: try Self.source("iOSContentView.swift"))
-
-        #expect(!mac.isEmpty, "no AdaptiveShell call found in MacContentView")
-        #expect(!ios.isEmpty, "no AdaptiveShell call found in iOSContentView")
-
-        var divergences: [String] = []
-        for label in Set(mac.keys).union(ios.keys).sorted() {
-            let a = mac[label] ?? "<absent>"
-            let b = ios[label] ?? "<absent>"
-            guard !(Self.isClosure(a) && Self.isClosure(b)) else { continue }
-            if a != b { divergences.append("\(label): macOS `\(a)` vs iOS `\(b)`") }
+    /// The shell is one file, and nothing in it is one-sided.
+    ///
+    /// It was two — `MacContentView` and `iOSContentView`, each inside a
+    /// one-sided `#if` — and that arrangement is what every divergence this
+    /// suite grew a test for had in common: neither file could see the other,
+    /// so a cache key, a command list, a rename or a missing pane could differ
+    /// without anything failing.
+    ///
+    /// The rule that replaces all of those: **a gate that supplies both
+    /// branches shares the behaviour; a gate that supplies one loses it.** With
+    /// the shell in one file that is checkable directly, and it subsumes every
+    /// "both shells do X" assertion below.
+    @Test("The shell is one file with no one-sided platform gate")
+    func theShellIsOneImplementation() throws {
+        let directory = URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes")
+        for gone in ["MacContentView.swift", "iOSContentView.swift"] {
+            #expect(!FileManager.default.fileExists(atPath: directory.appending(path: gone).path),
+                    "\(gone) is back — the shell is two files again")
         }
 
-        #expect(divergences.isEmpty, """
-            The two shells hand `AdaptiveShell` different arguments, so a Mac \
-            window and an iPad of the same size can render different layouts — \
-            which the layout contract forbids. Make them agree — the only \
-            arguments allowed to differ are the slot closures, and those are \
-            recognised by being closures rather than by being named:
-            \(divergences.joined(separator: "\n"))
-            """)
+        let source = try Self.source("ContentView.swift")
+        var stack: [(line: Int, isPlatform: Bool, hasElse: Bool)] = []
+        var oneSided: [Int] = []
+        for (index, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if text.hasPrefix("#if") {
+                let platform = text.contains("os(macOS)") || text.contains("os(iOS)")
+                    || text.contains("canImport(AppKit)") || text.contains("canImport(UIKit)")
+                stack.append((index + 1, platform, false))
+            } else if text.hasPrefix("#else") || text.hasPrefix("#elseif") {
+                if !stack.isEmpty { stack[stack.count - 1].hasElse = true }
+            } else if text.hasPrefix("#endif"), let gate = stack.popLast() {
+                if gate.isPlatform && !gate.hasElse { oneSided.append(gate.line) }
+            }
+        }
+        #expect(oneSided.isEmpty,
+                "ContentView.swift has a platform gate with no #else at line(s) \(oneSided) — that branch's behaviour exists on one platform only")
     }
 
-    /// The slot closures may differ — they are the presentations — but the
-    /// **compact** slot may not be a different *kind of thing*.
+    /// The layout engine is handed live state, not a constant.
     ///
-    /// This is the blind spot that let a real defect through. `ShellKind`
-    /// resolves `.compact` at 250pt on either platform, and the Mac handed that
-    /// slot `EditorPaneContainer { editorColumn }` — the editor alone, no way to
-    /// reach another note — while iPad handed it the compact shell. The test
-    /// above skipped both because both are closures, which was right about the
-    /// sidebar and the pane (an outline against a `List`) and wrong here:
-    /// compact is not a rearrangement of the wide shell, it is a different
-    /// information architecture, and `CompactShell` *is* that architecture.
-    /// Either shell rendering something else at compact size is not laying out
-    /// differently, it is not being compact.
-    @Test("Both shells hand the compact slot the compact shell")
-    func bothShellsUseTheCompactShell() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
-            let source = try Self.source(file)
-            let slot = try #require(Self.shellArguments(in: source)["compact"],
-                                    "\(file) passes no compact slot")
-            // Follow one level of indirection: both shells name a property
-            // rather than inlining the shell.
-            let referenced = slot.trimmingCharacters(in: CharacterSet(charactersIn: "{} \n"))
-            let body = referenced.hasSuffix("Shell") || referenced.hasSuffix("shell")
-                ? Self.propertyBody(named: referenced, in: source) ?? slot
-                : slot
-            #expect(body.contains("CompactShell("), """
-                \(file) fills the compact slot with `\(referenced)`, which does \
-                not render `CompactShell`. Compact is not the wide shell \
-                rearranged — it is a different information architecture, and a \
-                shell that renders something else at 250pt is not being compact.
-                """)
+    /// The specific subversion that shipped: handing the shared shell a
+    /// constant where it expects live state renders every arithmetic test green
+    /// and the layout wrong.
+    @Test("The shell does not hand the layout engine a constant")
+    func neitherShellPinsAShellArgument() throws {
+        let arguments = Self.shellArguments(in: try Self.source("ContentView.swift"))
+        #expect(!arguments.isEmpty, "ContentView.swift has no AdaptiveShell call")
+        for (label, value) in arguments where !Self.isClosure(value) {
+            #expect(!value.contains(".constant("),
+                    "ContentView pins `\(label)` to \(value) — the shell can no longer decide it")
         }
     }
 
@@ -186,16 +182,6 @@ struct ShellComplianceTests {
     /// The specific subversion that shipped: handing the shared shell a constant
     /// where it expects live state. It renders every arithmetic test green and
     /// the layout wrong.
-    @Test("Neither shell hands the layout engine a constant")
-    func neitherShellPinsAShellArgument() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
-            let arguments = Self.shellArguments(in: try Self.source(file))
-            for (label, value) in arguments where !Self.isClosure(value) {
-                #expect(!value.contains(".constant("),
-                        "\(file) pins `\(label)` to \(value) — the shell can no longer decide it")
-            }
-        }
-    }
 
     /// The sidebar tree is one cache under one key.
     ///
@@ -213,7 +199,8 @@ struct ShellComplianceTests {
     /// build appears in the key for both platforms or neither.
     @Test("Neither shell owns a sidebar-tree cache or key")
     func sidebarTreeIsOneCache() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+        let file = "ContentView.swift"
+        do {
             let source = try Self.source(file)
             for forbidden in ["CollectionTree.build(", "SidebarTree.roots(",
                               "cachedRoots", "cachedTrees",
@@ -243,7 +230,8 @@ struct ShellComplianceTests {
     /// menu or reimplements a command.
     @Test("Neither shell owns a sidebar command list")
     func sidebarCommandsAreShared() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+        let file = "ContentView.swift"
+        do {
             let source = try Self.source(file)
             #expect(source.contains("actions: actions.sidebarMenu"),
                     "\(file) does not hand the outline the shared command list")
@@ -265,7 +253,8 @@ struct ShellComplianceTests {
     /// explaining the rule it had to keep.
     @Test("Neither shell reimplements a sidebar operation")
     func sidebarOperationsAreShared() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+        let file = "ContentView.swift"
+        do {
             let source = try Self.source(file)
             #expect(source.contains("private var actions: ShellActions"),
                     "\(file) does not go through ShellActions")
@@ -293,7 +282,8 @@ struct ShellComplianceTests {
     /// own for these surfaces.
     @Test("Neither shell decides how an auxiliary surface is presented")
     func auxiliarySurfacesArePresentedByWidth() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+        let file = "ContentView.swift"
+        do {
             let source = try Self.source(file)
             #expect(source.contains("AuxiliaryOpener(openWindow: openWindow, width: shellWidth)"),
                     "\(file) does not route auxiliary surfaces through the shared opener")
@@ -336,7 +326,8 @@ struct ShellComplianceTests {
     /// the folder it was narrowing.
     @Test("Both shells present the picker the request asked for")
     func folderPickRequestsCarryTheirDestination() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+        let file = "ContentView.swift"
+        do {
             let source = try Self.source(file)
             #expect(source.contains("startingAt: request.startDirectory"),
                     "\(file) opens the picker somewhere other than where the request named")
@@ -358,7 +349,8 @@ struct ShellComplianceTests {
     /// caught it; only the cost differed.
     @Test("Neither shell derives references in a view body")
     func referencesAreComputedOffTheTypingPath() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+        let file = "ContentView.swift"
+        do {
             let source = try Self.source(file)
             #expect(!source.contains("linkGraph.backlinks("),
                     "\(file) walks the link graph itself instead of reading NoteReferences")
@@ -383,7 +375,8 @@ struct ShellComplianceTests {
     /// shells call, and that neither has quietly grown a clearing path back.
     @Test("Neither shell clears a selection it cannot resolve")
     func revalidationNeverClearsTheSelection() throws {
-        for file in ["MacContentView.swift", "iOSContentView.swift"] {
+        let file = "ContentView.swift"
+        do {
             let source = try Self.source(file)
             #expect(!source.contains("private func revalidateSelection"),
                     "\(file) has its own revalidation again")

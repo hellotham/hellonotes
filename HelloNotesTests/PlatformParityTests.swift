@@ -44,8 +44,13 @@ struct PlatformParityTests {
     /// Every command the menu bar can show is wired on both platforms.
     @Test func everyAppActionIsSuppliedOnBothShells() throws {
         let commands = try Self.source("UI/AppCommands.swift")
-        let mac = try Self.source("MacContentView.swift")
-        let ios = try Self.source("iOSContentView.swift")
+        // One shell. This used to compare two files and pass whenever a field
+        // was missing from *both* — which is how `templates`, `quickCapture`
+        // and `insertTemplate` could be declared and wired nowhere at all. With
+        // one shell the question is simply whether the field is supplied, and
+        // the companion test in `ShellComplianceTests` proves nothing in that
+        // file is behind a one-sided gate, so "supplied" means "on both".
+        let shell = try Self.source("ContentView.swift")
 
         // The fields of the action structs only — `AppActions` and the nested
         // `…Actions` it carries. Scoped rather than every `var` in the file,
@@ -67,26 +72,15 @@ struct PlatformParityTests {
         }
         #expect(fields.count > 30, "the scan found no fields — the declaration shape changed")
 
-        /// Supplied as an argument label anywhere in a shell's source.
-        func supplies(_ shell: String, _ field: String) -> Bool {
-            shell.contains("\(field):")
-        }
-
-        var missing: [String] = []
-        for field in fields.sorted() {
-            let onMac = supplies(mac, field)
-            let onIOS = supplies(ios, field)
-            guard onMac != onIOS else { continue }
-            missing.append("\(field) — wired on \(onMac ? "macOS" : "iOS") only")
-        }
+        let missing = fields.sorted().filter { !shell.contains("\($0):") }
 
         #expect(missing.isEmpty, """
-            These commands are wired on one platform and not the other. An \
-            unwired optional still draws an enabled menu item that does \
-            nothing, so wire it — there is no allowlist to add it to. The one \
-            entry this test used to carry (`revealInFinder`, "iOS has no \
-            Finder") was retired by asking the capability question instead of \
-            the API question: iOS has Files, and `FileReveal` opens it.
+            These commands are declared and never wired. An unwired optional \
+            still draws an enabled menu item that does nothing, so wire it — \
+            there is no allowlist to add it to. The one entry this test used to \
+            carry (`revealInFinder`, "iOS has no Finder") was retired by asking \
+            the capability question instead of the API question: iOS has Files, \
+            and `FileReveal` opens it.
             \(missing.joined(separator: "\n"))
             """)
     }

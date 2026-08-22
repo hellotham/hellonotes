@@ -72,16 +72,11 @@ struct HelloNotesApp: App {
 
     var body: some Scene {
         WindowGroup(id: "main") {
-            #if os(macOS)
-            rooted(MacContentView())
+            // One shell. It was `MacContentView` or `iOSContentView` here,
+            // each defined inside a one-sided `#if`, which is what made every
+            // divergence between them invisible from the other side.
+            rooted(ContentView())
                 .onOpenURL { router.handle($0) }
-            #else
-            // iOS, iPadOS, and visionOS (all configured platforms) share the
-            // UIKit-backed content view — without this, a visionOS build would
-            // render an empty WindowGroup body.
-            rooted(iOSContentView())
-                .onOpenURL { router.handle($0) }
-            #endif
         }
         // Both platforms: iPadOS 26 gives a scene a resizable window too, so
         // gating this meant the iPad's first window opened at whatever the
