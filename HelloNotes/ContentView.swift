@@ -1271,7 +1271,12 @@ struct ContentView: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .frame(width: 190)
+        // A *range*, not a fixed 190pt. Pinned, it did not fit a 335pt sidebar
+        // navigation bar beside the toggle, and iPadOS moved it into the `•••`
+        // overflow — the field vanished, which is the exact failure D9 records
+        // for `.searchable` collapsing to a glyph. A minimum paired with a
+        // maximum, as the layout contract requires everywhere else.
+        .frame(minWidth: 120, idealWidth: 190, maxWidth: 260)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
         .accessibilityLabel("Search all collections")
     }
@@ -1299,10 +1304,6 @@ struct ContentView: View {
         // "open something into this list". In the sidebar's own toolbar, which
         // is where the contract puts commands.
         .toolbar {
-            // Search sits against the panel it searches — files and folders —
-            // which is where Xcode, VS Code and Obsidian put theirs, and at the
-            // leading end, which is what the contract asks for.
-            ToolbarItem(placement: .barLeading) { searchField }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
@@ -1528,6 +1529,13 @@ struct ContentView: View {
     /// bar with their shortcuts (D9 of the priority rule).
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
+        // Search, at the leading end of the *editor* column's toolbar — the
+        // window toolbar on macOS, the detail navigation bar on iOS. Not the
+        // sidebar's own bar: that is inside the collapsible column, which the
+        // contract forbids ("a hidden command is an unreachable command"), and
+        // it is too narrow to hold a field beside the toggle. Here it also
+        // survives the sidebar being collapsed, which is when P2 needs it.
+        ToolbarItem(placement: .barLeading) { searchField }
         // Leading — the sidebar's own controls, which hide along with it.
         ToolbarItem(placement: .navigation) {
             Menu {
@@ -2446,6 +2454,13 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private func detailToolbar(showsShellCommands: Bool) -> some ToolbarContent {
+        // Search, at the leading end of the *editor* column's toolbar — the
+        // window toolbar on macOS, the detail navigation bar on iOS. Not the
+        // sidebar's own bar: that is inside the collapsible column, which the
+        // contract forbids ("a hidden command is an unreachable command"), and
+        // it is too narrow to hold a field beside the toggle. Here it also
+        // survives the sidebar being collapsed, which is when P2 needs it.
+        ToolbarItem(placement: .barLeading) { searchField }
         // Leading — the commands that have to survive a collapsed sidebar.
         if showsShellCommands {
             ToolbarItem(placement: .barLeading) { shellCommandMenu }

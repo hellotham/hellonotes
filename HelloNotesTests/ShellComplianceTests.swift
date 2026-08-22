@@ -526,8 +526,15 @@ struct ShellComplianceTests {
         // D9's objections are about the band in the column shell.
         #expect(!sidebar.contains(".searchable("),
                 "the sidebar uses `.searchable`, which D9 rejects and which puts search inside the collapsible column")
-        #expect(sidebar.contains("ToolbarItem(placement: .barLeading) { searchField }"),
-                "the search field is not a leading toolbar item on the sidebar")
+        // **Not on the sidebar's own toolbar either.** That bar is inside the
+        // collapsible column, and at 335pt it cannot hold a field beside the
+        // toggle — iPadOS moved it into the `•••` overflow and the field
+        // disappeared, which is D9's failure reproduced by hand. It belongs on
+        // the editor column's toolbar, where it also survives a collapse.
+        #expect(!sidebar.contains("searchField"),
+                "the search field is on the sidebar's own toolbar, which is inside the collapsible column")
+        #expect(source.ranges(of: "ToolbarItem(placement: .barLeading) { searchField }").count == 2,
+                "the search field is not a leading item on both of the editor column's toolbars")
     }
 
     /// A platform placement means the edge it is named after.
