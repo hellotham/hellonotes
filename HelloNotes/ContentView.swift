@@ -1342,78 +1342,27 @@ struct ContentView: View {
 
     // MARK: - Column 1: the collection tree
 
-    #if os(macOS)
-
-    /// **The** sidebar: Recents and Bookmarks pinned above every open
-    /// collection, each collection expanding into its own folder tree
-    /// (`docs/shell-chrome.md` D2/D4). Apple Notes' sidebar exactly — pinned
-    /// places, then a section per account, then that account's folders.
+    /// The compact shell, at the sizes the OS can force *either* platform into.
     ///
-    /// It replaced a fixed-width collection rail *plus* a folder-tree column.
-    /// The reason is structural: SwiftUI gives a correctly-placed sidebar
-    /// toggle to column one only, so while the rail held that slot the panel
-    /// that actually needs collapsing had to have its control hand-placed —
-    /// which is where the button floating mid-list came from.
+    /// A bottom tab bar of places, with the open note persisting above it like
+    /// a now-playing track (decision 6). The Mac used to fill this slot with
+    /// `EditorPaneContainer { editorColumn }` — the editor alone — on the
+    /// reading of decision 9 that says "degrade to the editor rather than an
+    /// error". That was right when there was no compact shell to degrade *to*;
+    /// the consequence was a window squeezed into a Stage Manager tile with **no
+    /// way to reach another note at all**, while an iPad at the same 250pt
+    /// showed the tab bar. `ShellKind` calls both `.compact`, in the contract's
+    /// own scene table, so that was the contract broken rather than honoured.
     ///
-    /// Tags deliberately do not live here: the sidebar answers "where is it?",
-    /// while tags are cross-cutting and belong to the inspector, which answers
-    /// "what is this, and what touches it?" (decision 1).
-    /// The compact shell, at the sizes the OS can force a Mac window into.
-    ///
-    /// This used to be `EditorPaneContainer { editorColumn }` — the editor
-    /// alone. Decision 9 wrote that as "degrade to the editor rather than an
-    /// error", which was right when there was no compact shell to degrade *to*;
-    /// the consequence was that a window squeezed into a Stage Manager tile had
-    /// **no way to reach another note at all**, while an iPad at the same 250pt
-    /// showed a tab bar of places. `ShellKind` calls both `.compact` — it is in
-    /// the contract's own scene table — so that was the contract broken, not
-    /// honoured.
-    ///
-    /// Every place here is a view this shell already had: the outline answers
-    /// both Notes and Search (it renders search results itself), the inspector
-    /// owns Tags, and the AI actions are the same `AIActions` the menu bar
-    /// takes. Nothing new was designed for a window size this rare — it is the
-    /// same furniture, arranged the way the contract says it must be at this
-    /// size.
+    /// It then filled the slot with a compact shell whose places were not the
+    /// same places: Notes and Search both drew the whole sidebar tree, and Tags
+    /// drew the *inspector* with its tab forced over. Four places that are
+    /// really two is not the architecture decision 6 describes, and it is not
+    /// what the other platform showed at the same width.
     private var compactShell: some View {
         CompactShell(
             place: compactPlace,
-            openNoteTitle: selectedNote?.title,
-            noteIsExpanded: $noteIsExpanded,
-            places: { place in
-                NavigationStack {
-                    switch place {
-                    case .notes, .search:
-                        // One tree for both: `SidebarTree.roots` already
-                        // replaces it with result groups while a search runs,
-                        // so "Search" is this list with the field focused.
-                        collectionTree
-                    case .tags:
-                        inspector
-                            .onAppear { inspectorTabRaw = InspectorTab.tags.rawValue }
-                    case .ai:
-                        AIPlaceList(ai: aiActions,
-                                    canAsk: !library.allNotes.isEmpty,
-                                    askLibrary: { auxiliary.open(.askLibrary) },
-                                    reviewLinks: activeEditor != nil ? { beginLinkReview() } : nil,
-                                    compose: focused == nil ? nil : { showCompose = true },
-                                    assistant: { auxiliary.open(.assistant) },
-                                    // The Mac reaches AI settings through
-                                    // Preferences, so no row here.
-                                    aiSettings: nil,
-                                    hasOpenNote: selectedNote != nil)
-                    }
-                }
-            },
-            editor: { editorColumn })
-    }
-
-    #else
-
-    private var compactShell: some View {
-        CompactShell(
-            place: compactPlace,
-            openNoteTitle: editor.note?.title,
+            openNoteTitle: activeEditor?.note?.title,
             noteIsExpanded: $noteIsExpanded,
             places: { place in
                 NavigationStack {
@@ -1435,87 +1384,39 @@ struct ContentView: View {
         )
     }
 
-    // MARK: - Column 3: Editor
-
-    #endif
-
-    #if os(macOS)
-
+    /// The sidebar: Recents and Bookmarks pinned above every open collection,
+    /// each expanding into its own folder tree (`docs/shell-chrome.md` D2/D4).
+    ///
+    /// One construction, drawn by `NoteOutlineList` — an `NSOutlineView` on one
+    /// platform and a SwiftUI `List` on the other, which is the same split
+    /// `FileViewerView` makes for PDFs. What is *in* the tree is
+    /// `SidebarTree.roots` and what a row *says* is `NoteRowContent`, both
+    /// shared, so the widget is the only thing that differs.
     private var collectionTree: some View {
         VStack(spacing: 0) {
-            SearchCompletenessNotice(collections: library.collections, isSearching: isSearching)
+            // A search over a half-built index comes back short. A false
+            // negative is the most damaging thing a knowledge tool can produce,
+            // because you cannot notice the note that did not come back — see
+            // `CollectionStatusStrips`.
+            SearchCompletenessNotice(collections: library.collections,
+                                     isSearching: isSearching)
             outlineList
-                .overlay { SidebarEmptyState(
-                library: library, search: search, searchText: searchText,
-                selectedTag: selectedTag, scope: railCollection ?? focused,
-                hasRecents: !(recents.entries.isEmpty && libraries.libraries.isEmpty),
-                openCollection: { library.requestOpenCollections() },
-                openRecent: { showLauncher = true },
-                newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) }) }
-        }
-    }
-
-    // MARK: - The inspector rail (right)
-
-    #else
-
-    private var collectionTree: some View {
-        VStack(spacing: 0) {
-        // A search over a half-built index came back short here with no
-        // indication that it had. A false negative is the most damaging thing a
-        // knowledge tool can produce, because you cannot notice the note that
-        // did not come back — see `CollectionStatusStrips`.
-        SearchCompletenessNotice(
-            collections: library.collections,
-            isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        // `NoteOutlineList` — the same call the Mac makes. One API over two
-        // widgets: an `NSOutlineView` there, a SwiftUI `List` of
-        // `SidebarItemRow` here. What is *in* the tree is `SidebarTree.roots`
-        // and what a row *says* is `NoteRowContent`, both shared, so the widget
-        // is the only thing left that differs.
-        NoteOutlineList(
-            roots: sidebarTree.roots,
-            signature: sidebarTree.signature,
-            selection: $selectedNoteID,
-            revealID: $revealOutlineID,
-            expandedFolders: expandedFolders,
-            collapsedCollections: $collapsedCollections,
-            focusedCollectionID: library.focusedID,
-            accent: appearance.resolvedAccent,
-            fontScale: appearance.textScale,
-            scopedCollectionID: selectedTag == nil ? nil : (railCollection ?? focused)?.id,
-            actions: actions.sidebarMenu,
-            scopedCollection: railCollection ?? focused,
-            onCloseCollection: { actions.closeCollection($0) },
-            row: { note, snippet in AnyView(noteRow(note, snippet: snippet)) },
-            onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) })
         }
         .navigationTitle("Collections")
-        // **The iPad had no search field at any width.** The only `.searchable`
-        // in this file sits on `noteList`, which is compact-only — and
-        // `AdaptiveShell` picks compact below 600pt, so no iPad has ever
-        // reached it. Meanwhile ⌥⌘F cleared the selection (closing the note you
-        // were reading) and Find Related could set `searchText` with no field
-        // on screen to edit or clear.
-        //
-        // Against the panel it searches, per D9 — but a native `.searchable`
-        // rather than the Mac's hand-built field: D9's two objections
-        // (collapsing to a glyph at 860pt, and claiming the trailing end of the
-        // band) are both AppKit behaviours. `navigationBarDrawer(.always)` is
-        // how the same "must not vanish at the width it is most needed" rule is
-        // spelled on iOS. The hits replace the tree in place, so field and
-        // results stay together and Cancel is always there to escape them.
-        .searchable(text: $searchText,
-                    placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "Search all collections")
-        .searchFocused($searchFocused)
+        // Against the panel it searches (D9), natively on both — see
+        // `librarySearchable`.
+        .librarySearchable(text: $searchText, focused: $searchFocused)
         .overlay { SidebarEmptyState(
-                library: library, search: search, searchText: searchText,
-                selectedTag: selectedTag, scope: railCollection ?? focused,
-                hasRecents: !(recents.entries.isEmpty && libraries.libraries.isEmpty),
-                openCollection: { library.requestOpenCollections() },
-                openRecent: { showLauncher = true },
-                newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) }) }
+            library: library, search: search, searchText: searchText,
+            selectedTag: selectedTag, scope: railCollection ?? focused,
+            hasRecents: !(recents.entries.isEmpty && libraries.libraries.isEmpty),
+            openCollection: { library.requestOpenCollections() },
+            openRecent: { showLauncher = true },
+            newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) }) }
+        // The contract's one exception to "no command in the sidebar" is an
+        // action whose subject *is* the sidebar's content, and these are all
+        // "open something into this list". In the sidebar's own toolbar, which
+        // is where the contract puts commands.
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -1577,8 +1478,6 @@ struct ContentView: View {
             }
         }
     }
-
-    #endif
 
 
     /// "What is this, and what touches it?" — outline, tags, references,
@@ -1759,12 +1658,14 @@ struct ContentView: View {
             .help("Open a collection, or add a folder to this one")
         }
         // Search sits against the panel it searches — files and folders — which
-        // is where Xcode, VS Code and Obsidian put theirs. A plain field rather
-        // than `.searchable`, for two measured reasons: `.searchable` collapses
-        // to a magnifier glyph at 860pt (P2's laptop, the width where search
-        // matters most), and it always claims the trailing end of the band,
-        // which would push the inspector's tabs off the panel they belong to.
-        ToolbarItem(placement: .navigation) { searchField }
+        // is where Xcode, VS Code and Obsidian put theirs. It lives on
+        // `collectionTree` now, through `librarySearchable`: the two measured
+        // objections to `.searchable` (collapsing to a glyph at 860pt, and
+        // claiming the trailing end of the band) are behaviours of a field
+        // placed `.automatic` in a *window* toolbar, not of one placed
+        // `.sidebar`. A hand-built field was a second search implementation,
+        // and the two platforms had come to focus, clear and reveal it
+        // differently.
 
         // Centred, so they sit over the *editor* and survive the sidebar being
         // collapsed — which is exactly when P2 needs Open Quickly to navigate.
@@ -1809,36 +1710,6 @@ struct ContentView: View {
                 )
             }
         }
-    }
-
-    /// Sized in points so it cannot collapse, and narrow enough that the whole
-    /// band still fits at the 860pt window minimum — verified by capture, where
-    /// a 240pt field overflowed search *and* all five inspector tabs into a `»`.
-    private var searchField: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField("Search", text: $searchText)
-                .textFieldStyle(.plain)
-                .focused($searchFocused)
-                .onSubmit { searchFocused = false }
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                    searchFocused = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
-            }
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .frame(width: 190)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-        .accessibilityLabel("Search all collections")
     }
 
     @ViewBuilder

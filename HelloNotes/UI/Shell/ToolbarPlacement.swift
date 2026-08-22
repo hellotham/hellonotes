@@ -35,3 +35,32 @@ extension ToolbarItemPlacement {
         #endif
     }
 }
+
+extension View {
+    /// The library search field, attached to the panel it searches (D9).
+    ///
+    /// Both platforms get a native `.searchable`; only the *placement* has two
+    /// spellings. `.navigationBarDrawer(.always)` is how iOS says "must not
+    /// vanish at the width it is most needed"; `.sidebar` is where macOS puts a
+    /// field that belongs to column one, which is the leading position the
+    /// chrome contract asks for.
+    ///
+    /// The Mac used to hand-build this field and place it in the shell's
+    /// toolbar, on the reading that `.searchable` collapses to a glyph and
+    /// claims the trailing end. Those are behaviours of a field placed
+    /// `.automatic` in a window toolbar, not of one placed in the sidebar — and
+    /// a hand-built field is a second search implementation, which is how the
+    /// two platforms came to focus, clear and reveal it differently.
+    func librarySearchable(text: Binding<String>, focused: FocusState<Bool>.Binding) -> some View {
+        #if os(macOS)
+        return searchable(text: text, placement: .sidebar,
+                          prompt: "Search all collections")
+            .searchFocused(focused)
+        #else
+        return searchable(text: text,
+                          placement: .navigationBarDrawer(displayMode: .always),
+                          prompt: "Search all collections")
+            .searchFocused(focused)
+        #endif
+    }
+}
