@@ -448,68 +448,18 @@ struct ContentView: View {
 
     // MARK: - Editor derived data (for the selection's collection)
 
-    #if os(macOS)
-
     var body: some View {
-        // Split in two deliberately: the scene wiring below (a dozen `onChange`
+        // Split in two deliberately: the scene wiring (a dozen `onChange`
         // handlers, a `task`, and a stack of sheets and alerts) is one
-        // expression to the type checker, and adding to it eventually trips
-        // "unable to type-check in reasonable time". Two opaque halves are two
-        // smaller problems.
-        presentations(
-            shellCore
-                .modifier(FileOperationErrorAlert(collection: focused))
-                // The same alert the iPad shows. It was an `NSAlert` inside
-                // `Library`, which is what kept it off that platform entirely.
-                .largeFolderAlert(library)
-                .modifier(FolderDeleteConfirmation(folder: $pendingFolderDelete) { folder in
-                    if let c = library.collections.first(where: { folder.path == $0.id || folder.path.hasPrefix($0.id + "/") }) {
-                        Task { await c.deleteFolder(at: folder) }
-                    }
-                })
-        )
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shellWidth = $0 }
-        // `Library` asks for a picker rather than presenting one; the shell
-        // owns the picker, so the shell answers — **with what was asked
-        // for**. The request carries where to start and what to say, and
-        // discarding that is how "add a mounted cloud folder" opened
-        // nowhere near the providers and "choose a subfolder" reopened
-        // outside the folder it was narrowing.
-        .sheet(item: Binding(get: { library.pendingFolderPick },
-                         set: { library.pendingFolderPick = $0 })) { request in
-            FolderPicker(startingAt: request.startDirectory,
-                     prompt: request.prompt,
-                     message: request.message) { urls in
-                library.pendingFolderPick = nil
-                guard !urls.isEmpty else { return }
-                Task { await library.openPicked(urls) }
-            }
-        }
-
-        // An auxiliary surface where the canvas is too narrow for a window.
-        // Present on **both** platforms: a Mac window dragged below the shell's
-        // compact threshold has no more room for a second window than an iPhone
-        // does, and the rule is the canvas, not the OS.
-        .sheet(item: $auxiliarySheet) { surface in
-            AuxiliarySheet(surface: surface,
-                           addRemoteCollection: library.addRemoteCollection)
-        }
-    }
-
-    #else
-
-    var body: some View {
-        // Split in two deliberately, the way `MacContentView`'s is. The sheet
-        // stack and the scene wiring are one expression to the type checker,
-        // and this chain has already defeated it once — which is why the parity
-        // sheets live in a `ViewModifier`. Two opaque halves are two smaller
-        // problems.
+        // expression to the type checker, and this chain has already defeated
+        // it once. Two opaque halves are two smaller problems.
         presentations(shellCore)
-            // Every failed file operation used to be invisible here. Nineteen
-            // `report(…)` sites write `Collection.lastError` and exactly one
-            // view presented it — a `private struct` inside `MacContentView` —
-            // so on iPad renaming a note onto an existing name silently did
-            // nothing at all.
+            // **`erroringCollection`, not `focused`.** Nineteen `report(…)`
+            // sites write `Collection.lastError`, and the sidebar holds one
+            // tree over *every* open collection whose note actions resolve
+            // their owner with `library.collection(containing:)` — so an alert
+            // watching only the focused collection stays silent for exactly the
+            // operations that most often fail. The Mac watched `focused`.
             .modifier(FileOperationErrorAlert(collection: erroringCollection))
             .modifier(FolderDeleteConfirmation(folder: $pendingFolderDelete) { folder in
                 if let c = collection(owningFolder: folder) {
@@ -533,16 +483,15 @@ struct ContentView: View {
                     Task { await library.openPicked(urls) }
                 }
             }
-
-            // The same modifier the Mac carries: a window where the canvas has
-            // room for one, this sheet where it has not.
+            // An auxiliary surface where the canvas is too narrow for a window.
+            // A Mac window dragged below the shell's compact threshold has no
+            // more room for a second window than an iPhone does; the rule is
+            // the canvas, not the OS.
             .sheet(item: $auxiliarySheet) { surface in
                 AuxiliarySheet(surface: surface,
                                addRemoteCollection: library.addRemoteCollection)
             }
     }
-
-    #endif
 
     #if os(macOS)
 
@@ -1015,23 +964,43 @@ struct ContentView: View {
 
     #endif
 
-    #if os(macOS)
 
     /// Every sheet, alert and scene value the window owns — the second half of
     /// the split described in `body`.
     private func presentations<V: View>(_ content: V) -> some View {
         content
+        // The large-folder warning. It was an `NSAlert` inside `Library`, which
+        // is what kept it off the other platform entirely.
+        .largeFolderAlert(library)
+        // Settings as a sheet. On the Mac ⌘, opens the `Settings` scene and
+        // this is a second route to the same screen; on iOS there is no such
+        // scene, so it is the only one. `AppSettingsView` is the name that
+        // lets this line exist without a gate around it.
+        .sheet(isPresented: $showSettings) {
+            AppSettingsView(llmSettings: llmSettings, appearance: appearance,
+                            git: focused?.git, accounts: gitAccounts)
+        }
+        .sheet(isPresented: $showLLMSettings) {
+            NavigationStack {
+                LLMSettingsView(settings: llmSettings)
+            }
+        }
         .sheet(isPresented: $showPalette) {
             CommandPaletteView(commands: appActions.paletteCommands)
         }
+        // One presentation. It was declared in the shell's sheet stack *and*
+        // again on the editor column, so on iPad the same review could be
+        // presented twice over itself.
         .sheet(item: $linkReview) { review in
-            ReviewLinksView(
-                proposals: review.proposals,
-                noteText: review.noteText,
-                preview: { await focused?.openingLines(of: $0) ?? "" },
-                onFinish: { applyAcceptedLinks($0, reviewedText: review.noteText) },
-                onDecline: { focused?.declineLink($0) }
-            )
+            NavigationStack {
+                ReviewLinksView(
+                    proposals: review.proposals,
+                    noteText: review.noteText,
+                    preview: { await editorCollection?.openingLines(of: $0) ?? "" },
+                    onFinish: { applyAcceptedLinks($0, reviewedText: review.noteText) },
+                    onDecline: { editorCollection?.declineLink($0) }
+                )
+            }
         }
         .sheet(isPresented: $showCompose, onDismiss: { composer.reset() }) {
             ComposeNoteView(
@@ -1133,165 +1102,6 @@ struct ContentView: View {
     }
 
     // MARK: - Menu-bar actions (File / Note / View commands)
-
-    #else
-
-    /// Every sheet and alert the shell owns — the second half of the split
-    /// described in `body`.
-    private func presentations<V: View>(_ content: V) -> some View {
-        content
-        // The large-folder warning, which iPad never had — see
-        // `LargeFolderAlert`.
-        .largeFolderAlert(library)
-        .sheet(isPresented: $showLauncher) {
-            // The same six affordances the Mac's launcher offers, wired to the
-            // iOS routes for each: the folder picker stands in for NSOpenPanel,
-            // and it already starts in Obsidian's iCloud folder and expands a
-            // picked folder into the vaults inside it (`handleImport`).
-            LauncherView(
-                recents: recents,
-                libraries: libraries,
-                openCollectionURLs: library.collections.map(\.rootURL),
-                onOpenURL: { url in Task { await library.open(url: url) } },
-                onOpenLibrary: { saved in
-                    let urls = libraries.urls(for: saved)
-                    Task { await library.openLibrary(urls) }
-                },
-                onSaveLibrary: { name in
-                    libraries.save(name: name, urls: library.collections.map(\.rootURL))
-                },
-                onOpenCollection: { library.requestOpenCollections() },
-                onOpenObsidian: { library.requestOpenCollections() },
-                onClone: { showClone = true },
-                onNewRepository: { showNewRepo = true }
-            )
-        }
-        .alert("Rename Note", isPresented: Binding(
-            get: { renameTarget != nil },
-            set: { if !$0 { renameTarget = nil } })
-        ) {
-            TextField("Name", text: $renameText)
-            Button("Cancel", role: .cancel) { renameTarget = nil }
-            Button("Rename") {
-                actions.commitRename()
-            }
-        } message: {
-            Text("Renaming updates [[links]] in notes that point at it.")
-        }
-        .sheet(isPresented: $showQuickCapture) {
-            NavigationStack {
-                QuickCaptureView(router: router)
-                    .navigationTitle("Quick Capture")
-                    .toolbarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { showQuickCapture = false }
-                        }
-                    }
-            }
-            .presentationDetents([.medium])
-        }
-        .sheet(isPresented: $showClone) {
-            NavigationStack {
-                CloneRepositoryView(store: gitAccounts, git: focused?.git ?? GitService()) { url in
-                    Task { await library.open(url: url) }
-                }
-            }
-        }
-        .sheet(isPresented: $showNewRepo) {
-            NavigationStack {
-                NewRepositoryView(store: gitAccounts) { url in
-                    Task { await library.open(url: url) }
-                }
-            }
-        }
-        .sheet(isPresented: $showOpenQuickly) {
-            NavigationStack {
-                if let search = (railCollection ?? focused)?.search {
-                    OpenQuicklyView(search: search) { note in
-                        showOpenQuickly = false
-                        selectedTag = nil
-                        searchText = ""
-                        selectedNoteID = note.id
-                    }
-                    .navigationTitle("Open Quickly")
-                    .toolbarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { showOpenQuickly = false }
-                        }
-                    }
-                }
-            }
-        }
-        .alert("New Folder", isPresented: Binding(
-            get: { newFolderCollection != nil },
-            set: { if !$0 { newFolderCollection = nil } })
-        ) {
-            TextField("Name", text: $newFolderName, prompt: Text("New Folder"))
-            Button("Create") {
-                let collection = newFolderCollection
-                let name = newFolderName.isEmpty ? "New Folder" : newFolderName
-                let parent = newFolderParent
-                newFolderCollection = nil
-                Task { await collection?.createFolder(named: name, in: parent) }
-            }
-            Button("Cancel", role: .cancel) { newFolderCollection = nil }
-        }
-        .sheet(isPresented: $showPalette) {
-            CommandPaletteView(commands: appActions.paletteCommands)
-        }
-        .sheet(isPresented: $showSettings) {
-            iOSSettingsView(settings: appearance, git: focused?.git, accounts: gitAccounts)
-        }
-        .sheet(isPresented: $showCompose, onDismiss: { composer.reset() }) {
-            NavigationStack {
-                ComposeNoteView(
-                    composer: composer,
-                    availability: { NoteComposer.unavailableReason(for: $0, settings: llmSettings) },
-                    onRun: { prompt, mode, depth in runCompose(prompt, mode: mode, depth: depth) },
-                    onCreate: { draft in
-                        guard let scope = railCollection ?? focused else { return }
-                        Task {
-                            if let note = await composer.create(draft, in: scope) {
-                                selectedNoteID = note.id
-                                place = .notes
-                            }
-                        }
-                    })
-            }
-        }
-        .sheet(isPresented: $showLLMSettings) {
-            NavigationStack {
-                LLMSettingsView(settings: llmSettings)
-            }
-        }
-        .sheet(isPresented: $showWelcome, onDismiss: { hasSeenWelcome = true }) {
-            WelcomeView(
-                onOpenCollection: { showWelcome = false; library.requestOpenCollections() },
-                onOpenObsidian: { showWelcome = false; library.requestOpenCollections() },
-                onDismiss: { showWelcome = false }
-            )
-        }
-        .background {
-            // ⌘W → close the active editor tab, but only while several are
-            // open. The Mac guards this against falling through to File ▸ Close
-            // and dismissing the window; an iPad scene has no competing Close
-            // Window, so here it is simply the keyboard route to the same
-            // command the tab strip and the File menu offer.
-            if tabs.openNotes.count > 1, let id = selectedNoteID, tabs.editor(withID: id) != nil {
-                Button("") { closeTab(id) }
-                    .keyboardShortcut("w", modifiers: .command)
-                    .opacity(0)
-                    .frame(width: 0, height: 0)
-                    .accessibilityHidden(true)
-            }
-        }
-    }
-
-    // MARK: - Column 1: the collection tree
-
-    #endif
 
     /// Wraps a menu-bar command so it dismisses the Open Quickly palette before
     /// running. A global shortcut (⌘N, ⌘O, …) fired while the palette sheet is
@@ -2863,17 +2673,6 @@ struct ContentView: View {
                 }
             }
             .toolbarTitleDisplayMode(.inline)
-            .sheet(item: $linkReview) { review in
-                NavigationStack {
-                    ReviewLinksView(
-                        proposals: review.proposals,
-                        noteText: review.noteText,
-                        preview: { await editorCollection?.openingLines(of: $0) ?? "" },
-                        onFinish: { applyAcceptedLinks($0, reviewedText: review.noteText) },
-                        onDecline: { editorCollection?.declineLink($0) }
-                    )
-                }
-            }
         } else {
             ContentUnavailableView(
                 "Select a Note",

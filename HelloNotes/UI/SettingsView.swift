@@ -180,3 +180,30 @@ struct iOSSettingsView: View {
 
 }
 #endif
+
+/// The app's settings, however this platform presents them.
+///
+/// `PreferencesView` (a tabbed Preferences window) and `iOSSettingsView` (a
+/// pushed `Form`) are genuinely different presentations of one screen — a
+/// `Settings` scene has no iOS spelling and a `NavigationStack` sheet is not
+/// what ⌘, opens. They already draw the same four groups from
+/// `AppearanceSettingsSections` and `FolderConventionSections`.
+///
+/// What was missing was a name the shell could say without knowing which
+/// platform it was on. Without it the shell's sheet stack had to be gated, and
+/// a gated sheet stack is how the Mac lost `largeFolderAlert` the moment
+/// anything else in that chain moved.
+struct AppSettingsView: View {
+    var llmSettings: LLMSettings
+    var appearance: AppearanceSettings
+    var git: GitService?
+    var accounts: GitAccountsStore?
+
+    var body: some View {
+        #if os(macOS)
+        PreferencesView(llmSettings: llmSettings, appearance: appearance)
+        #else
+        iOSSettingsView(settings: appearance, git: git, accounts: accounts)
+        #endif
+    }
+}
