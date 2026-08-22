@@ -546,4 +546,34 @@ struct ShellComplianceTests {
         #expect(!trailing.contains(".primaryAction"),
                 "barTrailing maps to `.primaryAction`, which is macOS's leading edge")
     }
+
+    /// A collection row says the same five things on both platforms.
+    ///
+    /// `NoteRowContent` fixed this one level down and the collection row never
+    /// got the same treatment: the AppKit cell drew an orange warning icon and
+    /// a dimmed title for an unreadable folder, a tooltip explaining why, a
+    /// spinner during a scan, a Git dot coloured by the working tree, and
+    /// semibold for the focused collection. The SwiftUI row drew
+    /// `Text(collection.name).font(.headline)`.
+    ///
+    /// The warning is the one that matters: an unreadable collection keeps its
+    /// notes listed, because they are the last true picture of the folder — so
+    /// without it the row is indistinguishable from a healthy one and stale
+    /// contents read as current.
+    @Test("Neither sidebar decides for itself what a collection row says")
+    func collectionRowsShareTheirContent() throws {
+        let source = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes/UI/NoteOutlineList.swift"), encoding: .utf8)
+        // Once per renderer, plus the `.help` on the SwiftUI row.
+        #expect(source.ranges(of: "CollectionRowContent.make(").count >= 2,
+                "one of the two sidebars still derives a collection row itself")
+        for derived in ["case .unavailable(let reason) = collection.state",
+                        "collection.showsScanProgress",
+                        "collection.git.status.isRepository",
+                        "collection.id == focusedCollectionID"] {
+            #expect(!source.contains(derived),
+                    "a sidebar re-derives `\(derived)` instead of reading CollectionRowContent")
+        }
+    }
 }

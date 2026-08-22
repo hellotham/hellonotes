@@ -52,13 +52,32 @@ enum WebAuthAnchor {
             ?? NSApplication.shared.windows.first
             ?? orphanAnchor()
         #elseif canImport(UIKit)
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        // Prefer the scene the user is actually looking at. A backgrounded or
-        // unattached scene's window is a valid anchor *object* but the wrong
-        // place to put a sheet, so it is only a fallback.
-        let scene = scenes.first { $0.activationState == .foregroundActive }
-            ?? scenes.first { $0.activationState == .foregroundInactive }
-            ?? scenes.first
+        // `connectedScenes` is a `Set`, so its iteration order is arbitrary —
+        // with two foreground-active scenes (iPadOS multi-window, which this app
+        // has for note windows) `first(where:)` picks whichever the hash order
+        // happens to yield, and the sign-in sheet lands over the wrong window.
+        // Sorted by how ready each scene is to host it, then by identity so the
+        // choice is at least stable across calls.
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .sorted { lhs, rhs in
+                func rank(_ scene: UIWindowScene) -> Int {
+                    switch scene.activationState {
+                    case .foregroundActive: 0
+                    case .foregroundInactive: 1
+                    case .background: 2
+                    default: 3
+                    }
+                }
+                let (l, r) = (rank(lhs), rank(rhs))
+                if l != r { return l < r }
+                // Same readiness: prefer the one with a key window, then break
+                // the tie on a stable identifier rather than on hash order.
+                let lk = lhs.keyWindow != nil, rk = rhs.keyWindow != nil
+                if lk != rk { return lk }
+                return lhs.session.persistentIdentifier < rhs.session.persistentIdentifier
+            }
+        let scene = scenes.first
         if let window = scene?.keyWindow ?? scene?.windows.first { return window }
 
         // No window anywhere: the app has nothing on screen, so there is nothing

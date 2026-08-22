@@ -59,3 +59,63 @@ struct NoteRowContent {
     /// The label a cloud badge carries for VoiceOver, on either platform.
     static let onlineOnlyLabel = "Online only — not downloaded"
 }
+
+/// What a *collection* row in the sidebar says.
+///
+/// The same job `NoteRowContent` does one level up, and for the same reason.
+/// The AppKit cell showed five things beyond the name — an orange warning icon
+/// and dimmed title when the folder is unreadable, a tooltip explaining why, a
+/// spinner while a scan is running, a Git dot coloured by whether the working
+/// tree is clean, and semibold for the focused collection. The SwiftUI row
+/// showed `Text(collection.name).font(.headline)`.
+///
+/// That gap is worse than the note row's was. **An unreadable collection has to
+/// look unreadable**: it keeps its notes listed, because they are the last true
+/// picture of the folder, so without the warning the row is indistinguishable
+/// from a healthy one and stale contents read as current.
+struct CollectionRowContent {
+    let name: String
+    /// Why the folder cannot be read, if it cannot.
+    let unavailable: CollectionState.UnavailableReason?
+    /// A scan is running — visible on the row itself, not only in the status
+    /// bar, because the sidebar is where you notice a collection is still
+    /// filling in.
+    let isScanning: Bool
+    /// The collection the rest of the window is acting on.
+    let isFocused: Bool
+    /// `nil` when the folder is not a repository; otherwise whether the working
+    /// tree is clean.
+    let gitIsClean: Bool?
+
+    var symbol: String { unavailable == nil ? "books.vertical" : "exclamationmark.triangle" }
+    var isDimmed: Bool { unavailable != nil }
+
+    /// The hover explanation, on either platform.
+    var help: String? {
+        if let unavailable {
+            return "\(unavailable.explanation) Its notes are shown as they were."
+        }
+        return nil
+    }
+
+    /// The label the Git dot carries for VoiceOver.
+    var gitLabel: String? {
+        gitIsClean.map { $0 ? "No uncommitted changes" : "Uncommitted changes" }
+    }
+
+    var scanningLabel: String { "Scanning “\(name)”" }
+
+    @MainActor
+    static func make(_ collection: Collection, focusedID: Collection.ID?) -> CollectionRowContent {
+        let reason: CollectionState.UnavailableReason? = {
+            if case .unavailable(let reason) = collection.state { return reason }
+            return nil
+        }()
+        return CollectionRowContent(
+            name: collection.name,
+            unavailable: reason,
+            isScanning: collection.showsScanProgress,
+            isFocused: collection.id == focusedID,
+            gitIsClean: collection.git.status.isRepository ? collection.git.status.isClean : nil)
+    }
+}

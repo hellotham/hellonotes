@@ -432,34 +432,33 @@ struct NoteOutlineList: NSViewRepresentable {
             // notes listed — they are the last true picture of the folder — so
             // without this the row is indistinguishable from a healthy one and
             // the stale contents read as current.
-            let unavailable: CollectionState.UnavailableReason? = {
-                if case .unavailable(let reason) = collection.state { return reason }
-                return nil
-            }()
-            let icon = symbolIcon(unavailable == nil ? "books.vertical" : "exclamationmark.triangle")
-            if unavailable != nil { icon.contentTintColor = .systemOrange }
+            let content = CollectionRowContent.make(collection,
+                                                    focusedID: parent.focusedCollectionID)
+            let unavailable = content.unavailable
+            let icon = symbolIcon(content.symbol)
+            if content.isDimmed { icon.contentTintColor = .systemOrange }
             // A long scan is visible on the row itself, not only in the status
             // bar: the sidebar is where you notice a collection is still filling
             // in. Indeterminate and self-animating, so it costs no redraws — the
             // live counts stay in the status bar, where they can change without
             // rebuilding the outline.
-            let spinner: NSProgressIndicator? = collection.showsScanProgress ? {
+            let spinner: NSProgressIndicator? = content.isScanning ? {
                 let indicator = NSProgressIndicator()
                 indicator.style = .spinning
                 indicator.controlSize = .small
                 indicator.isIndeterminate = true
                 indicator.startAnimation(nil)
-                indicator.setAccessibilityLabel("Scanning “\(collection.name)”")
+                indicator.setAccessibilityLabel(content.scanningLabel)
                 indicator.translatesAutoresizingMaskIntoConstraints = false
                 indicator.widthAnchor.constraint(equalToConstant: 12).isActive = true
                 indicator.heightAnchor.constraint(equalToConstant: 12).isActive = true
                 return indicator
             }() : nil
-            let name = label(collection.name, font: .systemFont(ofSize: 11 * parent.fontScale,
-                weight: collection.id == focusedCollectionID ? .semibold : .regular),
-                color: unavailable == nil ? .secondaryLabelColor : .tertiaryLabelColor)
-            if let unavailable {
-                name.toolTip = "\(unavailable.explanation) Its notes are shown as they were."
+            let name = label(content.name, font: .systemFont(ofSize: 11 * parent.fontScale,
+                weight: content.isFocused ? .semibold : .regular),
+                color: content.isDimmed ? .tertiaryLabelColor : .secondaryLabelColor)
+            if let help = content.help {
+                name.toolTip = help
             } else if collection.hasIncompleteIndex {
                 name.toolTip = "Re-indexing — search results may be incomplete until it finishes."
             }
@@ -479,15 +478,15 @@ struct NoteOutlineList: NSViewRepresentable {
             stack.orientation = .horizontal
             if let spinner { stack.addArrangedSubview(spinner) }
 
-            if collection.git.status.isRepository {
+            if let clean = content.gitIsClean {
                 let dot = NSView()
                 dot.wantsLayer = true
-                dot.layer?.backgroundColor = (collection.git.status.isClean ? NSColor.tertiaryLabelColor : NSColor.systemOrange).cgColor
+                dot.layer?.backgroundColor = (clean ? NSColor.tertiaryLabelColor : NSColor.systemOrange).cgColor
                 dot.layer?.cornerRadius = 3
                 // The colour alone signals git state; label it for VoiceOver.
                 dot.setAccessibilityElement(true)
                 dot.setAccessibilityRole(.image)
-                dot.setAccessibilityLabel(collection.git.status.isClean ? "No uncommitted changes" : "Uncommitted changes")
+                dot.setAccessibilityLabel(content.gitLabel ?? "")
                 dot.translatesAutoresizingMaskIntoConstraints = false
                 dot.widthAnchor.constraint(equalToConstant: 6).isActive = true
                 dot.heightAnchor.constraint(equalToConstant: 6).isActive = true
@@ -705,6 +704,7 @@ struct NoteOutlineList: View {
                         expandedFolders: $expandedFolders,
                         collapsedCollections: $collapsedCollections,
                         actions: actions,
+                        focusedCollectionID: focusedCollectionID,
                         row: row,
                         onDropIntoFolder: onDropIntoFolder)
                 }
@@ -788,6 +788,9 @@ struct SidebarItemRow: View {
     @Binding var collapsedCollections: Set<Collection.ID>
 
     let actions: SidebarMenu.Actions
+    /// Which collection the rest of the window is acting on — the row draws it
+    /// in semibold, as the AppKit cell does.
+    let focusedCollectionID: Collection.ID?
     let row: (Note, String?) -> AnyView
     let onDropIntoFolder: (String, [URL]) -> Bool
 
@@ -838,7 +841,33 @@ struct SidebarItemRow: View {
                 // control, not just a long-press: the Mac can afford a hidden
                 // right-click because that is where Mac users look.
                 HStack {
-                    Text(collection.name).font(.headline)
+                    // The same five things the AppKit cell draws, from the same
+                    // decision — see `CollectionRowContent`. This was
+                    // `Text(collection.name).font(.headline)`, so an unreadable
+                    // collection looked healthy while listing stale notes, a
+                    // running scan was invisible, and Git state and focus were
+                    // not shown at all.
+                    let content = CollectionRowContent.make(
+                        collection, focusedID: focusedCollectionID)
+                    Image(systemName: content.symbol)
+                        .foregroundStyle(content.isDimmed ? AnyShapeStyle(.orange)
+                                                          : AnyShapeStyle(.secondary))
+                    Text(content.name)
+                        .font(.headline)
+                        .fontWeight(content.isFocused ? .semibold : .regular)
+                        .foregroundStyle(content.isDimmed ? AnyShapeStyle(.tertiary)
+                                                          : AnyShapeStyle(.primary))
+                    if content.isScanning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel(content.scanningLabel)
+                    }
+                    if let clean = content.gitIsClean {
+                        Circle()
+                            .fill(clean ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.orange))
+                            .frame(width: 6, height: 6)
+                            .accessibilityLabel(content.gitLabel ?? "")
+                    }
                     Spacer()
                     Menu {
                         SidebarMenuItems(items: menuItems)
@@ -849,6 +878,8 @@ struct SidebarItemRow: View {
                     .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
                 }
                 .contextMenu { SidebarMenuItems(items: menuItems) }
+                .help(CollectionRowContent.make(collection,
+                                                focusedID: focusedCollectionID).help ?? "")
             }
 
         case .folder(let name):
@@ -879,6 +910,7 @@ struct SidebarItemRow: View {
                            expandedFolders: $expandedFolders,
                            collapsedCollections: $collapsedCollections,
                            actions: actions,
+                           focusedCollectionID: focusedCollectionID,
                            row: row,
                            onDropIntoFolder: onDropIntoFolder)
         }
