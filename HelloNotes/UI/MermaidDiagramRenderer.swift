@@ -58,5 +58,11 @@ enum PlatformImageOrient {
         flipped.unlockFocus()
         return flipped
     }
+    #else
+    /// BeautifulMermaid's iOS output comes from `UIGraphicsImageRenderer` and is
+    /// already upright, so the flip is the identity here. Written out because
+    /// "this platform does not need the flip" and "this platform has no flip"
+    /// are different claims, and `uprightMermaid` above depends on the first.
+    nonisolated static func flippedVertically(_ image: UIImage) -> UIImage { image }
     #endif
 }

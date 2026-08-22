@@ -172,6 +172,13 @@ final class AppearanceSettings {
         for window in NSApp?.windows ?? [] {
             window.appearance = appearance
         }
+        #else
+        // Nothing to push. `preferredColorScheme` is applied per scene by
+        // `.themedRoot(appearance)`, and `AppearanceSettings` is `@Observable`,
+        // so every scene observing it repaints on its own. The Mac needs the
+        // extra pass because the *window chrome* is AppKit's and SwiftUI only
+        // refreshes it when a window becomes key — a background window would
+        // otherwise stay in the old appearance until clicked.
         #endif
     }
 

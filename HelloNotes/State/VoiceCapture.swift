@@ -108,7 +108,6 @@ actor VoiceCapture {
 
         try await analyzer.start(inputSequence: stream)
 
-        #if os(iOS)
         // iOS hands out no microphone until an audio session asks for one: the
         // default `.soloAmbient` category has no input route at all, so the tap
         // install and `engine.start()` below both fail before a single sample
@@ -126,7 +125,6 @@ actor VoiceCapture {
             unwindFailedStart()
             throw error
         }
-        #endif
 
         // Feed microphone audio, converted to the analyzer's preferred format.
         let inputNode = engine.inputNode
@@ -165,9 +163,7 @@ actor VoiceCapture {
     /// finish, and on iOS the audio session would go on ducking other audio for
     /// a dictation that isn't happening.
     private func unwindFailedStart() {
-        #if os(iOS)
         deactivateAudioSession()
-        #endif
         inputContinuation?.finish()
         inputContinuation = nil
         resultsTask?.cancel()
@@ -182,9 +178,7 @@ actor VoiceCapture {
         inputContinuation?.finish()
         try? await analyzer?.finalizeAndFinishThroughEndOfInput()
         resultsTask?.cancel()
-        #if os(iOS)
         deactivateAudioSession()
-        #endif
     }
 
     #if os(iOS)
@@ -205,6 +199,13 @@ actor VoiceCapture {
     private func deactivateAudioSession() {
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
+    #else
+    /// macOS has no `AVAudioSession` — the input device is simply there, with
+    /// no category to set, nothing to activate and nothing to hand back. The
+    /// two calls exist so the code above reads the same on both platforms
+    /// rather than being gated at every call site.
+    private func activateAudioSession() throws {}
+    private func deactivateAudioSession() {}
     #endif
 }
 #endif

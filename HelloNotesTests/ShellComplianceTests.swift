@@ -104,7 +104,7 @@ struct ShellComplianceTests {
         return labelled
     }
 
-    /// The shell is one file, and nothing in it is one-sided.
+    /// Nothing in the app is one-sided.
     ///
     /// It was two — `MacContentView` and `iOSContentView`, each inside a
     /// one-sided `#if` — and that arrangement is what every divergence this
@@ -116,33 +116,50 @@ struct ShellComplianceTests {
     /// branches shares the behaviour; a gate that supplies one loses it.** With
     /// the shell in one file that is checkable directly, and it subsumes every
     /// "both shells do X" assertion below.
-    @Test("The shell is one file with no one-sided platform gate")
-    func theShellIsOneImplementation() throws {
-        let directory = URL(filePath: #filePath)
+    @Test("No platform gate in the app has only one branch")
+    func nothingIsOneSided() throws {
+        let root = URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "HelloNotes")
         for gone in ["MacContentView.swift", "iOSContentView.swift"] {
-            #expect(!FileManager.default.fileExists(atPath: directory.appending(path: gone).path),
+            #expect(!FileManager.default.fileExists(atPath: root.appending(path: gone).path),
                     "\(gone) is back — the shell is two files again")
         }
 
-        let source = try Self.source("ContentView.swift")
-        var stack: [(line: Int, isPlatform: Bool, hasElse: Bool)] = []
-        var oneSided: [Int] = []
-        for (index, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-            let text = line.trimmingCharacters(in: .whitespaces)
-            if text.hasPrefix("#if") {
-                let platform = text.contains("os(macOS)") || text.contains("os(iOS)")
-                    || text.contains("canImport(AppKit)") || text.contains("canImport(UIKit)")
-                stack.append((index + 1, platform, false))
-            } else if text.hasPrefix("#else") || text.hasPrefix("#elseif") {
-                if !stack.isEmpty { stack[stack.count - 1].hasElse = true }
-            } else if text.hasPrefix("#endif"), let gate = stack.popLast() {
-                if gate.isPlatform && !gate.hasElse { oneSided.append(gate.line) }
+        let platform = ["os(macOS)", "os(iOS)", "os(visionOS)",
+                        "canImport(AppKit)", "canImport(UIKit)", "targetEnvironment("]
+        var offenders: [String] = []
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" } ?? []
+        #expect(files.count > 50, "the scan found almost no sources — the layout changed")
+
+        for file in files {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            var stack: [(line: Int, isPlatform: Bool, hasElse: Bool, body: Bool)] = []
+            for (index, raw) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let text = raw.trimmingCharacters(in: .whitespaces)
+                if text.hasPrefix("#if") {
+                    stack.append((index + 1, platform.contains { text.contains($0) }, false, false))
+                } else if text.hasPrefix("#else") || text.hasPrefix("#elseif") {
+                    if !stack.isEmpty { stack[stack.count - 1].hasElse = true }
+                } else if text.hasPrefix("#endif") {
+                    if let gate = stack.popLast(), gate.isPlatform, !gate.hasElse, gate.body {
+                        offenders.append("\(file.lastPathComponent):\(gate.line)")
+                    }
+                } else if !text.isEmpty, !text.hasPrefix("//"), !text.hasPrefix("import"),
+                          !stack.isEmpty {
+                    // A gate whose whole body is imports or comments removes no
+                    // behaviour — `import AppKit` has nothing to pair with.
+                    stack[stack.count - 1].body = true
+                }
             }
         }
-        #expect(oneSided.isEmpty,
-                "ContentView.swift has a platform gate with no #else at line(s) \(oneSided) — that branch's behaviour exists on one platform only")
+        #expect(offenders.isEmpty, """
+            These platform gates supply one branch and not the other, so \
+            whatever is inside them exists on one platform only:
+            \(offenders.joined(separator: "\n"))
+            """)
     }
 
     /// The layout engine is handed live state, not a constant.

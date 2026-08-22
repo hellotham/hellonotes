@@ -187,6 +187,12 @@ enum DiagnosticSelfTest {
         // queue, so the queue is idle when `terminate:` starts spinning and the
         // deferred reply can land.
         RunLoop.main.perform { NSApp.terminate(nil) }
+        #else
+        // iOS has no supported way for an app to quit itself — `exit(0)` is
+        // rejected by review and looks like a crash to the user. The self-test
+        // runs identically; only the "and then quit" step has no counterpart,
+        // so the harness is driven to completion and left running.
+        MainActorWatchdog.note("SELFTEST complete — no supported quit on this platform")
         #endif
     }
 }

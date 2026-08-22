@@ -76,9 +76,7 @@ nonisolated enum ObsidianVault {
         URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/iCloud~md~obsidian/Documents",
             isDirectory: true)
     }
-    #endif
-
-    #if os(macOS)
+    #else
     /// Obsidian's own iCloud Drive folder (`iCloud Drive/Obsidian`), where the
     /// iOS/iPadOS app stores vaults by default. Returned unconditionally as a
     /// browse hint — the sandbox may forbid `stat` here, but the open panel can

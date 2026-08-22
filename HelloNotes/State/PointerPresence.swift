@@ -69,5 +69,10 @@ final class PointerPresence {
         NotificationCenter.default.addObserver(
             forName: .GCMouseDidDisconnect, object: nil, queue: .main, using: refresh)
     }
+    #else
+    /// Nothing to observe: a Mac always has a pointer, so `isAvailable` is
+    /// constant and there is no connect/disconnect to hear about. The shared
+    /// answer above (`prefersTouch`) is what both platforms read.
+    private func observe() {}
     #endif
 }

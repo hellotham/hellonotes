@@ -52,6 +52,13 @@ struct GitSettingsView: View {
             }
             .padding()
             Divider()
+            #else
+            // Nothing here: the navigation bar draws both, from the same
+            // constant — see `.navigationTitle(Self.title)` below. Stated
+            // rather than left absent, because "no header on this platform"
+            // and "this platform's header comes from its host" are different
+            // claims and only one of them is true.
+            EmptyView()
             #endif
 
             Form {
@@ -64,7 +71,11 @@ struct GitSettingsView: View {
         // Fixed on the Mac, device-sized on iOS — a hard 540pt is 147pt wider
         // than an iPhone's screen, which clips the form rather than scrolling it.
         .panelFrame(width: 540, height: 620)
-        #if !os(macOS)
+        #if os(macOS)
+        // The Mac drew both in the header above, because a sheet has no chrome
+        // of its own. Setting the title here as well would name the window.
+        .navigationTitle("")
+        #else
         // The other branch of the header above: iOS gets its title and its way
         // back from the navigation bar, named by the same constant.
         .navigationTitle(Self.title)

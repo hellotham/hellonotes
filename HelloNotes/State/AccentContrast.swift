@@ -125,6 +125,11 @@ extension PlatformColor {
                         green: converted.greenComponent,
                         blue: converted.blueComponent)
         }
+        #else
+        // No `usingColorSpace` on UIKit, and none needed: `UIColor`'s
+        // `cgColor` is already convertible, which is what the shared path
+        // below does. The AppKit branch exists because `NSColor.cgColor` traps
+        // on a colour that is not in an RGB space.
         #endif
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let cg = cgColor.converted(to: space, intent: .defaultIntent, options: nil),

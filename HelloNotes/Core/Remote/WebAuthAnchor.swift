@@ -91,6 +91,10 @@ enum WebAuthAnchor {
 
     #if !os(macOS) && canImport(UIKit)
     private static func make<T: UIView>(_ type: T.Type) -> T { T(frame: .zero) }
+    #else
+    /// The Mac's anchor is a real `NSWindow` the caller already owns, so there
+    /// is nothing to construct — stated rather than left absent.
+    private static func make<T: NSWindow>(_ type: T.Type) -> T? { nil }
     #endif
 }
 #endif

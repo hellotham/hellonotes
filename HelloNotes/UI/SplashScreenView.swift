@@ -27,6 +27,12 @@ struct SplashScreenView: View {
         .onTapGesture { onDismiss() }
         #if os(macOS)
         .onExitCommand { onDismiss() }
+        #else
+        // `onExitCommand` is AppKit's Escape handler and has no iOS spelling.
+        // The dismiss it performs is the tap above, which every device has —
+        // so the *behaviour* (Escape or a tap gets you out) is on both, and
+        // only the extra keyboard route is macOS's.
+        .onTapGesture { onDismiss() }
         #endif
     }
 
@@ -224,13 +230,7 @@ private struct ConstellationView: View {
 @MainActor
 enum SplashPresenter {
     static func show(autoDismiss: Bool) {
-        #if os(macOS)
         SplashWindow.show(autoDismiss: autoDismiss)
-        #else
-        NotificationCenter.default.post(
-            name: .hnShowSplash, object: nil,
-            userInfo: ["autoDismiss": autoDismiss])
-        #endif
     }
 }
 
@@ -245,6 +245,10 @@ extension Notification.Name {
 #if os(macOS)
 /// Presents the splash in a borderless floating window: at launch it fades in,
 /// lingers, and fades away; from the About menu it stays until clicked.
+///
+/// The other branch of this gate is the shell's overlay, raised by the
+/// `hnShowSplash` notification `SplashPresenter` posts — see the `#else` at the
+/// end of this file. Two presentations of one view, and one command above them.
 @MainActor
 enum SplashWindow {
     private static var window: NSWindow?
@@ -309,4 +313,18 @@ enum SplashWindow {
 private final class SplashPanel: NSWindow {
     override var canBecomeKey: Bool { true }
 }
+#else
+
+/// The other branch: iOS has no borderless floating window to put a splash in,
+/// so the shell owns an overlay and `SplashPresenter` posts to it.
+/// `ContentView` draws it; this exists so the gate states both answers rather
+/// than leaving one silent.
+@MainActor
+enum SplashWindow {
+    static func show(autoDismiss: Bool) {
+        NotificationCenter.default.post(
+            name: .hnShowSplash, object: nil, userInfo: ["autoDismiss": autoDismiss])
+    }
+}
+
 #endif

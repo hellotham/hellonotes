@@ -185,6 +185,16 @@ struct HelloNotesApp: App {
                 .themedRoot(appearance)
         }
         .menuBarExtraStyle(.window)
+        #else
+        // The other branch, stated rather than left silent: `Settings` and
+        // `MenuBarExtra` are macOS scene *types* with no iOS spelling — there
+        // is no Preferences scene to register and no menu bar to extend. What
+        // matters for parity is that the surfaces behind them are reachable on
+        // both, and they are. Settings is a sheet the shell presents from the
+        // same `showSettings` state (`AppSettingsView`), and Quick Capture is a
+        // command in `HelloNotesCommands` and the palette, ⌃⌘K, on both. The
+        // menu-bar item is an extra *route* on the platform that has the
+        // concept, not a feature the other one lacks.
         #endif
     }
 }
