@@ -27,18 +27,29 @@
 # Commands
 - Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification.
 - Editor tests (macOS): `swift test --package-path Packages/NotesEditor`
-- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 379 tests in 29 suites). `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-26-5`.
+- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 380 tests in 29 suites). `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-26-5`.
 - **Look at the iOS app without the user's device**: `xcodebuild build -destination 'platform=iOS Simulator,name=HN-iPad'`, then `xcrun simctl install HN-iPad <app>`, `xcrun simctl launch HN-iPad com.hellotham.HelloNotes`, and `xcrun simctl io HN-iPad screenshot out.png` — which is readable. A whole iPad session was shipped blind (a keyboard bar that never rendered, a zero-width one, five inspector toggles that could not work at that width) because nobody looked. `simctl` has no tap injection, so driving the UI still needs the live panel — which needs `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` from the user.
 - Is it running on the device? `xcrun devicectl device info processes --device <id> | grep "HelloNotes.app/HelloNotes"` — **capital H**. A lower-cased pattern matches nothing and reads exactly like a crash-on-launch; an hour went into diagnosing a crash that never happened. Cross-check against `--domain-type systemCrashLogs`: no new `.ips` means no crash, whatever the process list appears to say.
-- **The tests assert 648 of the corpus's 672 examples; the sweep asserts all 672.**
-  `GFMSpecTests` and `LiveEditorConformanceTests` match an opening fence of
-  `` ``` example `` only, so the 24 **extension**-tagged blocks are silently
-  skipped — 8 `table`, 11 `autolink`, 2 `strikethrough`, 1 `tagfilter`, 2
-  `disabled`. Tables and strikethrough have therefore never been checked for
-  HTML byte-parity at all, only for geometry (`RenderParity` reads all 672).
-  `spec.txt` holds 672 blocks; `grep -cE '^`+ example'` counts them. Widening
-  those two parsers is the fix, and it may well surface real failures — the
-  geometry sweep found six the day it started reading them.
+- **Both spec parsers read all 672 examples; assert the corpus's size, never a
+  floor.** `GFMSpecTests` and `LiveEditorConformanceTests` used to match an
+  opening fence of `` ``` example `` only, so the 24 **extension**-tagged blocks
+  — 8 `table`, 11 `autolink`, 2 `strikethrough`, 1 `tagfilter`, 2 `disabled`
+  (task lists) — were skipped without a word, and tables and strikethrough had
+  never been checked for HTML byte-parity at all. What hid it for years was the
+  guard: `#expect(examples.count > 600)` is true of 648, so the gate could not
+  report the 24 it could not see. It is `== 672` now, which is the corpus's own
+  size — `grep -cE '^`+ example' spec.txt` counts it.
+  Widening cost exactly two divergences, both task lists, and neither a
+  rendering fault: the linked cmark-gfm writes
+  `<input type="checkbox" disabled="" />` where the corpus, cut from an older
+  release, wrote `<input disabled="" type="checkbox">`. Same element, same
+  attributes, same page — byte-parity was simply the wrong question, since
+  Preview hands the HTML to WebKit, which parses it. `GFMSpec.sameHTMLDocument`
+  forgives attribute order and a void element's slash and **nothing else**, and
+  `sameHTMLDocumentIsStrict` holds it to that; the two examples are pinned in
+  `serialisationOnly`, so a third has to be read rather than absorbed. Standing
+  score: **660 exact + 10 GitHub-extension overrides + 2 serialisation-only =
+  672/672**.
 - Layout contract: `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -only-testing:HelloNotesTests/ShellContractTests` (~2s, headless — run it after any shell or representable change).
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **58 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.

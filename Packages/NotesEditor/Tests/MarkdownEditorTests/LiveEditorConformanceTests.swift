@@ -29,7 +29,15 @@ import AppKit
         let url = try #require(Bundle.module.url(forResource: "spec.txt", withExtension: nil))
         let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
         func isFence(_ s: String) -> Bool { !s.isEmpty && s.allSatisfy { $0 == "`" } && s.count >= 20 }
-        func isStart(_ s: String) -> Bool { s.hasSuffix(" example") && String(s.dropLast(8)).allSatisfy { $0 == "`" } && !s.isEmpty }
+        // Accepts the extension-tagged fences too (``` example table, ``` example
+        // autolink, …). Matching a trailing " example" alone silently skipped 24
+        // of the corpus's 672 — every table and strikethrough case among them.
+        func isStart(_ s: String) -> Bool {
+            let parts = s.split(separator: " ", omittingEmptySubsequences: false)
+            guard parts.count == 2 || parts.count == 3, parts[1] == "example" else { return false }
+            guard !parts[0].isEmpty, parts[0].allSatisfy({ $0 == "`" }) else { return false }
+            return parts.count == 2 || !parts[2].isEmpty
+        }
         var out: [Example] = []; var i = 0; var n = 0
         while i < lines.count {
             if isStart(lines[i]) {
@@ -59,7 +67,9 @@ import AppKit
 
     @Test func liveEditorMatchesCmarkAcrossCorpus() throws {
         let examples = try Self.examples()
-        #expect(examples.count > 600)
+        // The corpus's own size, not a floor — `> 600` held for the 648 the old
+        // parser could see, so it could never report the 24 it could not.
+        #expect(examples.count == 672)
 
         var outOfBounds = 0
         var uncovered: [(Int, String, String)] = []   // example, role, text

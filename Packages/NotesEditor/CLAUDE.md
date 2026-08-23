@@ -18,9 +18,9 @@ GitHub-identical Preview + parity tests).
 All three are run **from the repository root**, not from this directory.
 
 ```bash
-swift test --package-path Packages/NotesEditor                 # 399 tests, 31 suites
+swift test --package-path Packages/NotesEditor                 # 400 tests, 31 suites
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'           # 379 tests — run these too
+  -destination 'platform=iOS Simulator,name=HN-iPad'           # 380 tests — run these too
 ./scripts/render-parity.sh                                     # Edit ≡ Preview: the gate
                                                                # for anything visual
 ```
@@ -30,10 +30,13 @@ untested until the second command runs — that is how a `UITextView` showing a
 document it believed was empty, a zero-width keyboard bar and a link tap that
 ate the caret tap all shipped together.
 
-The GFM spec corpus is 672 examples, but `GFMSpecTests` asserts 648 of them:
-its parser matches `` ``` example `` and the extension blocks are tagged
-(`example table`, `example autolink`, …). Tables and strikethrough have never
-been checked for HTML byte-parity, only for geometry.
+The GFM spec corpus is 672 examples and `GFMSpecTests` asserts all of them:
+660 exact, 10 GitHub-extension overrides, 2 that differ from the corpus in
+serialisation only (task-list `<input>` attribute order — see
+`GFMSpec.sameHTMLDocument`). Its parser reads the extension-tagged fences
+(`example table`, `example autolink`, …) as well as the bare ones, and the
+count is asserted `== 672` rather than as a floor, which is what let the 24
+tagged blocks go unread for years.
 
 ## Traps (all previously hit; details in docs/implemented.md §2, §5)
 
