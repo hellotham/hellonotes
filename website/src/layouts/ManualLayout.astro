@@ -24,7 +24,7 @@ const next = index < MANUAL.length - 1 ? MANUAL[index + 1] : undefined;
 >
   <div class="mx-auto grid max-w-[1120px] gap-12 px-6 py-12 lg:grid-cols-[220px_1fr]">
     <!-- Section list. Sticky on wide screens; a plain list above the content on mobile. -->
-    <aside class="lg:sticky lg:top-[86px] lg:self-start">
+    <aside aria-label="Manual sections" class="lg:sticky lg:top-[86px] lg:self-start">
       <h2 class="mb-3 text-xs font-bold tracking-wider text-muted uppercase">Manual</h2>
       <ul class="space-y-1 text-[15px]">
         {
@@ -57,7 +57,7 @@ const next = index < MANUAL.length - 1 ? MANUAL[index + 1] : undefined;
 
       <nav
         class="mt-14 flex flex-wrap gap-4 border-t border-line pt-6 text-[15px]"
-        aria-label="Manual sections"
+        aria-label="Section pagination"
       >
         {
           prev && (

@@ -26,6 +26,18 @@
   /* The "brightest thing on the page" — what hover states resolve to. Was a
      literal `white`, which is exactly wrong once the page can be light. */
   --color-emphasis: #ffffff;
+  /* Accent for small, meaningful TEXT — section eyebrows, the manual's counters.
+     Deliberately NOT --color-pink, which is a brand FILL: #ec4899 measures
+     3.40:1 on the light page and 3.53:1 on a white card, both under 4.5:1. It is
+     comfortable on the dark ground, so only the light value moves. */
+  --color-accent: #ec4899;
+  /* Unselected icons in the appearance toggle. --color-muted is right in light,
+     but in dark it sits only 2.67:1 from the selected icon — under the 3:1 that
+     makes a state perceivable at all (1.4.11), and the pill behind it
+     contributes just 1.23:1, so the icon is the whole signal. Dimming the dark
+     idle takes the selected/unselected pair to 4.46:1 while the idle icon still
+     clears 3:1 against its own pill (4.04:1). */
+  --color-control-idle: #7b7391;
 
   --color-violet: #7c3aed;
   --color-pink: #ec4899;
@@ -50,12 +62,24 @@
   --shadow-tint-strong: rgb(0 0 0 / 0.55);
   --shadow-tint-brand: rgb(236 72 153 / 0.35);
 
-  /* Gradient stops. The button gradient sits under white text and stays vivid
-     in both appearances; the TEXT gradient has to meet contrast against the
-     page, and the amber end fails badly on white (2.1:1), so the light
-     appearance uses deeper stops. */
-  --grad-button: linear-gradient(115deg, #7c3aed 0%, #ec4899 55%, #f59e0b 100%);
-  --grad-text: var(--grad-button);
+  /* Gradient stops.
+
+     The BUTTON gradient is worn under white text — all six .brand-gradient uses
+     are CTAs with text-white — so every stop that can land under a glyph has to
+     clear 4.5:1 against white. The vivid stops did not, and the earlier comment
+     here asserted they did without measuring: white came out at 2.65:1 under
+     "Download for Mac" and 2.52:1 under "Download HelloNotes.dmg" at 1280pt,
+     with the amber end alone reaching 2.15:1. The deeper stops below are the
+     very ones the light TEXT gradient already used, and give white 7.10 / 4.60 /
+     5.02. This is not appearance-dependent — white on #f59e0b is 2.15:1 whichever
+     way the page is painted — so the button gradient is declared once, here.
+
+     The TEXT gradient has the opposite job: it must contrast with the PAGE. It
+     keeps the vivid stops in this block, which is also the fallback for a
+     browser without light-dark() (where the page is dark and vivid is correct);
+     the @supports block below deepens it for the light appearance. */
+  --grad-button: linear-gradient(115deg, #6d28d9 0%, #db2777 55%, #b45309 100%);
+  --grad-text: linear-gradient(115deg, #7c3aed 0%, #ec4899 55%, #f59e0b 100%);
 }
 
 /*
@@ -88,6 +112,8 @@
     --color-chip: light-dark(#17131f0d, #ffffff14);
     --color-link: light-dark(#b32573, #f0a6c8);
     --color-emphasis: light-dark(#0b0813, #ffffff);
+    --color-accent: light-dark(#b32573, #ec4899);
+    --color-control-idle: light-dark(#655c7d, #7b7391);
 
     --shadow-tint: light-dark(rgb(38 20 71 / 0.1), rgb(0 0 0 / 0.45));
     --shadow-tint-strong: light-dark(rgb(38 20 71 / 0.16), rgb(0 0 0 / 0.55));
@@ -112,7 +138,11 @@
   }
 }
 
-/* The brand gradient, reused by the wordmark, primary button and headline. */
+/* The CTA fill. Its only consumers are the six primary-action anchors
+   (index x2, download, about, features, screenshots), every one of them
+   text-white — which is why --grad-button is the deep gradient and
+   --grad-text, used by the headline, is the vivid one. The wordmark is
+   text-ink and carries no gradient at all. */
 @utility brand-gradient {
   background-image: var(--grad-button);
 }
@@ -158,6 +188,15 @@
   /* The mobile menu is a <details> disclosure — no JavaScript. */
   summary::-webkit-details-marker {
     display: none;
+  }
+
+  /* <main> is the skip link's destination, not a control: it is tabindex="-1",
+     so it is never in the tab sequence and 2.4.7 asks nothing of it. The UA
+     default would ring the entire content column — hundreds of points tall —
+     which reads as a rendering fault rather than a focus cue. The scroll, and
+     the next Tab landing inside main, are the confirmation. */
+  main:focus {
+    outline: none;
   }
 }
 

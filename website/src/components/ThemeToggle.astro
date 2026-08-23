@@ -8,6 +8,13 @@
  *
  * Rendered as a radiogroup rather than a cycling button so all three states are
  * visible and directly reachable; a cycle hides what the current mode even is.
+ *
+ * Declaring role="radiogroup" promises a specific keyboard contract, and the
+ * markup has to keep it or the role is a lie: the group is ONE tab stop (roving
+ * tabindex — only the checked radio is tabbable) and the arrow keys move between
+ * options, with selection following focus. Previously all three were tab stops
+ * and no key handler existed at all, so a screen reader announced "radio button,
+ * 1 of 3" and the arrow keys a reader is taught to use did nothing.
  */
 
 const MODES = [
@@ -37,7 +44,8 @@ const MODES = [
       <button
         type="button"
         role="radio"
-        aria-checked="false"
+        aria-checked={m.value === 'auto' ? 'true' : 'false'}
+        tabindex={m.value === 'auto' ? 0 : -1}
         aria-label={m.label}
         title={`${m.label} appearance`}
         data-mode={m.value}
@@ -75,7 +83,7 @@ const MODES = [
     width: 30px;
     height: 26px;
     border-radius: 9999px;
-    color: var(--color-muted);
+    color: var(--color-control-idle);
     cursor: pointer;
     transition:
       background-color 0.15s,
@@ -124,7 +132,10 @@ const MODES = [
 
     // There can be more than one control on a page (desktop bar + mobile menu).
     document.querySelectorAll<HTMLButtonElement>('.theme-toggle button').forEach((b) => {
-      b.setAttribute('aria-checked', String(b.dataset.mode === mode));
+      const on = b.dataset.mode === mode;
+      b.setAttribute('aria-checked', String(on));
+      // Roving tabindex: the whole group is a single tab stop.
+      b.tabIndex = on ? 0 : -1;
     });
   };
 
@@ -137,6 +148,8 @@ const MODES = [
     }
   };
 
+  const STEP: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+
   document.querySelectorAll<HTMLElement>('.theme-toggle').forEach((group) => {
     group.addEventListener('click', (e) => {
       const button = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-mode]');
@@ -144,6 +157,30 @@ const MODES = [
       const mode = button.dataset.mode!;
       store(mode);
       apply(mode);
+    });
+
+    // Arrows only, per the APG radio pattern: selection follows focus.
+    group.addEventListener('keydown', (e) => {
+      // A modifier means the reader is asking the BROWSER for something —
+      // Cmd/Alt+Left is Back, Cmd+Up is scroll-to-top. Without this guard the
+      // arrow branch below ran first, so Back both changed the stored
+      // appearance and was swallowed by preventDefault().
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      const buttons = [...group.querySelectorAll<HTMLButtonElement>('button[data-mode]')];
+      const from = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      if (from < 0) return;
+
+      // Object.hasOwn, not `in`: `in` walks the prototype, so a key named
+      // "toString" would index a function and make the target index NaN.
+      if (!Object.hasOwn(STEP, e.key)) return;
+      const to = (from + STEP[e.key] + buttons.length) % buttons.length;
+
+      e.preventDefault();
+      const mode = buttons[to].dataset.mode!;
+      store(mode);
+      apply(mode);
+      buttons[to].focus();
     });
   });
 

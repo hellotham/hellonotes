@@ -18,6 +18,16 @@ const { title, description, heading, intro, ogImage, appSchema } = Astro.props;
 ---
 
 <Layout title={title} description={description} ogImage={ogImage} appSchema={appSchema}>
+  {/* First focusable on every page. Without it the nav is seven tab stops that a
+      keyboard-only reader pays on all sixteen pages — the wordmark, five links
+      and the appearance toggle, which the roving tabindex in ThemeToggle keeps
+      to one. Landmarks bypass those only for someone driving a screen reader. */}
+  <a
+    href="#main"
+    class="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-full focus:border focus:border-edge focus:bg-card focus:px-4 focus:py-2 focus:text-[15px] focus:font-semibold focus:text-ink"
+    >Skip to content</a
+  >
+
   <Nav />
 
   {
@@ -31,7 +41,8 @@ const { title, description, heading, intro, ogImage, appSchema } = Astro.props;
     )
   }
 
-  <main>
+  {/* tabindex=-1 so the skip link actually moves focus here, not just scroll. */}
+  <main id="main" tabindex="-1">
     <slot />
   </main>
 
