@@ -15,9 +15,25 @@ GitHub-identical Preview + parity tests).
 
 ## Commands
 
+All three are run **from the repository root**, not from this directory.
+
 ```bash
-swift test --package-path Packages/NotesEditor   # 9 suites; includes GFM spec 648/648
+swift test --package-path Packages/NotesEditor                 # 399 tests, 31 suites
+cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
+  -destination 'platform=iOS Simulator,name=HN-iPad'           # 379 tests — run these too
+./scripts/render-parity.sh                                     # Edit ≡ Preview: the gate
+                                                               # for anything visual
 ```
+
+`swift test` only ever builds the package for macOS, so the UIKit half is
+untested until the second command runs — that is how a `UITextView` showing a
+document it believed was empty, a zero-width keyboard bar and a link tap that
+ate the caret tap all shipped together.
+
+The GFM spec corpus is 672 examples, but `GFMSpecTests` asserts 648 of them:
+its parser matches `` ``` example `` and the extension blocks are tagged
+(`example table`, `example autolink`, …). Tables and strikethrough have never
+been checked for HTML byte-parity, only for geometry.
 
 ## Traps (all previously hit; details in docs/implemented.md §2, §5)
 
