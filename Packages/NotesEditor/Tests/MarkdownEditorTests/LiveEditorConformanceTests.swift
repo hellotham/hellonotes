@@ -118,6 +118,7 @@ import AppKit
         case .fencedCode, .indentedCode: "code_block"
         case .table: "table"
         case .thematicBreak: "thematic_break"
+        case .htmlBlock: "html_block"
         case .frontMatter, .mathBlock, .blank: nil   // not GFM constructs
         }
     }
@@ -126,7 +127,7 @@ import AppKit
         switch kind {
         case "heading", "paragraph", "block_quote", "code_block", "table", "thematic_break": kind
         case "item": "item"
-        case "html_block": "paragraph"   // MarkdownCore has no HTML block; renders as text
+        case "html_block": "html_block"
         default: nil                     // list container, list, document, inline…
         }
     }
@@ -165,9 +166,18 @@ import AppKit
         }
         print("block classification vs cmark: \(checked - mismatches.count)/\(checked) blocks agree")
         for (n, t, c, m) in mismatches.prefix(25) { print("  ex \(n): cmark=\(c) md=\(m)  \(t.debugDescription)") }
-        // Allow a small tail of genuine model differences (HTML blocks, loose
-        // list edge cases); the vast majority must agree.
-        #expect(mismatches.count <= checked / 20, "\(mismatches.count)/\(checked) block-type divergences from cmark")
+        // **Zero**, because zero is what it measures. The tolerance used to be
+        // a twentieth — 35 blocks of slack against a corpus that diverged on
+        // four — so the one thing this test exists to notice was the one size
+        // of regression it could not report. Those four were spec #66 and #68,
+        // where a document opening with `---` was read as YAML front matter
+        // (`md=nil`, since front matter is not a GFM construct); they cost
+        // nothing to close and the slack has no other claimant.
+        //
+        // HTML blocks were the last thing on that tail: MarkdownCore had no
+        // such block and counted them as paragraphs. It has one now, and
+        // cmark's `html_block` maps straight onto it.
+        #expect(mismatches.isEmpty, "\(mismatches.count)/\(checked) block-type divergences from cmark")
     }
 }
 #endif

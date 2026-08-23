@@ -462,7 +462,7 @@ import Testing
             - RenderedBlockFragment.calloutChevronInset
         #expect(tv.toggleCalloutFold(at: CGPoint(x: x, y: caret.midY)))
         #expect(document.storage.attribute(calloutFoldAttribute, at: headerLoc, effectiveRange: nil) as? Bool == true)
-        #expect((document.storage.attribute(.font, at: bodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect((document.storage.attribute(.font, at: bodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == EditorTheme.concealedSize)
         #expect(document.text == text)   // byte-pure, as always
 
         // A tap on the *left* of the same line is a caret tap, not a fold.
@@ -493,7 +493,7 @@ import Testing
         #expect(drawn)
         // The source is concealed, not removed.
         #expect(document.text == text)
-        #expect((document.storage.attribute(.font, at: mathLoc + 1, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect((document.storage.attribute(.font, at: mathLoc + 1, effectiveRange: nil) as? PlatformFont)?.pointSize == EditorTheme.concealedSize)
     }
 
     private struct StubInlineMathRenderer: BlockRenderer {
@@ -516,7 +516,7 @@ import Testing
     /// Is the character at `offset` concealed (collapsed to the 0.1pt font)?
     private func concealed(_ document: EditorDocument, at offset: Int) -> Bool {
         (document.storage.attributes(at: offset, effectiveRange: nil)[.font] as? PlatformFont)?
-            .pointSize == 0.1
+            .pointSize == EditorTheme.concealedSize
     }
 
     /// The reload the host performs when a co-editing app, iCloud or a resolved

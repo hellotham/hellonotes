@@ -517,6 +517,24 @@ struct EditorHost: View {
             renderTable: { source, maxWidth, isDark in
                 await MainActor.run { TableImageRenderer.image(source: source, maxWidth: maxWidth, fontSize: fontSize, isDark: isDark) }
             },
+            renderHTML: { source, maxWidth, isDark, keepsTrailingMargin in
+                // Through the package's own renderer, which builds the page
+                // with `GFMRenderer.page` — the same call Preview makes, with
+                // the same palette — so the block is drawn as the fragment
+                // Preview would have drawn there.
+                let theme = EditorTheme(fontSize: fontSize)
+                return await HTMLBlockImageRenderer.image(
+                    source: source, maxWidth: maxWidth,
+                    fontScale: Double(fontSize / 16),
+                    palette: theme.pagePalette(isDark: isDark), isDark: isDark,
+                    keepsTrailingMargin: keepsTrailingMargin,
+                    // The note's own folder, which is what `NoteEditorPane`
+                    // hands Preview. Without it a `<div><img src="pic.png">`
+                    // drew the picture in Preview and a broken-image box in
+                    // Edit — the same markup, the same page builder, two base
+                    // URLs.
+                    baseURL: noteDir)
+            },
             renderInlineMath: { latex, mathFontSize, isDark in
                 await MainActor.run {
                     let color: PlatformColor = isDark ? PlatformColor(white: 0.9, alpha: 1) : PlatformColor(white: 0.1, alpha: 1)

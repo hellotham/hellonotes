@@ -26,8 +26,13 @@ public struct ListInfo: Sendable, Equatable {
     /// Present when the item starts with a `[ ]` / `[x]` checkbox.
     public var task: TaskState?
     /// Offset from the line start to the item's content (after marker,
-    /// space, and any checkbox).
+    /// space, and any checkbox) — a count of *characters*.
     public var contentOffset: Int
+    /// The same place as a *column*, with tabs expanded to the next multiple of
+    /// four. The two differ the moment a tab is involved, and conflating them
+    /// is what made `-\t\tfoo` — an item holding indented code — read as an
+    /// item holding the word `foo`.
+    public var contentColumn: Int
 }
 
 public enum BlockKind: Sendable, Equatable {
@@ -52,6 +57,12 @@ public enum BlockKind: Sendable, Equatable {
     case thematicBreak
     /// YAML front matter (`---` fences at the very top of the document).
     case frontMatter
+    /// A raw HTML block. `condition` is CommonMark's start-condition number
+    /// (1…7, §4.6), because it is also what decides where the block *ends* —
+    /// types 1–5 close on a matching end string, 6 and 7 on a blank line.
+    /// `closed` is false when the end condition never arrived (EOF, or a
+    /// half-typed `<!--`), which is the normal state while you are typing one.
+    case htmlBlock(condition: Int, closed: Bool)
     /// A run of blank (whitespace-only) lines.
     case blank
 }
@@ -75,7 +86,11 @@ public struct Block: Sendable, Equatable {
     public var hasInlineContent: Bool {
         switch kind {
         case .paragraph, .heading, .blockquote, .listItem, .table: true
-        case .fencedCode, .indentedCode, .mathBlock, .thematicBreak, .frontMatter, .blank: false
+        // An HTML *block* is raw: CommonMark does not parse Markdown inside
+        // one, so `<div>\n*foo*\n</div>` keeps its asterisks. (An inline
+        // `<span>` inside a paragraph is a different thing and still does.)
+        case .fencedCode, .indentedCode, .mathBlock, .thematicBreak, .frontMatter,
+             .blank, .htmlBlock: false
         }
     }
 }

@@ -269,7 +269,9 @@ struct MeasuredText: ViewModifier {
             reading: reading,
             editing: editing
         )
-        HStack(spacing: 0) {
+        EditorProbe.log("measure pane=\(shell.paneWidth) kind=\(shell.kind) "
+                        + "reading=\(reading) editing=\(editing) -> \(resolved)")
+        return HStack(spacing: 0) {
             if resolved.centred { Spacer(minLength: 0) }
             content.frame(maxWidth: resolved.width)
             Spacer(minLength: 0)

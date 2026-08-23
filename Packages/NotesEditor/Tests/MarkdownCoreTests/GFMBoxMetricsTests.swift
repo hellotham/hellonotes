@@ -97,8 +97,8 @@ import Testing
         #expect(m.marginTop(.listItem(top: .opensList, lastInList: false)) == 0)
         #expect(m.marginTop(.listItem(top: .sibling(loose: false), lastInList: false)) == 4)
         #expect(m.marginTop(.listItem(top: .sibling(loose: true), lastInList: false)) == 16)
-        #expect(m.marginTop(.listItem(top: .opensNestedList(looseParent: false), lastInList: false)) == 0)
-        #expect(m.marginTop(.listItem(top: .opensNestedList(looseParent: true), lastInList: false)) == 16)
+        #expect(m.marginTop(.listItem(top: .opensNestedList(spaced: false), lastInList: false)) == 0)
+        #expect(m.marginTop(.listItem(top: .opensNestedList(spaced: true), lastInList: false)) == 16)
         #expect(m.marginBottom(.listItem(top: .sibling(loose: false), lastInList: false)) == 0)
         #expect(m.marginBottom(.listItem(top: .sibling(loose: false), lastInList: true)) == 16)
     }
@@ -138,5 +138,30 @@ import Testing
             #expect(!css.contains("line-height: 1.45"), "code leading left as a ratio at \(base)")
             #expect(!css.contains("line-height: 1.25"), "heading leading left as a ratio at \(base)")
         }
+    }
+
+    /// A table's height is the sum of its rows *plus its grid*. `table {
+    /// border-collapse: collapse }` makes each border a box of its own, so N
+    /// rows carry N+1 of them — and the editor's renderer used to stroke its
+    /// grid inside the cells, which is exactly this many points short.
+    ///
+    /// The numbers on the right are WebKit's, read off `--measure --dump` for
+    /// the specification's own tables: a header alone is 38, a header and one
+    /// row 75, a header and two rows 112.
+    @Test func aTableCarriesItsCollapsedBorders() {
+        let m = GFMBoxMetrics(base: 16)
+        #expect(m.tableRowHeight == 36)          // 24 line + 6+6 cell padding
+        #expect(m.tableHeight(rows: 1) == 38)
+        #expect(m.tableHeight(rows: 2) == 75)
+        #expect(m.tableHeight(rows: 3) == 112)
+        // No rows, no table — not one border's worth of nothing.
+        #expect(m.tableHeight(rows: 0) == 0)
+        // The same rule across the other axis.
+        #expect(m.tableWidth(cellWidths: [30, 40]) == 30 + 40 + 4 * m.cellPadX + 3)
+        #expect(m.tableWidth(cellWidths: []) == 0)
+        // And it scales with the root like every other metric here.
+        let big = GFMBoxMetrics(base: 32)
+        #expect(big.tableRowHeight == big.bodyLineHeight + 2 * big.cellPadY)
+        #expect(big.tableHeight(rows: 2) == 2 * big.tableRowHeight + 3)
     }
 }

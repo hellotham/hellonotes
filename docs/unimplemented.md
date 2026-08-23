@@ -424,3 +424,460 @@ different feature rather than the same one.
 `FindReplaceBar` → `UIFindInteraction`; `OpenQuicklyView` → `OpenQuicklyList`;
 `EditorTabBar` → the iPad tab strip; the settings panes → `iOSSettingsView`.
 
+
+## GFM geometric conformance — closed in the corpus, open beyond it
+
+Preview is byte-exact GFM (648/648, plus GitHub-API parity). The *editor* is
+measured against it by `Tools/RenderParity --spec`, which lays every spec
+example out in both engines and compares the height of what each one paints.
+
+| | agree | named | differ ≥1pt |
+|---|---|---|---|
+| examples as written (one construct, alone) | **672 / 672** | 0 | **0** |
+| the same examples with a paragraph above and below (`PARITY_CONTEXT=1`) | **672 / 672** | 0 | **0** |
+
+`agree` is `compared − failures − named`: a named divergence is never counted as
+an agreement, and there are none left to count — `NamedDivergence.reason()`
+returns `nil` unconditionally, so the sweep has no way to excuse an example any
+more. The rate is printed against the corpus, never against what survived it —
+an example that leaves the denominator makes the agreement rate go up for the
+wrong reason, and this file's numbers were wrong in exactly that way for most of
+their life.
+
+**The denominator is 672, and nothing is excluded from it.** It used to read 645
+and 633, and every one of the missing examples turned out to be the instrument
+rather than the corpus. Three findings, written up in full in implemented.md
+§23:
+
+- The sweep matched an opening fence of ` ```… example ` and had therefore
+  never read the twenty-four GFM **extension** examples — the whole Tables
+  section included, which is the construct with the most geometry in it. It
+  printed "648 examples", and 648 is what `spec.txt` appears to hold if you only
+  count what you already match.
+- The page's height was `scrollHeight - paddingTop - paddingBottom`, a scroll
+  extent, where the editor answers with `usageBoundsForTextContainer.height`, a
+  *painted* bottom. On a well-formed page the two agree, which is why the wrong
+  one looked right; on an example that leaves a tag open, the re-parented
+  trailing `<p>` keeps a 16pt bottom margin that nothing paints in, and the
+  editor was charged for it. Measuring the painted bottom instead brought the
+  fifteen context exclusions and the three named `#126`–`#128` ones back with
+  real numbers.
+- The corpus's image targets resolved nowhere **on either side**, so the
+  eighteen −4.00pt "broken-image placeholder" failures below were two fallbacks
+  being compared to each other. See *Disproved* below.
+
+**Every example number recorded in this file before that change is stale by up
+to twelve.** Reading the extensions renumbered everything after the first table
+example: the old #568 is #580.
+
+**Every section is now exact end to end in both sweeps**, extensions included,
+with nothing named and nothing excused. The three examples that used to carry a
+name are written up in implemented.md §23; the short version is that all three
+reasons were true statements about one engine and false statements about the
+comparison, and closing them changed what the *harness* rendered twice and what
+the editor rendered once.
+
+**672 of 672 is necessary and it is not sufficient**, which is why the numbers
+above are no longer the last word. `RenderParity --docs` lays out 58 whole
+documents — `Tools/RenderParity/Documents` — at 800, 560 and 1200pt, and
+`scripts/render-parity.sh` gates on it. It failed 9 of its first 35 documents
+with every spec example already agreeing, and nineteen distinct causes came out
+of that; six of them were horizontal errors that only become heights when
+something wraps, and two were +0.00pt at every width and visible only in a
+picture. Anything listed as open below is open *there*, not in the corpus.
+
+### Disproved — three things this file recorded as impossible
+
+Each was a claim about the platform, and none of them had been put to the
+platform. They are kept here rather than deleted because the shape of the
+mistake repeats: a limit was inferred from one failed attempt and then written
+down as a property of TextKit, of WebKit, or of the corpus.
+
+**"The Images section is one cause, eighteen times — WebKit's broken-image
+placeholder, and matching it would fit the editor to one browser's fallback."**
+Wrong about which cause. The sweep loaded every page with `baseURL: nil` and
+gave the editor no image base either, so neither side drew an image: WebKit drew
+its placeholder, the editor left the `![foo](/url)` source on screen, and the
+harness compared the two fallbacks. It was never a question about placeholders.
+`Tools/RenderParity/Fixtures` holds the twenty-by-twenty squares the corpus
+points at, served through a `parity:` scheme whose root *is* that folder —
+because half the targets are root-absolute (`/url`), and a browser resolves those
+to `file:///url`, which no harness can create. The section went from 18 failures
+to 3, and the three that are left are a different thing entirely (an inline
+replaced element inside a text line, below).
+
+**"An h1/h2 ending a note loses its rule inset, and it cannot move into the line
+height."** True about the line height, and it was never the only place to put it.
+`paragraphSpacing` is dropped on the document's last paragraph — correctly, since
+GitHub zeroes `:last-child`'s margin-bottom — but a rule's inset is
+`padding-bottom`, which is *inside* the box, and the fragment **is** the box.
+`NSTextLayoutFragment.bottomMargin` reserves it there: once per fragment however
+many visual lines it wraps to, which is exactly the property `minimumLineHeight`
+lacks. Eight examples, and the user-visible half was a note ending in an h1
+drawing its rule below `usageBounds` — off the end of the note.
+
+**"A line break inside an inline construct costs Edit a line and Preview none,
+and TextKit cannot close that gap."** The paragraph went on: "concealing it is
+not possible either — concealment sets width, not line-breaking behaviour", and
+"the only route is rewriting the user's text". Both halves are false in this
+codebase's own source. Concealment here sets a **line height**
+(`BlockBoxes.collapsedLine`), not a width, and the editor already stands a
+multi-line construct in a single visual box that way — every table, every
+`$$…$$`, every raw HTML block, via `EditorDocument.collapse`. The third route is
+the one the editor takes a dozen times a note: leave the source in the storage,
+conceal it, and draw the rendered fragment. So the eleven remaining joins are
+*not attempted*, which is a different sentence from *impossible*; what they need
+is a rendered fragment for a joined inline run, i.e. a feature. They are listed
+under **What is left** with their measurements.
+
+
+
+**`li code { line-height: 1 }` reaches a `pre > code`, and nothing shows it.**
+The rule exists so an inline `` `code` `` span cannot inflate the line it sits
+on. It has the same specificity as `pre code { line-height: inherit }` and is
+written after it, so inside a list item it also wins for the `<code>` of a
+fenced block: measured with `PARITY_CSS=line-height`, 13.6px where the same
+fence at the top level resolves 20px. Moving the `pre code` rule below it fixes
+the computed value and moves **no box at all** — across the whole corpus, not
+one example changed — because the item's own marker sits in that line box and
+is taller than either. So the fix was reverted rather than shipped with a story
+attached to it. It is recorded here because the overlap is real and the day
+something else changes that line box it will stop being invisible.
+
+**The parser cannot reopen a container, and the geometry no longer needs it
+to.** `* foo` / `  * bar` / blank / `  baz` is one item holding a paragraph, a
+nested list and a second paragraph, which also makes the outer list *loose*.
+Teaching the blank-line rule to look for an *enclosing* item was tried and
+reverted, and that half stands: blocks are a flat, non-overlapping tiling, so
+re-opening `foo` emits a second `foo` block spanning the nested one and drops
+the open `bar` block on the floor — a probe showed exactly that, two `listItem`
+blocks both starting at line 0 and `bar` gone.
+
+What was wrong was the conclusion that the 16pt therefore could not be
+recovered. It was recovered at the *box* layer, where the question is not "which
+block is open" but "which list does this block belong to":
+`BlockBoxes.membership(of:in:)` answers `sibling` / `interior` / `outside` from
+content columns, and `  baz` is `interior` to `foo` whatever the parser did with
+it. The same predicate fixed a disagreement nobody had noticed — `box(at:)`
+compared content columns while `listIsLoose` compared `indent / 2`, so `1. a` /
+blank / `  2. b` was one list to one of them and two lists to the other, and a
+genuinely loose list was scored tight. Lists and List items are both at zero
+failures now. The parser's model limit is real and is recorded here; it is not
+what that measurement was.
+
+**The `<script>` / `<style>` collapse is done for closed blocks, and
+deliberately not for unclosed ones.** A closed one is self-contained, renders as
+an embed of nothing, and folds away: measured in context at base 16 / width 800,
+`<style>`, `<script>` and `<script type=…>` all sit within 0.6pt of the page.
+(A `KNOWN GAP` comment claiming this had been backed out over margins 10–23pt
+short survived in the source long after it stopped being true; it has been
+corrected.)
+
+An **unclosed** one was recorded here as "the remaining +136pt, spec #142", on
+the reasoning that CommonMark runs the block to the end of the document, so the
+browser puts everything below `<style` inside the element and the page goes
+blank from there down. It does not, and that was the whole of the difference:
+GitHub's tagfilter escapes the leading `<`, so the browser is handed
+`&lt;style …` and makes **text** of it — one whitespace-collapsed run, with no
+element anywhere. Which is why `.markdown-body > *:last-child` then lands on the
+*paragraph above*, and why the editor was 16pt long there rather than 136 short.
+`BlockBoxes.producesElement` models it now: #142 measures +0.05pt in context and
++0.03 bare. See implemented.md §23.
+
+The result is not fitted to one size or one column width: the sweep is reported
+at base 16 / width 800, and `scripts/render-parity.sh` re-runs the hand-written
+sample across five bases and three widths on every change — worst per-block
+drift 0.03pt — and then the 58 real documents at three widths of their own.
+
+The second row is the one worth acting on. A spec example is a one-construct
+document, so it is measured at the document's edges — and the two engines define
+those differently (below). Wrapping asks the question a note actually poses.
+`--measure "<markdown>"` answers it for a single snippet, which is how each of
+the fixes below was pinned down.
+
+### Closed in the container-interior pass
+
+Container blocks got their interiors, one construct at a time, without giving up
+the flat block list. (What the two waves after it closed — the harness findings,
+list membership and looseness, reference links, tables and
+`NSTextLayoutFragment.bottomMargin` — is written up in implemented.md §23.)
+
+- a blank line no longer ends a list item when what follows is indented to the
+  item's content column (CommonMark's rule) — and the blank is styled as the
+  paragraph margin it stands for
+- indented code *inside* a list item gets the `pre` box, padding and band
+- an ATX heading inside a blockquote gets its own line height, font and rule
+  inset (`> # Foo` was a quoted line of body text: 43pt short)
+- lazy continuation — `> bar` / `baz` is one quoted paragraph
+- a lone `-` with no paragraph above it is an empty list item, not text
+- looseness is a property of the whole list again (the parser change had hidden
+  it: with the blank *inside* an item, no blank block separated the items)
+- raw HTML: no margin of its own, the fragment's own margins measured with
+  sentinels (the stylesheet zeroes `:last-child`'s, and a one-element fragment
+  *is* the last child), and a wrapper made only of tags collapses like a
+  reference definition instead of showing markup the reader never sees
+- an empty blockquote is a box of no height and no margin
+- a reference definition collapses on its own even when it shares a block with
+  a paragraph, or sits inside a list item. The cmark inversion cannot see those
+  — a container node covers the definitions consumed between its children, and
+  cmark-gfm has no node for a definition to ask about — so `ReferenceDefinition`
+  recognises the one construct outright, and only where a definition may legally
+  start: a block's first line, after a blank line, or after another definition.
+  `foo` then `[bar]: /url` stays text, because a definition cannot interrupt a
+  paragraph and hiding that line would delete something the reader sees
+- an angle-bracketed destination ends at its `>`, and a title must be separated
+  from it by whitespace — `[foo]: <bar>(baz)` is a paragraph, and treating it as
+  a definition *hid a line of text*
+- an empty ATX heading has no line box at all (`<h2></h2>` keeps only its
+  margins and, for h1/h2, its rule)
+- tabs: expanded to the next multiple of four, with index and column counted
+  separately — conflating them read `\t\tbar` from the middle of the word — and
+  a tab may separate a list marker from its content
+- CommonMark's content column is the marker plus **one to four** spaces, not
+  the marker plus one
+- an empty list item cannot interrupt a paragraph; a setext underline does not
+  apply over reference definitions
+- indented code inside a blockquote gets the `pre` box
+- a `>` line opening or closing a quote separates nothing and collapses
+- an empty h3–h6 has self-collapsing margins (no height, padding or border, so
+  its own top and bottom margins merge); h1/h2 keep both, a border stops the
+  collapse. `gapBetween` is now the single place that answers "what separates
+  these two blocks", because `gapAfter` and `gapShares` used to compute it
+  separately and a rule added to one was silently missing from the other —
+  which of them applied depended on whether the writer left a blank line
+- a nested list inside a continued item is its own block again, so the depth
+  machinery spaces it (swallowing it into the parent hid that structure)
+- a setext underline may carry trailing whitespace — `Foo` over `   ----   ` is
+  an h2, not a paragraph and a rule
+- a backtick fence's info string may not contain a backtick, so ``` ``` ``` on
+  one line is a paragraph holding a code span, not a fence that swallows the
+  rest of the note
+- an **unclosed** fence has no closing line: its last line is code, not a
+  padding band, and the box's bottom padding comes from that line's own height
+- a thematic break needs three *dashes*, not three characters — `-   ` is one
+  dash and three spaces, which is an empty list item
+- a bare wrapper tag inside a list item or a quote (`- <div>`) collapses, while
+  a line carrying anything that draws (`<img>`, `<br>`) or any text does not
+- a reference definition may run over several lines (`[` / `foo` / `]: /url`),
+  so the longest span that parses as one wins
+- inside a quote, a box opens only where a line goes *deeper* than the paragraph
+  has already been. Fewer markers than the line above is lazy continuation — a
+  continuation line may carry no `>` at all — so `>>> foo` / `> bar` / `>>baz`
+  is one paragraph, not three boxes with margins between them
+- lazy continuation is a *paragraph* rule: `>     foo` holds a code block, so
+  the unprefixed line under it starts something of its own — and an indented
+  line under an open quote paragraph is continuation text even when it looks
+  like a list marker
+- `applyQuoteBars` is given the unrendered ranges, so a reference definition
+  inside a quote stays collapsed instead of being written back at full height by
+  the pass that draws the bars
+- an ATX heading, a **setext** heading and a thematic break inside a *list item*
+  get their own boxes, as they already did inside a quote. A line of dashes
+  indented to the item's content column with text above it underlines that text
+  rather than ruling off the list — the spec gives setext precedence when a line
+  could be read either way
+- a setext heading's paragraph may open with reference definitions, so the
+  heading covers only the text below them
+- a code run inside a list item extends over blank runs of *any* length; looking
+  one line ahead split one code block into two, each paying for its own padding
+- indented code may begin on the item's *marker* line (`1.     code`), measured
+  past the marker so the `1.` stays a marker and not part of the code box
+- a quote holding nothing but a reference definition is as much "not a box" as
+  an empty one, so `box(at:)` takes the unrendered ranges
+- **list bullets** were centred on the *line box* and drawn from the concealed
+  marker's character position: a half-leading too high and 6pt too far right.
+  They belong at the x-height centre, half the list indent left of the text.
+  Found by dumping both sides with `--png` and counting pixels — every height
+  measurement was green throughout
+- **quote bars** were drawn per line at fractional y, leaving a hairline seam at
+  every line break where the rendered page draws one unbroken border. Snapped to
+  whole points so consecutive segments meet. Measured: a 1px break at row 2073
+  of a 2× dump, gone afterwards
+- **a rendered image reserves the baseline below it.** An `<img>` is inline: it
+  sits on the text baseline, so the line box is the image plus what the strut
+  hangs beneath — a half-leading and a descender, 6pt at 16pt body. Tables,
+  diagrams and formulae are block-level and get none. Only visible with an image
+  that *resolves*, which no spec example did until the fixture folder existed; a
+  standalone image now lays out at 146.01 against Preview's 146.00
+
+### Found by looking, not by measuring
+
+Five defects were fixed this pass that every height measurement called fine —
+which is the argument for the gate below existing at all:
+
+- list bullets 6pt too far right and a half-leading too high
+- quote gutters seamed at every line break
+- `> - item` not rendered as a list at all: raw dash, no bullet, no indent
+- the `>` visible *inside* a quoted code block, set in the code font
+- the code band painted through the quote bar instead of starting after it
+
+**Headings inside a list item** are done — see implemented.md, including the
+one limit this section used to list. When the *document's first block* was a
+list item opening with a heading, that heading's top margin went into the line
+box, and a line height applies to every **wrapped** visual line: the margin was
+paid once per line, +24.01pt at an 800pt pane, +48.01 at 560, +72.01 at 420.
+The repair recorded here — "the fragment carrying its own top inset" — is
+exactly what closed it, and by then the mechanism already existed for the loose
+item beside it (`openingMarginAttribute` / `RenderedBlockFragment.topMargin`)
+and had simply not been carried across. The lesson is the narrow one: a
+`KNOWN LIMIT` comment with a working mechanism next to it is a to-do, and the
+gate that caught it was the document sweep run at a width nobody had gated on.
+
+### The appearance gate
+
+`render-parity.sh` used to compare *heights* only, and stayed green through
+three defects you could see at a glance. It now ends with
+`RenderParity --chrome`, which renders both sides and measures the marks
+themselves: the first list bullet's height above its own baseline and its
+distance left of its own text, and the number of breaks in the first quote's
+gutter. Everything is relative to something in the same image, because the two
+dumps sit at different absolute offsets.
+
+Two things that took a second attempt, so they are not repeated:
+
+- **Anchor on structure, not on row numbers.** The first version looked in fixed
+  row bands and reported failures on chrome that was already correct. A gate
+  that cries wolf is worse than no gate. It now finds the bullet by grouping
+  rows into bands and taking the first whose leftmost mark is indented past the
+  paragraph margin but short of the list's text column.
+- **Count the breaks in a bar; do not measure the longest.** A quote's gutter
+  has one legitimate 20px gap — the margin between its own paragraphs — so a
+  one-pixel seam at every line break hides completely behind it. Measuring the
+  longest gap passed a bar that was visibly striped; counting catches it.
+
+Both were validated by reintroducing each defect and confirming the gate fails
+(bullet Δ+4.0pt; quote bar 1 break against Preview's 0), then restoring.
+
+### What is left
+
+Nothing, in the corpus — 672 of 672 in both sweeps, with nothing named. The five
+groups this section used to list are all closed; they are kept here in one line
+each so the shape of each fix stays findable, and written up in full in
+implemented.md §23.
+
+| was | examples | how it closed |
+|---|---|---|
+| the element-layer join | 11 | a content element spanning both source lines, with the newline folded to a space in the element and left alone in the storage (`JoinedLines.swift`) |
+| an inline replaced element inside a text line | 3 | an attachment on the image's first character, and dropping the `maximumLineHeight` clamp on a paragraph that holds one |
+| raw HTML blocks that do not stand alone | 8 ctx / 12 bare | rendering the whole balanced span rather than the block, refusing table-internal fragments WebKit discards, and a third answer in `isTagsOnly` for a tag run that reaches the end of the input |
+| edge-of-document cases | 8 bare | a box that paints nothing is a box of no height *and* no margin — one rule, not eight special cases |
+| the h1/h2 rule at EOF | 7 bare | `NSTextLayoutFragment.bottomMargin`, which is per fragment however many lines it wraps to |
+
+The two that used to remain were *named* rather than fixed — an Obsidian embed,
+and a page whose last element is not the one `:last-child` selects — and both
+turned out to be reasons about one engine rather than about the comparison. They
+are closed and written up in implemented.md §23, and the sweep can no longer
+name anything: `NamedDivergence.reason()` returns `nil`, and the two JavaScript
+shape flags that fed it were deleted with it, so a regression on exactly those
+shapes comes back as a failure rather than as an excuse.
+
+### Still open — each with the command that reproduces it
+
+None of these is visible to the spec corpus; two of them are visible to the
+document gate at 420pt, which is why that width is measured and printed on every
+run of `scripts/render-parity.sh` even though it does not fail the suite. Every
+entry is measured rather than asserted, because the three divergences this file
+used to *name* were all excuses that nobody could check.
+
+- **Display maths.** `$$ … $$` measures **edit 132.00 / preview 152.00,
+  −20.00pt**. It is not a box-model difference at all: the editor draws the
+  formula with SwiftMath and `GFMRenderer` attaches no maths extension, so
+  Preview prints the literal `$$`. Two *contents*, not two measurements. What
+  closes it is one maths engine for both surfaces — the move
+  `HTMLBlockImageRenderer` already makes for raw HTML — which needs a LaTeX
+  renderer inside the page and is a dependency decision. Deliberately **not**
+  closed by making the editor's fallback match the page: that would turn the
+  gate green over an app that still diverges.
+- **A table wider than its pane — mostly closed, and not entirely.** Edit
+  scaled the whole bitmap down where Preview wraps the cell text, and the
+  shortfall was edit-shorter-than-preview every time. `GFMTableGeometry.fitted`
+  replaced the proportional bitmap scale with column shrinking and wrapped row
+  heights — CSS's rule reduced to its two bounds, the width a column *wants*
+  against the width it *needs*, with the deficit shared out in proportion to
+  how much each has to give, and overflow rather than clipping past the
+  minimums. That took the 420pt document run from 5 of 58 short to 2.
+  **One table shortfall is left**, and it is worth stating precisely because
+  the run's headline no longer separates the two causes:
+
+      swift run --package-path Tools/RenderParity RenderParity \
+        --locate Tools/RenderParity/Documents/01-readme.md --width 420
+
+  bisects `01-readme.md` (−43.89 in total) into **two** blocks, not one: the
+  ```swift line at −20.00, which is the solidus case below, and a three-column
+  `| Flag | Default | What it does |` table at **−23.96**, which is this one.
+  `README.md`'s −19.91 is solidus only. So the table work closed three of the
+  four documents it was aimed at and left one grid measuring short at 420;
+  this entry closes when that block does.
+- **TextKit breaks a line after `/` and WebKit does not.** The cheapest real
+  case is one line of Swift at a 420pt pane:
+
+      ```swift
+      .package(url: "https://example.com/widget-kit", from: "1.0.0")
+      ```
+
+  **edit 72.00 / preview 92.00, −20.00pt** — two lines against three, +0.00 from
+  460pt up. At roughly 43 columns WebKit breaks at the spaces only
+  (`.package(url:` / `"https://example.com/widget-kit", from:` / `"1.0.0")`)
+  while TextKit breaks inside the URL after a solidus and fits it into two. The
+  discriminator: the same line with `-` in place of the `/` is +0.00 at every
+  width, because both engines break after a hyphen, and with no separator at all
+  it is +0.00 too. So it is **one break opportunity**, not a wrapping model.
+  Neither side can be told to match the other by a declaration:
+  `overflow-wrap: anywhere` is already on `pre` and `pre > code` and does not
+  help — the URL token *fits* on a line of its own, so the browser never breaks
+  inside it — while `word-break: break-all` and `line-break: anywhere` would
+  break far more than TextKit does rather than less, and `lineBreakStrategy = []`
+  on the editor side removes nothing. Giving the page the opportunity means
+  emitting `<wbr>` into cmark's output, which is the byte parity
+  `GFMRenderTests` holds, so there is no repair today. It is why the document
+  gate **reports** 420 rather than failing on it: the run prints
+  `note  documents width 420 … 56 agree, 2 differ` with both document names and
+  both deltas on every run, so a new shortfall there is a new line and not a
+  silence. A gate that fails every run for a reason nobody can act on is one
+  people learn to ignore — this repository has been round that loop once already
+  with the chrome check.
+- **A wikilink is underlined in Edit and not in Preview.** `[[wiki]]` measures
+  +0.00pt against the page and is not the same picture: `StyleApplier` gives a
+  non-embed wikilink a live `.link` (`hellonotes-wiki://…`, for hover and click)
+  and nothing sets `linkTextAttributes`, so AppKit underlines it for free, while
+  `github-markdown-css` underlines `a` on hover only. An ordinary
+  `[text](url)` escapes it because the `.link` goes on the concealed `(url)`
+  run, not on the visible text. The repair is one `linkTextAttributes`
+  assignment, and it changes every link in the editor — a decision about
+  affordance rather than about parity.
+- **Note transclusion diverges in a real vault, and only there.**
+  `![[Some Note]]` resolves in Edit through `BlockRenderAdapter` →
+  `CollectionEmbedProvider` → a `NoteTranscluder` card; in Preview
+  `NoteMarkdown.prepare` turns it into `![](Some%20Note)` and WebKit draws a
+  broken-image box. `BlockRenderAdapter` decides note-vs-image by file
+  extension, which `NoteMarkdown` cannot do — it has no vault. Closing it means
+  giving `prepare` a resolver and inlining the target's Markdown, which is a
+  feature. Invisible to both gates: neither has a vault.
+- **Export and print still render the raw note.** `HelloNotes/UI/EditorExport.swift`
+  calls `GFMRenderer.page` on the note's own text at six call sites, so an
+  exported or printed note keeps its literal `![[…]]` and its raw YAML front
+  matter. Same class as the `![[foo]]` divergence — a surface that renders a
+  note without taking the step that turns a note into GFM — but export is
+  neither Edit nor Preview, and whether front matter belongs in an export is a
+  product decision.
+- **`StyleSpec.appendInlineRuns` still parses inlines with an empty reference
+  map,** so the hand-written styler — the path used above
+  `StyleApplier.gfmOverlayMaxLength` — does not colour or conceal reference
+  links. The cmark overlay does for every document under that gate. Threading
+  the map through would start concealing `][ref]` tails, a wrap-width change in
+  the large-document path that no gate here measures.
+- **One edge case introduced knowingly.** Concealing a list item's own indent
+  inside a nested code box leaves near-zero-width characters at the head of the
+  line, and TextKit treats them as a first token: where a *single* token is
+  longer than the whole column, the line is moved down before being broken and
+  the editor makes one more line than the page (+20pt at exactly-overflowing
+  tokens). Real code lines have spaces early on and are unaffected; it replaced
+  a defect that fired on the common case (a 61-column line was two lines in Edit
+  and one in Preview at 640pt).
+
+Two things seen in the PNG dumps that are **not** defects, recorded so they are
+not re-investigated: the harness's editor has no code highlighter attached, so
+its listings are monochrome where Preview's are coloured (the app supplies
+`CodeHighlighterAdapter`); and Preview squeezes CJK punctuation where Edit sets
+it full-width, which no height can see and which is a font-feature difference
+rather than a box one.

@@ -38,6 +38,10 @@ public enum TextRole: Sendable, Equatable {
     case taskMarker(checked: Bool)
     case thematicBreak
     case frontMatter
+    /// The source of a raw HTML block, shown when the caret is inside it.
+    /// (When the caret is elsewhere the block collapses to its rendered
+    /// image, exactly as a table or a Mermaid diagram does.)
+    case htmlSource
     /// Syntax punctuation — `**`, `` ` ``, `[[`, heading `#`s, fences …
     case marker
 }
@@ -280,13 +284,58 @@ public enum StyleSpec {
                     }
                 }
             }
+            /// A fence delimiter at the head of this line's content — measured
+            /// past the marker on the item's own first line, which is where
+            /// `- ``` ` writes one.
+            func fenceRun(_ lineNo: Int) -> (marker: unichar, count: Int)? {
+                let content = lines.contentRange(lineNo, in: text)
+                var i = content.location
+                let end = content.location + content.length
+                if lineNo == first { i = min(i + info.contentOffset, end) }
+                while i < end, text.character(at: i) == 0x20 { i += 1 }
+                guard i < end else { return nil }
+                let marker = text.character(at: i)
+                guard marker == 0x60 || marker == 0x7E else { return nil }
+                var count = 0
+                while i < end, text.character(at: i) == marker { count += 1; i += 1 }
+                return count >= 3 ? (marker, count) : nil
+            }
+            // A fenced code block written under the item's text is a
+            // **listing**, and a listing is not prose. Every line of the item
+            // used to become a content span, so the inline pass ran over the
+            // program: a URL in it came out an underlined link, `**bold**` lost
+            // its asterisks and went bold, and a backticked word grew an
+            // inline-code pill — against a Preview showing all three literally.
+            // No height could see it (the box is the same height either way);
+            // the pictures show it at a glance.
+            //
+            // Only fences here. Four columns past the item's content is an
+            // indented code block and has the same problem, and finding those
+            // needs the tab-expanded column arithmetic
+            // `StyleApplier.applyListItemInterior` already does — two copies of
+            // which is how a line gets styled as code by one pass and as prose
+            // by the other.
+            var openFence: (marker: unichar, count: Int)?
+            func isListing(_ lineNo: Int) -> Bool {
+                if let open = openFence {
+                    if let run = fenceRun(lineNo), run.marker == open.marker,
+                       run.count >= open.count { openFence = nil }
+                    return true
+                }
+                if let run = fenceRun(lineNo) { openFence = run; return true }
+                return false
+            }
+
             let contentStart = markerLine.location + info.contentOffset
             let firstContent = NSRange(location: contentStart,
                                        length: max(0, markerLine.location + markerLine.length - contentStart))
-            runs.append(StyleRun(range: firstContent, role: .body))
-            spans.append(firstContent)
+            if !isListing(first) {
+                runs.append(StyleRun(range: firstContent, role: .body))
+                spans.append(firstContent)
+            }
             if block.lineCount > 1 {
                 for lineNo in (first + 1)...last {
+                    guard !isListing(lineNo) else { continue }
                     let content = lines.contentRange(lineNo, in: text)
                     runs.append(StyleRun(range: content, role: .body))
                     spans.append(content)
@@ -331,6 +380,13 @@ public enum StyleSpec {
         case .frontMatter:
             runs.append(StyleRun(range: trimmedBlockRange(block, text: text), role: .frontMatter))
             return []
+
+        case .htmlBlock:
+            // No inline spans returned: the content is raw HTML, and running
+            // the inline parser over it would find `*` and `_` inside
+            // attributes and style tags that are not Markdown at all.
+            runs.append(StyleRun(range: trimmedBlockRange(block, text: text), role: .htmlSource))
+            return []
         }
     }
 
@@ -353,6 +409,19 @@ public enum StyleSpec {
             case .link(let url, _):
                 contentRole = .linkText
                 _ = url
+            case .rawImage:
+                // No runs at all. A replaced element has no text to style and
+                // no markers to conceal — and concealing the tag here, before
+                // a picture exists, would delete the writer's markup from the
+                // screen and put nothing in its place. `EditorDocument`
+                // conceals it when (and only when) it has the image.
+                contentRole = nil
+            case .rawHTML:
+                // Nothing, deliberately. A raw tag is the source the writer
+                // typed and it stays on screen looking like source; the node
+                // exists so the scan consumes it (no emphasis delimiters out of
+                // an attribute) and so the joining pass can see where it ends.
+                contentRole = nil
             case .autolink:
                 contentRole = .url
                 // `<url>` angle brackets conceal when the caret is elsewhere;

@@ -36,6 +36,8 @@ actor BlockRenderAdapter: BlockRenderer {
     private let renderTransclusion: @Sendable (String, Bool) async -> PlatformImage?
     /// Render a GFM table to an aligned grid (hops to the main actor inside).
     private let renderTable: @Sendable (String, CGFloat, Bool) async -> PlatformImage?
+    /// Render a raw HTML block through WebKit (hops to the main actor inside).
+    private let renderHTML: @Sendable (String, CGFloat, Bool, Bool) async -> PlatformImage?
     /// Render an inline `$…$` math span (hops to the main actor inside).
     private let renderInlineMathFn: @Sendable (String, CGFloat, Bool) async -> PlatformImage?
 
@@ -47,6 +49,7 @@ actor BlockRenderAdapter: BlockRenderer {
         renderMath: @escaping @Sendable (String, Bool) async -> PlatformImage? = { _, _ in nil },
         renderTransclusion: @escaping @Sendable (String, Bool) async -> PlatformImage? = { _, _ in nil },
         renderTable: @escaping @Sendable (String, CGFloat, Bool) async -> PlatformImage? = { _, _, _ in nil },
+        renderHTML: @escaping @Sendable (String, CGFloat, Bool, Bool) async -> PlatformImage? = { _, _, _, _ in nil },
         renderInlineMath: @escaping @Sendable (String, CGFloat, Bool) async -> PlatformImage? = { _, _, _ in nil }
     ) {
         self.resolve = resolve
@@ -54,6 +57,7 @@ actor BlockRenderAdapter: BlockRenderer {
         self.renderMath = renderMath
         self.renderTransclusion = renderTransclusion
         self.renderTable = renderTable
+        self.renderHTML = renderHTML
         self.renderInlineMathFn = renderInlineMath
     }
 
@@ -77,6 +81,9 @@ actor BlockRenderAdapter: BlockRenderer {
         case .table(let source):
             // The renderer sizes to maxWidth itself (no post-scale needed).
             return await renderTable(source, maxWidth, darkMode)
+        case .html(let source, let keepsTrailingMargin):
+            // Rendered at maxWidth by WebKit, so it needs no post-scale either.
+            return await renderHTML(source, maxWidth, darkMode, keepsTrailingMargin)
         }
     }
 

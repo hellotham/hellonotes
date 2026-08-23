@@ -143,12 +143,38 @@ nonisolated enum FrontMatter {
         }
         guard let closingIndex = closing else { return nil }
         let inner = Array(allLines[1..<closingIndex])
+        // Two `---` lines are not front matter on their own — the block has to
+        // carry at least one `key:` property, which is the same test
+        // `BlockParser` applies so the editor folds exactly what the preview
+        // strips. Without it a note that opened with a horizontal rule had
+        // everything down to its next rule treated as metadata: concealed in
+        // Edit, and deleted outright from Preview by `body(of:)`.
+        guard inner.contains(where: isMappingEntry) else { return nil }
 
         // Body starts after the closing fence line (and its trailing newline).
         var consumed = 0
         for i in 0...closingIndex { consumed += allLines[i].count + (i < allLines.count - 1 ? 1 : 0) }
         let bodyStart = text.index(text.startIndex, offsetBy: min(consumed, text.count))
         return Block(lines: inner, bodyStart: bodyStart)
+    }
+
+    /// `key:` or `key: value` — YAML's mapping entry, and nothing else.
+    ///
+    /// The colon must end the line or be followed by a space, or `12:30 standup`
+    /// and a bare URL both count; a leading `#` is a YAML comment (and how
+    /// `## Meeting notes` starts) and a leading `-` a sequence item, so neither
+    /// can be the entry that proves the block is a mapping. Kept in step with
+    /// `BlockParser.isMappingEntry` — the two answer the same question for the
+    /// same document, one for the fold and one for the Properties panel.
+    private static func isMappingEntry(_ line: String) -> Bool {
+        // Trailing newlines go too: `components(separatedBy: "\n")` leaves the
+        // CR of a CRLF file on the end of every line, and `key:\r` would fail
+        // the "colon at end of line" test on a file saved on Windows.
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)[...]
+        guard let first = trimmed.first, first != "#", first != "-" else { return false }
+        guard let colon = trimmed.firstIndex(of: ":"), colon > trimmed.startIndex else { return false }
+        let after = trimmed.index(after: colon)
+        return after == trimmed.endIndex || trimmed[after] == " " || trimmed[after] == "\t"
     }
 
     private static func isListItem(_ line: String) -> Bool {

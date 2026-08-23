@@ -19,6 +19,35 @@ public extension GFMRenderer {
          .replacingOccurrences(of: ">", with: "&gt;")
     }
 
+    /// Rebind the stylesheet's colour variables to the host's, and stop it
+    /// painting a canvas of its own. Written as variable overrides rather than
+    /// as rules, so every place GitHub uses a colour — a heading's rule, a
+    /// blockquote's bar, a table's grid — follows without needing to be listed.
+    private static func paletteCSS(_ p: Palette) -> String {
+        """
+        .markdown-body {
+          --fgColor-default: \(p.text);
+          --color-fg-default: \(p.text);
+          --fgColor-muted: \(p.muted);
+          --color-fg-muted: \(p.muted);
+          --fgColor-accent: \(p.accent);
+          --color-accent-fg: \(p.accent);
+          --bgColor-muted: \(p.codeBackground);
+          --color-canvas-subtle: \(p.codeBackground);
+          --bgColor-neutral-muted: \(p.inlineCodeBackground);
+          --borderColor-default: \(p.border);
+          --borderColor-muted: \(p.border);
+          --color-border-default: \(p.border);
+          --color-border-muted: \(p.border);
+          --bgColor-default: \(p.canvas ?? "transparent");
+          --color-canvas-default: \(p.canvas ?? "transparent");
+          color: \(p.text);
+          background-color: \(p.canvas ?? "transparent");
+        }
+        .markdown-body table tr { background-color: \(p.canvas ?? "transparent"); }
+        """
+    }
+
     private static func resource(_ name: String, _ ext: String) -> String {
         guard let url = Bundle.module.url(forResource: name, withExtension: ext),
               let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
@@ -73,6 +102,38 @@ public extension GFMRenderer {
         }
     }
 
+    /// The colours a page is painted in.
+    ///
+    /// Preview and Edit have to agree on more than geometry. GitHub's
+    /// stylesheet paints its own canvas (`#0d1117` in dark) and its own text,
+    /// link and border colours, none of which are the ones the editor draws
+    /// with — so switching to Preview changed the colour of the page as well
+    /// as, apparently, its layout. A pane hands its own palette in and paints
+    /// nothing behind itself; a document keeps GitHub's, which is what makes an
+    /// exported file look like a README.
+    struct Palette: Sendable, Equatable {
+        public var text: String
+        public var muted: String
+        public var accent: String
+        public var codeBackground: String
+        public var inlineCodeBackground: String
+        public var border: String
+        /// `nil` paints nothing — the host's own background shows through.
+        public var canvas: String?
+
+        public init(text: String, muted: String, accent: String,
+                    codeBackground: String, inlineCodeBackground: String,
+                    border: String, canvas: String?) {
+            self.text = text; self.muted = muted; self.accent = accent
+            self.codeBackground = codeBackground
+            self.inlineCodeBackground = inlineCodeBackground
+            self.border = border; self.canvas = canvas
+        }
+
+        /// The stylesheet's own colours, left to `prefers-color-scheme`.
+        public static let github: Palette? = nil
+    }
+
     /// A complete HTML page rendering `markdown` exactly as GitHub would.
     /// `baseURL` (the note's folder) lets relative image `src`s resolve.
     /// - Parameter fontScale: the app's text-scale setting. It sets the root
@@ -85,7 +146,7 @@ public extension GFMRenderer {
     /// - Parameter box: the container — `.document` to save or print,
     ///   `.pane` to sit flush with the editor it replaces.
     static func page(_ markdown: String, title: String = "", fontScale: Double = 1,
-                     box: PageBox = .document) -> String {
+                     box: PageBox = .document, palette: Palette? = nil) -> String {
         let metrics = GFMBoxMetrics(base: 16 * CGFloat(fontScale))
         // GitHub-mode: hard line breaks, matching api.github.com/markdown.
         let body = html(markdown, hardBreaks: true)
@@ -107,7 +168,7 @@ public extension GFMRenderer {
         <style>@media (prefers-color-scheme: dark) { \(highlightCSSDark) }</style>
         <style>
         html { -webkit-text-size-adjust: 100%; }
-        body { margin: 0; background: var(--bgColor-default, var(--color-canvas-default, transparent)); }
+        body { margin: 0; background: \(palette?.canvas ?? "var(--bgColor-default, var(--color-canvas-default, transparent))"); }
         .markdown-body {
           box-sizing: border-box;
           min-width: 200px;
@@ -122,6 +183,7 @@ public extension GFMRenderer {
         /* The shared box model — see MarkdownCore/GFMBoxMetrics.swift. Every
            number below is the one the live editor lays out with. */
         \(metrics.css)
+        \(palette.map(paletteCSS) ?? "")
         </style>
         </head>
         <body>

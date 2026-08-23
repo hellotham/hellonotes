@@ -55,6 +55,11 @@ struct NoteEditorPane: View {
     /// `NoteEditorView`, which does the same with the same notification.
     @State private var titleFocusRequest = CaretHandoff()
 
+    /// Which appearance the editor is drawing in, so Preview resolves the same
+    /// dynamic colours rather than letting the page guess from
+    /// `prefers-color-scheme`.
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         VStack(spacing: 0) {
             if showsBanners {
@@ -74,6 +79,12 @@ struct NoteEditorPane: View {
                     focusRequest: titleFocusRequest
                 )
                 .disabled(onRename == nil)
+                .background(GeometryReader { geo in
+                    let frame = geo.frame(in: .global)
+                    Color.clear
+                        .onAppear { logTitle(frame) }
+                        .onChange(of: mode) { _, _ in logTitle(frame) }
+                })
             }
             // The measure is the *pane's*, applied once, outside the mode
             // switch. It used to be applied per mode — Preview at the reading
@@ -90,7 +101,26 @@ struct NoteEditorPane: View {
             .measuredText(fontSize: appearance.editorFontSize,
                           reading: appearance.readingWidth,
                           editing: appearance.editorWidth)
+            // Where the note's content actually starts, per mode, in window
+            // coordinates. The geometry harness compares the two renderers to
+            // each other and has no inline title at all, so an interaction
+            // between the title's chrome and the first Markdown block is
+            // invisible to it. This is the pane reporting its own seam.
+            .background(GeometryReader { geo in
+                let frame = geo.frame(in: .global)
+                Color.clear
+                    .onAppear { logContent(frame) }
+                    // The background sits *outside* the mode switch, so it is
+                    // never rebuilt when the mode changes and `onAppear` fires
+                    // exactly once — which is why only Edit was ever recorded.
+                    .onChange(of: mode) { _, _ in logContent(frame) }
+            })
         }
+        // The canvas is the *pane's*, painted once behind whichever renderer is
+        // on screen. Neither owns it, so it cannot change when the mode does —
+        // which it did: Preview painted GitHub's `#0d1117` and the editor
+        // painted nothing at all, letting the window's material through.
+        .background(Color(EditorTheme.canvas(isDark: colorScheme == .dark)))
         .onReceive(NotificationCenter.default.publisher(for: .hnEditorCaretEscapedTop)) { notification in
             // The caret left the top of the note — catch it in the title. Only
             // when there *is* a title to catch it in, and only when this pane
@@ -103,6 +133,16 @@ struct NoteEditorPane: View {
         // the editor's or preview's ideal height sizes the column, and the
         // split view follows it past the screen.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func logContent(_ frame: CGRect) {
+        EditorProbe.log("pane content mode=\(mode.rawValue) "
+                        + "top=\(frame.minY) height=\(frame.height)")
+    }
+
+    private func logTitle(_ frame: CGRect) {
+        EditorProbe.log("inline title mode=\(mode.rawValue) "
+                        + "top=\(frame.minY) height=\(frame.height)")
     }
 
     /// The shared TextKit 2 live editor (inline styling, caret-driven reveal,
@@ -150,7 +190,13 @@ struct NoteEditorPane: View {
         GFMPreview(
             markdown: GitHubMarkdown.prepare(editor.text),
             baseURL: note.fileURL.deletingLastPathComponent(),
-            fontScale: appearance.textScale
+            fontScale: appearance.textScale,
+            // The same theme `EditorHost` hands the live editor, so Preview
+            // paints the note in the same ink — and paints no canvas of its
+            // own, so the background behind it does not change with the mode.
+            theme: EditorTheme(fontSize: appearance.editorFontSize,
+                               accent: appearance.editorAccentPlatformColor),
+            isDark: colorScheme == .dark
         )
     }
 

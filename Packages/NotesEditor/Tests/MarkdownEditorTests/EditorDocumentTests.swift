@@ -164,12 +164,12 @@ import UIKit
         document.selectionDidChange(NSRange(location: 0, length: 0))
         let markerAt = (text as NSString).range(of: "**").location
         var attrs = ns.attributes(at: markerAt, effectiveRange: nil)
-        #expect((attrs[.font] as? PlatformFont)?.pointSize == 0.1)
+        #expect((attrs[.font] as? PlatformFont)?.pointSize == EditorTheme.concealedSize)
 
         // Caret inside the paragraph: markers revealed.
         document.selectionDidChange(NSRange(location: markerAt + 3, length: 0))
         attrs = ns.attributes(at: markerAt, effectiveRange: nil)
-        #expect((attrs[.font] as? PlatformFont)?.pointSize != 0.1)
+        #expect((attrs[.font] as? PlatformFont)?.pointSize != EditorTheme.concealedSize)
     }
 
     /// A callout header's `> [!type]` prefix collapses to the concealed font
@@ -186,7 +186,7 @@ import UIKit
         // Whole `> [!note] ` prefix is concealed → near-zero rendered width.
         for off in 0..<10 {
             let f = ns.attribute(.font, at: prefixLoc + off, effectiveRange: nil) as? PlatformFont
-            #expect(f?.pointSize == 0.1, "prefix char \(off) not concealed")
+            #expect(f?.pointSize == EditorTheme.concealedSize, "prefix char \(off) not concealed")
         }
         let prefixWidth = ns.attributedSubstring(from: NSRange(location: prefixLoc, length: 10)).size().width
         #expect(prefixWidth < 2, "concealed prefix should collapse, got \(prefixWidth)")
@@ -194,7 +194,7 @@ import UIKit
         // Caret inside the header reveals the prefix.
         document.selectionDidChange(NSRange(location: prefixLoc + 3, length: 0))
         let revealed = ns.attribute(.font, at: prefixLoc, effectiveRange: nil) as? PlatformFont
-        #expect(revealed?.pointSize != 0.1)
+        #expect(revealed?.pointSize != EditorTheme.concealedSize)
     }
 
     #if canImport(AppKit)
@@ -251,12 +251,33 @@ import UIKit
 
         // Caret in the body → front matter folded (concealed).
         document.selectionDidChange(NSRange(location: (text as NSString).range(of: "text").location, length: 0))
-        #expect((ns.attribute(.font, at: yamlLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect((ns.attribute(.font, at: yamlLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == EditorTheme.concealedSize)
         #expect(ns.attribute(.foregroundColor, at: yamlLoc, effectiveRange: nil) as? PlatformColor == .clear)
 
         // Caret inside front matter → revealed (real font, not concealed).
         document.selectionDidChange(NSRange(location: yamlLoc, length: 0))
-        #expect((ns.attribute(.font, at: yamlLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != 0.1)
+        #expect((ns.attribute(.font, at: yamlLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != EditorTheme.concealedSize)
+        #expect(document.text == text)
+    }
+
+    /// The fold is why the front-matter test above has to have a companion: a
+    /// note that *opens* with a horizontal rule and carries another one a few
+    /// paragraphs down was read as front matter fenced by the two, so its whole
+    /// first section was concealed and the note appeared to begin at the second
+    /// rule. Nothing about the source changed — the text was all still there,
+    /// which is what made it read as a rendering glitch rather than a parse.
+    @Test func aNoteOpeningWithARuleKeepsItsFirstSection() {
+        let text = "---\n\n# Chapter one\n\nSome text.\n\n---\n\n# Chapter two"
+        let document = EditorDocument(text: text)
+        let ns = document.storage
+        // The *words*, not the `# ` marker — that is concealed markup either
+        // way, and reading it would have this test pass on a folded note.
+        for word in ["Chapter one", "Some text."] {
+            let at = (text as NSString).range(of: word).location
+            document.selectionDidChange(NSRange(location: (text as NSString).range(of: "Chapter two").location, length: 0))
+            #expect((ns.attribute(.font, at: at, effectiveRange: nil) as? PlatformFont)?.pointSize != EditorTheme.concealedSize)
+            #expect(ns.attribute(.foregroundColor, at: at, effectiveRange: nil) as? PlatformColor != .clear)
+        }
         #expect(document.text == text)
     }
 
@@ -272,24 +293,24 @@ import UIKit
         let bodyLoc = (text as NSString).range(of: "Body one").location
 
         // Expanded by default: body visible, chevron shows "not folded".
-        #expect((ns.attribute(.font, at: bodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != 0.1)
+        #expect((ns.attribute(.font, at: bodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != EditorTheme.concealedSize)
         #expect(ns.attribute(calloutFoldAttribute, at: headerLoc, effectiveRange: nil) as? Bool == false)
 
         // Fold → body concealed.
         _ = document.toggleCalloutFold(atHeaderOffset: headerLoc)
         #expect(ns.attribute(calloutFoldAttribute, at: headerLoc, effectiveRange: nil) as? Bool == true)
-        #expect((ns.attribute(.font, at: bodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect((ns.attribute(.font, at: bodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == EditorTheme.concealedSize)
         #expect(document.text == text)   // byte-pure
 
         // An edit *above* the callout keeps the fold (offset remaps).
         document.storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "X")
         let newBodyLoc = (document.text as NSString).range(of: "Body one").location
-        #expect((ns.attribute(.font, at: newBodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect((ns.attribute(.font, at: newBodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize == EditorTheme.concealedSize)
 
         // Unfold → body visible again.
         let newHeaderLoc = (document.text as NSString).range(of: "> [!note] Title").location
         _ = document.toggleCalloutFold(atHeaderOffset: newHeaderLoc)
-        #expect((ns.attribute(.font, at: newBodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != 0.1)
+        #expect((ns.attribute(.font, at: newBodyLoc, effectiveRange: nil) as? PlatformFont)?.pointSize != EditorTheme.concealedSize)
     }
 
     #if canImport(AppKit)
@@ -368,7 +389,7 @@ import UIKit
         // Task `-` → concealed, no bullet (checkbox is the visual).
         let taskDash = s.range(of: "- [ ] Task").location
         #expect(ns.attribute(listBulletAttribute, at: taskDash, effectiveRange: nil) == nil)
-        #expect((ns.attribute(.font, at: taskDash, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect((ns.attribute(.font, at: taskDash, effectiveRange: nil) as? PlatformFont)?.pointSize == EditorTheme.concealedSize)
 
         // Source stays byte-pure.
         #expect(document.text == text)
@@ -385,7 +406,7 @@ import UIKit
         // Neutral bar tint + depth (1) set on the block; `>` concealed.
         #expect(ns.attribute(calloutTintAttribute, at: quoteStart, effectiveRange: nil) != nil)
         #expect(ns.attribute(blockquotePlainAttribute, at: quoteStart, effectiveRange: nil) as? Int == 1)
-        #expect((ns.attribute(.font, at: quoteStart, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1)
+        #expect((ns.attribute(.font, at: quoteStart, effectiveRange: nil) as? PlatformFont)?.pointSize == EditorTheme.concealedSize)
         #expect(document.text == text)
     }
 
@@ -406,7 +427,7 @@ import UIKit
             return f.fontDescriptor.symbolicTraits.contains(.bold)
         }
         func isConcealed(at loc: Int) -> Bool {
-            (ns.attribute(.font, at: loc, effectiveRange: nil) as? PlatformFont)?.pointSize == 0.1
+            (ns.attribute(.font, at: loc, effectiveRange: nil) as? PlatformFont)?.pointSize == EditorTheme.concealedSize
                 || ns.attribute(.foregroundColor, at: loc, effectiveRange: nil) as? PlatformColor == .clear
         }
 
@@ -565,18 +586,413 @@ import UIKit
         #expect(document.storage.attribute(blockImageAttribute, at: embedLoc, effectiveRange: nil) == nil)
     }
 
-    @Test func nonStandaloneImageEmbedIsNotRendered() async throws {
-        // An embed with surrounding text on the same line is inline, not a block.
-        let text = "see ![[pic.png]] here"
+    /// An image with words beside it is an **inline** replaced element, not a
+    /// block embed: the block keeps its text and only the span is replaced.
+    ///
+    /// This used to assert that such an image rendered as nothing at all,
+    /// which was the editor's behaviour and not the page's — `see ![](pic.png)
+    /// here` showed a line of source where Preview showed a sentence with a
+    /// picture in it. The half that survives is which of the two mechanisms
+    /// claims it: `collapse` takes the whole block and would take the words
+    /// with it. The box the inline one builds is `InlineReplacedTests`.
+    @Test func anImageWithTextBesideItIsInlineNotABlockEmbed() async throws {
+        let text = "see ![a pic](pic.png) here\n\nElsewhere."
         let img = PlatformImage(size: CGSize(width: 100, height: 40))
         let document = EditorDocument(
             text: text,
-            services: EditorServices(blockRenderer: StubBlockRenderer(image: img))
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        // In the *other* paragraph: a revealed block shows its source, so a
+        // caret anywhere in this one renders nothing at all.
+        document.selectionDidChange(NSRange(location: (text as NSString).range(of: "Elsewhere.").location, length: 0))
+        let loc = (text as NSString).range(of: "![a pic]").location
+        var inline = false
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            if document.storage.attribute(inlineImageAttribute, at: loc, effectiveRange: nil) != nil {
+                inline = true; break
+            }
+        }
+        #expect(inline)
+        #expect(document.storage.attribute(blockImageAttribute, at: loc, effectiveRange: nil) == nil)
+        // The words either side are still words.
+        #expect(document.text == text)
+        #expect((document.storage.attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont)?
+            .pointSize != EditorTheme.concealedSize)
+    }
+
+    /// A standalone `![alt](path)` paragraph is a block embed, exactly as
+    /// `![[target]]` is. Without this the editor showed the link source where
+    /// Preview showed the picture.
+    @Test func standaloneMarkdownImageCollapsesAndRenders() async throws {
+        let text = "# H\n\n![a photo](photo.jpg)\n\nafter"
+        let img = PlatformImage(size: CGSize(width: 100, height: 40))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+
+        let loc = (text as NSString).range(of: "![a photo]").location
+        var collapsed = false
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            if document.storage.attribute(blockImageAttribute, at: loc, effectiveRange: nil) != nil {
+                collapsed = true; break
+            }
+        }
+        #expect(collapsed)
+        #expect(document.text == text)
+    }
+
+    /// A captioned image is still an image. The parenthesised run in
+    /// `![a photo](photo.jpg "Caption")` is a destination *and* a title, and
+    /// passing the pair on as one target asked the renderer for a file named
+    /// `photo.jpg "Caption"`. Nothing answered, so the block never collapsed:
+    /// Edit showed the source line where Preview drew the photograph. The
+    /// renderer here answers only to the real destination, so a test that
+    /// merely renders anything would not have caught it.
+    @Test func aCaptionedMarkdownImageCollapsesAndRenders() async throws {
+        for source in ["![a photo](photo.jpg \"Caption\")",
+                       "![a photo](<photo.jpg>)",
+                       "![a photo](<photo.jpg> 'Caption')"] {
+            let text = "# H\n\n\(source)\n\nafter"
+            let document = EditorDocument(
+                text: text,
+                services: EditorServices(blockRenderer: OneTargetRenderer(
+                    target: "photo.jpg",
+                    image: PlatformImage(size: CGSize(width: 100, height: 40))))
+            )
+            document.selectionDidChange(NSRange(location: 0, length: 0))
+            let loc = (text as NSString).range(of: "![a photo]").location
+            var collapsed = false
+            for _ in 0..<50 {
+                try await Task.sleep(for: .milliseconds(20))
+                if document.storage.attribute(blockImageAttribute, at: loc, effectiveRange: nil) != nil {
+                    collapsed = true; break
+                }
+            }
+            #expect(collapsed, "\(source) never collapsed")
+            #expect(document.text == text)
+        }
+    }
+
+    /// A reference-style image is an image. `![a photo]` says what it points
+    /// at nowhere on its own line — the destination is in a `[a photo]: …`
+    /// definition further down — and the inline parser, handed one block at a
+    /// time, could not see it. So the editor reserved a line of text where the
+    /// Preview drew the picture, on every one of the eleven reference-style
+    /// examples in the corpus.
+    @Test func aReferenceStyleImageCollapsesAndRenders() async throws {
+        for source in ["![a photo]",              // shortcut
+                       "![a photo][]",            // collapsed
+                       "![alt text][A PHOTO]"] {  // full, and case-folded
+            let text = "# H\n\n\(source)\n\n[a photo]: photo.jpg \"Caption\"\n\nafter"
+            let document = EditorDocument(
+                text: text,
+                services: EditorServices(blockRenderer: OneTargetRenderer(
+                    target: "photo.jpg",
+                    image: PlatformImage(size: CGSize(width: 100, height: 40))))
+            )
+            document.selectionDidChange(NSRange(location: 0, length: 0))
+            let loc = (text as NSString).range(of: source).location
+            var collapsed = false
+            for _ in 0..<50 {
+                try await Task.sleep(for: .milliseconds(20))
+                if document.storage.attribute(blockImageAttribute, at: loc, effectiveRange: nil) != nil {
+                    collapsed = true; break
+                }
+            }
+            #expect(collapsed, "\(source) never collapsed")
+            #expect(document.text == text)
+        }
+    }
+
+    /// `[![moon](moon.jpg)](/uri)` — a figure with somewhere to click, and the
+    /// ordinary way to publish one. The anchor draws no box of its own, so the
+    /// paragraph is still one image filling itself; reading only the outer
+    /// node the editor saw a link and reserved nothing.
+    @Test func anImageWrappedInALinkIsStillABlockEmbed() async throws {
+        for source in ["[![a photo](photo.jpg)](/uri)",
+                       "[![a photo](photo.jpg)][ref]"] {
+            let text = "# H\n\n\(source)\n\n[ref]: /uri\n\nafter"
+            let document = EditorDocument(
+                text: text,
+                services: EditorServices(blockRenderer: OneTargetRenderer(
+                    target: "photo.jpg",
+                    image: PlatformImage(size: CGSize(width: 100, height: 40))))
+            )
+            document.selectionDidChange(NSRange(location: 0, length: 0))
+            let loc = (text as NSString).range(of: source).location
+            var collapsed = false
+            for _ in 0..<50 {
+                try await Task.sleep(for: .milliseconds(20))
+                if document.storage.attribute(blockImageAttribute, at: loc, effectiveRange: nil) != nil {
+                    collapsed = true; break
+                }
+            }
+            #expect(collapsed, "\(source) never collapsed")
+            #expect(document.text == text)
+        }
+    }
+
+    /// The other half of the shortcut rule, and the one that would be a
+    /// disaster to get wrong: `![a photo]` with no definition anywhere is four
+    /// words of prose in square brackets, and must stay visible as itself.
+    @Test func aReferenceImageWithNoDefinitionStaysSource() async throws {
+        let text = "# H\n\n![a photo]\n\nafter"
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(
+                image: PlatformImage(size: CGSize(width: 100, height: 40))))
         )
         document.selectionDidChange(NSRange(location: 0, length: 0))
         try await Task.sleep(for: .milliseconds(120))
-        let embedLoc = (text as NSString).range(of: "![[").location
-        #expect(document.storage.attribute(blockImageAttribute, at: embedLoc, effectiveRange: nil) == nil)
+        let loc = (text as NSString).range(of: "![a photo]").location
+        #expect(document.storage.attribute(blockImageAttribute, at: loc, effectiveRange: nil) == nil)
+    }
+
+    /// An image with text beside it is inline, not a block — the paragraph
+    /// still reads as a paragraph.
+    @Test func aMarkdownImageWithTextBesideItIsNotABlock() async throws {
+        let text = "see ![a photo](photo.jpg) here"
+        let img = PlatformImage(size: CGSize(width: 100, height: 40))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+        try await Task.sleep(for: .milliseconds(120))
+        let loc = (text as NSString).range(of: "![a photo]").location
+        #expect(document.storage.attribute(blockImageAttribute, at: loc, effectiveRange: nil) == nil)
+    }
+
+    /// A remote image is left as source: the embed path falls back to a note
+    /// transclusion card when the target is not a local image file, which for
+    /// `https://host/x.png` would draw a card named after the host.
+    @Test func aRemoteMarkdownImageIsNotCollapsed() async throws {
+        let text = "# H\n\n![a photo](https://example.com/photo.jpg)\n\nafter"
+        let img = PlatformImage(size: CGSize(width: 100, height: 40))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+        try await Task.sleep(for: .milliseconds(120))
+        let loc = (text as NSString).range(of: "![a photo]").location
+        #expect(document.storage.attribute(blockImageAttribute, at: loc, effectiveRange: nil) == nil)
+    }
+
+    /// An `<img>` is inline: it sits on the text baseline, so the line box that
+    /// holds it is the image *plus* what the strut hangs below that baseline.
+    /// The band the editor reserves has to include it, or a rendered image sits
+    /// 6pt tighter in Edit than in Preview.
+    @Test func anImageBandAllowsForTheBaselineBelowIt() async throws {
+        let text = "# H\n\n![a photo](photo.jpg)\n\nafter"
+        let img = PlatformImage(size: CGSize(width: 100, height: 40))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+        let loc = (text as NSString).range(of: "![a photo]").location
+
+        var band: CGFloat = 0
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            if let style = document.storage.attribute(.paragraphStyle, at: loc,
+                                                      effectiveRange: nil) as? NSParagraphStyle,
+               style.paragraphSpacing > 0 {
+                band = style.paragraphSpacing; break
+            }
+        }
+        // The image, plus a half-leading and a descender at body size.
+        let theme = EditorTheme(fontSize: 16)
+        let allowance = BlockBoxes.halfLeading(.paragraph, theme: theme)
+            + (-theme.body.descender).rounded()
+        #expect(allowance > 0)
+        #expect(abs(band - (40 + allowance)) < 0.01)
+    }
+
+    /// A table is block-level and needs no such allowance — giving it one would
+    /// put the same 6pt under every diagram and formula in a note.
+    @Test func aTableBandDoesNotAllowForABaseline() async throws {
+        let text = "# H\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nafter"
+        let img = PlatformImage(size: CGSize(width: 100, height: 40))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+        let loc = (text as NSString).range(of: "| a |").location
+
+        var band: CGFloat = 0
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            let last = (text as NSString).range(of: "| 1 | 2 |").location
+            if let style = document.storage.attribute(.paragraphStyle, at: last,
+                                                      effectiveRange: nil) as? NSParagraphStyle,
+               style.paragraphSpacing > 0 {
+                band = style.paragraphSpacing; break
+            }
+        }
+        _ = loc
+        #expect(abs(band - 40) < 0.01)
+    }
+
+    /// A reference definition sharing a block with a paragraph collapses on its
+    /// own. `isUnrendered` asks the question of a whole block, which cannot
+    /// answer this one — the definition and the paragraph are the same block.
+    @Test func aDefinitionAboveAParagraphCollapsesByItself() async throws {
+        let text = "[foo]: /url\n\"title\" ok\n\nafter"
+        let document = EditorDocument(text: text)
+        document.selectionDidChange(NSRange(location: (text as NSString).length, length: 0))
+        document.styleEverythingNow()
+
+        func height(at needle: String) -> CGFloat {
+            let loc = (text as NSString).range(of: needle).location
+            let style = document.storage.attribute(.paragraphStyle, at: loc,
+                                                   effectiveRange: nil) as? NSParagraphStyle
+            return style?.maximumLineHeight ?? -1
+        }
+        // The definition is hidden; the paragraph beside it is not.
+        #expect(height(at: "[foo]:") < 1)
+        #expect(height(at: "\"title\"") > 20)
+        #expect(document.text == text)
+    }
+
+    /// …and a definition that is merely a paragraph's second line is text, not
+    /// a definition: one cannot interrupt a paragraph.
+    @Test func aDefinitionCannotInterruptAParagraph() async throws {
+        let text = "foo\n[bar]: /url\n\nafter"
+        let document = EditorDocument(text: text)
+        document.selectionDidChange(NSRange(location: (text as NSString).length, length: 0))
+        document.styleEverythingNow()
+        let loc = (text as NSString).range(of: "[bar]:").location
+        let style = document.storage.attribute(.paragraphStyle, at: loc,
+                                               effectiveRange: nil) as? NSParagraphStyle
+        #expect((style?.maximumLineHeight ?? 0) > 20)
+    }
+
+    /// A code span may be written across lines, and its delimiters then occupy
+    /// lines of their own. Concealment shrinks the font and leaves the line box
+    /// alone, so ```` ``\nfoo\n`` ```` stood three body lines tall against a page
+    /// drawing one — and the block's trailing margin sat on the line that was
+    /// about to have no height, where it would have been lost.
+    @Test func aParagraphLineWithNothingLeftOnItCollapses() async throws {
+        // No blank line below: a blank run would be holding the gap itself, and
+        // the interesting case is the one where the collapsing line holds it.
+        let text = "a\n\n``\nfoo\n``\n# b"
+        let document = EditorDocument(text: text, theme: EditorTheme(fontSize: 16))
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+        document.styleEverythingNow()
+        let ns = text as NSString
+
+        func style(at needle: String) -> NSParagraphStyle? {
+            document.storage.attribute(.paragraphStyle, at: ns.range(of: needle).location,
+                                       effectiveRange: nil) as? NSParagraphStyle
+        }
+        let metrics = GFMBoxMetrics(base: 16)
+        #expect((style(at: "``")?.maximumLineHeight ?? -1) < 1)
+        #expect(style(at: "foo")?.maximumLineHeight == metrics.bodyLineHeight)
+        // The gap below the block moved to the last line that still draws.
+        #expect(style(at: "foo")?.paragraphSpacing == metrics.headingTopGap)
+
+        // The caret gives the line back, the way every other concealment does.
+        document.selectionDidChange(NSRange(location: ns.range(of: "``").location, length: 0))
+        #expect(style(at: "``")?.maximumLineHeight == metrics.bodyLineHeight)
+    }
+
+    /// The guard that keeps the pass off blocks it has no business in: every
+    /// line concealed is a block `BlockBoxes.isUnrendered` owns, margins and
+    /// all, and collapsing it here would leave the margin nowhere.
+    @Test func aParagraphWithNothingLeftAtAllIsLeftAlone() async throws {
+        let text = "a\n\n[foo]: /url\n\nb"
+        let document = EditorDocument(text: text, theme: EditorTheme(fontSize: 16))
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+        document.styleEverythingNow()
+        let loc = (text as NSString).range(of: "[foo]").location
+        let style = document.storage.attribute(.paragraphStyle, at: loc,
+                                               effectiveRange: nil) as? NSParagraphStyle
+        // Not pinned to the collapsed line: the definition is sharing out the
+        // 16pt margin between `a` and `b` with the blank lines either side of
+        // it, which is a job, and pinning it to 0.01 would throw the gap away.
+        #expect((style?.maximumLineHeight ?? -1) > BlockBoxes.collapsedLine)
+        #expect((style?.maximumLineHeight ?? -1) < GFMBoxMetrics(base: 16).bodyLineHeight)
+    }
+
+    /// An indented code block keeps the blank line that follows it inside its
+    /// own parser range, and `applyBase` hands that line the gap below the
+    /// `<pre>`. `applyUnrenderedLines` runs afterwards and used to flatten
+    /// every trailing blank line of a block to a hairline, margin and all.
+    ///
+    /// It only runs when the document has *something* unrendered in it, which
+    /// is why the reference definition is here: without it the pass returns at
+    /// its first guard and the code block below measures perfectly.
+    @Test func aTrailingBlankHoldingACodeBlocksMarginSurvivesTheUnrenderedPass() {
+        let withDefinition = "[ref]: /url\n\nx\n\n    code\n\ny"
+        let plain = "x\n\n    code\n\ny"
+        let metrics = GFMBoxMetrics(base: 16)
+
+        func gapLineHeight(_ text: String) -> CGFloat {
+            let document = EditorDocument(text: text, theme: EditorTheme(fontSize: 16))
+            document.selectionDidChange(NSRange(location: 0, length: 0))
+            document.styleEverythingNow()
+            // The blank line between `    code` and `y`.
+            let loc = (text as NSString).range(of: "code\n\ny").location + 5
+            let style = document.storage.attribute(.paragraphStyle, at: loc,
+                                                   effectiveRange: nil) as? NSParagraphStyle
+            return style?.maximumLineHeight ?? -1
+        }
+        #expect(gapLineHeight(plain) == metrics.blockGap)
+        #expect(gapLineHeight(withDefinition) == gapLineHeight(plain))
+    }
+
+    // MARK: - Raw HTML blocks
+
+    /// A raw HTML block collapses to its rendered image with the caret away,
+    /// and gives the source back when the caret is inside it — the same
+    /// contract as a table or a Mermaid fence. Before it had a block kind, this
+    /// was a paragraph: the editor showed the tags and Preview showed the
+    /// rendered element, which is a layout shift you cannot style your way out
+    /// of.
+    @Test func htmlBlockCollapsesAndRenders() async throws {
+        let text = "Intro:\n\n<div align=\"center\">\n  <b>Rendered</b>\n</div>\n\nAfter."
+        let img = PlatformImage(size: CGSize(width: 300, height: 60))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+
+        let blockLoc = (text as NSString).range(of: "<div").location
+        var collapsed = false
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(20))
+            if document.storage.attribute(blockImageAttribute, at: blockLoc, effectiveRange: nil) != nil {
+                collapsed = true; break
+            }
+        }
+        #expect(collapsed)
+        #expect(document.text == text)
+
+        document.selectionDidChange(NSRange(location: blockLoc + 2, length: 0))
+        #expect(document.storage.attribute(blockImageAttribute, at: blockLoc, effectiveRange: nil) == nil)
+    }
+
+    /// Markup you are half way through typing must not be rendered: the block
+    /// is only an embed once its end condition has arrived.
+    @Test func anUnclosedHTMLBlockIsNotRendered() async throws {
+        let text = "Intro:\n\n<!-- still typing this\n"
+        let img = PlatformImage(size: CGSize(width: 300, height: 60))
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(blockRenderer: EveryKindRenderer(image: img))
+        )
+        document.selectionDidChange(NSRange(location: 0, length: 0))
+        try await Task.sleep(for: .milliseconds(120))
+        let blockLoc = (text as NSString).range(of: "<!--").location
+        #expect(document.storage.attribute(blockImageAttribute, at: blockLoc, effectiveRange: nil) == nil)
     }
 
     // MARK: - Multi-line block embeds
@@ -589,6 +1005,17 @@ import UIKit
     private struct EveryKindRenderer: BlockRenderer {
         let image: PlatformImage
         func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage? { image }
+    }
+
+    /// Answers to one image target and nothing else — the stand-in for a real
+    /// folder, where a target with a title stuck to it names no file.
+    private struct OneTargetRenderer: BlockRenderer {
+        let target: String
+        let image: PlatformImage
+        func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage? {
+            if case .image(let asked) = kind, asked == target { return image }
+            return nil
+        }
     }
 
     /// Collapse a `$$…$$` block and hand back the document plus its range.

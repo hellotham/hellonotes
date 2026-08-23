@@ -19,7 +19,7 @@ struct QuoteRevealTests {
     /// Is the character at `offset` concealed (collapsed to the 0.1pt font)?
     private func concealed(_ document: EditorDocument, at offset: Int) -> Bool {
         (document.storage.attributes(at: offset, effectiveRange: nil)[.font] as? PlatformFont)?
-            .pointSize == 0.1
+            .pointSize == EditorTheme.concealedSize
     }
 
     /// Does the line at `offset` carry the gutter-bar attribute the fragment draws?

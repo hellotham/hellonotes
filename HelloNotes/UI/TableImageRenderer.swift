@@ -4,12 +4,24 @@
 //
 //  Created by Chris Tham on 17/7/2026.
 //
-//  Renders a GFM pipe table to an aligned-grid image for the editor's
-//  block-embed renderer. Reuses the same "render a block to an image, drawn
-//  in place of its concealed source" path as math / Mermaid / images, so a
-//  table reads as a real grid and reveals its Markdown source when the caret
-//  enters it. Main-actor (uses text measurement + a drawing context).
-//  Cross-platform via `PlatformImageKit` (top-left, y-down).
+//  Draws a GFM pipe table as an aligned grid for the editor's block-embed
+//  renderer. Reuses the same "render a block to an image, drawn in place of its
+//  concealed source" path as math / Mermaid / images, so a table reads as a
+//  real grid and reveals its Markdown source when the caret enters it.
+//  Main-actor (uses text measurement + a drawing context). Cross-platform via
+//  `PlatformImageKit` (top-left, y-down).
+//
+//  This file now owns *pixels only*. Which cells, in which columns, how wide
+//  and how tall come from `GFMTableGeometry` in the editor package, because the
+//  Preview draws the same table as a `<table>` and the only way two engines
+//  agree is to measure from one table of numbers. Two things it used to decide
+//  for itself, and got wrong both times:
+//
+//  * The grid lines were stroked *inside* the row heights, so a table came out
+//    one hairline per row shorter than the page's `border-collapse: collapse`
+//    — 3pt on the commonest table there is, and growing with every row.
+//  * `components(separatedBy: "|")` split on escaped pipes too, so `| f\|oo |`
+//    became two columns instead of one and the whole grid was a different width.
 //
 
 import CoreGraphics
@@ -24,24 +36,20 @@ import MarkdownCore
 
 @MainActor
 enum TableImageRenderer {
-    private enum Align { case left, center, right }
 
     static func image(source: String, maxWidth: CGFloat, fontSize: CGFloat = 15, isDark: Bool) -> PlatformImage? {
-        let lines = source.components(separatedBy: "\n").filter { $0.contains("|") }
-        guard lines.count >= 2 else { return nil }
-
-        // The shared box model, so a table's cells are padded and spaced the
-        // same way the Preview's `<td>`s are — and so they scale with Text Size
-        // instead of staying at their 16pt-base values.
-        let m = GFMBoxMetrics(base: fontSize)
-        let cellPadX = m.cellPadX, cellPadY = m.cellPadY
-
-        let rows = lines.map(cells)
-        // Row 1 is the delimiter (`|:---|`); its cells give per-column alignment.
-        let aligns = rows[1].map(alignment)
-        let bodyRows = [rows[0]] + rows.dropFirst(2)
-        let columns = max(rows[0].count, aligns.count)
-        guard columns > 0 else { return nil }
+        let theme = EditorTheme(fontSize: fontSize)
+        // Fitted, not natural: a table too wide for the pane shrinks its
+        // columns and wraps its cells the way a browser does. It used to be
+        // drawn at its natural width and the whole bitmap scaled down, which
+        // makes an over-wide table *shorter* where the page makes it taller —
+        // the two moved in opposite directions and the gap grew with the
+        // overflow. `GFMTableGeometry.fitted` is where that layout lives, so
+        // the parity sweep can know this picture's height without drawing it.
+        guard let grid = GFMTableGeometry.fitted(source: source, theme: theme,
+                                                 maxWidth: maxWidth) else { return nil }
+        let m = theme.metrics
+        let padX = m.cellPadX, border = m.hairline
 
         // Exact GitHub github-markdown-css table palette, so the editor's grid
         // matches the Preview's <table> in both appearances:
@@ -51,107 +59,80 @@ enum TableImageRenderer {
         // GitHub has no header background band — the header is just semibold and
         // sits on the default (canvas) row like every odd row.
         let text: PlatformColor = isDark ? .hexColor(0xf0f6fc) : .hexColor(0x1f2328)
-        let grid: PlatformColor = isDark ? .hexColor(0x3d444d) : .hexColor(0xd1d9e0)
+        let gridColor: PlatformColor = isDark ? .hexColor(0x3d444d) : .hexColor(0xd1d9e0)
         let zebraBG: PlatformColor = isDark ? .hexColor(0x151b23) : .hexColor(0xf6f8fa)
-        let body = PlatformFont.appSystem(fontSize)
-        // `th { font-weight: 600 }` — semibold, not bold.
-        let bold = PlatformFont.appSystem(fontSize, weight: .semibold)
 
-        // Measure natural column widths, then scale down to fit maxWidth.
-        func attr(_ s: String, _ f: PlatformFont) -> NSAttributedString {
-            NSAttributedString(string: s, attributes: [.font: f, .foregroundColor: text])
-        }
-        var colW = [CGFloat](repeating: 0, count: columns)
-        var rowH = [CGFloat](repeating: 0, count: bodyRows.count)
-        for (r, row) in bodyRows.enumerated() {
-            let f = r == 0 ? bold : body
-            for c in 0..<columns {
-                let s = c < row.count ? row[c] : ""
-                let size = attr(s, f).size()
-                colW[c] = max(colW[c], ceil(size.width) + cellPadX * 2)
-                // A cell's line box is the document's line height, not the
-                // font's natural one: the Preview's cells inherit
-                // `line-height: 1.5` like everything else, so measuring the
-                // glyphs alone made every row five points short.
-                rowH[r] = max(rowH[r], max(ceil(size.height), m.bodyLineHeight) + cellPadY * 2)
-            }
-        }
-        let totalW = colW.reduce(0, +)
-        guard totalW > 0 else { return nil }
-        let totalH = rowH.reduce(0, +)
+        // Column and row *box* extents, borders included. A collapsed border is
+        // a box of its own — the cells sit between them, which is why the sums
+        // below start at one border and step by one after every track.
+        let columnBoxes: [CGFloat] = grid.columnTextWidths.map { $0 + 2 * padX }
+        let total = grid.naturalSize
+        guard total.width >= 1, total.height >= 1 else { return nil }
 
-        // Render the grid at its NATURAL width, then scale the whole bitmap to
-        // fit `maxWidth` below. Scaling the column widths but not the font would
-        // wrap/clip cell text and mis-position right/centre-aligned cells.
-        let natural = PlatformImageKit.image(size: CGSize(width: ceil(totalW), height: ceil(totalH))) { ctx in
+        /// The top of row `r`, over rows that are no longer all one height.
+        func top(_ r: Int) -> CGFloat {
+            border + grid.rowHeights[..<r].reduce(0) { $0 + $1 + border }
+        }
+        let natural = PlatformImageKit.image(size: total) { ctx in
             // Zebra striping: GitHub fills `tr:nth-child(2n)` with --bgColor-muted.
             // Counting the header as child 1, the striped rows are the 2nd, 4th…
-            // children — i.e. odd indices in `bodyRows` ([header, data1, data2…]).
-            // Odd rows keep the default canvas background (left transparent so the
-            // grid sits on the editor's own canvas).
+            // children — i.e. odd row indices. Even rows keep the default canvas
+            // background (left transparent so the grid sits on the editor's own).
             ctx.setFillColor(zebraBG.cgColor)
-            var stripeY: CGFloat = 0
-            for (r, _) in bodyRows.enumerated() {
-                if r % 2 == 1 {
-                    ctx.fill(CGRect(x: 0, y: stripeY, width: totalW, height: rowH[r]))
-                }
-                stripeY += rowH[r]
+            for r in 0..<grid.rowCount where r % 2 == 1 {
+                ctx.fill(CGRect(x: 0, y: top(r), width: total.width, height: grid.rowHeights[r]))
             }
 
             // Cell text (top-left origin, y grows downward).
-            var y: CGFloat = 0
-            for (r, row) in bodyRows.enumerated() {
-                var x: CGFloat = 0
-                for c in 0..<columns {
-                    let s = c < row.count ? row[c] : ""
-                    let a = attr(s, r == 0 ? bold : body)
-                    let sz = a.size()
-                    let colWidth = colW[c]
-                    let align = c < aligns.count ? aligns[c] : .left
+            for (r, row) in grid.rows.enumerated() {
+                let y = top(r)
+                var x = border
+                for (c, cell) in row.enumerated() where c < columnBoxes.count {
+                    let attributed = NSAttributedString(
+                        string: cell, attributes: [.font: grid.font(row: r), .foregroundColor: text])
+                    let size = attributed.size()
+                    let boxWidth = columnBoxes[c]
                     let tx: CGFloat
-                    switch align {
-                    case .left:   tx = x + cellPadX
-                    case .right:  tx = x + colWidth - cellPadX - sz.width
-                    case .center: tx = x + (colWidth - sz.width) / 2
+                    switch grid.alignments.indices.contains(c) ? grid.alignments[c] : .left {
+                    case .left:   tx = x + padX
+                    case .right:  tx = x + boxWidth - padX - size.width
+                    case .center: tx = x + (boxWidth - size.width) / 2
                     }
-                    let ty = y + (rowH[r] - sz.height) / 2
-                    a.draw(in: CGRect(x: tx, y: ty, width: max(1, colWidth - cellPadX), height: sz.height))
-                    x += colWidth
+                    // The cell's text box, which is what wraps. Its height is
+                    // the row's, less the padding, so a wrapped cell fills the
+                    // taller row instead of being clipped to one line.
+                    let cellWidth = max(1, boxWidth - 2 * padX)
+                    let wraps = size.width > cellWidth
+                    let drawn = wraps ? cellWidth : size.width
+                    let textHeight = grid.rowHeights[r] - 2 * m.cellPadY
+                    let ty = wraps ? y + m.cellPadY : y + (grid.rowHeights[r] - size.height) / 2
+                    attributed.draw(in: CGRect(x: wraps ? x + padX : tx, y: ty,
+                                               width: drawn,
+                                               height: wraps ? textHeight : size.height))
+                    x += boxWidth + border
                 }
-                y += rowH[r]
             }
 
-            // Grid lines.
-            ctx.setStrokeColor(grid.cgColor)
-            ctx.setLineWidth(1)
-            var gx: CGFloat = 0.5
-            ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: totalH))
-            for w in colW { gx += w; ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: totalH)) }
-            var gy: CGFloat = 0.5
-            ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: totalW, y: gy))
-            for h in rowH { gy += h; ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: totalW, y: gy)) }
+            // The grid itself, stroked down the middle of each border box.
+            ctx.setStrokeColor(gridColor.cgColor)
+            ctx.setLineWidth(border)
+            var gx = border / 2
+            ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: total.height))
+            for w in columnBoxes {
+                gx += w + border
+                ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: total.height))
+            }
+            var gy = border / 2
+            ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: total.width, y: gy))
+            for r in 0..<grid.rowCount {
+                gy += grid.rowHeights[r] + border
+                ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: total.width, y: gy))
+            }
             ctx.strokePath()
         }
-        guard let natural else { return nil }
-        // Fit to the available width; `scaled` never upscales, so narrow tables
-        // keep their natural size.
-        return PlatformImageKit.scaled(natural, maxWidth: maxWidth)
+        // No scaling: the grid was measured at the width it is drawn at, so the
+        // picture is already the size the editor reserved for it.
+        return natural
     }
 
-    /// Split a table line into trimmed cell strings (dropping the outer pipes).
-    private static func cells(_ line: String) -> [String] {
-        var s = line.trimmingCharacters(in: .whitespaces)
-        if s.hasPrefix("|") { s.removeFirst() }
-        if s.hasSuffix("|") { s.removeLast() }
-        return s.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
-    }
-
-    private static func alignment(_ delimiterCell: String) -> Align {
-        let c = delimiterCell.trimmingCharacters(in: .whitespaces)
-        let left = c.hasPrefix(":")
-        let right = c.hasSuffix(":")
-        if left && right { return .center }
-        if right { return .right }
-        return .left
-    }
 }

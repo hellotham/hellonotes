@@ -132,7 +132,7 @@ final class EditorFidelitySnapshotTests: XCTestCase {
         let s = Self.sample as NSString
         let store = try XCTUnwrap(textView.textStorage)
         let tableFont = store.attribute(.font, at: s.range(of: "| Feature").location, effectiveRange: nil) as? NSFont
-        XCTAssertEqual(tableFont?.pointSize ?? -1, 0.1, accuracy: 0.001,
+        XCTAssertEqual(tableFont?.pointSize ?? -1, EditorTheme.concealedSize, accuracy: 0.001,
                        "table source should collapse (be replaced by the rendered grid image)")
         let kw = try XCTUnwrap((store.attribute(.foregroundColor, at: s.range(of: "struct Point").location,
                                                 effectiveRange: nil) as? NSColor)?.usingColorSpace(.sRGB),

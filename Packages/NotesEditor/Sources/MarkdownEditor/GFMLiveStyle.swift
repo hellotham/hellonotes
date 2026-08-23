@@ -51,6 +51,50 @@ nonisolated public enum GFMLiveStyle {
         c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D
     }
 
+    /// Block-level cmark node kinds — everything that occupies vertical space
+    /// in the rendered document.
+    private static let blockKinds: Set<String> = [
+        "block_quote", "list", "item", "code_block", "html_block", "custom_block",
+        "paragraph", "heading", "thematic_break", "table", "table_row",
+        "table_cell", "footnote_definition",
+    ]
+
+    /// Source that the rendered document has no equivalent for.
+    ///
+    /// A link reference definition — `[foo]: /url "title"` — is consumed by the
+    /// parser and emits nothing at all, so the Preview shows a blank where the
+    /// editor showed two lines of source. Rather than teach the editor to
+    /// recognise that one construct, ask cmark what it *kept*: any run of
+    /// non-blank source no block node covers is source the reader will never
+    /// see, and the editor collapses it the way it already collapses a setext
+    /// underline.
+    public static func unrenderedRanges(_ text: NSString) -> [NSRange] {
+        guard text.length > 0 else { return [] }
+        var covered = [Bool](repeating: false, count: text.length)
+        for node in GFMRenderer.nodes(text as String) where blockKinds.contains(node.kind) {
+            let r = node.range
+            guard r.location >= 0, r.length > 0, r.location + r.length <= text.length else { continue }
+            for i in r.location..<(r.location + r.length) { covered[i] = true }
+        }
+        // Maximal runs of uncovered source, opened by the first non-blank
+        // character and closed only by a covered one. Not closed at newlines:
+        // a reference definition may wrap over several lines, and a range that
+        // ends at every line break cannot contain the block that holds it.
+        var out: [NSRange] = []
+        var start: Int?
+        for i in 0..<text.length {
+            let c = text.character(at: i)
+            let blank = c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D
+            if covered[i] {
+                if let s = start { out.append(NSRange(location: s, length: i - s)); start = nil }
+            } else if !blank, start == nil {
+                start = i
+            }
+        }
+        if let s = start { out.append(NSRange(location: s, length: text.length - s)) }
+        return out
+    }
+
     private static func emit(_ node: GFMNode, text: NSString, into runs: inout [StyleRun]) {
         let r = node.range
         guard r.length >= 0, r.location >= 0, r.location + r.length <= text.length else { return }

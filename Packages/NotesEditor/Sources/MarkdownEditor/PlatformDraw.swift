@@ -10,6 +10,7 @@
 //
 
 import CoreGraphics
+import MarkdownCore
 #if canImport(AppKit)
 import AppKit
 #else
@@ -104,20 +105,60 @@ enum PlatformDraw {
     }
 }
 
-/// Cross-platform semantic colours used by the fragment chrome.
 extension PlatformColor {
-    nonisolated static var editorSeparator: PlatformColor {
+    /// A `GFMPalette.Ink` as a platform colour.
+    nonisolated static func gfm(_ ink: GFMPalette.Ink) -> PlatformColor {
         #if canImport(AppKit)
-        return .separatorColor
+        return NSColor(srgbRed: ink.red, green: ink.green, blue: ink.blue, alpha: ink.alpha)
         #else
-        return .separator
+        return UIColor(red: ink.red, green: ink.green, blue: ink.blue, alpha: ink.alpha)
         #endif
     }
+
+    /// A palette colour that follows the appearance, chosen by `pick`.
+    ///
+    /// Dynamic rather than resolved once: the editor's text storage outlives
+    /// any single appearance, and a note open while the system flips to dark
+    /// has to change colour with it — which a baked sRGB value cannot do.
+    nonisolated static func gfm(_ pick: @escaping @Sendable (GFMPalette) -> GFMPalette.Ink) -> PlatformColor {
+        #if canImport(AppKit)
+        return NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return .gfm(pick(.of(isDark: isDark)))
+        }
+        #else
+        return UIColor { traits in
+            .gfm(pick(.of(isDark: traits.userInterfaceStyle == .dark)))
+        }
+        #endif
+    }
+}
+
+/// Cross-platform semantic colours used by the fragment chrome.
+extension PlatformColor {
+    /// This colour as a CSS `rgba()`, alpha included — the system fills the
+    /// editor draws with are semi-transparent, and flattening them would put a
+    /// different grey behind Preview's code blocks than behind Edit's.
+    nonisolated var cssColor: String {
+        #if canImport(AppKit)
+        let resolved = usingColorSpace(.sRGB) ?? NSColor.labelColor.usingColorSpace(.sRGB)
+        guard let resolved else { return "currentColor" }
+        #else
+        let resolved = self
+        #endif
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        resolved.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let channel = { (v: CGFloat) in Int((v * 255).rounded()) }
+        return "rgba(\(channel(r)), \(channel(g)), \(channel(b)), \(String(format: "%.3f", Double(a))))"
+    }
+
+    /// `--borderColor-default` — the h1/h2 rule, `hr`, the blockquote bar and
+    /// the table grid, all of which the Preview draws in this exact colour.
+    nonisolated static var editorSeparator: PlatformColor { .gfm(\.border) }
     /// `pre { background-color: var(--bgColor-muted) }` — the code block box.
-    /// Spelled once: the two platforms name this fill identically, and a `#if`
-    /// around two equal values is a difference the code claims and does not
-    /// have.
-    nonisolated static var editorCodeBackground: PlatformColor { .quaternarySystemFill }
+    nonisolated static var editorCodeBackground: PlatformColor { .gfm(\.codeBackground) }
+    /// `code { background-color: var(--bgColor-neutral-muted) }` — the inline pill.
+    nonisolated static var editorInlineCodeBackground: PlatformColor { .gfm(\.inlineCodeBackground) }
     nonisolated static var editorLabel: PlatformColor {
         #if canImport(AppKit)
         return .labelColor

@@ -15,6 +15,7 @@
 //
 
 import SwiftUI
+import MarkdownEditor
 
 struct AdaptiveShell<Sidebar: View, Pane: View,
                      Inspector: View, Compact: View>: View {
@@ -173,8 +174,24 @@ struct EditorPaneContainer<Content: View>: View {
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environment(\.shell, refined(to: geo.size.width))
+                .onAppear { probe(geo) }
+                .onChange(of: geo.size) { _, _ in probe(geo) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// `paneWidth` over-reports on macOS — at a 1100pt window with a 280pt
+    /// sidebar it publishes 1100 — and subtracting `safeAreaInsets` is *not*
+    /// the correction: that lands on 524. Until the numbers are understood the
+    /// published value stays what it has always been, and this records what
+    /// the container is actually being told, so the answer comes from a
+    /// measurement rather than from arithmetic that looked plausible.
+    private func probe(_ geo: GeometryProxy) {
+        EditorProbe.log("pane container size=\(geo.size) "
+                        + "safeArea=(l:\(geo.safeAreaInsets.leading) "
+                        + "t:\(geo.safeAreaInsets.top) "
+                        + "r:\(geo.safeAreaInsets.trailing) "
+                        + "b:\(geo.safeAreaInsets.bottom))")
     }
 
     private func refined(to width: CGFloat) -> ShellContext {

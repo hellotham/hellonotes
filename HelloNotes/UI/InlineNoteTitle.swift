@@ -13,10 +13,23 @@
 //  It is deliberately **not** part of the text storage. The editor's founding
 //  invariant is that raw Markdown IS the text — one text, one coordinate
 //  system — so a title that lives in the filename rather than the file cannot
-//  be a line in the buffer. It is chrome that renders as though it weren't.
+//  be a line in the buffer.
+//
+//  That is a reason it cannot be *in the buffer*. It was never a reason for it
+//  to be laid out differently from every other h1, and it was: the right font,
+//  the field's own natural height instead of `headingLineHeight`, four points
+//  of padding above and two below where an h1 has 9.6pt of padding, a 1pt rule
+//  and a 16pt margin — and no rule at all. It looked like a heading and was
+//  spaced like nothing in particular, which is exactly what "rendered
+//  separately from Markdown" means in practice.
+//
+//  It measures from `GFMBoxMetrics` now, like both renderers. Chrome that
+//  renders as though it weren't has to be held to the document's box model,
+//  or it is simply a second, worse renderer.
 //
 
 import SwiftUI
+import MarkdownCore
 import MarkdownEditor
 
 /// Where the caret should land when it crosses the title/body seam, and a token
@@ -52,11 +65,24 @@ struct InlineNoteTitle: View {
     @State private var draft = ""
 
     var body: some View {
-        field
+        let metrics = theme.metrics
+        VStack(alignment: .leading, spacing: 0) {
+            field
+                // `h1 { line-height: 1.25 }`, and `> *:first-child` gets no
+                // margin above it — the pane's own top inset is that space.
+                .frame(height: metrics.headingLineHeight(1), alignment: .leading)
+                // `h1 { padding-bottom: .3em }`, then the border itself.
+                .padding(.bottom, metrics.headingSize(1) * GFMBoxMetrics.headingRulePadRatio)
+            Rectangle()
+                .fill(Color(theme.ruleColor))
+                .frame(height: metrics.hairline)
+        }
         .padding(.leading, EditorMetrics.textLeadingInset)
-        .padding(.trailing, EditorMetrics.textContainerInset.width)
-        .padding(.top, 4)
-        .padding(.bottom, 2)
+        .padding(.trailing, EditorMetrics.textLeadingInset)
+        .padding(.top, EditorMetrics.textContainerInset.height)
+        // `h1 { margin-bottom: 16px }`, collapsed with whatever follows — and
+        // what follows is the editor, whose own top inset would double it.
+        .padding(.bottom, max(0, metrics.blockGap - EditorMetrics.textContainerInset.height))
         .task(id: title) { draft = title }
         .accessibilityLabel("Note title")
         .accessibilityHint("Renaming updates the file and every link to it")

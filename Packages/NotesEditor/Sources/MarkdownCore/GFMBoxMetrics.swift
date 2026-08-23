@@ -122,6 +122,37 @@ public struct GFMBoxMetrics: Sendable, Equatable {
     /// A 1px CSS border. Stays one point: a hairline is a hairline.
     public var hairline: CGFloat { 1 }
 
+    // MARK: - Tables
+
+    /// One row's content box: a line of the document's own text, plus the
+    /// cell's vertical padding. A `<td>` inherits `line-height: 1.5` like
+    /// everything else, so measuring the glyphs alone leaves every row short.
+    public var tableRowHeight: CGFloat { bodyLineHeight + 2 * cellPadY }
+
+    /// The height the page lays a table of `rows` rows out in — the header and
+    /// the data rows; the delimiter line is a ruler and draws nothing.
+    ///
+    /// `table { border-collapse: collapse }`, and a collapsed border is a box
+    /// of its own rather than ink inside the cell: N rows are separated and
+    /// bounded by N+1 of them. The editor's grid was stroked *inside* the row
+    /// heights, so every table it drew was exactly that many points shorter
+    /// than the one Preview drew — 3pt on the two-row table that is the most
+    /// common one there is, which reads as "close enough" right up until you
+    /// put a table halfway down a long note.
+    public func tableHeight(rows: Int) -> CGFloat {
+        guard rows > 0 else { return 0 }
+        return CGFloat(rows) * tableRowHeight + CGFloat(rows + 1) * hairline
+    }
+
+    /// The width of a table whose columns' text measures `cellWidths`. Same
+    /// rule on the other axis: the padding is inside each cell, and the
+    /// collapsed verticals are `columns + 1` boxes between and around them.
+    public func tableWidth(cellWidths: [CGFloat]) -> CGFloat {
+        guard !cellWidths.isEmpty else { return 0 }
+        return cellWidths.reduce(0) { $0 + $1 + 2 * cellPadX }
+            + CGFloat(cellWidths.count + 1) * hairline
+    }
+
     // MARK: - The gap model
 
     /// A block, named the way the stylesheet names it. The editor's parser has
@@ -139,9 +170,26 @@ public struct GFMBoxMetrics: Sendable, Equatable {
         case quote
         case table
         case thematicBreak
-        /// Front matter has no GitHub equivalent (it is not rendered at all);
-        /// treated as a paragraph-shaped block so the editor spaces it sanely.
+        /// Front matter, **while the caret is inside it**. It has no GitHub
+        /// equivalent — Preview strips it before cmark sees a byte of it — so
+        /// folded it is not a box at all but unrendered source, and this shape
+        /// is only what the raw YAML takes when the reader has opened it to
+        /// edit. Paragraph-shaped, because that is what four lines of text
+        /// want to look like. Used as the *folded* shape too, it reserved a
+        /// paragraph's line for every property and a paragraph's margin under
+        /// the lot, and the reader got a blank band where the note's title
+        /// should have been.
         case frontMatter
+        /// A raw HTML block. It has no margins of its own: `<div>` has none in
+        /// any stylesheet, and an element that *does* — a `<table>`, a `<p>` —
+        /// carries them inside the fragment the editor renders and measures.
+        /// Giving it a paragraph's margin put 16pt around every bare wrapper.
+        case htmlBlock
+        /// A blockquote with nothing in it. `<blockquote></blockquote>` draws
+        /// no content, and with nothing on its vertical axis to stop them its
+        /// margins collapse straight through — so it is a box of no height and
+        /// no margin, not a quoted line of text with 16pt either side.
+        case emptyQuote
     }
 
     /// What sits above a list item, which is what decides its top margin.
@@ -151,9 +199,15 @@ public struct GFMBoxMetrics: Sendable, Equatable {
         /// block precedes the list.
         case opensList
         /// The first item of a list nested inside another item. `ul ul` has no
-        /// top margin either — but in a *loose* parent the item's own text is
-        /// wrapped in a `<p>` whose bottom margin sits between them.
-        case opensNestedList(looseParent: Bool)
+        /// top margin of its own, so the space between the parent's text and
+        /// the sub-list is a `<p>`'s margin escaping out of one side or the
+        /// other: the parent item's own text is a `<p>` when *its* list is
+        /// loose, and this item's text is a `<p>` when *this* list is. Either
+        /// one puts 16pt there, which is why the flag is not `looseParent` —
+        /// asking only the parent left every loose sub-list 16pt short of the
+        /// page, and `- a` / `  - b` / blank / `    c` is the ordinary way to
+        /// write one.
+        case opensNestedList(spaced: Bool)
         /// Any other item: `li + li { margin-top: .25em }`, or in a loose list
         /// `li > p { margin-top: 16 }`.
         case sibling(loose: Bool)
@@ -165,7 +219,7 @@ public struct GFMBoxMetrics: Sendable, Equatable {
         case .heading: headingTopGap
         case .thematicBreak: ruleGap
         // `p, blockquote, ul, ol, table, pre, details { margin-top: 0 }`.
-        case .paragraph, .codeBlock, .quote, .table, .frontMatter: 0
+        case .paragraph, .codeBlock, .quote, .table, .frontMatter, .htmlBlock, .emptyQuote: 0
         // Inside a list `ul { margin-top: 0 }`, and items are separated by
         // `li + li` (tight) or the `li > p` margin (loose).
         case .listItem(let top, _):
@@ -183,6 +237,8 @@ public struct GFMBoxMetrics: Sendable, Equatable {
         case .heading: blockGap
         case .thematicBreak: ruleGap
         case .paragraph, .codeBlock, .quote, .table, .frontMatter: blockGap
+        // Whatever margin the element has is inside the rendered fragment.
+        case .htmlBlock, .emptyQuote: 0
         // Only the last item carries the list's own bottom margin; between
         // items the gap is the next item's `margin-top` (see above).
         case .listItem(_, let last): last ? blockGap : 0
@@ -263,12 +319,30 @@ public struct GFMBoxMetrics: Sendable, Equatable {
           padding: \(p(codePadding)); font-size: \(p(codeSize));
           line-height: \(p(codeLineHeight)); border-radius: \(p(codeRadius));
         }
+        /* A code line longer than the column **wraps**; it does not scroll.
+           GitHub gives `pre` `overflow: auto` and lets a long line run off the
+           side of a fixed column, and TextKit has no equivalent — a text view's
+           container tracks the pane's width, so the editor wraps and always
+           has. Left as GitHub has it the same note is two documents: every code
+           line over about eighty characters is one line tall in Preview and two
+           in Edit, which is 20pt a line and compounds down a README. The corpus
+           cannot see it, because no example in it has a code line long enough
+           to wrap at any width the sweep uses; a four-line Swift snippet out of
+           a real note does, immediately.
+           `break-word`, not `anywhere`, because that is TextKit's rule as well:
+           break between words, and inside a word only when the word by itself
+           will not fit the line.
+           `pre > code` has to be named as well as `pre`: `white-space` inherits,
+           but github-markdown-css sets `white-space: pre` on `.markdown-body
+           pre>code` directly, and an inherited value never beats a declared
+           one however specific its ancestor's is. Setting only `pre` measured
+           as a no-op and read exactly like a rule that had not been reached. */
+        .markdown-body pre, .markdown-body pre > code, .markdown-body pre > tt {
+          white-space: pre-wrap; overflow-wrap: break-word;
+        }
         .markdown-body code, .markdown-body tt {
           font-size: \(p(codeSize)); padding: \(p(inlineCodePadY)) \(p(inlineCodePadX));
           border-radius: \(p(codeRadius));
-        }
-        .markdown-body pre code, .markdown-body pre tt {
-          font-size: inherit; padding: 0; line-height: inherit;
         }
         /* An inline `code` span is set in a different family at a different
            size, and WebKit sizes a line box to fit every inline box in it — so
@@ -280,6 +354,22 @@ public struct GFMBoxMetrics: Sendable, Equatable {
         .markdown-body p code, .markdown-body li code, .markdown-body blockquote code,
         .markdown-body td code, .markdown-body th code, .markdown-body p tt {
           line-height: 1;
+        }
+        /* …and this rule has to come *after* that one. `li code` and `pre code`
+           have identical specificity, so source order alone decides which wins
+           for the `<code>` of a fenced block inside a list item — and with the
+           inline rule last it did, pinning that code to `line-height: 1`.
+           The corpus could not see it: every fenced-in-a-list example it has
+           puts the fence first in the item, where the marker sits in that line
+           box and is taller than either value. A code block written *under* an
+           item's text — `1. Install:` then an indented ```bash block, i.e. every
+           README ever — has no marker in it, and there the block came out 7pt
+           short of the editor's. Measured before and after with
+           `PARITY_CSS=line-height`. Reverted once as a no-op on the strength of
+           the corpus alone, which is the lesson: 672 single constructs are not
+           the same thing as the documents people write. */
+        .markdown-body pre code, .markdown-body pre tt {
+          font-size: inherit; padding: 0; line-height: inherit;
         }
         /* cmark-gfm emits a bare `<input type=checkbox>` with none of the
            classes github.com's own pipeline adds, so the rule that pulls the

@@ -425,6 +425,9 @@ public final class MarkdownTextView: NSTextView {
     private(set) weak var document: EditorDocument?
     /// Retains the layout delegate that vends image-drawing fragments.
     private let blockLayoutDelegate = RenderedBlockLayoutDelegate()
+    /// Retains the content-storage delegate that merges the source lines the
+    /// page draws as one. `NSTextContentStorage.delegate` is weak.
+    private let joinedLineDelegate = JoinedLineDelegate()
 
     func bind(to document: EditorDocument) {
         self.document = document
@@ -461,6 +464,10 @@ public final class MarkdownTextView: NSTextView {
         textLayoutManager?.delegate = blockLayoutDelegate
         // Attach the document's storage to this view's TextKit 2 stack.
         if let contentStorage = textContentStorage {
+            // Before the storage, so the first element enumeration already sees
+            // the joins: attaching first lays the note out line-for-line and
+            // the merge then arrives as a visible reflow.
+            contentStorage.delegate = joinedLineDelegate
             contentStorage.textStorage = document.storage
         }
         syncRenderMetrics()
@@ -476,11 +483,36 @@ public final class MarkdownTextView: NSTextView {
 
     /// Feed the document the current usable width + appearance for sizing
     /// rendered block images.
+    ///
+    /// The container's width is **already** inset — `widthTracksTextView` sizes
+    /// it to `bounds.width - 2 * textContainerInset.width` — so taking the
+    /// inset off again charged it twice. Every table, diagram, formula and HTML
+    /// block in Edit was rendered 32pt narrower than the same block in Preview,
+    /// whose content width is `paneWidth - 2 * textLeadingInset` and is the
+    /// same 758pt of an 800pt pane the text container gives a line of prose.
+    /// The height sweep could not see it: a box that is 32pt narrower is the
+    /// same height until something in it wraps, and nothing in 672 one-construct
+    /// examples did. Two dumps of the same `<table>`, laid side by side, were
+    /// 1452px and 1516px wide. (The iOS half measures `bounds.width` and has
+    /// always been right, which is what made the difference look like a
+    /// platform quirk rather than a subtraction.)
+    ///
+    /// And the width is the content width, with **no cap of its own**. It used
+    /// to be `min(width, 900)` — an undocumented number that arrived with the
+    /// embed feature and that the page has no equivalent of: `img` is
+    /// `max-width: 100%` and a `<table>` grows to the column, so on any pane
+    /// wider than about 930pt every picture in Edit was smaller than the same
+    /// picture in Preview. A 1600×900 screenshot measured −33pt at a 1000pt
+    /// pane and −145 at 1200, and no gate could see it: the document sweep runs
+    /// at 800 and 560, where the cap never bites, and the spec corpus's own
+    /// fixtures are 20×20 squares. Same shape as `RenderedBlockFragment.imageGap`
+    /// — a number in a renderer that `GFMBoxMetrics` knew nothing about.
     func syncRenderMetrics() {
         guard let document else { return }
         let padding = (textContainer?.lineFragmentPadding ?? 0) * 2
-        let width = (textContainer?.size.width ?? bounds.width) - padding - textContainerInset.width * 2
-        if width > 0 { document.renderMaxWidth = min(width, 900) }
+        let width = (textContainer?.size.width ?? bounds.width - textContainerInset.width * 2)
+            - padding
+        if width > 0 { document.renderMaxWidth = width }
         document.isDarkAppearance = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
@@ -1309,6 +1341,10 @@ public final class MarkdownUITextView: UITextView {
     /// property synthesis, leaving plain defaults null (a weak-assign into a
     /// null `chromeOverlay` faults at 0x8). Lazy init runs on first access.
     private lazy var blockLayoutDelegate = RenderedBlockLayoutDelegate()
+    /// Retains the content-storage delegate that merges the source lines the
+    /// page draws as one — `NSTextContentStorage.delegate` is weak, and here
+    /// the stack is built before the view, so `make` hands it over.
+    var joinedLineDelegate: JoinedLineDelegate?
     /// Draws the fragment chrome (bullets, callout bands, checkboxes, gutter
     /// bars, heading rules) — UITextView doesn't invoke custom fragments' draw.
     private lazy var chromeOverlay = ChromeOverlayView()
@@ -1426,6 +1462,8 @@ public final class MarkdownUITextView: UITextView {
         // were empty; fatal the moment they had content.
         // `UITextViewBindTests` holds the invariant.
         let contentStorage = NSTextContentStorage()
+        let joins = JoinedLineDelegate()
+        contentStorage.delegate = joins
         contentStorage.textStorage = document.storage
         let layoutManager = NSTextLayoutManager()
         contentStorage.addTextLayoutManager(layoutManager)
@@ -1434,6 +1472,7 @@ public final class MarkdownUITextView: UITextView {
         layoutManager.textContainer = container
 
         let tv = MarkdownUITextView(frame: .zero, textContainer: container)
+        tv.joinedLineDelegate = joins          // `delegate` above is weak
         tv.bind(to: document)
         tv.isEditable = true
         tv.isScrollEnabled = true
@@ -1629,7 +1668,8 @@ public final class MarkdownUITextView: UITextView {
         guard let document else { return }
         let padding = textContainer.lineFragmentPadding * 2
         let width = bounds.width - padding - textContainerInset.left - textContainerInset.right
-        if width > 0 { document.renderMaxWidth = min(width, 900) }
+        // No cap here either — see the Mac half's note on the 900 that used to be.
+        if width > 0 { document.renderMaxWidth = width }
         document.isDarkAppearance = traitCollection.userInterfaceStyle == .dark
     }
 

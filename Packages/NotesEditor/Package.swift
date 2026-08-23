@@ -58,6 +58,7 @@ let package = Package(
         .testTarget(
             name: "MarkdownCoreTests",
             dependencies: ["MarkdownCore"],
+            resources: [.copy("spec.txt")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
