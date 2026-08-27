@@ -72,8 +72,11 @@ This creates a fresh pair and stores the key.
 
 ## Part 3 — Turn on the app's capabilities
 
-HelloNotes needs four entitlements. Two are checkboxes; two live only in the
-entitlements file.
+HelloNotes started with four entitlements — two checkboxes, two file-only — and has
+since grown three more (App Groups, iCloud KV store, audio input) as later features
+shipped. **Read `HelloNotes/HelloNotes.entitlements` directly before trusting either
+this table or `docs/production.md`'s copy of it** — this is the kind of list that goes
+stale exactly like this one did.
 
 | Entitlement | Why | How to set |
 |-------------|-----|-----------|
@@ -81,6 +84,13 @@ entitlements file.
 | `com.apple.security.files.user-selected.read-write` | Open the vault folder you pick | Checkbox |
 | `com.apple.security.network.client` | Reach the AI providers & git remotes | Checkbox / file |
 | `com.apple.security.files.bookmarks.app-scope` | Remember your vault folder after quitting | **File only** |
+| `com.apple.security.application-groups` | Share the widget's recent/daily-note snapshot with `HelloNotesWidgetsExtension` | **+ Capability ▸ App Groups** — see `docs/xcode-targets-setup.md` §1 |
+| `com.apple.developer.ubiquity-kvstore-identifier` | iCloud key-value preference sync | **+ Capability ▸ iCloud ▸ Key-value storage** |
+| `com.apple.security.device.audio-input` | SpeechAnalyzer dictation | **+ Capability ▸ Hardened Runtime ▸ Resource Access ▸ Audio Input** |
+
+The original four are still the ones worth understanding by hand if something breaks —
+the how-to-set column for the three additions is the standard Xcode mechanism for each
+capability, not independently re-verified in this pass.
 
 1. On **Signing & Capabilities**, click **+ Capability** ▸ double-click **App Sandbox**.
 2. In the App Sandbox panel:
@@ -93,8 +103,9 @@ entitlements file.
    > This is the critical link. The file carries `files.bookmarks.app-scope`, which
    > has **no checkbox anywhere in Xcode**. If the setting is blank, folder-memory
    > silently stops working.
-5. Open **HelloNotes ▸ HelloNotes.entitlements** and confirm it has exactly these
-   four keys, all `YES`:
+5. Open **HelloNotes ▸ HelloNotes.entitlements** and confirm it has at least these
+   four keys, all `YES` (the file may carry more — see the table above; check the
+   live file rather than expecting an exact count):
    ```xml
    <key>com.apple.security.app-sandbox</key>                        <true/>
    <key>com.apple.security.files.user-selected.read-write</key>     <true/>
@@ -104,8 +115,11 @@ entitlements file.
    To add a missing key: hover the last row → **+** → type the key → Type **Boolean**
    → value **YES**. (Or right-click the file → **Open As ▸ Source Code**.)
 
-> `REGISTER_APP_GROUPS = YES` may be set without an app group declared. It's
-> harmless; set it to `NO` unless you actually add an app group.
+> `REGISTER_APP_GROUPS = YES` needs to stay **YES** — the app now declares a real
+> App Group (`group.com.hellotham.HelloNotes`, shared with the widget extension;
+> see Part 3 and `docs/xcode-targets-setup.md` §1). This used to be a note about a
+> flag with nothing behind it yet ("harmless, turn it off unless you add one") —
+> that stopped being true once the widget shipped, so don't turn it off.
 
 ---
 
@@ -129,7 +143,9 @@ If you ever see a **Mac-specific** override `DEVELOPMENT_TEAM[sdk=macosx*] = RPL
    codesign -d --entitlements :- \
      "$(ls -d ~/Library/Developer/Xcode/DerivedData/HelloNotes-*/Build/Products/Debug*/HelloNotes.app | head -1)"
    ```
-   All four keys must appear:
+   At minimum these four keys must appear (current builds also carry
+   `application-groups`, `ubiquity-kvstore-identifier` and `device.audio-input` —
+   see Part 3):
    ```
    com.apple.security.app-sandbox
    com.apple.security.files.user-selected.read-write

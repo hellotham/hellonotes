@@ -33,6 +33,11 @@ struct LLMContext: Sendable {
 }
 
 /// Generation knobs common across providers.
+///
+/// `maxTokens` existed here for a year and no caller ever set it, so every
+/// request took whatever default the provider felt like — which is how a
+/// summary could arrive truncated with nothing in the app able to say why.
+/// `ProviderConfig` now supplies it, discovered or user-set.
 struct LLMRequestOptions: Sendable {
     var temperature: Double?
     var maxTokens: Int?
@@ -45,11 +50,24 @@ struct LLMRequestOptions: Sendable {
 protocol LLMProvider: Sendable {
     /// Stream the next assistant turn for `context` using `model`.
     func stream(_ context: LLMContext, model: String, options: LLMRequestOptions) -> AsyncThrowingStream<StreamEvent, Error>
+
+    /// Ask the provider which models this key can actually use.
+    ///
+    /// Thirteen of the sixteen providers answer this; the three that cannot are
+    /// the on-device ones and they inherit the default below. Throwing rather
+    /// than returning `[]` is deliberate — "this provider publishes no list" and
+    /// "this key has no models" are different answers and the UI says different
+    /// things about them.
+    func availableModels() async throws -> [ModelInfo]
 }
 
 extension LLMProvider {
     func stream(_ context: LLMContext, model: String) -> AsyncThrowingStream<StreamEvent, Error> {
         stream(context, model: model, options: LLMRequestOptions())
+    }
+
+    func availableModels() async throws -> [ModelInfo] {
+        throw LLMError.unsupported("This provider does not publish a model list.")
     }
 }
 

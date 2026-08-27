@@ -180,16 +180,29 @@ final class CollectionSearchModel {
     /// Notes tagged with `tag` or any of its nested children (case-insensitive):
     /// selecting `project` also matches notes tagged `project/hellonotes`.
     func notesTagged(_ tag: String) -> [Note] {
+        entries.filter(carries(tag)).map(\.note)
+    }
+
+    /// How many notes `notesTagged` would return, without building the array.
+    ///
+    /// The tag rail asks this for every matching tag, inside a sort comparator,
+    /// while the reader types — so the `[Note]` it used to allocate was walked
+    /// once for its `count` and thrown away, per tag, per comparison.
+    func noteCountTagged(_ tag: String) -> Int {
+        entries.count(where: carries(tag))
+    }
+
+    /// One definition of "carries this tag", so the list and the count can
+    /// never drift apart about what is being counted.
+    private func carries(_ tag: String) -> (Entry) -> Bool {
         let needle = tag.lowercased()
         let prefix = needle + "/"
-        return entries
-            .filter { entry in
-                entry.tags.contains { t in
-                    let lower = t.lowercased()
-                    return lower == needle || lower.hasPrefix(prefix)
-                }
+        return { entry in
+            entry.tags.contains { t in
+                let lower = t.lowercased()
+                return lower == needle || lower.hasPrefix(prefix)
             }
-            .map(\.note)
+        }
     }
 
     /// The cached aliases of the note at `url` (before any pending save).
@@ -254,14 +267,18 @@ final class CollectionSearchModel {
 
     // MARK: - Search
 
-    /// Notes whose title or alias contains `query` (case-insensitive). Served
-    /// entirely from metadata — instant, no file reads.
+    /// Notes whose title or alias contains `query`. Served entirely from
+    /// metadata — instant, no file reads.
+    ///
+    /// `localizedStandardContains`, not `localizedCaseInsensitiveContains`:
+    /// searching is user-facing text matching, so it should fold diacritics and
+    /// character width as well as case. Typing `cafe` has to find `Café`.
     func titleResults(query: String) -> [SearchHit] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
         return entries.compactMap { entry in
-            guard entry.note.title.localizedCaseInsensitiveContains(q)
-                || entry.aliases.contains(where: { $0.localizedCaseInsensitiveContains(q) })
+            guard entry.note.title.localizedStandardContains(q)
+                || entry.aliases.contains(where: { $0.localizedStandardContains(q) })
             else { return nil }
             return SearchHit(note: entry.note, snippet: "")
         }
@@ -334,9 +351,10 @@ final class CollectionSearchModel {
             return Array(notes.prefix(limit))
         }
 
+        let needle = FuzzyMatch.FoldedQuery(q)
         let scored = items.compactMap { item -> QuickOpenItem? in
             let haystack = item.subtitle.map { "\(item.title) \($0)" } ?? item.title
-            guard let score = FuzzyMatch.score(query: q, candidate: haystack) else { return nil }
+            guard let score = FuzzyMatch.score(needle, candidate: haystack) else { return nil }
             var copy = item
             copy.score = score
             return copy
@@ -357,18 +375,28 @@ final class CollectionSearchModel {
                 title: entry.note.title,
                 subtitle: nil
             )]
-            for alias in entry.aliases {
+            for (index, alias) in entry.aliases.enumerated() {
                 items.append(QuickOpenItem(
-                    id: "\(entry.note.fileURL.path)|alias|\(alias)",
+                    // Indexed for the same reason the headings below are:
+                    // `MarkdownParsing.aliases` preserves order and does not
+                    // dedup, so front matter naming one alias twice produced two
+                    // items sharing an id.
+                    id: "\(entry.note.fileURL.path)|alias|\(index)|\(alias)",
                     note: entry.note,
                     kind: .note,
                     title: entry.note.title,
                     subtitle: "alias: \(alias)"
                 ))
             }
-            for heading in entry.headings {
+            // The index is part of the id, not decoration: a note with two
+            // `## Setup` sections — a README, a meeting-note template — produced
+            // two items sharing one id, and `List(selection:)` cannot tell them
+            // apart. SwiftUI logs a duplicate-id warning, the highlight can land
+            // on the wrong row, and opening always resolved to the first of the
+            // pair.
+            for (index, heading) in entry.headings.enumerated() {
                 items.append(QuickOpenItem(
-                    id: "\(entry.note.fileURL.path)#\(heading.title)",
+                    id: "\(entry.note.fileURL.path)#\(index)#\(heading.title)",
                     note: entry.note,
                     kind: .heading,
                     title: entry.note.title,

@@ -56,7 +56,7 @@ struct SidebarEmptyState: View {
             if search.isEmpty && !search.isInFlight {
                 ContentUnavailableView.search(text: searchText)
             }
-        } else if selectedTag == nil, let scope, scope.notes.isEmpty,
+        } else if selectedTag == nil, let scope, scope.notes.isEmpty, scope.attachments.isEmpty,
                   library.collections.count == 1 {
             ContentUnavailableView {
                 Label("No Notes", systemImage: "square.and.pencil")

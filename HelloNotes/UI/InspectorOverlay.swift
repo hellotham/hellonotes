@@ -108,6 +108,13 @@ struct InspectorOverlayHeader: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close Inspector")
             }
+            // iOS only. The Mac carries these five as toolbar items (the
+            // documented home for commands — see docs/shell-chrome.md), so
+            // drawing them here as well gave the Mac two tab strips for one
+            // inspector, disagreeing about nothing but taking up the room twice.
+            // iOS has no toolbar space for five, which is why the overlay keeps
+            // them there and only there.
+            #if os(iOS)
             HStack(spacing: 0) {
                 ForEach(InspectorTab.allCases) { candidate in
                     Button {
@@ -126,6 +133,15 @@ struct InspectorOverlayHeader: View {
                     .accessibilityAddTraits(candidate == tab ? [.isSelected] : [])
                 }
             }
+            #else
+            // Deliberately nothing: the Mac already carries these five as
+            // toolbar items, per the comment above. Spelled as an `#else`
+            // rather than a bare `#endif` because the shell contract forbids a
+            // one-sided platform gate — the point of that rule is that "this
+            // platform gets nothing" should be a decision on the page, not the
+            // absence of one.
+            EmptyView()
+            #endif
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)

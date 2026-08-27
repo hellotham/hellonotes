@@ -7,7 +7,7 @@ import { APP, PUBLISHER } from '../lib/site';
 
 <PageLayout
   title="Privacy Policy — HelloNotes"
-  description="HelloNotes collects nothing: no account, no analytics, no tracking, no servers. Your notes are plain files on your own Mac."
+  description="HelloNotes collects nothing: no account, no analytics, no tracking, no servers. Your notes are plain files on your own device."
   heading="Privacy Policy"
   intro="Last updated: 2026"
 >
@@ -25,7 +25,7 @@ import { APP, PUBLISHER } from '../lib/site';
       <blockquote>
         <p>
           <strong>In short:</strong> no account, no analytics, no tracking, no servers. Your data
-          never leaves your Mac unless you explicitly choose to sync it somewhere yourself.
+          never leaves your device unless you explicitly choose to sync it somewhere yourself.
         </p>
       </blockquote>
 
@@ -40,14 +40,15 @@ import { APP, PUBLISHER } from '../lib/site';
       <p>
         Your notes are ordinary Markdown files in a folder on your device that you choose. They
         remain under your control and can be read or edited by any other application. {APP.name}
-        reads and writes only the folders you explicitly open, using macOS security-scoped access.
+        reads and writes only the folders you explicitly open, using the OS's security-scoped file
+        access.
       </p>
 
       <h2>On-device intelligence</h2>
       <p>
         The optional Summarise, Suggest Tags/Links, Expand and “Ask your library” features use
         Apple’s on-device Foundation Models framework. Your note content is processed locally on
-        your Mac and is <strong>not</strong> sent to us or to any third party. These features appear
+        your device and is <strong>not</strong> sent to us or to any third party. These features appear
         only on hardware where Apple Intelligence is available.
       </p>
 
@@ -61,7 +62,7 @@ import { APP, PUBLISHER } from '../lib/site';
         When you use such a provider, the text you submit for that action (for example the note
         being summarised, or your question along with relevant excerpts from your notes) is sent to
         that provider under your own account and their privacy policy. Your key is stored in the
-        macOS Keychain and is never transmitted to us. The Assistant’s optional web search and fetch
+        Keychain and is never transmitted to us. The Assistant’s optional web search and fetch
         tools likewise contact the internet only when you invoke them.
       </p>
 
@@ -69,7 +70,7 @@ import { APP, PUBLISHER } from '../lib/site';
       <p>
         If you keep a collection in iCloud Drive, Dropbox, Box, OneDrive or Google Drive, or connect
         one of those accounts directly, your files are handled by that service under its own privacy
-        policy — the same as any other folder on your Mac. Similarly, if you use the built-in Git
+        policy — the same as any other folder on your device. Similarly, if you use the built-in Git
         features with your own remote repository, your notes are sent only to the destination{' '}
         <em>you</em> configure. {APP.name} is not that destination and does not receive a copy.
       </p>

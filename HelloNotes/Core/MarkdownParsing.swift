@@ -86,7 +86,45 @@ nonisolated enum MarkdownParsing {
     /// across 92 notes, every one of which turned into a `#_bookmark0` tag and
     /// buried the genuine tags in the tag list. The lookbehind alone can't see
     /// it, because the character before the `#` is `(`, not a word character.
+    /// Both spellings, because a vault uses both.
+    ///
+    /// A YAML `tags:` key is how Obsidian declares tags and how HelloNotes now
+    /// writes them, and it carries no `#` — so the regex below could never see
+    /// one. Every frontmatter-tagged note in an imported vault was therefore
+    /// *untagged* as far as this app was concerned: absent from the tag tree,
+    /// unfilterable, invisible. (`aliases:` had been read from front matter
+    /// since the beginning, which is what makes the omission an oversight
+    /// rather than a decision.)
     static func tags(in text: String) -> [String] {
+        (frontMatterTags(in: text) + inlineTags(in: FrontMatter.body(of: text))).uniqued()
+    }
+
+    /// The `tags:` front-matter key, accepting a list or a single scalar, with
+    /// or without a leading `#` (both are written in the wild).
+    static func frontMatterTags(in text: String) -> [String] {
+        FrontMatter.properties(in: text)
+            .filter { $0.key.caseInsensitiveCompare("tags") == .orderedSame }
+            .flatMap { property -> [String] in
+                switch property.kind {
+                case .list: return property.items
+                // `tags: research` and `tags: a, b` both occur.
+                default: return property.text
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                }
+            }
+            .map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
+            .filter { isPlausibleTag($0) }
+    }
+
+    /// `#tag` occurrences in `text`.
+    ///
+    /// Called with the **body**, never the whole document. Front matter is
+    /// structured data, and scanning it for `#` turns any property that happens
+    /// to contain one — a `summary:` quoting a hashtag, a URL fragment — into a
+    /// tag the user never wrote. That became a live risk the moment summaries
+    /// started being stored as a property.
+    static func inlineTags(in text: String) -> [String] {
         let full = NSRange(text.startIndex..., in: text)
         let destinations = linkDestinationRegex.matches(in: text, range: full).map(\.range)
 

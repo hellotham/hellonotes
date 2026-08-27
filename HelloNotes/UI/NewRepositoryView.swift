@@ -41,7 +41,7 @@ struct NewRepositoryView: View {
 
             Form {
                 Section("Local") {
-                    TextField("Name", text: $name, prompt: Text("my-notes"))
+                    LabeledField(label: "Name", text: $name, prompt: "my-notes", isPath: true)
                     HStack {
                         Text("Location")
                         Spacer()

@@ -22,13 +22,16 @@ import SwiftUI
 import AppKit
 #endif
 
-/// The provider windows **Connect Over the Web** opens.
+/// The cloud services the app can sign in to directly.
 ///
 /// The four window ids were string literals in three places — the scene
 /// declarations, the menu, and (once the palette learned these commands) a
 /// third. Three copies of a string that must match exactly, where a typo opens
 /// nothing at all and reports nothing either.
-enum CloudBrowser: String, CaseIterable, Identifiable {
+// `Codable` because `CloudAccount` persists which provider an account is on.
+// The raw values are the window ids, which are already load-bearing strings —
+// changing one would orphan both a scene and every stored account.
+enum CloudBrowser: String, CaseIterable, Identifiable, Codable {
     case dropbox = "remoteBrowser"
     case box = "remoteBrowserBox"
     case googleDrive = "remoteBrowserGDrive"
@@ -44,6 +47,21 @@ enum CloudBrowser: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     var windowID: String { rawValue }
+
+    /// The providers a *person* may pick, which is not `allCases`.
+    ///
+    /// `allCases` carries the debug `.mock` store, and a menu built from it
+    /// offered "Cloud Demo (Mock)" alongside Dropbox and Box — in every debug
+    /// build, to anyone using one. The scene still registers `allCases`, so the
+    /// demo window keeps working; it simply is not something the app *offers*.
+    /// Anything user-facing reads this.
+    static var selectable: [CloudBrowser] {
+        #if DEBUG
+        allCases.filter { $0 != .mock }
+        #else
+        allCases
+        #endif
+    }
 
     /// What the window is called.
     ///
@@ -71,18 +89,154 @@ enum CloudBrowser: String, CaseIterable, Identifiable {
     /// that each name their own store and iOS presents one sheet that has to
     /// pick — and a second mapping from case to store is how the two platforms
     /// end up disagreeing about which provider "Box" means.
+    /// - Parameter accountID: which connected account's credentials to use.
+    ///   Always required: a provider on its own no longer identifies a set of
+    ///   credentials, because a person may hold several accounts on one.
     @MainActor
-    func makeStore() -> any RemoteStore {
+    func makeStore(accountID: String) -> any RemoteStore {
         switch self {
-        case .dropbox: DropboxStore()
-        case .box: BoxStore()
-        case .googleDrive: GoogleDriveStore()
-        case .oneDrive: OneDriveStore()
+        case .dropbox: DropboxStore(accountID: accountID)
+        case .box: BoxStore(accountID: accountID)
+        case .googleDrive: GoogleDriveStore(accountID: accountID)
+        case .oneDrive: OneDriveStore(accountID: accountID)
         #if DEBUG
         case .mock: MockRemoteStore()
         #endif
         }
     }
+}
+
+/// Every way to add a collection, as one value.
+///
+/// Grouped rather than six loose closures on `AppActions` because they are one
+/// menu section that four surfaces draw — the sidebar's `+`, the File menu
+/// (which iPadOS renders into a real menu bar too), the compact shell's `…`
+/// and the command palette. Passing them together is what stops a surface
+/// quietly offering five of the six.
+///
+/// The order here is the order they are offered: everything reachable by a
+/// file picker first (no sign-in, works offline), then the one that signs in,
+/// then the ones that create something new.
+struct AddCollectionActions {
+    /// Any folder of Markdown. Opens in Documents.
+    var openFolder: () -> Void
+    /// An Obsidian vault, opening where Obsidian keeps them.
+    var openObsidianVault: () -> Void
+    /// iCloud Drive — always present, always local, and reachable from neither
+    /// of the two above: it lives in `Mobile Documents`, not `CloudStorage`.
+    var openiCloudDrive: () -> Void
+    /// Any cloud folder, by opening the picker that shows both kinds.
+    ///
+    /// **One item, not two.** A folder already synced to this device and one
+    /// that lives only on the provider's servers really are different — the
+    /// first needs no sign-in and works offline — but that difference is not
+    /// one a person can act on until they can see *their own* situation, and a
+    /// menu item carries only a title, so it can ask the question and never
+    /// answer it. The picker can: on macOS it reads `installedClients()` and
+    /// says which providers are already set up here. So the fork moved to the
+    /// surface that can explain it, and the menu carries one plain command.
+    var openCloudFolder: () -> Void
+    /// Start a collection in a new, empty folder.
+    var newCollection: () -> Void
+    /// Clone a Git repository into a new collection.
+    var cloneRepository: () -> Void
+    /// Create a new collection backed by a new Git repository.
+    var newRepository: () -> Void
+
+    /// The same options, as data.
+    ///
+    /// Menus and the two onboarding surfaces (`WelcomeView`, `LauncherView`)
+    /// present this set completely differently — nested submenus in one,
+    /// captioned cards in the others — and describing it twice is precisely
+    /// how the welcome screen came to offer two of the ways in while the
+    /// toolbar offered eight. So the *set* is data and only its rendering is a
+    /// view, which makes "the welcome screen shows what the toolbar shows" a
+    /// property of the code rather than a thing to remember.
+    ///
+    /// Showing all of them is also the honest pitch: a first-run screen
+    /// offering "a folder, or Obsidian" describes a much smaller program than
+    /// this one.
+    var options: [AddCollectionOption] {
+        [
+            .init(id: "new", group: .new,
+                  title: "New Collection", menuTitle: "Empty Folder",
+                  subtitle: "Start with an empty folder",
+                  symbol: "folder.badge.plus", run: newCollection),
+            // Under **New**, not beside it. A repository is not a third kind
+            // of thing next to collections — it is one way of making one, and
+            // listing it at the top level implied the app managed repositories
+            // as well as collections.
+            .init(id: "new-repo", group: .new,
+                  title: "New Repository", menuTitle: "Git Repository",
+                  subtitle: "A new folder tracked by Git",
+                  symbol: "plus.rectangle.on.folder", run: newRepository),
+
+            .init(id: "folder", group: .open,
+                  title: "Open Folder", menuTitle: "from Folder",
+                  subtitle: "Any folder of Markdown files",
+                  symbol: "folder", run: openFolder),
+            .init(id: "icloud", group: .open,
+                  title: "Open iCloud Drive", menuTitle: "from iCloud Drive",
+                  subtitle: "Folders synced across your devices",
+                  symbol: "icloud", run: openiCloudDrive),
+            .init(id: "obsidian", group: .open,
+                  title: "Open Obsidian Vault", menuTitle: "from Obsidian Vault",
+                  subtitle: "Where Obsidian keeps its vaults",
+                  symbol: "shippingbox", run: openObsidianVault),
+            .init(id: "cloud", group: .open,
+                  title: "Open Cloud Collection", menuTitle: "from Cloud",
+                  subtitle: "Dropbox, OneDrive, Google Drive or Box — synced here or online",
+                  symbol: "cloud", run: openCloudFolder),
+            .init(id: "clone", group: .open,
+                  title: "Clone Repository", menuTitle: "from Repository",
+                  subtitle: "From a connected hosting account",
+                  symbol: "arrow.down.circle", run: cloneRepository),
+        ]
+    }
+
+    func options(in group: AddCollectionGroup) -> [AddCollectionOption] {
+        options.filter { $0.group == group }
+    }
+}
+
+/// Which verb an option belongs to.
+///
+/// The app manages a library of **collections**, so every way in is either
+/// making a new collection or opening an existing one — and the menu says so
+/// rather than listing seven peers of unrelated shapes.
+enum AddCollectionGroup: CaseIterable {
+    case new, open
+
+    var title: String {
+        switch self {
+        case .new: "New Collection"
+        case .open: "Open Collection"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .new: "folder.badge.plus"
+        case .open: "folder"
+        }
+    }
+}
+
+/// One way to add a collection, described rather than drawn.
+struct AddCollectionOption: Identifiable {
+    let id: String
+    let group: AddCollectionGroup
+    /// Standalone name, for cards and the command palette, where the row has
+    /// no parent menu to inherit its verb from.
+    let title: String
+    /// Name *inside* its group's submenu, which already says the verb — so
+    /// "New Collection ▸ Empty Folder" rather than "New Collection ▸ New
+    /// Collection".
+    let menuTitle: String
+    /// One line on a card; menus show only the title.
+    let subtitle: String
+    let symbol: String
+    let run: () -> Void
 }
 
 /// The actions a HelloNotes window offers to the menu bar.
@@ -122,9 +276,11 @@ struct AppActions {
     /// `nil` when no collection is open.
     var showsNonNoteFiles: Bool?
     var setShowsNonNoteFiles: ((Bool) -> Void)?
-    /// Browse the File-Provider mounts for a folder to open directly — the
-    /// no-authentication path for a provider whose client is installed.
-    var openCloudFolder: (() -> Void)?
+    /// Every way to add a collection. `nil` in contexts that cannot add one.
+    var addCollection: AddCollectionActions?
+    /// Open-source licences and credits. Beside About, which is what it is
+    /// part of — not a preference.
+    var acknowledgements: (() -> Void)?
     /// Ask a direct-API collection's provider what has changed. `nil` unless the
     /// focused collection is one. A command, so it belongs in a menu rather than
     /// only in a status bar that hides whenever a note is open.
@@ -168,9 +324,6 @@ struct AppActions {
     var find: (() -> Void)?
     /// Focus the library-wide search field.
     var searchAllCollections: () -> Void
-    /// Connect a provider over its own API, for an account whose desktop client
-    /// is not installed.
-    var connectOverWeb: ((CloudBrowser) -> Void)?
     /// The editor presentation mode, and a setter — both surfaces read one
     /// value rather than each reaching for `@AppStorage` separately.
     var editorMode: EditorMode
@@ -260,6 +413,12 @@ struct HelloNotesCommands: Commands {
         // platform that has none. See `SplashPresenter`.
         CommandGroup(replacing: .appInfo) {
             Button("About HelloNotes") { SplashPresenter.show(autoDismiss: false) }
+            // Beside About, not inside Settings. Nothing here is a preference
+            // — there is nothing to choose — and a licences-and-credits screen
+            // filed under "things you can change" is filed wrongly. It sat as
+            // a fourth Preferences tab on macOS and a Settings row on iOS.
+            Button("Acknowledgements…") { actions?.acknowledgements?() }
+                .disabled(actions?.acknowledgements == nil)
         }
 
         // MARK: File — creation and opening. ⌘N makes a note (the app's
@@ -340,22 +499,25 @@ struct HelloNotesCommands: Commands {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(actions?.commandPalette == nil)
             Divider()
-            Button("Open Cloud Folder…") { actions?.openCloudFolder?() }
-                .disabled(actions?.openCloudFolder == nil)
             Button("Refresh Cloud Collection") { actions?.refreshCloudCollection?() }
                 .disabled(actions?.refreshCloudCollection == nil)
+            Divider()
 
-            // Connecting over the provider's own API is the fallback, for an
-            // account whose desktop client is not installed. All four browsers
-            // have been on iOS since they were written — reachable only from
-            // Settings, because this menu was gated and `connectOverWeb` was
-            // nil on that platform.
-            Menu("Connect Over the Web") {
-                ForEach(CloudBrowser.allCases) { provider in
-                    Button("\(provider.displayName)…") { actions?.connectOverWeb?(provider) }
+            // Grouped by what happens, not by how it works. Everything in the
+            // first group is a file picker over folders already on this device
+            // — no sign-in, works offline; the second group signs in. That
+            // division is real rather than cosmetic: the sandbox cannot even
+            // enumerate the mounted providers, so the two can never be one
+            // command that decides for itself.
+            if let add = actions?.addCollection {
+                ForEach(AddCollectionGroup.allCases, id: \.self) { group in
+                    Menu(group.title) {
+                        ForEach(add.options(in: group)) { option in
+                            Button("\(option.menuTitle)…") { option.run() }
+                        }
+                    }
                 }
             }
-            .disabled(actions?.connectOverWeb == nil)
         }
 
         // MARK: File — Print (⌘P), the standard menu item a notes app must have.

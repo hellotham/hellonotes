@@ -88,6 +88,13 @@ struct NoteOutlineList: NSViewRepresentable {
         outline.dataSource = context.coordinator
         outline.delegate = context.coordinator
 
+        // A click anywhere on a folder row opens or closes it. Folders are not
+        // selectable (see `shouldSelectItem`), so until now the only target was
+        // the disclosure triangle — roughly 12pt of a 26pt row whose name you
+        // are already pointing at.
+        outline.target = context.coordinator
+        outline.action = #selector(Coordinator.rowClicked(_:))
+
         let menu = NSMenu()
         menu.delegate = context.coordinator
         outline.menu = menu
@@ -582,6 +589,34 @@ struct NoteOutlineList: NSViewRepresentable {
             parent.onCloseCollection(collection)
         }
 
+        // MARK: Clicking a row
+
+        /// Single click on a folder row toggles it.
+        ///
+        /// The disclosure triangle is deliberately excluded: AppKit has already
+        /// expanded or collapsed the item by the time this action fires, so
+        /// toggling again would undo it and the chevron would read as dead.
+        /// `frameOfOutlineCell(atRow:)` is that triangle's rect.
+        ///
+        /// Notes fall through — they are selectable, and selection is what opens
+        /// them; only folders, which have no other click meaning, are claimed.
+        @objc func rowClicked(_ sender: NSOutlineView) {
+            let row = sender.clickedRow
+            guard row >= 0,
+                  let node = sender.item(atRow: row) as? NoteOutlineItem,
+                  case .folder = node.kind
+            else { return }
+
+            let inWindow = NSApp.currentEvent?.locationInWindow
+                ?? sender.window?.mouseLocationOutsideOfEventStream
+                ?? .zero
+            guard !sender.frameOfOutlineCell(atRow: row).contains(sender.convert(inWindow, from: nil))
+            else { return }
+
+            if sender.isItemExpanded(node) { sender.animator().collapseItem(node) }
+            else { sender.animator().expandItem(node) }
+        }
+
         // MARK: Context menu
 
         func menuNeedsUpdate(_ menu: NSMenu) {
@@ -895,11 +930,31 @@ struct SidebarItemRow: View {
                 // On the label, not the group: a menu on the group would claim
                 // the long-press of every row nested inside it, and a drop on
                 // the group would swallow drops meant for its children.
-                Label(name, systemImage: "folder")
-                    .contextMenu { SidebarMenuItems(items: menuItems) }
-                    .dropDestination(for: URL.self) { urls, _ in
-                        onDropIntoFolder(item.id, urls)
+                //
+                // The name is a `Button` because a `DisclosureGroup` only listens
+                // to its chevron, and a folder row reads as one target — aiming
+                // for a 12pt triangle to open something whose name you are
+                // already pointing at is a precision tax for no reason. A real
+                // Button rather than a tap gesture, so it carries the trait and
+                // answers the keyboard and VoiceOver too.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        if expandedFolders.contains(item.id) { expandedFolders.remove(item.id) }
+                        else { expandedFolders.insert(item.id) }
                     }
+                } label: {
+                    Label(name, systemImage: "folder")
+                        // The whole row, not just the glyphs.
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(expandedFolders.contains(item.id) ? "Collapses the folder"
+                                                                     : "Expands the folder")
+                .contextMenu { SidebarMenuItems(items: menuItems) }
+                .dropDestination(for: URL.self) { urls, _ in
+                    onDropIntoFolder(item.id, urls)
+                }
             }
         }
     }

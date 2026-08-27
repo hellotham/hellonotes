@@ -6,6 +6,17 @@
 > for v1.2, retired §8b's cloud entries and five earlier ones describing gaps that had
 > already been closed; see [implemented.md §20](implemented.md).)
 >
+> **2026-08-25 doc-currency pass (spot-check, not a full reconciliation):** the project
+> is at 1.3.2 (build 8) and ships on macOS + iOS from one App Store Connect record —
+> see `docs/production.md`. Three stale file references from the pre-2026-08-22
+> `MacContentView`/`iOSContentView` split were corrected below (search this file for
+> "2026-08-22 merge"), including one, the References-tab `unlinkedMentions: []` gap,
+> that current source suggests is already closed. The "iOS parity audit (2026-08-21)"
+> section further down was **not** re-verified in this pass — it sits in the same
+> files as this session's separate, active bug investigation, so treat its "hard-coded
+> `false`" and gating claims as unconfirmed rather than re-asserting them as still
+> current.
+>
 > A single register of everything **not** shipped
 > or **not** production-hardened: gaps, deferrals, bugs, tech debt, usability, accessibility,
 > security, performance, and App-Store packaging. Compiled from a five-lane code audit
@@ -65,7 +76,10 @@
 - 🟡 **Transclusion card render runs on the main actor** — a file read + `NoteTranscluder` `lockFocus` per *uncached* `![[Note]]` embed (`CollectionEmbedProvider.swift`) blocks the UI while rendering. Now bounded/cached (so it's rare), but the first render of each card is still main-actor. **Fix:** render to a bitmap off-main (lockFocus is main-only, so this needs a `CGContext`/`NSBitmapImageRep` path).
 - 🟡 **External-change scan isn't fully coalesced** — *partly resolved (§20)*: `Task.detached` doesn't inherit cancellation, so a cancelled debounce task used to leave its walk running while the replacement started another. Cancellation is now forwarded, `enumerate` returns early, and partial results are discarded. **Still open:** there is no in-flight latch, so a change arriving mid-walk still starts a fresh walk once the current one is cancelled rather than queueing one re-run. Deliberately left — a latch adds re-entrancy to the core scan path.
 - ✅ ~~**Collections open sequentially at launch**~~ — resolved (§20): `restore()` creates the collections up front and activates them in a task group, so launch costs the slowest scan rather than the sum.
-- 🟡 **Main-actor single-file reads** in `linkMention`/`insertTemplate` (`MacContentView.swift`) — small user-initiated reads, low impact.
+- 🟡 **Main-actor single-file reads** in `linkMention` (`ContentView.swift` — was
+  `MacContentView.swift` before the 2026-08-22 merge into one cross-platform
+  `ContentView`) and `insertTemplate` (now `State/ShellActions.swift`, not the
+  shell file at all) — small user-initiated reads, low impact.
 - 🟡 **`LibraryChatView.retrieve` reads every note per question** (off-main, user-initiated); fine now, revisit for very large vaults.
 
 ---
@@ -158,9 +172,15 @@ decisions are not:
 
 **Mounted providers are the front door.** When a provider's desktop client is installed
 its storage is already at `~/Library/CloudStorage/<Provider>` as ordinary dataless files,
-so **File ▸ Open Cloud Folder…** needs no sign-in, no token, no cache and no sync engine.
-The direct API sits under **Connect Over the Web** — the fallback for an account whose
-client is absent. On iOS the Files picker covers the same ground.
+so that path needs no sign-in, no token, no cache and no sync engine. The direct API is
+the fallback for an account whose client is absent. On iOS the Files picker covers the
+same ground.
+
+Both live behind one command — **File ▸ Open Collection ▸ from Cloud…**, which opens
+**Manage Cloud Collections** (implemented.md §28). The fork is *answered* there rather
+than asked in a menu, because which route applies is a fact about the device that
+`CloudProvider.installedClients()` can state. Several accounts per provider are
+supported; the Keychain is keyed by account id, not provider name.
 
 Everything that was listed here as a gap has been implemented: metadata-first mirroring
 with on-demand hydration, delta refresh on all four providers, revision-based conflict
@@ -170,6 +190,15 @@ explicit "download and search" escape hatch.
 
 What remains are **constraints of the providers and the platform**, not deferred work:
 
+- 🔒 **iOS cannot open a *synced* cloud folder** — confirmed on a real iPad,
+  2026-08-27. The Files picker lists a provider's File Provider location, but
+  its folders are not selectable, so "Open Cloud Folder" cannot return one. A
+  provider vends either `.folder` or `.directory` and some vend neither in a
+  form the picker will hand back (`FolderPicker` already asks for both). The
+  **online** path is unaffected and was verified working on the same device
+  across all four providers — Dropbox, Box, Google Drive and OneDrive — so an
+  iPad reaches any cloud folder by signing in rather than through the synced
+  copy. Local folders open normally.
 - 🔒 **Box embeds a client secret.** Box has no PKCE public-client mode, so the secret ships
   in the app and is extractable. Removing it requires a backend proxy or Box JWT
   server-auth — i.e. a server to run, not code to write here. Moot when Box Drive is
@@ -373,9 +402,14 @@ reason that is circular.
 ### Cross-platform API, gated anyway
 
 - **`State/SpotlightSearch.swift`** — `NSMetadataQuery` is Foundation and ships
-  on iOS. Consequence: `iOSContentView` passes `unlinkedMentions: []` to the
-  inspector with a comment admitting the References tab is short one of its
-  three sections on iPad.
+  on iOS. ~~Consequence: `iOSContentView` passes `unlinkedMentions: []` to the
+  inspector, so the References tab is short one of its three sections on
+  iPad.~~ **No longer current**: now that the shell is one `ContentView` for
+  both platforms (2026-08-22 merge), the call sites pass
+  `unlinkedMentions: references.unlinkedMentions` — the real value, not an
+  empty array — so this specific gap reads as closed. Re-verify in the app
+  rather than trusting this correction alone; it's a source read, not a
+  render check, and this section overlaps work that may still be in flight.
 
 ### Small, real dependency — and the replacement already exists in-tree
 
@@ -383,7 +417,7 @@ reason that is circular.
 |---|---|---|
 | `UI/SlidesView.swift` | `NSViewRepresentable` | the `UIViewRepresentable` pattern used by `iOSFileViewer` |
 | `UI/MermaidPreviewView.swift` | `NSImage`, `NSRect` | `PlatformImage`, `PlatformDraw` |
-| `UI/CloneRepositoryView.swift`, `UI/NewRepositoryView.swift` | `NSOpenPanel` | `FolderPicker` in `iOSContentView` |
+| `UI/CloneRepositoryView.swift`, `UI/NewRepositoryView.swift` | `NSOpenPanel` | `FolderPicker`, now in the shared `ContentView` (was `iOSContentView` before the 2026-08-22 merge) |
 | `Core/SmartPaste.swift`, `Core/ImagePaste.swift` | `NSPasteboard` | `UIPasteboard` |
 | `Core/VisionAlt.swift` | Vision + `NSImage` | Vision ships on iOS |
 

@@ -38,6 +38,19 @@ it does. Never reach for `killall -9` or `pkill -9` on HelloNotes yourself.
    ./scripts/relaunch-debug.sh
    ```
 
+   To test the **Release** build instead — the only configuration that proves
+   anything about the sandbox, since Xcode injects a
+   `temporary-exception.files.absolute-path.read-only = /` entitlement into
+   Debug builds:
+
+   ```bash
+   HN_CONFIG=Release ./scripts/relaunch-debug.sh
+   ```
+
+   The configuration is an environment variable rather than an argument
+   deliberately: the script still refuses arguments, because `--help` once
+   relaunched the app.
+
    The script verifies rather than assumes, and exits non-zero if it can't:
 
    - finds every live instance by process name **and** by executable path, so a

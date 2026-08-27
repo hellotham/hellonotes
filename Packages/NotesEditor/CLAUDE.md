@@ -18,9 +18,9 @@ GitHub-identical Preview + parity tests).
 All three are run **from the repository root**, not from this directory.
 
 ```bash
-swift test --package-path Packages/NotesEditor                 # 400 tests, 31 suites
+swift test --package-path Packages/NotesEditor                 # 401 tests, 31 suites
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'           # 380 tests — run these too
+  -destination 'platform=iOS Simulator,name=HN-iPad'           # 381 tests — run these too
 ./scripts/render-parity.sh                                     # Edit ≡ Preview: the gate
                                                                # for anything visual
 ```

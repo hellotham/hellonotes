@@ -253,7 +253,27 @@ final class Library {
     /// on screen, and the shell already owns one. On both platforms now — the
     /// Mac ran an `NSOpenPanel` inline here, which is what let its start
     /// directory and its message diverge from the iPad's.
-    func requestOpenCollections() { pendingFolderPick = .anyFolder }
+    func requestOpenFolder() { pendingFolderPick = .folder }
+
+    /// Ask for an Obsidian vault specifically.
+    ///
+    /// The *only* difference from `requestOpenFolder` is where the picker opens
+    /// and what it says — and that is the entire content of the command, which
+    /// is why it is worth its own entry rather than a note in the other one's
+    /// message. A vault is a folder; what a person needs is to not have to
+    /// navigate to `iCloud Drive ▸ Obsidian` by hand every time.
+    ///
+    /// These two used to be one request (`.anyFolder`) offered under two menu
+    /// labels, and that request opened in the Obsidian directory — so "Open
+    /// Collection" started somewhere it had no reason to, and the two commands
+    /// were indistinguishable in behaviour as well as in code.
+    func requestOpenObsidianVault() { pendingFolderPick = .obsidianVault }
+
+    /// Start a collection in a new, empty folder.
+    func requestNewCollection() { pendingFolderPick = .newCollection }
+
+    /// Open a folder in iCloud Drive.
+    func requestOpeniCloudDrive() { pendingFolderPick = .iCloudDrive }
 
     /// Add a folder from a cloud provider that is already mounted on this Mac.
     ///
@@ -317,18 +337,56 @@ final class Library {
     /// `Library` is a model and cannot present a picker; that part was right.
     /// What it can do is say precisely what it is asking for.
     enum FolderPickRequest: Equatable, Identifiable {
-        /// Any folder, to open as a collection.
-        case anyFolder
+        /// Any folder, to open as a collection. Opens in Documents.
+        case folder
+        /// An Obsidian vault. Opens where Obsidian keeps them.
+        case obsidianVault
+        /// iCloud Drive, which is its own case for the same reason Obsidian is:
+        /// the destination is the command.
+        ///
+        /// It fits none of the others. It is always present and always local,
+        /// so it never needs the account flow — but it lives in `Mobile
+        /// Documents`, **not** `~/Library/CloudStorage`, so "Open Cloud Folder"
+        /// cannot reach it, and it is nowhere near Documents either. Without
+        /// its own entry the most universally available cloud folder on the
+        /// machine is the hardest one to open.
+        case iCloudDrive
+        /// A brand-new, empty folder to start a collection in.
+        ///
+        /// No name sheet of its own: both platforms' pickers can already make a
+        /// folder and hand it back (`canCreateDirectories`, and Files' own New
+        /// Folder), so asking for a name in our own dialog would be a worse
+        /// copy of a control the user already knows — and one that would then
+        /// have to answer "where?" separately.
+        case newCollection
         /// A folder from a cloud provider already mounted on this machine.
         case cloudFolder
         /// Somewhere inside `url`, which was too large to open whole.
         case subfolder(of: URL)
+        /// Re-grant access for an unavailable collection, identified by
+        /// `Collection.id` (its path) and shown by `name` for the message.
+        ///
+        /// Nothing else re-mints a dead bookmark. `retry(_:)` can only refresh
+        /// one that still resolves; `persist()` deliberately keeps whatever
+        /// bookmark data a collection already has rather than overwriting it
+        /// (see its own comment — that is what stops a moved folder from being
+        /// silently dropped). So a bookmark that cannot resolve at all — the
+        /// entitlement it was minted under no longer matches this build's, or
+        /// the grant was simply revoked — had no way back in except removing
+        /// the collection and re-adding it, which is losing a working
+        /// collection's sort position, folder state and identity to fix an
+        /// access grant.
+        case relocate(collectionID: String, name: String)
 
         var id: String {
             switch self {
-            case .anyFolder: "any"
+            case .folder: "folder"
+            case .obsidianVault: "obsidian"
+            case .iCloudDrive: "icloud"
+            case .newCollection: "new"
             case .cloudFolder: "cloud"
             case .subfolder(let url): "sub:" + url.path
+            case .relocate(let collectionID, _): "relocate:" + collectionID
             }
         }
 
@@ -336,9 +394,31 @@ final class Library {
         @MainActor
         var startDirectory: URL? {
             switch self {
-            case .anyFolder: ObsidianVault.browseStartDirectory
+            // The Mac's real Documents, not the container's — `FileManager`'s
+            // `.documentDirectory` answers with the sandbox container, which is
+            // a folder the user has never seen and has nothing in it.
+            //
+            // **iOS has no such folder to point at, and must not be given
+            // one.** `RealHome` resolves through `getpwuid_r`, which on iOS
+            // *is* the app's container — so "Documents" there is the app's own
+            // empty Documents, and the picker opened on "Folder is Empty" with
+            // nothing to choose and no hint that the sidebar was the way out.
+            // A `nil` hint lets the Files browser open where it last was, which
+            // is both the platform convention and somewhere that has files in
+            // it.
+            case .folder, .newCollection:
+                #if os(macOS)
+                RealHome.path("Documents")
+                #else
+                nil
+                #endif
+            case .obsidianVault: ObsidianVault.browseStartDirectory
+            case .iCloudDrive: CloudProvider.iCloudDriveDirectory
             case .cloudFolder: CloudProvider.cloudStorageDirectory
             case .subfolder(let url): url
+            // The collection's last-known location is the best starting guess
+            // for where it moved to, or simply where to re-grant it in place.
+            case .relocate(let collectionID, _): URL(fileURLWithPath: collectionID).deletingLastPathComponent()
             }
         }
 
@@ -347,8 +427,14 @@ final class Library {
         @MainActor
         var message: String {
             switch self {
-            case .anyFolder:
+            case .folder:
+                "Choose a folder of Markdown files to open as a collection."
+            case .newCollection:
+                "Create a folder for your new collection, or choose an empty one."
+            case .obsidianVault:
                 ObsidianVault.pickerMessage
+            case .iCloudDrive:
+                "Choose a folder in iCloud Drive."
             case .cloudFolder:
                 {
                     let installed = CloudProvider.installedClients()
@@ -359,10 +445,27 @@ final class Library {
                 }()
             case .subfolder(let url):
                 "Choose a folder inside “\(url.lastPathComponent)” to open instead."
+            case .relocate(_, let name):
+                "Locate “\(name)” to restore access."
             }
         }
 
-        var prompt: String { "Open" }
+        var prompt: String {
+            switch self {
+            case .newCollection: "Create"
+            default: "Open"
+            }
+        }
+
+        /// Whether the picker offers a New Folder control.
+        ///
+        /// Only where making one is the point. An Open panel that can create
+        /// folders is harmless, but a "Create" prompt over a panel that cannot
+        /// is a dead end, and that is the case worth being sure of.
+        var allowsCreatingFolders: Bool {
+            if case .newCollection = self { return true }
+            return false
+        }
     }
     var pendingFolderPick: FolderPickRequest?
 
@@ -511,6 +614,18 @@ final class Library {
         var datas: [Data] = []
         var paths: [String] = []
         for collection in collections {
+            // A direct-API collection is restored from its cache root below,
+            // and must **not** also be listed here.
+            //
+            // It was, and the two restores then raced: the plain path came
+            // back first as an ordinary folder pointing into the mirror
+            // directory, `restoreRemoteCollections` found that id already
+            // present and skipped it, and the collection lost its `remote`
+            // mirror for good. The next `persist()` then wrote an empty cache
+            // list — so a collection added from Dropbox stopped syncing after
+            // one relaunch and became a stale copy of itself, with nothing
+            // said.
+            guard collection.remote == nil else { continue }
             guard let data = collection.bookmarkData ?? Bookmark.data(for: collection.rootURL)
             else { continue }
             collection.bookmarkData = data
@@ -540,7 +655,12 @@ final class Library {
         for path in caches {
             let cacheRoot = URL(fileURLWithPath: path, isDirectory: true)
             guard let manifest = RemoteManifest.load(fromCacheRoot: cacheRoot) else { continue }
-            guard let store = Self.makeStore(named: manifest.provider) else { continue }
+            // No account recorded means no way to know whose credentials this
+            // needs, so it cannot be rebuilt — better an absent collection than
+            // one silently signed in as somebody else.
+            guard let accountID = manifest.accountID,
+                  let store = Self.makeStore(named: manifest.provider, accountID: accountID)
+            else { continue }
             let id = cacheRoot.standardizedFileURL.path
             guard !collections.contains(where: { $0.id == id }) else { continue }
 
@@ -558,14 +678,18 @@ final class Library {
         }
     }
 
-    /// Recreate a provider client from the name its manifest recorded.
-    private static func makeStore(named provider: String) -> RemoteStore? {
+    /// Recreate a provider client from what the manifest recorded.
+    ///
+    /// Both halves are needed: the provider says *which* service, the account
+    /// says *whose* credentials. A collection added from a work OneDrive must
+    /// come back signed in as that account and not the personal one.
+    private static func makeStore(named provider: String, accountID: String) -> RemoteStore? {
         switch provider {
-        case DropboxStore().providerName:     return DropboxStore()
-        case BoxStore().providerName:         return BoxStore()
-        case GoogleDriveStore().providerName: return GoogleDriveStore()
-        case OneDriveStore().providerName:    return OneDriveStore()
-        default:                              return nil
+        case "Dropbox":      return DropboxStore(accountID: accountID)
+        case "Box":          return BoxStore(accountID: accountID)
+        case "Google Drive": return GoogleDriveStore(accountID: accountID)
+        case "OneDrive":     return OneDriveStore(accountID: accountID)
+        default:             return nil
         }
     }
 
@@ -589,6 +713,35 @@ final class Library {
         let back = await collection.recheckAvailability()
         if back { persist() }
         return back
+    }
+
+    /// Ask the user to re-grant access to `collection` — the recovery path for
+    /// a bookmark that `retry(_:)` cannot fix because it no longer resolves at
+    /// all, rather than merely being stale.
+    func requestRelocate(_ collection: Collection) {
+        pendingFolderPick = .relocate(collectionID: collection.id, name: collection.name)
+    }
+
+    /// Re-grant `collection` using a fresh picker selection. Unlike `open(url:)`
+    /// on an already-open path, this **always** mints and stores new bookmark
+    /// data — the one thing `persist()` deliberately won't do for a collection
+    /// that already has bookmark data, dead or not.
+    func relocate(collectionID: String, to url: URL) async {
+        guard let collection = collections.first(where: { $0.id == collectionID }) else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        collection.bookmarkData = Bookmark.data(for: url)
+        if url.standardizedFileURL.path != collection.id {
+            // Picked a different folder than the one that was broken (the user
+            // is relocating a moved vault, not just re-granting the same one)
+            // — the collection's id is its path, so it has to be reopened
+            // there rather than mutated in place. Same reasoning as `retry(_:)`.
+            close(collection)
+            await open(url: url)
+        } else {
+            _ = await collection.recheckAvailability()
+            persist()
+        }
     }
 
     /// Open whatever a folder picker returned.

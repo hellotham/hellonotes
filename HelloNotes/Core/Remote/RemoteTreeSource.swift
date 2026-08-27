@@ -28,6 +28,16 @@ struct RemoteTreeSource: TreeSource {
     /// guess made in advance.
     func unavailability() -> CollectionState.UnavailableReason? { nil }
 
+    /// Six listings in flight.
+    ///
+    /// Every `store.list` is a network round trip the app spends idle, so a
+    /// folder of N directories used to cost N latencies end to end — which is
+    /// the entire reason adding a large cloud folder felt slow. Six is chosen to
+    /// be well inside every provider's rate limit rather than to saturate a
+    /// link: Dropbox, Box, Graph and Drive all throttle, and a walk that earns a
+    /// 429 finishes later than one that never asked for it.
+    var listingConcurrency: Int { 6 }
+
     func children(of directory: String) async throws -> DirectoryListing {
         let entries = try await store.list(path: remotePath(forRelative: directory))
         var listing = DirectoryListing()

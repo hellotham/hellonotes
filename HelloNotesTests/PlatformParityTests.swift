@@ -68,6 +68,14 @@ struct PlatformParityTests {
                 insideActions = String(opened.1).hasSuffix("Actions")
             }
             guard insideActions, let match = try? declaration.firstMatch(in: text) else { continue }
+            // Stored fields only. A *computed* property on an actions struct
+            // is derived from the fields beside it, so no shell passes it and
+            // requiring one to would be asking for the impossible —
+            // `AddCollectionActions.options`, which renders the same set as
+            // menu items here and as cards there, failed exactly that way.
+            // A computed declaration opens a brace on its own line; a stored
+            // one does not.
+            guard !text.trimmingCharacters(in: .whitespaces).hasSuffix("{") else { continue }
             fields.insert(String(match.1))
         }
         #expect(fields.count > 30, "the scan found no fields — the declaration shape changed")
@@ -101,5 +109,60 @@ struct PlatformParityTests {
             and `FileReveal` opens it.
             \(missing.joined(separator: "\n"))
             """)
+    }
+
+    /// A field must be identifiable without typing in it — on **both** platforms.
+    ///
+    /// `TextField(title:text:prompt:)` draws its title to the left of the field
+    /// on macOS and *as the placeholder* on iOS — so supplying a `prompt:`,
+    /// which replaces the placeholder, leaves the title drawn nowhere at all
+    /// there. Ten fields shipped that way: iOS Settings had a "Daily notes"
+    /// section of two anonymous boxes reading "Collection root" and
+    /// "yyyy-MM-dd", and a Git section whose fields could be told apart only by
+    /// guessing that "Ada Lovelace" meant name.
+    ///
+    /// The fix is `LabeledField`. This is the guard, because the broken form
+    /// compiles, renders, and looks perfectly correct on the platform it is
+    /// usually written on.
+    @Test func everyPromptedFieldIsLabelledOnBothPlatforms() throws {
+        // A prompt that *names* the field is a label. A prompt that shows an
+        // example is not. Each exception says which it is.
+        let allowed: [String: String] = [
+            "Filter": "prompt is “Filter repositories” — it names the field",
+            "Name": "in the New Folder alert, whose title and prompt both say “New Folder”",
+        ]
+
+        let root = URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes")
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
+
+        var offenders: [String] = []
+        let pattern = try NSRegularExpression(
+            pattern: #"TextField\(\s*"([^"]+)"[^)]*?prompt:"#, options: [.dotMatchesLineSeparators])
+
+        for file in files {
+            let raw = try String(contentsOf: file, encoding: .utf8)
+            // Comment lines are dropped, and the line numbering is preserved by
+            // blanking rather than removing them. Without this the guard fires
+            // on the doc comment in `LabeledField.swift`, which quotes the
+            // broken form as the example of what not to write — a check that
+            // flags its own documentation is a check people learn to ignore.
+            let text = raw.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String($0) }
+                .joined(separator: "\n")
+            let range = NSRange(text.startIndex..., in: text)
+            for match in pattern.matches(in: text, range: range) {
+                guard let titleRange = Range(match.range(at: 1), in: text) else { continue }
+                let title = String(text[titleRange])
+                guard allowed[title] == nil else { continue }
+                let line = text[..<text.index(text.startIndex, offsetBy: match.range.location)]
+                    .filter { $0 == "\n" }.count + 1
+                offenders.append("\(file.lastPathComponent):\(line) — “\(title)” is invisible on iOS")
+            }
+        }
+        let report = offenders.joined(separator: "\n")
+        #expect(offenders.isEmpty, "use LabeledField instead:\n\(report)")
     }
 }

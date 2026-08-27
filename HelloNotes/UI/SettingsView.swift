@@ -34,6 +34,17 @@ struct PreferencesView: View {
     var llmSettings: LLMSettings
     /// App-wide theming (appearance, accent, text size).
     var appearance: AppearanceSettings
+    /// Git hosting accounts. Shared with the window rather than owned here —
+    /// see `HelloNotesApp.gitAccounts`.
+    var gitAccounts: GitAccountsStore
+
+    /// A repository-less service for the Settings tab.
+    ///
+    /// `GitSettingsView`'s repository sections need a `GitService`; its
+    /// **Accounts** section needs only the store. Settings is not opened
+    /// "inside" a collection, so it gets a bare service and shows accounts —
+    /// which is the part that has to be reachable before any repository exists.
+    @State private var settingsGit = GitService()
 
     var body: some View {
         TabView {
@@ -43,11 +54,16 @@ struct PreferencesView: View {
             AppearanceSettingsView(settings: appearance)
                 .tabItem { Label("Appearance", systemImage: "paintpalette") }
 
+            // Credentials belong in Settings on both platforms. iOS has had
+            // this ("Repository & Accounts"); macOS reached `GitSettingsView`
+            // only from the inspector's Git pane, which requires a collection
+            // that is already a repository — so the credentials needed to
+            // *clone* one were behind having cloned one.
+            GitSettingsView(store: gitAccounts, git: settingsGit)
+                .tabItem { Label("Git", systemImage: "arrow.trianglehead.branch") }
+
             LLMSettingsForm(settings: llmSettings)
                 .tabItem { Label("AI", systemImage: "sparkles") }
-
-            AcknowledgementsView()
-                .tabItem { Label("Acknowledgements", systemImage: "heart") }
         }
         .frame(width: 560, height: 640)
     }
@@ -68,6 +84,15 @@ struct GeneralSettingsView: View {
 #else
 struct iOSSettingsView: View {
     @Bindable var settings: AppearanceSettings
+    /// Provider configuration and API keys.
+    ///
+    /// Present here for the same reason Git is: **credentials belong in
+    /// Settings on both platforms.** macOS has had an AI tab since the
+    /// Preferences window existed; iOS reached the identical form only from
+    /// the editor band's "AI Settings…" and the command palette, so someone
+    /// looking for their keys where keys live found appearance, Git and
+    /// folders — and no mention of AI at all.
+    var llmSettings: LLMSettings
     /// The focused collection's Git service, if it is in a repository.
     /// `GitSettingsView` and `GitAccountsStore` were never Mac-specific — the
     /// view imports nothing but SwiftUI and the store nothing but Foundation;
@@ -76,29 +101,6 @@ struct iOSSettingsView: View {
     var git: GitService?
     var accounts: GitAccountsStore?
     @Environment(\.dismiss) private var dismiss
-    /// So a browsed folder can be promoted to a sidebar collection here too —
-    /// the same action macOS has had. Without it the iOS browser could only ever
-    /// edit notes one at a time, in place.
-    @Environment(Library.self) private var library
-
-    /// Mirrors a browsed cloud folder into a sidebar collection. Captures the
-    /// library itself rather than `self`, which is a view struct.
-    private var addRemoteCollection: AddRemoteCollection {
-        let library = self.library
-        return { store, remoteRoot, displayName, progress in
-            try await library.openRemote(store: store, remoteRoot: remoteRoot,
-                                         displayName: displayName, progress: progress)
-        }
-    }
-
-
-    @State private var showDropbox = false
-    @State private var showBox = false
-    @State private var showGoogleDrive = false
-    @State private var showOneDrive = false
-    #if DEBUG
-    @State private var showCloudDemo = false
-    #endif
 
     var body: some View {
         NavigationStack {
@@ -108,6 +110,25 @@ struct iOSSettingsView: View {
                 // the same object, which is how three of them existed on one
                 // platform and not the other.
                 AppearanceSettingsSections(settings: settings, accentLayout: .grid)
+
+                Section("AI") {
+                    NavigationLink {
+                        // The very same form the Mac's AI tab shows — not a
+                        // second, smaller iOS spelling of it. Entering a key
+                        // and removing one are the same two controls here.
+                        //
+                        // **Not wrapped in a `Form`.** `LLMSettingsForm` is one
+                        // already (`.formStyle(.grouped)`), and `Form { Form { … } }`
+                        // collapses: the screen rendered as a clipped stub with
+                        // a half-drawn "Defaults" label and nothing else. It
+                        // shipped that way in build 11 because the screen was
+                        // added and never looked at.
+                        LLMSettingsForm(settings: llmSettings)
+                            .navigationTitle("AI")
+                    } label: {
+                        Label("Providers & API Keys", systemImage: "sparkles")
+                    }
+                }
 
                 if let git, let accounts {
                     Section("Git") {
@@ -122,34 +143,6 @@ struct iOSSettingsView: View {
                 }
 
                 FolderConventionSections()
-
-                Section {
-                    NavigationLink {
-                        AcknowledgementsView()
-                            .navigationTitle("Acknowledgements")
-                    } label: {
-                        Label("Acknowledgements", systemImage: "heart")
-                    }
-                } footer: {
-                    // `AcknowledgementsView` has never been gated — it was just
-                    // only ever placed in the Mac's tab bar, so the licences and
-                    // credits this app ships were unreachable on iPad.
-                    Text("Open-source licences and credits.")
-                }
-
-                Section {
-                    Button("Connect Dropbox…") { showDropbox = true }
-                    Button("Connect Box…") { showBox = true }
-                    Button("Connect Google Drive…") { showGoogleDrive = true }
-                    Button("Connect OneDrive…") { showOneDrive = true }
-                    #if DEBUG
-                    Button("Cloud Demo (Mock)…") { showCloudDemo = true }
-                    #endif
-                } header: {
-                    Text("Cloud (direct API)")
-                } footer: {
-                    Text("Browse and edit notes straight over a provider's API, without a sync folder. Dropbox needs an app key in Info.plist (DropboxAppKey).")
-                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -158,23 +151,6 @@ struct iOSSettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showDropbox) {
-                NavigationStack { RemoteBrowserView(store: DropboxStore(), onAddAsCollection: addRemoteCollection) }
-            }
-            .sheet(isPresented: $showBox) {
-                NavigationStack { RemoteBrowserView(store: BoxStore(), onAddAsCollection: addRemoteCollection) }
-            }
-            .sheet(isPresented: $showGoogleDrive) {
-                NavigationStack { RemoteBrowserView(store: GoogleDriveStore(), onAddAsCollection: addRemoteCollection) }
-            }
-            .sheet(isPresented: $showOneDrive) {
-                NavigationStack { RemoteBrowserView(store: OneDriveStore(), onAddAsCollection: addRemoteCollection) }
-            }
-            #if DEBUG
-            .sheet(isPresented: $showCloudDemo) {
-                NavigationStack { RemoteBrowserView(store: MockRemoteStore(), onAddAsCollection: addRemoteCollection) }
-            }
-            #endif
         }
     }
 
@@ -201,9 +177,13 @@ struct AppSettingsView: View {
 
     var body: some View {
         #if os(macOS)
-        PreferencesView(llmSettings: llmSettings, appearance: appearance)
+        // A store is always available here — the shell owns one whether or not
+        // a collection is open, which is the whole point of the Git tab.
+        PreferencesView(llmSettings: llmSettings, appearance: appearance,
+                        gitAccounts: accounts ?? GitAccountsStore())
         #else
-        iOSSettingsView(settings: appearance, git: git, accounts: accounts)
+        iOSSettingsView(settings: appearance, llmSettings: llmSettings,
+                        git: git, accounts: accounts)
         #endif
     }
 }

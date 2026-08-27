@@ -34,8 +34,16 @@ import AuthenticationServices
 
 final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "Google Drive"
-    private static let tokenAccount = "gdrive"
-    private static let refreshAccount = "gdrive-refresh"
+    /// The Keychain keys for *this* account's tokens.
+    ///
+    /// Scoped by account id, because a person may hold more than one account
+    /// on the same service — a personal and a work OneDrive is the ordinary
+    /// case. Keyed by the provider alone, the second sign-in overwrote the
+    /// first one's token and the app could hold exactly one account per
+    /// provider with no way to name or choose between them.
+    let accountID: String
+    private var tokenAccount: String { "gdrive#\(accountID)" }
+    private var refreshAccount: String { tokenAccount + "-refresh" }
     static let folderMIME = "application/vnd.google-apps.folder"
 
     private var clientID: String {
@@ -60,22 +68,23 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return folderIDs.first(where: { $0.value == id })?.key
     }
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, accountID: String) {
+        self.accountID = accountID
         self.session = session
     }
 
-    var isAuthenticated: Bool { RemoteTokenStore.token(for: Self.tokenAccount) != nil }
+    var isAuthenticated: Bool { RemoteTokenStore.token(for: tokenAccount) != nil }
 
     private func requireToken() throws -> String {
-        guard let token = RemoteTokenStore.token(for: Self.tokenAccount) else {
+        guard let token = RemoteTokenStore.token(for: tokenAccount) else {
             throw RemoteStoreError.notAuthenticated
         }
         return token
     }
 
     func signOut() {
-        RemoteTokenStore.setToken(nil, for: Self.tokenAccount)
-        RemoteTokenStore.setToken(nil, for: Self.refreshAccount)
+        RemoteTokenStore.setToken(nil, for: tokenAccount)
+        RemoteTokenStore.setToken(nil, for: refreshAccount)
         cacheLock.lock()
         folderIDs = ["": "root"]
         fileIDs = [:]
@@ -233,7 +242,7 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     }
 
     private func refreshAccessToken() async throws -> String {
-        guard let refresh = RemoteTokenStore.token(for: Self.refreshAccount) else {
+        guard let refresh = RemoteTokenStore.token(for: refreshAccount) else {
             throw RemoteStoreError.notAuthenticated
         }
         let data = try await send(Self.refreshRequest(refreshToken: refresh, clientID: clientID))
@@ -241,7 +250,7 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
               let access = json["access_token"] as? String else {
             throw RemoteStoreError.decoding("token refresh")
         }
-        RemoteTokenStore.setToken(access, for: Self.tokenAccount)
+        RemoteTokenStore.setToken(access, for: tokenAccount)
         return access
     }
 
@@ -547,9 +556,9 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
               let access = json["access_token"] as? String else {
             throw RemoteStoreError.decoding("token exchange")
         }
-        RemoteTokenStore.setToken(access, for: Self.tokenAccount)
+        RemoteTokenStore.setToken(access, for: tokenAccount)
         if let refresh = json["refresh_token"] as? String {
-            RemoteTokenStore.setToken(refresh, for: Self.refreshAccount)
+            RemoteTokenStore.setToken(refresh, for: refreshAccount)
         }
         #else
         throw RemoteStoreError.notConfigured("Web authentication isn't available on this platform.")

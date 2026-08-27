@@ -79,8 +79,9 @@ struct WikiCompletionSource {
     /// An empty query offers the first few as-is; anything else is fuzzy-scored.
     private func rank(_ query: String, in candidates: [String]) -> [String] {
         guard !query.isEmpty else { return Array(candidates.prefix(8)) }
+        let needle = FuzzyMatch.FoldedQuery(query)
         return candidates
-            .compactMap { c in FuzzyMatch.score(query: query, candidate: c).map { (c, $0) } }
+            .compactMap { c in FuzzyMatch.score(needle, candidate: c).map { (c, $0) } }
             .sorted { $0.1 > $1.1 }
             .prefix(8)
             .map(\.0)

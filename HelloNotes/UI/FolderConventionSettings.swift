@@ -64,8 +64,7 @@ struct FolderConventionSections: View {
             }
 
             if location == .subfolder {
-                TextField("Subfolder name", text: $attachmentFolder, prompt: Text("assets"))
-                    .plainPathField()
+                LabeledField(label: "Subfolder name", text: $attachmentFolder, prompt: "assets", isPath: true)
                     .onChange(of: attachmentFolder) { _, newValue in
                         let trimmed = newValue.trimmingCharacters(in: .whitespaces)
                         if !trimmed.isEmpty { subfolderName = trimmed }
@@ -84,37 +83,19 @@ struct FolderConventionSections: View {
         }
 
         Section("Daily notes") {
-            TextField("Folder", text: $dailyNoteFolder, prompt: Text("Collection root"))
-                .plainPathField()
-            TextField("Date format", text: $dailyDateFormat, prompt: Text("yyyy-MM-dd"))
-                .plainPathField()
+            LabeledField(label: "Folder", text: $dailyNoteFolder, prompt: "Collection root", isPath: true)
+            LabeledField(label: "Date format", text: $dailyDateFormat, prompt: "yyyy-MM-dd", isPath: true)
             // The only feedback this field has: the format is applied live, so a
             // typo names a note wrongly *here* rather than tomorrow morning.
             caption("Uses date tokens — yyyy (year), MM (month), dd (day). Today would be “\(TemplateExpander.dailyNoteName(for: .now, format: dailyDateFormat))”.")
         }
 
         Section("Templates") {
-            TextField("Folder", text: $templatesFolder, prompt: Text("Templates"))
-                .plainPathField()
+            LabeledField(label: "Folder", text: $templatesFolder, prompt: "Templates", isPath: true)
         }
     }
 
     private func caption(_ text: String) -> some View {
         Text(text).font(.caption).foregroundStyle(.secondary)
-    }
-}
-
-private extension View {
-    /// A field holding a path fragment, not prose: no autocorrection and no
-    /// capitalisation. Only iOS has either, so only iOS has anything to turn
-    /// off — but the *intent* belongs to the field, so it is spelled once here
-    /// rather than at each of the four call sites.
-    @ViewBuilder
-    func plainPathField() -> some View {
-        #if os(iOS)
-        self.autocorrectionDisabled().textInputAutocapitalization(.never)
-        #else
-        self.autocorrectionDisabled()
-        #endif
     }
 }

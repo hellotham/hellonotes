@@ -86,8 +86,8 @@ struct GitSettingsView: View {
 
     private var identitySection: some View {
         Section("Commit identity") {
-            TextField("Name", text: $store.identityName, prompt: Text("Ada Lovelace"))
-            TextField("Email", text: $store.identityEmail, prompt: Text("ada@example.com"))
+            LabeledField(label: "Name", text: $store.identityName, prompt: "Ada Lovelace")
+            LabeledField(label: "Email", text: $store.identityEmail, prompt: "ada@example.com")
             Text("Used as the author of commits this app makes. Overrides your global git config for this collection.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -123,8 +123,8 @@ struct GitSettingsView: View {
                 }
                 .onChange(of: newService) { _, s in if !s.defaultHost.isEmpty { newHost = s.defaultHost } }
 
-                TextField("Host", text: $newHost, prompt: Text("github.com"))
-                TextField("Username", text: $newUsername, prompt: Text("your-username"))
+                LabeledField(label: "Host", text: $newHost, prompt: "github.com", isPath: true)
+                LabeledField(label: "Username", text: $newUsername, prompt: "your-username", isPath: true)
                 SecureField("Personal access token", text: $newToken)
 
                 HStack(spacing: 10) {
@@ -176,7 +176,7 @@ struct GitSettingsView: View {
             if git.status.remotes.isEmpty {
                 Text("No remote yet. Add one to sync this collection to a hosting service.")
                     .font(.caption).foregroundStyle(.secondary)
-                TextField("Remote URL", text: $remoteURL, prompt: Text("https://github.com/you/notes.git"))
+                LabeledField(label: "Remote URL", text: $remoteURL, prompt: "https://github.com/you/notes.git", isPath: true)
                 if !store.accounts.isEmpty {
                     Picker("Authenticate with", selection: $remoteAccountHost) {
                         Text("None (public / SSH)").tag("")

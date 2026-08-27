@@ -194,15 +194,42 @@ nonisolated enum FrontMatter {
         var s = raw.trimmingCharacters(in: .whitespaces)
         for quote in ["\"", "'"] where s.hasPrefix(quote) && s.hasSuffix(quote) && s.count >= 2 {
             s = String(s.dropFirst().dropLast())
+            // Undo the escaping `quoteIfNeeded` applies. Without this the pair
+            // is not a round trip: a value containing a quote gains a backslash
+            // every time the block is rewritten.
+            if quote == "\"" {
+                s = s.replacingOccurrences(of: "\\\"", with: "\"")
+                     .replacingOccurrences(of: "\\\\", with: "\\")
+            }
+            break
         }
         return s.trimmingCharacters(in: .whitespaces)
     }
 
+    /// YAML indicator characters: a value *starting* with one of these is read
+    /// as structure rather than text.
+    ///
+    /// `[` is the one that matters here and it is not hypothetical. A related
+    /// link is written `- [[Some Note]]`, and unquoted that is a nested flow
+    /// sequence, not a string — so the value would not survive its own round
+    /// trip, and every other tool reading the vault (Obsidian included) would
+    /// see something the author never wrote.
+    private static let yamlIndicators: Set<Character> = [
+        "[", "]", "{", "}", ",", "&", "*", "!", "|", ">", "'", "\"", "%", "@", "`", "-", "?",
+    ]
+
     private static func quoteIfNeeded(_ value: String) -> String {
         // Quote values that would otherwise change type or break the line.
         if value.isEmpty { return "\"\"" }
-        if value == "true" || value == "false" || Double(value) != nil || value.contains(":") || value.contains("#") {
-            return "\"\(value)\""
+        if value == "true" || value == "false" || Double(value) != nil
+            || value.contains(":") || value.contains("#")
+            || value.first.map(yamlIndicators.contains) == true
+            || value != value.trimmingCharacters(in: .whitespaces) {
+            // Escape any embedded double quotes so the quoting we just added
+            // cannot be ended early by the value itself.
+            let escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
+                               .replacingOccurrences(of: "\"", with: "\\\"")
+            return "\"\(escaped)\""
         }
         return value
     }

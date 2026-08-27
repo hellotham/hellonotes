@@ -49,8 +49,20 @@ nonisolated enum CloudProvider {
     static var cloudStorageDirectory: URL { RealHome.path("Library/CloudStorage") }
 
     /// iCloud Drive's own, older location.
+    ///
+    /// Platform-split for the reason `ObsidianVault.browseStartDirectory` is:
+    /// `RealHome` resolves through `getpwuid_r`, which on iOS *is* the app's
+    /// own container — so the Mac's path would send the iOS picker inside our
+    /// sandbox, where there is no iCloud Drive and nothing to choose. iOS gets
+    /// the device's fixed absolute location instead, which the picker resolves
+    /// out of process (we cannot read it ourselves, and do not try).
     static var iCloudDriveDirectory: URL {
+        #if os(macOS)
         RealHome.path("Library/Mobile Documents/com~apple~CloudDocs")
+        #else
+        URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs",
+            isDirectory: true)
+        #endif
     }
 
     /// A provider whose desktop client is installed on this Mac.
@@ -60,17 +72,25 @@ nonisolated enum CloudProvider {
     /// them — the direct API exists for the case where the client is absent, not
     /// as the front door.
     struct Installed: Identifiable, Sendable {
-        var id: String { bundleID }
+        var id: String { name }
         var name: String
-        var bundleID: String
+        /// Every bundle id this client has shipped under — see `knownClients`.
+        var bundleIDs: [String]
     }
 
     /// The clients we know how to recognise, in the order they should be offered.
+    ///
+    /// A provider may ship under **more than one bundle id** — the same app,
+    /// renamed across versions or between the direct download and the App Store
+    /// build. Microsoft's current Mac client is `com.microsoft.OneDrive-mac`,
+    /// and checking only `com.microsoft.OneDrive` reported "not installed" on a
+    /// Mac that was actively syncing two OneDrive accounts. One missed id here
+    /// is invisible: the app simply never mentions a provider the user has.
     static let knownClients: [Installed] = [
-        Installed(name: "Box", bundleID: "com.box.desktop"),
-        Installed(name: "Dropbox", bundleID: "com.getdropbox.dropbox"),
-        Installed(name: "Google Drive", bundleID: "com.google.GoogleDrive"),
-        Installed(name: "OneDrive", bundleID: "com.microsoft.OneDrive"),
+        Installed(name: "Box", bundleIDs: ["com.box.desktop", "com.box.Box-Local-Com-Server"]),
+        Installed(name: "Dropbox", bundleIDs: ["com.getdropbox.dropbox"]),
+        Installed(name: "Google Drive", bundleIDs: ["com.google.GoogleDrive", "com.google.drivefs"]),
+        Installed(name: "OneDrive", bundleIDs: ["com.microsoft.OneDrive-mac", "com.microsoft.OneDrive"]),
     ]
 
     /// Which of those are actually installed.
@@ -89,8 +109,10 @@ nonisolated enum CloudProvider {
     /// caller's job is to offer the picker rather than a list it built itself.
     static func installedClients() -> [Installed] {
         #if os(macOS)
-        return knownClients.filter {
-            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleID) != nil
+        return knownClients.filter { client in
+            client.bundleIDs.contains {
+                NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil
+            }
         }
         #else
         return []

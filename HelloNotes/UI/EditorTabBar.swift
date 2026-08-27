@@ -74,7 +74,56 @@ struct EditorTabBar: View {
         // box — about 17pt tall inside a 44pt touch bar — and left this
         // `contentShape` with no gesture attached to it, so tapping beside a
         // title or anywhere in the margin did nothing.
+        //
+        // Wrapping the *whole tab* is not the answer either: the close control
+        // is a `Button` inside this HStack, and nesting one button in another
+        // makes which of them a tap belongs to a matter of luck. So the gesture
+        // stays, and what it was missing is added explicitly — a bare tap
+        // recogniser carries no button trait and offers VoiceOver nothing to
+        // activate, so the tab could be read aloud but never selected.
         .contentShape(.rect)
         .onTapGesture { onSelect(note.id) }
+        // `.combine` first, and that is the load-bearing line: this HStack holds
+        // a Text and the close `Button`, so without it there is no element whose
+        // frame is the tab — the trait and the action below would either be
+        // dropped for want of one, or pushed down onto both children, putting
+        // the tab's activate action on the close button and shrinking the
+        // focus rect to the title's ~17pt glyph box. That is the same target
+        // shrinkage the comment above says this design exists to avoid, arriving
+        // through the accessibility tree instead of the layout.
+        //
+        // `WelcomeView:120` uses the same modifier but not for the same reason:
+        // its row is an image plus two `Text`s and nothing interactive, so
+        // `.combine` there only merges two static labels into one utterance.
+        // This is the harder case, and it has a real cost — see the close
+        // action below.
+        .accessibilityElement(children: .combine)
+        // Combining merges the children's labels, so name it explicitly or it
+        // announces "«Title» Close «Title»".
+        .accessibilityLabel(note.title)
+        // Which note is open was carried only by weight, tint and a `.selection`
+        // fill — three visual signals, none of which reaches VoiceOver. The app's
+        // other tab strip already says it: `InspectorOverlay:126`, which adds
+        // `.isSelected` alone because its row already *is* a `Button`. (The
+        // accent swatches at `AppearanceSettingsSections:160` write the same
+        // `[.isButton, .isSelected]` pair, but they are a colour picker, not a
+        // tab strip, and being buttons already they do not need the `.isButton`
+        // half either. This HStack is not a button, so here it is load-bearing.)
+        .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { onSelect(note.id) }
+        // Re-exposed by hand, and named with the title because the merged
+        // element's label is the bare tab name: the close control's own
+        // `.accessibilityLabel("Close \(note.title)")` above is absorbed by
+        // `.combine` and no longer reaches anyone.
+        //
+        // **This is a trade, not a free fix.** `.combine` stops the close
+        // `Button` being an accessibility *element*, so it leaves the rotor's
+        // Actions menu as the only route to it: VoiceOver can no longer swipe
+        // to it, Voice Control can no longer be told "Tap Close Meeting Notes",
+        // and Switch Control / Full Keyboard Access cannot step onto it at all.
+        // Verify with VoiceOver before shipping — if `.combine` turns out to
+        // promote the merged child's own action as well, this line is a second,
+        // duplicate "Close" in the same rotor and should go.
+        .accessibilityAction(named: "Close \(note.title)") { onClose(note.id) }
     }
 }

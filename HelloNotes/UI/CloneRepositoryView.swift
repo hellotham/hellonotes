@@ -33,12 +33,29 @@ struct CloneRepositoryView: View {
     @State private var pendingCloneURL: String?
     @State private var repoURL = ""               // the URL that will be cloned
 
+    /// Folds case, diacritics and character width — the same three folds the
+    /// note search and the tag rail get from `localizedStandardContains` — but
+    /// deliberately **without** a locale.
+    ///
+    /// `localizedStandardContains` folds against `Locale.current`, and Turkish
+    /// maps I↔ı: on a `tr_TR` device it answers `false` for `"i"` in
+    /// `"Install"`. Every other site this rule was applied to came from
+    /// `localizedCaseInsensitiveContains`, which was already locale-sensitive,
+    /// so nothing changed there — this one came from a locale-*independent*
+    /// `lowercased().contains`, so reaching for the localized spelling would
+    /// have been the one place the sweep introduced a regression. A GitHub
+    /// `owner/name` is an ASCII slug; a locale can only cost it.
+    private static let filterOptions: String.CompareOptions =
+        [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+
     private var filteredRepos: [RemoteRepository] {
-        let q = filter.trimmingCharacters(in: .whitespaces).lowercased()
+        let q = filter.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return repos }
-        return repos.filter {
-            $0.fullName.lowercased().contains(q) || ($0.description?.lowercased().contains(q) ?? false)
+        func matches(_ text: String?) -> Bool {
+            guard let text else { return false }
+            return text.range(of: q, options: Self.filterOptions) != nil
         }
+        return repos.filter { matches($0.fullName) || matches($0.description) }
     }
 
     var body: some View {
@@ -145,7 +162,7 @@ struct CloneRepositoryView: View {
 
     private var urlSection: some View {
         Section("Repository URL") {
-            TextField("URL", text: $repoURL, prompt: Text("https://github.com/you/notes.git"))
+            LabeledField(label: "URL", text: $repoURL, prompt: "https://github.com/you/notes.git", isPath: true)
             Text("Private repositories clone using the token of the matching connected account.")
                 .font(.caption).foregroundStyle(.secondary)
         }

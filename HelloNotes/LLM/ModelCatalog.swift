@@ -147,17 +147,27 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
-    /// Seed model IDs shown as suggestions (the user may enter any ID).
+    /// Seed model IDs, used **only until the provider has been asked**.
+    ///
+    /// This array used to be the whole story, and a hand-written array of model
+    /// IDs is stale the week after it is written — this one still offered
+    /// `gemini-2.0-flash` and `gpt-4o` a generation and a half after both were
+    /// superseded. `LLMSettings.refreshModels(for:)` replaces it with what the
+    /// key can actually reach, for the thirteen providers that publish a list.
+    ///
+    /// So these are a first guess for an unconfigured provider, nothing more.
+    /// **Checked 27 August 2026**; where a provider offers a self-updating alias
+    /// (Mistral's `-latest`) that is preferred, because it cannot go stale.
     var suggestedModels: [String] {
         switch self {
-        case .openai: return ["gpt-4o", "gpt-4o-mini", "o4-mini"]
-        case .anthropic: return ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"]
-        case .gemini: return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
-        case .mistral: return ["mistral-large-latest", "mistral-small-latest", "open-mistral-nemo"]
-        case .openrouter: return ["openai/gpt-4o", "anthropic/claude-sonnet-4.5", "google/gemini-2.5-flash"]
+        case .openai: return ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        case .anthropic: return ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+        case .gemini: return ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-2.5-pro"]
+        case .mistral: return ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"]
+        case .openrouter: return ["openai/gpt-5.6-sol", "anthropic/claude-opus-5", "google/gemini-3.7-flash"]
         case .groq: return ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]
-        case .xai: return ["grok-4", "grok-3", "grok-3-mini"]
-        case .deepseek: return ["deepseek-chat", "deepseek-reasoner"]
+        case .xai: return ["grok-4.6", "grok-4.3", "grok-4.1-fast"]
+        case .deepseek: return ["deepseek-v4-pro", "deepseek-v4-flash"]
         case .cerebras: return ["llama-3.3-70b", "gpt-oss-120b", "qwen-3-235b-a22b-instruct-2507"]
         case .together: return ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-72B-Instruct-Turbo"]
         case .perplexity: return ["sonar", "sonar-pro", "sonar-reasoning-pro"]
@@ -166,6 +176,50 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
         case .lmstudio: return []
         case .apple: return ["apple-on-device"]
         case .mlx: return ["mlx-community/Qwen3-4B-4bit", "mlx-community/Llama-3.2-3B-Instruct-4bit"]
+        }
+    }
+
+    /// The highest sampling temperature this provider accepts, before discovery.
+    ///
+    /// Not cosmetic, and not one number: Anthropic rejects anything above 1.0,
+    /// while Gemini and the OpenAI-compatible family go to 2.0 — so the single
+    /// `0...1` slider the app shipped was the wrong *range* for one provider and
+    /// half the available range for the rest. Gemini states a per-model
+    /// `maxTemperature`, which supersedes this when a refresh has run.
+    var defaultMaxTemperature: Double {
+        switch self {
+        case .anthropic: return 1.0
+        case .mistral: return 1.5
+        case .apple, .mlx: return 1.0
+        default: return 2.0
+        }
+    }
+
+    /// Whether this provider can be asked for its model list.
+    ///
+    /// Mirrors which adapters implement `availableModels()`. Used only to decide
+    /// whether to *offer* a Refresh control — a button that always answers
+    /// "this provider does not publish a model list" is a button that should
+    /// not be there.
+    var supportsModelDiscovery: Bool {
+        switch wire {
+        case .foundationModels, .mlx: return false
+        case .openAICompatible, .anthropic, .gemini: return true
+        }
+    }
+
+    /// Whether the provider states a context window alongside the model list.
+    ///
+    /// Eight of the sixteen do. The rest list IDs only, so their context budget
+    /// still comes from `ProviderCapabilities` unless the user sets one — and
+    /// the settings screen says which of the two it is showing rather than
+    /// presenting a fallback as a discovered fact.
+    var publishesContextWindow: Bool {
+        switch self {
+        case .gemini, .anthropic, .openrouter, .mistral, .groq, .together, .ollama, .lmstudio:
+            return true
+        case .openai, .xai, .deepseek, .cerebras, .perplexity, .ollamaCloud, .apple, .mlx:
+            return false
         }
     }
 

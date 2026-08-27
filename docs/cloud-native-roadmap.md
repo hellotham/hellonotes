@@ -4,7 +4,8 @@
 a whole vault to a local folder. Covers Box, Dropbox, OneDrive (personal + business),
 Google Drive, and iCloud Drive.*
 
-Status: **All phases complete** (2026-07-20/21; review-hardened 2026-07-25; Phase 5 added 2026-08-15). The File-Provider
+Status: **All phases complete** (2026-07-20/21; review-hardened 2026-07-25; Phase 5 added 2026-08-15;
+Phase 6 — accounts and one surface — 2026-08-25, see implemented.md §28). The File-Provider
 path (0–3) covers Box, Dropbox, OneDrive, Google Drive & iCloud with no credentials at all.
 Phase 4 ships **four direct-API providers** — Dropbox, Box, Google Drive and OneDrive
 (personal *and* business) — each usable standalone *and* promotable to a first-class rail
@@ -301,8 +302,12 @@ do not control; cloud only makes the slow, large and absent cases common.
   change detection for the first time via `DirectoryPresenter` (`NSFilePresenter`).
 - ✅ **Non-note files** can be hidden per collection, gating the *walk*; what is
   hidden is counted and stated.
-- ✅ **Mounted providers first.** LaunchServices detects installed clients;
-  **File ▸ Open Cloud Folder…** opens a panel seeded at `~/Library/CloudStorage`
+- ✅ **Mounted providers first.** LaunchServices detects installed clients —
+  matching **every** bundle id a client has shipped under, since OneDrive is
+  `com.microsoft.OneDrive-mac` and checking only `com.microsoft.OneDrive` reported
+  "not installed" on a Mac actively syncing two OneDrive accounts;
+  **Manage Cloud Collections ▸ From a Synced Cloud Folder…** opens a panel seeded at
+  `~/Library/CloudStorage`
   (via `RealHome`/`getpwuid_r` — Foundation's home APIs return the sandbox
   *container*, which is why the old Obsidian browse hint pointed at a path that had
   never existed). No authentication at all for a mounted provider.

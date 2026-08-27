@@ -8,14 +8,22 @@
 //  purple → magenta → orange gradient, a slowly drifting constellation of
 //  linked notes, the wordmark, a tagline, and the credits / version /
 //  copyright small print. Shown briefly at launch, and again from
-//  "About HelloNotes" (macOS), where it stays until clicked.
+//  "About HelloNotes" on either platform, where it stays until dismissed.
 //
 
 import SwiftUI
 
 struct SplashScreenView: View {
-    /// Invoked when the user clicks the splash (or presses Escape on macOS).
+    /// Invoked when the user clicks the splash (or presses Escape).
     var onDismiss: () -> Void = {}
+
+    /// `onKeyPress` is delivered along the **focus chain**, so a handler on a
+    /// view that can never hold focus is a handler that can never fire. The
+    /// command palette's Escape works because the palette focuses its own
+    /// `TextField`; this splash is `Canvas`, `Text` and gradients, and
+    /// `.focusable()` appears nowhere else in the app — so the key route has to
+    /// bring its own focus target.
+    @FocusState private var keyboardFocused: Bool
 
     var body: some View {
         ZStack {
@@ -28,12 +36,39 @@ struct SplashScreenView: View {
         #if os(macOS)
         .onExitCommand { onDismiss() }
         #else
-        // `onExitCommand` is AppKit's Escape handler and has no iOS spelling.
-        // The dismiss it performs is the tap above, which every device has —
-        // so the *behaviour* (Escape or a tap gets you out) is on both, and
-        // only the extra keyboard route is macOS's.
-        .onTapGesture { onDismiss() }
+        // Escape *does* have an iOS spelling — `onKeyPress`, which the command
+        // palette already uses — and it is needed here rather than optional.
+        // "About HelloNotes" shows this with `autoDismiss: false`, so on iPad it
+        // is a modal whose only way out was the tap gesture below: no keyboard
+        // route, and nothing for VoiceOver to activate. (The `#else` branch also
+        // carried a second, redundant `onTapGesture`, so the tap was attached
+        // twice on iOS.)
+        //
+        // `.focusable()` and the `@FocusState` above are what make the line
+        // below reach anything at all: key presses travel the focus chain, and
+        // an overlay with no focusable view in it is never on that chain.
+        .focusable()
+        .focused($keyboardFocused)
+        .onAppear { keyboardFocused = true }
+        .onKeyPress(.escape) { onDismiss(); return .handled }
         #endif
+        // A tap recogniser is invisible to assistive technology, and this is a
+        // modal: `.isModal` stops VoiceOver wandering into the app behind it,
+        // and the escape action gives it a way out. `.contain` rather than
+        // `.combine` so the wordmark, tagline and version stay separately
+        // readable instead of merging into one utterance.
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        // `.escape`, not only a *named* action. `.contain` makes this a
+        // container, and a container is not a focus stop — VoiceOver lands on
+        // the wordmark and version inside it, so a custom action hung here is
+        // offered on nothing. The escape action is the one kind that a modal
+        // container does answer: it is what VoiceOver's two-finger scrub and
+        // AppKit's `accessibilityPerformCancel` both call. Without it `.isModal`
+        // walls a VoiceOver user in with no announced way out — worse than the
+        // state before it was added.
+        .accessibilityAction(.escape) { onDismiss() }
+        .accessibilityAction(named: "Dismiss") { onDismiss() }
     }
 
     // MARK: Artwork

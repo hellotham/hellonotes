@@ -56,6 +56,10 @@ struct CollectionConditionBar: View {
     /// condition, and above an empty editor it would be explaining nothing.
     let hasSelection: Bool
     let onRetry: (Collection) -> Void
+    /// Re-grant access via a fresh folder pick — the recovery for a bookmark
+    /// that no longer resolves at all, which "Try Again" cannot fix because it
+    /// only ever re-tries the same dead grant.
+    let onLocate: (Collection) -> Void
 
     var body: some View {
         if let collection, hasSelection {
@@ -63,6 +67,9 @@ struct CollectionConditionBar: View {
                 ConditionStrip(symbol: "exclamationmark.triangle.fill", tint: .orange,
                                message: "\(collection.name) is unavailable — \(reason.explanation)") {
                     Button("Try Again") { onRetry(collection) }
+                        .font(.caption)
+                        .buttonStyle(.borderless)
+                    Button("Locate…") { onLocate(collection) }
                         .font(.caption)
                         .buttonStyle(.borderless)
                 }

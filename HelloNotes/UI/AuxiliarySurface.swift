@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 22/8/2026.
 //
-//  Graph, Ask Library, Assistant, Mind Map, the cloud browsers — the surfaces
+//  Graph, Ask Library, Assistant, Mind Map — the surfaces
 //  that sit beside the notes rather than inside them.
 //
 //  The Mac opened a `Window` for each; the iPad presented a sheet. Two lists,
@@ -37,8 +37,6 @@ enum AuxiliarySurface: Identifiable, Hashable {
     /// The mind map of one note. Value-carrying, so its scene is a
     /// `WindowGroup(for:)` rather than an id — the same shape a note window has.
     case mindMap(URL)
-    /// A direct-API cloud provider's browser.
-    case cloud(CloudBrowser)
 
     var id: String { windowID }
 
@@ -51,7 +49,6 @@ enum AuxiliarySurface: Identifiable, Hashable {
         case .askLibrary: "askLibrary"
         case .assistant: "assistant"
         case .mindMap(let url): "mindMap:" + url.path
-        case .cloud(let provider): provider.windowID
         }
     }
 
@@ -61,7 +58,6 @@ enum AuxiliarySurface: Identifiable, Hashable {
         case .askLibrary: "Ask Library"
         case .assistant: "Assistant"
         case .mindMap: "Mind Map"
-        case .cloud(let provider): provider.displayName
         }
     }
 
@@ -71,7 +67,6 @@ enum AuxiliarySurface: Identifiable, Hashable {
         case .askLibrary: "sparkles.rectangle.stack"
         case .assistant: "sparkles"
         case .mindMap: "point.topleft.down.curvedto.point.bottomright.up"
-        case .cloud: "cloud"
         }
     }
 
@@ -81,7 +76,6 @@ enum AuxiliarySurface: Identifiable, Hashable {
         case .askLibrary: CGSize(width: 560, height: 640)
         case .assistant: CGSize(width: 560, height: 680)
         case .mindMap: CGSize(width: 720, height: 540)
-        case .cloud: CGSize(width: 480, height: 580)
         }
     }
 }
@@ -155,9 +149,6 @@ struct AuxiliaryRef: Hashable, Codable {
 /// The content of an auxiliary surface, wherever it is presented.
 struct AuxiliarySurfaceView: View {
     let surface: AuxiliarySurface
-    /// Mirroring a browsed cloud folder into a collection. Only the cloud
-    /// surfaces need it, and only the shell can supply it.
-    var addRemoteCollection: AddRemoteCollection? = nil
 
     var body: some View {
         switch surface {
@@ -165,11 +156,6 @@ struct AuxiliarySurfaceView: View {
         case .askLibrary: LibraryChatWindowView()
         case .assistant: AssistantWindowView()
         case .mindMap(let url): MindMapWindowView(rootURL: url)
-        case .cloud(let provider):
-            if let addRemoteCollection {
-                RemoteBrowserView(store: provider.makeStore(),
-                                  onAddAsCollection: addRemoteCollection)
-            }
         }
     }
 }
@@ -183,14 +169,11 @@ struct AuxiliarySurfaceView: View {
 /// iPad's three sheets each spelled their own `NavigationStack` and `Done`.
 struct AuxiliarySheet: View {
     let surface: AuxiliarySurface
-    var addRemoteCollection: AddRemoteCollection? = nil
-
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            AuxiliarySurfaceView(surface: surface,
-                                 addRemoteCollection: addRemoteCollection)
+            AuxiliarySurfaceView(surface: surface)
                 .navigationTitle(surface.title)
                 .toolbarTitleDisplayMode(.inline)
                 .toolbar {

@@ -35,6 +35,10 @@ struct RemoteManifest: Codable, Sendable {
     }
 
     var provider: String
+    /// Which connected account this collection came from. `nil` only in a
+    /// manifest written before accounts existed, which cannot be restored
+    /// because there is no way to know whose credentials it needs.
+    var accountID: String?
     var remoteRoot: String
     var displayName: String
     /// The provider's delta cursor, when it has one.

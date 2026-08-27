@@ -59,7 +59,7 @@ struct ProviderCapabilityTests {
         var caps = ProviderCapabilities.appleOnDevice
         #expect(!IntelligenceNeeds.askLibrary.satisfied(by: caps),
                 "today's on-device window is expected to be below Ask Library's need")
-        caps.inputBudget = IntelligenceNeeds.askLibrary.inputBudget
+        caps.inputBudget = IntelligenceNeeds.askLibrary.minimumBudget
         #expect(IntelligenceNeeds.askLibrary.satisfied(by: caps))
     }
 

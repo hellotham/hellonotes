@@ -27,8 +27,11 @@ struct IntelligenceService {
     private var isApple: Bool { provider == .apple }
 
     /// What the chosen provider can do. Read per call rather than stored: the
-    /// user can change providers in Settings while a panel is open.
-    var capabilities: ProviderCapabilities { provider.capabilities }
+    /// user can change providers — or refresh a model list, or type a budget —
+    /// in Settings while a panel is open.
+    var capabilities: ProviderCapabilities {
+        .of(provider, config: settings.config(for: provider))
+    }
 
     /// Whether `feature` can run on the chosen provider at all.
     func can(_ feature: IntelligenceNeeds) -> Bool {
@@ -159,7 +162,11 @@ struct IntelligenceService {
         let (llm, model) = try ProviderFactory.make(for: provider, settings: settings)
         let ctx = LLMContext(systemPrompt: system, messages: [LLMMessage(role: .user, text: user)])
         var output = ""
-        for try await event in llm.stream(ctx, model: model, options: LLMRequestOptions(temperature: temperature)) {
+        // The temperature is the *feature's* — rewriting wants determinism
+        // whatever the user set for chat — but it is still clamped to what this
+        // provider accepts, and the output cap now travels with it.
+        let options = settings.requestOptions(for: provider, temperature: temperature)
+        for try await event in llm.stream(ctx, model: model, options: options) {
             if case .textDelta(let delta) = event { output += delta }
         }
         return trimming ? output.trimmingCharacters(in: .whitespacesAndNewlines) : output
@@ -167,10 +174,15 @@ struct IntelligenceService {
 
     // MARK: - Helpers
 
-    /// How many characters of input `feature` may send to this provider: what
-    /// the feature would like, capped by what the provider can hold.
+    /// How many characters of input `feature` may send to this provider.
+    ///
+    /// Most features declare no ceiling, so this is simply what the provider can
+    /// hold — discovered from the model where the provider publishes it, and
+    /// overridable in Settings. It used to be `min(feature, provider)` against a
+    /// field that also served as the eligibility *floor*, which made the floor
+    /// the effective cap in every case and the provider's number decorative.
     private func budget(for feature: IntelligenceNeeds) -> Int {
-        max(500, min(feature.inputBudget, capabilities.inputBudget))
+        max(500, min(feature.inputCeiling ?? .max, capabilities.inputBudget))
     }
 
     /// The note's body (front matter is metadata, not content), trimmed to the

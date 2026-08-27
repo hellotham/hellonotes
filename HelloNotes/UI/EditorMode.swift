@@ -36,6 +36,25 @@ enum EditorMode: String, CaseIterable, Identifiable {
     /// which is the mode a note is most useful in.
     static func mode(_ raw: String) -> EditorMode { EditorMode(rawValue: raw) ?? .edit }
 
+    /// What a note opens in when nothing else is open yet.
+    ///
+    /// The Mac opens in ``edit``: a keyboard and a pointer are already there and
+    /// the window is wide enough for the live editor to be the useful view. iOS
+    /// opens in ``preview`` — a note reached by tapping is usually one you meant
+    /// to *read*, and starting in an editor puts a keyboard over half the screen
+    /// answering a question nobody asked.
+    ///
+    /// This applies **only to the first note**. Once anything is open, that
+    /// mode is the answer for the next one: switching modes under a reader who
+    /// deliberately picked one is worse than either default could be right.
+    static var platformDefault: EditorMode {
+        #if os(macOS)
+        .edit
+        #else
+        .preview
+        #endif
+    }
+
     /// The stored raw value as a mode binding, for a picker.
     static func binding(_ raw: Binding<String>) -> Binding<EditorMode> {
         Binding(get: { mode(raw.wrappedValue) }, set: { raw.wrappedValue = $0.rawValue })

@@ -62,7 +62,8 @@ struct ContentView: View {
     @State private var pendingFolderDelete: URL?
 
     /// Git commit identity + hosting-service accounts (GitHub, GitLab, …).
-    @State private var gitAccounts = GitAccountsStore()
+    /// Shared with the Settings scene — see `HelloNotesApp`.
+    @Environment(GitAccountsStore.self) private var gitAccounts
 
     @State private var showGitSettings = false
 
@@ -73,7 +74,16 @@ struct ContentView: View {
 
     @State private var libraries = LibrariesStore()
 
+    /// Connected cloud accounts, and the mounted cloud folders already used.
+    @State private var cloudAccounts = CloudAccountsStore()
+
     @State private var showLauncher = false
+
+    /// The "which cloud?" modal — see `CloudAccountPicker`.
+    @State private var showCloudPicker = false
+
+    /// Licences and credits, opened from About rather than Settings.
+    @State private var showAcknowledgements = false
 
     /// The folder picker for "Open Collection". A presented sheet on both
     /// platforms — the Mac ran an `NSOpenPanel` inline, which is why its open
@@ -489,23 +499,61 @@ struct ContentView: View {
             // discarding that is how "add a mounted cloud folder" opened
             // nowhere near the providers and "choose a subfolder" reopened
             // outside the folder it was narrowing.
+            #if os(macOS)
+            // Not a `.sheet`: hosting `NSOpenPanel` inside a SwiftUI sheet's
+            // `.onAppear` layers three windows for what should be one — the
+            // main window, an invisible SwiftUI sheet host, and the panel
+            // itself — and every symptom chased here (a presentation race, a
+            // panel that never became visible, a blank host window left on
+            // screen) was that layering, not any one bug inside it. Trigger
+            // the panel directly from the state change; nothing SwiftUI
+            // hosts it, so there is no host window to race or go blank.
+            .onChange(of: library.pendingFolderPick) { _, request in
+                guard let request else { return }
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = true
+                panel.canCreateDirectories = request.allowsCreatingFolders
+                panel.prompt = request.prompt
+                panel.message = request.message
+                panel.directoryURL = request.startDirectory
+                panel.begin { response in
+                    library.pendingFolderPick = nil
+                    guard response == .OK, let url = panel.urls.first else { return }
+                    // A relocate request re-grants one specific collection —
+                    // it must not fall into `openPicked`, which only ever adds.
+                    if case .relocate(let collectionID, _) = request {
+                        Task { await library.relocate(collectionID: collectionID, to: url) }
+                    } else {
+                        Task { await library.openPicked(panel.urls) }
+                    }
+                }
+            }
+            #else
             .sheet(item: Binding(get: { library.pendingFolderPick },
                                  set: { library.pendingFolderPick = $0 })) { request in
                 FolderPicker(startingAt: request.startDirectory,
                              prompt: request.prompt,
                              message: request.message) { urls in
                     library.pendingFolderPick = nil
-                    guard !urls.isEmpty else { return }
-                    Task { await library.openPicked(urls) }
+                    guard let url = urls.first else { return }
+                    // A relocate request re-grants one specific collection —
+                    // it must not fall into `openPicked`, which only ever adds.
+                    if case .relocate(let collectionID, _) = request {
+                        Task { await library.relocate(collectionID: collectionID, to: url) }
+                    } else {
+                        Task { await library.openPicked(urls) }
+                    }
                 }
             }
+            #endif
             // An auxiliary surface where the canvas is too narrow for a window.
             // A Mac window dragged below the shell's compact threshold has no
             // more room for a second window than an iPhone does; the rule is
             // the canvas, not the OS.
             .sheet(item: $auxiliarySheet) { surface in
-                AuxiliarySheet(surface: surface,
-                               addRemoteCollection: library.addRemoteCollection)
+                AuxiliarySheet(surface: surface)
             }
     }
 
@@ -886,11 +934,8 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showWelcome, onDismiss: { hasSeenWelcome = true }) {
-            WelcomeView(
-                onOpenCollection: { showWelcome = false; library.requestOpenCollections() },
-                onOpenObsidian: { showWelcome = false; library.requestOpenCollections() },
-                onDismiss: { showWelcome = false }
-            )
+            WelcomeView(add: addCollectionActions,
+                        onDismiss: { showWelcome = false })
         }
         .sheet(isPresented: $showQuickCapture) {
             QuickCaptureView(router: router)
@@ -907,10 +952,39 @@ struct ContentView: View {
                     Task { await library.openLibrary(urls) }
                 },
                 onSaveLibrary: { name in libraries.save(name: name, urls: library.collections.map(\.rootURL)) },
-                onOpenCollection: { library.requestOpenCollections() },
-                onOpenObsidian: { library.requestOpenCollections() },
-                onClone: { showClone = true },
-                onNewRepository: { showNewRepo = true }
+                add: addCollectionActions
+            )
+        }
+        .sheet(isPresented: $showAcknowledgements) {
+            AcknowledgementsView()
+                .panelFrame(width: 560, height: 620)
+        }
+        .sheet(isPresented: $showCloudPicker) {
+            CloudCollectionsManager(
+                accounts: cloudAccounts,
+                // Cloud-backed collections: mirrored from a provider's API, or
+                // sitting in a folder its desktop client syncs here. Both are
+                // "cloud folders" to the person who added them, however
+                // differently the app reaches them.
+                collections: library.collections.filter {
+                    $0.isRemote || CloudProvider.name(for: $0.rootURL) != nil
+                },
+                makeModel: { account in
+                    RemoteBrowserModel(store: account.provider.makeStore(accountID: account.id),
+                                       onAdd: library.addRemoteCollection)
+                },
+                // On iOS the Files browser lists every enabled File Provider in
+                // its own sidebar, so there is no separate place to point a
+                // picker at — the same picker as "Open Folder" is the honest
+                // answer there.
+                onChooseSyncedFolder: {
+                    #if os(macOS)
+                    library.requestOpenCloudFolder()
+                    #else
+                    library.requestOpenFolder()
+                    #endif
+                },
+                onRemoveCollection: { library.close($0) }
             )
         }
         .sheet(isPresented: $showNewRepo) {
@@ -1046,7 +1120,8 @@ struct ContentView: View {
             setShowsNonNoteFiles: scope.map { collection in
                 { collection.showsNonNoteFiles = $0 }
             },
-            openCloudFolder: { library.requestOpenCloudFolder() },
+            addCollection: addCollectionActions,
+            acknowledgements: { showAcknowledgements = true },
             refreshCloudCollection: scope.flatMap { collection in
                 collection.isRemote ? { Task { await collection.refreshFromProvider() } } : nil
             },
@@ -1076,7 +1151,6 @@ struct ContentView: View {
             searchAllCollections: closingOpenQuickly {
                 NotificationCenter.default.post(name: .hnFocusLibrarySearch, object: nil)
             },
-            connectOverWeb: { auxiliary.open(.cloud($0)) },
             editorMode: EditorMode.mode(storedMode),
             setEditorMode: { storedMode = $0.rawValue }
         )
@@ -1179,6 +1253,9 @@ struct ContentView: View {
     /// shrugging.
     private func openSelectedNote(_ newID: URL?) {
         guard let newID else { return }
+        // Opening into nothing picks the platform's default mode; opening
+        // alongside something already open inherits whatever that is.
+        if tabs.editors.isEmpty { storedMode = EditorMode.platformDefault.rawValue }
         if let note = library.allNotes.first(where: { $0.id == newID }) {
             library.focusCollection(containing: note.fileURL)
             Task { await tabs.editor(for: note) }
@@ -1312,7 +1389,7 @@ struct ContentView: View {
             library: library, search: search, searchText: searchText,
             selectedTag: selectedTag, scope: railCollection ?? focused,
             hasRecents: !(recents.entries.isEmpty && libraries.libraries.isEmpty),
-            openCollection: { library.requestOpenCollections() },
+            openCollection: { library.requestOpenFolder() },
             openRecent: { showLauncher = true },
             newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) }) }
         // The contract's one exception to "no command in the sidebar" is an
@@ -1321,65 +1398,72 @@ struct ContentView: View {
         // is where the contract puts commands.
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                // Everything here adds a *source of notes* to the library, and
+                // nothing here does anything else. Today's Note, Quick
+                // Capture, Open Quickly and Search All Collections used to sit
+                // in this menu behind a `!library.isEmpty` gate: they act on
+                // notes that already exist, so a `+` was the wrong place to
+                // look for them and the wrong promise to make about them. They
+                // keep their real homes — the menu bar on macOS, the editor
+                // band's own menu on iPad — and this menu keeps one meaning.
                 Menu {
-                    Button {
-                        library.requestOpenCollections()
-                    } label: {
-                        Label("Open Collection…", systemImage: "folder.badge.plus")
-                    }
-                    Button {
-                        library.requestOpenCollections()
-                    } label: {
-                        Label("Open Obsidian Vault…", systemImage: "shippingbox")
-                    }
-                    Divider()
-                    // Both views were always cross-platform — they already
-                    // branch to a document picker where the Mac opens a panel.
-                    // Only a way in was missing.
-                    Button {
-                        showClone = true
-                    } label: {
-                        Label("Clone Repository…", systemImage: "arrow.down.circle")
-                    }
-                    Button {
-                        showNewRepo = true
-                    } label: {
-                        Label("New Repository…", systemImage: "plus.rectangle.on.folder")
-                    }
-                    if !library.isEmpty {
-                        Divider()
-                        Button {
-                            openTodaysNote()
-                        } label: {
-                            Label("Today's Note", systemImage: "calendar")
-                        }
-                        Button {
-                            showQuickCapture = true
-                        } label: {
-                            Label("Quick Capture…", systemImage: "square.and.pencil.circle")
-                        }
-                        Button {
-                            showOpenQuickly = true
-                        } label: {
-                            Label("Open Quickly…", systemImage: "magnifyingglass")
-                        }
-                        Button {
-                            // Focus the field, the way ⌥⌘F does on the Mac.
-                            // This used to `select(.library)` — which runs
-                            // `selectedNoteID = nil` — so "Search All
-                            // Collections" closed the note you were reading and
-                            // then offered no field to type into.
-                            revealSearch(focusField: true)
-                        } label: {
-                            Label("Search All Collections", systemImage: "text.magnifyingglass")
-                        }
-                    }
+                    addCollectionItems
                 } label: {
-                    Label("Open Collection", systemImage: "plus")
+                    Label("Add Collection", systemImage: "plus")
                 }
             }
         }
     }
+
+    /// Every way to add a collection, rendered as menu items.
+    ///
+    /// The *set* lives in `AddCollectionActions.options`, not here: four menus
+    /// draw it (the sidebar's `+`, the File menu — which iPadOS builds into a
+    /// real menu bar too — the compact shell's `…` and the command palette)
+    /// and two onboarding surfaces draw the same set as cards. Describing it
+    /// once and rendering it several ways is what keeps them from drifting,
+    /// which they had: the welcome screen offered two ways in while the
+    /// toolbar offered eight.
+    @ViewBuilder
+    private var addCollectionItems: some View {
+        ForEach(AddCollectionGroup.allCases, id: \.self) { group in
+            Menu {
+                ForEach(addCollectionActions.options(in: group)) { option in
+                    Button {
+                        option.run()
+                    } label: {
+                        Label("\(option.menuTitle)…", systemImage: option.symbol)
+                    }
+                }
+            } label: {
+                Label(group.title, systemImage: group.symbol)
+            }
+        }
+        Divider()
+        Button {
+            showLauncher = true
+        } label: {
+            Label("Open Recent…", systemImage: "clock.arrow.circlepath")
+        }
+    }
+
+    /// The one definition of what "add a collection" can mean.
+    var addCollectionActions: AddCollectionActions {
+        AddCollectionActions(
+            openFolder: { library.requestOpenFolder() },
+            openObsidianVault: { library.requestOpenObsidianVault() },
+            openiCloudDrive: { library.requestOpeniCloudDrive() },
+            // On iOS the Files browser lists every enabled File Provider in
+            // its own sidebar, so there is no separate place to point a picker
+            // at — this is deliberately the same picker as "Open Folder", and
+            // the item stays for menu parity across platforms.
+            openCloudFolder: { showCloudPicker = true },
+            newCollection: { library.requestNewCollection() },
+            cloneRepository: { showClone = true },
+            newRepository: { showNewRepo = true }
+        )
+    }
+
 
 
     /// "What is this, and what touches it?" — outline, tags, references,
@@ -1393,9 +1477,9 @@ struct ContentView: View {
                 summarize: { text in
                     try await IntelligenceService(settings: llmSettings).summarize(text)
                 },
-                onInsertSummary: { insertSummaryCallout($0) },
+                onInsertSummary: { saveSummary($0) },
                 allTags: collection.search.allTags(),
-                noteCount: { collection.search.notesTagged($0).count },
+                noteCount: { collection.search.noteCountTagged($0) },
                 selectedTag: Binding(
                     get: { selectedTag },
                     // Selecting a tag in the right rail filters the list in the
@@ -1467,10 +1551,10 @@ struct ContentView: View {
         editor.text = NoteEdits.addingRelatedLink(title, to: editor.text)
     }
 
-    /// Insert a summary as a `> [!summary]` callout at the top of the body.
-    private func insertSummaryCallout(_ text: String) {
+    /// Record a summary in the note's `summary:` property. See `NoteEdits`.
+    private func saveSummary(_ text: String) {
         guard let editor = activeEditor else { return }
-        editor.text = NoteEdits.insertingSummaryCallout(text, into: editor.text)
+        editor.text = NoteEdits.settingSummary(text, in: editor.text)
     }
 
     // MARK: - Git section (the rail's collection)
@@ -1586,8 +1670,11 @@ struct ContentView: View {
         }
 
         // Trailing — the inspector's five tabs, over the inspector, Pages'
-        // `Format`/`Document` scaled up. These *are* the tab strip: the panel
-        // itself carries none, which is what removes the spurious row inside it.
+        // `Format`/`Document` scaled up. These are the tab strip *on the Mac*:
+        // `InspectorOverlayHeader` draws its own row only under `#if os(iOS)`,
+        // where there is no toolbar room for five. That gate is what stops the
+        // Mac showing two strips for one inspector — it drew both until now, and
+        // this comment claimed otherwise.
         ToolbarItemGroup {
             ForEach(InspectorTab.allCases) { tab in
                 Button {
@@ -1619,7 +1706,8 @@ struct ContentView: View {
         VStack(spacing: 0) {
             CollectionConditionBar(collection: focused,
                                   hasSelection: selectedNoteID != nil,
-                                  onRetry: { c in Task { await library.retry(c) } })
+                                  onRetry: { c in Task { await library.retry(c) } },
+                                  onLocate: { c in library.requestRelocate(c) })
             if let attachment = selectedAttachment {
                 FileViewerView(
                     file: attachment,
@@ -1738,6 +1826,8 @@ struct ContentView: View {
                         .foregroundStyle(.orange)
                         .help("\(reason.explanation) The notes listed are the last ones seen; edits are held until it's back.")
                     Button("Try Again") { Task { await library.retry(focused) } }
+                        .buttonStyle(.borderless)
+                    Button("Locate…") { library.requestRelocate(focused) }
                         .buttonStyle(.borderless)
                     Button("Remove") { library.close(focused) }
                         .buttonStyle(.borderless)
@@ -2064,7 +2154,7 @@ struct ContentView: View {
         List {
             if library.isEmpty {
                 Section {
-                    Button("Open Collection") { library.requestOpenCollections() }
+                    Button("Open Folder…") { library.requestOpenFolder() }
                 }
             } else {
                 Section("Collections") {
@@ -2097,30 +2187,13 @@ struct ContentView: View {
                             Label("New Note", systemImage: "square.and.pencil")
                         }
                     }
-                    Button {
-                        library.requestOpenCollections()
-                    } label: {
-                        Label("Open Collection", systemImage: "folder.badge.plus")
-                    }
-                    Button {
-                        library.requestOpenCollections()
-                    } label: {
-                        Label("Open Obsidian Vault…", systemImage: "shippingbox")
-                    }
-                    Divider()
-                    // Both views were always cross-platform — they already
-                    // branch to a document picker where the Mac opens a panel.
-                    // Only a way in was missing.
-                    Button {
-                        showClone = true
-                    } label: {
-                        Label("Clone Repository…", systemImage: "arrow.down.circle")
-                    }
-                    Button {
-                        showNewRepo = true
-                    } label: {
-                        Label("New Repository…", systemImage: "plus.rectangle.on.folder")
-                    }
+                    // The compact shell has no sidebar, so no `+`. On a narrow
+                    // Mac window or a narrowed iPad the menu bar is still
+                    // there behind it; on **iPhone** there is no menu bar at
+                    // all, and this menu is the only route to adding a source.
+                    // The same items, from the same place, so it cannot fall
+                    // behind the other three.
+                    addCollectionItems
                     Divider()
                     Button {
                         showSettings = true
@@ -2289,7 +2362,7 @@ struct ContentView: View {
             },
             .init(title: "New Note from a Prompt…", symbol: "sparkles.square.filled.on.square",
                   isEnabled: scope != nil) { showCompose = true },
-            .init(title: "Open Collection", symbol: "folder.badge.plus") { library.requestOpenCollections() },
+            .init(title: "Open Folder", symbol: "folder.badge.plus") { library.requestOpenFolder() },
             // The launcher, by touch. `openLauncher` reaches it from a hardware
             // keyboard's ⇧⌘O, which is not a route a keyboard-less iPad has —
             // and recents and saved libraries are the only way back to a vault
@@ -2393,7 +2466,8 @@ struct ContentView: View {
         // simply stopped saving. Same strip the Mac has always drawn.
         CollectionConditionBar(collection: railCollection ?? focused,
                                hasSelection: selectedNoteID != nil,
-                               onRetry: { c in Task { await library.retry(c) } })
+                               onRetry: { c in Task { await library.retry(c) } },
+                               onLocate: { c in library.requestRelocate(c) })
         if let file = selectedFile {
             // The same viewer the Mac uses, and handed the same hydration
             // callbacks — so a direct-API collection fetches through its
@@ -2544,26 +2618,16 @@ struct ContentView: View {
             }
             .disabled(scope?.notes.isEmpty ?? true)
             Divider()
-            Button {
-                library.requestOpenCollections()
-            } label: {
-                Label("Open Collection…", systemImage: "folder.badge.plus")
-            }
-            Button {
-                showLauncher = true
-            } label: {
-                Label("Open Recent…", systemImage: "clock.arrow.circlepath")
-            }
-            Menu {
-                // The same four the Mac's File ▸ Connect Over the Web offers.
-                // They were reachable on iPad only by opening Settings, which
-                // is not where "open something" lives on either platform.
-                ForEach(CloudBrowser.allCases) { browser in
-                    Button(browser.displayName) { auxiliary.open(.cloud(browser)) }
-                }
-            } label: {
-                Label("Connect Over the Web", systemImage: "cloud")
-            }
+            // The same items the sidebar's `+`, the File menu and the compact
+            // shell offer, from the same definition.
+            //
+            // This is **not** the iPad's menu bar: iPadOS 26 builds a real one
+            // from the scene's own `.commands`, ungated, so these commands are
+            // already there on both platforms (see `HelloNotesApp`). This is
+            // the touch-reachable duplicate of it, one caret from the note
+            // being edited rather than a swipe to the top of the screen. A
+            // duplicate is fine; a duplicate that has drifted is not.
+            addCollectionItems
             Divider()
             Button {
                 showLLMSettings = true
@@ -2585,8 +2649,11 @@ struct ContentView: View {
 
     // MARK: - AI on the open note
     //
-    // iOS has no menu bar, so the toolbar is the *only* fixed place a command
-    // can live. Same four actions as the Mac, landing in the same inspector
+    // The toolbar is the *touch*-reachable place a command can live — not the
+    // only place, which is what this said. iPadOS 26 builds a real menu bar
+    // from the scene's `.commands`, ungated (`HelloNotesApp`), so the iPad has
+    // the same menus and shortcuts the Mac does; iPhone is the platform with
+    // no menu bar. Same four actions as the Mac, landing in the same inspector
     // tabs — the answer belongs with the thing it is about on both platforms,
     // and only the route to it differs.
 

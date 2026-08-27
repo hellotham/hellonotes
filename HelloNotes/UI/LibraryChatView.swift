@@ -67,8 +67,8 @@ struct LibraryChatView: View {
                         }
                     }
                     if let errorText {
-                        Label(errorText, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange).font(.callout)
+                        ErrorText(message: errorText, font: .callout,
+                                  systemImage: "exclamationmark.triangle", tint: .orange)
                     }
                     if let answer {
                         Text(answer)

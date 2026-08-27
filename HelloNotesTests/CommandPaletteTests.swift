@@ -42,13 +42,16 @@ struct CommandPaletteTests {
                 exportHTML: {}, exportPDF: {}, printNote: {}, moveToTrash: {}),
             rescan: {},
             showsNonNoteFiles: false, setShowsNonNoteFiles: { _ in },
-            openCloudFolder: {}, refreshCloudCollection: {},
+            addCollection: AddCollectionActions(
+                openFolder: {}, openObsidianVault: {}, openiCloudDrive: {},
+                openCloudFolder: {}, newCollection: {},
+                cloneRepository: {}, newRepository: {}),
+            acknowledgements: {}, refreshCloudCollection: {},
             commandPalette: {},
             ai: AIActions(providerName: "Test", summarize: {}, suggestTags: {},
                           suggestLinks: {}, rewriteNote: {}),
             reviewLinks: {}, composeNote: {},
             newWindow: {}, find: {}, searchAllCollections: {},
-            connectOverWeb: { _ in },
             editorMode: .edit, setEditorMode: { _ in })
     }
 
@@ -59,9 +62,15 @@ struct CommandPaletteTests {
     private let required: Set<String> = [
         // File
         "new-note", "compose-note", "todays-note", "open-quickly", "launcher",
-        "open-cloud", "refresh-cloud", "rescan", "new-main-window", "close-tab",
-        "connect-remoteBrowser", "connect-remoteBrowserBox",
-        "connect-remoteBrowserGDrive", "connect-remoteBrowserOneDrive",
+        "refresh-cloud", "rescan", "new-main-window", "close-tab",
+        "acknowledgements",
+        // Every way to add a collection, by the ids `AddCollectionActions.options`
+        // gives them — the palette generates its rows from that same list, so a
+        // way in added there appears here or this fails. The cloud *provider*
+        // list is not among them: it belongs to `CloudCollectionsManager`,
+        // which can scroll and search, and the palette offers the one command
+        // that opens it.
+        "new", "new-repo", "folder", "icloud", "obsidian", "cloud", "clone",
         // Edit
         "find", "search-all",
         // View
@@ -166,9 +175,8 @@ struct CommandPaletteTests {
         let ids = Set(noWindowsNoWeb.paletteCommands.map(\.id))
 
         #expect(!ids.contains("new-main-window"), "New Window survived a nil newWindow")
-        for provider in CloudBrowser.allCases {
-            #expect(!ids.contains("connect-\(provider.rawValue)"),
-                    "connect-\(provider.rawValue) survived a nil connectOverWeb")
+        for id in ["new", "new-repo", "folder", "icloud", "obsidian", "cloud", "clone"] {
+            #expect(!ids.contains(id), "\(id) survived a nil addCollection")
         }
         // The window's other commands are untouched — this is about the two
         // optional actions, not about emptying the palette.
@@ -186,7 +194,11 @@ struct CommandPaletteTests {
             canGraph: false, graphView: {},
             canAsk: false, askLibrary: {}, assistant: {},
             canCloseTab: false, closeTab: {},
-            newWindow: {}, searchAllCollections: {}, connectOverWeb: { _ in },
+            addCollection: AddCollectionActions(
+                openFolder: {}, openObsidianVault: {}, openiCloudDrive: {},
+                openCloudFolder: {}, newCollection: {},
+                cloneRepository: {}, newRepository: {}),
+            newWindow: {}, searchAllCollections: {},
             editorMode: .edit, setEditorMode: { _ in })
         let ids = Set(bare.paletteCommands.map(\.id))
 

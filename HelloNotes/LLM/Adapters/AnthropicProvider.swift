@@ -234,3 +234,76 @@ struct AnthropicProvider: LLMProvider {
         struct MsgStart: Decodable { let usage: UsageObj? }
     }
 }
+
+// MARK: - Model discovery
+
+extension AnthropicProvider {
+
+    /// Anthropic's Models API grew since this adapter was written: alongside
+    /// `id` and `display_name` it now reports `max_input_tokens`, `max_tokens`
+    /// and a `capabilities` object — so structured-output support is a thing the
+    /// provider states rather than a thing the app assumes per vendor.
+    ///
+    /// Paginated by cursor (`after_id`) with `has_more`, not by page token.
+    func availableModels() async throws -> [ModelInfo] {
+        var found: [ModelInfo] = []
+        var afterID: String?
+        for _ in 0..<10 {
+            var components = URLComponents(string: "\(baseURL)/v1/models")
+            var items = [URLQueryItem(name: "limit", value: "1000")]
+            if let afterID { items.append(URLQueryItem(name: "after_id", value: afterID)) }
+            components?.queryItems = items
+            guard let url = components?.url else {
+                throw LLMError.notConfigured("Invalid Anthropic base URL: \(baseURL)")
+            }
+            let data = try await ModelDiscovery.get(url, headers: [
+                "x-api-key": apiKey,
+                "anthropic-version": Self.discoveryVersion,
+            ])
+            let page = try JSONDecoder().decode(AnthropicModelPage.self, from: data)
+            for entry in page.data {
+                found.append(ModelInfo(
+                    id: entry.id,
+                    displayName: entry.display_name,
+                    // An *input* limit, stated directly. Zero is the documented
+                    // placeholder for "not published", so it is not a limit.
+                    inputTokenLimit: (entry.max_input_tokens ?? 0) > 0 ? entry.max_input_tokens : nil,
+                    outputTokenLimit: (entry.max_tokens ?? 0) > 0 ? entry.max_tokens : nil,
+                    // Anthropic's ceiling is 1.0, unlike most of the field.
+                    maxTemperature: 1.0,
+                    supportsTools: true,
+                    supportsStructuredOutput: entry.capabilities?.structured_outputs?.supported))
+            }
+            guard page.has_more == true, let last = page.last_id, !last.isEmpty else { break }
+            afterID = last
+        }
+        return ModelDiscovery.sorted(found)
+    }
+
+    /// Kept beside the streaming version rather than sharing it: the Models API
+    /// and the Messages API are versioned independently, and pinning them
+    /// together means a bump for one silently changes the other.
+    private static var discoveryVersion: String { "2023-06-01" }
+}
+
+private struct AnthropicModelPage: Decodable {
+    let data: [AnthropicModelEntry]
+    let has_more: Bool?
+    let last_id: String?
+}
+
+private struct AnthropicModelEntry: Decodable {
+    let id: String
+    let display_name: String?
+    let max_input_tokens: Int?
+    let max_tokens: Int?
+    let capabilities: AnthropicModelCapabilities?
+}
+
+private struct AnthropicModelCapabilities: Decodable {
+    let structured_outputs: AnthropicCapabilityFlag?
+}
+
+private struct AnthropicCapabilityFlag: Decodable {
+    let supported: Bool?
+}

@@ -1,5 +1,16 @@
 #!/bin/zsh
-# Relaunch the freshly built Debug HelloNotes.app for live testing.
+# Relaunch the freshly built HelloNotes.app for live testing.
+#
+# Defaults to **Debug**. Set `HN_CONFIG=Release` to relaunch the Release build
+# instead — which is the only way to test anything sandbox-, entitlement- or
+# optimiser-shaped, because Xcode injects a
+# `temporary-exception.files.absolute-path.read-only = /` entitlement into Debug
+# builds and a Release-only optimiser crash once broke every archive.
+#
+# A configuration is an *environment* variable and not an argument on purpose:
+# the no-arguments rule below exists so that a misunderstanding cannot cost
+# someone their window, and `HN_CONFIG=Release` cannot be typed by accident the
+# way `--help` was.
 #
 # A HelloNotes process launched before a rebuild keeps running the OLD binary
 # (plain `open` re-attaches to it), so UI verification silently tests stale
@@ -28,9 +39,11 @@ if [[ $# -gt 0 ]]; then
   case "$1" in
     -h|--help)
       echo "usage: relaunch-debug.sh    (no arguments)"
+      echo "       HN_CONFIG=Release relaunch-debug.sh"
       echo
       echo "Force-kills every running HelloNotes instance, then launches the"
-      echo "freshly built Debug app. Build first; this does not build."
+      echo "freshly built app. Build first; this does not build."
+      echo "HN_CONFIG selects Debug (default) or Release."
       exit 0
       ;;
     *)
@@ -41,9 +54,15 @@ if [[ $# -gt 0 ]]; then
   esac
 fi
 
-app=$(ls -td "$HOME"/Library/Developer/Xcode/DerivedData/HelloNotes-*/Build/Products/Debug/HelloNotes.app 2>/dev/null | head -1)
+config=${HN_CONFIG:-Debug}
+if [[ "$config" != "Debug" && "$config" != "Release" ]]; then
+  echo "HN_CONFIG must be Debug or Release (got: $config)." >&2
+  exit 2
+fi
+
+app=$(ls -td "$HOME"/Library/Developer/Xcode/DerivedData/HelloNotes-*/Build/Products/"$config"/HelloNotes.app 2>/dev/null | head -1)
 if [[ -z "$app" ]]; then
-  echo "No Debug build found in DerivedData — run xcodebuild first." >&2
+  echo "No $config build found in DerivedData — run xcodebuild first." >&2
   exit 1
 fi
 binary="$app/Contents/MacOS/HelloNotes"
@@ -131,7 +150,7 @@ else
 fi
 
 built=$(date -r "$binary" "+%Y-%m-%d %H:%M:%S")
-echo "Launching $app"
+echo "Launching $config build: $app"
 echo "  built: $built"
 # `-ApplePersistenceIgnoreState YES`: never resurrect the killed instance's
 # windows. `kill -9` gives the app no chance to clear its saved state, so
@@ -164,4 +183,4 @@ if [[ "$actual" != "$binary" ]]; then
   echo "  built:   $binary" >&2
   exit 1
 fi
-echo "Verified: running the build at $built"
+echo "Verified: running the $config build at $built"

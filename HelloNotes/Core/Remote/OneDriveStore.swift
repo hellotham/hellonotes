@@ -28,8 +28,16 @@ import AuthenticationServices
 
 final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "OneDrive"
-    private static let tokenAccount = "onedrive"
-    private static let refreshAccount = "onedrive-refresh"
+    /// The Keychain keys for *this* account's tokens.
+    ///
+    /// Scoped by account id, because a person may hold more than one account
+    /// on the same service — a personal and a work OneDrive is the ordinary
+    /// case. Keyed by the provider alone, the second sign-in overwrote the
+    /// first one's token and the app could hold exactly one account per
+    /// provider with no way to name or choose between them.
+    let accountID: String
+    private var tokenAccount: String { "onedrive#\(accountID)" }
+    private var refreshAccount: String { tokenAccount + "-refresh" }
     /// `common` = both personal and work/school accounts.
     private static let authority = "common"
     private static let scope = "Files.ReadWrite offline_access User.Read"
@@ -42,22 +50,23 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     /// Single-flights token refreshes (Microsoft rotates refresh tokens).
     private let refreshCoordinator = RefreshCoordinator()
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, accountID: String) {
+        self.accountID = accountID
         self.session = session
     }
 
-    var isAuthenticated: Bool { RemoteTokenStore.token(for: Self.tokenAccount) != nil }
+    var isAuthenticated: Bool { RemoteTokenStore.token(for: tokenAccount) != nil }
 
     private func requireToken() throws -> String {
-        guard let token = RemoteTokenStore.token(for: Self.tokenAccount) else {
+        guard let token = RemoteTokenStore.token(for: tokenAccount) else {
             throw RemoteStoreError.notAuthenticated
         }
         return token
     }
 
     func signOut() {
-        RemoteTokenStore.setToken(nil, for: Self.tokenAccount)
-        RemoteTokenStore.setToken(nil, for: Self.refreshAccount)
+        RemoteTokenStore.setToken(nil, for: tokenAccount)
+        RemoteTokenStore.setToken(nil, for: refreshAccount)
     }
 
     // MARK: - CRUD (path-based; no ID resolution needed)
@@ -203,7 +212,7 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         let id = clientID
         let session = self.session
         return try await refreshCoordinator.refresh {
-            guard let refresh = RemoteTokenStore.token(for: Self.refreshAccount) else {
+            guard let refresh = RemoteTokenStore.token(for: self.refreshAccount) else {
                 throw RemoteStoreError.notAuthenticated
             }
             let request = Self.refreshRequest(refreshToken: refresh, clientID: id)
@@ -218,10 +227,10 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                   let access = json["access_token"] as? String else {
                 throw RemoteStoreError.decoding("token refresh")
             }
-            RemoteTokenStore.setToken(access, for: Self.tokenAccount)
+            RemoteTokenStore.setToken(access, for: self.tokenAccount)
             // Microsoft rotates refresh tokens — persist the new one when present.
             if let rotated = json["refresh_token"] as? String {
-                RemoteTokenStore.setToken(rotated, for: Self.refreshAccount)
+                RemoteTokenStore.setToken(rotated, for: self.refreshAccount)
             }
             return access
         }
@@ -479,9 +488,9 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
               let access = json["access_token"] as? String else {
             throw RemoteStoreError.decoding("token exchange")
         }
-        RemoteTokenStore.setToken(access, for: Self.tokenAccount)
+        RemoteTokenStore.setToken(access, for: self.tokenAccount)
         if let refresh = json["refresh_token"] as? String {
-            RemoteTokenStore.setToken(refresh, for: Self.refreshAccount)
+            RemoteTokenStore.setToken(refresh, for: refreshAccount)
         }
         #else
         throw RemoteStoreError.notConfigured("Web authentication isn't available on this platform.")

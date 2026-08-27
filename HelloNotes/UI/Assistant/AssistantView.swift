@@ -99,8 +99,8 @@ struct AssistantView: View {
                             .id(message.id)
                     }
                     if let error = model.errorText {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.callout).foregroundStyle(.orange)
+                        ErrorText(message: error, font: .callout,
+                                  systemImage: "exclamationmark.triangle", tint: .orange)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     Color.clear.frame(height: 1).id(bottomID)

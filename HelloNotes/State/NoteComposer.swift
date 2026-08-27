@@ -100,8 +100,9 @@ final class NoteComposer {
             guard settings.isReady(kind) else {
                 return "\(kind.displayName) isn't set up. Add it in Assistant Settings, or choose another provider there."
             }
-            guard IntelligenceNeeds.deepResearch.satisfied(by: kind.capabilities) else {
-                return kind.capabilities.toolUse
+            let caps = ProviderCapabilities.of(kind, config: settings.config(for: kind))
+            guard IntelligenceNeeds.deepResearch.satisfied(by: caps) else {
+                return caps.toolUse
                     ? "\(kind.displayName) can't hold enough context for deep research."
                     : "\(kind.displayName) can't search the web. Research needs a provider that can call tools."
             }

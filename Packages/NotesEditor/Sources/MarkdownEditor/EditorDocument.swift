@@ -648,7 +648,10 @@ public final class EditorDocument {
     ) -> (level: Int, title: String, range: NSRange)? {
         var candidates = headings()
         if !filter.isEmpty {
-            candidates = candidates.filter { $0.title.localizedCaseInsensitiveContains(filter) }
+            // localizedStandardContains folds diacritics and width as well as
+            // case: the rotor's search field is user input, so "cafe" must
+            // reach a heading spelled "Café".
+            candidates = candidates.filter { $0.title.localizedStandardContains(filter) }
         }
         guard !candidates.isEmpty else { return nil }
         guard let location else { return forward ? candidates.first : candidates.last }

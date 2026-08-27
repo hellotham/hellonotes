@@ -15,6 +15,7 @@ import Foundation
 
 final class MockRemoteStore: RemoteStore, @unchecked Sendable {
     let providerName = "Demo cloud"
+    let accountID = "mock"
     private var authed: Bool
     private var files: [String: Data]
     private var folders: Set<String>

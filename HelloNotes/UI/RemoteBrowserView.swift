@@ -234,11 +234,16 @@ final class RemoteBrowserModel {
             : String(path.split(separator: "/").last ?? Substring(providerName))
     }
 
-    func addAsCollection() {
+    /// - Parameter folder: the folder to add, defaulting to the one being
+    ///   shown. `RemoteFolderPicker` passes the *selected* row, so "Choose"
+    ///   can take a folder you highlighted without first navigating into it —
+    ///   which is how every file picker behaves and what the old browser, with
+    ///   only a current-folder "Add as Collection", could not do.
+    func addAsCollection(folder: RemoteEntry? = nil) {
         guard onAdd != nil, !isAdding else { return }
         let store = self.store
-        let remoteRoot = self.path
-        let name = self.collectionName
+        let remoteRoot = folder?.path ?? self.path
+        let name = folder?.name ?? self.collectionName
         addState = .adding(RemoteSyncProgress())
 
         // Progress is reported from the sync's own executor, so it has to reach

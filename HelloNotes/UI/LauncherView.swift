@@ -32,10 +32,9 @@ struct LauncherView: View {
     var onOpenURL: (URL) -> Void
     var onOpenLibrary: (LibrariesStore.SavedLibrary) -> Void
     var onSaveLibrary: (String) -> Void
-    var onOpenCollection: () -> Void
-    var onOpenObsidian: () -> Void
-    var onClone: () -> Void
-    var onNewRepository: () -> Void
+    /// Every way to add a collection — the set the toolbar renders as a menu
+    /// and this renders as cards.
+    var add: AddCollectionActions
 
     @Environment(\.dismiss) private var dismiss
     @State private var showSavePrompt = false
@@ -104,12 +103,20 @@ struct LauncherView: View {
 
     // MARK: - Actions
 
+    /// The same set the toolbar, the menu bar and the welcome screen offer.
+    ///
+    /// This listed three of the ways in and named one of them wrongly ("Open
+    /// Collection" and "Open Obsidian Vault" were the same command with the
+    /// same default). Rendering `AddCollectionActions.options` means the
+    /// launcher gains every future way in for free and can never again offer a
+    /// subset of them.
     private var actionsRow: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
-            actionCard("Open Collection", "folder.badge.plus", "A folder of Markdown files") { dismiss(); onOpenCollection() }
-            actionCard("Open Obsidian Vault", "shippingbox", "From iCloud Drive") { dismiss(); onOpenObsidian() }
-            actionCard("Clone Repository", "arrow.down.circle", "From a connected account") { dismiss(); onClone() }
-            actionCard("New Repository", "plus.rectangle.on.folder", "Local + optional remote") { dismiss(); onNewRepository() }
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+            ForEach(add.options) { option in
+                actionCard(option.title, option.symbol, option.subtitle) {
+                    dismiss(); option.run()
+                }
+            }
         }
     }
 

@@ -6,15 +6,30 @@
 > notable fixes worth remembering. It consolidates the former `implementation-plan.md`,
 > `markdown-engine-strategy.md`, `editor-rewrite.md`, and `editor-parity.md`.
 
-**Current status:** v1.3 (§22); v1.2 shipped 2026-08-15 (see [CHANGELOG.md](../CHANGELOG.md) for the user-facing
-notes and §20 below for the batch); v1.0 was Milestones 0–13, plus the deeper Apple-platform
-integration (§10 and [native-roadmap.md](native-roadmap.md)) and **cloud storage** (§11–12,
-[cloud-native-roadmap.md](cloud-native-roadmap.md)). Builds clean on macOS + iOS in **both
-Debug and Release** (§13 — Release is checked explicitly now, because a Release-only
-optimizer crash once broke every archive while Debug stayed green); the editor package suite
-(`swift test --package-path Packages/NotesEditor`) is **83 tests / 9 suites** green, plus
-**63 app unit tests**. Ships as a signed, notarized universal DMG. The editor is the in-repo
-[`Packages/NotesEditor`](../Packages/NotesEditor); the markdown-engine fork is removed.
+**Current status:** `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` in the project are
+**1.3.2 / 8** as of this doc pass (re-check `project.pbxproj` — this line goes stale
+every release, which is exactly how it drifted to "v1.3" while the project moved
+two point releases past it). v1.3 was §22; **§23–27 cover everything since**, which
+this summary previously didn't mention at all: the 1.3.1 patch (§23), the iPad
+editor actually becoming usable in 1.3.2 (§24; see
+[release-notes-1.3.2.md](release-notes-1.3.2.md)), and further hardening including
+the `MacContentView`/`iOSContentView` merge into one cross-platform `ContentView`
+(§27). v1.2 shipped 2026-08-15 (see [CHANGELOG.md](../CHANGELOG.md) for the
+user-facing notes and §20 below for the batch); v1.0 was Milestones 0–13, plus the
+deeper Apple-platform integration (§10 and [native-roadmap.md](native-roadmap.md))
+and **cloud storage** (§11–12, [cloud-native-roadmap.md](cloud-native-roadmap.md)).
+Builds clean on macOS + iOS in **both Debug and Release** (§13 — Release is checked
+explicitly now, because a Release-only optimizer crash once broke every archive
+while Debug stayed green); ships both as a signed, notarized universal DMG **and**,
+now that both platforms are live in App Store Connect, via TestFlight/App Store
+(macOS + iOS, one app record — see [production.md](production.md)). The editor
+package suite (`swift test --package-path Packages/NotesEditor`) and the app's own
+unit tests have both grown well past the **83 tests / 9 suites** and **63 app unit
+tests** this line used to cite — `Packages/NotesEditor/CLAUDE.md` and the repo-root
+`CLAUDE.md` carry current counts from an actual test run; trust those over any
+number restated here. The editor is the in-repo
+[`Packages/NotesEditor`](../Packages/NotesEditor); the markdown-engine fork is
+removed.
 
 ---
 
@@ -2960,6 +2975,446 @@ sheet state, which `NoteEditorSheets` now also provides. They do not conflict �
 each set of buttons drives its own — but they are two of the same thing, and
 collapsing them means routing the iPad's menu through the notifications
 `NoteEditorView` already listens on.
+
+---
+
+## 28 · One library, one vocabulary (2026-08-25)
+
+> **The problem, stated as the user did:** *"The + toolbar is misleading… What
+> happens when we have 100 cloud providers implemented?"* and, later, *"our
+> terminology should always be related to collections."*
+
+The ways into a library had accumulated one at a time. The sidebar's `+` had
+grown eight entries of four unrelated kinds — two of which were **the same
+command listed twice** (`Open Collection` and `Open Obsidian Vault` both called
+`requestOpenCollections()`, and that request opened in the Obsidian directory,
+so neither the label nor the behaviour distinguished them). Four surfaces drew
+overlapping subsets of the set under different names, and the first-run screen
+offered two of the ways in while the toolbar offered eight.
+
+The fix is structural rather than cosmetic: the set of ways to add a collection
+is **data** (`AddCollectionActions.options`), and menus, cards and the command
+palette are renderings of it. "The welcome screen shows what the toolbar shows"
+became a property of the code. The palette had already drifted twice — still
+naming a command the menus had renamed, and never gaining two others at all —
+and now generates its rows from the same list.
+
+The vocabulary is the library's: **New Collection** (empty folder / Git
+repository) and **Open Collection** (from folder / iCloud Drive / Obsidian vault
+/ cloud / repository). `New Repository` stopped being a peer of collections and
+became one way of making one.
+
+### Where a distinction belongs
+
+Two kinds of cloud folder exist — one the provider's own app already syncs to
+the device (no sign-in, works offline) and one reached over the provider's API
+— and the menu carried both, briefly under a parallel pair of names. Several
+namings were tried and each failed on the same point: *synced* is true of both
+(the difference is **who** syncs), and *local/remote* is one axis but still asks
+a question a menu item cannot answer.
+
+The resolution was to move the fork rather than name it better. **Whether a
+provider is set up on this device is a fact about the device**, which
+`CloudProvider.installedClients()` can state and a menu item can only ask. So
+the menu carries one plain `from Cloud…`, and **Manage Cloud Collections** —
+which has room for a subtitle — names the providers it found. That also answers
+the hundred-providers question: the locally-synced half is *one row forever*
+regardless of how many providers exist, and the only list that grows is the one
+of providers we have written OAuth for, which gets a search field.
+
+### Several accounts on one service
+
+`CloudBrowser` had one case per provider and `RemoteTokenStore` keyed the
+Keychain by provider name, so a personal and a work OneDrive were one entry with
+one credential: **the second sign-in silently overwrote the first**. Accounts
+now have generated identities, the Keychain is keyed by those, and the manifest
+of a mirrored collection records *which account* it came from — a provider name
+alone can no longer identify credentials.
+
+### Four defects found by using it
+
+- **A cloud collection added over a provider's API stopped syncing after one
+  relaunch.** `persist()` wrote it to both the plain-path list and the
+  remote-cache list; the plain restore won, `restoreRemoteCollections` saw the
+  id already present and skipped it, and the collection lost its mirror
+  permanently — becoming a stale local copy with nothing said.
+- **An account was recorded before it signed in**, so every cancelled OAuth left
+  a phantom in "Connected Accounts". Then, once that moved after the sign-in, it
+  was placed after an `await` inside a `.task` — which is cancelled when the
+  sheet closes, so it never ran and left a token in the Keychain that no listed
+  account owned.
+- **The same account appeared twice in one `List`** under the same id, once as a
+  source and once as a managed account. Duplicate identities make SwiftUI reuse
+  one row's content for the other, so a connected account rendered as its "From
+  …" twin — deterministically, surviving every relaunch, which is what made it
+  look like stale data.
+- **OneDrive was never detected as installed**: it ships as
+  `com.microsoft.OneDrive-mac` and only `com.microsoft.OneDrive` was checked. A
+  missed bundle id is invisible — the app simply never mentions a provider the
+  user has.
+
+### Credentials belong in Settings
+
+Git accounts had no macOS route but the inspector's Git pane, which needs a
+repository already open — so the credentials needed to *clone* a repository were
+behind having cloned one. AI keys had the mirror-image gap: a Settings tab on
+macOS, nothing in iOS Settings. Both are now in Settings on both platforms, and
+**Acknowledgements** moved beside About, since nothing in it is a preference.
+
+---
+
+## 29 · Ask the provider (2026-08-27)
+
+> **The problem, stated as the user did:** *"How are you deriving the list of
+> models for Gemini. Is this dynamic or a fixed list? Your list is very old"*,
+> then *"I think we need to declare Gemini as 1m context size. Why aren't all
+> these parameters configurable?"*
+
+The list was fixed — `ModelCatalog.suggestedModels`, a hand-written array of
+strings per provider, still offering `gemini-2.0-flash` and `gpt-4o` a
+generation and a half after both were superseded. Nothing in the app had ever
+asked a provider what models it had.
+
+### Raising the number would have changed nothing
+
+The obvious fix — declare Gemini at 1M — was a no-op, and finding out why
+located the real defect. `IntelligenceNeeds.inputBudget` served two
+contradictory purposes:
+
+- `satisfied(by:)` read it as a **floor**: the least a provider must offer for
+  the feature to be worth showing.
+- `IntelligenceService.budget(for:)` read the same number as a **cap**, via
+  `max(500, min(feature.inputBudget, capabilities.inputBudget))`.
+
+The floor was always the smaller operand, so the provider's number never once
+mattered. Ask Library, declared at 12,000, sent 12,000 characters — about 3,000
+tokens, or **0.3% of a 1M-token window** — and would have gone on sending 12,000
+however large the provider's declared budget grew. Summarising a 20,000-character
+note summarised its first 4,000 and said nothing about the rest; that was never a
+judgement about the feature, it was the eligibility floor being read as a cap.
+
+`minimumBudget` and `inputCeiling` are now separate fields. Every content-bearing
+feature declares a floor and **no ceiling**, so what the provider can hold is the
+only limit. Ghost text keeps a ceiling, for a reason about the feature rather
+than the provider: it races a keystroke, so a wider window is a slower answer.
+
+### Thirteen providers answer, eight of them fully
+
+`LLMProvider` gained `availableModels()`. Support is genuinely uneven, so the
+mapping is written out per provider rather than pattern-matched:
+
+| | Lists models | Reports a window | Also reports |
+|---|---|---|---|
+| Gemini | `/v1beta/models` | `inputTokenLimit` | `maxTemperature`, `topP`, `topK` |
+| Anthropic | `/v1/models` | `max_input_tokens` | `capabilities.structured_outputs` |
+| OpenRouter | `/models` | `context_length` | `supported_parameters` |
+| Mistral | `/models` | `max_context_length` | `capabilities.function_calling` |
+| Groq | `/models` | `context_window` | `max_completion_tokens` |
+| Together | `/models` | `context_length` | `type` |
+| LM Studio | `/api/v0/models` | `max_context_length` | `type` |
+| Ollama | `/api/tags` + `/api/show` | `<arch>.context_length` | `capabilities` |
+| OpenAI, xAI, DeepSeek, Cerebras, Perplexity | yes | — | — |
+| Apple, MLX | — | — | in-process |
+
+**The mapping is an allow-list of key names, and xAI is why.** Its listing
+carries `long_context_threshold`, which is the token count above which input is
+billed at a higher rate — not the context window. Anything scooping up "the field
+with `context` in the name" would report 200k for a model holding far more, which
+is a filed bug in another client. A key appears in `OpenAIModelEntry` only where
+it has been checked to mean what this app wants it to mean.
+
+Two asymmetries had to be reconciled so `ModelInfo.inputTokenLimit` means one
+thing everywhere. Gemini and Anthropic report an **input** limit directly; the
+OpenAI-compatible family reports a **total** window covering both directions, so
+`ModelDiscovery.inputTokens(total:output:)` reserves the reply's share. That
+reservation is capped at half the window, which is not defensive padding: a live
+OpenRouter entry advertises a 943,718-token output cap against a 1,048,576-token
+window, and naive subtraction turns a million-token model into a 104,858-token
+one.
+
+### What the user can now set
+
+Per provider, in the one form both platforms render:
+
+- **Model** — free text as before, plus **Available models** listing what the key
+  can reach with each one's context size, and a **Refresh** button. Refreshing
+  never overwrites a model the user typed: an unlisted ID is very often a
+  fine-tune or deployment alias that works perfectly well.
+- **Temperature** — over the range the provider genuinely accepts. The single
+  global slider was pinned to `0...1`, which is the wrong range for Anthropic
+  (which rejects anything above 1.0 outright) *and* half the available range for
+  everyone else.
+- **Context budget**, in characters, and **Max reply length**, in tokens.
+  `LLMRequestOptions.maxTokens` had existed since the beginning and no caller
+  had ever set it.
+
+Where a number came from is carried on `ProviderCapabilities.budgetSource` and
+said out loud, because a discovered 3.6M-character budget and a fallback
+100,000-character one look identical written down and mean different things.
+
+### Two traps, both silent
+
+**A non-optional property added to a persisted `Codable` throws on decode.**
+`ProviderConfig` gained `models: [ModelInfo] = []`, and `LLMSettings.init`
+decodes with `try?` falling back to defaults *for every provider* — so one throw
+would not be a loud failure, it would silently reset the user's entire provider
+configuration. Both `ProviderConfig` and `ModelInfo` decode field by field with
+`decodeIfPresent`.
+
+**An empty list is silence, not denial.** Three of OpenRouter's 417 models
+return `supported_parameters: []`. Reading that as "no tools" is worse than not
+asking, because a discovered `false` overrides the table's `true` and switches
+Deep Research off for a model that may support tools perfectly well.
+
+### Structure, because sixteen providers is a lot of rows
+
+The first cut appended controls linearly and it was a wall: every provider was
+its own open `Section`, so the form was sixteen stacked blocks before anything
+was configured, and an *enabled* one went from six rows to thirteen — four of
+them multi-line grey captions.
+
+It is three levels now. Closed, a provider is **one line** saying whether it is
+on and which model it uses (`Off` / `Needs a key` / the model ID), so sixteen of
+them read as a list. Open, it shows the two things anyone changes: the model and
+the key. The knobs that exist so the *app* can be honest — temperature range,
+context budget, reply cap — sit behind **Advanced**, with a single caption for
+all three instead of one each.
+
+### Two bugs that only looking could find
+
+Both were invisible to the compiler, the tests, and the Mac.
+
+**The iOS AI settings screen had never rendered.** `iOSSettingsView` wrapped the
+form as `Form { LLMSettingsForm(…) }`, and `LLMSettingsForm` *is* a `Form`
+(`.formStyle(.grouped)`). `Form { Form { … } }` collapses: the screen showed a
+clipped, half-drawn "Defaults" label inside an empty rounded box and nothing
+else. It was added in the previous session, never opened, and shipped that way in
+build 11.
+
+**On iOS the two numeric fields had no labels.** `TextField(title:text:prompt:)`
+shows its title *as the placeholder* on iOS, and a supplied `prompt:` replaces
+the placeholder — so the title never appeared. On the Mac the label sat to the
+left and read correctly; on iPhone the same two rows were bare grey numbers with
+nothing to say which was the context budget and which the reply cap. They are
+`LabeledContent` now.
+
+The rule these share: **a shared view is not the same as a verified one.** One
+`LLMSettingsForm` for both platforms guarantees the two screens are built from
+the same code, which is worth having — and guarantees nothing about whether
+either of them draws.
+
+### Verified against real payloads, not recollection
+
+Every field name and type above was checked against live data or current
+documentation rather than remembered — Anthropic's Models API, in particular,
+now reports `max_input_tokens` and a `capabilities` object it did not use to.
+The decoder itself was extracted verbatim and run against OpenRouter's live
+417-model listing: all 417 decode, all 417 resolve a window, 348 declare tools,
+and the three silent ones stay `nil`. Ollama's `/api/show` confirmed the
+architecture-prefixed `qwen3_5.context_length` key and `capabilities: ["tools"]`
+on a real local model.
+
+---
+
+## 30 · Adding a large cloud folder (2026-08-27)
+
+> **The problem, stated as the user did:** *"Adding a large cloud folder with
+> lots of folders takes a long time. Any opportunities for speed up?"*
+
+Three costs, all multiplied by the thing that makes a large folder large.
+
+### The walk listed one directory at a time
+
+`ResumableTreeWalk.run` awaited `source.children(of:)` for each directory before
+starting the next. For a local vault that is right — a listing is a syscall over
+a warm cache. For a provider it is a network round trip the app spends *idle*,
+so a folder of N directories cost N latencies laid end to end. That was the bulk
+of the wait.
+
+Listings now run in a window, applied strictly in order. `TreeSource` declares
+`listingConcurrency`, defaulting to **1** so nothing changes for a source that
+has not thought about it; `RemoteTreeSource` returns 6 — chosen to sit well
+inside every provider's rate limit rather than to saturate a link, because a walk
+that earns a 429 finishes later than one that never asked.
+
+**The invariant that makes it safe:** `head` still means *the next directory to
+apply*. A listing in flight has been fetched past `head` but not applied, so it
+is still inside `frontier[head...]` — which is exactly what `snapshot()` writes.
+The checkpoint therefore keeps meaning what it meant when the walk was serial,
+and cancelling mid-window loses nothing. Only the fetching overlaps: `onBatch` is
+not `@Sendable` and mutates the caller's accumulator, so it is never re-entered.
+
+**And the serial path must not pay for any of it.** Routing width-1 through the
+window put an unstructured `Task` — an allocation and two hops — around every
+local directory listing, and made the local walk roughly **four times slower**.
+The enumerator benchmark caught it on the first run. `outcome(for:)` awaits
+directly when `width == 1`. Concurrency here buys back latency and nothing else;
+where there is no latency to hide there is nothing to win and a measurable amount
+to lose.
+
+### Progress was recounted from scratch, per directory
+
+```swift
+outcome.progress.filesMirrored = updated.entries.values.count { !$0.isDirectory }
+```
+
+That walked the entire manifest on every batch, for a number that changes by one
+at a time — D×E work for a folder of D directories and E entries, quadratic in
+the size of the thing being synced, on the sync's own hot path. It is a running
+counter now, adjusted by the delta between the old entry and the new one.
+
+### Three syscalls per note to decide to do nothing
+
+`writePlaceholder` runs once per file. It asked the file system three separate
+questions: a `resourceValues` for the size, a `createDirectory` for a parent the
+walk had already created moments earlier, and a `fileExists` for what the first
+call had already established. In the common case — a re-sync, where every file is
+already there — that is three syscalls per note to take no action. One
+`fileExists` answers it.
+
+---
+
+## 31 · Metadata belongs in metadata (2026-08-27)
+
+> **The problem, stated as the user did:** *"I think summary and tags needs to
+> write to frontmatter rather than body, so do links. We should never rewrite
+> bodies."*
+
+Every accepted suggestion used to write prose. A tag was appended after the last
+paragraph, a link went under a `## Related` heading the app **invented** if it
+was absent, and a summary was pushed in as a callout above the note's first
+line. All three are metadata, none of them is prose, and none was reversible by
+any means the app offered: a property can be deleted in the Properties pane, a
+paragraph the app inserted has to be found and removed by hand.
+
+They write `tags:`, `related:` and `summary:` now, through two helpers —
+`NoteEdits.appending(_:toListProperty:of:)` and `setting(_:property:of:)`. The
+body comes back byte-identical, which is what the tests assert.
+
+### The reader was broken independently, and the sample vault proved it
+
+`MarkdownParsing.tags(in:)` matched `#tag` with a regex over the raw document, so
+a YAML `tags:` key — carrying no `#` — was invisible. Every front-matter-tagged
+note in an imported Obsidian vault was therefore *untagged* as far as this app
+was concerned: absent from the tag tree, unfilterable, unfindable.
+
+**The app's own sample vault has three of them** — `tags: [demo]` in Callouts,
+`tags:\n  - intro` in Welcome and in Deck. And the test covering this asserted
+`allTags() == ["intro", "todo"]`, the inline hashtags only. It had been written
+from the implementation rather than from the vault, so it passed for the entire
+life of the bug and would have gone on passing.
+
+`tags(in:)` now reads the `tags:` key **plus** inline tags in the body — and
+only the body, which is not a detail. Front matter is structured data; scanning
+it for `#` turns any property containing one into a tag nobody wrote, and that
+became live the moment summaries started being stored as a property. There is a
+test for exactly that: a summary reading "Covers #hashtag syntax." produces no
+tags.
+
+### Two YAML traps
+
+`quoteIfNeeded` quoted `true`, numbers, and anything containing `:` or `#`. It
+did **not** quote a leading `[`, and a related link is written `- [[Some Note]]`
+— which unquoted is a nested flow *sequence*, not a string. The value would not
+have survived its own round trip, and every other tool reading the vault would
+have seen something the author never wrote. Quoting now covers every YAML
+indicator character, and `scalar` unescapes what it escapes, so the pair is
+actually a round trip.
+
+Second: a YAML scalar is one line, so a multi-sentence summary is folded to one
+rather than breaking the block.
+
+Backlinks are unaffected — `wikiLinkTargets` scans the whole document, so a
+`related:` property is an outgoing link exactly as the body version was, and a
+test pins it.
+
+---
+
+## 32 · The parity checks that could not see the screen (2026-08-27)
+
+> **The problem, stated as the user did:** *"You keep assuring me we have parity,
+> but we keep running into parity issues. Clearly the way you are detecting
+> parity is wrong."*
+
+Correct. `PlatformParityTests` asks one question — *is every field of
+`AppActions` supplied on both shells?* — which is source symmetry over the
+**command surface**. Every parity defect actually found was on an axis it is
+structurally blind to:
+
+| Defect | Axis | Why the check could not see it |
+|---|---|---|
+| iOS Settings ▸ AI rendered a clipped stub | **rendering** | a nested `Form`; no `AppActions` field involved |
+| Ten fields unlabelled on iOS | **labelling** | not commands at all |
+| Tags browsable on iOS, not macOS | **reachability** | an iOS `CompactShell` place vs a macOS inspector tab; neither is in `AppActions` |
+
+### Two instruments that did not work, and the control that said so
+
+**`sizeThatFits` answered 0** for a perfectly healthy `Form` — a Form is a
+viewport, so it reports the size it is *offered*, which is the rule this app
+already applies to every representable it owns.
+
+**`ImageRenderer` renders the nested form and the plain one identically** —
+48,534 glyph pixels each. The collapse needs a live navigation hierarchy, which
+an offscreen render does not build. An earlier attempt was worse still: counting
+"not white" scored both at 312,000, the whole canvas, because a grouped form
+fills its background with a light grey.
+
+Both were caught by a **negative control** — a test asserting the *broken* form
+really is broken. Without one, a check of this kind quietly starts passing for
+everything, which is precisely how the preceding parity test came to certify a
+screen that had never once drawn. `ScreenRenderTests` keeps what it can honestly
+claim and states the limit in its header.
+
+### The check that works, and the proof it works
+
+`HelloNotesUITests` launches the app and navigates it. That target had been the
+untouched Xcode template — `testExample` was empty, which is why it always
+passed. It now sweeps the compact shell's four places, the Settings sheet's seven
+sections, the AI screen and the Git screen.
+
+**It was verified by reintroducing the bug**: with `Form { LLMSettingsForm(…) }`
+restored, `testAISettingsScreenIsNotEmpty` fails with *"AI settings opened but
+drew no content — the form collapsed"*; with the fix back, it passes. That is
+the first parity check in this project demonstrated to detect the defect it
+exists for.
+
+Three environmental traps cost real time and are pinned in the tests:
+- **Orientation decides which shell you get.** The simulator keeps its last
+  orientation, and an iPhone 13 Pro Max in landscape is 926pt wide — regular
+  width — so the app correctly draws the sidebar shell and no compact tab bar
+  exists. Five tests skipped with "Compact shell only", which was true and read
+  exactly like a broken test.
+- **The compact shell remembers its place**, and the overflow button lives on
+  Notes; without selecting it first the test is a coin toss decided by the
+  previous session.
+- **The splash is deliberately `.isModal`**, and XCUITest reads any modal as an
+  interrupting alert, hunts for a Cancel button, finds none, and abandons the tap
+  it was making. Wait it out rather than fight it.
+
+The **editor and inspector are not swept** — selecting a collection marks it
+selected rather than navigating, and a test that skips reads as coverage while
+providing none. Named as a known gap rather than left as an assumed pass.
+
+### And the fields nobody could read
+
+`TextField(title:text:prompt:)` draws its title left of the field on macOS and
+*as the placeholder* on iOS — so supplying a `prompt:`, which replaces the
+placeholder, leaves the title drawn nowhere. Ten shipped that way: iOS Settings
+had a "Daily notes" section of two anonymous boxes reading "Collection root" and
+"yyyy-MM-dd", and a Git section whose fields could be told apart only by guessing
+that "Ada Lovelace" meant name. `LabeledField` fixes them; a guard test with a
+justified allow-list keeps them fixed. The rule it encodes: **a field must be
+identifiable without typing in it** — a prompt that names the field is a label, a
+prompt that shows an example is not.
+
+### The tag list that was hidden behind typing
+
+The macOS Tags pane disclosed collection tags only once you had typed, on the
+reasoning that 223 tags is too many for a rail. That traded the feature for the
+problem: with nothing on screen there was no way to learn the collection *had*
+tags. It is always shown now, headed `ALL TAGS · n`, sorted by note count, capped
+at forty, with the field above filtering it — while iOS had listed every tag in
+its own tab the whole time.
 
 ---
 

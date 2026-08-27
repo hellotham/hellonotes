@@ -1,24 +1,33 @@
-# Productionising HelloNotes & shipping to the Mac App Store
+# Productionising HelloNotes & shipping to the App Store
 
 A complete, do-this-in-order runbook to take HelloNotes from a working dev build
-to an approved Mac App Store release. Copy‑paste values are given for every field.
+to an approved App Store release. Copy‑paste values are given for every field.
 
-> **Scope:** this targets the **Mac App Store** (the shippable target — the editor
-> engine is macOS‑only). iOS/visionOS are declared in the project but not
-> production‑ready; ship macOS first.
+> **Scope:** HelloNotes ships on **both macOS and iOS**, from a single App Store
+> Connect app record (App ID `6803259848`) — both platforms are live and in
+> TestFlight. The two platforms share one app record, one bundle ID, and one
+> set of metadata (§3–§7); they differ only in the build/export step (§9) and
+> the screenshot sizes (§8). visionOS is still listed in the project's
+> `SUPPORTED_PLATFORMS` (`xros`) purely because `SDKROOT = auto` pulls it in
+> automatically for a multiplatform target — there is no visionOS-specific
+> target, entitlement, or submission, and nothing below should be read as
+> visionOS being production-ready.
 
 ## At‑a‑glance facts
 
 | Thing | Value |
 |---|---|
 | App name | **HelloNotes** |
+| Platforms | **macOS + iOS**, one App Store Connect app record — both live, both in TestFlight |
+| App Store Connect App ID | `6803259848` |
 | Bundle ID | `com.hellotham.HelloNotes` |
+| SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3`, `CURRENT_PROJECT_VERSION = 4` |
+| Version / build | `MARKETING_VERSION = 1.3.2`, `CURRENT_PROJECT_VERSION = 8` — **verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
-| Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync) |
-| Min OS | **macOS 26.5** |
+| Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync) · App Group · iCloud KV store · Audio input — see §1b for the full current list and what each is for |
+| Min OS | **macOS 26.5 / iOS 26.5** |
 | Website | <https://hellotham.com/hellonotes/> (Privacy · Support live) |
 
 ---
@@ -63,23 +72,37 @@ Foundation Models, which is 26-only. The `#available(macOS 26.0, *)` guards stay
 load-bearing.
 
 ### 1b. ✅ Git remote sync — enabled
-The app now ships an explicit entitlements file
+The app ships an explicit entitlements file
 (`HelloNotes/HelloNotes.entitlements`, wired via `CODE_SIGN_ENTITLEMENTS`) granting
 **Outgoing Connections (Client)** alongside the sandbox and user‑selected‑files
-entitlements:
+entitlements. **As of this session it carries seven keys** (confirmed by reading
+the file directly — this list has grown since the four-key version this section
+used to describe, so verify it again the same way rather than trusting either
+copy):
 ```xml
-<key>com.apple.security.app-sandbox</key>            <true/>
-<key>com.apple.security.files.bookmarks.app-scope</key> <true/>
-<key>com.apple.security.files.user-selected.read-write</key> <true/>
-<key>com.apple.security.network.client</key>          <true/>
+<key>com.apple.security.app-sandbox</key>                        <true/>
+<key>com.apple.security.application-groups</key>
+<array><string>group.com.hellotham.HelloNotes</string></array>
+<key>com.apple.developer.ubiquity-kvstore-identifier</key>
+<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
+<key>com.apple.security.files.bookmarks.app-scope</key>          <true/>
+<key>com.apple.security.files.user-selected.read-write</key>     <true/>
+<key>com.apple.security.network.client</key>                     <true/>
+<key>com.apple.security.device.audio-input</key>                 <true/>
 ```
-(`files.bookmarks.app-scope` is required for the security-scoped bookmarks that
-remember collection folders across launches; `network.client` also covers the
-optional cloud AI providers and the assistant's web search/fetch tools.)
-Verified in the Release build (all three present, no conflicts). Git push/fetch to
-a remote can now reach the network. Note: SSH‑agent/keychain credential access from
-a sandbox is still limited — **HTTPS remotes with a personal access token** are the
-reliable path for end users.
+What each is for: `files.bookmarks.app-scope` is required for the security-scoped
+bookmarks that remember collection folders across launches; `network.client` also
+covers the optional cloud AI providers and the assistant's web search/fetch
+tools; `application-groups` (`group.com.hellotham.HelloNotes`) shares the
+widget's recent/daily-note snapshot with `HelloNotesWidgetsExtension` (see
+`docs/xcode-targets-setup.md`); `ubiquity-kvstore-identifier` and
+`device.audio-input` back the iCloud key-value preference sync and the
+SpeechAnalyzer dictation feature respectively, both shipped per
+`docs/native-roadmap.md`.
+Verified present in the Release build. Git push/fetch to a remote can reach the
+network. Note: SSH‑agent/keychain credential access from a sandbox is still
+limited — **HTTPS remotes with a personal access token** are the reliable path
+for end users.
 
 ### 1c. ✅ Info.plist document types — done
 The placeholder `com.example.*` UTIs were replaced with a proper Markdown
@@ -120,8 +143,14 @@ Target ▸ **Signing & Capabilities** ▸ **Release**:
 Nothing else to do — Xcode makes the cert/profile on first archive.
 
 ### 1f. Version & build number policy
-- First submission was `1.0` (build `1`); the repo now carries `1.3` (build `4`).
-- **Every** upload needs a **unique, higher build number**. Bump
+- First submission was `1.0` (build `1`); as of this doc pass the repo carries
+  `1.3.2` (build `8`) — **do not trust that number**, read
+  `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` fresh from
+  `HelloNotes.xcodeproj/project.pbxproj` (every target repeats the same pair;
+  any one occurrence is representative), since both move on every release and
+  this line will be stale again the next time either bumps.
+- **Every** upload needs a **unique, higher build number** — shared across
+  *both* platforms, since one app record covers macOS and iOS. Bump
   `CURRENT_PROJECT_VERSION` (`1 → 2 → …`) for re‑uploads of the same version;
   bump `MARKETING_VERSION` (`1.0 → 1.1`) for a new public version.
 
@@ -144,6 +173,10 @@ xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
 xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'generic/platform=macOS' -configuration Release build
 ```
+This is the macOS half only. For the iOS half, run the iOS test/build commands
+in the repo-root `CLAUDE.md` (Commands section) — kept there rather than
+duplicated here, so there is exactly one place these commands can drift from
+reality instead of two.
 
 > ### ⚠️ The Release build is not optional — Debug proves nothing about it
 > **A green Debug build can hide a hard shipping blocker.** On 2026‑07‑25 every
@@ -188,15 +221,25 @@ explicitly avoids surprises.)*
 
 ## 3 · Create the app record (App Store Connect)
 
+> **This has already happened.** The app record exists (App ID `6803259848`)
+> and now spans **both macOS and iOS**. What follows is the original
+> first-creation recipe, kept because it's the right recipe for a *new* app —
+> use it as written only if you're standing up a fresh app record from
+> scratch. To add a platform to the **existing** record instead (which is what
+> happened here: it started macOS-only and iOS was added later), go to
+> **App Store Connect ▸ your app ▸ App Information ▸ Platforms ▸ ＋** and pick
+> the new platform — do **not** use **＋ New App**, which creates a second,
+> unrelated record with its own App ID.
+
 <https://appstoreconnect.apple.com> ▸ **Apps** ▸ **＋** ▸ **New App**.
 
 | Field | Value to paste |
 |---|---|
-| Platforms | ☑ **macOS** |
+| Platforms | ☑ **macOS** ☑ **iOS** *(check every platform you're shipping at creation — adding one later uses the Platforms flow above instead)* |
 | Name | `HelloNotes` *(must be globally unique; if taken, try `HelloNotes – Markdown` or `HelloNotes Knowledge Base`)* |
 | Primary language | `English (Australia)` (or your preference) |
 | Bundle ID | select **com.hellotham.HelloNotes** |
-| SKU | `HELLONOTES-MAC-001` |
+| SKU | `HELLONOTES-001` |
 | User access | **Full Access** |
 
 **Create.**
@@ -214,12 +257,12 @@ Local-first Markdown notes
 
 **Promotional text** (≤170 chars, editable any time without review):
 ```
-A fast, private Markdown knowledge base for your Mac. Wiki-links, backlinks, a graph view, diagrams, math and on-device AI — your notes stay plain files you own.
+A fast, private Markdown knowledge base for Mac, iPhone and iPad. Wiki-links, backlinks, a graph view, diagrams, math and on-device AI — your notes stay plain files you own.
 ```
 
 **Description** (≤4000 chars):
 ```
-HelloNotes is a fast, private, local-first Markdown knowledge base for your Mac. Your notes are plain .md files in a folder you choose — no account, no lock-in, no cloud required.
+HelloNotes is a fast, private, local-first Markdown knowledge base for Mac, iPhone and iPad. Your notes are plain .md files in a folder you choose — no account, no lock-in, no cloud required.
 
 WRITE IN LIVE MARKDOWN
 • A native editor with live styling — headings, bold, lists, tables and syntax-highlighted code
@@ -238,11 +281,11 @@ FIND ANYTHING
 • Bookmarks, daily notes and templates
 
 AI, ON YOUR TERMS
-• Summarise a note, suggest tags and links — powered by Apple Intelligence, entirely on your Mac
+• Summarise a note, suggest tags and links — powered by Apple Intelligence, entirely on-device
 • “Ask your library”: answers grounded in your own notes, with citations
 • An agentic Assistant that can search, read, and (with your approval) edit notes
 • Bring your own model: fully local (Apple, MLX, Ollama, LM Studio) or your own cloud API key (Anthropic, OpenAI-compatible, Gemini)
-On-device models send nothing off your Mac. Cloud providers are optional, off by default, and use your own key — note content goes only to the provider you configure.
+On-device models send nothing off your device. Cloud providers are optional, off by default, and use your own key — note content goes only to the provider you configure.
 
 VERSION HISTORY WITH GIT
 • Built-in Git: initialise a repo, browse a note’s history and restore earlier versions
@@ -340,16 +383,66 @@ Provide **at least 1** (up to 10). Retina capture is easiest:
    ```bash
    sips -z 1600 2560 --padColor FFFFFF shot.png --out shot-2560x1600.png
    ```
-**✅ A ready-made set of 5 screenshots at 2560×1600 is already generated** in
-`dist/HelloNotes.dmg`’s sibling folder **`dist/screenshots/`** (`screenshot_01…05.png`
-— note list, math+diagrams, callouts, graph, ask-vault, each on a branded gradient
-with captions). Upload those directly, or capture your own with the recipe above.
+**✅ A ready-made set of 5 frames at 2560×1600 is committed** — but not where an
+earlier draft of this section said. They live in **`website/src/assets/screens/`**
+as `light_01…05.png` and `dark_01…05.png`: the site's marketing shots, each the
+brand gradient plus a caption plus the window, and already one of Apple's four
+accepted Mac sizes. The five scenes are the sidebar and editor, maths and
+diagrams inline, callouts and properties, the graph view, and Ask Library.
+
+`dist/` is a build artefact and is **gitignored**, so `dist/screenshots/` does not
+exist until something puts it there — an earlier version of this section promised
+a folder that is never checked in. Assemble it:
+
+```bash
+mkdir -p dist/screenshots/dark
+for i in 1 2 3 4 5; do
+  cp website/src/assets/screens/light_0$i.png dist/screenshots/screenshot_0$i.png
+  cp website/src/assets/screens/dark_0$i.png  dist/screenshots/dark/screenshot_0$i.png
+done
+```
+
+Upload one appearance or the other — Apple allows up to 10, but a gallery that
+switches halfway reads as inconsistent. To refresh them against a newer build,
+capture the five scenes with the recipe above and composite with
+`scripts/make-screenshots.py` (needs Pillow: `python3 -m venv venv &&
+./venv/bin/pip install Pillow`); the raw capture is a manual step by design.
+
+**iOS screenshots are required — the app record now includes iOS, not just
+macOS.** Apple asks for one set per device *family* the app supports, and you
+only need to supply the largest display in each family; App Store Connect
+scales down to populate the rest (confirmed against Apple's published
+screenshot spec this session — sizes are revised periodically, so re-check at
+submission time):
+
+- **iPhone — 6.9-inch, 1320×2868.** Required because the app's
+  `TARGETED_DEVICE_FAMILY` includes iPhone (family `1`), not just iPad — this
+  is a phone-capable app (see `docs/shell-chrome.md`'s "P5 Phone capturer"
+  persona), so skipping iPhone shots is not an option the way it might be for
+  an iPad-only app.
+- **iPad — 13-inch, 2064×2752** (the M4/M5 iPad Pro class). The repo already
+  has a device sized for this: **`HN-iPad13`** (an
+  `iPad-Pro-13-inch-M5-12GB` simulator, distinct from the `HN-iPad` 11-inch
+  one used for day-to-day testing in `CLAUDE.md`) — its native capture
+  (`xcrun simctl io HN-iPad13 screenshot out.png`) lands exactly on
+  2064×2752, no padding/scaling step needed the way the Mac shots below need
+  one. The old **`HN-iPad`** (11-inch, 1668×2420) is still right for
+  day-to-day iOS testing — just don't submit its captures to App Store
+  Connect, which rejects that size for the 13-inch requirement.
+
+Neither iPhone nor iPad has a marketing-shot pipeline yet (no equivalent of
+`website/src/assets/screens/` or `scripts/make-screenshots.py` for iOS) — raw,
+unbranded simulator captures satisfy App Store Connect's requirement, but
+producing branded ones like the Mac set below is still open work.
 
 ---
 
 ## 9 · Build: archive & upload
 
-### Option A — Xcode (simplest)
+Both platforms upload to the same app record, but each needs its own archive —
+Options A and B below are **macOS**; Option C is the iOS equivalent.
+
+### Option A — Xcode, macOS (simplest)
 1. Toolbar destination → **Any Mac (Apple Silicon, Intel)**.
 2. **Product ▸ Archive.**
 3. **Organizer** opens → select the archive → **Distribute App** →
@@ -358,7 +451,10 @@ with captions). Upload those directly, or capture your own with the recipe above
 4. Wait for “processing” to finish in App Store Connect (minutes → ~1 hr); you’ll
    get an email when the build is ready.
 
-### Option B — Command line
+For iOS in Xcode instead of the command line, the same four steps work with the
+toolbar destination set to **Any iOS Device (arm64)**.
+
+### Option B — Command line, macOS
 Create `ExportOptions.plist` in the repo root:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -384,6 +480,26 @@ xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
 ```
 The export step uploads directly. (For CI, authenticate `notarytool`/`altool`
 with an **App Store Connect API key** instead of your Apple ID.)
+
+### Option C — iOS, command line
+
+The repo-root `ExportOptions-iOS.plist` already exists for this
+(`method = app-store-connect` — the same method TestFlight and an App Store
+release both use; its own in-file comment says so). Toolbar/GUI archiving works
+too (destination **Any iOS Device (arm64)**), but headless is the same shape as
+the macOS path above with the iOS destination and plist swapped in:
+```bash
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+  -configuration Release -destination 'generic/platform=iOS' \
+  -archivePath build/HelloNotes-iOS.xcarchive archive
+
+xcodebuild -exportArchive -archivePath build/HelloNotes-iOS.xcarchive \
+  -exportOptionsPlist ExportOptions-iOS.plist -exportPath build/export-ios \
+  -allowProvisioningUpdates
+```
+Same App Store Connect App ID, same bundle ID, same build-number rule (§1f) —
+this uploads as an iOS build attached to the *same* app record the macOS
+archive uploads to, not a separate app.
 
 ---
 
@@ -558,13 +674,13 @@ hdiutil detach /tmp/hn
 > - **On‑device intelligence:** the default summarise / suggest / “ask your
 >   library” features use Apple’s on‑device Foundation Models or local models
 >   you run yourself (MLX, Ollama, LM Studio). Content processed this way never
->   leaves your Mac.
+>   leaves your device.
 > - **Optional cloud AI:** you may connect a cloud model provider (such as
 >   Anthropic, an OpenAI‑compatible service, or Google Gemini) using **your own
 >   API key**. When you do, the notes and questions you submit to those features
 >   are sent to that provider under your account and their privacy terms.
 >   Cloud providers are off until you configure one, and your key is stored in
->   the macOS Keychain. We never see, proxy, or store this traffic.
+>   the Keychain. We never see, proxy, or store this traffic.
 > - **Assistant web tools:** if you ask the assistant to search or fetch a web
 >   page, the query/URL is sent to the search engine or site in question.
 > - **Version control:** if you choose to use the built‑in Git features and

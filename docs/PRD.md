@@ -1,6 +1,9 @@
 # HelloNotes — Product Requirements Document
 
-> Product name: **HelloNotes** · Status: **v1.3** · Last updated: 2026-08-16 · Owner: Chris Tham
+> Product name: **HelloNotes** · Status: **v1.3.2** (version bumped in a 2026-08-25
+> doc-currency pass; content below was spot-checked, not re-verified line-by-line —
+> see `docs/implemented.md`'s "Current status" for what shipped after v1.3) ·
+> Last substantively updated: 2026-08-16 · Owner: Chris Tham
 
 ---
 

@@ -292,6 +292,7 @@ final class RemoteMirror {
             if let loadedManifest { return loadedManifest }
             let loaded = RemoteManifest.load(fromCacheRoot: cacheRoot)
                 ?? RemoteManifest(provider: store.providerName,
+                                  accountID: store.accountID,
                                   remoteRoot: remoteRoot,
                                   displayName: displayName)
             loadedManifest = loaded
@@ -327,20 +328,30 @@ final class RemoteMirror {
         var outcome = RemoteSyncOutcome()
         let source = RemoteTreeSource(store: store, remoteRoot: remoteRoot, cacheRoot: cacheRoot)
 
+        // Counted once and then kept, rather than recounted per directory.
+        // `entries.values.count(where:)` walked the *whole* manifest on every
+        // batch, so a folder with D directories and E entries did D×E work for a
+        // number that changes by one at a time — quadratic in the size of the
+        // thing being synced, on the sync's own hot path.
+        var fileCount = updated.entries.values.count { !$0.isDirectory }
+
         let result = await ResumableTreeWalk.run(source: source) { batch in
             for child in batch.children {
                 let relative = Self.relativePath(of: child.url, in: cacheRoot)
                 seen.insert(relative)
+                let existing = updated.entries[relative]
+                let wasFile = existing.map { !$0.isDirectory } ?? false
+
                 if child.isDirectory {
                     try? fm.createDirectory(at: child.url, withIntermediateDirectories: true)
                     updated.entries[relative] = RemoteManifest.Entry(
                         remotePath: source.remotePath(for: child.url),
                         isDirectory: true)
+                    if wasFile { fileCount -= 1 }
                     continue
                 }
                 // Keep an existing hydration flag: a note already downloaded
                 // stays downloaded unless the provider says it changed.
-                let existing = updated.entries[relative]
                 let unchanged = existing?.rev != nil && existing?.rev == child.rev
                 let entry = RemoteManifest.Entry(
                     remotePath: source.remotePath(for: child.url),
@@ -350,10 +361,11 @@ final class RemoteMirror {
                     rev: child.rev,
                     hydrated: (existing?.hydrated ?? false) && unchanged)
                 updated.entries[relative] = entry
+                if !wasFile { fileCount += 1 }
                 if !entry.hydrated { Self.writePlaceholder(at: child.url) }
             }
             outcome.progress.foldersListed = batch.progress.directoriesVisited
-            outcome.progress.filesMirrored = updated.entries.values.count { !$0.isDirectory }
+            outcome.progress.filesMirrored = fileCount
             outcome.progress.currentPath = batch.directory
             report(outcome.progress)
         }
@@ -474,15 +486,22 @@ final class RemoteMirror {
     /// name. **Never** written over a file that already has content: the whole
     /// hydration gate exists to keep a placeholder from being mistaken for an
     /// empty note.
+    /// One stat instead of three.
+    ///
+    /// This runs once per file in the folder, so its cost is multiplied by the
+    /// thing that makes a large folder large. It used to ask the file system
+    /// three separate questions — a `resourceValues` for the size, a
+    /// `createDirectory` for a parent the walk had already created moments
+    /// earlier, and a `fileExists` for what the first call had already
+    /// established. In the common case — a re-sync, where every file is already
+    /// there — that is three syscalls per note to decide to do nothing.
     private static func writePlaceholder(at url: URL) {
         let fm = FileManager.default
-        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0 {
-            return
-        }
+        // Present either way — non-empty means hydrated, empty means the
+        // placeholder is already there — and neither needs writing.
+        guard !fm.fileExists(atPath: url.path) else { return }
         try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: url.path) {
-            fm.createFile(atPath: url.path, contents: Data())
-        }
+        fm.createFile(atPath: url.path, contents: Data())
     }
 
     static func relativePath(of url: URL, in root: URL) -> String {

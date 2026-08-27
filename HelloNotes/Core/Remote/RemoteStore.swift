@@ -24,6 +24,13 @@ import Security
 protocol RemoteStore: AnyObject, Sendable {
     /// Human-readable provider name (for UI).
     var providerName: String { get }
+    /// Which connected account's credentials this store uses.
+    ///
+    /// Recorded in a collection's manifest, because a provider name alone no
+    /// longer identifies a set of credentials — a person may hold a personal
+    /// and a work account on one service, and restoring the collection has to
+    /// pick the same one it was created with.
+    var accountID: String { get }
     /// Whether a usable access token is stored.
     var isAuthenticated: Bool { get }
 

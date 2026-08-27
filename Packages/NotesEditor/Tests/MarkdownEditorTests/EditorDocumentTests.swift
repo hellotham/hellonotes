@@ -155,6 +155,21 @@ import UIKit
         #expect(document.rotorHeading(after: nil, forward: true, matching: "zzz") == nil)
     }
 
+    /// The rotor's search field is user input, so it folds diacritics and
+    /// character width as well as case. `localizedCaseInsensitiveContains`
+    /// folded only case, which left "cafe" unable to reach a heading spelled
+    /// "Café" — a heading the reader can see and read out but not search for.
+    @Test func rotorHeadingSearchFoldsDiacriticsNotJustCase() {
+        let document = EditorDocument(text: "# Café\n\nbody\n\n## Ünicode\n")
+
+        #expect(document.rotorHeading(after: nil, forward: true, matching: "cafe")?.title == "Café")
+        #expect(document.rotorHeading(after: nil, forward: true, matching: "CAFÉ")?.title == "Café")
+        #expect(document.rotorHeading(after: nil, forward: true, matching: "unicode")?.title == "Ünicode")
+
+        // Still a filter, not a pass-through.
+        #expect(document.rotorHeading(after: nil, forward: true, matching: "zzz") == nil)
+    }
+
     @Test func revealFollowsSelection() {
         let text = "# Heading\n\npara with **bold** text"
         let document = EditorDocument(text: text)

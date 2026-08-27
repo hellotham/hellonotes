@@ -1,6 +1,19 @@
 # Adding Xcode targets — Widgets, Quick Look, and the App Group
 
-Step-by-step for the Phase D roadmap items that need **new Xcode targets** and a **shared
+> **Status: done — kept as historical reference, not a to-do list.** Every target this
+> document walks through creating already exists in `project.pbxproj`
+> (`HelloNotesWidgetsExtension`, `HelloNotesPreview` + `HelloNotesPreview-iOS`,
+> `HelloNotesThumbnail` + `HelloNotesThumbnail-iOS`), and the App Group is live in
+> `HelloNotes/HelloNotes.entitlements`. Two things below no longer match current
+> reality and are corrected here rather than throughout: **macOS deployment target is
+> now 26.5** everywhere (this doc's "15.0" predates the bump described in
+> `docs/production.md` §1a — Quick Look/Widget extensions need to match the app, and
+> the app itself moved), and the bundle ids the project actually shipped with differ
+> from the ones planned below — see the table. Treat the rest of this file as "how it
+> was done", useful if you're adding a *new* extension target, not as the current
+> state of the ones it describes; `project.pbxproj` is the source of truth for that.
+
+Step-by-step for the Phase D roadmap items that needed **new Xcode targets** and a **shared
 App Group container**. Do these in Xcode's UI (not by hand-editing `project.pbxproj` —
 Xcode has repeatedly reset this project to the SwiftData template when its own model of the
 project drifts). Everything here is scoped to this project's real settings:
@@ -10,11 +23,11 @@ project drifts). Everything here is scoped to this project's real settings:
 | App bundle id | `com.hellotham.HelloNotes` |
 | Team | `RPL5R637DS` |
 | Signing | Automatic |
-| macOS deployment | 15.0 · iOS deployment | 26.5 |
+| macOS deployment | ~~15.0~~ **26.5** (raised after this doc was written — see status note above) · iOS deployment | 26.5 |
 | App group (new) | `group.com.hellotham.HelloNotes` |
-| Widget bundle id (new) | `com.hellotham.HelloNotes.Widgets` |
-| Preview ext bundle id (new) | `com.hellotham.HelloNotes.QuickLookPreview` |
-| Thumbnail ext bundle id (new) | `com.hellotham.HelloNotes.Thumbnail` |
+| Widget bundle id (new) | ~~`com.hellotham.HelloNotes.Widgets`~~ → shipped as `com.hellotham.HelloNotes.HelloNotesWidgets` |
+| Preview ext bundle id (new) | ~~`com.hellotham.HelloNotes.QuickLookPreview`~~ → shipped as `com.hellotham.HelloNotes.HelloNotesPreview` (+ `-iOS` variant) |
+| Thumbnail ext bundle id (new) | ~~`com.hellotham.HelloNotes.Thumbnail`~~ → shipped as `com.hellotham.HelloNotes.HelloNotesThumbnail` (+ `-iOS` variant) |
 
 > **Why extensions need the App Group and a snapshot:** widget and (sandboxed) extension
 > processes **cannot resolve the app's security-scoped folder bookmarks**, so they can't
@@ -91,7 +104,7 @@ The app writes `snapshotURL` on index refresh; widgets read it. (I can supply th
 4. When Xcode asks to **"Activate the HelloNotesWidgets scheme?"** → Activate.
 
 ### 2.2 Deployment + signing
-- Set the widget target's **macOS Deployment Target = 15.0** and **iOS = 26.5** to match the
+- Set the widget target's **macOS Deployment Target = 26.5** and **iOS = 26.5** to match the
   app (Xcode may default the extension higher/lower).
 - Signing & Capabilities → **Automatic**, team **RPL5R637DS**.
 - **+ Capability → App Groups** on the widget target and tick
@@ -133,7 +146,7 @@ Two separate targets. Both are handed the file directly, so **no App Group, no b
    public.plain-text
    ```
    Also set `QLSupportsSearchableItems = NO` (unless you index).
-3. Deployment: macOS 15.0 / iOS 26.5. Signing Automatic.
+3. Deployment: macOS 26.5 / iOS 26.5. Signing Automatic.
 4. Entitlements: keep **app-sandbox on**; Quick Look grants read access to the previewed
    file automatically, so **no `files.user-selected` needed**.
 5. Code: the generated `PreviewViewController: QLPreviewingController` implements
@@ -149,7 +162,7 @@ Two separate targets. Both are handed the file directly, so **no App Group, no b
    Render a small first-screen bitmap: reuse `GFMRender` → a fixed-width HTML render, or a
    quick native `NSAttributedString`/`UITextView` snapshot of the first ~20 lines. Draw into
    the `request.maximumSize` and return a `QLThumbnailReply(contextSize:currentContextDrawing:)`.
-4. Deployment 15.0 / 26.5, sandbox on, Automatic signing.
+4. Deployment 26.5 / 26.5, sandbox on, Automatic signing.
 
 > **Tip:** you can reuse one small `MarkdownThumbnailRenderer` file across both QL targets
 > (target membership on both). I can write the QL controllers + the shared renderer against

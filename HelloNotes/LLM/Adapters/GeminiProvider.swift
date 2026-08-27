@@ -191,3 +191,70 @@ struct GeminiProvider: LLMProvider {
         struct UsageMeta: Decodable { let promptTokenCount: Int?; let candidatesTokenCount: Int? }
     }
 }
+
+// MARK: - Model discovery
+
+extension GeminiProvider {
+
+    /// Gemini publishes the most complete answer of any provider here: a real
+    /// input limit, a real output limit, and the model's own temperature
+    /// ceiling — which is 2.0 on most Gemini models and was being clamped to
+    /// 1.0 by a slider that assumed everyone was Anthropic.
+    ///
+    /// Only models listing `generateContent` are returned. The same endpoint
+    /// also reports embedding and token-counting models, which are not things
+    /// the user can chat with.
+    func availableModels() async throws -> [ModelInfo] {
+        var found: [ModelInfo] = []
+        var pageToken: String?
+        // Bounded rather than `while true`: a provider that keeps handing back a
+        // token is a loop, and this runs on the main path behind a button.
+        for _ in 0..<10 {
+            var components = URLComponents(string: "\(baseURL)/v1beta/models")
+            var items = [URLQueryItem(name: "pageSize", value: "1000")]
+            if let pageToken { items.append(URLQueryItem(name: "pageToken", value: pageToken)) }
+            components?.queryItems = items
+            guard let url = components?.url else {
+                throw LLMError.notConfigured("Invalid Gemini base URL: \(baseURL)")
+            }
+            let data = try await ModelDiscovery.get(url, headers: ["x-goog-api-key": apiKey])
+            let page = try JSONDecoder().decode(GeminiModelPage.self, from: data)
+            for entry in page.models ?? [] {
+                guard entry.supportedGenerationMethods?.contains("generateContent") ?? true else { continue }
+                // `models/gemini-2.5-pro` is the resource name; the wire wants
+                // the trailing id, which is what `stream()` interpolates.
+                let id = entry.name.hasPrefix("models/")
+                    ? String(entry.name.dropFirst("models/".count))
+                    : entry.name
+                found.append(ModelInfo(
+                    id: id,
+                    displayName: entry.displayName,
+                    // Gemini states an *input* limit directly — no reservation.
+                    inputTokenLimit: entry.inputTokenLimit,
+                    outputTokenLimit: entry.outputTokenLimit,
+                    defaultTemperature: entry.temperature,
+                    maxTemperature: entry.maxTemperature,
+                    supportsTools: true,
+                    supportsStructuredOutput: true))
+            }
+            guard let next = page.nextPageToken, !next.isEmpty else { break }
+            pageToken = next
+        }
+        return ModelDiscovery.sorted(found)
+    }
+}
+
+private struct GeminiModelPage: Decodable {
+    let models: [GeminiModelEntry]?
+    let nextPageToken: String?
+}
+
+private struct GeminiModelEntry: Decodable {
+    let name: String
+    let displayName: String?
+    let inputTokenLimit: Int?
+    let outputTokenLimit: Int?
+    let supportedGenerationMethods: [String]?
+    let temperature: Double?
+    let maxTemperature: Double?
+}

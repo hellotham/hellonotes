@@ -17,10 +17,10 @@
 import SwiftUI
 
 struct WelcomeView: View {
-    /// Open a folder of Markdown files as a collection.
-    var onOpenCollection: () -> Void
-    /// Open an Obsidian vault (a collection with `.obsidian` conventions).
-    var onOpenObsidian: () -> Void
+    /// Every way to add a collection — the same value the toolbar and the menu
+    /// bar render. This screen is a modal view *of* that set, so it takes the
+    /// set rather than a hand-picked pair of closures.
+    var add: AddCollectionActions
     /// Dismiss without opening anything (the user will explore first).
     var onDismiss: () -> Void
 
@@ -122,22 +122,44 @@ struct WelcomeView: View {
 
     // MARK: Actions
 
+    /// Every way in, not a chosen two.
+    ///
+    /// This offered "Open a Collection" and "Open an Obsidian Vault" — which
+    /// were the *same* command with the same default location, so the first
+    /// screen of the app spent its two choices saying one thing, and said
+    /// nothing about iCloud Drive, mounted cloud folders, cloud accounts, or
+    /// Git. Showing the whole set is both the honest description and the
+    /// better advertisement: the breadth *is* the feature.
+    ///
+    /// It renders `AddCollectionActions.options`, the same value the toolbar
+    /// and menu bar render, so this screen cannot fall behind them.
     private var actions: some View {
         VStack(spacing: 10) {
-            Button {
-                onOpenCollection()
-            } label: {
-                Text("Open a Collection")
-                    .frame(maxWidth: .infinity)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 10)], spacing: 10) {
+                ForEach(add.options) { option in
+                    Button { option.run() } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: option.symbol)
+                                .font(.title3)
+                                .frame(width: 24)
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.title).fontWeight(.medium)
+                                Text(option.subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-
-            Button("Open an Obsidian Vault") { onOpenObsidian() }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
 
             Button("Explore first") { onDismiss() }
                 .buttonStyle(.borderless)

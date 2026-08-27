@@ -140,7 +140,11 @@ final class AssistantModel {
             return
         }
 
-        let options = LLMRequestOptions(temperature: settings.temperature)
+        // Per-provider, clamped to what this provider accepts, and carrying an
+        // output cap for the first time. The bare global was sent to Anthropic
+        // unclamped, and would have been rejected outright above 1.0 the moment
+        // the slider's range was widened for everyone else.
+        let options = settings.requestOptions(for: kind)
         let tools = toolsActive ? (registry?.llmTools ?? []) : []
 
         for _ in 0..<maxToolIterations {

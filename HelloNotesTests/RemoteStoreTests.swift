@@ -219,6 +219,7 @@ struct RemoteBrowserModelTests {
 /// Authenticates fine, but 403s every listing — a restricted shared folder.
 private final class ForbiddenFolderStore: RemoteStore, @unchecked Sendable {
     let providerName = "Forbidden"
+    let accountID = "test-account"
     var isAuthenticated: Bool { true }
     func authenticate() async throws {}
     func signOut() {}
@@ -1077,6 +1078,8 @@ private final class CountingRemoteStore: RemoteStore, @unchecked Sendable {
     var reads: Int { lock.lock(); defer { lock.unlock() }; return readCount }
 
     var providerName: String { inner.providerName }
+
+    let accountID = "test-account"
     var isAuthenticated: Bool { inner.isAuthenticated }
     func authenticate() async throws { try await inner.authenticate() }
     func signOut() { inner.signOut() }
@@ -1226,6 +1229,7 @@ struct ProviderDeltaTests {
 private final class CursorRemoteStore: RemoteStore, @unchecked Sendable {
     private let inner = MockRemoteStore(preAuthenticated: true)
     var providerName: String { inner.providerName }
+    let accountID = "test-account"
     var isAuthenticated: Bool { inner.isAuthenticated }
     func authenticate() async throws { try await inner.authenticate() }
     func signOut() { inner.signOut() }
@@ -1249,6 +1253,8 @@ private final class DeltaRemoteStore: RemoteStore, @unchecked Sendable {
     }
 
     var providerName: String { inner.providerName }
+
+    let accountID = "test-account"
     var isAuthenticated: Bool { inner.isAuthenticated }
     func authenticate() async throws { try await inner.authenticate() }
     func signOut() { inner.signOut() }
@@ -1280,6 +1286,8 @@ private final class FaultyRemoteStore: RemoteStore, @unchecked Sendable {
     }
 
     var providerName: String { inner.providerName }
+
+    let accountID = "test-account"
     var isAuthenticated: Bool { inner.isAuthenticated }
     func authenticate() async throws { try await inner.authenticate() }
     func signOut() { inner.signOut() }

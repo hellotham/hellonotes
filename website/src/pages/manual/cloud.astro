@@ -4,19 +4,28 @@ import { href } from '../../lib/paths';
 ---
 
 <ManualLayout slug="cloud">
-  <h2 id="two-ways">Two ways to use cloud storage</h2>
+  <h2 id="two-ways">One place for cloud storage</h2>
   <p>
-    Because your notes are ordinary files, they can live wherever you already keep files. HelloNotes
-    supports two approaches — the first is simpler and recommended.
+    Because your notes are ordinary files, they can live wherever you already keep files. Everything
+    to do with cloud storage is in one screen: choose{' '}
+    <strong>File ▸ Open Collection ▸ from Cloud…</strong> to open{' '}
+    <strong>Manage Cloud Collections</strong>. It lists the cloud collections you already have, the
+    ways to add another, and the accounts you have signed in to.
+  </p>
+  <p>
+    There are two ways a cloud folder can reach you, and the screen tells you which applies rather
+    than asking you to know: a folder your provider’s own app already syncs to this device needs no
+    sign-in at all, while one that lives only on the provider’s servers is reached by signing in.
   </p>
 
-  <h2 id="folder">1. Open a cloud folder (recommended)</h2>
+  <h2 id="folder">Folders already on this device</h2>
   <p>
     Box, Dropbox, OneDrive (personal and business), Google Drive and iCloud Drive all present their
     storage to macOS as ordinary folders. If you have the provider’s app installed, choose{' '}
-    <strong>File ▸ Open Cloud Folder…</strong> and pick the folder you want — no sign-in, because
-    the files are already on your Mac. Everything works exactly as it does locally, and syncing
-    between your devices is handled by the provider.
+    <strong>From a Synced Cloud Folder…</strong> and pick the folder you want — no sign-in, because
+    the files are already on your Mac. The row names the providers it can see set up here, so you
+    can tell at a glance whether this applies to you. Everything works exactly as it does locally,
+    and syncing between your devices is handled by the provider.
   </p>
   <p>
     Cloud files are often <strong>online-only</strong> until something opens them. HelloNotes
@@ -44,19 +53,23 @@ import { href } from '../../lib/paths';
     skipping.
   </p>
 
-  <h2 id="direct">2. Connect an account over the web</h2>
+  <h2 id="direct">Folders that live online</h2>
   <p>
     If you do not have the provider’s app installed — or do not want it — HelloNotes can talk to{' '}
     <strong>Dropbox, Box, Google Drive</strong> and <strong>OneDrive</strong> over their own APIs.
   </p>
   <ol>
-    <li>Choose <strong>File ▸ Connect Over the Web ▸ Dropbox…</strong> (or Box, Google Drive, OneDrive).</li>
-    <li>Sign in to your account in the window that appears.</li>
-    <li>Browse your folders and open a note to read or edit it in place.</li>
     <li>
-      Or click <strong>Add as Collection</strong> to add the folder to the sidebar as a normal
-      collection — with search, links, backlinks and the editor all working as usual. Saves are
-      uploaded back automatically.
+      Under <strong>Cloud Accounts</strong>, choose <strong>New Dropbox</strong> (or New Box, New
+      Google Drive, New OneDrive) and sign in.
+    </li>
+    <li>
+      Browse your folders in the picker that appears. A single click opens a folder; the path bar
+      walks you back up.
+    </li>
+    <li>
+      Press <strong>Open</strong> to add the folder you are in as a collection — with search, links,
+      backlinks and the editor all working as usual. Saves are uploaded back automatically.
     </li>
   </ol>
   <p>
@@ -64,14 +77,34 @@ import { href } from '../../lib/paths';
     open it, so adding a large account does not mean waiting for a large download. Use{' '}
     <strong>Refresh</strong> in the status bar to ask the provider what has changed.
   </p>
+
+  <h2 id="accounts">More than one account on a service</h2>
   <p>
-    Sign-in uses the provider’s standard OAuth flow. Tokens are stored in the macOS Keychain, and no
-    credentials pass through us.
+    A personal and a work OneDrive are two different accounts, and HelloNotes treats them that way:
+    each is signed in separately, keeps its own credentials, and appears on its own row. Choose{' '}
+    <strong>New OneDrive</strong> again to add the second one.
   </p>
   <p>
-    On iPhone and iPad the same thing lives in <strong>Settings ▸ Cloud (direct API)</strong>. Pick a
-    provider, browse to the folder, and <strong>Add as Collection</strong>. The progress, stop and
-    retry controls described below are on the Mac.
+    Accounts start named after their service, so a second one is “OneDrive 2”. Use the pencil beside
+    a row to call it something you will recognise — “Jane’s OneDrive”, or just “Work”. One account
+    can supply as many collections as you like: it stays listed under{' '}
+    <strong>Add a Collection</strong>, so adding a second folder from it takes one click and no
+    second sign-in.
+  </p>
+  <p>
+    Sign-in uses the provider’s standard OAuth flow. Tokens are stored in the Keychain, and no
+    credentials pass through us. Signing an account out removes its credentials with it.
+  </p>
+  <p>
+    All of this is the same on iPhone and iPad, in the same screen and under the same names.
+  </p>
+
+  <h2 id="removing">Removing a cloud collection</h2>
+  <p>
+    Cloud collections you already have are listed at the top of the screen. The{' '}
+    <strong>−</strong> beside one removes it from HelloNotes — it does <em>not</em> delete anything.
+    Your files stay exactly where they are, in your cloud folder, and you can open the collection
+    again later.
   </p>
 
   <h2 id="conflicts">Editing on more than one device</h2>

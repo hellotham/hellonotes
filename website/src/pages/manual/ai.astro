@@ -182,4 +182,45 @@ import { href } from '../../lib/paths';
     Library over a long note is a different experience there than on a large cloud model — worth
     knowing before concluding the feature is poor.
   </p>
+
+  <h2 id="models">Picking a model, and its limits</h2>
+  <p>
+    Each provider has a <strong>Refresh</strong> button beside its model field. It asks the provider
+    which models your key can actually reach, so the list is the current one rather than whatever
+    was current when the app was built. <strong>Available models</strong> then lists them, with each
+    one’s context size where the provider reports it.
+  </p>
+  <p>
+    You can still type any model ID by hand. A fine-tune or a deployment alias that the listing
+    doesn’t mention works exactly as before — refreshing never overwrites a model you chose.
+  </p>
+  <p>
+    Eight providers — Gemini, Anthropic, OpenRouter, Mistral, Groq, Together AI, Ollama and LM Studio
+    — also report how much each model can hold, and HelloNotes uses that number directly. So a model
+    with a million-token window is read as a model with a million-token window, rather than being
+    held to a cautious default. OpenAI, xAI, DeepSeek, Cerebras and Perplexity publish model names
+    but not limits; for those the app keeps a conservative default and says so rather than guessing.
+  </p>
+
+  <h3 id="parameters">Setting the limits yourself</h3>
+  <p>Below the model, three settings that apply to that provider alone:</p>
+  <ul>
+    <li>
+      <strong>Temperature</strong> — the same idea as Creativity, but per provider and over the range
+      that provider genuinely accepts. Anthropic stops at 1.0; most others go to 2.0. Leave it and
+      the Creativity slider applies.
+    </li>
+    <li>
+      <strong>Context budget</strong> — how much note text is sent per request, in characters. Blank
+      uses the model’s reported limit. Lower it to spend less.
+    </li>
+    <li>
+      <strong>Max reply length</strong> — a cap on the generated answer, in tokens. Blank lets the
+      provider decide.
+    </li>
+  </ul>
+  <p>
+    All of this is in one place on both platforms: <strong>Settings ▸ AI</strong> on the Mac, and
+    <strong>Settings ▸ AI ▸ Providers &amp; API Keys</strong> on iPad and iPhone.
+  </p>
 </ManualLayout>

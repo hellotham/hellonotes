@@ -327,6 +327,23 @@ struct HelloNotesTests {
         #expect(boundary > scattered)
     }
 
+    /// The matcher folds what `localizedStandardContains` folds — case,
+    /// diacritics and character width — because it is the *same question* asked
+    /// on a different surface. It folded case only, so a note called `Café`
+    /// answered to "cafe" in the search field and to nothing at all in ⌘O or in
+    /// `[[wiki-link]]` completion, both of which come through here. A reader
+    /// cannot be expected to know which of the app's search boxes speaks French.
+    @Test
+    func fuzzyMatchFoldsDiacriticsAndWidthNotJustCase() {
+        #expect(FuzzyMatch.score(query: "cafe", candidate: "Café Notes") != nil)
+        #expect(FuzzyMatch.score(query: "CAFÉ", candidate: "cafe notes") != nil)
+        #expect(FuzzyMatch.score(query: "unicode", candidate: "Ünicode") != nil)
+        // Full-width Latin, as an IME leaves it.
+        #expect(FuzzyMatch.score(query: "abc", candidate: "ａｂｃ") != nil)
+        // Still a subsequence match, not a pass-through.
+        #expect(FuzzyMatch.score(query: "zzz", candidate: "Café Notes") == nil)
+    }
+
     // MARK: - CollectionSearchModel
 
     @Test @MainActor
@@ -378,10 +395,21 @@ struct HelloNotesTests {
         let search = CollectionSearchModel()
         await search.refresh(from: indexer.notes)
 
-        // The sample vault's inline hashtags: #intro (Ideas) and #todo (Ideas, Roadmap, daily note).
-        #expect(search.allTags() == ["intro", "todo"])
+        // Both spellings, because the sample vault uses both.
+        //
+        // **This assertion used to describe a bug.** It read
+        // `allTags() == ["intro", "todo"]` — inline hashtags only — while the
+        // vault it runs against has three front-matter-tagged notes:
+        // `tags: [demo]` in Callouts, `tags:\n  - intro` in Welcome and in Deck.
+        // The tag scanner matched `#tag` over the raw text and a YAML key
+        // carries no `#`, so those three were untagged as far as the app was
+        // concerned — absent from the tag tree, unfilterable, invisible. The
+        // test passed the whole time, because it had been written from the
+        // implementation rather than from the vault.
+        #expect(search.allTags() == ["demo", "intro", "todo"])
         #expect(Set(search.notesTagged("todo").map(\.title)) == ["Ideas", "Roadmap", "2026-07-11"])
-        #expect(search.notesTagged("intro").map(\.title) == ["Ideas"])
+        #expect(Set(search.notesTagged("intro").map(\.title)) == ["Ideas", "Welcome", "Deck"])
+        #expect(search.notesTagged("demo").map(\.title) == ["Callouts"])
     }
 
     @Test

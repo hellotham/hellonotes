@@ -260,11 +260,7 @@ struct NoteInspector: View {
             case .loading:
                 EmptyView()
             case .failed(let message):
-                Text(message)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-                    .lineLimit(3)
-                    .help(message)
+                ErrorText(message: message)
             case .ready(let text):
                 Text(text)
                     .font(.caption)
@@ -276,11 +272,11 @@ struct NoteInspector: View {
                 if onInsertSummary != nil {
                     Button {
                         onInsertSummary?(text)
-                        // It is in the note now; offering to add it again would
-                        // quietly produce two summary callouts.
+                        // It is saved now; offering again would just rewrite
+                        // the same property with the same text.
                         summary = .idle
                     } label: {
-                        Label("Insert as Callout", systemImage: "plus")
+                        Label("Save to Properties", systemImage: "square.and.arrow.down")
                             .font(.caption2)
                     }
                     .buttonStyle(.borderless)
@@ -356,13 +352,20 @@ struct NoteInspector: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
 
-            // Results disclose only once you have typed. An empty field shows
-            // nothing rather than everything: with 223 tags, "everything" is
-            // the state this design exists to avoid.
-            if !tagQuery.trimmingCharacters(in: .whitespaces).isEmpty {
-                Divider()
-                searchResults
-            }
+            // **Always shown.** This used to disclose only once you had typed,
+            // on the reasoning that 223 tags is too many to dump into a rail.
+            // That reasoning traded the feature for the problem: with nothing
+            // on screen there was no way to learn the collection *had* tags,
+            // let alone what they were, and the pane looked like it only
+            // described the open note. iOS has had a Tags tab listing every one
+            // of them the whole time, so this was also the two platforms
+            // disagreeing about whether a capability exists.
+            //
+            // The volume objection is answered where it arises: the list is
+            // sorted by how many notes carry each tag, capped at forty, and the
+            // field above filters it.
+            Divider()
+            searchResults
 
             Spacer(minLength: 0)
         }
@@ -383,14 +386,14 @@ struct NoteInspector: View {
                 if suggestTags != nil { suggestButton(existing: mine) }
             }
             if mine.isEmpty {
-                Text("No tags. Write #tag anywhere in the note to add one.")
+                Text("No tags. Write #tag in the note, or add one below — added tags are saved as a `tags:` property.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 WrapLayout(spacing: 6) {
                     ForEach(mine, id: \.self) { tag in
-                        tagChip(tag, isSelected: selectedTag == tag, count: nil)
+                        tagChip(tag, isSelected: selectedTag == tag)
                     }
                 }
             }
@@ -449,11 +452,7 @@ struct NoteInspector: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         case .failed(let message):
-            Text(message)
-                .font(.caption2)
-                .foregroundStyle(.red)
-                .lineLimit(3)
-                .help(message)
+            ErrorText(message: message)
         case .ready(let tags):
             VStack(alignment: .leading, spacing: 4) {
                 Text("SUGGESTED")
@@ -478,7 +477,7 @@ struct NoteInspector: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(onInsertTag == nil)
-                        .help("Add #\(tag) to this note")
+                        .help("Add #\(tag) to this note's tags property")
                     }
                 }
             }
@@ -491,27 +490,52 @@ struct NoteInspector: View {
     /// the click rather than after.
     private var searchResults: some View {
         let query = tagQuery.trimmingCharacters(in: .whitespaces)
+        // Count each tag once, not twice per comparison: `noteCount` walks the
+        // whole collection, and `sorted` would call it O(n log n) times.
+        // `localizedStandardContains` so "cafe" finds "#café".
+        //
+        // The tie-break key is carried for the same reason and not a smaller
+        // one: `$0.tag.lowercased()` inside the comparator allocates two
+        // strings per *comparison*, so a 200-tag rail paid ~3,000 throwaway
+        // allocations per keystroke — the same waste as the count, one line
+        // further down.
         let matches = allTags
-            .filter { $0.localizedCaseInsensitiveContains(query) }
-            .sorted { (noteCount($0), $1.lowercased()) > (noteCount($1), $0.lowercased()) }
+            .filter { $0.localizedStandardContains(query) }
+            .map { (tag: $0, count: noteCount($0), key: $0.lowercased()) }
+            .sorted { ($0.count, $1.key) > ($1.count, $0.key) }
         return Group {
             if matches.isEmpty {
-                Text("No tag matches “\(query)”")
+                Text(query.isEmpty
+                     ? "No tags in this collection yet."
+                     : "No tag matches “\(query)”")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(10)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(matches.prefix(40), id: \.self) { tag in
-                            Button { selectedTag = tag } label: {
+                        // Says what the list *is*, so an unfiltered pane does
+                        // not read as "the tags on this note" a second time.
+                        Text(query.isEmpty
+                             ? "ALL TAGS · \(matches.count)"
+                             : "MATCHES · \(matches.count)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.bottom, 2)
+                        ForEach(matches.prefix(40), id: \.tag) { match in
+                            Button { selectedTag = match.tag } label: {
                                 HStack(spacing: 6) {
-                                    Text("#\(tag)")
+                                    Text("#\(match.tag)")
                                         .lineLimit(1)
-                                        .foregroundStyle(selectedTag == tag
+                                        .foregroundStyle(selectedTag == match.tag
                                                          ? appearance.accentTextColor : .primary)
                                     Spacer(minLength: 6)
-                                    Text("\(noteCount(tag))")
+                                    // The count carried down from the sort. Reading
+                                    // `noteCount(tag)` here instead walked the whole
+                                    // collection once per rendered row — up to forty
+                                    // more whole-collection passes per keystroke than
+                                    // the sort had already paid for.
+                                    Text("\(match.count)")
                                         .font(.caption)
                                         .monospacedDigit()
                                         .foregroundStyle(.secondary)
@@ -521,7 +545,7 @@ struct NoteInspector: View {
                             .buttonStyle(.plain)
                         }
                         if matches.count > 40 {
-                            Text("+\(matches.count - 40) more — keep typing")
+                            Text("+\(matches.count - 40) more — type to filter")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .padding(.top, 4)
@@ -537,7 +561,7 @@ struct NoteInspector: View {
     /// A tag as a chip. Nesting is shown as the full path on one chip rather
     /// than a disclosure tree: 8 of 223 tags are nested here, which does not
     /// pay for indentation, triangles and expansion state.
-    private func tagChip(_ tag: String, isSelected: Bool, count: Int?) -> some View {
+    private func tagChip(_ tag: String, isSelected: Bool) -> some View {
         Button { selectedTag = isSelected ? nil : tag } label: {
             Text("#\(tag)")
                 .font(.caption)
@@ -631,11 +655,7 @@ struct NoteInspector: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             case .failed(let message):
-                Text(message)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-                    .lineLimit(3)
-                    .help(message)
+                ErrorText(message: message)
             case .ready(let titles):
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(titles, id: \.self) { title in
@@ -654,7 +674,7 @@ struct NoteInspector: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(onInsertLink == nil)
-                        .help("Link this note to “\(title)”")
+                        .help("Add “\(title)” to this note's related property")
                     }
                 }
             }

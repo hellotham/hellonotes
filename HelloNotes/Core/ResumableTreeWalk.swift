@@ -76,6 +76,24 @@ nonisolated protocol TreeSource: Sendable {
     /// The immediate children of `directory`, a root-relative path
     /// (`""` is the root itself).
     func children(of directory: String) async throws -> DirectoryListing
+
+    /// How many listings this source can usefully have in flight at once.
+    ///
+    /// The walk is **latency-bound, not CPU-bound**, and the two kinds of source
+    /// sit at opposite ends of that. A local directory listing is a syscall
+    /// against a warm cache, so overlapping them buys nothing and costs seek
+    /// contention — the default is 1, and the local path therefore behaves
+    /// exactly as it always has. A provider listing is a network round trip in
+    /// which the app is doing nothing at all, so a folder tree of N directories
+    /// costs N latencies laid end to end. That is the whole cost of adding a
+    /// large cloud folder.
+    var listingConcurrency: Int { get }
+}
+
+nonisolated extension TreeSource {
+    /// Serial unless a source says otherwise, so nothing changes for a source
+    /// that has not thought about it.
+    var listingConcurrency: Int { 1 }
 }
 
 /// One directory's contents.
@@ -122,6 +140,16 @@ nonisolated struct WalkBatch: Sendable {
     var directory: String
     var children: [TreeChild]
     var progress: WalkProgress
+}
+
+/// One listing's result, carried back from a detached fetch.
+///
+/// The failure case is an already-rendered message rather than an `Error`: a
+/// `Task`'s value must be `Sendable` and `any Error` is not, and the message is
+/// all the walk ever wanted from it.
+nonisolated enum ListingOutcome: Sendable {
+    case listed(DirectoryListing)
+    case failed(String)
 }
 
 nonisolated struct WalkIssue: Sendable, Equatable {
@@ -205,6 +233,69 @@ nonisolated enum ResumableTreeWalk {
                 })
         }
 
+        //
+        //  Listings run ahead; results are applied strictly in order.
+        //
+        //  `head` still means **the next directory to apply**, and that is the
+        //  load-bearing detail. A listing that is in flight has been *fetched*
+        //  past `head` but not *applied*, so it is still inside
+        //  `frontier[head...]` — which is exactly what `snapshot()` writes. The
+        //  checkpoint therefore keeps meaning what it meant when the walk was
+        //  serial: everything from `head` on is unvisited, and resuming replays
+        //  the in-flight directories rather than losing them.
+        //
+        //  Applying in order also keeps `onBatch`'s contract. It is not
+        //  `@Sendable` and it mutates the caller's accumulator, so it must never
+        //  be re-entered concurrently — only the *fetching* overlaps.
+        //
+        let width = max(1, source.listingConcurrency)
+        var inFlight: [Task<ListingOutcome, Never>] = []
+        // Unstructured tasks outlive the scope that made them, so every exit
+        // from here — cancellation, completion, a `throw` above — must reclaim
+        // them or a cancelled walk keeps talking to the provider.
+        defer { for task in inFlight { task.cancel() } }
+        var fetchHead = 0
+
+        /// Top the window up. `inFlight[i]` is always the listing for
+        /// `frontier[head + i]`: both consume the frontier in order and the
+        /// queue is FIFO, so the correspondence cannot drift.
+        ///
+        /// Nothing runs here in the serial case — see `listing(of:)`.
+        func fill() {
+            guard width > 1 else { return }
+            while inFlight.count < width, fetchHead < frontier.count {
+                let directory = frontier[fetchHead]
+                fetchHead += 1
+                inFlight.append(Task {
+                    do { return .listed(try await source.children(of: directory)) }
+                    catch {
+                        return .failed((error as? LocalizedError)?.errorDescription
+                                        ?? error.localizedDescription)
+                    }
+                })
+            }
+        }
+
+        /// One directory's listing, awaited directly when serial.
+        ///
+        /// **The serial path must not pay for the concurrent machinery.** A
+        /// local vault is thousands of small directories over a warm cache, so
+        /// the listing itself costs almost nothing and an unstructured `Task`
+        /// per directory — an allocation and two hops — is most of the work.
+        /// Routing the default width through the window made the local walk
+        /// roughly four times slower, which the enumerator benchmark caught
+        /// immediately. Concurrency here is a fix for network latency and
+        /// nothing else; where there is no latency to hide, there is nothing to
+        /// win and a measurable amount to lose.
+        func outcome(for directory: String) async -> ListingOutcome {
+            if width > 1 { return await inFlight.removeFirst().value }
+            do { return .listed(try await source.children(of: directory)) }
+            catch {
+                return .failed((error as? LocalizedError)?.errorDescription
+                                ?? error.localizedDescription)
+            }
+        }
+
         while head < frontier.count {
             if Task.isCancelled {
                 // Everything from `head` on is still unvisited, so the snapshot
@@ -214,17 +305,21 @@ nonisolated enum ResumableTreeWalk {
                                   progress: progress(""), checkpoint: snapshot())
             }
 
+            // Breadth-first means the window is narrow at the root and widens as
+            // soon as the first listing reveals its siblings — which is the
+            // shape that actually wants parallelism.
+            fill()
+
             let directory = frontier[head]
             head += 1
 
             let listing: DirectoryListing
-            do {
-                listing = try await source.children(of: directory)
-            } catch {
+            switch await outcome(for: directory) {
+            case .listed(let found):
+                listing = found
+            case .failed(let message):
                 // One unreadable directory costs its own subtree, not the walk.
-                issues.append(WalkIssue(path: directory,
-                                        message: (error as? LocalizedError)?.errorDescription
-                                            ?? error.localizedDescription))
+                issues.append(WalkIssue(path: directory, message: message))
                 continue
             }
 

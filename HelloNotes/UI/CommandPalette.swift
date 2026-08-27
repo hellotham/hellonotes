@@ -49,9 +49,10 @@ struct CommandPaletteView: View {
     private var results: [PaletteCommand] {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return commands }
+        let needle = FuzzyMatch.FoldedQuery(q)
         return commands
             .compactMap { command -> (PaletteCommand, Int)? in
-                guard let score = FuzzyMatch.score(query: q,
+                guard let score = FuzzyMatch.score(needle,
                                                    candidate: "\(command.group) \(command.title)")
                 else { return nil }
                 return (command, score)
@@ -61,41 +62,65 @@ struct CommandPaletteView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        // Scored once per body pass, not three times. `results` fuzzy-scores and
+        // sorts every command in the app, and the `if`, the `List` and the key
+        // handler each used to ask for it again — the same "walked once per
+        // reader" waste the tag rail was just fixed for, in the sibling file.
+        let visible = results
+        return VStack(spacing: 0) {
             TextField("Run a command…", text: $query)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .padding(12)
                 .focused($fieldFocused)
                 .onSubmit(runSelected)
+                .autocorrectionDisabled()
+                // The same "searches rather than writes prose" treatment Open
+                // Quickly gets. Without it iPad autocapitalises and autocorrects
+                // the query before FuzzyMatch ranks it, so "new note" arrives as
+                // "New Note" and a partial command name can be corrected into a
+                // different result set.
+                .plainSearchField()
 
             Divider()
 
-            if results.isEmpty {
+            if visible.isEmpty {
                 ContentUnavailableView("No matching command", systemImage: "magnifyingglass")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(results, selection: $selection) { command in
-                    row(command)
+                // A `List` scrolls to a selection *it* set, never to one assigned
+                // from outside — and the arrow keys below assign from outside,
+                // because the search field keeps focus. Without this the
+                // highlight walks off the bottom of the visible rows and Return
+                // runs a command the reader cannot see.
+                ScrollViewReader { scroller in
+                    List(visible, selection: $selection) { command in
+                        // A Button, not onTapGesture: the row is the palette's
+                        // action, and a bare tap recogniser carries no button trait,
+                        // so VoiceOver read the row out without ever saying it could
+                        // be activated — and its activate action had nothing to fire.
+                        Button { run(command) } label: {
+                            row(command)
+                                // The whole row, including the gaps between glyphs.
+                                .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
                         .tag(command.id)
-                        .contentShape(.rect)
-                        .onTapGesture { run(command) }
+                        .id(command.id)
+                    }
+                    .listStyle(.plain)
+                    .onChange(of: selection) { _, id in
+                        guard let id else { return }
+                        scroller.scrollTo(id)
+                    }
                 }
-                .listStyle(.plain)
             }
         }
-        #if os(macOS)
-        .frame(width: 540, height: 420)
-        // Escape must dismiss even when the field has lost first responder —
-        // the same reason Open Quickly does not rely on the sheet's cancel action.
-        .onExitCommand { dismiss() }
-        #else
-        // A sheet on iPad sizes itself and dismisses by drag; the fixed frame
-        // would fight the presentation. Escape still works for a hardware
-        // keyboard — `onKeyPress` is the iOS spelling of `onExitCommand`, and
-        // the only line in this file that was ever platform-specific.
-        .onKeyPress(.escape) { dismiss(); return .handled }
-        #endif
+        // The shared helper, not a fourth hand-rolled `#if`: this file carried a
+        // character-for-character copy of `paletteChrome`, which is the drift
+        // that helper exists to prevent.
+        .paletteChrome(dismiss: { dismiss() })
+        .paletteSelectionKeys(ids: visible.map(\.id), selection: $selection)
         .onAppear { fieldFocused = true; selection = commands.first?.id }
         .onChange(of: query) { _, _ in
             // Keep a valid top selection as the query narrows, so Return always
@@ -128,8 +153,26 @@ struct CommandPaletteView: View {
         .padding(.vertical, 2)
     }
 
+    /// Return runs the *selected* command, and runs the top one only when
+    /// nothing is selected at all.
+    ///
+    /// It used to read `first(where:) ?? results.first`, which was harmless
+    /// while `selection` was only ever whatever the `onChange` clamp had set it
+    /// to — the top hit, so the fallback could never name a different command.
+    /// The arrow keys make `selection` the reader's, and a fallback that
+    /// silently substitutes the top row for a chosen row that has gone stale is
+    /// then a wrong command run without a word. This list contains "Move to
+    /// Trash". A stale selection now does nothing, which is the answer a reader
+    /// can see and repeat.
+    ///
+    /// (`results` scores and sorts every command, so it is read once here, not
+    /// once per branch — the old line evaluated it twice whenever the selection
+    /// had gone stale.)
     private func runSelected() {
-        guard let command = results.first(where: { $0.id == selection }) ?? results.first else { return }
+        let matches = results
+        guard let command = matches.first(where: { $0.id == selection })
+                ?? (selection == nil ? matches.first : nil)
+        else { return }
         run(command)
     }
 
@@ -178,7 +221,7 @@ extension AppActions {
         add("open-quickly", "File", "Open Quickly", "magnifyingglass",
             shortcut: "⌘O", enabled: canOpenQuickly, run: openQuickly)
         add("launcher", "File", "Open Collection", "folder", run: openLauncher)
-        add("open-cloud", "File", "Open Cloud Folder", "cloud", run: openCloudFolder)
+        add("acknowledgements", "Help", "Acknowledgements", "heart", run: acknowledgements)
         add("refresh-cloud", "File", "Refresh Cloud Collection", "arrow.clockwise",
             run: refreshCloudCollection)
         add("rescan", "File", "Rescan Collection", "arrow.triangle.2.circlepath", run: rescan)
@@ -189,12 +232,16 @@ extension AppActions {
         // Bind the optional *once*, outside the loop, so the per-provider
         // closures only come into existence when there is something for them
         // to call. Four rows, so getting this wrong costs four dead rows.
-        if let connectOverWeb {
-            for provider in CloudBrowser.allCases {
-                add("connect-\(provider.rawValue)", "File",
-                    "Connect \(provider.displayName) Over the Web…", "cloud") {
-                    connectOverWeb(provider)
-                }
+        // Generated from the same `options` the menus draw, not written out
+        // again here. Hand-listing them had already gone stale twice — the
+        // palette still said "Open Cloud Folder" after the menus said
+        // "Collection", and it never gained New Repository or Clone at all,
+        // which is precisely the silent drift this file's own header warns
+        // about. The palette shows each option's standalone `title`, since a
+        // palette row has no parent menu to inherit its verb from.
+        if let addCollection {
+            for option in addCollection.options {
+                add(option.id, "File", option.title, option.symbol, run: option.run)
             }
         }
         // Deliberately no entry for the palette itself: a command that opens the

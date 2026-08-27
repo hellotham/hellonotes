@@ -17,6 +17,15 @@ struct HelloNotesApp: App {
     @State private var llmSettings = LLMSettings()
     /// App-wide theming (appearance, accent, text size), applied at every root.
     @State private var appearance = AppearanceSettings()
+    /// Git hosting accounts, at app level because **Settings needs them too**.
+    ///
+    /// This was `@State` inside `ContentView`, which put the only copy inside a
+    /// window — so the Settings scene could not offer them, and on macOS the
+    /// single route to `GitSettingsView` was the inspector's Git pane. That
+    /// pane needs a collection that is already a repository, and adding an
+    /// account is what lets you *clone* one: you needed a repository to get the
+    /// credentials for getting a repository.
+    @State private var gitAccounts = GitAccountsStore()
     /// Built editor documents, kept above every view that shows one so tab
     /// switches and shell rearrangements don't re-parse the note or lose the
     /// caret. See EditorDocumentStore.
@@ -65,6 +74,7 @@ struct HelloNotesApp: App {
             .environment(router)
             .environment(llmSettings)
             .environment(appearance)
+            .environment(gitAccounts)
             .environment(documents)
             .environment(liveBuffer)
             .themedRoot(appearance)
@@ -127,46 +137,6 @@ struct HelloNotesApp: App {
         }
         .defaultSize(AuxiliarySurface.assistant.defaultSize)
 
-        // Direct-API cloud browsers: connect a provider over REST and edit
-        // notes without a sync folder. One scene per `CloudBrowser` case, so a
-        // provider added to the enum is a provider both platforms can open.
-        WindowGroup(id: CloudBrowser.dropbox.windowID, for: AuxiliaryRef.self) { _ in
-            rooted(RemoteBrowserView(store: DropboxStore(),
-                                     onAddAsCollection: library.addRemoteCollection)
-                .navigationTitle(CloudBrowser.dropbox.windowTitle))
-        }
-        .defaultSize(width: 480, height: 580)
-
-        WindowGroup(id: CloudBrowser.box.windowID, for: AuxiliaryRef.self) { _ in
-            rooted(RemoteBrowserView(store: BoxStore(),
-                                     onAddAsCollection: library.addRemoteCollection)
-                .navigationTitle(CloudBrowser.box.windowTitle))
-        }
-        .defaultSize(width: 480, height: 580)
-
-        WindowGroup(id: CloudBrowser.googleDrive.windowID, for: AuxiliaryRef.self) { _ in
-            rooted(RemoteBrowserView(store: GoogleDriveStore(),
-                                     onAddAsCollection: library.addRemoteCollection)
-                .navigationTitle(CloudBrowser.googleDrive.windowTitle))
-        }
-        .defaultSize(width: 480, height: 580)
-
-        WindowGroup(id: CloudBrowser.oneDrive.windowID, for: AuxiliaryRef.self) { _ in
-            rooted(RemoteBrowserView(store: OneDriveStore(),
-                                     onAddAsCollection: library.addRemoteCollection)
-                .navigationTitle(CloudBrowser.oneDrive.windowTitle))
-        }
-        .defaultSize(width: 480, height: 580)
-
-        #if DEBUG
-        WindowGroup(id: CloudBrowser.mock.windowID, for: AuxiliaryRef.self) { _ in
-            rooted(RemoteBrowserView(store: MockRemoteStore(),
-                                     onAddAsCollection: library.addRemoteCollection)
-                .navigationTitle(CloudBrowser.mock.windowTitle))
-        }
-        .defaultSize(width: 480, height: 580)
-        #endif
-
         WindowGroup(for: MindMapRef.self) { $ref in
             if let ref {
                 rooted(MindMapWindowView(rootURL: ref.url))
@@ -186,7 +156,8 @@ struct HelloNotesApp: App {
         // menu-bar item is an extra *route* on the platform that has the
         // concept, not a feature the iPad lacks.
         Settings {
-            PreferencesView(llmSettings: llmSettings, appearance: appearance)
+            PreferencesView(llmSettings: llmSettings, appearance: appearance,
+                            gitAccounts: gitAccounts)
                 .themedRoot(appearance)
         }
 
