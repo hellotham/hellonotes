@@ -16,6 +16,17 @@ import re
 import sys
 from pathlib import Path
 
+# Words that legitimately run lower-case into upper-case, so the
+# expression-collapse check below does not flag the product's own name every
+# time it is printed. Anything not here is a genuine seam.
+CLOSED_COMPOUNDS = {
+    "HelloNotes", "iPhone", "iPad", "iPadOS", "iOS", "macOS", "iCloud",
+    "OneDrive", "GitHub", "JavaScript", "TypeScript", "JavaScriptCore",
+    "LaTeX", "WebKit", "TextKit", "SwiftUI", "SwiftGitX", "MarkdownCore",
+    "GFMRender", "MarkdownEditor", "QuickLook", "AppKit", "UIKit", "OpenAI",
+    "OpenRouter", "DeepSeek", "LM", "MLX", "PDFKit",
+}
+
 ROOT = Path(__file__).resolve().parents[3]
 DIST = ROOT / "website" / "dist"
 BASE = "/hellonotes/"
@@ -91,6 +102,26 @@ def run_audit():
             failures.append(f"{name}: space collapsed before tag → …{m.group(0)[:40]}")
         for m in re.finditer(rf"[a-z]{{3,}}</{INLINE_TAGS}>[a-z]{{2,}}", body):
             failures.append(f"{name}: space collapsed after tag → …{m.group(0)[:40]}")
+
+        # …and the third direction, which the two above cannot see.
+        #
+        # The rules that collapse whitespace before a *tag* collapse it before an
+        # *expression* too, and `text\n{EXPR}` leaves no tag in the output to
+        # anchor on — just two words run together. `published byHello Tham Pty.
+        # Ltd.` sat on the live privacy page, a page App Review reads, while the
+        # checks above passed. Caught here by the seam it always leaves: a
+        # lower-case letter immediately followed by an upper-case one.
+        # Script and style bodies first: they are full of `localStorage` and
+        # `querySelectorAll`, and leaving them in buries the one real hit under
+        # 384 identifiers — a check nobody can read is a check nobody runs.
+        prose = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", body,
+                       flags=re.S | re.I)
+        text = re.sub(r"<[^>]+>", " ", prose)
+        for m in re.finditer(r"\b[a-z]{2,}(?=[A-Z])[A-Za-z]*", text):
+            word = m.group(0)
+            if word in CLOSED_COMPOUNDS:
+                continue
+            failures.append(f"{name}: space collapsed before expression → …{word[:40]}")
 
     # Sitemap URLs must equal the set of page canonicals.
     sitemap = DIST / "sitemap.xml"
