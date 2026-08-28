@@ -34,11 +34,43 @@ import { href } from '../../lib/paths';
     already in the collection, which keeps them consistent.
   </p>
   <p>
+    A note can also declare its tags as a property, the way Obsidian does:
+  </p>
+  <pre><code>---
+tags:
+  - research
+  - ai
+---</code></pre>
+  <p>
+    Both count. A tag written either way appears in the tag list, filters the note list, and nests
+    the same. <strong>Front-matter tags used to be ignored entirely</strong> — if your vault
+    declares tags this way, they are visible now where they were not before.
+  </p>
+  <p>
     Tags nest with slashes — <code>#project/website</code>, <code>#project/app</code>. They live in
     the inspector’s <strong>Tags</strong> tab, which opens on <em>this note’s</em> tags as chips,
-    because the usual reason to look at a tag is to find what else shares it. Below them, a search
-    field finds any tag in the collection and shows how many notes carry it — a count of 1 means
-    following it leads back here. Selecting a tag filters the note list.
+    because the usual reason to look at a tag is to find what else shares it. Below that, every tag
+    in the collection is listed with how many notes carry it, most-used first — a count of 1 means
+    following it leads back here — and the field above filters the list. Selecting a tag filters the
+    note list. On iPhone and iPad the same list is the <strong>Tags</strong> tab.
+  </p>
+
+  <h2 id="suggestions">What accepted suggestions write</h2>
+  <p>
+    <strong>Suggest Tags</strong>, <strong>Suggest Links</strong> and <strong>Summarize</strong> all
+    write to the note’s properties, never into your text:
+  </p>
+  <ul>
+    <li>a tag is added to <code>tags:</code></li>
+    <li>a link is added to <code>related:</code> as <code>"[[Note]]"</code> — still a real link, so
+        it appears in backlinks and the graph</li>
+    <li>a summary is saved to <code>summary:</code></li>
+  </ul>
+  <p>
+    Each is visible in the inspector’s <strong>Properties</strong> tab and can be removed there.
+    Earlier versions appended tags after your last paragraph, added links under a
+    <code>## Related</code> heading the app created, and pushed summaries in above your first line —
+    edits to your prose that you then had to undo by hand.
   </p>
 
   <h2 id="bookmarks">Bookmarks</h2>
