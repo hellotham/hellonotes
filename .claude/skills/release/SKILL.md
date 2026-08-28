@@ -70,11 +70,40 @@ defaults read /tmp/hn/HelloNotes.app/Contents/Info CFBundleShortVersionString
 hdiutil detach /tmp/hn
 ```
 
-## Sync the website — the step everyone forgets
+## Publish first — the order matters
+
+**Publishing comes before the website, not after.** The site's download button
+points at `releases/latest/download/HelloNotes.dmg`, so `latest` is what people
+actually get; `site.ts` is only what the page *says* they will get. Update the
+page first and there is a window in which it advertises a version and a checksum
+for a file nobody can download yet — and a checksum that does not match reads as
+a **tampered download**, which is precisely the alarm the checksum exists to
+raise. That window was live for twenty minutes on 2026-08-29.
+
+Worse, the same gap can stay open indefinitely: `site.ts`'s version was bumped
+to 1.3.2 on the day the work landed and `latest` served 1.3.1 for eleven days
+after, because bumping a constant announces a release and publishing one is a
+separate act that nothing tied to it.
+
+```bash
+gh release create v<VERSION> dist/HelloNotes.dmg \
+  --title "HelloNotes <VERSION>" --notes-file <notes.md>
+```
+
+Publishing IS the deploy for the download itself — `latest` re-points
+automatically and the site does not rebuild for it. Prove the exact URL the
+button uses resolves:
+
+```bash
+curl -sIL -o /dev/null -w '%{http_code}\n' \
+  https://github.com/hellotham/hellonotes/releases/latest/download/HelloNotes.dmg
+# → 200
+```
+
+## Then sync the website — the step everyone forgets
 
 The download page **prints** the version, size and SHA-256 for people verifying
-by hand. They must match the artefact actually attached to the release, and
-nothing enforces that except this step.
+by hand. They must match the artefact `latest` now serves.
 
 ```bash
 shasum -a 256 dist/HelloNotes.dmg
@@ -83,30 +112,29 @@ du -h dist/HelloNotes.dmg
 
 Update in `website/src/lib/site.ts`:
 - `APP.version` — the new version string
-- `DOWNLOAD.size` — human-readable ("35.2 MB" style)
+- `DOWNLOAD.size` — human-readable ("35.2 MB" style, decimal MB)
 - `DOWNLOAD.sha256` — the fresh checksum
 
 Commit and push (a `website/**` push auto-deploys via
 `.github/workflows/deploy-website.yml`; app-only pushes do not).
 
-## Publish
+## Prove the page tells the truth
 
-The site's download button points at `releases/latest/download/HelloNotes.dmg`,
-so publishing the release IS the deploy — `latest` re-points automatically and
-the site never rebuilds for it.
-
-```bash
-gh release create v<VERSION> dist/HelloNotes.dmg \
-  --title "HelloNotes <VERSION>" --notes-file <notes.md>
-```
-
-Then prove the exact URL the button uses resolves:
+Nothing connects `site.ts` to the artefact except this check. Run it against the
+live site once the deploy lands:
 
 ```bash
-curl -sIL -o /dev/null -w '%{http_code}\n' \
-  https://github.com/hellotham/hellonotes/releases/latest/download/HelloNotes.dmg
-# → 200
+scripts/check-download-page.sh          # live site vs releases/latest
+scripts/check-download-page.sh --local  # site.ts vs dist/ before publishing
 ```
+
+It downloads the DMG the button serves, mounts it, and compares the **version
+inside the image**, its size and its SHA-256 against what the page claims —
+size and hash alone would not have caught the eleven-day version divergence. It
+also checks the App Store's public version where there is one: **the site must
+never advertise a version newer than the App Store's.** Until the app is
+publicly released the lookup returns nothing, which is reported and not a
+failure.
 
 ## Record it
 
