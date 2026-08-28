@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Store Connect / TestFlight. Both surfaces take the same upload:
+         a build appears in TestFlight as soon as it finishes processing, and
+         the same build is what gets attached to a version for review.
+
+         Kept separate from the repo-root ExportOptions.plist, which is
+         `developer-id` for the notarised DMG. They are not interchangeable and
+         using the wrong one signs the build for the wrong distribution
+         channel — docs/production.md §9 Option B described this file as if it
+         were the app-store one, which it has never been. -->
+    <key>method</key>            <string>app-store-connect</string>
+    <key>teamID</key>            <string>RPL5R637DS</string>
+    <key>destination</key>       <string>upload</string>
+    <key>signingStyle</key>      <string>automatic</string>
+    <key>uploadSymbols</key>     <true/>
+</dict>
+</plist>

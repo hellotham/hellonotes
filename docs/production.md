@@ -455,7 +455,16 @@ For iOS in Xcode instead of the command line, the same four steps work with the
 toolbar destination set to **Any iOS Device (arm64)**.
 
 ### Option B — Command line, macOS
-Create `ExportOptions.plist` in the repo root:
+
+> **The repo-root `ExportOptions.plist` is *not* this file.** It is
+> `method = developer-id`, for the notarised DMG, and exporting an App Store
+> build through it signs for the wrong distribution channel. The App Store
+> plists are `ExportOptions-AppStore-macOS.plist` and
+> `ExportOptions-AppStore-iOS.plist`; both carry `destination = upload`, so the
+> export step *is* the upload. This section described `ExportOptions.plist` as
+> though it were the app-store one, which it has never been.
+
+`ExportOptions-AppStore-macOS.plist` holds:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -475,7 +484,7 @@ xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
   -archivePath build/HelloNotes.xcarchive archive
 
 xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
-  -exportOptionsPlist ExportOptions.plist -exportPath build/export \
+  -exportOptionsPlist ExportOptions-AppStore-macOS.plist -exportPath build/export \
   -allowProvisioningUpdates
 ```
 The export step uploads directly. (For CI, authenticate `notarytool`/`altool`
@@ -483,9 +492,12 @@ with an **App Store Connect API key** instead of your Apple ID.)
 
 ### Option C — iOS, command line
 
-The repo-root `ExportOptions-iOS.plist` already exists for this
+`ExportOptions-AppStore-iOS.plist` is the upload plist
 (`method = app-store-connect` — the same method TestFlight and an App Store
-release both use; its own in-file comment says so). Toolbar/GUI archiving works
+release both use — with `destination = upload`). The older
+`ExportOptions-iOS.plist` is the same method but `destination = export`, so it
+writes an `.ipa` locally and uploads nothing; keep it for producing an artefact
+to inspect, and use the AppStore one to ship. Toolbar/GUI archiving works
 too (destination **Any iOS Device (arm64)**), but headless is the same shape as
 the macOS path above with the iOS destination and plist swapped in:
 ```bash
@@ -494,7 +506,7 @@ xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
   -archivePath build/HelloNotes-iOS.xcarchive archive
 
 xcodebuild -exportArchive -archivePath build/HelloNotes-iOS.xcarchive \
-  -exportOptionsPlist ExportOptions-iOS.plist -exportPath build/export-ios \
+  -exportOptionsPlist ExportOptions-AppStore-iOS.plist -exportPath build/export-ios \
   -allowProvisioningUpdates
 ```
 Same App Store Connect App ID, same bundle ID, same build-number rule (§1f) —
