@@ -3553,6 +3553,35 @@ XCTAssertGreaterThanOrEqual failed: ("-32.33") is less than ("0.0")
 `-32.33` is `-42.33` plus the bar's own 10pt of padding — the predicted number,
 not merely a red test.
 
+### It was never only an iPhone bug — 1.3.2's DMG re-cut as build 13
+
+Reported and fixed as an iPhone defect, and that framing was wrong. The bar's
+minimum is a property of the *bar*, not of the phone: any container narrower
+than it gets the same centring. The Mac's main window cannot reach it —
+`ShellMetrics.windowMinWidth` is 860 — but `NoteWindowView` lets a **detached
+note window** go to `minWidth: 480`, and 480 < 512.67. So narrowing a note
+window on a Mac clipped its text too, about 16pt a side instead of 42, in a
+window most people never narrow. That is why it went unreported, not why it
+was absent.
+
+So the App Store got build 13 and the download page was still serving build
+12 of the same version. Re-cut from the **same archive** the App Store build
+came from — the app source was verified byte-identical to the build-13
+commit, and an `.xcarchive` is signing-agnostic until export, so the only
+difference is `ExportOptions.plist`'s `developer-id` in place of
+`app-store-connect`.
+
+| | |
+|---|---|
+| **DMG** | 1.3.2 **(13)** — universal, notarised, stapled; 39.6 MB, `0156d247…` |
+| Replaces | 1.3.2 (12), `0deb43d8…`, published the same day |
+| Verified | `accepted / source=Notarized Developer ID`, staple validates offline, `x86_64 arm64`, and `latest` re-fetched and hashed to prove it serves the new bytes |
+
+The tag was not moved and the button's URL did not change: the asset on
+`v1.3.2` was replaced, so `releases/latest/download/HelloNotes.dmg` re-points
+by itself. `site.ts`'s `version` stayed at 1.3.2 — only `size` and `sha256`
+moved, which is the whole shape of a build-level respin.
+
 ### Two false alarms, and the check that came out of them
 
 Writing the test produced two reports that were both wrong, and the way each
