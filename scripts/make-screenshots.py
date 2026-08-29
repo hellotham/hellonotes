@@ -13,6 +13,17 @@ Capturing the raw input is a manual step; see docs/website.md § Screenshots.
 Needs Pillow:  python3 -m venv venv && ./venv/bin/pip install Pillow
 
     ./venv/bin/python scripts/make-screenshots.py <raw-dir> <out-dir>
+
+**The raw inputs are copied into assets/screenshots-raw/ and committed.** They
+used to be shot into a session scratchpad and thrown away, because this file
+called capturing them "a manual step" and left it there. On 2026-08-29 the App
+Store needed undecorated Mac screenshots and there were none: the composites
+below are lossy derivatives (gradient, caption, rounded corners, drop shadow —
+none of it reversible), the scratchpad was long gone, and the only surviving
+copies were 1999px previews inside session transcripts, too small for the
+2560x1600 the store requires. Re-shooting means launching the app on someone's
+machine and opening their vault. An asset that costs that much to make is an
+asset you keep.
 """
 
 import sys
@@ -150,6 +161,32 @@ def compose(shot_path, caption, out_path, bg):
     return out_path
 
 
+
+# --- Keeping the originals ------------------------------------------------
+
+
+def keep_raw_inputs(raw):
+    """Copy the raw captures into the repo so they cannot be lost again.
+
+    Compositing is one-way. Every derived frame carries a gradient, a caption
+    and rounded corners over the window, so there is no cropping back to a
+    clean screenshot — which is exactly the position the 1.3.2 submission was
+    in. The inputs are small, they are the expensive half of the job, and they
+    are the only thing a future submission can be rebuilt from.
+    """
+    import shutil
+
+    keep = Path("assets/screenshots-raw")
+    keep.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for src in sorted(raw.glob("*.png")):
+        dst = keep / src.name
+        if not dst.exists() or dst.read_bytes() != src.read_bytes():
+            shutil.copy2(src, dst)
+            copied += 1
+    print(f"kept {copied} raw capture(s) in {keep}/ — commit them")
+    return keep
+
 # --- Open Graph card -------------------------------------------------------
 #
 # Social crawlers want one stable, unhashed URL, so this writes straight to
@@ -189,6 +226,7 @@ def main():
     if len(sys.argv) != 3:
         sys.exit(__doc__)
     raw, out = Path(sys.argv[1]), Path(sys.argv[2])
+    keep_raw_inputs(raw)
     out.mkdir(parents=True, exist_ok=True)
 
     bg = gradient((W, H), ANGLE_DEG, STOPS)

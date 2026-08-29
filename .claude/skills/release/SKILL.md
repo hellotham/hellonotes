@@ -136,6 +136,52 @@ never advertise a version newer than the App Store's.** Until the app is
 publicly released the lookup returns nothing, which is reported and not a
 failure.
 
+## App Store screenshots — inventory every surface, every time
+
+**A platform is not "done" because one of its tabs has images in it.** Build 13
+went to review twice with iPad holding a *single* stale light-mode screenshot,
+because the check was "does the iPhone tab look right" and the iPad tab was
+never opened. Screenshots are per-platform *and* per-display-size, and ASC shows
+one size at a time.
+
+Before submitting, walk the whole grid and count:
+
+| Platform | Tab | Required size | Expect |
+|---|---|---|---|
+| iOS | iPhone | 6.5" — 1284×2778 (or 1242×2688) | 3–10 |
+| iOS | **iPad** | 13" — 2064×2752 | 3–10 |
+| macOS | Mac | 2560×1600 (or 1280×800 / 1440×900 / 2880×1800) | 3–10 |
+
+Every row, or the submission is incomplete. `0 of 10 Screenshots` and `1 of 10`
+both read as "there is something there" in a glance at the page; only the count
+distinguishes them.
+
+**Screenshots cannot be edited while a version is *Waiting for Review*** — the
+file input and Delete All simply are not in the DOM. Getting one wrong therefore
+costs a removal from review and a resubmission, so inventory *before* submitting,
+not after.
+
+**Never `Delete All` before the replacements are staged and verified at the right
+pixel size.** Deletion is per display size and immediate.
+
+### Shooting them
+
+- **iOS/iPadOS**: simulators, headless, no cost to anyone —
+  `xcrun simctl io <device> screenshot`. Device must match the store size
+  exactly: iPhone 13 Pro Max → 1284×2778; **iPad Pro 13-inch (M4) → 2064×2752**
+  (the 11-inch gives 1668×2420, which ASC will not take, and the aspect ratio
+  differs so it cannot be rescaled). Seed a vault and use
+  `xcrun simctl status_bar <device> override --time 9:41 …`.
+- **macOS**: the app on a real screen, so it costs the user their session.
+  `screencapture -l <windowID>` — and a **1280×800 pt window captures at exactly
+  2560×1600** on a 2× display, so size the window rather than padding afterwards.
+  Read `collectionPaths` from the preferences plist to confirm SampleVault is the
+  only collection loaded **before** capturing anything (CLAUDE.md: screenshotting
+  to check is capturing). Back up that plist and restore it after.
+- **Keep the raw captures.** `make-screenshots.py` now copies them into
+  `assets/screenshots-raw/`; commit them. The branded website frames are one-way
+  derivatives and the store wants the undecorated originals.
+
 ## Record it
 
 Add the release to `docs/implemented.md` (shipped work goes there —

@@ -222,6 +222,23 @@ Two presentations, deliberately different:
   with `getImage()` and hand-writes the element. The `<img>` fallback is the dark
   variant, matching the page chrome.
 
+### The raw captures are committed
+
+`assets/screenshots-raw/` holds the undecorated window and device shots, and
+they belong in git. Compositing is one-way — gradient, caption, rounded corners,
+drop shadow — so a finished frame cannot be cropped back into a clean
+screenshot, and the App Store wants the clean one.
+
+This is written down because the opposite convention lost them. The raw files
+were shot into a session scratchpad, fed to `make-screenshots.py`, and dropped.
+When the 1.3.2 submission needed undecorated macOS screenshots, every copy was
+gone: scratchpad deleted, git had only composites, ASC's Media Manager had only
+composites, and the last surviving images were 1999px previews inside session
+transcripts — a record, not a backup, because the transcript downscales. The
+only remaining route was re-shooting on the author's own Mac against a private
+vault. `make-screenshots.py` now copies its inputs here automatically; commit
+what it leaves.
+
 ### Re-shooting them
 
 The capture is manual. **Screen Recording must be granted to the process running

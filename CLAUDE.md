@@ -304,5 +304,40 @@
   `LabeledField`; `PlatformParityTests` guards it. The rule: a field must be
   identifiable without typing in it, so a prompt that *names* the field is a
   label and a prompt that shows an *example* is not.
+- **An asset you cannot regenerate lives in the repo, not in a scratchpad.** The
+  raw App Store window captures were shot into a session scratchpad, composited
+  into the branded website frames, and never committed — `make-screenshots.py`
+  called capturing them "a manual step" and stopped there. When the store needed
+  *undecorated* Mac screenshots they were unrecoverable: compositing is one-way
+  (gradient, caption, rounded corners, shadow), the scratchpad was gone, git had
+  only the decorated versions, ASC's Media Manager had only the decorated
+  versions, and the sole surviving copies were **1999px previews inside session
+  transcripts** — the transcript downscales, so it is a record, not a backup.
+  The script now copies its inputs to `assets/screenshots-raw/`. The rule
+  generalises: if remaking it needs someone's machine, their vault, or their
+  time, commit it the first time.
+- **"Screenshotting to check" *is* capturing.** Verify the Mac app's loaded
+  collection by reading it, never by looking:
+  `/usr/libexec/PlistBuddy -c "Print :collectionPaths"
+  ~/Library/Containers/com.hellotham.HelloNotes/Data/Library/Preferences/com.hellotham.HelloNotes.plist`.
+  Capture only once that names SampleVault alone. Saying "I won't ship this one"
+  is not the same promise as "I won't take it": three captures of a private
+  2,019-note vault were taken *while checking whether the vault had switched*.
+  Back the plist up first and restore it after — opening or closing a collection
+  changes the user's state.
+- **Read every summary a command prints.** The iOS editor suite emits **three**
+  bundle lines (169/12, 18/4, 194/13); `tail -3` shows the last one, and
+  reporting "194 of 381 tests ran" from it invented a coverage hole that did not
+  exist. Same failure shape as the `> 600` spec guard: a number that is true of
+  a fragment reads exactly like a number that is true of the whole.
+- **Look at the artefact before describing it.** Four claims in one session came
+  from inference where one command would have settled it: an "unlabelled button"
+  that a frame dump showed was SwiftUI's inert `Menu` twin; a "missing" test
+  target; a screenshot set called complete without opening the iPad tab; and a
+  file search that excluded `2560x1600` *because* the wanted files were assumed
+  to be that size. Inference about a file is not evidence about a file.
+- **"Is anything else needed?" is a request to re-inventory every surface**, not
+  to re-check the one just touched. Answering it from the DMG alone left iPad
+  sitting on a single stale screenshot through two submissions.
 - Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts).
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.
