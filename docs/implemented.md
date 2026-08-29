@@ -3474,6 +3474,93 @@ reader notices rather than by when it was written.
 
 ---
 
+## 35 · The screenshots, and the asset that could not be remade (2026-08-29)
+
+Build 13 was submitted three times before its store listing was right. What
+went wrong was never the app.
+
+### iPad had one screenshot
+
+Two submissions went out with the iPad tab holding a single stale light-mode
+capture, because the check was "does the iPhone tab look right". Screenshots
+are per-platform **and** per-display-size, and App Store Connect shows one size
+at a time — `0 of 10` and `1 of 10` read identically at a glance. The release
+skill now carries the whole grid with expected counts, and the devices that
+produce each required size: iPhone 13 Pro Max → 1284×2778, **iPad Pro 13-inch
+(M4) → 2064×2752**. The 11-inch gives 1668×2420, which ASC rejects and whose
+aspect ratio makes rescaling impossible.
+
+Also learned the expensive way: **screenshots cannot be edited while a version
+is Waiting for Review** — the file input is not in the DOM. Getting one wrong
+costs a removal from review and a resubmission, so the inventory belongs
+*before* submitting.
+
+### The raw macOS captures did not exist any more
+
+The store wanted undecorated screenshots. There were none. `make-screenshots.py`
+composites the branded website frames *from* raw window captures — gradient,
+caption, rounded corners, drop shadow — and every step is one-way, so a finished
+frame cannot be cropped back into a clean screenshot.
+
+The originals had been shot into a session scratchpad in July, fed to the
+script, and dropped; the script's own docstring called capturing them "a manual
+step" and stopped there. The search that followed is the useful part, because
+every plausible hiding place was empty:
+
+| Looked | Found |
+|---|---|
+| `dist/Screenshots` + `dark/`, `website/src/assets/screens` | all composited |
+| every PNG >100k on the machine since August | nothing window-shaped |
+| git history — `shot_01..05.png`, deleted in `3a4e1d7` | composited, 1600×1000 |
+| ASC Media Manager | composited |
+| all 40+ session scratchpads, `/tmp`, `/var/folders` | the `raw/` dir was gone |
+| **session transcripts** (1,612 images extracted) | **capped at 1999px** |
+
+That last row is the one worth remembering: **a transcript downscales, so it is
+a record and not a backup.** The only route left was re-shooting on the author's
+own Mac, against his private vault — the exact cost the files existed to avoid
+paying twice. `assets/screenshots-raw/` is now tracked and the script copies its
+inputs there.
+
+### Re-shooting them, from the original session's own commands
+
+The method was recovered by reading the July session's transcript rather than
+inventing one: Debug build via `relaunch-debug.sh`, window geometry set with
+AppleScript, `screencapture -l<windowID>`. A **1280×800pt window captures at
+exactly 2560×1600** on a 2× display, so the store size is the window's own
+rather than something padded afterwards.
+
+One correction to §15's received wisdom. It says synthetic clicks do not
+register in this SwiftUI app; that is true of **coordinate** clicks, but AXPress
+on a *named element* works — which is how the inspector toggles
+(`click (first button of toolbar 1 whose description is "Outline")`) and every
+menu item are reachable. Opening a collection remains the one step nothing
+exposes to scripting, and it is why the July session never scripted it either.
+
+### Two defects found while doing it
+
+`make-screenshots.py` read `f"{mode}_{int(num)}.png"` and wrote
+`f"{mode}_{num}.png"` — it wants `dark_1.png` and produces `dark_01.png`. A
+capture named after the *output* is silently skipped with one `! missing` line
+among ten. It now accepts both.
+
+`relaunch-debug.sh` had been broken earlier the same day by a fix to something
+else: the guarded `{ pgrep … || true; }` became a bare `pgrep`, which exits 1
+when nothing matches, under `set -euo pipefail`. The script aborted with exit 1
+and **no output at all** whenever the app was not already running — which reads
+as a broken environment rather than as a script deciding there was nothing to
+kill.
+
+### The rule that came out of it
+
+Written into CLAUDE.md: *if remaking an asset needs someone's machine, their
+vault, or their time, commit it the first time.* And its companion, paid for by
+three captures of a private 2,019-note vault taken while checking whether the
+vault had switched: **screenshotting to check is capturing.** Verify the loaded
+collection by reading `collectionPaths`, never by looking.
+
+---
+
 ## 34 · Every note lost its first character (2026-08-29)
 
 Build 12 shipped to review with the iPhone drawing `Transclude` as `ransclude`,

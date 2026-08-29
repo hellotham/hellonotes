@@ -233,9 +233,14 @@ def main():
 
     for mode in ("light", "dark"):
         for num, caption in SCENES:
-            src = raw / f"{mode}_{int(num)}.png"
-            if not src.exists():
-                print(f"  ! missing {src}")
+            # Accept both `dark_1.png` and `dark_01.png`. The output is always
+            # zero-padded, so a capture named after the *output* — the obvious
+            # thing to do — used to be silently skipped with one "! missing"
+            # line among ten, which reads like a warning rather than a failure.
+            src = next((c for c in (raw / f"{mode}_{int(num)}.png",
+                                    raw / f"{mode}_{num}.png") if c.exists()), None)
+            if src is None:
+                print(f"  ! missing {raw}/{mode}_{num}.png")
                 continue
             dst = out / f"{mode}_{num}.png"
             compose(src, caption, dst, bg)
