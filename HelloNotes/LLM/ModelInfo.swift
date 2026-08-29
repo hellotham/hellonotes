@@ -14,7 +14,7 @@
 //
 //  Every field here is optional except the ID, because provider support is
 //  genuinely uneven and pretending otherwise is how a wrong number gets treated
-//  as a fact. Of the sixteen providers, thirteen publish a model list and eight
+//  as a fact. Of the sixteen providers, fourteen publish a model list and eight
 //  of those state a context window; the rest fall back to `ProviderCapabilities`
 //  and the user's own override, in that order.
 //

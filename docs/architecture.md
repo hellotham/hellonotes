@@ -143,7 +143,19 @@ Used by the Core layer for structural parsing that the editor doesn't give us �
 
 ### 5.9 LLM providers (v1.0)  ⟶ **protocol + adapters, no LLM framework** ✅
 
-A single `LLMProvider` protocol (streaming chat + tool calls) with five `Sendable` adapters: **Apple Foundation Models** (on-device, macOS 26+ gated), **MLX** (`mlx-swift` local inference, models via `Hub`/`Tokenizers`), **OpenAI-compatible**, **Anthropic**, and **Gemini** (hand-rolled SSE over `URLSession.bytes`, no SDK lock-in). The one **OpenAI-compatible** adapter serves eleven providers that differ only by base URL and a couple of headers — OpenAI, Mistral, Groq, OpenRouter, **xAI (Grok)**, **DeepSeek**, **Cerebras**, **Together AI**, **Perplexity**, and **Ollama** (both the local server and the hosted **Ollama Cloud**) plus LM Studio — so `ModelCatalog` (the data-driven `ProviderKind` enum) is the *only* thing that changes to add another; `ProviderFactory` dispatches on `kind.wire`, never on the kind itself. API keys live in the Keychain (`LLMKeychain`); cloud providers are off until the user configures one. The agent runtime (`AgentRunner` + `AgentTool` registry + `PermissionBroker`) keeps mutating tools behind explicit user approval. Frameworks like LangChain-style abstractions were rejected — the protocol is ~100 lines and owns its wire formats.
+A single `LLMProvider` protocol (streaming chat + tool calls) with five `Sendable` adapters: **Apple Foundation Models** (on-device, macOS 26+ gated), **MLX** (`mlx-swift` local inference, models via `Hub`/`Tokenizers`), **OpenAI-compatible**, **Anthropic**, and **Gemini** (hand-rolled SSE over `URLSession.bytes`, no SDK lock-in). The one **OpenAI-compatible** adapter serves eleven providers that differ only by base URL and a couple of headers — OpenAI, Mistral, Groq, OpenRouter, **xAI (Grok)**, **DeepSeek**, **Cerebras**, **Together AI**, **Perplexity**, and **Ollama** (both the local server and the hosted **Ollama Cloud**) plus LM Studio — so `ModelCatalog` (the data-driven `ProviderKind` enum) is the *only* thing that changes to add another; `ProviderFactory` dispatches on `kind.wire`, never on the kind itself. API keys live in the Keychain (`LLMKeychain`); cloud providers are off until the user configures one.
+
+**What a model can do is asked, not tabulated.** `LLMProvider.availableModels()` returns
+`[ModelInfo]`, and `ModelDiscovery` holds the per-provider mapping — fourteen of the sixteen
+publish a model list, eight of those also state a context window. Support is uneven enough
+that the mapping is written out rather than pattern-matched, and the key names it reads are an
+**allow-list**: xAI's `long_context_threshold` is a billing breakpoint, not a window, and
+scooping up "the field with `context` in the name" under-reports a 1M model as 200k. Gemini and
+Anthropic report an *input* limit; the OpenAI-compatible family reports a *total* one, so
+`inputTokens(total:output:)` reserves the reply's share and `ModelInfo.inputTokenLimit` means
+one thing everywhere. `ProviderCapabilities.of(_:config:)` resolves user override → discovered
+→ the static table, and carries a `BudgetSource` so Settings can say which of the three a
+number came from. The agent runtime (`AgentRunner` + `AgentTool` registry + `PermissionBroker`) keeps mutating tools behind explicit user approval. Frameworks like LangChain-style abstractions were rejected — the protocol is ~100 lines and owns its wire formats.
 
 ### 5.10 Cloud storage  ⟶ **File Provider first; direct APIs via `URLSession`, no vendor SDKs** ✅
 

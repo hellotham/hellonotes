@@ -153,7 +153,7 @@ enum ProviderKind: String, CaseIterable, Codable, Identifiable, Sendable {
     /// IDs is stale the week after it is written — this one still offered
     /// `gemini-2.0-flash` and `gpt-4o` a generation and a half after both were
     /// superseded. `LLMSettings.refreshModels(for:)` replaces it with what the
-    /// key can actually reach, for the thirteen providers that publish a list.
+    /// key can actually reach, for the fourteen providers that publish a list.
     ///
     /// So these are a first guess for an unconfigured provider, nothing more.
     /// **Checked 27 August 2026**; where a provider offers a self-updating alias

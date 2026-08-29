@@ -214,7 +214,7 @@
   padding around every rendered embed that `GFMBoxMetrics` knew nothing about, i.e. 12pt on
   every table, diagram, formula and HTML block. It is 0.
 - **A model list or a context window is a thing you *ask* for, never a thing you
-  remember.** `ModelCatalog.suggestedModels` is now only a seed: thirteen of the
+  remember.** `ModelCatalog.suggestedModels` is now only a seed: fourteen of the
   sixteen providers publish a model list and eight of those state a per-model
   context window, so `LLMProvider.availableModels()` is the source of truth and
   the table is the fallback. When touching it, **re-check each provider's docs**

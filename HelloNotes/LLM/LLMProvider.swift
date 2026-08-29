@@ -53,7 +53,7 @@ protocol LLMProvider: Sendable {
 
     /// Ask the provider which models this key can actually use.
     ///
-    /// Thirteen of the sixteen providers answer this; the three that cannot are
+    /// Fourteen of the sixteen providers answer this; the two that cannot are
     /// the on-device ones and they inherit the default below. Throwing rather
     /// than returning `[]` is deliberate — "this provider publishes no list" and
     /// "this key has no models" are different answers and the UI says different

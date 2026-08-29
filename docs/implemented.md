@@ -3098,7 +3098,7 @@ feature declares a floor and **no ceiling**, so what the provider can hold is th
 only limit. Ghost text keeps a ceiling, for a reason about the feature rather
 than the provider: it races a keystroke, so a wider window is a slower answer.
 
-### Thirteen providers answer, eight of them fully
+### Fourteen providers answer, eight of them fully
 
 `LLMProvider` gained `availableModels()`. Support is genuinely uneven, so the
 mapping is written out per provider rather than pattern-matched:
@@ -3415,6 +3415,62 @@ problem: with nothing on screen there was no way to learn the collection *had*
 tags. It is always shown now, headed `ALL TAGS · n`, sorted by note count, capped
 at forty, with the field above filtering it — while iOS had listed every tag in
 its own tab the whole time.
+
+---
+
+## 33 · 1.3.2 shipped — both channels (2026-08-29)
+
+The first release to go out on both channels on the same day.
+
+| | |
+|---|---|
+| **DMG** | [v1.3.2](https://github.com/hellotham/hellonotes/releases/tag/v1.3.2) — universal, notarised, stapled; 39.7 MB, `0deb43d8…` |
+| **App Store** | iOS **and** macOS 1.3.2 (12), both *Waiting for Review* |
+| Verified | Gatekeeper `accepted / source=Notarized Developer ID`, staple validates offline, `x86_64 arm64` |
+
+### The download page had been announcing a release that had not happened
+
+`site.ts`'s version was bumped to 1.3.2 the day the work landed, and the download
+button points at `releases/latest/download/HelloNotes.dmg` — which went on
+serving **1.3.1 for eleven days**. Bumping a constant announces a release;
+publishing one is a separate act, and nothing tied the two together.
+
+The release skill made it worse by ordering the website update *before* the
+GitHub release, which briefly put 1.3.2's checksum on a live page whose button
+still served 1.3.1. A checksum that does not match is not cosmetic — it is the
+alarm the checksum exists to raise, fired at the person carefully doing the right
+thing. Publishing now comes first, and `scripts/check-download-page.sh` downloads
+what the button serves, **mounts it**, and compares the version inside the image,
+its size and its SHA-256 against the page's claims. Size and hash alone would not
+have caught the drift: both were 1.3.1's and agreed with each other perfectly.
+
+### The submission was carrying builds from four days earlier
+
+The iOS version page had **build 9** attached and macOS had **build 8** — both
+predating every fix in §29–§32. Nothing in App Store Connect flags a stale build;
+it simply reviews and ships what is attached. Swapped to 12 on both.
+
+macOS had **no screenshots at all**, which is a hard submission blocker
+(`Unable to Add for Review: You must upload at least one screenshot`) and had
+never been noticed because the version had never been submitted. The five
+2560×1600 frames documented in production.md §8 were uploaded; the light set, on
+the §8 rule that a gallery which switches appearance halfway reads as
+inconsistent.
+
+### Also corrected
+
+**The export plist the docs named was the wrong one.** §9 Option B said to export
+with the repo-root `ExportOptions.plist`, which is `method = developer-id` — the
+DMG path. Following it would have signed an App Store build for the wrong
+channel. `ExportOptions-AppStore-macOS.plist` / `-iOS.plist` now exist for the
+upload, and `ExportOptions-iOS.plist` is kept for producing a local `.ipa`
+(`destination = export`, so it uploads nothing).
+
+**The release notes were three times the field they fit in.** 11,887 characters,
+grown a section at a time in the order things shipped. The App Store's What's New
+takes 4,000, and the three prior releases came in at 3,207 / 4,003 / 4,848 — the
+file has always doubled as that field. Rewritten to 3,979, ordered by what a
+reader notices rather than by when it was written.
 
 ---
 
