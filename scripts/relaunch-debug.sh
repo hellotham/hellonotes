@@ -80,7 +80,11 @@ binary="$app/Contents/MacOS/HelloNotes"
 # AppleScript, and SIGKILL while printing its loudest warning. A simulator
 # instance is not the Mac app and is none of this script's business.
 running_pids() {
-  pgrep -f "HelloNotes\.app/Contents/MacOS/HelloNotes" 2>/dev/null \
+  # `|| true` is load-bearing: pgrep exits 1 when nothing matches, and this
+  # script runs under `set -e`. Dropping it makes the whole script abort,
+  # silently and with no output, in the ordinary case where the app is not
+  # already running — which is most of the time.
+  { pgrep -f "HelloNotes\.app/Contents/MacOS/HelloNotes" || true; } 2>/dev/null \
     | sort -u | tr '\n' ' ' | sed 's/ $//'
 }
 
