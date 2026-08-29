@@ -95,8 +95,10 @@ it does. Never reach for `killall -9` or `pkill -9` on HelloNotes yourself.
   test the old binary. Always go through `scripts/relaunch-debug.sh`.
 - **Respect the user's screen.** Never drive the app with computer-use or
   screenshots. Prefer telemetry you can read from the terminal.
-- Confirm it's the new binary: `pgrep -x HelloNotes` and check the start time is
-  now.
+- Confirm it's the new binary: `pgrep -f 'HelloNotes\.app/Contents/MacOS/HelloNotes'`
+  and check the start time is now. **Not `pgrep -x HelloNotes`** — that matches on
+  the process *name*, and an app running in the iOS Simulator is also called
+  `HelloNotes`, so it reports a Mac app that is not running.
 
 ## Running the app tests
 

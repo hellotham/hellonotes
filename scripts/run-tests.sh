@@ -25,6 +25,26 @@ set -uo pipefail
 here=${0:a:h}
 cd "$here/.."
 
+# The user's *Mac* app, and never a simulator or a test host.
+#
+# This used to be `pgrep -x HelloNotes`, which matches on the process **name**
+# alone — and an app running in the iOS Simulator is also called `HelloNotes`.
+# So an iPad-simulator instance left behind by an iOS check read as "the user
+# has the app open", the script refused to run, and it blamed a modal sheet
+# that did not exist. The macOS bundle layout is the discriminator:
+# `HelloNotes.app/Contents/MacOS/HelloNotes`, which a simulator build (a flat
+# `HelloNotes.app/HelloNotes`) never has.
+mac_app() {
+  local pid cmd out=""
+  for pid in ${(f)"$(pgrep -f 'HelloNotes\.app/Contents/MacOS/HelloNotes' 2>/dev/null)"}; do
+    cmd=$(ps -o command= -p "$pid" 2>/dev/null)
+    # A test host carries an argument a normally-launched app never has.
+    [[ "$cmd" == *-NSTreatUnknownArgumentsAsOpen* ]] && continue
+    out+="$pid "
+  done
+  echo "${out% }"
+}
+
 # A test host, and never the user's app.
 test_hosts() {
   pgrep -f "HelloNotes.app/Contents/MacOS/HelloNotes.*-NSTreatUnknownArgumentsAsOpen" \
@@ -59,16 +79,17 @@ trap 'echo; cleanup_hosts; cleanup_preview_dylibs; exit 130' INT TERM
 
 # 1. The user's own app first, gracefully: it may hold unsaved edits, and a
 #    hard kill would skip the autosave flush (see relaunch-debug.sh).
-if pgrep -x HelloNotes > /dev/null 2>&1; then
-  echo "Quitting the running app before testing (it may hold unsaved edits)…"
+if [[ -n "$(mac_app)" ]]; then
+  echo "Quitting the running Mac app before testing (it may hold unsaved edits)…"
   osascript -e 'tell application "HelloNotes" to quit' >/dev/null 2>&1 || true
   for _ in {1..50}; do
-    pgrep -x HelloNotes > /dev/null 2>&1 || break
+    [[ -z "$(mac_app)" ]] && break
     sleep 0.2
   done
-  if pgrep -x HelloNotes > /dev/null 2>&1; then
-    echo "App would not quit; leaving it alone and refusing to test on top of it." >&2
+  if [[ -n "$(mac_app)" ]]; then
+    echo "Mac app would not quit; leaving it alone and refusing to test on top of it." >&2
     echo "Close it (or its modal sheet) and re-run." >&2
+    echo "(Simulator instances are ignored — this is a real macOS process: $(mac_app))" >&2
     exit 1
   fi
   echo "App quit."

@@ -67,11 +67,20 @@ if [[ -z "$app" ]]; then
 fi
 binary="$app/Contents/MacOS/HelloNotes"
 
-# Every live instance, however it was started. `pgrep -x` alone misses an app
-# whose process name differs from the bundle (a test host, an Xcode run), so
-# match the executable path too and merge the two lists.
+# Every live instance of the **Mac** app, however it was started — a normal
+# launch, an Xcode run, a test host — all of which run the same executable at
+# `HelloNotes.app/Contents/MacOS/HelloNotes`, so the path is what finds them.
+#
+# This used to union in `pgrep -x HelloNotes` as well, on the stated grounds
+# that the path match "misses an app whose process name differs from the
+# bundle". That is backwards: the path match is precisely what catches a test
+# host and an Xcode run. What `pgrep -x` actually added was every process
+# merely *named* HelloNotes — including the app running in the **iOS
+# Simulator**, which this script would then try to quit, fail to reach with
+# AppleScript, and SIGKILL while printing its loudest warning. A simulator
+# instance is not the Mac app and is none of this script's business.
 running_pids() {
-  { pgrep -x HelloNotes || true; pgrep -f "HelloNotes.app/Contents/MacOS/HelloNotes" || true; } \
+  pgrep -f "HelloNotes\.app/Contents/MacOS/HelloNotes" 2>/dev/null \
     | sort -u | tr '\n' ' ' | sed 's/ $//'
 }
 
