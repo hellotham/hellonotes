@@ -133,7 +133,28 @@ nonisolated enum PlatformImageKit {
         format.scale = scale
         format.opaque = false
         let renderer = UIGraphicsImageRenderer(bounds: bounds, format: format)
-        let image = renderer.image { ctx in view.layer.render(in: ctx.cgContext) }
+        let image = renderer.image { ctx in
+            // **`CALayer.render(in:)` ignores `isGeometryFlipped`.** The property
+            // inverts a layer's coordinate system for *display*, and the display
+            // path is not the path `render(in:)` takes — so a view that relies on
+            // it comes back upside down while looking perfect on screen.
+            //
+            // `MTMathUILabel` sets it (SwiftMath sets it on both platforms), and
+            // every formula in the app rendered inverted on iOS because of this:
+            // `dx` drew as `qx`, an exponent sat where a subscript goes, and
+            // `√π/2` came out with the 2 on top. macOS never showed it because
+            // its branch above uses `cacheDisplay(in:to:)`, which *is* the
+            // display path and does honour the flip.
+            //
+            // Conditional rather than unconditional: an ordinary view captures
+            // upright through here, which `MathRenderingTests` pins with a
+            // control so this cannot quietly become a flip for everyone.
+            if view.layer.isGeometryFlipped {
+                ctx.cgContext.translateBy(x: 0, y: bounds.height)
+                ctx.cgContext.scaleBy(x: 1, y: -1)
+            }
+            view.layer.render(in: ctx.cgContext)
+        }
         return image.cgImage
         #endif
     }
