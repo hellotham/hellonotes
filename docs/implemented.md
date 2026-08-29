@@ -3474,6 +3474,94 @@ reader notices rather than by when it was written.
 
 ---
 
+## 34 · Every note lost its first character (2026-08-29)
+
+Build 12 shipped to review with the iPhone drawing `Transclude` as `ransclude`,
+`Below is…` as `ow is…`, and the same bite taken out of every line of every
+note. Build 13 is the repair. Marketing version stays 1.3.2.
+
+### What it was
+
+The editor's bottom bar is an `HStack` of `.fixedSize()` menus and fixed-width
+buttons, so it **cannot compress**. On a 428pt iPhone its minimum is 512.67pt.
+Three SwiftUI facts then compose into the defect:
+
+1. a stack that cannot shrink to the width it is offered reports the width it
+   **contains**;
+2. a `VStack` takes the width of its widest child;
+3. SwiftUI **centres** an oversized subview in its parent.
+
+So the pane, the inline title and the text all became 512.67pt wide and sat at
+`(428 - 512.67) / 2 = -42.33`. The navigation bar is not in that stack, so it
+stayed perfectly inset at 21pt — which is exactly why the screen looked *almost*
+right and the fault read as a text-rendering bug rather than a layout one.
+
+This is the **horizontal form of the viewport rule** the editor already obeys
+vertically (§17): report the size you are *offered*, never the size you contain.
+
+### How it was found, after two wrong turns
+
+`MeasuredText` was the obvious suspect and was innocent — its probe reports
+`pane=428 kind=compact -> (width: 396.0, centred: false)`, which is correct. A
+pixel scan of the simulator then measured the h1's rule at `0.0..336.3` **on
+every note regardless of content**, and `396 - 336.3 = 59.7` said the column was
+*displaced*, not mis-sized. The two `EditorProbe` frames logged only `top` and
+`height` — the axis that was not broken — so they were widened to log `x` and
+`width`, and answered `x=-42.33 width=512.67` on the first run.
+
+Three things this cost, worth keeping:
+
+- **The instrument decided the answer.** Two probes existed at exactly the right
+  place in the hierarchy and were blind to the failing axis. A probe that
+  reports half a rect measures half a bug.
+- **`onAppear` is not the settled layout.** Both probes fired mid-presentation
+  and reported `width=34` / `height=0`. Only the `onChange(of: mode)` reading was
+  the real geometry.
+- **A constant across two documents is not content.** The same 336.3 appeared for
+  a 168,576-character note and a 22-word daily note, which is what ruled out the
+  content-driven reading of the same symptom.
+
+### The fix, and why not the other two
+
+`ViewThatFits(in: .horizontal)` picks the plain row whenever it fits — verified
+byte-identical on an 834pt iPad, where all eight trailing controls still show —
+and falls back to a horizontal `ScrollView` only where it does not.
+
+Truncating the bar would have been worse than the bug: *a command nobody can
+reach is a command that does not exist*. Dropping controls on iPhone would have
+broken the cross-platform rule the app is built on.
+
+### The check, and its negative control
+
+`HelloNotesUITests.testTheOpenNoteIsNotClippedOffTheScreen` opens a note on a
+compact device and asserts every static text starts at or right of the screen's
+leading edge — **left only**, because content scrolled off to the right is
+ordinary and content off to the left is this bug.
+
+It closes the gap the UI tests had *named in their own source*: "the editor and
+the inspector are not swept … reaching a note takes a step this test did not
+model." That admission was accurate, and the defect landed in exactly the space
+it described.
+
+Proved by reintroducing the fault and watching it fail:
+
+```
+XCTAssertGreaterThanOrEqual failed: ("-32.33") is less than ("0.0")
+  - "0 words" starts 32.33pt off the left edge
+```
+
+`-32.33` is `-42.33` plus the bar's own 10pt of padding — the predicted number,
+not merely a red test.
+
+### Found on the way
+
+Writing the test turned up a button on the compact Notes place whose
+accessibility label is the **empty string** — VoiceOver announces nothing for it
+and no test can name it. The test routes around it via "More actions"; the label
+itself is filed separately.
+
+---
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown
