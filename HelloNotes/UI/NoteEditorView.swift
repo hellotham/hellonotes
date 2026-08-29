@@ -530,7 +530,35 @@ struct NoteEditorView: View {
     /// the caret. Status sits on the left; actions on the right. The action set
     /// is context-dependent — buttons that don't apply to the current note are
     /// hidden, not just disabled.
+    /// The bar, and the reason it is allowed to scroll.
+    ///
+    /// Its controls are `.fixedSize()` menus and fixed-width buttons, so the row
+    /// is **incompressible**: on a 428pt iPhone its minimum is 512.67pt. An
+    /// `HStack` that cannot shrink to the width it is offered reports the width
+    /// it *contains*, the enclosing `VStack` takes the widest child, and SwiftUI
+    /// centres that oversized stack in the screen — so every sibling, the note's
+    /// title and the text itself, hung 42.33pt off **both** edges and the first
+    /// character of every line was clipped away. The bar looked fine; the note
+    /// did not. This is the horizontal form of the viewport rule the editor
+    /// already obeys vertically: report the size you are *offered*.
+    ///
+    /// `ViewThatFits` keeps the Mac and iPad layout byte-identical — the plain
+    /// row is chosen whenever it fits — and falls back to scrolling only where
+    /// it does not. Truncating instead would be worse than the bug: a command
+    /// nobody can reach is a command that does not exist.
     private var bottomBar: some View {
+        ViewThatFits(in: .horizontal) {
+            barRow
+            ScrollView(.horizontal) { barRow }
+                .scrollIndicators(.hidden)
+        }
+        .font(.callout)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.bar)
+    }
+
+    private var barRow: some View {
         HStack(spacing: 8) {
             // Status (left). Single-line and truncating, so a narrow window
             // shortens the text instead of wrapping it vertically.
@@ -644,10 +672,6 @@ struct NoteEditorView: View {
                 if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
             }
         }
-        .font(.callout)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(.bar)
     }
 
     /// Segmented Edit / Preview / Markdown / Split switcher.

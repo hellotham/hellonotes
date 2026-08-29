@@ -137,11 +137,13 @@ struct NoteEditorPane: View {
 
     private func logContent(_ frame: CGRect) {
         EditorProbe.log("pane content mode=\(mode.rawValue) "
+                        + "x=\(frame.minX) width=\(frame.width) "
                         + "top=\(frame.minY) height=\(frame.height)")
     }
 
     private func logTitle(_ frame: CGRect) {
         EditorProbe.log("inline title mode=\(mode.rawValue) "
+                        + "x=\(frame.minX) width=\(frame.width) "
                         + "top=\(frame.minY) height=\(frame.height)")
     }
 

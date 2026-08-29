@@ -205,13 +205,79 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
+    /// The open note itself — the axis nothing measured, and where build 12's
+    /// worst defect lived.
+    ///
+    /// The editor's bottom bar is a row of `.fixedSize()` menus and fixed-width
+    /// buttons, so it cannot compress: on a 428pt iPhone its minimum is
+    /// 512.67pt. An `HStack` that cannot shrink to the width it is offered
+    /// reports the width it *contains*; the enclosing `VStack` takes its widest
+    /// child; and SwiftUI centres an oversized subview in its parent. So the
+    /// pane, the inline title and every line of the note sat at x = -42.33 and
+    /// lost their first character, while the navigation bar — which is not in
+    /// that stack — stayed perfectly inset and made the screen look fine.
+    ///
+    /// Every check the app had was blind to it: `PlatformParityTests` asks
+    /// whether commands are *wired*, the shell contract measures the shell, and
+    /// the four sweeps above stop at the places. None of them asked where a
+    /// glyph landed. This one does, and only on the left edge — content scrolled
+    /// off to the *right* is ordinary, content off to the *left* is this bug.
+    @MainActor
+    func testTheOpenNoteIsNotClippedOffTheScreen() throws {
+        #if os(iOS)
+        let app = launchPastSplash()
+        try XCTSkipUnless(app.buttons["Tags"].waitForExistence(timeout: 15),
+                          "Compact shell only.")
+
+        // Make the note rather than hunting for one: what the vault holds is
+        // not this test's subject, and a test that depends on it fails for the
+        // wrong reason on a fresh device.
+        app.buttons["Notes"].tap()
+        // Through the overflow, which is *named*. Writing this test turned up
+        // a button on this screen whose accessibility label is the empty
+        // string — VoiceOver announces nothing for it and no test can name it
+        // — so route through the one control that says what it is.
+        let more = app.buttons["More actions"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 15),
+                      "the Notes place has no overflow menu. Buttons: "
+                      + app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
+        more.tap()
+        let newNote = app.buttons["New Note"].firstMatch
+        XCTAssertTrue(newNote.waitForExistence(timeout: 10),
+                      "New Note is not in the overflow menu. Buttons: "
+                      + app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
+        newNote.tap()
+
+        // The strip is how the compact shell says a note is open; expanding it
+        // is the only way the note is on screen to be measured.
+        let strip = app.buttons["shell.miniStrip"].firstMatch
+        if strip.waitForExistence(timeout: 15) { strip.tap() }
+
+        // The word count is the editor's own bottom bar — proof the editor is
+        // what we are looking at, not the place behind it.
+        let wordCount = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS[c] 'word'")).firstMatch
+        XCTAssertTrue(wordCount.waitForExistence(timeout: 15),
+                      "the editor never appeared, so nothing was measured")
+
+        let screen = app.windows.element(boundBy: 0).frame
+        let texts = app.staticTexts.allElementsBoundByIndex.filter { $0.exists }
+        XCTAssertFalse(texts.isEmpty, "the open note drew no text at all")
+        for text in texts {
+            XCTAssertGreaterThanOrEqual(
+                text.frame.minX, screen.minX,
+                "\"\(text.label)\" starts \(screen.minX - text.frame.minX)pt off the left edge")
+        }
+        #else
+        throw XCTSkip("iOS layout test.")
+        #endif
+    }
+
     // MARK: - Not yet covered
     //
-    //  The **editor and the inspector** are not swept. Selecting a collection in
-    //  the compact shell marks it selected rather than navigating, so reaching a
-    //  note takes a step this test did not model — and a test that skips reads
-    //  as coverage while providing none, which is the failure mode this whole
-    //  file exists to correct. Left out deliberately, and named here so the gap
-    //  is a known one rather than an assumed pass.
+    //  The **inspector** is not swept, and the editor is swept only for where
+    //  its text lands — not for whether each of the bottom bar's commands can
+    //  still be reached once the row scrolls. Left out deliberately, and named
+    //  here so the gap is a known one rather than an assumed pass.
 
 }
