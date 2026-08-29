@@ -3553,12 +3553,34 @@ XCTAssertGreaterThanOrEqual failed: ("-32.33") is less than ("0.0")
 `-32.33` is `-42.33` plus the bar's own 10pt of padding — the predicted number,
 not merely a red test.
 
-### Found on the way
+### Two false alarms, and the check that came out of them
 
-Writing the test turned up a button on the compact Notes place whose
-accessibility label is the **empty string** — VoiceOver announces nothing for it
-and no test can name it. The test routes around it via "More actions"; the label
-itself is filed separately.
+Writing the test produced two reports that were both wrong, and the way each
+collapsed is worth more than the test was.
+
+**"A button with no accessibility label."** A dump of the Notes place showed one
+with an empty label, and it read as an unnamed control. Dumping *frames* instead
+of just labels ended it in one run: the empty element has the **same frame** as
+"More actions" and is not hittable. SwiftUI gives a `Menu` two accessibility
+elements — the interactive one, which carries the label, and an inert twin for
+the `Image` used as its label. It is the only unlabelled button in all four
+places, and it is that twin.
+
+**"The iOS editor suite runs 194 of the documented 381 tests."** It runs all
+381. The command produces **three** bundle summaries — 169/12, 18/4, 194/13 —
+and `tail -3` showed only the last. CLAUDE.md was right the whole time and now
+says so out loud, because the next reader will make the same mistake.
+
+What survived is `testEveryReachableControlHasAName`, and only after a negative
+control killed the obvious version of it. "No reachable control has an empty
+label" **cannot fail**: delete `.accessibilityLabel("More actions")` and SwiftUI
+names an `ellipsis.circle` menu "More" by itself. What it does for an icon it has
+no name for is fall back to the **SF Symbol's raw name** — swap that image for
+`scribble.variable` and the button is announced as `scribble.variable`, aloud, to
+someone who cannot see it. That is the real defect class, it fails when
+introduced, and it is what the test asserts.
+
+Three checks were written here. The one that shipped is the one that could fail.
 
 ---
 

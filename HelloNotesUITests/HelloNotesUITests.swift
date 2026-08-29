@@ -273,6 +273,69 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
+    /// No control a person can reach is announced by its icon's file name.
+    ///
+    /// Two wrong versions of this test came first, and both are the reason it
+    /// is written the way it is.
+    ///
+    /// It started as "no button has an empty label", after a dump of the Notes
+    /// place showed one that did. That was a misreading: SwiftUI gives a `Menu`
+    /// **two** accessibility elements — the interactive one, which carries the
+    /// label, and an inert twin for the `Image` used as its label, at the same
+    /// frame and not hittable. The empty one is the twin, and it is the only
+    /// unlabelled button in all four places.
+    ///
+    /// Narrowing it to "nothing *reachable* is unlabelled" looked right and was
+    /// **unfalsifiable**: deleting `.accessibilityLabel("More actions")` — the
+    /// negative control — left the test green, because SwiftUI names an
+    /// `ellipsis.circle` menu "More" all by itself. A check that cannot fail is
+    /// worse than no check, because it reads as coverage.
+    ///
+    /// What SwiftUI does for an icon it has no name for is fall back to the
+    /// **SF Symbol's raw name**: swap that menu's image for `scribble.variable`
+    /// and the button's label becomes `scribble.variable`, which VoiceOver then
+    /// reads aloud, verbatim, to a person who cannot see it. That is a real
+    /// defect class, it is what an icon-only control gets when someone forgets
+    /// the modifier, and — unlike the other two — it fails when introduced.
+    ///
+    /// The screens here are almost entirely icons, so this is the axis that
+    /// matters. `PlatformParityTests` guards *field* labelling; this guards
+    /// controls, and only where a person can actually land on one.
+    @MainActor
+    func testEveryReachableControlHasAName() throws {
+        #if os(iOS)
+        let app = launchPastSplash()
+        try XCTSkipUnless(app.buttons["Tags"].waitForExistence(timeout: 15),
+                          "Compact shell only.")
+
+        for place in ["Notes", "Search", "Tags", "AI"] {
+            app.buttons[place].tap()
+            XCTAssertTrue(app.buttons[place].waitForExistence(timeout: 5),
+                          "the \(place) tab vanished when selected")
+
+            let reachable = app.buttons.allElementsBoundByIndex
+                .filter { $0.exists && $0.isHittable }
+            XCTAssertFalse(reachable.isEmpty,
+                           "the \(place) place offers nothing to press")
+            for button in reachable {
+                // `scribble.variable`, `square.and.pencil` — all lowercase,
+                // dot-separated, no spaces. A person's own text never looks
+                // like this; an unnamed SF Symbol always does.
+                let isSymbolName = button.label.range(
+                    of: "^[a-z0-9]+(\\.[a-z0-9]+)+$",
+                    options: .regularExpression) != nil
+                XCTAssertFalse(
+                    isSymbolName,
+                    "the \(place) place has a reachable control at \(button.frame) "
+                    + "announced as \"\(button.label)\" — that is its icon's SF Symbol "
+                    + "name, not a label. Give it .accessibilityLabel(_:).")
+            }
+        }
+        #else
+        throw XCTSkip("iOS accessibility test.")
+        #endif
+    }
+
     // MARK: - Not yet covered
     //
     //  The **inspector** is not swept, and the editor is swept only for where
