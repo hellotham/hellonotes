@@ -51,6 +51,11 @@
   score: **660 exact + 10 GitHub-extension overrides + 2 serialisation-only =
   672/672**.
 - Layout contract: `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -only-testing:HelloNotesTests/ShellContractTests` (~2s, headless — run it after any shell or representable change).
+- App tests (macOS): `./scripts/run-tests.sh` — **never a bare `xcodebuild test`**.
+  The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
+  screen and leaves test hosts behind; the script quits their app first
+  (gracefully — it may hold unsaved edits), runs the suite, and kills any host
+  afterwards whatever the result. 374 tests in 46 suites, ~4s.
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **58 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
@@ -339,5 +344,16 @@
 - **"Is anything else needed?" is a request to re-inventory every surface**, not
   to re-check the one just touched. Answering it from the DMG alone left iPad
   sitting on a single stale screenshot through two submissions.
+- **`click at` coordinates do not register in this SwiftUI app; `click <element>`
+  does.** implemented.md §15's blanket "synthetic clicks do not register" is true
+  only of *coordinate* clicks. AXPress on a **named element** works —
+  `click (first button of toolbar 1 of window 1 whose description is "Outline")`
+  reaches every inspector toggle, and `click menu item "…" of menu 1 of menu bar
+  item "View"` reaches every command. Reading the §15 note as absolute is what
+  made re-shooting the screenshots look impossible when it was not. Opening a
+  collection is the one step genuinely unscriptable: the picker is a separate
+  XPC process (`com.apple.appkit.xpc.openAndSavePanelService`), and keystrokes
+  aimed at it land on the app instead — where `⌘⇧G` is **Graph View**, so a
+  mistimed "go to folder" silently opens a graph window over the user's vault.
 - Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts).
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.
