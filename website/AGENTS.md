@@ -33,6 +33,12 @@ reference: `../docs/website.md`.
   before an inline tag eats the space — use `{' '}` (28 of these shipped once).
 - Screenshots pair via `src/lib/screens.ts` + `Shot.astro`; app metadata and the
   download checksum live in `src/lib/site.ts` and must match the shipped DMG.
+  **Captions are composited into the image**, so a capture must match its scene's
+  caption — scene 05 is "Ask your library", and pointing it at anything else puts
+  a false claim on a public page rather than a cosmetic mismatch. The raw
+  captures live in `../assets/screenshots-raw/` and are committed; compositing is
+  one-way. `make-screenshots.py` also writes `public/assets/og.png` *outside* its
+  output directory, so there is no such thing as a dry run into a scratch dir.
 
 ## Documentation
 
