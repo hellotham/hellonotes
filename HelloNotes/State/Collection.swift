@@ -392,11 +392,19 @@ final class Collection: Identifiable {
     private var recentSelfWrites: [String: Date] = [:]
 
     /// How long a write of our own goes on explaining a change notification.
-    private static let selfWriteWindow: TimeInterval = 3
+    ///
+    /// **Sized for a File Provider volume, not a local disk.** At 3s this was
+    /// too short and the symptom was severe: on an iCloud Drive vault FSEvents
+    /// delivered our own autosave 3,684 ms after we wrote it, so the write had
+    /// already left the window and every save scheduled a full 2,020-note walk
+    /// — a scan every few seconds while typing. Sometimes the notification
+    /// arrived after `selfWriteMemory` too, and the log was empty (`selfWrites=0`
+    /// in the stall log).
+    private static let selfWriteWindow: TimeInterval = 12
 
     /// How long the log of our own writes is kept at all — a little longer than
     /// the window, so a notification arriving late still finds its entry.
-    private static let selfWriteMemory: TimeInterval = 5
+    private static let selfWriteMemory: TimeInterval = 15
 
     /// Coalesces bursts of external changes (a co-editing app like Obsidian
     /// autosaving, or iCloud streaming a file down in pieces) into a single
@@ -1218,11 +1226,22 @@ final class Collection: Identifiable {
             // No path list, so nothing can be filtered — wait out whatever is
             // left of our own write window rather than re-scanning on our own
             // autosave.
-            guard let settling = selfWriteSettleDelay else {
-                reconcileSoon(onExternalChange: onExternalChange)
+            // **A notification we caused is not news, and delaying it does not
+            // make it news.** This used to compute how much of the self-write
+            // window was left and reconcile *after* it — so on iOS, whose
+            // presenter never reports paths, every autosave still ended in a
+            // full vault walk, merely postponed. That is why typing was
+            // unusable there while macOS only wasted work.
+            //
+            // The cost of skipping is bounded: a genuine external change that
+            // lands inside our own write window is picked up by the next
+            // notification, by `recheckAvailability`, or on foreground.
+            guard selfWriteSettleDelay == nil else {
+                MainActorWatchdog.note("unspecifiedChange — ours, skipping the scan")
                 return
             }
-            reconcileSoon(onExternalChange: onExternalChange, after: settling)
+            MainActorWatchdog.note("unspecifiedChange — no recent self-write, scanning now")
+            reconcileSoon(onExternalChange: onExternalChange)
         }
     }
 
@@ -1277,6 +1296,7 @@ final class Collection: Identifiable {
         externalReconcileTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
+            MainActorWatchdog.note("external reconcile — full vault walk begins")
             await self.scanOffMain()
             self.refreshDerived()
             // Files changed under a repository, so its change count did too.
@@ -1318,12 +1338,50 @@ final class Collection: Identifiable {
         recentSelfWrites = recentSelfWrites.filter {
             now.timeIntervalSince($0.value) < Self.selfWriteMemory
         }
-        return paths.contains { path in
+        // Directories whose contents we just wrote. An atomic save is a write
+        // to a temp file plus a rename, and the rename mutates the *containing
+        // directory* — so FSEvents reports the note's folder and, for a note at
+        // the top level, the vault root, alongside the note itself. Neither is
+        // independent news: whatever happened inside them is described by the
+        // file events in the same batch, which this filter already judges. Left
+        // unfiltered they are never in `recentSelfWrites` (which holds files)
+        // and never start with a dot, so **every autosave scheduled a full
+        // vault walk** — measured on a 2,020-note vault as a scan every few
+        // seconds while typing.
+        //
+        // Suppressing by *parenthood* rather than by "is a directory" keeps the
+        // events that matter: an externally renamed or deleted folder still
+        // reports a directory we did not write into, and still rescans.
+        // Every ancestor, not just the immediate parent. A rename mutates the
+        // containing directory, and FSEvents reports the vault root as well —
+        // which is the *grandparent* of a note in a folder. Suppressing only the
+        // parent silenced `Events` and left `My Vault` still scheduling a walk.
+        var selfWriteParents = Set<String>()
+        let rootKey = Self.normalize(rootURL.path)
+        for (key, at) in recentSelfWrites where now.timeIntervalSince(at) < Self.selfWriteWindow {
+            var dir = (key as NSString).deletingLastPathComponent
+            while dir.count >= rootKey.count, dir != "/" {
+                selfWriteParents.insert(dir)
+                if dir == rootKey { break }
+                dir = (dir as NSString).deletingLastPathComponent
+            }
+        }
+
+        let external = paths.filter { path in
             if (path as NSString).lastPathComponent.hasPrefix(".") { return false }
-            if let wroteAt = recentSelfWrites[Self.normalize(path)],
+            let key = Self.normalize(path)
+            if let wroteAt = recentSelfWrites[key],
                now.timeIntervalSince(wroteAt) < Self.selfWriteWindow { return false }
+            if selfWriteParents.contains(key) { return false }
             return true
         }
+        if !external.isEmpty {
+            MainActorWatchdog.note(
+                "hasExternalChanges PASSED \(external.count)/\(paths.count): "
+                + external.prefix(4).map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
+                + "  [selfWrites=\(recentSelfWrites.count)]")
+        }
+        return !external.isEmpty
     }
 
     /// Normalise a path for comparison — resolves symlinks and the `/private`
