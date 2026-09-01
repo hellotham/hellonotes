@@ -1257,6 +1257,24 @@ struct ContentView: View {
         // alongside something already open inherits whatever that is.
         if tabs.editors.isEmpty { storedMode = EditorMode.platformDefault.rawValue }
         if let note = library.allNotes.first(where: { $0.id == newID }) {
+            // **An empty note always opens in Edit, on every platform.**
+            //
+            // iOS defaults to Preview because a note reached by tapping is
+            // usually one you meant to read. A note you just made is the
+            // opposite case and the reasoning inverts: there is nothing to
+            // preview, no keyboard, and the first thing anyone does is type. On
+            // iPad this shipped as a new note opening to a blank Preview pane —
+            // and because the mode is then *inherited*, every subsequent new
+            // note stayed wrong too.
+            //
+            // Keyed on emptiness rather than on a "was just created" flag
+            // because `createNote` writes `Data()` — every one of the fifteen
+            // creation paths (menu, folder's New Note Here, quick capture,
+            // wiki-link miss, composer, App Intent, …) produces a 0-byte file,
+            // so one rule covers all of them and cannot be forgotten by the
+            // sixteenth. An existing empty note opening in Edit is right for
+            // the same reason.
+            if note.fileSize == 0 { storedMode = EditorMode.edit.rawValue }
             library.focusCollection(containing: note.fileURL)
             Task { await tabs.editor(for: note) }
             return
