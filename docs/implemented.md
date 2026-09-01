@@ -3700,6 +3700,74 @@ Three checks were written here. The one that shipped is the one that could fail.
 
 ---
 
+## 36 · Two ways to back the app, and neither of them gates anything (2026-09-02)
+
+App Review rejected build 14 under **guideline 3.1.2(c)**: the binary sold an
+auto-renewable subscription and had no purchase screen at all. The subscription
+existed in App Store Connect; nothing in the app had ever mentioned it.
+
+Two products, and they are different *kinds* of thing:
+
+| | Champion | Commercial |
+|---|---|---|
+| StoreKit type | **Consumable** | Auto-renewable subscription |
+| Price | A$50 | A$50 / year |
+| Repeatable | yes — "5× Champion" | renews |
+| Product ID | `…​.champion.contribution` | `…​.commercial` |
+
+**A non-consumable cannot be bought twice.** A `…​.champion` non-consumable
+already existed in App Store Connect from an earlier pass, and the requirement
+is that someone can back the app more than once and have it counted. A
+non-consumable answers the second purchase with "You've already purchased this",
+and App Store Connect will not change a product's type after it is created — so
+the repeatable one is a new consumable beside it, which is why the identifier
+has a suffix nobody would otherwise choose.
+
+**Counting a consumable is the app's job.** `Transaction.currentEntitlements`
+never contains consumables: an entitlement is something you still hold and a
+contribution is something you did. So the count is kept, and the naive spelling
+loses it. `StoreService` merges **three** sources — `UserDefaults`, iCloud's
+key-value store, and `Transaction.all` filtered to the product — and merges them
+as a **maximum**, never last-write-wins. A device that has been offline holds a
+*stale* number, not an older one, and `CloudPrefs`' generic mirror would happily
+push 2 over 3. That is why this one key is deliberately not in `CloudPrefs.keys`.
+
+**The five disclosures are the deliverable.** 3.1.2(c) wants the subscription's
+title, its length, its price per period, and working links to the Terms of Use
+(EULA) and the privacy policy, *in the binary, on the screen where the purchase
+happens*. Each is a labelled element of `SupportSettingsView` and each is
+asserted by `SupportContractTests`, because a disclosure deleted in a tidy-up is
+the same rejection again six weeks later. The subscription's length is read from
+`Product.subscription.subscriptionPeriod` rather than written as a literal, so
+it cannot drift from App Store Connect.
+
+**The privacy link had no trailing slash, and that was not a detail.** The site
+is an Astro project page: `…/hellonotes/privacy` is 200 and `…/hellonotes/privacy/`
+is **404**. A dead policy link on the one screen a reviewer is required to open
+is a rejection. It was caught by `curl`, not by reading.
+
+**Nothing is gated, and that is tested.** No feature consults a purchase —
+`noFeatureConsultsAPurchase` walks every Swift file outside the store and its own
+screen and fails if any of them so much as mentions `hasCommercialLicence` or
+`championCount`. A paywall cannot be added by accident.
+
+**A spinner that never stops is a lie.** Run against the live App Store, the
+newly created Champion product was simply absent — propagation takes hours — and
+the screen drew "Contacting the App Store…" forever, because `load()` finishing
+was being treated as "every product arrived". The spinner now belongs to the
+*load*; a product still missing afterwards says so and offers Try Again. Found by
+running the real screen against the real store on a simulator, which is also how
+the Commercial product was confirmed to load, price and period and description
+intact, before anything was submitted.
+
+**And the menu that only existed with a keyboard.** `File ▸ Open Default
+Collection` is built on iPadOS too — iPadOS builds its menu bar from `.commands`
+— but reaching a menu bar needs a hardware keyboard, so on a bare iPad the
+command did not exist. It is in `addCollectionItems` now, which all three touch
+menus share.
+
+---
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown

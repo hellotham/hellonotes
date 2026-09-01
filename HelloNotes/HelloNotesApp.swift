@@ -26,6 +26,13 @@ struct HelloNotesApp: App {
     /// account is what lets you *clone* one: you needed a repository to get the
     /// credentials for getting a repository.
     @State private var gitAccounts = GitAccountsStore()
+    /// The two voluntary purchases (Champion, Commercial). App-level for the
+    /// same reason `gitAccounts` is: the Settings scene is not inside a window,
+    /// so a store owned by `ContentView` would be invisible to the one screen
+    /// that sells anything. It also has to exist from launch — a transaction
+    /// approved while the app was closed arrives on `Transaction.updates`
+    /// once, and only a listener that is already running receives it.
+    @State private var store = StoreService()
     /// Built editor documents, kept above every view that shows one so tab
     /// switches and shell rearrangements don't re-parse the note or lose the
     /// caret. See EditorDocumentStore.
@@ -75,6 +82,7 @@ struct HelloNotesApp: App {
             .environment(llmSettings)
             .environment(appearance)
             .environment(gitAccounts)
+            .environment(store)
             .environment(documents)
             .environment(liveBuffer)
             .themedRoot(appearance)
@@ -157,7 +165,7 @@ struct HelloNotesApp: App {
         // concept, not a feature the iPad lacks.
         Settings {
             PreferencesView(llmSettings: llmSettings, appearance: appearance,
-                            gitAccounts: gitAccounts)
+                            gitAccounts: gitAccounts, store: store)
                 .themedRoot(appearance)
         }
 

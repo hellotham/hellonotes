@@ -37,6 +37,9 @@ struct PreferencesView: View {
     /// Git hosting accounts. Shared with the window rather than owned here —
     /// see `HelloNotesApp.gitAccounts`.
     var gitAccounts: GitAccountsStore
+    /// The two voluntary purchases. Owned by the app, not by this window —
+    /// `Settings` is its own scene and gets no environment from the main one.
+    var store: StoreService
 
     /// A repository-less service for the Settings tab.
     ///
@@ -64,6 +67,13 @@ struct PreferencesView: View {
 
             LLMSettingsForm(settings: llmSettings)
                 .tabItem { Label("AI", systemImage: "sparkles") }
+
+            // Both platforms, for the reason the file's header gives: a screen
+            // that exists on one shell is a screen nobody looked at on the
+            // other. This one also carries the App Store disclosures, so
+            // "reachable on macOS" is a review requirement, not a nicety.
+            SupportSettingsView(store: store)
+                .tabItem { Label("Support", systemImage: "heart") }
         }
         .frame(width: 560, height: 640)
     }
@@ -100,6 +110,8 @@ struct iOSSettingsView: View {
     /// inspector and never configure the remote it was reading from.
     var git: GitService?
     var accounts: GitAccountsStore?
+    /// The two voluntary purchases — see `PreferencesView.store`.
+    var store: StoreService
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -143,6 +155,19 @@ struct iOSSettingsView: View {
                 }
 
                 FolderConventionSections()
+
+                Section("Support") {
+                    NavigationLink {
+                        // `SupportSettingsView` is a `Form` already, exactly as
+                        // `LLMSettingsForm` is. Pushed as a destination that is
+                        // correct; wrapped in another `Form` it would render as
+                        // the same clipped stub the AI screen shipped as in
+                        // build 11.
+                        SupportSettingsView(store: store)
+                    } label: {
+                        Label("Support HelloNotes", systemImage: "heart")
+                    }
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -174,16 +199,17 @@ struct AppSettingsView: View {
     var appearance: AppearanceSettings
     var git: GitService?
     var accounts: GitAccountsStore?
+    var store: StoreService
 
     var body: some View {
         #if os(macOS)
         // A store is always available here — the shell owns one whether or not
         // a collection is open, which is the whole point of the Git tab.
         PreferencesView(llmSettings: llmSettings, appearance: appearance,
-                        gitAccounts: accounts ?? GitAccountsStore())
+                        gitAccounts: accounts ?? GitAccountsStore(), store: store)
         #else
         iOSSettingsView(settings: appearance, llmSettings: llmSettings,
-                        git: git, accounts: accounts)
+                        git: git, accounts: accounts, store: store)
         #endif
     }
 }

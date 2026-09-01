@@ -64,6 +64,8 @@ struct ContentView: View {
     /// Git commit identity + hosting-service accounts (GitHub, GitLab, …).
     /// Shared with the Settings scene — see `HelloNotesApp`.
     @Environment(GitAccountsStore.self) private var gitAccounts
+    /// The two voluntary purchases, for the Settings sheet.
+    @Environment(StoreService.self) private var store
 
     @State private var showGitSettings = false
 
@@ -888,7 +890,7 @@ struct ContentView: View {
         // lets this line exist without a gate around it.
         .sheet(isPresented: $showSettings) {
             AppSettingsView(llmSettings: llmSettings, appearance: appearance,
-                            git: focused?.git, accounts: gitAccounts)
+                            git: focused?.git, accounts: gitAccounts, store: store)
         }
         .sheet(isPresented: $showLLMSettings) {
             NavigationStack {
@@ -1476,6 +1478,16 @@ struct ContentView: View {
             showLauncher = true
         } label: {
             Label("Open Recent…", systemImage: "clock.arrow.circlepath")
+        }
+        // Also `File ▸ Open Default Collection`, which iPadOS builds from
+        // `.commands` — but a menu bar needs a hardware keyboard to reach, so
+        // on a bare iPad that route does not exist. This is the touch one, and
+        // `addCollectionItems` is used by all three menus (sidebar +, compact
+        // overflow, New Note) so adding it here adds it everywhere at once.
+        Button {
+            openDefaultCollection()
+        } label: {
+            Label("Open Default Collection", systemImage: "books.vertical")
         }
     }
 
