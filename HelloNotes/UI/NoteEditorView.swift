@@ -547,16 +547,43 @@ struct NoteEditorView: View {
     /// it does not. Truncating instead would be worse than the bug: a command
     /// nobody can reach is a command that does not exist.
     private var bottomBar: some View {
-        ViewThatFits(in: .horizontal) {
-            barRow
-            ScrollView(.horizontal) { barRow }
-                .scrollIndicators(.hidden)
+        // **The decision is about width, and only width.**
+        //
+        // This was `ViewThatFits`, which re-runs its measurement whenever the
+        // content changes — and this bar's content changes as you type: the word
+        // count updates on a 150ms debounce, the save status flips, and
+        // `isMarp`/`hasMermaid` add and remove buttons. Measured on an iPad,
+        // `barRow` was built 14 times for 11 typed characters, each build
+        // measuring a row of eleven controls whose `.fixedSize()` menus make it
+        // deliberately incompressible. Deciding from the offered width instead
+        // means typing changes what the bar *says* without re-deciding what
+        // shape it is.
+        //
+        // The threshold is measured, not guessed: the row's minimum is 512.67pt
+        // (see the note on `barRow`), rounded up for the horizontal padding.
+        GeometryReader { geo in
+            let fits = geo.size.width >= 533
+            Group {
+                if fits {
+                    barRow
+                } else {
+                    ScrollView(.horizontal) { barRow }
+                        .scrollIndicators(.hidden)
+                }
+            }
+            .frame(width: geo.size.width, alignment: .leading)
         }
+        .frame(height: barHeight)
         .font(.callout)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.bar)
     }
+
+    /// The bar's own height. A `GeometryReader` fills whatever it is offered and
+    /// reports no ideal size, so the height that used to come from the row's
+    /// content has to be stated once here instead.
+    private var barHeight: CGFloat { 34 }
 
     private var barRow: some View {
         HStack(spacing: 8) {

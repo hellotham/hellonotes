@@ -1373,6 +1373,15 @@ final class Collection: Identifiable {
             if let wroteAt = recentSelfWrites[key],
                now.timeIntervalSince(wroteAt) < Self.selfWriteWindow { return false }
             if selfWriteParents.contains(key) { return false }
+            // The atomic write's own temp sibling. `data.write(options: .atomic)`
+            // inside a sandbox writes `Note.md.sb-d4839701-Q57X0e` beside the
+            // note and renames it over the top. It has **no leading dot**, so the
+            // hidden-file filter never sees it, and it is not the path we
+            // recorded — so it read as someone else's edit and walked the whole
+            // vault. Measured on an iPad: one such event per save.
+            if recentSelfWrites.contains(where: { wrote, at in
+                now.timeIntervalSince(at) < Self.selfWriteWindow && key.hasPrefix(wrote + ".")
+            }) { return false }
             return true
         }
         if !external.isEmpty {
