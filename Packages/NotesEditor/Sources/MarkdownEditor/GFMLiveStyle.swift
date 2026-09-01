@@ -17,8 +17,24 @@ nonisolated public enum GFMLiveStyle {
 
     /// Spec-accurate style runs for the whole document.
     public static func runs(_ text: NSString) -> [StyleRun] {
-        let source = text as String
-        let nodes = GFMRenderer.nodes(source)
+        runs(text, nodes: GFMRenderer.nodes(text as String))
+    }
+
+    /// Both overlay inputs from **one** cmark parse.
+    ///
+    /// `runs` and `unrenderedRanges` each used to call `GFMRenderer.nodes`, and
+    /// `EditorDocument` calls both on every keystroke — so the document was
+    /// parsed by cmark **twice per typed character**. Measured on a 120 KB note
+    /// (under `gfmOverlayMaxLength`, so the overlay is live): 11.9ms per
+    /// keystroke, of which the two parses were ~7.6ms. Nothing about the two
+    /// results requires separate parses; they are two views of the same node
+    /// list.
+    public static func styleInputs(_ text: NSString) -> (runs: [StyleRun], unrendered: [NSRange]) {
+        let nodes = GFMRenderer.nodes(text as String)
+        return (runs(text, nodes: nodes), unrenderedRanges(text, nodes: nodes))
+    }
+
+    private static func runs(_ text: NSString, nodes: [GFMNode]) -> [StyleRun] {
         var runs: [StyleRun] = []
         runs.reserveCapacity(nodes.count * 2)
         for node in nodes {
@@ -69,9 +85,13 @@ nonisolated public enum GFMLiveStyle {
     /// see, and the editor collapses it the way it already collapses a setext
     /// underline.
     public static func unrenderedRanges(_ text: NSString) -> [NSRange] {
+        unrenderedRanges(text, nodes: GFMRenderer.nodes(text as String))
+    }
+
+    private static func unrenderedRanges(_ text: NSString, nodes: [GFMNode]) -> [NSRange] {
         guard text.length > 0 else { return [] }
         var covered = [Bool](repeating: false, count: text.length)
-        for node in GFMRenderer.nodes(text as String) where blockKinds.contains(node.kind) {
+        for node in nodes where blockKinds.contains(node.kind) {
             let r = node.range
             guard r.location >= 0, r.length > 0, r.location + r.length <= text.length else { continue }
             for i in r.location..<(r.location + r.length) { covered[i] = true }

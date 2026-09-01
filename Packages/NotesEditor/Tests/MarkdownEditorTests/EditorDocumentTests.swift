@@ -1159,6 +1159,67 @@ import UIKit
     }
     #endif
 
+    // MARK: - Latency at the size that actually hurts
+
+    /// A **120 KB** note — and the size is the whole point of the test.
+    ///
+    /// `hugeNotePipelineLatency` uses a 3.8 MB document and passes comfortably,
+    /// which reads as "keystrokes are fast at any size". It is not: 3.8 MB is
+    /// *above* `StyleApplier.gfmOverlayMaxLength` (200,000), so the GFM overlay
+    /// and `unrenderedRanges` short-circuit to `[]` and the expensive path is
+    /// never taken. The pathological document was so large it fell into the
+    /// fast lane, and the budget that looked strictest was measuring the
+    /// cheapest case.
+    ///
+    /// 120 KB is a long note somebody really writes — roughly 20,000 words —
+    /// and it sits under the cap, so every per-keystroke whole-document pass
+    /// runs for real. `computeUnrenderedRanges` is cached on `revision`, and
+    /// `revision` bumps on every edit, so that cache misses on every keystroke.
+    @Test func keystrokeStaysSubFrameJustUnderTheOverlayCap() async {
+        // Under 200,000 characters, so the GFM overlay path is live.
+        var body = ""
+        var i = 0
+        while body.utf16.count < 120_000 {
+            body += """
+            ## Section \(i)
+
+            Some prose with **bold**, *italic*, `code` and a [link](https://example.com)
+            in it, long enough to make the paragraph wrap more than once on any
+            reasonable measure so the layout has real work to do.
+
+            - a list item
+            - another one
+
+            """
+            i += 1
+        }
+        let text = body
+        #expect(text.utf16.count < StyleApplier.gfmOverlayMaxLength,
+                "the point of this test is to sit UNDER the cap")
+
+        let document = await EditorDocument.make(text: text)
+        document.styleEverythingNow()
+
+        let mid = document.storage.length / 2
+        var worst = 0.0, total = 0.0
+        let keystrokes = 40
+        for k in 0..<keystrokes {
+            let t0 = DispatchTime.now()
+            document.storage.replaceCharacters(in: NSRange(location: mid + k, length: 0), with: "x")
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
+            worst = max(worst, ms); total += ms
+        }
+        print("""
+        120KB keystroke — avg \(String(format: "%.2f", total / Double(keystrokes))) ms, \
+        worst \(String(format: "%.2f", worst)) ms
+        """)
+        if Self.isOptimizedBuild {
+            // One 120Hz frame. A keystroke is the one operation a person can
+            // out-run, so the budget is the frame, not "fast enough".
+            #expect(worst < 8, "keystroke took \(worst) ms on a 120 KB note")
+        }
+    }
+
     // MARK: - Latency at the p99-note scale
 
     @Test func hugeNotePipelineLatency() async {

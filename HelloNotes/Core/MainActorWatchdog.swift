@@ -114,7 +114,12 @@ nonisolated enum MainActorWatchdog {
                 // arbitrary instant inside it.
                 var samples = 0
                 var timedOut = false
-                while answered.wait(timeout: .now() + .milliseconds(250)) == .timedOut {
+                // 40ms, not 250. The poll interval is the *granularity* of
+                // the capture: a 292ms stall polled every 250ms is looked at
+                // once, after 250ms, which is usually the tail end where the
+                // interesting frame has already returned. Polling at roughly
+                // half a frame catches the middle of a stall this short.
+                while answered.wait(timeout: .now() + .milliseconds(40)) == .timedOut {
                     let waited = ContinuousClock.now - asked
                     if waited > .seconds(30) { timedOut = true; break }
                     guard waited > stackThreshold, samples < maxStacksPerStall else { continue }
@@ -189,7 +194,14 @@ nonisolated enum MainActorWatchdog {
     // MARK: - Where, not just when
 
     /// A stall over this gets its stack captured as well as its duration.
-    private static let stackThreshold: Duration = .milliseconds(300)
+    ///
+    /// **90ms, not 300.** At 300 this instrument could not see the bug it
+    /// exists for: a keystroke that misses a frame stalls for 130–300ms, and
+    /// every one of those was logged as a duration with no stack — "STALL 292ms
+    /// while: (unlabelled)", six times in a row, which names the symptom and
+    /// nothing else. The threshold has to sit *below* the smallest stall worth
+    /// fixing, and for typing that is about one dropped frame.
+    private static let stackThreshold: Duration = .milliseconds(90)
 
     /// How many stacks one stall may contribute. Capturing suspends the main
     /// thread for the length of a register read and a pointer walk, so a few is

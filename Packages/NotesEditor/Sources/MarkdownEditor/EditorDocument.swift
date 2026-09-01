@@ -417,6 +417,11 @@ public final class EditorDocument {
             // While typing, reveal the *lines* being edited — not every line of
             // every damaged block, which would strip the bars off a whole
             // blockquote the moment you touched any line of it.
+            // Before restyling: carry the overlay across the edit rather than
+            // letting `restyle` find a stale revision and re-parse the whole
+            // document synchronously, which is what made a keystroke on a
+            // 120 KB note cost 11.9ms.
+            shiftOverlayForEdit(oldRange: oldRange, delta: delta)
             let editedLines = lineNumbers(coveringCharactersIn: edit.newRange)
             let stillRevealed = damaged.union(revealedBlocks)
             restyle(blockIndices: damaged, revealed: stillRevealed,
@@ -428,7 +433,20 @@ public final class EditorDocument {
         lastEditMetrics.restyleMS = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
 
         revision &+= 1
+        let t1 = DispatchTime.now()
         onEdit?(edit)
+        // `onEdit` is the host's hook, and it is the one number none of the
+        // package's own tests can see: the unit tests build a document with no
+        // host attached, so a keystroke that costs 2ms here can cost far more
+        // in the app and every measurement still says the editor is fast.
+        // Logged separately from parse and restyle for exactly that reason.
+        if EditorProbe.isEditLogEnabled {
+            let onEditMS = Double(DispatchTime.now().uptimeNanoseconds - t1.uptimeNanoseconds) / 1e6
+            EditorProbe.logEdit(String(
+                format: "edit blocks=%d parse=%.2f restyle=%.2f onEdit=%.2f total=%.2f",
+                damaged.count, lastEditMetrics.parseMS, lastEditMetrics.restyleMS,
+                onEditMS, lastEditMetrics.parseMS + lastEditMetrics.restyleMS + onEditMS))
+        }
     }
 
     // MARK: - External text sessions (Writing Tools, AI rewrites)
@@ -675,6 +693,9 @@ public final class EditorDocument {
     /// parse.
     @ObservationIgnored private var unrenderedCache: [NSRange] = []
     @ObservationIgnored private var unrenderedCacheRevision = -1
+    /// Coalesces the whole-document cmark pass off the typing path. See
+    /// `shiftOverlayForEdit` for why it may lag a keystroke.
+    @ObservationIgnored private var overlayRefreshTask: Task<Void, Never>?
 
     /// The document's link reference definitions: where they are, so they can
     /// be concealed, and what they say, so `![foo]` can be resolved.
@@ -743,15 +764,101 @@ public final class EditorDocument {
 
     private func computeUnrenderedRanges() -> [NSRange] {
         guard revision != unrenderedCacheRevision else { return unrenderedCache }
+        refreshGFMOverlay()
+        return unrenderedCache
+    }
+
+    /// Carry the overlay caches across an edit **without re-parsing**, and book
+    /// a real refresh for a moment later.
+    ///
+    /// The cmark overlay is whole-document on purpose: parsing a block on its
+    /// own reads `    - x` as indented code rather than a list item, which is
+    /// the isolation bug `StyleApplier` documents at its `gfmRuns` loop. So it
+    /// cannot be made O(damage) by narrowing the parse — but it does not have
+    /// to happen *between two keystrokes*.
+    ///
+    /// What makes deferring safe is that the overlay is **additive**: the
+    /// editor's own `StyleSpec` runs already style emphasis, code spans and
+    /// links as you type, and cmark's runs are laid over them to make the
+    /// result spec-exact. Lagging that refinement by one coalescing interval is
+    /// invisible; re-parsing 120 KB on every keystroke was not.
+    ///
+    /// Ranges wholly after the edit shift by `delta`; ranges touching the edit
+    /// are dropped, because their extent is exactly what the edit may have
+    /// changed and a stale one would paint the wrong characters. The dropped
+    /// region keeps the editor's own styling until the refresh lands.
+    private func shiftOverlayForEdit(oldRange: NSRange, delta: Int) {
+        guard gfmRunsCacheRevision >= 0 || unrenderedCacheRevision >= 0 else { return }
+        let editEnd = oldRange.location + oldRange.length
+
+        func shifted(_ range: NSRange) -> NSRange? {
+            if range.location >= editEnd { 
+                return NSRange(location: range.location + delta, length: range.length)
+            }
+            if range.location + range.length <= oldRange.location { return range }
+            return nil          // touches the edit — drop it
+        }
+
+        gfmRunsCache = gfmRunsCache.compactMap { run in
+            guard let range = shifted(run.range) else { return nil }
+            var moved = run
+            moved.range = range
+            return moved
+        }
+        unrenderedCache = unrenderedCache.compactMap(shifted)
+        gfmRunsCacheRevision = revision
         unrenderedCacheRevision = revision
+        scheduleOverlayRefresh()
+    }
+
+    /// One real refresh per quiet moment, however fast the typing.
+    private func scheduleOverlayRefresh() {
+        overlayRefreshTask?.cancel()
+        overlayRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let self else { return }
+            let before = gfmRunsCache
+            refreshGFMOverlay()
+            // Only repaint if cmark actually disagreed with the shifted cache;
+            // a refresh that changed nothing must not cost a restyle.
+            guard gfmRunsCache != before else { return }
+            restyleVisibleAfterOverlayRefresh()
+        }
+    }
+
+    /// Repaint whatever is styled now that the overlay is exact again.
+    private func restyleVisibleAfterOverlayRefresh() {
+        let all = Set(parse.blocks.indices)
+        guard !all.isEmpty else { return }
+        restyle(blockIndices: all, revealed: revealedBlocks, revealedLines: revealedLines)
+    }
+
+    /// Fill **both** overlay caches from a single cmark parse.
+    ///
+    /// `currentGFMRuns()` and `computeUnrenderedRanges()` are both called from
+    /// `restyle`, both were keyed on `revision`, and `revision` bumps on every
+    /// edit — so each keystroke re-parsed the whole document with cmark, twice.
+    /// The two results are two views of one node list, so one parse serves
+    /// both, and whichever of the two is asked for first fills the other.
+    ///
+    /// This does not make the pass O(damage) — it is still whole-document, and
+    /// `keystrokeStaysSubFrameJustUnderTheOverlayCap` is the test that says so.
+    /// It halves the constant.
+    private func refreshGFMOverlay() {
         let ns: NSString = storage.mutableString
-        var ranges = ns.length < StyleApplier.gfmOverlayMaxLength
-            ? GFMLiveStyle.unrenderedRanges(ns) : []
+        let inside = ns.length < StyleApplier.gfmOverlayMaxLength
+        let inputs: (runs: [StyleRun], unrendered: [NSRange]) =
+            inside ? GFMLiveStyle.styleInputs(ns) : ([], [])
+
+        gfmRunsCache = inputs.runs
+        gfmRunsCacheRevision = revision
+
+        var ranges = inputs.unrendered
         ranges.append(contentsOf: wrapperHTMLRanges(ns))
         ranges.append(contentsOf: referenceDefinitionRanges(ns))
         ranges.append(contentsOf: frontMatterRange(ns))
         unrenderedCache = ranges
-        return unrenderedCache
+        unrenderedCacheRevision = revision
     }
 
     /// Runs of blocks that only mean anything rendered **together**: a raw HTML
@@ -1051,10 +1158,7 @@ public final class EditorDocument {
 
     private func currentGFMRuns() -> [StyleRun] {
         guard revision != gfmRunsCacheRevision else { return gfmRunsCache }
-        gfmRunsCacheRevision = revision
-        let ns: NSString = storage.mutableString
-        gfmRunsCache = ns.length < StyleApplier.gfmOverlayMaxLength
-            ? GFMLiveStyle.runs(ns) : []
+        refreshGFMOverlay()
         return gfmRunsCache
     }
 

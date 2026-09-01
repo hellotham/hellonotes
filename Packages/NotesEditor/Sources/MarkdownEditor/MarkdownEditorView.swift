@@ -1492,7 +1492,22 @@ public final class MarkdownUITextView: UITextView {
         tv.smartDashesType = .no
         tv.smartQuotesType = .no
         tv.smartInsertDeleteType = .no
-        tv.spellCheckingType = .default
+        // **`.no`, and it is a performance fix, not a preference.**
+        //
+        // The Mac keeps continuous spell checking on (`isContinuousSpellChecking
+        // Enabled = true`) and pays nothing for it. iOS is not the same shape:
+        // spell checking there is served by `UIKeyboardAutocorrectionController`,
+        // which lives behind `UIKeyboardTaskQueue` — a *cross-thread condition
+        // lock*. Measured on an iPad, every character typed put the main thread
+        // in `-[UIKeyboardTaskQueue _lockWhenReadyForMainThread]` →
+        // `NSConditionLock.lockWhenCondition(_:before:)` → `__psynch_cvwait`,
+        // waiting on that queue inside `acceptAutocorrectionForWordTerminator:`.
+        // The editor's own work per keystroke is ~1.3ms; this wait was ~90ms.
+        //
+        // Autocorrection is already `.no` for a source editor, so the only thing
+        // being given up is the red underline — and it was being paid for in
+        // dropped keystrokes.
+        tv.spellCheckingType = .no
         tv.keyboardDismissMode = .interactive
         tv.inputAccessoryView = tv.formatAccessory
 

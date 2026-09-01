@@ -86,6 +86,11 @@ struct NoteEditorView: View {
     /// column, so there is exactly one place the buffer is known.
     @Environment(LiveBuffer.self) private var liveBuffer
     @State private var showGitPane = false
+    /// How far the keyboard — *and its format accessory bar* — reaches up the
+    /// window. See `KeyboardOverlap`: with a hardware keyboard SwiftUI reports
+    /// no keyboard safe area at all while the 44pt accessory is still on
+    /// screen, drawn over whatever the app put at the bottom edge.
+    @State private var keyboard = KeyboardOverlap()
 
     /// Folder (relative to the note) where pasted images are saved; empty means
     /// the same folder as the note. Configured in Settings.
@@ -231,9 +236,39 @@ struct NoteEditorView: View {
                         embedProvider: embedProvider,
                         completionSource: completionSource)
 
-                    Divider()
-                    bottomBar
                 }
+                // **A safe-area inset, not the last row of the VStack.**
+                //
+                // The editor's `UITextView` carries an `inputAccessoryView` —
+                // the format bar (B / I / lists / headings). iOS docks that
+                // above the software keyboard, and at the bottom of the screen
+                // when a hardware keyboard is attached. As the last child of a
+                // `VStack` this bar sat at the screen's bottom edge too, so the
+                // two occupied the same 44pt: on an iPad the format bar drew
+                // straight over the word count, the save status and the four
+                // mode buttons, and which one you could see depended on which
+                // keyboard was connected.
+                //
+                // `safeAreaInset` is the fix rather than a hard-coded 44pt
+                // padding because the accessory's height is not ours to know —
+                // it changes with Dynamic Type and with the keyboard's own
+                // chrome. SwiftUI already tracks it as the keyboard safe area;
+                // placing the bar *in* that inset means it is laid out above
+                // whatever is there, and the pane above it shrinks by exactly
+                // the bar's height instead of being overlapped.
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 0) {
+                        Divider()
+                        bottomBar
+                    }
+                    // Lift the bar clear of the keyboard's input accessory.
+                    .padding(.bottom, keyboard.height)
+                }
+                // Ours is the only keyboard avoidance in this subtree.
+                // Without this SwiftUI would also inset for the software
+                // keyboard and the bar would rise twice — the accessory height
+                // plus the keyboard's — leaving a gap the size of a keyboard.
+                .ignoresSafeArea(.keyboard, edges: .bottom)
                 // S3: content expands, chrome stays fixed. The mode content
                 // (editor, GFM preview, split) is a viewport; the banners and
                 // bottom bar are definite-height chrome. Without this clamp the

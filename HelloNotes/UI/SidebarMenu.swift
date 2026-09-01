@@ -112,14 +112,23 @@ enum SidebarMenu {
                 entry("Copy Wiki Link", "link") { Clipboard.copy(note.wikiLink) },
                 entry("Open in New Window", "macwindow") { actions.openInNewWindow(note) },
             ]
-            if FileReveal.canReveal(note.fileURL) {
-                menu.append(entry(FileReveal.revealTitle, "folder") {
-                    FileReveal.reveal(note.fileURL)
-                })
-            }
+            // Unconditional, deliberately. `canReveal` is
+            // `FileManager.fileExists(atPath:)` — a **syscall**, and this
+            // function is called from `SidebarItemRow`'s body, so it ran once
+            // per visible row every time the sidebar rebuilt. While typing,
+            // that is a stat storm behind the editor. The note came from a
+            // scan, so it existed a moment ago; and `FileReveal.reveal` checks
+            // again before acting, which is where a check costs nothing because
+            // a person just asked for it.
+            menu.append(entry(FileReveal.revealTitle, "folder") {
+                FileReveal.reveal(note.fileURL)
+            })
             // Cloud (File Provider) download controls, only for notes that live
             // in a cloud folder.
-            if isCloudBacked(note.fileURL) || note.isOnlineOnly {
+            // `isOnlineOnly` implies cloud-backed, so the `||` only ever
+            // mattered for a *downloaded* cloud file — which is the one case
+            // that still needs asking.
+            if note.isOnlineOnly || isCloudBacked(note.fileURL) {
                 menu.append(separator())
                 if note.isOnlineOnly {
                     menu.append(entry("Download", "arrow.down.circle") {
@@ -245,7 +254,30 @@ enum SidebarMenu {
 
     /// Whether a file lives in a File Provider (iCloud Drive, Dropbox, …), and
     /// so has download controls at all.
+    /// Whether `url` lives in a cloud (File Provider) folder.
+    ///
+    /// **Memoised per directory, because this is called from a view body.**
+    /// `resourceValues(forKeys:)` is a syscall — and on a File Provider URL it
+    /// can be a round trip to the provider — and `SidebarMenu.items(for:)` runs
+    /// once per visible row every time the sidebar rebuilds. Measured on an
+    /// iPad, it appeared on the main thread *while typing*, inside
+    /// `SidebarItemRow.content`.
+    ///
+    /// Cloud-ness is a property of the folder, not the file: every note in a
+    /// cloud folder is cloud-backed and no note in a local one is. So the cache
+    /// is keyed on the parent directory, which turns one syscall per row per
+    /// rebuild into one syscall per folder per launch. It is never invalidated
+    /// because a directory does not move in and out of a File Provider domain
+    /// while the app is running; if one somehow did, the cost is a menu item
+    /// that is wrongly present or absent until relaunch.
+    private static var cloudBackedCache: [String: Bool] = [:]
+
     private static func isCloudBacked(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
+        let directory = url.deletingLastPathComponent().path
+        if let known = cloudBackedCache[directory] { return known }
+        let value = (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?
+            .isUbiquitousItem == true
+        cloudBackedCache[directory] = value
+        return value
     }
 }
