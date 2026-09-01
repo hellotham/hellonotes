@@ -642,6 +642,19 @@ struct ContentView: View {
             library.onOpened = { recents.record($0) }
             if library.isEmpty {
                 await library.restore()
+                // Nothing restored and we have never seeded: this is a genuine
+                // first run, so open the collection that ships with the app.
+                // "Choose a folder" is a strange first instruction for someone
+                // who has not yet seen what the app does with one — and a
+                // reviewer given no collection cannot review the app at all.
+                //
+                // Gated on `hasSeeded`, not on the folder existing, so a user
+                // who closes it *and* deletes the files is not given it back
+                // every launch. `Open Default Collection` still restores it.
+                if library.isEmpty, !DefaultCollection.hasSeeded,
+                   let seeded = DefaultCollection.seedIfNeeded() {
+                    _ = await library.open(url: seeded)
+                }
                 // First run with nothing to restore: onboard a brand-new user,
                 // otherwise (welcome already seen) go straight to the launcher.
                 if library.isEmpty {
@@ -1070,6 +1083,7 @@ struct ContentView: View {
             newNote: closingOpenQuickly { newNote() },
             todaysNote: closingOpenQuickly { openTodaysNote() },
             openLauncher: closingOpenQuickly { showLauncher = true },
+            openDefaultCollection: { openDefaultCollection() },
             canOpenQuickly: !(scope?.notes.isEmpty ?? true),
             openQuickly: { showOpenQuickly = true },
             canGraph: !(scope?.notes.isEmpty ?? true),
@@ -1967,6 +1981,18 @@ struct ContentView: View {
     // MARK: - Outline items (NSOutlineView data)
 
     // MARK: - Actions
+
+    /// Open (and if necessary restore) the collection that ships with the app.
+    ///
+    /// Seeding is idempotent and never overwrites, so this is safe to invoke
+    /// with the collection already open, already edited, or partially deleted.
+    private func openDefaultCollection() {
+        guard let url = DefaultCollection.seedIfNeeded() else { return }
+        Task {
+            let collection = await library.open(url: url)
+            library.focusCollection(containing: collection.rootURL)
+        }
+    }
 
     private func newNote() {
         guard let c = railCollection ?? focused else { return }

@@ -252,6 +252,12 @@ struct AppActions {
     var newNote: () -> Void
     var todaysNote: () -> Void
     var openLauncher: () -> Void
+
+    /// Reopen the collection that ships with the app, restoring its files if
+    /// they were deleted. The default collection is closable like any other, so
+    /// there has to be a way back to it that does not involve knowing where in
+    /// Documents it lives.
+    var openDefaultCollection: (() -> Void)?
     var canOpenQuickly: Bool
     var openQuickly: () -> Void
     var canGraph: Bool
@@ -450,6 +456,8 @@ struct HelloNotesCommands: Commands {
             Button("Open…") { actions?.openLauncher() }
                 .keyboardShortcut("o")
                 .disabled(actions == nil)
+            Button("Open Default Collection") { actions?.openDefaultCollection?() }
+                .disabled(actions?.openDefaultCollection == nil)
             Button("Quick Capture…") { actions?.quickCapture?() }
                 .keyboardShortcut("k", modifiers: [.command, .control])
                 .disabled(actions?.quickCapture == nil)
