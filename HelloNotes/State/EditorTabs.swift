@@ -66,14 +66,23 @@ final class EditorTabs {
             let model = EditorModel()
             model.onSaved = { [weak self] url, text in self?.onNoteSaved?(url, text) }
             model.saveBlockedReason = { [weak self] url in self?.saveBlocked?(url) }
+            // **The tab appears first, then it fills in.**
+            //
+            // It used to be appended only after `open` returned, and `open`
+            // blocks in the file coordinator until a cloud file materialises —
+            // so clicking a note that was not downloaded yet did *nothing at
+            // all* for as long as the download took, and the only way to learn
+            // it had worked was to click again afterwards. The editor knows how
+            // to say it is downloading (`DownloadingBanner`); it just has to be
+            // on screen to say it.
+            model.willOpen(note)
+            self?.editors.append(model)
+
             // Fetch the content *before* the editor reads the file, or it would
             // load a placeholder's emptiness as the note's text.
             await self?.prepareToOpen?(note.fileURL)
             await model.open(note)
-            if let self {
-                self.editors.append(model)
-                self.openTasks[note.id] = nil
-            }
+            self?.openTasks[note.id] = nil
             return model
         }
         openTasks[note.id] = task

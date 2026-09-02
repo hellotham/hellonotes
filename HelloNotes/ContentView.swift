@@ -1932,11 +1932,11 @@ struct ContentView: View {
                           systemImage: "eye.slash")
                         .foregroundStyle(.secondary)
                         .help("Non-note files (PDFs, images, documents) aren't listed in this collection. Turn them back on in View ▸ Show Non-Note Files.")
-                } else if focused.hasIncompleteIndex {
+                } else if let reason = focused.staleReason {
                     Divider().frame(height: 11)
-                    Label("Re-indexing", systemImage: "clock.arrow.circlepath")
-                        .foregroundStyle(.secondary)
-                        .help("The system reported that it dropped file-change notifications, so this collection is being re-scanned. Search results may be incomplete until it finishes.")
+                    Label(reason.summary, systemImage: reason.symbol)
+                        .foregroundStyle(reason.isPermanent ? .orange : .secondary)
+                        .help(reason.explanation)
                 }
             }
 

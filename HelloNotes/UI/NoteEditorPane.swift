@@ -68,7 +68,18 @@ struct NoteEditorPane: View {
                 // An online-only note whose bytes have not arrived. The Mac has
                 // shown this since cloud collections landed; iPad, which is
                 // *more* likely to be looking at one, showed nothing.
-                if editor.isDownloading { DownloadingBanner(editor: editor) }
+                if editor.isDownloading {
+                    DownloadingBanner(editor: editor)
+                } else if let failure = editor.loadFailure {
+                    // Not a wait — the editor is *not* showing this note, and
+                    // that is the thing the user has to know before typing into
+                    // what looks like an empty document.
+                    UnloadedBanner(message: failure) {
+                        if let note = editor.note {
+                            Task { await editor.open(note) }
+                        }
+                    }
+                }
             }
             if appearance.showInlineTitle {
                 InlineNoteTitle(

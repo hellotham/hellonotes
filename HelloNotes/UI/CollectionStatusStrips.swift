@@ -80,10 +80,21 @@ struct CollectionConditionBar: View {
                         .font(.caption)
                         .buttonStyle(.borderless)
                 }
-            } else if collection.hasIncompleteIndex {
-                ConditionStrip(symbol: "exclamationmark.circle.fill", tint: .orange,
-                               message: "\(collection.name) is being re-indexed — search may be incomplete.") {
-                    EmptyView()
+            } else if let reason = collection.staleReason {
+                // The wording is the reason's, not this view's. Three surfaces
+                // used to phrase this independently and all three said a scan
+                // was running — which for an unreadable folder is simply untrue,
+                // and left a banner nothing could clear.
+                ConditionStrip(symbol: reason.symbol,
+                               tint: reason.isPermanent ? .orange : .secondary,
+                               message: "\(collection.name): \(reason.explanation)") {
+                    if reason.isPermanent {
+                        Button("Rescan") { collection.rescan() }
+                            .font(.caption)
+                            .buttonStyle(.borderless)
+                    } else {
+                        EmptyView()
+                    }
                 }
             }
         }

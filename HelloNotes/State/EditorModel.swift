@@ -29,6 +29,12 @@ final class EditorModel {
     /// just show blank while a slow download runs.
     private(set) var isDownloading = false
 
+    /// Set when the note's contents could not be loaded — still downloading, or
+    /// unreadable. **While this is set the editor never writes**, because the
+    /// buffer is not the note: it is a blank standing in for content that was
+    /// not available, and saving it would replace the note with nothing.
+    private(set) var loadFailure: String?
+
     /// Increments after every successful write. Observers (e.g. the link graph)
     /// use it to know a note's contents changed on disk.
     private(set) var savedRevision = 0
@@ -87,6 +93,17 @@ final class EditorModel {
 
     private static let debounce: Duration = .milliseconds(600)
 
+    /// Adopt the note's *identity* before its content is available.
+    ///
+    /// A tab has to be able to draw — its title, and the banner saying the file
+    /// is still downloading — while `open` is still waiting on the cloud. It
+    /// marks the buffer unloaded so nothing can be written in the meantime.
+    func willOpen(_ note: Note) {
+        self.note = note
+        loadFailure = "“\(note.title)” is still loading."
+        isDownloading = !FileIO.hasContentAvailable(note)
+    }
+
     /// Load a note into the editor, flushing any pending save for the
     /// previous note first so switching notes never drops changes. Pass `nil`
     /// to clear the editor.
@@ -99,15 +116,42 @@ final class EditorModel {
         conflictDiskText = nil
 
         let loaded: String
-        if let url = note?.fileURL {
-            // An online-only note materializes on this coordinated read, which
-            // may take a moment over the network — surface a downloading state.
-            isDownloading = note?.isOnlineOnly ?? false
-            // Read off the main actor so opening a large note never stalls the UI.
-            loaded = await Task.detached(priority: .userInitiated) {
-                (try? FileIO.readString(at: url)) ?? ""
-            }.value
-            isDownloading = false
+        loadFailure = nil
+        if let note, case let url = note.fileURL {
+            // **Wait for the bytes before reading them.**
+            //
+            // This used to read straight away and say the read would
+            // materialise the file on its way past. Sometimes it does; when it
+            // does not, `try?` turned the failure into `""` — and `""` is not a
+            // failure, it is *an empty note*. `lastSavedText` became empty too,
+            // so the first character typed made the buffer dirty against an
+            // empty baseline and the next save wrote that over the original.
+            // `FileIO.hasContentAvailable` says so in as many words; the editor
+            // was the one place not asking it.
+            if !FileIO.hasContentAvailable(note) {
+                isDownloading = true
+                let arrived = await FileIO.materialise(at: url)
+                isDownloading = false
+                if !arrived {
+                    loadFailure = "“\(note.title)” hasn’t finished downloading from the cloud. "
+                                + "It will open once the download completes."
+                }
+            }
+            if loadFailure == nil {
+                // Read off the main actor so opening a large note never stalls the UI.
+                let outcome = await Task.detached(priority: .userInitiated) {
+                    Result { try FileIO.readString(at: url) }
+                }.value
+                switch outcome {
+                case .success(let text):
+                    loaded = text
+                case .failure(let error):
+                    loadFailure = "“\(note.title)” couldn’t be read — \(error.localizedDescription)"
+                    loaded = ""
+                }
+            } else {
+                loaded = ""
+            }
         } else {
             loaded = ""
         }
@@ -203,6 +247,14 @@ final class EditorModel {
         guard let url = note?.fileURL else { return }
         let snapshot = text
         guard snapshot != lastSavedText else { return }
+
+        // Never write a buffer that was never loaded. The blank on screen stands
+        // in for content that could not be read, and persisting it is exactly
+        // the data loss `FileIO.hasContentAvailable` warns about.
+        if let failure = loadFailure {
+            saveError = failure
+            return          // buffer stays dirty on purpose — the edit is not lost
+        }
 
         if let reason = saveBlockedReason?(url) {
             saveError = reason

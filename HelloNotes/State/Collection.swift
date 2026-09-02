@@ -26,13 +26,71 @@ enum CollectionState: Equatable {
     case stale(StaleReason)
     case unavailable(UnavailableReason)
 
+    /// Why the index is behind the folder — and, crucially, whether a rescan
+    /// would do anything about it.
+    ///
+    /// These were one case. "Interrupted, **or** blocked by a folder it
+    /// couldn't read" put a transient condition and a permanent one under a
+    /// single label whose message said *"is being re-indexed"* — work in
+    /// progress. Nothing was in progress: the scan had finished and simply
+    /// could not list one directory. So the banner was both untrue and
+    /// unclearable, because the only thing that clears it is a scan that
+    /// succeeds, and no scan of that folder ever will.
     enum StaleReason: Equatable {
         /// FSEvents dropped events; the change list is incomplete by its own
         /// admission, so only a full rescan can be trusted.
         case eventsDropped
-        /// A scan was interrupted — cancelled, suspended, or blocked by a folder
-        /// it couldn't read — so the note list is a subset of the folder.
+        /// A scan stopped before it finished — cancelled, or resumed from a
+        /// stored frontier. A rescan is owed and a rescan will fix it.
         case scanIncomplete
+        /// The scan reached every directory but could not *list* some of them,
+        /// so whatever is inside them is missing from the index. A rescan does
+        /// not help — the folders are still unreadable — so this says which
+        /// one, because that is the only thing anyone can act on.
+        case foldersUnreadable(count: Int, example: String, why: String)
+
+        /// One wording, used by every surface.
+        ///
+        /// There were three, invented separately in `CollectionStatusStrips`,
+        /// `ContentView`'s status bar and the Mac outline's tooltip, and all
+        /// three claimed a scan was running.
+        var explanation: String {
+            switch self {
+            case .eventsDropped:
+                return "The system dropped file-change notifications, so this collection is being re-scanned. Search results may be incomplete until it finishes."
+            case .scanIncomplete:
+                return "The last scan didn’t finish, so search results may be incomplete. Rescanning the collection will fix it."
+            case .foldersUnreadable(let count, let example, let why):
+                // The path *and* the system's own reason, because "permission
+                // denied" and "no such file" are fixed in completely different
+                // ways, and a message that says neither is not actionable.
+                let others = count > 1 ? " (and \(count - 1) other\(count == 2 ? "" : "s"))" : ""
+                return "HelloNotes couldn’t read “\(example)”\(others) in this collection — \(why). Notes inside it are missing from search. Rescanning won’t help; the folder itself has to be fixed."
+            }
+        }
+
+        /// The short form, for a status bar.
+        var summary: String {
+            switch self {
+            case .eventsDropped, .scanIncomplete: return "Re-indexing"
+            case .foldersUnreadable(let count, _, _):
+                return count == 1 ? "1 folder unreadable" : "\(count) folders unreadable"
+            }
+        }
+
+        /// Whether waiting will not help. A permanent condition earns a
+        /// warning colour and an action; a transient one is a quiet note that
+        /// will clear on its own.
+        var isPermanent: Bool {
+            if case .foldersUnreadable = self { return true } else { return false }
+        }
+
+        var symbol: String {
+            switch self {
+            case .eventsDropped, .scanIncomplete: return "clock.arrow.circlepath"
+            case .foldersUnreadable: return "exclamationmark.triangle.fill"
+            }
+        }
     }
 
     enum UnavailableReason: Equatable {
@@ -94,6 +152,11 @@ final class Collection: Identifiable {
     /// than serve a confident subset.
     var hasIncompleteIndex: Bool {
         if case .stale = state { return true } else { return false }
+    }
+
+    /// Why, when it is. `nil` when the index is not behind the folder.
+    var staleReason: CollectionState.StaleReason? {
+        if case .stale(let reason) = state { return reason } else { return nil }
     }
 
     /// Whether non-Markdown files are collected at all.
@@ -664,6 +727,13 @@ final class Collection: Identifiable {
     private var scanInFlight: Task<Void, Never>?
     private var rescanWhenIdle = false
 
+    /// Whether the one retry after unreadable folders has been spent.
+    ///
+    /// Reset when the collection is opened and when the user asks for a rescan,
+    /// so "try again" is always available — but never automatic twice, or a
+    /// folder that cannot be read becomes a scan every three seconds forever.
+    private var retriedAfterIssues = false
+
     private func performScan() async {
         let collectionID = id
         let source = LocalTreeSource(root: rootURL, includesNonNoteFiles: showsNonNoteFiles)
@@ -824,6 +894,8 @@ final class Collection: Identifiable {
             } else {
                 applyMerging(found)
             }
+            // A clean pass earns the next failure its own retry.
+            retriedAfterIssues = false
             state = isAvailable ? .ready : state
             WalkCheckpointStore.rememberTotal(result.progress.directoriesVisited, for: collectionID)
         } else {
@@ -860,7 +932,40 @@ final class Collection: Identifiable {
             } else {
                 applyMerging(found, unreadable: provedCoverage ? result.issues.map(\.path) : nil)
             }
-            markStale(.scanIncomplete)
+
+            // **Say which of the two this is, because they are fixed
+            // differently and only one of them is temporary.**
+            //
+            // A pass that drained the frontier from the root and failed only to
+            // *list* some directories has not been interrupted — it finished,
+            // and those folders are unreadable. Calling that "re-indexing" was
+            // wrong twice over: it claimed work was in progress when none was,
+            // and the only thing that clears the flag is a scan that succeeds,
+            // which for that folder will never happen. The banner could not go
+            // away, and it never said what to do about it.
+            if provedCoverage, let issue = result.issues.first {
+                // One retry first: on iOS a directory listing can fail simply
+                // because the File Provider has not materialised it yet, and a
+                // launch-time blip should not leave a permanent warning. Bounded
+                // to one, and only ever entered when something actually failed —
+                // a healthy vault pays nothing.
+                if !retriedAfterIssues {
+                    retriedAfterIssues = true
+                    markStale(.scanIncomplete)
+                    MainActorWatchdog.note("scan had \(result.issues.count) unreadable folder(s); retrying once")
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .seconds(3))
+                        await self?.scanOffMain()
+                        self?.refreshDerived()
+                    }
+                } else {
+                    markStale(.foldersUnreadable(count: result.issues.count,
+                                                 example: issue.path.isEmpty ? name : issue.path,
+                                                 why: issue.message))
+                }
+            } else {
+                markStale(.scanIncomplete)
+            }
         }
     }
 
@@ -1177,6 +1282,7 @@ final class Collection: Identifiable {
 
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {
         securityScoped = rootURL.startAccessingSecurityScopedResource()
+        retriedAfterIssues = false
 
         // **Draw from the cache at once; check the folder straight after.**
         //
@@ -1303,6 +1409,7 @@ final class Collection: Identifiable {
         // the state from inside the app at all.
         WalkCheckpointStore.remove(for: id)
         invalidateRelatedness()
+        retriedAfterIssues = false
         Task { await rebuildFromScratch() }
     }
 

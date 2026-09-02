@@ -93,11 +93,40 @@ struct DownloadingBanner: View {
     var body: some View {
         HStack(spacing: 10) {
             ProgressView().controlSize(.small)
-            Text("Downloading from the cloud…")
+            // Named, because "downloading from the cloud" in a window that is
+            // otherwise blank does not tell you *which* thing you clicked is
+            // arriving, and the reason it is blank is that this is it.
+            Text(editor.note.map { "Downloading “\($0.title)” from the cloud…" }
+                 ?? "Downloading from the cloud…")
                 .font(.callout)
             Spacer()
         }
         .padding(8)
         .background(.blue.opacity(0.12))
+    }
+}
+
+/// The note could not be loaded — it is still in the cloud, or unreadable.
+///
+/// Distinct from `DownloadingBanner` because it is not a wait: nothing is in
+/// progress, and the important part is that **the editor is not showing the
+/// note** and will not save over it.
+struct UnloadedBanner: View {
+    let message: String
+    var retry: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "icloud.slash")
+            Text(message).font(.callout)
+            Spacer()
+            if let retry {
+                Button("Try Again", action: retry)
+                    .font(.callout)
+                    .buttonStyle(.borderless)
+            }
+        }
+        .padding(8)
+        .background(.orange.opacity(0.15))
     }
 }

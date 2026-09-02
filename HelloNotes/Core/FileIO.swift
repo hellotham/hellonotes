@@ -155,6 +155,30 @@ nonisolated enum FileIO {
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
     }
 
+    /// Download an online-only file **and wait for it to arrive**.
+    ///
+    /// `download(at:)` returns immediately — `startDownloadingUbiquitousItem`
+    /// has no completion handler — so every caller that needs the bytes has to
+    /// poll for them. `FileViewerView` learned that the hard way (an attachment
+    /// previewed as a blank page for as long as you looked at it) and the
+    /// editor never learned it at all: it read the placeholder, got nothing,
+    /// and called the note empty.
+    ///
+    /// The deadline is there so a provider that never finishes leaves the user
+    /// with a message rather than a spinner with no end.
+    /// - Returns: whether the content is available now.
+    @discardableResult
+    static func materialise(at url: URL, timeout: Duration = .seconds(60)) async -> Bool {
+        if isMaterialized(at: url) { return true }
+        try? download(at: url)
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return isMaterialized(at: url) }
+            if isMaterialized(at: url) { return true }
+        }
+        return isMaterialized(at: url)
+    }
+
     /// Ask the system to free an item's local copy back to online-only. This is
     /// **best-effort**: for a File Provider domain we don't own, the provider has
     /// the final say and may keep or re-download the file.

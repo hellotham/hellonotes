@@ -485,8 +485,8 @@ struct NoteOutlineList: NSViewRepresentable {
                 color: content.isDimmed ? .tertiaryLabelColor : .secondaryLabelColor)
             if let help = content.help {
                 name.toolTip = help
-            } else if collection.hasIncompleteIndex {
-                name.toolTip = "Re-indexing — search results may be incomplete until it finishes."
+            } else if let reason = collection.staleReason {
+                name.toolTip = reason.explanation
             }
 
             let close = HoverButton()
