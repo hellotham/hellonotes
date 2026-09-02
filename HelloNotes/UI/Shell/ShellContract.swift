@@ -87,6 +87,13 @@ enum ShellMetrics {
     /// single-line layout is designed against.
     static let noteRowTouchMinimum: CGFloat = 44
 
+    /// …and where a mouse is. A pointer hits a 24pt row as reliably as a 44pt
+    /// one, so paying the touch target on a Mac buys nothing and costs most of
+    /// a row per row. `ShellContext.prefersTouch` chooses, which means a tall
+    /// *Mac* window's band is dense and an iPad's is not — by input, not by
+    /// platform.
+    static let noteRowPointerMinimum: CGFloat = 24
+
     /// Horizontal padding inside a pane, per side.
     static let insets: CGFloat = 16
 
@@ -401,4 +408,23 @@ extension EnvironmentValues {
         get { self[ShellContextKey.self] }
         set { self[ShellContextKey.self] = newValue }
     }
+}
+
+/// Heights of the Mac sidebar's outline rows, in points before `fontScale`.
+///
+/// Named rather than written into `heightOfRowByItem` because they are chosen
+/// from a *measurement* — `NSLayoutManager.defaultLineHeight` at each cell's own
+/// fonts — and `SidebarRowHeightTests` re-does that measurement and checks these
+/// still clear it. A row height and the fonts inside it are one decision made in
+/// two files, which is the shape of a defect that only shows up on someone's
+/// screen.
+enum SidebarRowHeights {
+    /// 13pt semibold title + 1pt + 11pt subtitle = 30pt of content.
+    static let note: CGFloat = 32
+    /// A 11pt name beside a 12pt symbol, a 12pt spinner and a close button.
+    static let collection: CGFloat = 24
+    /// One 12pt label and one 12pt symbol.
+    static let leaf: CGFloat = 22
+    /// Anything the outline hands us that is not a node at all.
+    static let fallback: CGFloat = 22
 }

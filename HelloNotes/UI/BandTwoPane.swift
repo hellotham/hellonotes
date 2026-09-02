@@ -38,6 +38,8 @@ import SwiftUI
 
 struct BandTwoPane: View {
 
+    @Environment(\.shell) private var shell
+
     var roots: [NoteOutlineItem]
     /// The container whose contents the right pane shows.
     @Binding var containerID: String?
@@ -59,6 +61,14 @@ struct BandTwoPane: View {
     var row: (Note, String?) -> AnyView
     var onDropIntoFolder: (String, [URL]) -> Bool
 
+    /// The band is short, so a row is the unit that matters. A finger needs
+    /// 44pt; a pointer does not, and on a Mac that difference is nearly half
+    /// the rows the band can show.
+    private var rowHeight: CGFloat {
+        shell.prefersTouch ? ShellMetrics.noteRowTouchMinimum
+                           : ShellMetrics.noteRowPointerMinimum
+    }
+
     private var containers: [NoteOutlineItem] { SidebarTree.containers(roots) }
     private var selectedContainer: NoteOutlineItem? {
         containerID.flatMap { SidebarTree.node(id: $0, in: roots) }
@@ -68,6 +78,7 @@ struct BandTwoPane: View {
         HStack(spacing: 0) {
             ContainerPane(
                 nodes: containers,
+                rowHeight: rowHeight,
                 selection: $containerID,
                 expandedFolders: $expandedFolders,
                 collapsedCollections: $collapsedCollections,
@@ -81,6 +92,7 @@ struct BandTwoPane: View {
 
             ContentsPane(
                 container: selectedContainer,
+                rowHeight: rowHeight,
                 selection: $selection,
                 actions: actions,
                 row: row)
@@ -101,6 +113,7 @@ struct BandTwoPane: View {
 
 private struct ContainerPane: View {
     var nodes: [NoteOutlineItem]
+    var rowHeight: CGFloat
     @Binding var selection: String?
     @Binding var expandedFolders: Set<String>
     @Binding var collapsedCollections: Set<Collection.ID>
@@ -112,7 +125,7 @@ private struct ContainerPane: View {
     var body: some View {
         List(selection: $selection) {
             ForEach(nodes, id: \.id) { node in
-                ContainerRow(node: node, selection: $selection,
+                ContainerRow(node: node, depth: 0, selection: $selection,
                              expandedFolders: $expandedFolders,
                              collapsedCollections: $collapsedCollections,
                              focusedCollectionID: focusedCollectionID,
@@ -121,12 +134,25 @@ private struct ContainerPane: View {
                              onDropIntoFolder: onDropIntoFolder)
             }
         }
-        .environment(\.defaultMinListRowHeight, ShellMetrics.noteRowTouchMinimum)
+        .environment(\.defaultMinListRowHeight, rowHeight)
+        // The container pane carries names and nothing else — no dates, no
+        // snippets — so it does not need body size to be legible, and every
+        // point it gives back is a point of list.
+        .font(.subheadline)
     }
 }
 
 private struct ContainerRow: View {
     let node: NoteOutlineItem
+    /// How deep this row sits, so the row can state its own indent.
+    ///
+    /// The List's default insets are what put the pane 4pt over the 44pt touch
+    /// floor — the height is `max(floor, content + insets)`, and the insets were
+    /// the part nobody had chosen. Taking them means taking the *indent* too,
+    /// because that is the leading inset: hence a depth rather than a constant.
+    /// SwiftUI's own step is around 28pt, which in a 260pt pane is a quarter of
+    /// the name gone by the second level.
+    let depth: Int
     @Binding var selection: String?
     @Binding var expandedFolders: Set<String>
     @Binding var collapsedCollections: Set<Collection.ID>
@@ -134,6 +160,9 @@ private struct ContainerRow: View {
     var actions: SidebarMenu.Actions
     var onCloseCollection: (Collection) -> Void
     var onDropIntoFolder: (String, [URL]) -> Bool
+
+    /// Per level. Enough to read as nesting, and no more.
+    private static let indent: CGFloat = 14
 
     private var subContainers: [NoteOutlineItem] {
         node.children.filter { child in
@@ -151,7 +180,7 @@ private struct ContainerRow: View {
             } else {
                 DisclosureGroup(isExpanded: expansion) {
                     ForEach(subContainers, id: \.id) { child in
-                        ContainerRow(node: child, selection: $selection,
+                        ContainerRow(node: child, depth: depth + 1, selection: $selection,
                                      expandedFolders: $expandedFolders,
                                      collapsedCollections: $collapsedCollections,
                                      focusedCollectionID: focusedCollectionID,
@@ -168,6 +197,8 @@ private struct ContainerRow: View {
                 }
             }
         }
+        .listRowInsets(EdgeInsets(top: 3, leading: 8 + CGFloat(depth) * Self.indent,
+                                  bottom: 3, trailing: 8))
         .contextMenu { SidebarMenuItems(items: SidebarMenu.items(for: node, actions: actions)) }
         .dropDestination(for: URL.self) { urls, _ in
             node.isPlace ? false : onDropIntoFolder(node.id, urls)
@@ -180,7 +211,7 @@ private struct ContainerRow: View {
         case .collection(let collection):
             let content = CollectionRowContent.make(collection, focusedID: focusedCollectionID)
             Label(content.name, systemImage: content.symbol)
-                .font(.subheadline.weight(content.isFocused ? .semibold : .regular))
+                .fontWeight(content.isFocused ? .semibold : .regular)
                 .foregroundStyle(content.unavailable == nil ? .primary : .secondary)
                 .symbolRenderingMode(content.unavailable == nil ? .monochrome : .multicolor)
         case .place(let name, let symbol):
@@ -215,9 +246,16 @@ private struct ContainerRow: View {
 
 private struct ContentsPane: View {
     var container: NoteOutlineItem?
+    var rowHeight: CGFloat
     @Binding var selection: URL?
     var actions: SidebarMenu.Actions
     var row: (Note, String?) -> AnyView
+
+    /// Chosen rather than inherited, for the same reason the container pane
+    /// chooses its own: the row height is `max(floor, content + insets)`, and
+    /// the List's defaults put it over the 44pt floor by four points. There is
+    /// no nesting here, so unlike the left pane the leading inset is a constant.
+    private static let insets = EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12)
 
     private var items: [NoteOutlineItem] {
         container.map { SidebarTree.leaves(of: $0) } ?? []
@@ -229,12 +267,14 @@ private struct ContentsPane: View {
                 switch item.kind {
                 case .note(let note, let snippet):
                     row(note, snippet)
+                        .listRowInsets(Self.insets)
                         .contextMenu {
                             SidebarMenuItems(items: SidebarMenu.items(for: item, actions: actions))
                         }
                 case .file(let file):
                     Label(file.name, systemImage: file.kind.symbol)
                         .tag(file.url)
+                        .listRowInsets(Self.insets)
                         .contextMenu {
                             SidebarMenuItems(items: SidebarMenu.items(for: item, actions: actions))
                         }
@@ -243,7 +283,7 @@ private struct ContentsPane: View {
                 }
             }
         }
-        .environment(\.defaultMinListRowHeight, ShellMetrics.noteRowTouchMinimum)
+        .environment(\.defaultMinListRowHeight, rowHeight)
         .overlay {
             if items.isEmpty {
                 ContentUnavailableView(

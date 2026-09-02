@@ -368,11 +368,30 @@ struct NoteOutlineList: NSViewRepresentable {
             (item as? NoteOutlineItem)?.isSelectable ?? false
         }
 
+        /// Row heights, from what the rows actually contain rather than from a
+        /// comfortable-looking number.
+        ///
+        /// Measured with `NSLayoutManager.defaultLineHeight` at this cell's own
+        /// fonts: a note is a 13pt semibold title (16pt) over an 11pt subtitle
+        /// (13pt) with 1pt between them — **30pt** — and it was being given 42,
+        /// so a quarter of the sidebar was slack. A folder is one 12pt label
+        /// (15pt). Everything here is the content plus a couple of points, and
+        /// all of it scales with the fonts because they scale by the same
+        /// `fontScale`.
+        ///
+        /// A pointer does not need a 44pt touch target, which is why the Mac's
+        /// sidebar can be this dense while the iPad's band cannot
+        /// (`ShellMetrics.noteRowPointerMinimum`).
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             let scale = parent.fontScale
-            guard let node = item as? NoteOutlineItem else { return 24 * scale }
-            if case .note = node.kind { return 42 * scale }
-            return 26 * scale
+            guard let node = item as? NoteOutlineItem else {
+                return SidebarRowHeights.fallback * scale
+            }
+            switch node.kind {
+            case .note:                  return SidebarRowHeights.note * scale
+            case .collection:            return SidebarRowHeights.collection * scale
+            case .place, .folder, .file: return SidebarRowHeights.leaf * scale
+            }
         }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -472,6 +491,12 @@ struct NoteOutlineList: NSViewRepresentable {
 
             let close = HoverButton()
             close.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "Close")
+            // Sized like every other glyph in the row rather than left to the
+            // button's default. The row height is now derived from what the row
+            // contains, so one unstated intrinsic size in it is one thing that
+            // can silently clip when the height comes down.
+            close.symbolConfiguration = NSImage.SymbolConfiguration(
+                pointSize: 12 * parent.fontScale, weight: .regular)
             close.isBordered = false
             close.imagePosition = .imageOnly
             close.target = self
