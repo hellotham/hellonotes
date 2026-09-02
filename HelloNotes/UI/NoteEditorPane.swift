@@ -179,7 +179,10 @@ struct NoteEditorPane: View {
         // an em dash and quietly breaking the table.
         SourceEditor(
             text: Binding(get: { editor.text }, set: { editor.text = $0 }),
-            fontSize: appearance.editorFontSize
+            fontSize: appearance.editorFontSize,
+            // Same identifier the live editor answers to, so one bar drives
+            // whichever editable mode is on screen.
+            documentId: note.fileURL.path
         )
     }
 

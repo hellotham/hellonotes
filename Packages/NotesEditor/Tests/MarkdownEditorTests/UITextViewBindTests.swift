@@ -94,28 +94,49 @@ import Testing
 
     // MARK: - The keyboard bar
 
-    /// A `ToolbarItemGroup(placement: .keyboard)` was tried first and never
-    /// appeared — SwiftUI attaches those to responders it owns, and this one is
-    /// a `UITextView` inside a representable. Nothing crashed; the formatting
-    /// was simply unreachable, which is the failure this test exists to catch.
-    @Test func theKeyboardBarIsAttachedWithTheFormattingCommands() {
+    /// **There must be no `inputAccessoryView`.**
+    ///
+    /// The format bar used to be one, and that made its visibility a function
+    /// of first-responder state rather than of anything the user chose:
+    /// entering Edit mode did not show it (you had to tap into the text as
+    /// well), anything that took focus hid it mid-edit, and with a hardware
+    /// keyboard iOS docked it at the bottom of the screen over the app's own
+    /// status row. It is the app's chrome now (`EditorFormatBar`, shown when
+    /// `mode == .edit`), and re-attaching one here would silently restore all
+    /// of that — two bars, fighting for the same 44pt.
+    @Test func theEditorAttachesNoInputAccessoryView() {
         let (tv, _) = hosted(EditorDocument(text: "plain line\n"))
-        let bar = try? #require(tv.inputAccessoryView)
-        let labels = Set(bar.map(allAccessibilityLabels) ?? [])
-        for command in ["Bold", "Italic", "Strikethrough", "Highlight", "Code",
-                        "Blockquote", "Bulleted List", "Numbered List",
-                        "Heading 1", "Heading 2", "Heading 3",
-                        "Undo", "Redo", "Hide Keyboard"] {
-            #expect(labels.contains(command), "the keyboard bar is missing \(command)")
-        }
+        #expect(tv.becomeFirstResponder())
+        #expect(tv.inputAccessoryView == nil,
+                "the format bar belongs to the app's chrome, not to the keyboard")
     }
 
-    /// Every accessibility label in a view tree. The bar is a scrolling stack
-    /// of buttons rather than a `UIToolbar`, so its commands are descendants,
-    /// not `items`.
-    private func allAccessibilityLabels(_ view: UIView) -> [String] {
-        (view.accessibilityLabel.map { [$0] } ?? [])
-            + view.subviews.flatMap(allAccessibilityLabels)
+    /// The bar is outside the editor now, so the only way its buttons reach the
+    /// text is the notification bus — the same one the Mac's Format menu uses.
+    /// Undo especially cannot be left to the responder chain: UIKit resolves
+    /// `undoManager` up that chain, so a button living outside the editor finds
+    /// the *window's* stack rather than the document's.
+    @Test func theBusCarriesUndoRedoAndEndEditing() async throws {
+        let document = EditorDocument(text: "plain line\n")
+        let (tv, _) = hosted(document)
+        let id = "bus-test-\(UUID().uuidString)"
+        // The bus lives on the representable's coordinator, which is what
+        // `updateUIView` wires up in the app.
+        let coordinator = MarkdownEditorRepresentable.Coordinator(document: document)
+        coordinator.subscribe(documentId: id, view: tv)
+        #expect(tv.becomeFirstResponder())
+
+        tv.selectedRange = NSRange(location: 0, length: 5)
+        tv.apply(.bold)
+        #expect(document.text.hasPrefix("**plain**"))
+
+        NotificationCenter.default.post(
+            name: Notification.Name("hnEditorUndo.\(id)"), object: nil)
+        #expect(!document.text.hasPrefix("**plain**"), "undo did not reach the document")
+
+        NotificationCenter.default.post(
+            name: Notification.Name("hnEditorEndEditing.\(id)"), object: nil)
+        #expect(!tv.isFirstResponder, "end-editing did not reach the text view")
     }
 
     /// The other half: the commands the bar sends have to reach the document.
@@ -143,10 +164,10 @@ import Testing
         #expect(tv.canBecomeFirstResponder)
         #expect(tv.becomeFirstResponder())
         #expect(tv.isFirstResponder)
-        #expect(tv.inputAccessoryView?.frame.height == 44)
-        // A zero-width accessory view is laid out by the keyboard, not by us,
-        // and an empty one can take the keyboard presentation down with it.
-        #expect((tv.inputAccessoryView?.frame.width ?? 0) > 0)
+        // No accessory assertions here any more — see
+        // `theEditorAttachesNoInputAccessoryView`. What tapping in has to do is
+        // start editing; showing the format bar is the *mode's* job now, and a
+        // caret is not what decides it.
 
         // The caret itself: UIKit's selection machinery has to be installed on
         // a text view built around a container we made, or there is a document

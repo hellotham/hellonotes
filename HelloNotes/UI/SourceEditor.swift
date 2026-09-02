@@ -31,9 +31,33 @@ import MarkdownEditor
 
 #if canImport(AppKit)
 /// Plain, unstyled, substitution-free source editing.
+/// A plain `NSTextView` the formatting commands can act on — the Mac half of
+/// the same promise: the bar is shown in every editable mode, so every editable
+/// mode has to honour it. See `SourceTextView` in the UIKit branch.
+final class SourceTextView: NSTextView, MarkdownFormatting {
+    var formattingText: String { string }
+    func formattingSelection() -> NSRange { selectedRange() }
+    func setFormattingSelection(_ range: NSRange) { setSelectedRange(range) }
+
+    @discardableResult
+    func performEdit(replacing range: NSRange, with replacement: String) -> Bool {
+        // `shouldChangeText` / `didChangeText` is the pair that registers undo
+        // and tells the delegate, which is what carries the edit back into the
+        // note's binding. Writing the storage directly would do neither.
+        guard shouldChangeText(in: range, replacementString: replacement) else { return false }
+        textStorage?.replaceCharacters(in: range, with: replacement)
+        didChangeText()
+        setSelectedRange(NSRange(location: range.location + (replacement as NSString).length,
+                                 length: 0))
+        return true
+    }
+}
+
 struct SourceEditor: NSViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat
+    /// The note this editor shows, so bus-addressed formatting reaches it.
+    var documentId: String
 
     /// S1: report the size offered, never the size contained — a text view's
     /// `fittingSize` is the whole document, which inflates every ancestor until
@@ -45,6 +69,22 @@ struct SourceEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
+        // Swap in our own text view so it can conform to `MarkdownFormatting`.
+        // `scrollableTextView()` builds the whole stack correctly — container,
+        // layout manager, autoresizing — so the cheapest correct move is to
+        // take its text view's container and hand it to ours.
+        if let stock = scroll.documentView as? NSTextView,
+           let container = stock.textContainer {
+            let ours = SourceTextView(frame: stock.frame, textContainer: container)
+            ours.autoresizingMask = stock.autoresizingMask
+            ours.minSize = stock.minSize
+            ours.maxSize = stock.maxSize
+            ours.isVerticallyResizable = stock.isVerticallyResizable
+            ours.isHorizontallyResizable = stock.isHorizontallyResizable
+            ours.isEditable = true
+            ours.allowsUndo = true
+            scroll.documentView = ours
+        }
         guard let tv = scroll.documentView as? NSTextView else { return scroll }
         tv.delegate = context.coordinator
         tv.drawsBackground = false
@@ -57,6 +97,9 @@ struct SourceEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        if let tv = scroll.documentView as? SourceTextView {
+            context.coordinator.subscribe(documentId: documentId, view: tv)
+        }
         // The coordinator is made once per view *identity*, and this view's
         // identity does not change when the active tab does — nothing between
         // `ContentView` and here carries an `.id(…)`. The binding, however, is
@@ -108,25 +151,101 @@ struct SourceEditor: NSViewRepresentable {
             guard let tv = notification.object as? NSTextView else { return }
             text.wrappedValue = tv.string
         }
+
+        // MARK: - The formatting bus
+
+        private var busDocumentId: String?
+        private var busTokens: [NSObjectProtocol] = []
+        private weak var busView: SourceTextView?
+
+        /// The same subscriptions the live editor's coordinator makes, so the
+        /// Format menu and the toolbar work in Markdown and Split too.
+        func subscribe(documentId: String, view: SourceTextView) {
+            busView = view
+            guard busDocumentId != documentId else { return }
+            let centre = NotificationCenter.default
+            for token in busTokens { centre.removeObserver(token) }
+            busTokens.removeAll()
+            busDocumentId = documentId
+
+            let formats: [(String, EditorFormatCommand)] = [
+                ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),
+                ("highlight", .highlight), ("inlineCode", .inlineCode),
+                ("blockquote", .blockquote), ("unorderedList", .unorderedList),
+                ("orderedList", .orderedList),
+            ]
+            for (kind, command) in formats {
+                busTokens.append(centre.addObserver(
+                    forName: .hnFormat(kind, documentId: documentId),
+                    object: nil, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.busView?.apply(command) }
+                })
+            }
+            busTokens.append(centre.addObserver(
+                forName: .hnFormat("heading", documentId: documentId),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let level = note.userInfo?["level"] as? Int ?? 1
+                MainActor.assumeIsolated { [level] in self?.busView?.apply(.heading(level)) }
+            })
+        }
+
+        deinit {
+            let centre = NotificationCenter.default
+            for token in busTokens { centre.removeObserver(token) }
+        }
     }
 }
 #else
 /// Plain, unstyled, substitution-free source editing.
+/// A plain `UITextView` that the formatting commands can act on.
+///
+/// The bar is app chrome now and it is shown in **every editable mode** —
+/// Edit, Markdown and Split — because all three are editing. That makes a
+/// promise this type has to keep: a visible button that does nothing is worse
+/// than no button. `MarkdownFormatting` needs only the text, the selection and
+/// an undoable replace, so the raw-source editor can honour exactly the same
+/// commands as the live one, with one implementation of what "toggle a
+/// heading" means.
+final class SourceTextView: UITextView, MarkdownFormatting {
+    var formattingText: String { text ?? "" }
+    func formattingSelection() -> NSRange { selectedRange }
+    func setFormattingSelection(_ range: NSRange) { selectedRange = range }
+
+    @discardableResult
+    func performEdit(replacing range: NSRange, with replacement: String) -> Bool {
+        // Through `UITextInput`, not `textStorage`: this is the path a
+        // keystroke takes, so it registers undo with the view's own manager and
+        // notifies the delegate — which is what pushes the change back into the
+        // note's binding. Writing storage directly would edit the text and lose
+        // both.
+        guard let start = position(from: beginningOfDocument, offset: range.location),
+              let end = position(from: start, offset: range.length),
+              let target = textRange(from: start, to: end) else { return false }
+        replace(target, withText: replacement)
+        return true
+    }
+}
+
 struct SourceEditor: UIViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat
+    /// The note this editor is showing, so formatting commands addressed to it
+    /// on the shared bus reach this view. Same identifier the live editor uses.
+    var documentId: String
 
     /// S1: report the size offered, never the size contained. A `UITextView`'s
     /// `fittingSize` is the whole document, which inflates every ancestor until
     /// the top of the note sits above the window. See docs/layout-architecture.md.
     func sizeThatFits(_ proposal: ProposedViewSize,
-                      uiView: UITextView,
+                      uiView: SourceTextView,
                       context: Context) -> CGSize? {
         viewportSizeThatFits(proposal)
     }
 
-    func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
+    func makeUIView(context: Context) -> SourceTextView {
+        let tv = SourceTextView()
         tv.delegate = context.coordinator
         tv.backgroundColor = .clear
         tv.alwaysBounceVertical = true
@@ -139,7 +258,8 @@ struct SourceEditor: UIViewRepresentable {
         return tv
     }
 
-    func updateUIView(_ tv: UITextView, context: Context) {
+    func updateUIView(_ tv: SourceTextView, context: Context) {
+        context.coordinator.subscribe(documentId: documentId, view: tv)
         // The coordinator is made once per view *identity*, and this view's
         // identity does not change when the active tab does — nothing between
         // `ContentView` and here carries an `.id(…)`. The binding, however, is
@@ -183,6 +303,70 @@ struct SourceEditor: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             text.wrappedValue = textView.text
+        }
+
+        // MARK: - The formatting bus
+
+        private var busDocumentId: String?
+        private var busTokens: [NSObjectProtocol] = []
+        private weak var busView: SourceTextView?
+
+        /// Listen for the commands `EditorFormatBar` sends, exactly as the live
+        /// editor's coordinator does. Without this the bar would be drawn in
+        /// Markdown and Split and do nothing there — the failure mode the
+        /// visibility rule is meant to remove, not create.
+        func subscribe(documentId: String, view: SourceTextView) {
+            busView = view
+            guard busDocumentId != documentId else { return }
+            let centre = NotificationCenter.default
+            for token in busTokens { centre.removeObserver(token) }
+            busTokens.removeAll()
+            busDocumentId = documentId
+
+            let formats: [(String, EditorFormatCommand)] = [
+                ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),
+                ("highlight", .highlight), ("inlineCode", .inlineCode),
+                ("blockquote", .blockquote), ("unorderedList", .unorderedList),
+                ("orderedList", .orderedList),
+            ]
+            for (kind, command) in formats {
+                busTokens.append(centre.addObserver(
+                    forName: .hnFormat(kind, documentId: documentId),
+                    object: nil, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.busView?.apply(command) }
+                })
+            }
+            busTokens.append(centre.addObserver(
+                forName: .hnFormat("heading", documentId: documentId),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let level = note.userInfo?["level"] as? Int ?? 1
+                MainActor.assumeIsolated { [level] in self?.busView?.apply(.heading(level)) }
+            })
+            busTokens.append(centre.addObserver(
+                forName: Notification.Name("hnEditorUndo.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.busView?.undoManager?.undo() }
+            })
+            busTokens.append(centre.addObserver(
+                forName: Notification.Name("hnEditorRedo.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.busView?.undoManager?.redo() }
+            })
+            busTokens.append(centre.addObserver(
+                forName: Notification.Name("hnEditorEndEditing.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { _ = self?.busView?.resignFirstResponder() }
+            })
+        }
+
+        deinit {
+            let centre = NotificationCenter.default
+            for token in busTokens { centre.removeObserver(token) }
         }
     }
 }

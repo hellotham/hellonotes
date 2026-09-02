@@ -263,6 +263,46 @@ struct NoteEditorView: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
                         Divider()
+                        // **Visible in every editable mode, invisible in
+                        // Preview. Nothing else changes it.**
+                        //
+                        // Edit, Markdown and Split are all editing, so all
+                        // three get the bar; Preview is the only read-only one.
+                        // `SourceEditor` subscribes to the same command bus as
+                        // the live editor, so the buttons act on the raw-source
+                        // modes too — a visible button that does nothing would
+                        // be worse than no button.
+                        //
+                        // This was the editor's `inputAccessoryView`, which
+                        // made its visibility a function of first-responder
+                        // state: entering Edit mode did not show it (you had
+                        // to tap into the text too), and anything that took
+                        // focus hid it again mid-edit. It is chrome now, in
+                        // the same stack as the status row, so it cannot
+                        // overlap that row either — the two used to fight for
+                        // the same 44pt.
+                        #if !os(macOS)
+                        if mode.isEditable, let note = editor.note {
+                            EditorFormatBar(documentId: note.fileURL.path)
+                            Divider()
+                        }
+                        #else
+                        // **Deliberately not on macOS**, and the reason is a
+                        // real difference rather than an omission: the Mac has
+                        // a Format menu carrying every one of these commands
+                        // with a keyboard shortcut (⌘B, ⌘I, ⇧⌘7 …), always
+                        // visible in the menu bar. An iPad only has that menu
+                        // bar when a hardware keyboard is attached, so on a
+                        // bare one this bar is the *only* route to formatting —
+                        // which is why `FormatAction` was made cross-platform
+                        // in the first place.
+                        //
+                        // Stated rather than left as a one-sided `#if`:
+                        // `ShellComplianceTests` fails a platform gate with a
+                        // single branch, because that is how a divergence stops
+                        // being a decision and becomes an accident.
+                        EmptyView()
+                        #endif
                         bottomBar
                     }
                     // Lift the bar clear of the keyboard's input accessory.

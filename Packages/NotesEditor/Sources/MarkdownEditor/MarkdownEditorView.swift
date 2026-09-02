@@ -1525,7 +1525,21 @@ public final class MarkdownUITextView: UITextView {
         // dropped keystrokes.
         tv.spellCheckingType = .no
         tv.keyboardDismissMode = .interactive
-        tv.inputAccessoryView = tv.formatAccessory
+        // **No `inputAccessoryView`.**
+        //
+        // The format bar used to live here, which tied its visibility to
+        // *first-responder state* rather than to anything the user can name.
+        // That is not a design: switching to Edit mode did not show it (you had
+        // to tap into the text as well), tapping the sidebar hid it while still
+        // in Edit mode, and in Preview it was absent only because nothing
+        // happened to be focused. "Sometimes there, sometimes not" was the
+        // accurate description of the rule.
+        //
+        // It is the app's own chrome now — `EditorFormatBar`, rendered by
+        // `NoteEditorView` in the same bottom inset as the word count, and
+        // shown exactly when `mode == .edit`. Visibility is a function of the
+        // mode, which is a thing the user chose, and the two bars can no longer
+        // fight for the same 44pt.
 
         // AI-native, exactly as the Mac (`MarkdownTextView`): the full Apple
         // Intelligence Writing Tools experience — inline, because this is a
@@ -2558,6 +2572,34 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             ) { [weak self] note in
                 let level = note.userInfo?["level"] as? Int ?? 1
                 MainActor.assumeIsolated { [level] in self?.busView?.apply(.heading(level)) }
+            })
+            // Undo, redo and "put the keyboard away" — the three things the
+            // format bar offers that are not formatting.
+            //
+            // They travel the same bus as everything else because the bar that
+            // sends them is now the *app's* chrome rather than this view's
+            // `inputAccessoryView`, and app chrome has no reference to a text
+            // view. Undo in particular could not simply be left to the
+            // responder chain: UIKit resolves `undoManager` up that chain, so a
+            // button living outside the editor would find the window's stack,
+            // not the document's.
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hnEditorUndo.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.busView?.undoManager?.undo() }
+            })
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hnEditorRedo.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.busView?.undoManager?.redo() }
+            })
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hnEditorEndEditing.\(documentId)"),
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { _ = self?.busView?.resignFirstResponder() }
             })
             // ⌘F. The system find bar is the text view's own, so the only thing
             // a menu item needs is a way to reach the view that owns it.
