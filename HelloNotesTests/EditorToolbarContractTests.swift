@@ -2,23 +2,29 @@
 //  EditorToolbarContractTests.swift
 //  HelloNotesTests
 //
-//  The formatting toolbar's visibility rule, as a test.
+//  Where the formatting commands live, as a test.
 //
-//  The rule is meant to be sayable in one sentence: **it is visible in every
-//  editable mode and invisible in Preview.** For a long time the real rule was
-//  something nobody could have said, because the bar was the editor's
-//  `inputAccessoryView` and therefore keyed on *first-responder state*:
+//  They belong in **the system's own editor affordance**: on iPad the floating
+//  shortcuts pill that carries the language selector (`EN AU`) and the dictation
+//  mic, and on iPhone — which has no such bar — an `inputAccessoryView`. That is
+//  where a person looks for "make this bold", it costs the app no screen space,
+//  and it cannot overlap the app's own status row.
 //
-//    * entering Edit mode did not show it — you had to tap into the text too;
-//    * anything that took focus hid it again mid-edit;
-//    * in Preview it was absent only because nothing happened to be focused;
-//    * and with a hardware keyboard iOS docked it at the bottom of the screen,
-//      on top of the app's own status row.
+//  Two wrong answers were shipped on the way here, and both are worth naming
+//  because each looked reasonable:
 //
-//  These assertions are cheap and they are all about *rules*, not rendering —
-//  the four modes were checked by eye on an iPad simulator, which is the only
-//  thing that can see a screen. What a test can do is stop the rule quietly
-//  becoming a different rule again.
+//    1. A hand-rolled `inputAccessoryView` on every idiom. iOS docks an
+//       accessory at the *bottom of the screen* when a hardware keyboard is
+//       attached, so on an iPad with a Magic Keyboard it drew straight over the
+//       word count and the mode picker.
+//    2. A bar of the app's own, in the bottom chrome, gated on the mode. That
+//       fixed the overlap and made visibility predictable — but it spent 40pt
+//       of every editing screen re-implementing a control the system already
+//       provides, and the system one appears with a hardware keyboard too.
+//
+//  `inputAssistantItem` was never evaluated until it was measured on a
+//  simulator with a hardware keyboard attached, which is the configuration that
+//  decides the question.
 //
 
 import Foundation
@@ -27,62 +33,69 @@ import Testing
 
 struct EditorToolbarContractTests {
 
-    /// Three of the four modes are editing. Only Preview is read-only — it is
-    /// documented as "the note as it reads, with no caret".
-    @Test func everyModeButPreviewIsEditable() {
-        #expect(EditorMode.edit.isEditable)
-        #expect(EditorMode.markdown.isEditable)
-        #expect(EditorMode.split.isEditable)
-        #expect(!EditorMode.preview.isEditable)
-        // If a fifth mode is ever added, it has to make a decision here rather
-        // than inherit one by accident.
-        #expect(EditorMode.allCases.count == 4)
+    /// The commands go to the system, not into chrome of our own.
+    ///
+    /// A bar in the app's bottom inset is the regression this guards: it is a
+    /// reasonable-looking change that quietly costs a row of every editing
+    /// screen and duplicates a native control.
+    @Test func formattingLivesInTheSystemAffordance() throws {
+        let installer = try Self.packageSource("MarkdownEditor/EditorCommands.swift")
+        #expect(installer.contains("inputAssistantItem.leadingBarButtonGroups"),
+                "iPad formatting belongs in the shortcuts bar")
+        #expect(installer.contains("UIDevice.current.userInterfaceIdiom == .pad"),
+                "iPhone has no shortcuts bar, so the idiom has to be checked at runtime")
+        #expect(installer.contains("inputAccessoryView = bar"),
+                "iPhone still needs an accessory — it has no shortcuts bar to put these in")
+
+        let editorColumn = try Self.source("UI/NoteEditorView.swift")
+        #expect(!editorColumn.contains("EditorFormatBar"),
+                "the app must not carry a formatting bar of its own")
     }
 
-    /// The bar is gated on the mode, and on nothing else.
+    /// Both editors install it.
     ///
-    /// `mode == .edit` was the first version of this and it was wrong for the
-    /// same reason the accessory was: Markdown and Split are editing too, and a
-    /// toolbar that disappears when you switch to raw source is the same
-    /// "sometimes there" complaint in a new place.
-    @Test func theToolbarIsGatedOnTheModeBeingEditable() throws {
-        let source = try Self.source("UI/NoteEditorView.swift")
-        #expect(source.contains("if mode.isEditable"),
-                "the toolbar's visibility must be the mode's `isEditable`, not a list of cases")
-        #expect(source.contains("EditorFormatBar(documentId:"),
-                "the toolbar must be the app's own chrome")
-    }
+    /// Edit is drawn by the live editor; Markdown and Split are drawn by
+    /// `SourceEditor`, a different view entirely. Wiring only the first is the
+    /// mistake that gives you formatting in one of the three editable modes and
+    /// nothing in the other two.
+    @Test func everyEditableViewInstallsIt() throws {
+        let live = try Self.packageSource("MarkdownEditor/MarkdownEditorView.swift")
+        #expect(live.contains("tv.installFormattingAssistant()"),
+                "the live editor must install the formatting affordance")
 
-    /// Nothing may re-attach the bar to the keyboard.
-    ///
-    /// This is the regression that would restore every symptom at once, and it
-    /// is a one-line change, so it gets a one-line guard.
-    @Test func nothingAttachesAnInputAccessoryView() throws {
-        for file in ["UI/NoteEditorView.swift", "UI/EditorFormatBar.swift", "UI/SourceEditor.swift"] {
-            let source = try Self.source(file)
-            #expect(!source.contains("inputAccessoryView ="),
-                    "\(file) attaches an input accessory view; the bar is app chrome")
-        }
-        let editor = try Self.packageSource("MarkdownEditor/MarkdownEditorView.swift")
-        #expect(!editor.contains("tv.inputAccessoryView = "),
-                "the editor must not attach an accessory: visibility would key on focus again")
-    }
-
-    /// A visible button that does nothing is worse than no button.
-    ///
-    /// The bar is shown in Markdown and Split, which are drawn by `SourceEditor`
-    /// — a different view from the live editor, with its own coordinator. It
-    /// therefore has to subscribe to the same command bus, or the toolbar is
-    /// decoration in two of the three modes that show it.
-    @Test func theSourceEditorAnswersTheSameCommandBus() throws {
         let source = try Self.source("UI/SourceEditor.swift")
+        #expect(source.contains("installFormattingAssistant()"),
+                "the raw-source editor (Markdown and Split) must install it too")
         #expect(source.contains("MarkdownFormatting"),
-                "the raw-source editor must accept the formatting commands")
+                "and must be able to accept the commands")
+    }
+
+    /// The Mac's Format menu still reaches every editable mode.
+    ///
+    /// The shortcuts-bar buttons act on the text view directly, but a menu item
+    /// is addressed to the *note*, so the bus is the other half — and the
+    /// raw-source editor had no subscription to it at all until the toolbar
+    /// work forced the question.
+    @Test func theSourceEditorAnswersTheCommandBus() throws {
+        let source = try Self.source("UI/SourceEditor.swift")
         #expect(source.contains(".hnFormat("),
                 "the raw-source editor must subscribe to the formatting bus")
         for command in ["hnEditorUndo", "hnEditorRedo", "hnEditorEndEditing"] {
             #expect(source.contains(command), "the source editor ignores \(command)")
         }
+    }
+
+    /// Every button carries a name. An SF Symbol is not a label, and
+    /// `testEveryReachableControlHasAName` cannot see into a system bar.
+    @Test func everyFormattingButtonIsNamed() throws {
+        let installer = try Self.packageSource("MarkdownEditor/EditorCommands.swift")
+        for label in ["Bold", "Italic", "Strikethrough", "Highlight", "Code",
+                      "Blockquote", "Bulleted List", "Numbered List",
+                      "Text Style", "Lists", "Headings"] {
+            #expect(installer.contains("\"\(label)\""), "no accessibility label for \(label)")
+        }
+        // Headings are built in a loop, so their labels are interpolated.
+        #expect(installer.contains("\"Heading \\($0)\""))
     }
 
     // MARK: -

@@ -23,21 +23,6 @@ enum EditorMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Whether this mode lets you change the note.
-    ///
-    /// Three of the four do: Edit is live styling, Markdown is the raw source,
-    /// Split is the raw source beside a preview. Only Preview is read-only —
-    /// "the note as it reads, with no caret".
-    ///
-    /// Stated once, here, because it is the rule the formatting toolbar's
-    /// visibility follows. That toolbar used to be the editor's
-    /// `inputAccessoryView`, which meant its real rule was "whenever the text
-    /// view happens to be first responder" — so it stayed hidden in Edit until
-    /// you tapped the text, vanished if anything else took focus, and appeared
-    /// in no particular relation to what the user had chosen. Anything keyed on
-    /// "can I type here?" should read this rather than test the cases again.
-    var isEditable: Bool { self != .preview }
-
     /// Where the mode is persisted.
     ///
     /// A constant because the literal was spelled in four files, and that is

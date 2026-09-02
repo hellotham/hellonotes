@@ -267,3 +267,101 @@ extension MarkdownUITextView: MarkdownFormatting {
 }
 
 #endif
+
+#if canImport(UIKit)
+import UIKit
+
+public extension MarkdownFormatting where Self: UITextView {
+
+    /// Put the formatting commands where iOS puts editor affordances.
+    ///
+    /// **iPad: the shortcuts bar** (`inputAssistantItem`) — the floating pill
+    /// that carries the keyboard/language selector and the dictation mic. It is
+    /// where a person looks for "make this bold", it costs the app no screen
+    /// space, it cannot overlap the app's own chrome, and — verified on a
+    /// simulator with a hardware keyboard attached, which is the case that
+    /// breaks everything else — it appears there too, beside `EN AU` and the
+    /// microphone.
+    ///
+    /// **iPhone: an `inputAccessoryView`**, because the shortcuts bar does not
+    /// exist on iPhone; groups set here are simply ignored. That is the native
+    /// answer on that idiom, and it is the reason this is a runtime idiom check
+    /// rather than a compile-time one — the same binary runs on both.
+    ///
+    /// The commands are grouped so iOS can collapse them when the pill is
+    /// short: a group with a `representativeItem` becomes that single button
+    /// when its members do not fit, which is how eleven commands live in a
+    /// space that shows four. Grouping by *kind* rather than arbitrarily is
+    /// what makes the collapsed form still make sense.
+    func installFormattingAssistant() {
+        func item(_ symbol: String, _ label: String,
+                  _ command: EditorFormatCommand) -> UIBarButtonItem {
+            let action = UIAction(image: UIImage(systemName: symbol)) { [weak self] _ in
+                self?.apply(command)
+            }
+            let button = UIBarButtonItem(primaryAction: action)
+            // Named, not merely drawn — an SF Symbol is not a label.
+            button.accessibilityLabel = label
+            return button
+        }
+
+        let inline = UIBarButtonItemGroup(
+            barButtonItems: [
+                item("bold", "Bold", .bold),
+                item("italic", "Italic", .italic),
+                item("strikethrough", "Strikethrough", .strikethrough),
+                item("highlighter", "Highlight", .highlight),
+                item("chevron.left.forwardslash.chevron.right", "Code", .inlineCode),
+            ],
+            representativeItem: UIBarButtonItem(
+                image: UIImage(systemName: "bold.italic.underline"), menu: nil))
+        inline.representativeItem?.accessibilityLabel = "Text Style"
+
+        let blocks = UIBarButtonItemGroup(
+            barButtonItems: [
+                item("text.quote", "Blockquote", .blockquote),
+                item("list.bullet", "Bulleted List", .unorderedList),
+                item("list.number", "Numbered List", .orderedList),
+            ],
+            representativeItem: UIBarButtonItem(
+                image: UIImage(systemName: "list.bullet"), menu: nil))
+        blocks.representativeItem?.accessibilityLabel = "Lists"
+
+        let headings = UIBarButtonItemGroup(
+            barButtonItems: (1...3).map {
+                item("\($0).square", "Heading \($0)", .heading($0))
+            },
+            representativeItem: UIBarButtonItem(
+                image: UIImage(systemName: "textformat.size"), menu: nil))
+        headings.representativeItem?.accessibilityLabel = "Headings"
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            inputAssistantItem.leadingBarButtonGroups = [inline, blocks]
+            inputAssistantItem.trailingBarButtonGroups = [headings]
+        } else {
+            // iPhone has no shortcuts bar. An accessory above the keyboard is
+            // the native answer there, and it cannot overlap the app's bottom
+            // bar because `KeyboardOverlap` insets that bar by the keyboard's
+            // whole frame — accessory included.
+            let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+            bar.autoresizingMask = .flexibleWidth
+            bar.items = inline.barButtonItems + blocks.barButtonItems
+                + headings.barButtonItems
+            bar.sizeToFit()
+            inputAccessoryView = bar
+        }
+    }
+}
+#else
+
+// **No AppKit half, deliberately.**
+//
+// `inputAssistantItem` and `inputAccessoryView` are UIKit concepts; AppKit has
+// neither, and it does not need them. On the Mac these same commands live in
+// the Format menu (`AppCommands.swift`) with keyboard shortcuts — ⌘B, ⌘I,
+// ⇧⌘7 — permanently visible in the menu bar, which is the affordance that
+// platform actually has. The shared half is `MarkdownFormatting` above: both
+// platforms apply commands through it, so "toggle a heading" means one thing
+// everywhere and only the *route to it* differs.
+
+#endif

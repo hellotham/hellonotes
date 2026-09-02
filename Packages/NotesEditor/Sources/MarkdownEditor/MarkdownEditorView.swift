@@ -1405,57 +1405,6 @@ public final class MarkdownUITextView: UITextView {
 
     /// The formatting bar above the keyboard.
     ///
-    /// A UIKit `inputAccessoryView`, not a SwiftUI `ToolbarItemGroup(placement:
-    /// .keyboard)`. The SwiftUI form was tried first and simply never appeared:
-    /// SwiftUI hangs a keyboard toolbar off the responder *it* manages, and the
-    /// first responder here is a `UITextView` inside a `UIViewRepresentable`,
-    /// which it does not. The bar is owned by the view whose keyboard it sits
-    /// on, so it also needs no bus to reach the text.
-    ///
-    /// `lazy`, like the other view-owned properties here — see `chromeOverlay`.
-    private lazy var formatAccessory: UIView = makeFormatAccessory()
-
-    // Responder transitions, because "the format bar appears and disappears"
-    // and "the text view lost first responder" are the same event seen from
-    // opposite sides. Debug + HN_EDIT_LOG only.
-    public override func becomeFirstResponder() -> Bool {
-        let ok = super.becomeFirstResponder()
-        EditorProbe.logEdit("becomeFirstResponder -> \(ok) (accessory shows)")
-        return ok
-    }
-
-    public override func resignFirstResponder() -> Bool {
-        let ok = super.resignFirstResponder()
-        EditorProbe.logEdit("resignFirstResponder -> \(ok) (accessory hides)")
-        return ok
-    }
-
-
-    private func makeFormatAccessory() -> UIView {
-        let bar = FormatAccessoryView(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
-        bar.autoresizingMask = .flexibleWidth
-        bar.configure(
-            commands: [
-                ("bold", "Bold", .bold),
-                ("italic", "Italic", .italic),
-                ("strikethrough", "Strikethrough", .strikethrough),
-                ("highlighter", "Highlight", .highlight),
-                ("chevron.left.forwardslash.chevron.right", "Code", .inlineCode),
-                ("text.quote", "Blockquote", .blockquote),
-                ("list.bullet", "Bulleted List", .unorderedList),
-                ("list.number", "Numbered List", .orderedList),
-                ("1.square", "Heading 1", .heading(1)),
-                ("2.square", "Heading 2", .heading(2)),
-                ("3.square", "Heading 3", .heading(3)),
-            ],
-            apply: { [weak self] command in self?.apply(command) },
-            undo: { [weak self] in self?.undoManager?.undo() },
-            redo: { [weak self] in self?.undoManager?.redo() },
-            dismiss: { [weak self] in self?.resignFirstResponder() })
-        bar.sizeToFit()
-        return bar
-    }
-
     public static func make(document: EditorDocument) -> MarkdownUITextView {
         // Build the TextKit 2 stack around the document's storage *first*, and
         // hand the finished container to the initialiser.
@@ -1525,6 +1474,13 @@ public final class MarkdownUITextView: UITextView {
         // dropped keystrokes.
         tv.spellCheckingType = .no
         tv.keyboardDismissMode = .interactive
+        // Formatting goes where iOS puts editor affordances: the iPad shortcuts
+        // bar (the floating pill with the language selector and the mic), or an
+        // accessory on iPhone, which has no such bar. See
+        // `installFormattingAssistant` — and note the deliberate absence of a
+        // hand-rolled `inputAccessoryView` on iPad, which is what used to dock
+        // at the bottom of the screen over the app's own status row.
+        tv.installFormattingAssistant()
         // **No `inputAccessoryView`.**
         //
         // The format bar used to live here, which tied its visibility to
@@ -1535,11 +1491,12 @@ public final class MarkdownUITextView: UITextView {
         // happened to be focused. "Sometimes there, sometimes not" was the
         // accurate description of the rule.
         //
-        // It is the app's own chrome now — `EditorFormatBar`, rendered by
-        // `NoteEditorView` in the same bottom inset as the word count, and
-        // shown exactly when `mode == .edit`. Visibility is a function of the
-        // mode, which is a thing the user chose, and the two bars can no longer
-        // fight for the same 44pt.
+        // The commands live in the system's own editor affordance now —
+        // `installFormattingAssistant`, just below — which on iPad is the
+        // floating shortcuts pill beside the language selector and the mic, and
+        // on iPhone an accessory. That is where a person looks for them, it
+        // costs the app no screen space, and it cannot overlap the app's own
+        // status row the way a hand-rolled accessory did.
 
         // AI-native, exactly as the Mac (`MarkdownTextView`): the full Apple
         // Intelligence Writing Tools experience — inline, because this is a
@@ -2129,81 +2086,6 @@ public final class EditorProxy {
 }
 
 
-/// The formatting bar above the keyboard.
-///
-/// A scrolling row of evenly weighted buttons, not a `UIToolbar`. The toolbar
-/// version spread seven items across the width with a flexible space, so the
-/// spacing changed with the device, nothing was grouped, and there was no room
-/// for a twelfth command without crowding the rest. Scrolling decouples the
-/// number of commands from the width of the screen, which is the property that
-/// makes a bar like this work on a phone and an iPad alike.
-///
-/// Undo, redo and dismiss are pinned outside the scroll view: they are the
-/// controls you reach for without looking, so they must not move.
-final class FormatAccessoryView: UIView {
-
-    private let scroller = UIScrollView()
-    private let row = UIStackView()
-    private let fixed = UIStackView()
-
-    func configure(commands: [(String, String, EditorFormatCommand)],
-                   apply: @escaping (EditorFormatCommand) -> Void,
-                   undo: @escaping () -> Void,
-                   redo: @escaping () -> Void,
-                   dismiss: @escaping () -> Void) {
-        backgroundColor = .secondarySystemBackground
-
-        func button(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> UIButton {
-            var config = UIButton.Configuration.plain()
-            config.image = UIImage(systemName: symbol,
-                                   withConfiguration: UIImage.SymbolConfiguration(pointSize: 17,
-                                                                                  weight: .regular))
-            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10)
-            let b = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
-            b.accessibilityLabel = label
-            b.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-            return b
-        }
-
-        row.axis = .horizontal
-        for (symbol, label, command) in commands {
-            row.addArrangedSubview(button(symbol, label) { apply(command) })
-        }
-
-        scroller.showsHorizontalScrollIndicator = false
-        scroller.addSubview(row)
-
-        fixed.axis = .horizontal
-        fixed.addArrangedSubview(button("arrow.uturn.backward", "Undo", undo))
-        fixed.addArrangedSubview(button("arrow.uturn.forward", "Redo", redo))
-        fixed.addArrangedSubview(button("keyboard.chevron.compact.down", "Hide Keyboard", dismiss))
-
-        for v in [scroller, row, fixed] { v.translatesAutoresizingMaskIntoConstraints = false }
-        addSubview(scroller)
-        addSubview(fixed)
-
-        NSLayoutConstraint.activate([
-            scroller.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroller.topAnchor.constraint(equalTo: topAnchor),
-            scroller.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scroller.trailingAnchor.constraint(equalTo: fixed.leadingAnchor),
-
-            row.leadingAnchor.constraint(equalTo: scroller.contentLayoutGuide.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: scroller.contentLayoutGuide.trailingAnchor),
-            row.topAnchor.constraint(equalTo: scroller.contentLayoutGuide.topAnchor),
-            row.bottomAnchor.constraint(equalTo: scroller.contentLayoutGuide.bottomAnchor),
-            row.heightAnchor.constraint(equalTo: scroller.frameLayoutGuide.heightAnchor),
-
-            fixed.trailingAnchor.constraint(equalTo: trailingAnchor),
-            fixed.topAnchor.constraint(equalTo: topAnchor),
-            fixed.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: 44)
-    }
-}
 
 /// Lets the link tap coexist with the caret tap.
 ///

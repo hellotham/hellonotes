@@ -252,6 +252,9 @@ struct SourceEditor: UIViewRepresentable {
         tv.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
         SourceEditor.makeSourceOnly(tv)
         tv.keyboardDismissMode = .interactive
+        // The same formatting affordances the live editor installs, so the
+        // shortcuts bar is the same in Markdown and Split as it is in Edit.
+        tv.installFormattingAssistant()
         tv.isFindInteractionEnabled = true
         tv.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         tv.text = text
@@ -311,10 +314,11 @@ struct SourceEditor: UIViewRepresentable {
         private var busTokens: [NSObjectProtocol] = []
         private weak var busView: SourceTextView?
 
-        /// Listen for the commands `EditorFormatBar` sends, exactly as the live
-        /// editor's coordinator does. Without this the bar would be drawn in
-        /// Markdown and Split and do nothing there — the failure mode the
-        /// visibility rule is meant to remove, not create.
+        /// Listen for formatting sent from outside this view — the Mac's
+        /// Format menu, and anything else on the bus. The shortcuts-bar buttons
+        /// call `apply` directly (they are installed on this very text view),
+        /// so this is the *other* half: commands addressed to the note rather
+        /// than to a view.
         func subscribe(documentId: String, view: SourceTextView) {
             busView = view
             guard busDocumentId != documentId else { return }

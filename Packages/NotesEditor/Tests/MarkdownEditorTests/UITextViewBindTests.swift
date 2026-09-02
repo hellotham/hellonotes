@@ -94,21 +94,37 @@ import Testing
 
     // MARK: - The keyboard bar
 
-    /// **There must be no `inputAccessoryView`.**
+    /// On iPad the formatting goes in the **system shortcuts bar**, and there
+    /// is no accessory of ours at all.
     ///
-    /// The format bar used to be one, and that made its visibility a function
-    /// of first-responder state rather than of anything the user chose:
-    /// entering Edit mode did not show it (you had to tap into the text as
-    /// well), anything that took focus hid it mid-edit, and with a hardware
-    /// keyboard iOS docked it at the bottom of the screen over the app's own
-    /// status row. It is the app's chrome now (`EditorFormatBar`, shown when
-    /// `mode == .edit`), and re-attaching one here would silently restore all
-    /// of that — two bars, fighting for the same 44pt.
-    @Test func theEditorAttachesNoInputAccessoryView() {
+    /// A hand-rolled `inputAccessoryView` is what iOS docks at the *bottom of
+    /// the screen* when a hardware keyboard is attached — over the app's own
+    /// word count and mode picker. `inputAssistantItem` is laid out by the
+    /// keyboard instead, so it cannot collide with anything, and it appears
+    /// with a hardware keyboard too (verified on a simulator: the pill shows
+    /// `EN AU`, the commands, and the dictation mic).
+    ///
+    /// iPhone has no shortcuts bar and keeps an accessory, which is why this
+    /// asserts per idiom rather than absolutely.
+    @Test func formattingGoesInTheSystemBarOnIPad() {
         let (tv, _) = hosted(EditorDocument(text: "plain line\n"))
         #expect(tv.becomeFirstResponder())
-        #expect(tv.inputAccessoryView == nil,
-                "the format bar belongs to the app's chrome, not to the keyboard")
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            #expect(tv.inputAccessoryView == nil,
+                    "an accessory docks over the app's own bar with a hardware keyboard")
+            let groups = tv.inputAssistantItem.leadingBarButtonGroups
+                + tv.inputAssistantItem.trailingBarButtonGroups
+            let labels = Set(groups.flatMap(\.barButtonItems).compactMap(\.accessibilityLabel))
+            for command in ["Bold", "Italic", "Strikethrough", "Highlight", "Code",
+                            "Blockquote", "Bulleted List", "Numbered List",
+                            "Heading 1", "Heading 2", "Heading 3"] {
+                #expect(labels.contains(command), "the shortcuts bar is missing \(command)")
+            }
+        } else {
+            #expect(tv.inputAccessoryView != nil,
+                    "iPhone has no shortcuts bar, so it needs an accessory")
+        }
     }
 
     /// The bar is outside the editor now, so the only way its buttons reach the
