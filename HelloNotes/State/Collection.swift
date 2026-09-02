@@ -597,6 +597,16 @@ final class Collection: Identifiable {
     /// that "we looked and the folder was unreadable" can never be mistaken for
     /// "we looked and the folder was empty".
     private func apply(_ result: (notes: [Note], attachments: [CollectionFile], folders: [URL])) {
+        // **An identical picture is not news.** The verification pass that runs
+        // behind a cache-opened collection re-derives the same list almost
+        // every launch, and bumping `revision` for it rebuilds the sidebar
+        // outline — resetting its scroll — for no change at all. Folders are
+        // compared as a set because `applyMerging` builds them from one.
+        if result.notes == notes, result.attachments == attachments,
+           Set(result.folders) == Set(folders) {
+            if case .stale = state { state = .ready }
+            return
+        }
         MainActorWatchdog.note("apply(\(result.notes.count) notes) — observers now invalidated")
         notes = result.notes
         attachments = result.attachments
@@ -787,6 +797,17 @@ final class Collection: Identifiable {
         // which is how a cancelled rescan emptied a collection outright.
         let sawWholeTree = result.isComplete && !Task.isCancelled
 
+        // **Name the folders that could not be read.** `isComplete` is
+        // `issues.isEmpty`, so these decide whether a pass counts as
+        // authoritative — and until now nothing anywhere reported them. A
+        // collection whose rescans quietly stopped publishing looked identical
+        // to one that had nothing to publish, which is most of why the cause
+        // took so long to find.
+        if !result.issues.isEmpty {
+            MainActorWatchdog.note("scan could not read \(result.issues.count) folder(s): "
+                + result.issues.prefix(5).map { "\($0.path) — \($0.message)" }.joined(separator: "; "))
+        }
+
         if sawWholeTree {
             // **"Complete" means the walk finished, not that it saw everything.**
             // A resumed walk starts at a stored frontier and accumulates only
@@ -806,9 +827,39 @@ final class Collection: Identifiable {
             state = isAvailable ? .ready : state
             WalkCheckpointStore.rememberTotal(result.progress.directoriesVisited, for: collectionID)
         } else {
-            // A partial pass. Show it only if there was nothing better, and say
-            // the list is a subset either way so search can disclose it.
-            if isFirstPicture { apply(found) }
+            // **A pass that did not finish still saw most of the folder, and
+            // what it saw is news.**
+            //
+            // `isComplete` is `issues.isEmpty` — so *one* directory the walk
+            // could not list, anywhere in the tree, marks the whole pass
+            // incomplete even though it drained the frontier and read
+            // everything else. This branch used to publish only when there was
+            // nothing on screen yet, which meant:
+            //
+            //   * on a **freshly added** collection (empty list) the picture
+            //     was published and the folder looked right;
+            //   * on a collection that **already had notes** the entire pass
+            //     was discarded in silence — including from `rescan()`, the
+            //     command offered as the fix for exactly that.
+            //
+            // So "Rescan Collection" did nothing, and closing the collection
+            // and adding it back was the only repair — because that is what
+            // made the list empty. Merging keeps the caution that was actually
+            // wanted (an unvisited subtree may still hold a note, so nothing is
+            // *removed*) without throwing away everything that was visited.
+            //
+            // A pass that drained its frontier from the root visited every
+            // directory except the ones it names, so it *can* prove a deletion
+            // outside them. Without that, a vault holding one folder the app
+            // cannot list could never drop a deleted note again by any means
+            // short of closing the collection and adding it back — which is
+            // precisely the state this was reported from.
+            let provedCoverage = startedFromRoot && result.checkpoint == nil && !Task.isCancelled
+            if isFirstPicture {
+                apply(found)
+            } else {
+                applyMerging(found, unreadable: provedCoverage ? result.issues.map(\.path) : nil)
+            }
             markStale(.scanIncomplete)
         }
     }
@@ -903,15 +954,50 @@ final class Collection: Identifiable {
     /// pass that starts from the root. Showing a note that has gone is a
     /// correction; hiding a note that exists is a scare, and this app has now
     /// done the second to its own author.
-    private func applyMerging(_ fresh: ScanPicture) {
+    /// Merge a pass into what is already known, removing only what the pass can
+    /// prove is gone.
+    ///
+    /// `unreadable` is the list of directories the walk *failed to list*, and
+    /// passing it is a claim: **every other directory in the tree was visited.**
+    /// Given that, an item the pass did not find is either deleted or inside one
+    /// of those directories, and the two can be told apart by prefix — so a
+    /// deletion is honoured while the unreadable subtree is left untouched.
+    ///
+    /// `nil` means the pass's coverage is unknown (it resumed from a stored
+    /// frontier, or the user stopped it), and then nothing may be removed at
+    /// all. That is the distinction that matters: the caller must only pass a
+    /// list when the walk started at the root and drained its frontier. Getting
+    /// it wrong removes notes that exist, which is the failure this whole path
+    /// was built to prevent.
+    private func applyMerging(_ fresh: ScanPicture, unreadable: [String]? = nil) {
         let walkedNotes = Set(fresh.notes.map(\.fileURL))
         let walkedFiles = Set(fresh.attachments.map(\.url))
 
-        let mergedNotes = (notes.filter { !walkedNotes.contains($0.fileURL) } + fresh.notes)
+        // Prefixes of the subtrees the walk could not enter. Compared with a
+        // trailing separator so "Notes/Archive" cannot match "Notes/Archived".
+        let blindSpots: [String]? = unreadable.map { paths in
+            paths.map { rootURL.appending(path: $0).standardizedFileURL.path + "/" }
+        }
+        func couldNotHaveSeen(_ url: URL) -> Bool {
+            guard let blindSpots else { return true }   // coverage unknown: keep
+            let path = url.standardizedFileURL.path
+            return blindSpots.contains { path.hasPrefix($0) }
+        }
+
+        let keptNotes = notes.filter {
+            !walkedNotes.contains($0.fileURL) && couldNotHaveSeen($0.fileURL)
+        }
+        let keptFiles = attachments.filter {
+            !walkedFiles.contains($0.url) && couldNotHaveSeen($0.url)
+        }
+
+        let mergedNotes = (keptNotes + fresh.notes)
             .sorted { $0.lastModified > $1.lastModified }
-        let mergedFiles = (attachments.filter { !walkedFiles.contains($0.url) } + fresh.attachments)
+        let mergedFiles = (keptFiles + fresh.attachments)
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        let mergedFolders = Array(Set(folders).union(fresh.folders))
+        let mergedFolders = blindSpots == nil
+            ? Array(Set(folders).union(fresh.folders))
+            : Array(Set(fresh.folders).union(folders.filter { couldNotHaveSeen($0) }))
 
         apply((notes: mergedNotes, attachments: mergedFiles, folders: mergedFolders))
     }
@@ -1092,24 +1178,37 @@ final class Collection: Identifiable {
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {
         securityScoped = rootURL.startAccessingSecurityScopedResource()
 
-        // **Open from the cache. Walk only when there is nothing to open
-        // from.**
+        // **Draw from the cache at once; check the folder straight after.**
         //
-        // This used to walk the whole vault on every launch before showing
-        // anything — on a 2,000-note collection in iCloud that walk *is* the
-        // startup, and it re-derived a picture the index cache already held.
-        // A scan should answer a known change, and "the app launched" is not
-        // one.
+        // Waiting for a walk before showing anything is what made launch slow:
+        // on a 2,000-note vault in iCloud that walk *is* the startup, and it
+        // re-derives a picture the index cache already holds.
         //
-        // What keeps this honest is that the watcher is started below: any
-        // change made while the app was closed, or made by anything else while
-        // it is open, arrives as a notification and reconciles then. The cache
-        // is a starting point, not a claim that nothing moved.
+        // But the cache cannot be the answer on its own, and the first version
+        // of this treated it as one. Two reasons, both load-bearing:
+        //
+        //   1. **The watcher cannot report the past.** `DirectoryObserver`
+        //      opens its stream at `kFSEventStreamEventIdSinceNow`, so nothing
+        //      that happened while the app was closed is ever delivered. The
+        //      claim that the watcher would cover it was written from
+        //      reasoning, not from reading the stream. Add a note in Finder,
+        //      launch, and it simply was not there.
+        //   2. **The cache is an index, not a listing.** It holds one record
+        //      per note that has been *parsed*, and `refreshDerived` skips
+        //      notes whose contents are not local — so on a part-downloaded
+        //      cloud vault it is a strict subset of the folder.
+        //
+        // So the cache decides what is on screen in the first frame, and the
+        // folder decides what is true. The walk runs off the main actor and is
+        // not awaited, `apply` ignores a picture identical to the one showing,
+        // and nothing about it touches the editor — which is what makes this
+        // affordable on every launch rather than something to be avoided.
         if let cached = CollectionIndexCache.notes(for: rootURL) {
             notes = cached
             folders = Self.folders(from: cached, root: rootURL)
             revision &+= 1
-            MainActorWatchdog.note("activate — opened from cache (\(cached.count) notes), no walk")
+            MainActorWatchdog.note("activate — drew \(cached.count) notes from cache; verifying")
+            verifyAgainstFolder()
         } else {
             await scanOffMain()
         }
@@ -1121,6 +1220,16 @@ final class Collection: Identifiable {
         // arrive when it arrives.
         Task { await git.refreshStatus() }
         startObserving(onExternalChange: onExternalChange)
+    }
+
+    /// Reconcile the drawn-from-cache picture with what is actually in the
+    /// folder. Background, unawaited: the list on screen is already usable, and
+    /// this only corrects it.
+    private func verifyAgainstFolder() {
+        Task { [weak self] in
+            await self?.scanOffMain()
+            self?.refreshDerived()
+        }
     }
 
     /// Stop watching and relinquish the security scope. Call before closing.
@@ -1194,10 +1303,18 @@ final class Collection: Identifiable {
         // the state from inside the app at all.
         WalkCheckpointStore.remove(for: id)
         invalidateRelatedness()
-        Task {
-            await scanOffMain()
-            refreshDerived(force: true)
-        }
+        Task { await rebuildFromScratch() }
+    }
+
+    /// The body of ``rescan()``, awaitable.
+    ///
+    /// `rescan()` is a menu action and returns immediately, so its work used to
+    /// live inside an unstructured `Task` where nothing could observe it — which
+    /// is why the command shipped with no test at all, and why "rescan does
+    /// nothing" went unnoticed for so long. The caller that can wait, waits.
+    func rebuildFromScratch() async {
+        await scanOffMain()
+        refreshDerived(force: true)
     }
 
     // MARK: Watching the folder
