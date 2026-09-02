@@ -535,7 +535,13 @@ struct NoteOutlineList: NSViewRepresentable {
             // Via `NoteRowContent`, shared with the iPad's sidebar — the two
             // rows drew from nothing in common, and the iPad's ended up with no
             // second line and no badge at all.
-            let subtitleText = NoteRowContent.make(note, snippet: snippet).subtitle
+            // Stacked, always: `ShellMetrics.sidebarCap` (340) is below
+            // `noteRowTwoColumn` (420), so a Mac sidebar never reaches the
+            // width where a date can share the title's line.
+            // `sidebarStaysBelowTheTwoColumnThreshold` fails if that stops
+            // being true, rather than leaving this comment quietly wrong.
+            let content = NoteRowContent.make(note, snippet: snippet)
+            let subtitleText = content.snippet ?? content.date
             let subtitle = label(subtitleText, font: .systemFont(ofSize: 11 * parent.fontScale), color: .secondaryLabelColor)
             subtitle.lineBreakMode = .byTruncatingTail
             let stack = NSStackView(views: [titleRow, subtitle])
@@ -745,6 +751,9 @@ struct NoteOutlineList: View {
                 }
             }
             .tint(accent)
+            // The row's height is its content plus the List's insets, floored
+            // here so a one-line note row is still a 44pt touch target.
+            .environment(\.defaultMinListRowHeight, ShellMetrics.noteRowTouchMinimum)
             .onChange(of: revealID) { _, id in
                 guard let id else { return }
                 reveal(id, with: proxy)

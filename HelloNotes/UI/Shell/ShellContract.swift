@@ -62,6 +62,25 @@ enum ShellMetrics {
     /// own text.
     static let editorFloor: CGFloat = 320
 
+    /// Above this width, a note row carries its date in a trailing **column**
+    /// beside the title; below it, on a second line.
+    ///
+    /// Set above `sidebarCap` on purpose: a sidebar *column* is 220–340pt and
+    /// always stacks, because a title and "2 Sep 2026" cannot share 280 points
+    /// without one of them becoming an ellipsis. The wide case is the iPad in
+    /// portrait, where the list is presented over most of the window and a
+    /// two-line row wastes half the space it is given. Width decides, not
+    /// device — the same rule as the rest of the shell.
+    ///
+    /// `sidebarStaysBelowTheTwoColumnThreshold` fails if the cap ever rises
+    /// past this, which would otherwise silently leave the Mac stacked forever.
+    static let noteRowTwoColumn: CGFloat = 420
+
+    /// Minimum height of a note row where a finger is the pointer. Below the
+    /// 44pt target a denser row stops being usable, which is the floor the
+    /// single-line layout is designed against.
+    static let noteRowTouchMinimum: CGFloat = 44
+
     /// Horizontal padding inside a pane, per side.
     static let insets: CGFloat = 16
 

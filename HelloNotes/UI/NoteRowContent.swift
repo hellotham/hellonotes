@@ -31,30 +31,75 @@ struct NoteRow: Identifiable {
     var id: Note.ID { note.id }
 }
 
-/// The three things a sidebar row shows about a note.
+/// The things a sidebar row shows about a note.
+///
+/// ## Why the date and the snippet are separate fields
+///
+/// They were one — `subtitle`, being "the snippet, or else the date" — and that
+/// forced every row to spend a **second line** on it. A date is four to eight
+/// characters and belongs in a narrow column beside the title; a snippet is
+/// prose and needs a line of its own. Collapsing them meant the common case
+/// (no search) paid the uncommon case's layout, and the note list showed barely
+/// half the rows that fit.
 struct NoteRowContent {
     let title: String
-    /// The search snippet when the row came from a search, otherwise the
-    /// modification date. Never empty — a row with no second line at all reads
-    /// as a different kind of row.
-    let subtitle: String
+    /// The modification date, compactly: a trailing column, never a line.
+    let date: String
+    /// Set only when a search found this row. Prose — it gets the second line,
+    /// and only search rows are tall.
+    let snippet: String?
     /// In a cloud folder, not downloaded. Worth saying, because opening it will
     /// block on a network fetch.
     let isOnlineOnly: Bool
 
     static func make(_ note: Note, snippet: String? = nil) -> NoteRowContent {
         NoteRowContent(title: note.title,
-                       subtitle: snippet ?? Self.dateFormatter.string(from: note.lastModified),
+                       date: Self.compactDate(note.lastModified),
+                       snippet: snippet,
                        isOnlineOnly: note.isOnlineOnly)
     }
 
-    /// Shared so the same note is not dated two ways on two devices.
-    static let dateFormatter: DateFormatter = {
+    /// The date as a sidebar column: as much as is useful, no more.
+    ///
+    /// "2 Sep 2026 at 7:28 am" is 21 characters — wider than the title it would
+    /// sit beside in a 320pt sidebar, which is why the date used to need its own
+    /// line. What actually distinguishes one row from another is the *nearest*
+    /// unit that differs, so today gives the time, this week the weekday, this
+    /// year the day and month, and older the year. Every case fits a column.
+    static func compactDate(_ date: Date, now: Date = Date(),
+                            calendar: Calendar = .current) -> String {
+        if calendar.isDateInToday(date) { return timeOnly.string(from: date) }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        if let week = calendar.date(byAdding: .day, value: -6, to: now), date >= week {
+            return weekday.string(from: date)
+        }
+        if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
+            return dayMonth.string(from: date)
+        }
+        return numeric.string(from: date)
+    }
+
+    // Shared so the same note is not dated two ways on two devices.
+    private static let timeOnly = formatter(template: "jmm")
+    private static let weekday = formatter(template: "EEE")
+    private static let dayMonth = formatter(template: "dMMM")
+
+    /// Fixed-width fallback for anything older than this year. `.numeric` rather
+    /// than a template so a 2019 note cannot render wider than the column.
+    private static let numeric: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
+        formatter.dateStyle = .short
+        formatter.timeStyle = .none
         return formatter
     }()
+
+    /// Template rather than a literal format string: `jmm` is 12- or 24-hour by
+    /// the reader's own settings, and `dMMM` orders day and month by locale.
+    private static func formatter(template: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        return formatter
+    }
 
     /// The label a cloud badge carries for VoiceOver, on either platform.
     static let onlineOnlyLabel = "Online only — not downloaded"

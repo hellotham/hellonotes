@@ -154,6 +154,10 @@ struct ContentView: View {
     /// scope to a different collection on each platform.
     @State private var sidebarTree = SidebarTreeModel()
 
+    /// Width of the note list, which decides whether a row's date sits in a
+    /// trailing column or on a second line (`ShellMetrics.noteRowTwoColumn`).
+    @State private var outlineWidth: CGFloat = 0
+
     /// Everything the sidebar tree is built from — and keyed on. One
     /// construction, shared: see `SidebarTree.inputs`.
     private var sidebarInputs: SidebarTree.Inputs {
@@ -2004,9 +2008,17 @@ struct ContentView: View {
             actions: actions.sidebarMenu,
             scopedCollection: railCollection ?? focused,
             onCloseCollection: { actions.closeCollection($0) },
-            row: { note, snippet in AnyView(noteRow(note, snippet: snippet)) },
+            row: { note, snippet in
+                AnyView(noteRow(note, snippet: snippet,
+                                wide: outlineWidth >= ShellMetrics.noteRowTwoColumn))
+            },
             onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) }
         )
+        // **Measured once for the list, not once per row.** `ViewThatFits`
+        // would decide per row, so two neighbours could disagree and the column
+        // would come and go down the list; it also re-measures on every content
+        // change, which is the shape of the bar that re-measured per keystroke.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { outlineWidth = $0 }
     }
 
     // MARK: - Outline items (NSOutlineView data)
@@ -2166,25 +2178,59 @@ struct ContentView: View {
     /// only, and a second line carrying the search snippet or the modification
     /// date — the same three things the Mac's `noteCell` shows, decided by the
     /// same `NoteRowContent` so the two cannot drift again.
+    ///
+    /// `wide` is the list's width, not the device's: over
+    /// `ShellMetrics.noteRowTwoColumn` the date moves up beside the title and
+    /// the row becomes one line, which is most of a row's height back. Under
+    /// it — a 280pt sidebar column — the two cannot share a line without the
+    /// title truncating, so the layout stays stacked.
     @ViewBuilder
-    private func noteRow(_ note: Note, snippet: String? = nil) -> some View {
+    private func noteRow(_ note: Note, snippet: String? = nil, wide: Bool = false) -> some View {
         let content = NoteRowContent.make(note, snippet: snippet)
         VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 4) {
-                Text(content.title).font(.subheadline.weight(.semibold))
+            HStack(spacing: 6) {
+                Text(content.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if content.isOnlineOnly {
                     Image(systemName: "icloud.and.arrow.down")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .accessibilityLabel(NoteRowContent.onlineOnlyLabel)
                 }
+                if wide {
+                    Spacer(minLength: 8)
+                    Text(content.date)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        // The dates form a column; proportional digits make it
+                        // look ragged when it is the one thing that lines up.
+                        .monospacedDigit()
+                        // The title yields first — the date is short, fixed,
+                        // and useless truncated.
+                        .layoutPriority(1)
+                }
             }
-            Text(content.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            // Narrow keeps exactly what it had: one secondary line, the snippet
+            // when a search found this row and the date otherwise. Wide already
+            // shows the date, so a snippet is the only thing left to say.
+            if let second = wide ? content.snippet : (content.snippet ?? content.date) {
+                Text(second)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
+        // **No explicit height here.** A `minHeight` on the row's content is
+        // *added* to the List's own row insets rather than absorbed by them —
+        // the single-line row came out at 66pt, taller than the two-line row it
+        // replaced. The floor belongs to the List, as
+        // `defaultMinListRowHeight`, where it is a floor rather than a
+        // contribution.
+        .contentShape(.rect)
         .tag(note.id)
         // The tree is the only place a note has a *location*, so it is the only
         // place a move makes sense — the same rows the Mac makes draggable.
