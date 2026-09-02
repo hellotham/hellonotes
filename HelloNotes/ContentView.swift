@@ -748,11 +748,24 @@ struct ContentView: View {
             library.pendingOpenNoteID = nil
         }
         .onChange(of: library.allNotes) { _, notes in
+            // **Only when the set of notes actually changed.**
+            //
+            // `Note` is `Hashable` over `lastModified` and `fileSize`, so
+            // `allNotes` changes on *every save of any note* — which used to
+            // run all five of these, per save. Comparing identities instead
+            // means a save is not news and only a genuine add or remove is.
+            let ids = Set(notes.map(\.id))
+            guard ids != knownNoteIDs else { return }
+            knownNoteIDs = ids
+
             // A cached document captured which wiki-link targets existed when
             // it was built, so once the note set changes it would colour
-            // [[links]] by a stale answer.
-            documents.forgetAll()
-            tabs.prune(keeping: Set(notes.map(\.id)))
+            // [[links]] by a stale answer — but **never the open note**.
+            // Forgetting that one rebuilds its text view, which drops first
+            // responder: creating a note ejected you from the note you were
+            // typing in. Nothing may take focus that the user did not.
+            documents.forgetAll(except: editor.note?.fileURL.path)
+            tabs.prune(keeping: ids)
             actions.revalidateSelection()
             library.writeWidgetSnapshot()   // refresh the recent-notes widget
             Task { await router.donateNotesToSpotlight() }   // system Spotlight
@@ -859,7 +872,13 @@ struct ContentView: View {
                     .transition(.opacity)
                     .task(id: splashAutoDismisses) {
                         guard splashAutoDismisses else { return }
-                        try? await Task.sleep(for: .seconds(2.8))
+                        // **Long enough not to flash, and not one moment
+                        // longer.** This was 2.8 seconds, plus a half-second
+                        // fade — over three seconds of an app that was ready
+                        // in far less, every single launch. A splash earns its
+                        // place while there is genuinely nothing to show; past
+                        // that it is a toll.
+                        try? await Task.sleep(for: .milliseconds(500))
                         dismissSplashOverlay()
                     }
             }
@@ -2034,6 +2053,11 @@ struct ContentView: View {
     /// Stands in when no note is open, so the 30-odd `editor.` call sites do
     /// not each have to answer "and if there is nothing open?". The detail
     /// column shows `ContentUnavailableView` in that state anyway.
+    /// The note identities last seen, so a save — which changes a `Note`'s
+    /// `lastModified` and therefore `allNotes` — is not mistaken for the note
+    /// set changing.
+    @State private var knownNoteIDs: Set<URL> = []
+
     @State private var noEditor = EditorModel()
 
     private var editor: EditorModel { actions.activeEditor ?? noEditor }
@@ -2566,8 +2590,22 @@ struct ContentView: View {
                 onOpenWikiLink: { openWikiLink($0) },
                 onOpenNote: { selectedNoteID = $0.id },
                 onLinkMention: linkMention,
-                onRenameNote: { actions.rename(note, to: $0) },
-                onShowMindMap: { auxiliary.open(.mindMap(note.fileURL)) },
+                // **Resolved when the rename happens, not captured now.**
+                //
+                // `note` here is whatever the body saw when this closure was
+                // made, and a rename changes the note's `fileURL` — that *is*
+                // the rename. So the captured value went stale the instant the
+                // first one succeeded, and every rename after it addressed a
+                // path with no file at it. It failed silently, which is why it
+                // looked like renaming simply stopped working after once.
+                onRenameNote: { title in
+                    guard let current = editor.note else { return }
+                    actions.rename(current, to: title)
+                },
+                onShowMindMap: {
+                    guard let current = editor.note else { return }
+                    auxiliary.open(.mindMap(current.fileURL))
+                },
                 ai: aiActions,
                 selectionActions: selectionActions(in: c)
             )

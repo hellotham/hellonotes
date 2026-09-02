@@ -334,7 +334,10 @@ enum SplashWindow {
 
         if autoDismiss {
             dismissTask = Task {
-                try? await Task.sleep(for: .seconds(3.5))
+                // See the iOS twin: a splash is worth showing while there is
+                // nothing to show, and this was 3.5 seconds of an app that was
+                // ready long before.
+                try? await Task.sleep(for: .milliseconds(700))
                 guard !Task.isCancelled else { return }
                 close()
             }

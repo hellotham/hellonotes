@@ -34,6 +34,30 @@ nonisolated struct NoteIndexRecord: Codable, Sendable {
 
 nonisolated enum CollectionIndexCache {
 
+    /// Rebuild the note list from the cache alone, without touching the disk.
+    ///
+    /// A record carries everything a `Note` needs — its path, its size, its
+    /// modification date — so a collection can be *opened* from the cache and
+    /// only walked when there is a reason to. `activate` used to walk the whole
+    /// vault every launch before anything could be shown; on a 2,000-note vault
+    /// in iCloud that is the startup.
+    ///
+    /// `isOnlineOnly` is left false: it is a property of the file's current
+    /// materialisation rather than of its content, it changes without the file
+    /// changing, and the only cost of guessing wrong is a cloud badge that
+    /// appears a moment late.
+    static func notes(for root: URL) -> [Note]? {
+        guard let records = load(for: root), !records.isEmpty else { return nil }
+        return records.values.map { record in
+            let url = root.appending(path: record.relativePath)
+            return Note(title: url.deletingPathExtension().lastPathComponent,
+                        fileURL: url,
+                        lastModified: Date(timeIntervalSinceReferenceDate: record.mtime),
+                        fileSize: record.size)
+        }
+        .sorted { $0.lastModified > $1.lastModified }
+    }
+
     /// Bump when the record format **or what the parse extracts** changes; a
     /// version mismatch simply forces one full rebuild.
     ///

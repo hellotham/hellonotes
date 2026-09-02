@@ -93,6 +93,27 @@ final class EditorDocumentStore {
         recency.removeAll()
     }
 
+    /// Forget everything **except the note at `path`**.
+    ///
+    /// `forgetAll` discards the document the user is typing into, and a
+    /// discarded document means a rebuilt `UITextView`, which means first
+    /// responder is gone: the keyboard drops and the caret vanishes mid-note.
+    /// It was called whenever the note *set* changed — including when the user
+    /// created a note, so making one ejected them from the one they were in.
+    ///
+    /// The reason for forgetting is real but narrow: a document's services
+    /// captured which wiki-link targets existed when it was built, so a new
+    /// note can leave `[[links]]` coloured by a stale answer. That is a
+    /// *styling* staleness in other documents, and it is worth a rebuild for
+    /// them. It is not worth taking the keyboard away from the person typing.
+    func forgetAll(except path: String?) {
+        guard let path else { forgetAll(); return }
+        for key in documents.keys where key.path != path {
+            documents[key] = nil
+            recency.removeAll { $0 == key }
+        }
+    }
+
     private func touch(_ key: Key) {
         recency.removeAll { $0 == key }
         recency.append(key)

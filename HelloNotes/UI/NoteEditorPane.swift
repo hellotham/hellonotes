@@ -121,6 +121,12 @@ struct NoteEditorPane: View {
         // which it did: Preview painted GitHub's `#0d1117` and the editor
         // painted nothing at all, letting the window's material through.
         .background(Color(EditorTheme.canvas(isDark: colorScheme == .dark)))
+        .onReceive(NotificationCenter.default.publisher(for: .hnEditorFocusTitle)) { _ in
+            // A new note. Same guard as the caret handover below: only when
+            // there is a title showing and this pane can actually rename.
+            guard appearance.showInlineTitle, onRename != nil else { return }
+            titleFocusRequest = titleFocusRequest.next(x: nil)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .hnEditorCaretEscapedTop)) { notification in
             // The caret left the top of the note — catch it in the title. Only
             // when there *is* a title to catch it in, and only when this pane

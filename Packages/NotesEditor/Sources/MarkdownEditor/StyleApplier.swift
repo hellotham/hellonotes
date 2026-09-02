@@ -304,10 +304,21 @@ nonisolated enum StyleApplier {
             style.maximumLineHeight = each
             target.addAttribute(.paragraphStyle, value: style, range: block.range)
             // …and the line the caret is on comes back to full height, so a
-            // note that opens or ends with blank lines is still one you can
-            // type on. Only where the run was collapsed to nothing: a run
-            // holding a real margin already has height to show a caret in.
-            if holdsNoGap, !revealedLines.isEmpty {
+            // blank run is still something you can type in.
+            //
+            // **Every blank run, not only collapsed ones.** The condition used
+            // to be `holdsNoGap`, on the reasoning that a run holding a real
+            // margin already has height to show a caret in. It has height, but
+            // it is *shared*: a run's margin is divided by its line count, so
+            // pressing Return four times between two paragraphs gave four lines
+            // a quarter of one gap each and the caret did not appear to move.
+            // Typing Return and watching nothing happen is the clearest
+            // possible way for an editor to feel broken.
+            //
+            // Parity is unaffected by construction: `revealedLines` is empty
+            // when there is no caret, which is every document the render-parity
+            // harness lays out.
+            if !revealedLines.isEmpty {
                 let last = block.firstLine + block.lineCount - 1
                 for lineNumber in block.firstLine...max(block.firstLine, last)
                 where revealedLines.contains(lineNumber) {

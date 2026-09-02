@@ -1071,9 +1071,48 @@ final class Collection: Identifiable {
     /// repository and hid the remote controls for the life of the collection.
     /// Only *how* the folder is watched is genuinely platform-specific, so that
     /// is the only part left behind a `#if`.
+    /// Every folder implied by a set of notes — the cache records files, and
+    /// the sidebar needs the tree they sit in. Derived rather than walked, for
+    /// the same reason the notes are.
+    private static func folders(from notes: [Note], root: URL) -> [URL] {
+        var seen = Set<String>()
+        var out: [URL] = []
+        let rootPath = root.standardizedFileURL.path
+        for note in notes {
+            var dir = note.fileURL.deletingLastPathComponent().standardizedFileURL
+            while dir.path.hasPrefix(rootPath), dir.path != rootPath {
+                guard seen.insert(dir.path).inserted else { break }
+                out.append(dir)
+                dir = dir.deletingLastPathComponent()
+            }
+        }
+        return out.sorted { $0.path < $1.path }
+    }
+
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {
         securityScoped = rootURL.startAccessingSecurityScopedResource()
-        await scanOffMain()
+
+        // **Open from the cache. Walk only when there is nothing to open
+        // from.**
+        //
+        // This used to walk the whole vault on every launch before showing
+        // anything — on a 2,000-note collection in iCloud that walk *is* the
+        // startup, and it re-derived a picture the index cache already held.
+        // A scan should answer a known change, and "the app launched" is not
+        // one.
+        //
+        // What keeps this honest is that the watcher is started below: any
+        // change made while the app was closed, or made by anything else while
+        // it is open, arrives as a notification and reconciles then. The cache
+        // is a starting point, not a claim that nothing moved.
+        if let cached = CollectionIndexCache.notes(for: rootURL) {
+            notes = cached
+            folders = Self.folders(from: cached, root: rootURL)
+            revision &+= 1
+            MainActorWatchdog.note("activate — opened from cache (\(cached.count) notes), no walk")
+        } else {
+            await scanOffMain()
+        }
         refreshDerived()
         // **Not awaited.** Git operations run on a FIFO queue, so `refreshStatus`
         // queues behind whatever is already in flight — and a push to a slow

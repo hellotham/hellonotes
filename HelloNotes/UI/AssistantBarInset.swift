@@ -78,7 +78,15 @@ final class AssistantBarInset {
         // Split View, Slide Over, or any resized iPad window.
         let covered = window.frame.intersection(frame.cgRectValue)
         let overlap = covered.isNull ? 0 : covered.height
-        height = overlap > Self.pillCeiling ? 0 : overlap
+        guard overlap > 0, overlap <= Self.pillCeiling else { height = 0; return }
+        // **Minus the bottom safe area, which the bar is already clear of.**
+        //
+        // The reported frame is measured from the bottom of the *window*, and
+        // it includes the home-indicator strip. The status row lives in a
+        // `safeAreaInset`, so it already sits above that strip — adding the
+        // whole figure counted it twice and left a band of dead space between
+        // the two bars about as tall as the home indicator.
+        height = max(0, overlap - window.safeAreaInsets.bottom)
     }
     #else
     init() {}

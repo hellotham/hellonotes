@@ -1707,9 +1707,35 @@ public final class MarkdownUITextView: UITextView {
         document?.appearanceDidChange(isDark: traitCollection.userInterfaceStyle == .dark)
     }
 
+    /// Room to scroll **past** the end of the note, so the last line can be
+    /// brought to the middle of the screen instead of stopping at the bottom.
+    ///
+    /// Without it a note ends where its text ends: the final paragraph sits
+    /// hard against the chrome, and the line you are writing — always the last
+    /// one — is the least comfortable place on the screen to look at. Every
+    /// editor people write in for hours does this; it is the difference between
+    /// a text view and somewhere to think.
+    ///
+    /// Half the viewport, which is what "about the middle" means, and only once
+    /// the note is long enough to scroll at all — a short note in a tall window
+    /// gains nothing from a screenful of emptiness under it.
+    private func updateScrollPastEndInset() {
+        let viewport = bounds.height - adjustedContentInset.top
+        guard viewport > 0, contentSize.height > viewport else {
+            if contentInset.bottom != 0 { contentInset.bottom = 0 }
+            return
+        }
+        let wanted = viewport / 2
+        guard abs(contentInset.bottom - wanted) > 0.5 else { return }
+        contentInset.bottom = wanted
+        // The indicator tracks the text, not the empty space below it.
+        verticalScrollIndicatorInsets.bottom = 0
+    }
+
     public override func layoutSubviews() {
         super.layoutSubviews()
         syncRenderMetrics()
+        updateScrollPastEndInset()
         // The counterpart of the Mac's bounds observer, which fires on the
         // scroll view's *first* layout as well as on every scroll. iOS only had
         // the scroll half (`scrollViewDidScroll`), so nothing styled the visible

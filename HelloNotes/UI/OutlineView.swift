@@ -34,6 +34,11 @@ extension Notification.Name {
     static let hnEditorCaretEscapedTop = Notification.Name("hn.editor.caretEscapedTop")
     /// The inline title is handing the caret down into the body.
     static let hnEditorFocusStart = Notification.Name("hn.editor.focusStart")
+    /// A note was just created: put the caret in its title, because naming it
+    /// is the first thing anybody does with a new note. Without this a new note
+    /// opened with nothing focused at all — no caret, no keyboard — which reads
+    /// as the app having lost focus rather than never having taken it.
+    static let hnEditorFocusTitle = Notification.Name("hn.editor.focusTitle")
     /// Host → engine: clear find highlights.
     static let hnEditorClearHighlights = Notification.Name("hn.editor.clearHighlights")
     /// Engine → host: number of matches for the last `findQuery` (`userInfo["count"]`).
