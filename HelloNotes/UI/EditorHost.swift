@@ -169,7 +169,20 @@ struct EditorHost: View {
                     .onInlineCompletionRequest { context in
                         inlineCompletions.request(context, intelligence: intelligence, proxy: proxy)
                     }
-                    .ignoresSafeArea(.container, edges: .bottom)
+                    // **No `.ignoresSafeArea(.container, edges: .bottom)`.**
+                    //
+                    // That told the text view to extend past the bottom safe
+                    // area — which, since the status row moved into a
+                    // `safeAreaInset`, means extending *underneath it*. The
+                    // caret could then sit behind the word count where it could
+                    // not be seen, and scrolling could not rescue it: the view
+                    // believed its viewport reached the bottom of the window, so
+                    // there was nothing left to scroll. The end of a note was
+                    // unreachable from the bottom.
+                    //
+                    // Chrome and content must not occupy the same points. The
+                    // inset reserves the space; respecting it is what makes the
+                    // reservation mean anything.
                     .overlay(alignment: .topLeading) {
                         let matches = activeCompletions
                         if !matches.isEmpty {

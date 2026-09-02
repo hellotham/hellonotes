@@ -86,11 +86,6 @@ struct NoteEditorView: View {
     /// column, so there is exactly one place the buffer is known.
     @Environment(LiveBuffer.self) private var liveBuffer
     @State private var showGitPane = false
-    /// How far the keyboard — *and its format accessory bar* — reaches up the
-    /// window. See `KeyboardOverlap`: with a hardware keyboard SwiftUI reports
-    /// no keyboard safe area at all while the 44pt accessory is still on
-    /// screen, drawn over whatever the app put at the bottom edge.
-    @State private var keyboard = KeyboardOverlap()
 
     /// Folder (relative to the note) where pasted images are saved; empty means
     /// the same folder as the note. Configured in Settings.
@@ -261,14 +256,18 @@ struct NoteEditorView: View {
                         Divider()
                         bottomBar
                     }
-                    // Lift the bar clear of the keyboard's input accessory.
-                    .padding(.bottom, keyboard.height)
                 }
-                // Ours is the only keyboard avoidance in this subtree.
-                // Without this SwiftUI would also inset for the software
-                // keyboard and the bar would rise twice — the accessory height
-                // plus the keyboard's — leaving a gap the size of a keyboard.
-                .ignoresSafeArea(.keyboard, edges: .bottom)
+                // No `.ignoresSafeArea(.keyboard)` and no manual keyboard
+                // padding any more.
+                //
+                // Both existed to compensate for a hand-rolled
+                // `inputAccessoryView`, which iOS docks at the bottom of the
+                // *screen* with a hardware keyboard while reporting no keyboard
+                // safe area at all. There is no accessory now — the formatting
+                // lives in the system shortcuts bar — so SwiftUI's own keyboard
+                // avoidance is both correct and sufficient, and suppressing it
+                // was actively harmful: it told the editor to ignore the
+                // keyboard too, so the text ran underneath it.
                 // S3: content expands, chrome stays fixed. The mode content
                 // (editor, GFM preview, split) is a viewport; the banners and
                 // bottom bar are definite-height chrome. Without this clamp the

@@ -1500,6 +1500,28 @@ final class Collection: Identifiable {
 
         guard let note = notes.first(where: { $0.fileURL == url }) ?? adopt(createdAt: url) else { return }
 
+        // **All of it waits for the user to stop.**
+        //
+        // What follows is a link-graph update, a search-index update, a
+        // relatedness update, and `embedProvider.update(notes:)` — which
+        // rebuilds a dictionary over *every note in the collection*, on the main
+        // actor, under a lock the editor's renderer also takes. On a 2,000-note
+        // vault that is not a small tax; it is the editor stopping.
+        //
+        // A save can no longer *start* during typing, so in principle this runs
+        // at rest. In principle is not the guarantee: a save that begins the
+        // instant typing stops will still be inside this block when the next
+        // word starts, and then the keyboard is gone again. Asking the gate is
+        // what makes "not while typing" true rather than likely.
+        TypingGate.shared.onIdle("derive-\(url.path)") { [weak self] in
+            self?.applyDerivedUpdates(for: note, url: url, title: title,
+                                      text: text, aliasesChanged: aliasesChanged)
+        }
+    }
+
+    /// The post-save index work, deferred by `noteDidSave` until typing stops.
+    private func applyDerivedUpdates(for note: Note, url: URL, title: String,
+                                     text: String, aliasesChanged: Bool) {
         MainActorWatchdog.measure("noteDidSave.incremental") {
             // Cancel any in-flight debounced rebuild: it reads cache-first from a
             // pre-save mtime, so if it lands after this in-place patch it would
