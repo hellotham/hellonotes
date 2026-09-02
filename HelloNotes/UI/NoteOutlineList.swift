@@ -790,31 +790,6 @@ struct NoteOutlineList: View {
     }
 }
 
-/// One `SidebarMenu.Item` list, as SwiftUI buttons. The Mac walks the same
-/// array into an `NSMenu`; this is the only other renderer.
-struct SidebarMenuItems: View {
-    let items: [SidebarMenu.Item]
-    var body: some View {
-        ForEach(items) { item in
-            if item.isSeparator {
-                Divider()
-            } else if let children = item.children {
-                Menu {
-                    SidebarMenuItems(items: children)
-                } label: {
-                    Label(item.title, systemImage: item.symbol)
-                }
-            } else {
-                Button(role: item.destructive ? .destructive : nil) {
-                    item.run?()
-                } label: {
-                    Label(item.title, systemImage: item.symbol)
-                }
-            }
-        }
-    }
-}
-
 /// One sidebar item and everything under it.
 ///
 /// Its own `View` because the renderer recurses, and a function returning

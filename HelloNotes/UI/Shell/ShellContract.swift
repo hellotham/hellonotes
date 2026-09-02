@@ -62,6 +62,12 @@ enum ShellMetrics {
     /// own text.
     static let editorFloor: CGFloat = 320
 
+    /// The left pane of the tall shell's band — where you are, beside what is
+    /// there (`BandTwoPane`). Narrower than a sidebar column because it carries
+    /// no dates and no snippets, only folder names, and every point it does not
+    /// take is a point of note title.
+    static let bandContainerPane: CGFloat = 260
+
     /// Above this width, a note row carries its date in a trailing **column**
     /// beside the title; below it, on a second line.
     ///

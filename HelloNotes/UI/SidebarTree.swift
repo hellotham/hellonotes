@@ -93,6 +93,60 @@ enum SidebarTree {
     }
 
     /// The sidebar's root items, in order.
+    /// The same tree with every leaf removed — collections, places and
+    /// folders only.
+    ///
+    /// This is the left half of the tall shell's band (`shell-chrome.md` D2a).
+    /// Derived from `roots` rather than built separately on purpose: the two
+    /// panes are one tree seen twice, so a collection that appears in one and
+    /// not the other is not a state this can reach.
+    static func containers(_ roots: [NoteOutlineItem]) -> [NoteOutlineItem] {
+        roots.compactMap { node in
+            switch node.kind {
+            case .note, .file: return nil
+            case .collection, .place, .folder:
+                return NoteOutlineItem(id: node.id, kind: node.kind,
+                                       children: containers(node.children))
+            }
+        }
+    }
+
+    /// What is *directly inside* a container — its notes and attachments, not
+    /// its subfolders' notes.
+    ///
+    /// Finder's rule, and the reason the two panes carry different things: the
+    /// left pane is where you go somewhere and the right pane is what is there.
+    /// Recursing would make the right pane a second copy of the tree and the
+    /// left one redundant.
+    static func leaves(of node: NoteOutlineItem) -> [NoteOutlineItem] {
+        node.children.filter { child in
+            switch child.kind {
+            case .note, .file: return true
+            case .collection, .place, .folder: return false
+            }
+        }
+    }
+
+    /// Find a node by id anywhere in the tree.
+    static func node(id: String, in roots: [NoteOutlineItem]) -> NoteOutlineItem? {
+        for node in roots {
+            if node.id == id { return node }
+            if let found = self.node(id: id, in: node.children) { return found }
+        }
+        return nil
+    }
+
+    /// The container to show when nothing has been chosen yet: the first one
+    /// that actually holds something, so the right pane never opens empty on a
+    /// library whose first row is an empty Recents.
+    static func firstNonEmptyContainer(in roots: [NoteOutlineItem]) -> String? {
+        for node in roots {
+            if !leaves(of: node).isEmpty { return node.id }
+            if let found = firstNonEmptyContainer(in: node.children) { return found }
+        }
+        return roots.first?.id
+    }
+
     static func roots(_ inputs: Inputs) -> [NoteOutlineItem] {
         if inputs.isSearching {
             return inputs.searchGroups.compactMap { group in

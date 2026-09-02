@@ -31,6 +31,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 @MainActor
 enum SidebarMenu {
@@ -279,5 +280,37 @@ enum SidebarMenu {
             .isUbiquitousItem == true
         cloudBackedCache[directory] = value
         return value
+    }
+}
+
+/// One `SidebarMenu.Item` list, as SwiftUI buttons. The Mac walks the same
+/// array into an `NSMenu`; this is the only other renderer.
+///
+/// It lived inside `NoteOutlineList.swift`'s `#else` half, which made it
+/// iOS-only for no reason of its own — there is nothing platform-shaped in it.
+/// The tall shell is chosen by the *axis of abundance*, so a narrow, tall Mac
+/// window gets the two-pane band too, and `BandTwoPane` could not compile there
+/// while this was on one side of a platform gate. It belongs beside the menu
+/// model it renders.
+struct SidebarMenuItems: View {
+    let items: [SidebarMenu.Item]
+    var body: some View {
+        ForEach(items) { item in
+            if item.isSeparator {
+                Divider()
+            } else if let children = item.children {
+                Menu {
+                    SidebarMenuItems(items: children)
+                } label: {
+                    Label(item.title, systemImage: item.symbol)
+                }
+            } else {
+                Button(role: item.destructive ? .destructive : nil) {
+                    item.run?()
+                } label: {
+                    Label(item.title, systemImage: item.symbol)
+                }
+            }
+        }
     }
 }

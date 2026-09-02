@@ -154,8 +154,34 @@ Collections are top-level nodes; their folders nest beneath. Selecting a
 collection's root shows all its notes. This is Notes' account-then-folders
 sidebar, Outlook's, and Finder's. It replaces the rail entirely.
 
+**D2a. In the _tall_ shell the sidebar is two panes, Finder-style.** Containers
+on the left — Recents, Bookmarks, each collection and its folders — and what is
+*directly inside* the selected one on the right. D2 still holds for a sidebar
+**column**, and for the same reason it was written: a column is 220–340pt
+(`ShellMetrics.sidebarCap`), which has room for one list and no more, and
+splitting it is what produced the rail-plus-tree shape whose toggle could never
+be placed.
+
+A band is a different shape and the argument does not carry. On an iPad in
+portrait it is 834pt wide and 320pt tall — very wide, very short — so one tree
+spends its width on nothing and runs out of height in about eight rows. Two
+panes scroll independently, so the same 320pt shows the folders *and* the notes.
+The structural objection does not apply either: the band is a `NavigationStack`
+inside a `VStack` (`AdaptiveShell.tallShell`), not column one of a
+`NavigationSplitView`, so there is no platform-placed toggle to lose.
+
+Both panes are derived from `SidebarTree.roots` — the left through
+`containers`, the right through `leaves(of:)` — so they are one tree seen twice
+rather than two constructions to keep in agreement. The right pane shows direct
+children only; recursing would make it a second copy of the tree and the left
+pane redundant. Implemented in `BandTwoPane`, chosen by `SidebarLayout`, which
+must be its own view because `@Environment(\.shell)` read in `ContentView`
+resolves *above* `AdaptiveShell` and is always `.wide` there.
+
 **D3. The sidebar is column one and carries the platform's toggle**, at its own
 trailing edge, obtained for free from `NavigationSplitView`. No hand placement.
+(In the tall shell there is no column one and no toggle: the band is always
+visible, which is what makes D2a's split affordable.)
 
 **D4. Recents and Bookmarks are pinned collapsible sections above the
 collections** — Notes' `Quick Notes` / `Shared`, VS Code's `OUTLINE`. Not tabs:

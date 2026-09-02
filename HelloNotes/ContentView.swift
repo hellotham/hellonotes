@@ -158,6 +158,10 @@ struct ContentView: View {
     /// trailing column or on a second line (`ShellMetrics.noteRowTwoColumn`).
     @State private var outlineWidth: CGFloat = 0
 
+    /// The container whose notes the tall band's right pane is showing.
+    /// Unused by the column shells, which show one tree.
+    @State private var bandContainerID: String?
+
     /// Everything the sidebar tree is built from — and keyed on. One
     /// construction, shared: see `SidebarTree.inputs`.
     private var sidebarInputs: SidebarTree.Inputs {
@@ -1439,7 +1443,31 @@ struct ContentView: View {
             // `CollectionStatusStrips`.
             SearchCompletenessNotice(collections: library.collections,
                                      isSearching: isSearching)
-            outlineList
+            // **Two panes in a band, one tree in a column.** Both are
+            // `SidebarTree.roots`; the band splits it because it is 834pt wide
+            // and 320pt tall, where a single list runs out of height in eight
+            // rows and spends its width on nothing. See `BandTwoPane`.
+            SidebarLayout {
+                outlineList
+            } band: {
+                BandTwoPane(
+                    roots: sidebarTree.roots,
+                    containerID: $bandContainerID,
+                    selection: $selectedNoteID,
+                    expandedFolders: expandedFolders,
+                    collapsedCollections: $collapsedCollections,
+                    focusedCollectionID: library.focusedID,
+                    accent: appearance.resolvedAccent,
+                    actions: actions.sidebarMenu,
+                    onCloseCollection: { actions.closeCollection($0) },
+                    row: { note, snippet in
+                        // Always the wide layout: the band's right pane is
+                        // never narrow, which is the whole reason for splitting
+                        // it.
+                        AnyView(noteRow(note, snippet: snippet, wide: true))
+                    },
+                    onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) })
+            }
         }
         .navigationTitle("Collections")
         .overlay { SidebarEmptyState(
