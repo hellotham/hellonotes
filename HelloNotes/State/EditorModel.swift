@@ -234,13 +234,22 @@ final class EditorModel {
         loadRevision += 1
     }
 
+    /// Save when typing stops — **never during it**.
+    ///
+    /// This used to be a 600ms debounce of its own, chained behind the host's
+    /// 500ms sync debounce. Both expire during ordinary typing, so the write
+    /// landed between keystrokes; and `performSave` on a File Provider volume
+    /// can block for as long as the provider takes to answer. That is the
+    /// freeze, and no amount of tuning a timer fixes it, because the timer was
+    /// never the problem — running at all was.
+    ///
+    /// `TypingGate` is now the only clock. Keyed, so a hundred keystrokes queue
+    /// one save rather than a hundred.
     private func scheduleSave() {
         saveTask?.cancel()
         guard note != nil else { return }
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: EditorModel.debounce)
-            guard !Task.isCancelled else { return }
-            await self?.save()
+        TypingGate.shared.onIdle("editor-save") { [weak self] in
+            self?.saveTask = Task { [weak self] in await self?.save() }
         }
     }
 }

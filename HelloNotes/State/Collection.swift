@@ -369,7 +369,23 @@ final class Collection: Identifiable {
     var lastError: String?
 
     /// Record a user-facing file-operation failure.
-    func report(_ message: String) { lastError = message }
+    /// Surface a file-operation failure — **never while the user is typing**.
+    ///
+    /// `FileOperationErrorAlert` presents on `lastError != nil`, and a modal
+    /// takes first responder. So an error raised mid-sentence did not merely
+    /// interrupt: it took the keyboard away, and because the alert appears over
+    /// the editor with the caret gone, what it reported was often unreadable
+    /// before it was dismissed. A save failing on a File Provider volume is
+    /// exactly the error most likely to arrive while typing, which made this
+    /// the worst possible pairing.
+    ///
+    /// Held until the burst ends. The failure is not lost — it is reported to
+    /// someone who has stopped to read it.
+    func report(_ message: String) {
+        TypingGate.shared.onIdle("collection-error-\(id)") { [weak self] in
+            self?.lastError = message
+        }
+    }
 
     /// Renders `![[Note]]` transclusions to inline images (cross-platform: the
     /// live editor's block-embed renderer uses it on both macOS and iOS).
@@ -923,6 +939,11 @@ final class Collection: Identifiable {
     /// Safe and cheap to call unconditionally — it returns immediately for a
     /// local collection or an already-hydrated file.
     func hydrateIfNeeded(_ url: URL) async {
+        // Not while typing. This can run a full `scanOffMain` for a remote
+        // collection, and it is wired as `tabs.prepareToOpen`, so anything that
+        // touches the selection mid-edit would drag a vault walk onto the
+        // typing path.
+        guard !TypingGate.shared.isTyping else { return }
         guard let remote, !remote.isHydrated(localURL: url) else { return }
         do {
             try await remote.hydrate(localURL: url)
@@ -1296,6 +1317,25 @@ final class Collection: Identifiable {
         externalReconcileTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
+            // **No vault walk while the user is typing.** Not delayed — not
+            // started.
+            //
+            // This is a full walk of the collection plus `refreshDerived` and a
+            // Git status refresh. On a 2,000-note vault in iCloud that is
+            // seconds of work and a great deal of it on the main actor, and the
+            // debounce above does not protect against it: the reconcile is
+            // *triggered* by a file change, and the file change we cause most
+            // often is our own autosave. So typing scheduled the walk that then
+            // ran while typing continued.
+            //
+            // Waiting for the burst to end is not a delay tactic. It is the
+            // difference between a scan the user never notices and a scan that
+            // takes the keyboard away.
+            while TypingGate.shared.isTyping {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            guard !Task.isCancelled else { return }
             MainActorWatchdog.note("external reconcile — full vault walk begins")
             await self.scanOffMain()
             self.refreshDerived()

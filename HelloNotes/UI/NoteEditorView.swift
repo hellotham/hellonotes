@@ -141,10 +141,6 @@ struct NoteEditorView: View {
         var isMarp = false
     }
     @State private var docStats = DocStats()
-    /// Whether the save is taking long enough to be worth saying so. See
-    /// `saveStatus`: driven on a delay so an ordinary fast autosave never
-    /// flashes "Saving…" and back the moment you pause typing.
-    @State private var showSavingIndicator = false
     @State private var didInitialStats = false
 
 
@@ -294,15 +290,26 @@ struct NoteEditorView: View {
                 // The buffer another scene reads. `LiveBuffer` coalesces, so
                 // this is not a write per keystroke.
                 .onChange(of: editor.text, initial: true) { _, text in
-                    liveBuffer.publish(url: editor.note?.fileURL, text: text)
+                    // Another scene's mirror of this buffer. Nothing is looking
+                    // at it mid-keystroke, and publishing hands a whole-document
+                    // string across, so it waits for the burst to end like
+                    // everything else.
+                    TypingGate.shared.onIdle("live-buffer") {
+                        liveBuffer.publish(url: editor.note?.fileURL, text: text)
+                    }
                 }
                 .task(id: editor.text) {
-                    // Debounce so key-repeat typing doesn't queue a full-text
-                    // scan per keystroke; compute off-main so even a megabyte
-                    // note never blocks the caret. Gate on whether we've computed
-                    // once (not on the stats value) so typing into an empty note
-                    // — whose stats stay at the default — still debounces.
+                    // A whole-document word count, and it must not happen while
+                    // the user is typing. The 150ms debounce it used to rely on
+                    // expires constantly mid-sentence, so this was running
+                    // between keystrokes on every pause. `TypingGate` is the
+                    // clock now; the sleep below is only the settle after the
+                    // gate has already said the burst is over.
                     if didInitialStats {
+                        while TypingGate.shared.isTyping {
+                            try? await Task.sleep(for: .milliseconds(150))
+                            guard !Task.isCancelled else { return }
+                        }
                         try? await Task.sleep(for: .milliseconds(150))
                         guard !Task.isCancelled else { return }
                     }
@@ -584,31 +591,23 @@ struct NoteEditorView: View {
     /// save that completes promptly is never mentioned at all: the indicator is
     /// for saves that are *slow*, and a fast one is not news.
     private var saveStatus: some View {
-        ZStack(alignment: .leading) {
-            Group {
-                Label("Save failed", systemImage: "exclamationmark.triangle.fill")
-                Label("Saving…", systemImage: "pencil.circle")
-                Label("Saved", systemImage: "checkmark.circle")
-            }
-            .hidden()
-            .accessibilityHidden(true)
-
-            liveSaveStatus
-        }
+        liveSaveStatus
     }
 
+    /// **Failures only.**
+    ///
+    /// An editor that autosaves does not need to announce that it saved; the
+    /// user did not ask, and it is true almost always. What they do need to be
+    /// told is the one case where their words are *not* on disk. Reporting
+    /// success as well meant the indicator changed width on a cadence tied to
+    /// typing — "Saved" → "Saving…" → "Saved", twice a sentence — which is how
+    /// a status bar became something that moved while you wrote.
     @ViewBuilder
     private var liveSaveStatus: some View {
         if let error = editor.saveError {
             Label("Save failed", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
                 .help(error)
-        } else if showSavingIndicator {
-            Label("Saving…", systemImage: "pencil.circle")
-                .foregroundStyle(.secondary)
-        } else {
-            Label("Saved", systemImage: "checkmark.circle")
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -666,15 +665,6 @@ struct NoteEditorView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.bar)
-        // "Saving…" only for a save that is actually slow. Clearing is
-        // immediate — a finished save should read as finished at once — while
-        // announcing waits, so the common case says nothing.
-        .task(id: editor.isDirty) {
-            guard editor.isDirty else { showSavingIndicator = false; return }
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            showSavingIndicator = true
-        }
     }
 
     /// The bar's own height. A `GeometryReader` fills whatever it is offered and

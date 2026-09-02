@@ -274,7 +274,23 @@ struct EditorHost: View {
             // free it. It is alive by definition whenever this fires.
             built.onEdit = { [weak built] _ in
                 guard let built else { return }
-                scheduleSync(from: built, to: editor)
+                // **The whole of what a keystroke costs outside the text view.**
+                //
+                // It used to start a 500ms debounce here, which then wrote the
+                // model, whose `didSet` started a *second* 600ms debounce to
+                // save. Both fire in the middle of ordinary typing — a person
+                // pausing to think crosses half a second constantly — so the
+                // "debounced" work was landing between keystrokes, and on a
+                // File Provider volume the save could block the main thread for
+                // as long as the provider wanted.
+                //
+                // Now: mark the burst, and ask to be told when it ends. One
+                // clock, and the sync is the only thing hung off it.
+                TypingGate.shared.keystroke()
+                TypingGate.shared.onIdle("editor-sync") { [weak built] in
+                    guard let built else { return }
+                    landSync(from: built, to: editor)
+                }
             }
             // A flush (note switch, resign, background) must persist the
             // document's *current* text, not a snapshot trailing the debounce.
@@ -364,14 +380,14 @@ struct EditorHost: View {
     /// invalidation that the model's `text` assignment fans out to every view
     /// reading it. `EditorModel.text.didSet` then runs its own debounce and
     /// atomic write, so this is the editor's save cadence, not its edit cadence.
-    private func scheduleSync(from document: EditorDocument, to model: EditorModel) {
-        syncTask?.cancel()
+    /// Write the document's text through to the model.
+    ///
+    /// No debounce of its own any more: `TypingGate` decides when this may run,
+    /// and it is the only thing that does. A second timer here is precisely how
+    /// work ended up landing between two keystrokes.
+    private func landSync(from document: EditorDocument, to model: EditorModel) {
         pendingSync = (document, model)
-        syncTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            landPendingSync()
-        }
+        landPendingSync()
     }
 
     /// Write the pending snapshot through, if there is one. One O(n) snapshot,
@@ -385,13 +401,18 @@ struct EditorHost: View {
         if pending.model.text != snapshot { pending.model.text = snapshot }
     }
 
-    /// Stop the debounce *without* losing what it was about to write. Every
-    /// path that takes the host away from a document goes through here, which
-    /// is what keeps the debounce honest: a flush, a tab switch or a teardown
-    /// can always read the model and see the last character typed.
+    /// End the typing burst early *without* losing what it was about to write.
+    ///
+    /// Every path that takes the host away from a document goes through here —
+    /// a flush, a tab switch, a teardown — and each of them is exactly "the
+    /// user has stopped typing", so they end the burst rather than working
+    /// around it. `becameIdle` runs the pending sync along with everything else
+    /// that was waiting, which is why leaving a note can never strand the last
+    /// character typed.
     private func cancelAndLandPendingSync() {
         syncTask?.cancel()
         syncTask = nil
+        TypingGate.shared.becameIdle()
         landPendingSync()
     }
 
