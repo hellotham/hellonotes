@@ -130,23 +130,31 @@ struct NoteEditorView: View {
     /// notes, once per keystroke). Instead they're recomputed off the main
     /// actor, debounced, whenever the text actually changes — see the
     /// `.task(id:)` in `body`.
-    private struct DocStats: Equatable {
-        var wordCount = 0
+    /// What the note *is* — Marp deck, has Mermaid — computed **once when the
+    /// note opens** and never again.
+    ///
+    /// There used to be a word count here too, recomputed on a debounce after
+    /// every text change: a split of the whole document, per typing pause, to
+    /// keep a number in the status bar that nobody had asked to see. It is gone.
+    /// The Outline popover still reports it, computed when you open the popover,
+    /// which is the moment somebody actually wants to know.
+    ///
+    /// These two survive because they decide whether two buttons exist, and
+    /// because a note does not become a Marp deck halfway through a sentence —
+    /// so keying them on the open note rather than on its text costs one scan
+    /// per note instead of one per pause.
+    private struct NoteKind: Equatable {
         var hasMermaid = false
         var isMarp = false
     }
-    @State private var docStats = DocStats()
-    @State private var didInitialStats = false
+    @State private var noteKind = NoteKind()
+    /// How far iPad's floating shortcuts pill reaches up the window, so the
+    /// status row can sit above it instead of underneath it.
+    @State private var assistantBar = AssistantBarInset()
 
-
-    private nonisolated static func computeStats(for text: String) -> DocStats {
-        DocStats(
-            wordCount: FrontMatter.body(of: text)
-                .split { $0 == " " || $0 == "\n" || $0 == "\t" || $0 == "\r" }
-                .count,
-            hasMermaid: !MarkdownParsing.mermaidBlocks(in: text).isEmpty,
-            isMarp: MarpSlides.isMarp(text)
-        )
+    private nonisolated static func kind(of text: String) -> NoteKind {
+        NoteKind(hasMermaid: !MarkdownParsing.mermaidBlocks(in: text).isEmpty,
+                 isMarp: MarpSlides.isMarp(text))
     }
 
     /// Splice the edited properties back into the note's front matter.
@@ -256,6 +264,11 @@ struct NoteEditorView: View {
                         Divider()
                         bottomBar
                     }
+                    // Clear of iPad's floating shortcuts pill, which SwiftUI
+                    // does not report when a hardware keyboard is attached. See
+                    // `AssistantBarInset` — and note this pads the *bar* only.
+                    // The editor keeps normal keyboard avoidance.
+                    .padding(.bottom, assistantBar.height)
                 }
                 // No `.ignoresSafeArea(.keyboard)` and no manual keyboard
                 // padding any more.
@@ -293,39 +306,19 @@ struct NoteEditorView: View {
                     // at it mid-keystroke, and publishing hands a whole-document
                     // string across, so it waits for the burst to end like
                     // everything else.
-                    TypingGate.shared.onIdle("live-buffer") {
-                        liveBuffer.publish(url: editor.note?.fileURL, text: text)
-                    }
+                    liveBuffer.publish(url: editor.note?.fileURL, text: text)
                 }
-                .task(id: editor.text) {
-                    // A whole-document word count, and it must not happen while
-                    // the user is typing. The 150ms debounce it used to rely on
-                    // expires constantly mid-sentence, so this was running
-                    // between keystrokes on every pause. `TypingGate` is the
-                    // clock now; the sleep below is only the settle after the
-                    // gate has already said the burst is over.
-                    if didInitialStats {
-                        while TypingGate.shared.isTyping {
-                            try? await Task.sleep(for: .milliseconds(150))
-                            guard !Task.isCancelled else { return }
-                        }
-                        try? await Task.sleep(for: .milliseconds(150))
-                        guard !Task.isCancelled else { return }
-                    }
+                // Keyed on the *note*, not its text: opening a note asks what
+                // kind it is, once. Typing never re-asks.
+                .task(id: editor.note?.fileURL) {
                     let text = editor.text
-                    let fresh = await Task.detached { Self.computeStats(for: text) }.value
-                    // The bottom bar redraws only when its *contents* change.
-                    // Logged because "the toolbar repaints" and "docStats
-                    // changed" are the same event, and `isMarp`/`hasMermaid`
-                    // add and remove buttons — a width change, i.e. a shift.
-                    if fresh != docStats {
-                        EditorProbe.logEdit(
-                            "docStats words=\(docStats.wordCount)->\(fresh.wordCount) "
-                            + "marp=\(docStats.isMarp)->\(fresh.isMarp) "
-                            + "mermaid=\(docStats.hasMermaid)->\(fresh.hasMermaid)  (bar redraws)")
-                    }
-                    docStats = fresh
-                    didInitialStats = true
+                    noteKind = await Task.detached { Self.kind(of: text) }.value
+                }
+                // Leaving an editable mode is the text settling: the view that
+                // was holding it is about to be torn down, and a teardown does
+                // not reliably resign first responder first.
+                .onChange(of: mode) { _, _ in
+                    Task { await editor.flush() }
                 }
                 .onChange(of: editor.note?.fileURL) { _, _ in
                     if showFindBar { closeFindBar() }
@@ -677,17 +670,12 @@ struct NoteEditorView: View {
             // when SwiftUI rebuilds the bar, and prints every input it reads,
             // so a redraw can be attributed instead of guessed at.
             let _ = EditorProbe.logEdit(
-                "barRow BUILD words=\(docStats.wordCount) marp=\(docStats.isMarp) "
-                + "mermaid=\(docStats.hasMermaid) repo=\(git.status.isRepository) "
-                + "clean=\(git.status.isClean) changed=\(git.status.changeCount) "
+                "barRow BUILD marp=\(noteKind.isMarp) mermaid=\(noteKind.hasMermaid) "
+                + "repo=\(git.status.isRepository) changed=\(git.status.changeCount) "
                 + "mode=\(mode.rawValue) find=\(showFindBar) "
-                + "dirty=\(editor.isDirty) saveError=\(editor.saveError != nil)")
+                + "saveError=\(editor.saveError != nil)")
             // Status (left). Single-line and truncating, so a narrow window
             // shortens the text instead of wrapping it vertically.
-            Text("\(docStats.wordCount) word\(docStats.wordCount == 1 ? "" : "s")")
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Divider().frame(height: 11)
             saveStatus.labelStyle(.titleAndIcon).lineLimit(1)
             // The change count is a *button*: it is the only place on iPad
             // that names Git at all, and naming a thing you cannot open is
@@ -744,10 +732,10 @@ struct NoteEditorView: View {
                     OutlineView(text: editor.text, onSelectHeading: jumpToHeading)
                 }
             barButton("Mind map of this note's ideas", "brain") { onShowMindMap() }
-            if docStats.isMarp {
+            if noteKind.isMarp {
                 barButton("Present as slides (Marp)", "rectangle.on.rectangle") { showSlides = true }
             }
-            if docStats.hasMermaid {
+            if noteKind.hasMermaid {
                 barButton("Preview Mermaid diagrams", "chart.xyaxis.line") { showMermaid = true }
             }
             // The AI actions, as a menu rather than a panel. Every item names

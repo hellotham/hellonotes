@@ -143,6 +143,9 @@ struct EditorHost: View {
                     .onPasteMarkdown { smartPaste(into: document) }
                     .selectionMenuItems { selectionActions?.menuItems(for: $0) ?? [] }
                     .proxy(proxy)
+                    // The save signal. Editing stopped, so the text has
+                    // settled and is worth writing down.
+                    .onEndEditing { landSync(from: document, to: editor) }
                     // ↑ from the first line (or ← from character zero) lands
                     // in the inline title, as it does on the Mac. Posted on the
                     // same bus the Mac's `NewEditorHost` uses, so the pane above
@@ -285,26 +288,20 @@ struct EditorHost: View {
             // document's *own* callback, so capturing it strongly makes the
             // document retain itself and no eviction from the store can ever
             // free it. It is alive by definition whenever this fires.
-            built.onEdit = { [weak built] _ in
-                guard let built else { return }
-                // **The whole of what a keystroke costs outside the text view.**
-                //
-                // It used to start a 500ms debounce here, which then wrote the
-                // model, whose `didSet` started a *second* 600ms debounce to
-                // save. Both fire in the middle of ordinary typing — a person
-                // pausing to think crosses half a second constantly — so the
-                // "debounced" work was landing between keystrokes, and on a
-                // File Provider volume the save could block the main thread for
-                // as long as the provider wanted.
-                //
-                // Now: mark the burst, and ask to be told when it ends. One
-                // clock, and the sync is the only thing hung off it.
-                TypingGate.shared.keystroke()
-                TypingGate.shared.onIdle("editor-sync") { [weak built] in
-                    guard let built else { return }
-                    landSync(from: built, to: editor)
-                }
-            }
+            // **`onEdit` is nil, and that is the design.**
+            //
+            // Nothing at all hangs off a keystroke. Not a debounce, not a
+            // gate, not a flag — a key is captured, a character is drawn, and
+            // the loop ends. Every version of this that kept *something* there
+            // ended up running it between two keystrokes, because a timer
+            // started by typing expires during typing however long it is set
+            // to. And a save taken mid-sentence is stale by the next character,
+            // so it was never buying anything to begin with.
+            //
+            // Saves are pulled instead, by the four events that mean the text
+            // has settled: the editor stops being first responder (below), the
+            // note is switched away, the app backgrounds, the app quits.
+            built.onEdit = nil
             // A flush (note switch, resign, background) must persist the
             // document's *current* text, not a snapshot trailing the debounce.
             editor.willFlush = { [weak built] in
@@ -395,9 +392,9 @@ struct EditorHost: View {
     /// atomic write, so this is the editor's save cadence, not its edit cadence.
     /// Write the document's text through to the model.
     ///
-    /// No debounce of its own any more: `TypingGate` decides when this may run,
-    /// and it is the only thing that does. A second timer here is precisely how
-    /// work ended up landing between two keystrokes.
+    /// No debounce, and no timer of any kind. This is called by the events that
+    /// mean the text has settled — editing ended, the note changed, the app is
+    /// going away — never by a keystroke.
     private func landSync(from document: EditorDocument, to model: EditorModel) {
         pendingSync = (document, model)
         landPendingSync()
@@ -412,6 +409,16 @@ struct EditorHost: View {
         // read of it copies the whole note.
         let snapshot = pending.document.text
         if pending.model.text != snapshot { pending.model.text = snapshot }
+        // **And write it.** Explicitly, here.
+        //
+        // `EditorModel.scheduleSave` is a no-op now — a text change must not
+        // schedule anything — so setting `model.text` no longer causes a save
+        // on its own. Every path into this function is one of the four moments
+        // a save is worth taking, so taking it here is the point rather than a
+        // side effect. Leaving it implicit is what silently lost the text the
+        // first time this was wired.
+        let model = pending.model
+        Task { await model.save() }
     }
 
     /// End the typing burst early *without* losing what it was about to write.
@@ -425,7 +432,6 @@ struct EditorHost: View {
     private func cancelAndLandPendingSync() {
         syncTask?.cancel()
         syncTask = nil
-        TypingGate.shared.becameIdle()
         landPendingSync()
     }
 

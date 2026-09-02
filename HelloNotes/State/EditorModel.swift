@@ -234,22 +234,12 @@ final class EditorModel {
         loadRevision += 1
     }
 
-    /// Save when typing stops — **never during it**.
+    /// Nothing. A text change does not schedule a save.
     ///
-    /// This used to be a 600ms debounce of its own, chained behind the host's
-    /// 500ms sync debounce. Both expire during ordinary typing, so the write
-    /// landed between keystrokes; and `performSave` on a File Provider volume
-    /// can block for as long as the provider takes to answer. That is the
-    /// freeze, and no amount of tuning a timer fixes it, because the timer was
-    /// never the problem — running at all was.
-    ///
-    /// `TypingGate` is now the only clock. Keyed, so a hundred keystrokes queue
-    /// one save rather than a hundred.
-    private func scheduleSave() {
-        saveTask?.cancel()
-        guard note != nil else { return }
-        TypingGate.shared.onIdle("editor-save") { [weak self] in
-            self?.saveTask = Task { [weak self] in await self?.save() }
-        }
-    }
+    /// The buffer is written when editing *stops* — `onEndEditing`, a note
+    /// switch, backgrounding, quit — because those are the moments a save is
+    /// worth taking. A save during typing is out of date by the next character,
+    /// and on a File Provider volume it can block the main thread for as long
+    /// as the provider takes to answer, which is the freeze.
+    private func scheduleSave() {}
 }

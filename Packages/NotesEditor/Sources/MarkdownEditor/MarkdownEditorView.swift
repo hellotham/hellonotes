@@ -685,6 +685,8 @@ public final class MarkdownTextView: NSTextView {
     /// Asks the host for a completion. Debouncing and the model live there;
     /// this view only knows where the caret is and what is around it.
     var onInlineCompletionRequest: ((InlineCompletionContext) -> Void)?
+    /// The user stopped editing. See the UIKit twin: the only save signal.
+    var onEndEditing: (() -> Void)?
 
     // MARK: - Inline completion keys
 
@@ -996,6 +998,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var wrapGuideColumns = 0
     private var onCaretEscapeTopHandler: ((CaretEscape) -> Void)?
     private var onInlineCompletionRequestHandler: ((InlineCompletionContext) -> Void)?
+    private var onEndEditingHandler: (() -> Void)?
 
     public init(document: EditorDocument) {
         self.document = document
@@ -1089,6 +1092,10 @@ public struct MarkdownEditorView: NSViewRepresentable {
         var copy = self; copy.onInlineCompletionRequestHandler = handler; return copy
     }
 
+    public func onEndEditing(_ handler: @escaping () -> Void) -> Self {
+        var copy = self; copy.onEndEditingHandler = handler; return copy
+    }
+
     public func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.scrollableEditor(document: document)
         textView.delegate = context.coordinator
@@ -1115,6 +1122,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
         textView.onInlineCompletionRequest = onInlineCompletionRequestHandler
+        textView.onEndEditing = onEndEditingHandler
         editorProxy?.textView = textView
         applyProperties(textView)
     }
@@ -1131,6 +1139,12 @@ public struct MarkdownEditorView: NSViewRepresentable {
     }
 
     public final class Coordinator: NSObject, NSTextViewDelegate {
+        /// The Mac's half of the only save signal there is. Same rule as UIKit:
+        /// a save is taken when editing stops, never per keystroke.
+        public func textDidEndEditing(_ notification: Notification) {
+            (notification.object as? MarkdownTextView)?.onEndEditing?()
+        }
+
         let document: EditorDocument
         var onLinkTap: ((EditorLinkTap) -> Void)?
         weak var textView: MarkdownTextView?
@@ -1365,6 +1379,16 @@ public final class MarkdownUITextView: UITextView {
     /// The host's completion source. Nil disables ghost text outright, which is
     /// what a build without an on-device model amounts to.
     var onInlineCompletionRequest: ((InlineCompletionContext) -> Void)?
+
+    /// The user stopped editing: resigned first responder, put the keyboard
+    /// away, or moved on.
+    ///
+    /// This is how the host learns a save is worth taking, and it is the *only*
+    /// such signal — there is deliberately no per-keystroke callback. A save
+    /// taken while typing is out of date by the next character, and anything
+    /// hung off "the text changed" ends up running between two keystrokes
+    /// however it is debounced.
+    var onEndEditing: (() -> Void)?
 
     /// Asked for "Rewrite with AI…" on the current selection.
     ///
@@ -2244,6 +2268,12 @@ public struct MarkdownEditorView: View {
     /// Called when the caret settles somewhere ghost text could honestly be
     /// drawn. The debounce, the provider check and the cancellation are all the
     /// host's — see `InlineCompletionModel`.
+    /// Told when the user stops editing — the only moment a save is worth
+    /// taking. There is no per-keystroke equivalent, on purpose.
+    public func onEndEditing(_ handler: @escaping () -> Void) -> Self {
+        var copy = self; copy.representable = representable.onEndEditing(handler); return copy
+    }
+
     public func onInlineCompletionRequest(_ handler: @escaping (InlineCompletionContext) -> Void) -> Self {
         var copy = self; copy.representable = representable.onInlineCompletionRequest(handler); return copy
     }
@@ -2264,6 +2294,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     private var editorProxy: EditorProxy?
     private var onInlineContext: ((EditorDocument.InlineContext?, CGRect) -> Void)?
     private var onInlineCompletionRequest: ((InlineCompletionContext) -> Void)?
+    private var onEndEditing: (() -> Void)?
 
     init(document: EditorDocument) { self.document = document }
 
@@ -2317,6 +2348,10 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         var copy = self; copy.onInlineCompletionRequest = handler; return copy
     }
 
+    func onEndEditing(_ handler: @escaping () -> Void) -> Self {
+        var copy = self; copy.onEndEditing = handler; return copy
+    }
+
     func makeUIView(context: Context) -> MarkdownUITextView {
         // A rebuild here is never routine: it makes a **new** `UITextView`, so
         // the old one loses first responder and its `inputAccessoryView` — the
@@ -2333,6 +2368,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onPasteMarkdown = onPasteMarkdown
         tv.onInlineContextChange = onInlineContext
         tv.onInlineCompletionRequest = onInlineCompletionRequest
+        tv.onEndEditing = onEndEditing
         editorProxy?.textView = tv
         tv.delegate = context.coordinator
         context.coordinator.subscribe(documentId: busDocumentId, view: tv)
@@ -2382,6 +2418,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onPasteMarkdown = onPasteMarkdown
         tv.onInlineContextChange = onInlineContext
         tv.onInlineCompletionRequest = onInlineCompletionRequest
+        tv.onEndEditing = onEndEditing
         editorProxy?.textView = tv
         context.coordinator.selectionMenuItems = selectionMenuItems
         context.coordinator.subscribe(documentId: busDocumentId, view: tv)
@@ -2613,6 +2650,10 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
 
         public func textViewWritingToolsDidEnd(_ textView: UITextView) {
             document.endExternalTextSession()
+        }
+
+        public func textViewDidEndEditing(_ textView: UITextView) {
+            (textView as? MarkdownUITextView)?.onEndEditing?()
         }
 
         public func textViewDidChangeSelection(_ textView: UITextView) {

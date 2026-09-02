@@ -381,11 +381,7 @@ final class Collection: Identifiable {
     ///
     /// Held until the burst ends. The failure is not lost — it is reported to
     /// someone who has stopped to read it.
-    func report(_ message: String) {
-        TypingGate.shared.onIdle("collection-error-\(id)") { [weak self] in
-            self?.lastError = message
-        }
-    }
+    func report(_ message: String) { lastError = message }
 
     /// Renders `![[Note]]` transclusions to inline images (cross-platform: the
     /// live editor's block-embed renderer uses it on both macOS and iOS).
@@ -939,11 +935,6 @@ final class Collection: Identifiable {
     /// Safe and cheap to call unconditionally — it returns immediately for a
     /// local collection or an already-hydrated file.
     func hydrateIfNeeded(_ url: URL) async {
-        // Not while typing. This can run a full `scanOffMain` for a remote
-        // collection, and it is wired as `tabs.prepareToOpen`, so anything that
-        // touches the selection mid-edit would drag a vault walk onto the
-        // typing path.
-        guard !TypingGate.shared.isTyping else { return }
         guard let remote, !remote.isHydrated(localURL: url) else { return }
         do {
             try await remote.hydrate(localURL: url)
@@ -1317,25 +1308,11 @@ final class Collection: Identifiable {
         externalReconcileTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
-            // **No vault walk while the user is typing.** Not delayed — not
-            // started.
-            //
-            // This is a full walk of the collection plus `refreshDerived` and a
-            // Git status refresh. On a 2,000-note vault in iCloud that is
-            // seconds of work and a great deal of it on the main actor, and the
-            // debounce above does not protect against it: the reconcile is
-            // *triggered* by a file change, and the file change we cause most
-            // often is our own autosave. So typing scheduled the walk that then
-            // ran while typing continued.
-            //
-            // Waiting for the burst to end is not a delay tactic. It is the
-            // difference between a scan the user never notices and a scan that
-            // takes the keyboard away.
-            while TypingGate.shared.isTyping {
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-            }
-            guard !Task.isCancelled else { return }
+            // No gate here any more, because there is nothing to gate
+            // against: the app no longer writes to the vault while the user is
+            // typing, so the self-write that used to trigger this walk — and
+            // then run it mid-sentence — cannot happen. The trigger is gone
+            // rather than deferred.
             MainActorWatchdog.note("external reconcile — full vault walk begins")
             await self.scanOffMain()
             self.refreshDerived()
@@ -1500,26 +1477,14 @@ final class Collection: Identifiable {
 
         guard let note = notes.first(where: { $0.fileURL == url }) ?? adopt(createdAt: url) else { return }
 
-        // **All of it waits for the user to stop.**
-        //
-        // What follows is a link-graph update, a search-index update, a
-        // relatedness update, and `embedProvider.update(notes:)` — which
-        // rebuilds a dictionary over *every note in the collection*, on the main
-        // actor, under a lock the editor's renderer also takes. On a 2,000-note
-        // vault that is not a small tax; it is the editor stopping.
-        //
-        // A save can no longer *start* during typing, so in principle this runs
-        // at rest. In principle is not the guarantee: a save that begins the
-        // instant typing stops will still be inside this block when the next
-        // word starts, and then the keyboard is gone again. Asking the gate is
-        // what makes "not while typing" true rather than likely.
-        TypingGate.shared.onIdle("derive-\(url.path)") { [weak self] in
-            self?.applyDerivedUpdates(for: note, url: url, title: title,
-                                      text: text, aliasesChanged: aliasesChanged)
-        }
+        // Reached only from a save, and a save is only taken once editing has
+        // stopped — so this runs when the user is not typing, by construction
+        // rather than by asking.
+        applyDerivedUpdates(for: note, url: url, title: title,
+                            text: text, aliasesChanged: aliasesChanged)
     }
 
-    /// The post-save index work, deferred by `noteDidSave` until typing stops.
+    /// The post-save index work.
     private func applyDerivedUpdates(for note: Note, url: URL, title: String,
                                      text: String, aliasesChanged: Bool) {
         MainActorWatchdog.measure("noteDidSave.incremental") {
