@@ -516,9 +516,34 @@ public final class MarkdownTextView: NSTextView {
         document.isDarkAppearance = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
+    /// Room to scroll **past** the end of the note, so the last line can be
+    /// brought to the middle of the window rather than stopping at the bottom.
+    ///
+    /// The UIKit twin of this does the same thing with `contentInset.bottom`.
+    /// On AppKit the inset belongs to the scroll view, and
+    /// `automaticallyAdjustsContentInsets` has to be off or the value is
+    /// recomputed from the window's chrome and ours is discarded.
+    ///
+    /// The line you are writing is always the last one, and without this it is
+    /// pinned to the bottom edge — the least comfortable place on screen to
+    /// look at for any length of time.
+    private func updateScrollPastEndInset() {
+        guard let scroll = enclosingScrollView else { return }
+        let viewport = scroll.contentView.bounds.height
+        let content = frame.height
+        guard viewport > 0 else { return }
+        let wanted = content > viewport ? viewport / 2 : 0
+        guard abs(scroll.contentInsets.bottom - wanted) > 0.5 else { return }
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets.bottom = wanted
+        // The scroller tracks the text, not the empty space under it.
+        scroll.scrollerInsets.bottom = -wanted
+    }
+
     public override func layout() {
         super.layout()
         syncRenderMetrics()
+        updateScrollPastEndInset()
     }
 
     /// Light ↔ Dark. `syncRenderMetrics()` runs from `layout()`, and switching
