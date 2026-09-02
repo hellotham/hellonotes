@@ -136,18 +136,25 @@ public extension GFMRenderer {
 
     /// A complete HTML page rendering `markdown` exactly as GitHub would.
     /// `baseURL` (the note's folder) lets relative image `src`s resolve.
-    /// - Parameter fontScale: the app's text-scale setting. It sets the root
-    ///   font size *and* every margin, because `GFMBoxMetrics` expresses the
+    /// - Parameter base: the body size in **points**, which sets the root font
+    ///   size *and* every margin, because `GFMBoxMetrics` expresses the
     ///   stylesheet's px constants as multiples of it. Applied as a percentage
     ///   on `html` it did neither: `.markdown-body { font-size: 16px }` is
     ///   absolute and overrode it, so Text Size moved nothing on this surface
     ///   while it moved everything in the editor.
+    ///
+    ///   It was a *scale* until the editor's base stopped being 16. This
+    ///   function then computed `16 * scale` while the editor computed its own
+    ///   size from `AppearanceSettings`, so the two surfaces derived one
+    ///   quantity from two sources and agreed only by coincidence — on iOS,
+    ///   where the reading size became 17, they stopped agreeing and Preview
+    ///   rendered a point smaller than Edit. The caller now states the size.
     /// - Parameter title: the document title, for a saved or printed file.
     /// - Parameter box: the container — `.document` to save or print,
     ///   `.pane` to sit flush with the editor it replaces.
-    static func page(_ markdown: String, title: String = "", fontScale: Double = 1,
+    static func page(_ markdown: String, title: String = "", base: CGFloat = 16,
                      box: PageBox = .document, palette: Palette? = nil) -> String {
-        let metrics = GFMBoxMetrics(base: 16 * CGFloat(fontScale))
+        let metrics = GFMBoxMetrics(base: base)
         // GitHub-mode: hard line breaks, matching api.github.com/markdown.
         let body = html(markdown, hardBreaks: true)
         func px(_ v: CGFloat) -> String { String(format: "%.4f", Double(v)) + "px" }

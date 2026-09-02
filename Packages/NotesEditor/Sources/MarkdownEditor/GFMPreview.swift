@@ -27,7 +27,12 @@ public struct GFMPreview: View {
     }
 
     /// Convenience: render raw Markdown to a GitHub page directly.
-    /// - Parameter fontScale: the app's Text Size, folded into the page.
+    /// - Parameter base: the body size in points, used only when no `theme` is
+    ///   supplied — when one is, **the theme's own size is what the page is
+    ///   measured at**, so the two halves of Edit ≡ Preview cannot be given
+    ///   different numbers. They could before: this took a scale and the theme
+    ///   took a size, and a caller that passed `textScale` alongside a 17pt
+    ///   theme got a 16pt page.
     ///
     /// It used to be absent, so this initialiser rendered at scale 1 and every
     /// caller that cared had to reach for `GFMRenderer.page` and the `html:`
@@ -38,12 +43,12 @@ public struct GFMPreview: View {
     /// live editor uses, and no measure of its own. Preview used the export
     /// page's box — a 980pt centred column — so switching out of Edit moved
     /// the text sideways before a single glyph had been re-measured.
-    public init(markdown: String, baseURL: URL? = nil, fontScale: Double = 1,
+    public init(markdown: String, baseURL: URL? = nil, base: CGFloat = 16,
                 theme: EditorTheme? = nil, isDark: Bool = false) {
-        let theme = theme ?? EditorTheme(fontSize: 16 * CGFloat(fontScale))
+        let theme = theme ?? EditorTheme(fontSize: base)
         self.init(html: GFMRenderer.page(
             markdown,
-            fontScale: fontScale,
+            base: theme.fontSize,
             box: .pane(inset: EditorMetrics.textContainerInset,
                        leading: EditorMetrics.textLeadingInset),
             palette: theme.pagePalette(isDark: isDark)),

@@ -201,7 +201,9 @@ struct NoteEditorPane: View {
         GFMPreview(
             markdown: GitHubMarkdown.prepare(editor.text),
             baseURL: note.fileURL.deletingLastPathComponent(),
-            fontScale: appearance.textScale,
+            // No size here: the theme below states it, and `GFMPreview`
+            // measures the page at the theme's own size. Passing both is what
+            // let Preview render at 16 while Edit rendered at 17.
             // The same theme `EditorHost` hands the live editor, so Preview
             // paints the note in the same ink — and paints no canvas of its
             // own, so the background behind it does not change with the mode.

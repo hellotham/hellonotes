@@ -550,7 +550,7 @@ func checkHTMLRendering() async -> Int {
     print("html block                      image")
     for (label, source) in cases {
         let image = await HTMLBlockImageRenderer.image(
-            source: source, maxWidth: width, fontScale: Double(base / 16),
+            source: source, maxWidth: width, base: base,
             palette: theme.pagePalette(isDark: false), isDark: false)
         if let image, image.size.width > 1, image.size.height > 1 {
             print(label.padding(toLength: 30, withPad: " ", startingAt: 0)
@@ -697,7 +697,7 @@ func editorTops() -> [(String, CGFloat)] {
 @MainActor
 func previewPage(_ markdown: String, base: CGFloat) -> String {
     GFMRenderer.page(
-        NoteMarkdown.prepare(markdown), fontScale: Double(base / 16),
+        NoteMarkdown.prepare(markdown), base: base,
         box: .pane(inset: EditorMetrics.textContainerInset,
                    leading: EditorMetrics.textLeadingInset))
 }
@@ -1141,7 +1141,7 @@ struct SweepHTMLRenderer: BlockRenderer {
         // here, and the corpus has none inside an HTML block; a relative
         // `diagram.png`, which is what a note actually contains, does.
         let image = await HTMLBlockImageRenderer.image(
-            source: source, maxWidth: maxWidth, fontScale: Double(base / 16),
+            source: source, maxWidth: maxWidth, base: base,
             palette: EditorTheme(fontSize: base).pagePalette(isDark: darkMode),
             isDark: darkMode, keepsTrailingMargin: keepsTrailingMargin,
             baseURL: imageBase)

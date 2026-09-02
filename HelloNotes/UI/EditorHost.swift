@@ -565,7 +565,7 @@ struct EditorHost: View {
                 let theme = EditorTheme(fontSize: fontSize)
                 return await HTMLBlockImageRenderer.image(
                     source: source, maxWidth: maxWidth,
-                    fontScale: Double(fontSize / 16),
+                    base: fontSize,
                     palette: theme.pagePalette(isDark: isDark), isDark: isDark,
                     keepsTrailingMargin: keepsTrailingMargin,
                     // The note's own folder, which is what `NoteEditorPane`

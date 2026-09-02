@@ -11,6 +11,9 @@
 
 import SwiftUI
 import MarkdownEditor   // PlatformColor
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -89,6 +92,24 @@ final class AppearanceSettings {
     var customAccent: Color { didSet { UserDefaults.standard.set(Self.hex(customAccent), forKey: "customAccentHex") } }
     /// 0.8 … 1.5, with 1.0 the default (middle of the slider).
     var textScale: Double { didSet { UserDefaults.standard.set(textScale, forKey: "textScale") } }
+
+    #if os(iOS)
+    /// The system Text Size, mirrored here so `baseEditorFontSize` can depend
+    /// on it.
+    ///
+    /// Reading `UIApplication.shared.preferredContentSizeCategory` from inside
+    /// the computed size would be invisible to `@Observable`: nothing would
+    /// register a dependency, so the editor would keep its old size until
+    /// something unrelated happened to redraw it. Stored, it is a dependency
+    /// like any other and the note resizes the moment the setting changes.
+    private(set) var contentSizeCategory: UIContentSizeCategory = .large
+    @ObservationIgnored private var contentSizeObserver: (any NSObjectProtocol)?
+    #else
+    // macOS has no user-facing Dynamic Type, so there is nothing to mirror and
+    // `baseEditorFontSize` is a constant there. Stated rather than omitted: a
+    // one-sided platform gate is how a feature comes to exist on one platform
+    // and nobody notices.
+    #endif
     /// Deepen the accent and raise the text-contrast target to WCAG AAA (7:1).
     var increaseContrast: Bool { didSet { UserDefaults.standard.set(increaseContrast, forKey: "increaseContrast") } }
 
@@ -144,6 +165,11 @@ final class AppearanceSettings {
         let stored = defaults.double(forKey: "textScale")
         textScale = stored == 0 ? 1.0 : min(max(stored, Self.minScale), Self.maxScale)
         increaseContrast = defaults.bool(forKey: "increaseContrast")
+        #if os(iOS)
+        contentSizeCategory = UIApplication.shared.preferredContentSizeCategory
+        #else
+        // No Dynamic Type to seed from on macOS.
+        #endif
         // Full by default. The measure now applies to the *pane* rather than to
         // Preview alone, so a default of 80 characters would have narrowed the
         // live editor for everyone who never opened the setting — and "the pane
@@ -158,6 +184,25 @@ final class AppearanceSettings {
         // read as the default rather than as the user having turned it off.
         showInlineTitle = defaults.object(forKey: "showInlineTitle") as? Bool ?? true
         applyWindowAppearance()
+        #if os(iOS)
+        // Text Size can change while the app is running — Control Centre has a
+        // slider for it — and a note that keeps its old size until you happen to
+        // switch tabs looks broken. Registered after every stored property, so
+        // capturing `self` is legal.
+        contentSizeObserver = NotificationCenter.default.addObserver(
+            forName: UIContentSizeCategory.didChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                self?.contentSizeCategory =
+                    note.userInfo?[UIContentSizeCategory.newValueUserInfoKey] as? UIContentSizeCategory
+                    ?? UIApplication.shared.preferredContentSizeCategory
+            }
+        }
+        #else
+        // Nothing to observe: the Mac's reading size changes only with the
+        // app's own Text Size slider, which is already an observed property.
+        #endif
     }
 
     /// Sync AppKit's app-wide appearance with the chosen theme, so *every*
@@ -288,8 +333,46 @@ final class AppearanceSettings {
     var accentText: Color? { baseAccent == nil ? nil : Color(platform: accentTextPlatformColor) }
     var onAccent: Color { Color(platform: onAccentPlatformColor) }
 
-    /// Base editor font size (points) scaled by the text setting.
-    var editorFontSize: CGFloat { 16 * textScale }
+    /// Editor and preview body size in points: a platform-appropriate reading
+    /// size, scaled by the Text Size slider.
+    var editorFontSize: CGFloat { baseEditorFontSize * textScale }
+
+    /// The reading size before the slider is applied.
+    ///
+    /// **A point is not the same thing on both platforms, and 16 was a macOS
+    /// number.** The Mac's system font is 13pt, so 16 sits comfortably above the
+    /// chrome and reads as a document. iOS's `.body` is **17pt**, so the same 16
+    /// put note text *below* the app's own sidebar and toolbar labels — the
+    /// reading surface came out smaller than the furniture around it. Measured
+    /// on an iPad Pro: body glyphs 16.1pt against 15.6pt chrome, where the Mac
+    /// has 16 against 13.
+    ///
+    /// So the base is stated per platform, and on iOS it is stated in the
+    /// platform's own terms — `UIFontMetrics` — which means note text finally
+    /// follows the system Text Size like every other iOS app. It did not
+    /// before: the in-app slider drove the editor and Dynamic Type drove only
+    /// the chrome, so raising Text Size in Settings grew the sidebar and left
+    /// the note exactly as it was.
+    ///
+    /// `textScale` (0.8…1.5) is what syncs between devices, not this — which is
+    /// what a ratio is for. A Mac and an iPad sharing one setting each land on
+    /// their own platform's size.
+    var baseEditorFontSize: CGFloat {
+        #if os(macOS)
+        // macOS has no user-facing Dynamic Type; 13pt chrome, 16pt document.
+        return 16
+        #else
+        // 17pt at the default Text Size, growing with it. Capped because the
+        // accessibility sizes reach ~53pt on their own, and the slider can put
+        // half as much again on top of that.
+        // `.unspecified` is a real value `preferredContentSizeCategory` can
+        // return, and scaling against it is undefined — so it is normalised to
+        // the system default rather than left to produce whatever it produces.
+        let category = contentSizeCategory == .unspecified ? .large : contentSizeCategory
+        return min(UIFontMetrics(forTextStyle: .body).scaledValue(
+            for: 17, compatibleWith: UITraitCollection(preferredContentSizeCategory: category)), 34)
+        #endif
+    }
 
     /// Nearest Dynamic Type size for scaling SwiftUI chrome. 1.0 → `.large`
     /// (the system default).

@@ -53,7 +53,7 @@ public enum HTMLBlockImageRenderer {
     /// to centre an image in a note. Nothing in the harness could see it
     /// either: a height sweep over one-construct examples has no images in its
     /// HTML blocks.
-    public static func image(source: String, maxWidth: CGFloat, fontScale: Double,
+    public static func image(source: String, maxWidth: CGFloat, base: CGFloat,
                              palette: GFMRenderer.Palette?, isDark: Bool,
                              keepsTrailingMargin: Bool = true,
                              baseURL: URL? = nil) async -> PlatformImage? {
@@ -61,7 +61,7 @@ public enum HTMLBlockImageRenderer {
         else { return nil }
 
         let page = GFMRenderer.page(
-            source, fontScale: fontScale,
+            source, base: base,
             // No padding: the editor's own text container already insets this
             // block, and a second inset here would indent every HTML block by
             // the pane's margin.
