@@ -141,6 +141,10 @@ struct NoteEditorView: View {
         var isMarp = false
     }
     @State private var docStats = DocStats()
+    /// Whether the save is taking long enough to be worth saying so. See
+    /// `saveStatus`: driven on a delay so an ordinary fast autosave never
+    /// flashes "Saving…" and back the moment you pause typing.
+    @State private var showSavingIndicator = false
     @State private var didInitialStats = false
 
 
@@ -303,7 +307,18 @@ struct NoteEditorView: View {
                         guard !Task.isCancelled else { return }
                     }
                     let text = editor.text
-                    docStats = await Task.detached { Self.computeStats(for: text) }.value
+                    let fresh = await Task.detached { Self.computeStats(for: text) }.value
+                    // The bottom bar redraws only when its *contents* change.
+                    // Logged because "the toolbar repaints" and "docStats
+                    // changed" are the same event, and `isMarp`/`hasMermaid`
+                    // add and remove buttons — a width change, i.e. a shift.
+                    if fresh != docStats {
+                        EditorProbe.logEdit(
+                            "docStats words=\(docStats.wordCount)->\(fresh.wordCount) "
+                            + "marp=\(docStats.isMarp)->\(fresh.isMarp) "
+                            + "mermaid=\(docStats.hasMermaid)->\(fresh.hasMermaid)  (bar redraws)")
+                    }
+                    docStats = fresh
                     didInitialStats = true
                 }
                 .onChange(of: editor.note?.fileURL) { _, _ in
@@ -545,12 +560,50 @@ struct NoteEditorView: View {
     // MARK: - Save status
 
     @ViewBuilder
+    /// The save indicator, at a **fixed width**, and slow to say "Saving…".
+    ///
+    /// Two separate defects met here, and both were reported as "pressing
+    /// return repaints the bottom toolbar and shifts the layout".
+    ///
+    /// **The width changed.** "Saved", "Saving…" and "Save failed" are three
+    /// different widths, and this sits at the left of a row whose remaining
+    /// content is laid out after it — so every transition moved the mode
+    /// buttons and the action icons sideways. Measured on an iPad: typing three
+    /// characters logged `dirty=false → true → false`, i.e. two width changes
+    /// inside a fifth of a second.
+    ///
+    /// **And it announced saves nobody was waiting for.** The autosave debounce
+    /// expires when you *pause* — and the most common reason to pause is having
+    /// just pressed Return. So a save that takes 8ms still flashed "Saving…"
+    /// and back, right after Return, which is precisely the moment the user
+    /// described.
+    ///
+    /// The `ZStack` of hidden labels reserves the widest of the three at
+    /// whatever the current Dynamic Type size is, rather than a guessed
+    /// constant that would be wrong at the next text size. The delay means a
+    /// save that completes promptly is never mentioned at all: the indicator is
+    /// for saves that are *slow*, and a fast one is not news.
     private var saveStatus: some View {
+        ZStack(alignment: .leading) {
+            Group {
+                Label("Save failed", systemImage: "exclamationmark.triangle.fill")
+                Label("Saving…", systemImage: "pencil.circle")
+                Label("Saved", systemImage: "checkmark.circle")
+            }
+            .hidden()
+            .accessibilityHidden(true)
+
+            liveSaveStatus
+        }
+    }
+
+    @ViewBuilder
+    private var liveSaveStatus: some View {
         if let error = editor.saveError {
             Label("Save failed", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
                 .help(error)
-        } else if editor.isDirty {
+        } else if showSavingIndicator {
             Label("Saving…", systemImage: "pencil.circle")
                 .foregroundStyle(.secondary)
         } else {
@@ -613,6 +666,15 @@ struct NoteEditorView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.bar)
+        // "Saving…" only for a save that is actually slow. Clearing is
+        // immediate — a finished save should read as finished at once — while
+        // announcing waits, so the common case says nothing.
+        .task(id: editor.isDirty) {
+            guard editor.isDirty else { showSavingIndicator = false; return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            showSavingIndicator = true
+        }
     }
 
     /// The bar's own height. A `GeometryReader` fills whatever it is offered and
@@ -622,6 +684,15 @@ struct NoteEditorView: View {
 
     private var barRow: some View {
         HStack(spacing: 8) {
+            // Ground truth for "the toolbar repaints": this line runs exactly
+            // when SwiftUI rebuilds the bar, and prints every input it reads,
+            // so a redraw can be attributed instead of guessed at.
+            let _ = EditorProbe.logEdit(
+                "barRow BUILD words=\(docStats.wordCount) marp=\(docStats.isMarp) "
+                + "mermaid=\(docStats.hasMermaid) repo=\(git.status.isRepository) "
+                + "clean=\(git.status.isClean) changed=\(git.status.changeCount) "
+                + "mode=\(mode.rawValue) find=\(showFindBar) "
+                + "dirty=\(editor.isDirty) saveError=\(editor.saveError != nil)")
             // Status (left). Single-line and truncating, so a narrow window
             // shortens the text instead of wrapping it vertically.
             Text("\(docStats.wordCount) word\(docStats.wordCount == 1 ? "" : "s")")

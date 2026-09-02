@@ -1415,6 +1415,22 @@ public final class MarkdownUITextView: UITextView {
     /// `lazy`, like the other view-owned properties here — see `chromeOverlay`.
     private lazy var formatAccessory: UIView = makeFormatAccessory()
 
+    // Responder transitions, because "the format bar appears and disappears"
+    // and "the text view lost first responder" are the same event seen from
+    // opposite sides. Debug + HN_EDIT_LOG only.
+    public override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        EditorProbe.logEdit("becomeFirstResponder -> \(ok) (accessory shows)")
+        return ok
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        EditorProbe.logEdit("resignFirstResponder -> \(ok) (accessory hides)")
+        return ok
+    }
+
+
     private func makeFormatAccessory() -> UIView {
         let bar = FormatAccessoryView(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
         bar.autoresizingMask = .flexibleWidth
@@ -2406,6 +2422,11 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> MarkdownUITextView {
+        // A rebuild here is never routine: it makes a **new** `UITextView`, so
+        // the old one loses first responder and its `inputAccessoryView` — the
+        // format bar — goes away and comes back. If that happens while typing,
+        // the bar flickers and the layout shifts under the caret.
+        EditorProbe.logEdit("makeUIView — NEW text view (first responder and accessory reset)")
         let tv = MarkdownUITextView.make(document: document)
         tv.isEditable = isEditable
         tv.wrapGuideColumns = wrapGuideColumns

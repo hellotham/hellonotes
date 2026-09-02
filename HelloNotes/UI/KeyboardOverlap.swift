@@ -30,6 +30,7 @@
 //
 
 import SwiftUI
+import MarkdownEditor
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -81,7 +82,12 @@ final class KeyboardOverlap {
                 .flatMap(\.windows)
                 .first(where: \.isKeyWindow) else { return }
         let covered = window.frame.intersection(frame.cgRectValue)
-        height = covered.isNull ? 0 : covered.height
+        let next = covered.isNull ? 0 : covered.height
+        if next != height {
+            MarkdownEditor.EditorProbe.logEdit(
+                "keyboard overlap \(Int(height)) -> \(Int(next))  (bottom bar moves)")
+        }
+        height = next
     }
     #else
     init() {}

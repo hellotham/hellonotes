@@ -399,6 +399,9 @@ public final class EditorDocument {
         // trustworthy when the initial pass has already finished (then
         // everything is styled and stays styled — edits restyle in place).
         if hadPendingStyling {
+            // A "sometimes" branch, and an expensive one: it throws away the
+            // styled bitset and restarts the whole background styling pass.
+            EditorProbe.logEdit("restarting background styling (pass had not finished)")
             styledBlocks = Array(repeating: false, count: parse.blocks.count)
             // Don't leave the visible area unstyled while the pass restarts.
             ensureStyled(charactersIn: NSRange(
