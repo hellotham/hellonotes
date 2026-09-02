@@ -68,8 +68,15 @@ struct NoteRowContent {
     /// year the day and month, and older the year. Every case fits a column.
     static func compactDate(_ date: Date, now: Date = Date(),
                             calendar: Calendar = .current) -> String {
-        if calendar.isDateInToday(date) { return timeOnly.string(from: date) }
-        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        // **Relative to `now`, not to the system clock.** `isDateInToday` asks
+        // the calendar what today is, which ignored the `now` this function was
+        // given — so it was untestable at any hour but the one it was written
+        // in, and wrong for anyone whose day had rolled over while the app was
+        // open, or whose time zone put the note's date on the other side of
+        // midnight from the machine's.
+        if calendar.isDate(date, inSameDayAs: now) { return timeOnly.string(from: date) }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
         if let week = calendar.date(byAdding: .day, value: -6, to: now), date >= week {
             return weekday.string(from: date)
         }

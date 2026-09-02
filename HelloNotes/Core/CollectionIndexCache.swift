@@ -48,7 +48,13 @@ nonisolated enum CollectionIndexCache {
     /// appears a moment late.
     static func notes(for root: URL) -> [Note]? {
         guard let records = load(for: root), !records.isEmpty else { return nil }
-        return records.values.map { record in
+        return records.values
+            // An absolute path here is a record written before `relativePath`
+            // could see past `/var` vs `/private/var`. Appending it to the root
+            // produces a URL for a file that does not exist, so the note is
+            // dropped and the folder walk supplies it instead.
+            .filter { !$0.relativePath.hasPrefix("/") }
+            .map { record in
             let url = root.appending(path: record.relativePath)
             return Note(title: url.deletingPathExtension().lastPathComponent,
                         fileURL: url,
@@ -126,11 +132,37 @@ nonisolated enum CollectionIndexCache {
 
     // MARK: - Paths
 
+    /// A note's path relative to the collection root.
+    ///
+    /// **`/var` and `/private/var` are the same directory and
+    /// `standardizedFileURL` does not unify them.** It resolves `.` and `..`
+    /// and nothing else. So a root spelled one way and a file URL spelled the
+    /// other shared no prefix, this returned the *absolute* path as though it
+    /// were relative, and the cache stored it — after which `notes(for:)` built
+    /// `root.appending(path: "/private/var/…/Note.md")`, a URL for a file that
+    /// does not exist. The collection then disagreed with itself about what its
+    /// own notes were called: the cache-painted picture never matched the
+    /// walked one, and a merge could not tell a note in an unreadable subtree
+    /// from a note that had been deleted.
+    ///
+    /// Both spellings of the *root* are tried, which costs one `stat` per call
+    /// site rather than one per note — the per-file form is what
+    /// `ResumableTreeWalk`'s own notes warn about, where a resource lookup per
+    /// file cost seconds of blocked main thread.
     static func relativePath(of fileURL: URL, in root: URL) -> String {
         let file = fileURL.standardizedFileURL.path
-        var base = root.standardizedFileURL.path
-        if !base.hasSuffix("/") { base += "/" }
-        return file.hasPrefix(base) ? String(file.dropFirst(base.count)) : file
+        for base in rootPrefixes(root) where file.hasPrefix(base) {
+            return String(file.dropFirst(base.count))
+        }
+        return file
+    }
+
+    /// Every spelling of `root` a file URL under it might carry, each ending in
+    /// a separator so `"Notes"` cannot prefix-match `"NotesArchive"`.
+    static func rootPrefixes(_ root: URL) -> [String] {
+        let forms = Set([root.standardizedFileURL.path,
+                         root.resolvingSymlinksInPath().standardizedFileURL.path])
+        return forms.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
     }
 
     /// `Application Support/HelloNotes/IndexCache/<hash>.json`, keyed by the

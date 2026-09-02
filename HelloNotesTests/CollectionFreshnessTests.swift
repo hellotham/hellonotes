@@ -130,6 +130,49 @@ struct CollectionFreshnessTests {
         #expect(second.notes.count == 4)
     }
 
+    /// Notes that share a modification date are not a change.
+    ///
+    /// This is what CI kept failing on and this machine never did.
+    /// `CollectionIndexCache.notes(for:)` sorts a **Dictionary's** values, and a
+    /// dictionary's iteration order depends on the process's hash seed. With
+    /// distinct dates the sort has something to order by and the result is
+    /// stable; with a tie it has nothing, so the same notes come out in a
+    /// different order on a different run — and comparing the two pictures as
+    /// arrays of `Note` called that a change, republished, and rebuilt the
+    /// whole sidebar.
+    ///
+    /// Ties are not exotic: files written in the same clock tick share a date,
+    /// and so does anything copied or checked out as a batch.
+    @Test func notesSharingAModificationDateAreNotAChange() async throws {
+        let root = try Self.makeVault(noteCount: 5)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // One date for all of them, so the sort has no tiebreaker at all.
+        let shared = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        for entry in try FileManager.default.contentsOfDirectory(atPath: root.path) {
+            try FileManager.default.setAttributes([.modificationDate: shared],
+                                                  ofItemAtPath: root.appending(path: entry).path)
+        }
+
+        let first = Collection(rootURL: root)
+        await first.scanOffMain()
+        first.refreshDerived()
+        try await Self.settle()
+
+        // Repeated, because the failure is a coin toss on the ordering: one run
+        // agreeing proves nothing.
+        for attempt in 1...5 {
+            let opened = Collection(rootURL: root)
+            await opened.activate(onExternalChange: {})
+            let afterPaint = opened.revision
+            try await Self.settle()
+            #expect(opened.revision == afterPaint,
+                    "attempt \(attempt): the verification republished an identical picture")
+            #expect(opened.notes.count == 5)
+            opened.deactivate()
+        }
+    }
+
     // MARK: - 2 · Rescan
 
     /// Rescan Collection is the escape hatch. It has to actually rescan.
@@ -231,8 +274,13 @@ struct CollectionFreshnessTests {
         try await Self.settle()
 
         let titles = Set(collection.notes.map(\.title))
-        #expect(titles.contains("Hidden"),
-                "a note in the subtree the walk could not enter was removed on a guess")
+        // The paths, because this failed on CI and not here: if it fails again
+        // the message has to say which spelling of the root each side used.
+        #expect(titles.contains("Hidden"), """
+            a note in the subtree the walk could not enter was removed on a guess.
+            root:  \(root.path)
+            notes: \(collection.notes.map(\.fileURL.path).sorted())
+            """)
         #expect(!titles.contains("Note 0"),
                 "a note the walk looked straight at and did not find was kept anyway")
         // The folder itself is a child of the root, and the root *was* listed —

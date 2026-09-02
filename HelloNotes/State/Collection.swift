@@ -663,10 +663,25 @@ final class Collection: Identifiable {
         // **An identical picture is not news.** The verification pass that runs
         // behind a cache-opened collection re-derives the same list almost
         // every launch, and bumping `revision` for it rebuilds the sidebar
-        // outline — resetting its scroll — for no change at all. Folders are
-        // compared as a set because `applyMerging` builds them from one.
-        if result.notes == notes, result.attachments == attachments,
-           Set(result.folders) == Set(folders) {
+        // outline — resetting its scroll — for no change at all.
+        //
+        // Compared as *sets of relative path + fingerprint*, not as arrays of
+        // `Note`, because two things that are not differences used to read as
+        // one:
+        //
+        //   * **Order.** `CollectionIndexCache.notes(for:)` sorts a
+        //     Dictionary's values, and a dictionary's order depends on the
+        //     process's hash seed. Whenever two notes share a modification date
+        //     the sort has nothing left to break the tie with, so the same
+        //     notes came out in a different order on a different run — and
+        //     array equality called that a change.
+        //   * **Spelling.** `/var` and `/private/var` are one directory with two
+        //     names, and `Note` equality compares `fileURL`.
+        //
+        // Neither is a change to the collection, and republishing for either
+        // rebuilds the whole sidebar.
+        if Self.signature(result, root: rootURL)
+            == Self.signature((notes, attachments, folders), root: rootURL) {
             if case .stale = state { state = .ready }
             return
         }
@@ -679,6 +694,33 @@ final class Collection: Identifiable {
         // stale index — but it must not overwrite an unavailability that the
         // watcher reported while the walk was in flight.
         if case .stale = state { state = .ready }
+    }
+
+    /// What a picture *is*, for the purpose of "has anything changed".
+    ///
+    /// Relative paths, so the root's spelling cannot matter; sets, so order
+    /// cannot; and each note's modification date and size, because that is what
+    /// the index cache fingerprints content with and therefore what a real
+    /// change looks like.
+    private static func signature(
+        _ picture: (notes: [Note], attachments: [CollectionFile], folders: [URL]),
+        root: URL
+    ) -> (Set<String>, Set<String>, Set<String>) {
+        let prefixes = CollectionIndexCache.rootPrefixes(root)
+        func relative(_ url: URL) -> String {
+            let path = url.standardizedFileURL.path
+            for base in prefixes where path.hasPrefix(base) {
+                return String(path.dropFirst(base.count))
+            }
+            return path
+        }
+        return (
+            Set(picture.notes.map {
+                "\(relative($0.fileURL))|\($0.lastModified.timeIntervalSinceReferenceDate)|\($0.fileSize)"
+            }),
+            Set(picture.attachments.map { relative($0.url) }),
+            Set(picture.folders.map(relative))
+        )
     }
 
     /// Scan off the main actor, then apply the results — used for startup and
@@ -1078,15 +1120,28 @@ final class Collection: Identifiable {
         let walkedNotes = Set(fresh.notes.map(\.fileURL))
         let walkedFiles = Set(fresh.attachments.map(\.url))
 
-        // Prefixes of the subtrees the walk could not enter. Compared with a
-        // trailing separator so "Notes/Archive" cannot match "Notes/Archived".
-        let blindSpots: [String]? = unreadable.map { paths in
-            paths.map { rootURL.appending(path: $0).standardizedFileURL.path + "/" }
+        // The subtrees the walk could not enter, as paths **relative to the
+        // root** — the walk names them that way, and comparing relative paths
+        // sidesteps the question of whether this URL and that one spell the
+        // root the same way. They did not: `/var` and `/private/var` are the
+        // same directory, `standardizedFileURL` does not unify them, and a
+        // mismatch here removes a note the walk never looked at.
+        let blindSpots: Set<String>? = unreadable.map(Set.init)
+        let prefixes = CollectionIndexCache.rootPrefixes(rootURL)
+        func relative(_ url: URL) -> String? {
+            let path = url.standardizedFileURL.path
+            for base in prefixes where path.hasPrefix(base) {
+                return String(path.dropFirst(base.count))
+            }
+            return nil
         }
         func couldNotHaveSeen(_ url: URL) -> Bool {
             guard let blindSpots else { return true }   // coverage unknown: keep
-            let path = url.standardizedFileURL.path
-            return blindSpots.contains { path.hasPrefix($0) }
+            // Not under the root at all: the walk cannot speak for it either.
+            guard let rel = relative(url) else { return true }
+            // Trailing separator, so "Notes/Archive" cannot claim
+            // "Notes/Archived".
+            return blindSpots.contains { rel == $0 || rel.hasPrefix($0 + "/") }
         }
 
         let keptNotes = notes.filter {
