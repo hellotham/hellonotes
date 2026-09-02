@@ -275,6 +275,28 @@ public extension MarkdownFormatting where Self: UITextView {
 
     /// Put the formatting commands where iOS puts editor affordances.
     ///
+    /// ## The rule
+    ///
+    /// **Shown whenever there is focus and a caret — and therefore independent
+    /// of the mode.** Preview never gets a caret, so it never shows one.
+    ///
+    /// That is a property of *where* these live rather than a condition
+    /// anything evaluates: an assistant bar belongs to a first responder, so it
+    /// exists exactly when something is being typed into. Two earlier attempts
+    /// tried to express the rule instead of inheriting it — an accessory (whose
+    /// real rule turned out to be "whenever the text view happens to be first
+    /// responder", stated nowhere) and then a bar of the app's own gated on
+    /// `mode.isEditable`. The second was predictable but redundant: `Preview`
+    /// builds a `GFMPreview` and no text view at all, and the other three modes
+    /// pass `isEditable`, so "can I type here?" was already answered by the
+    /// view tree. `EditorMode.isEditable` was deleted with that bar.
+    ///
+    /// The case worth checking is the transition, because that is where
+    /// "sometimes" bugs live: leaving a *focused* Edit session for Preview tears
+    /// the text view down, which resigns first responder, which takes the bar
+    /// with it. Verified on device.
+    ///
+    ///
     /// **iPad: the shortcuts bar** (`inputAssistantItem`) — the floating pill
     /// that carries the keyboard/language selector and the dictation mic. It is
     /// where a person looks for "make this bold", it costs the app no screen
