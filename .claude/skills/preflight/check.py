@@ -91,11 +91,21 @@ for rel, (w, h, label) in GRID.items():
         detail += " — the store wants at least 3"
     add(status, f"screenshots · {label}", detail)
 
-raw = sorted((ROOT / "assets/screenshots-raw").glob("*.png"))
-tracked = sh("git", "ls-files", "assets/screenshots-raw").stdout.strip().splitlines()
+# `rglob`, not `glob`: the raws moved into one folder per device
+# (macOS/, iPhone-6.5/, iPad-13/) and this check went blind overnight — it
+# reported "0 present" while all twenty sat committed one level down. A check
+# that stops seeing its subject is worse than no check, because it still prints
+# a line. The per-folder breakdown below is so the next reorganisation shows up
+# as a missing name rather than a smaller number.
+raw = sorted((ROOT / "assets/screenshots-raw").rglob("*.png"))
+tracked = [t for t in sh("git", "ls-files", "assets/screenshots-raw")
+           .stdout.strip().splitlines() if t.endswith(".png")]
+by_dir: dict[str, int] = {}
+for f in raw:
+    by_dir[f.parent.name] = by_dir.get(f.parent.name, 0) + 1
+where = ", ".join(f"{n} {d}" for d, n in sorted(by_dir.items())) or "none found"
 add("PASS" if raw and len(tracked) >= len(raw) else "WARN",
-    "raw captures committed",
-    f"{len(raw)} present, {len([t for t in tracked if t.endswith('.png')])} tracked")
+    "raw captures committed", f"{where} — {len(tracked)} tracked")
 
 # ------------------------------------------------- leftovers on the Mac
 host = sh("pgrep", "-f", "-NSTreatUnknownArgumentsAsOpen").stdout.strip()
