@@ -63,6 +63,13 @@ enum PreviewSuperset {
         var fence: String?
         var mermaid: [String]?          // body of an open ```mermaid fence
         var mathBlock: [String]?
+        var callout: (kind: String, title: String, body: [String])?
+
+        func flushCallout() {
+            guard let c = callout else { return }
+            out.append(Callout.html(kind: c.kind, title: c.title, body: c.body))
+            callout = nil
+        }
 
         for line in text.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -98,6 +105,21 @@ enum PreviewSuperset {
                 }
                 continue
             }
+            // A callout is a blockquote whose first line is `> [!type]`. The
+            // `>` lines under it belong to it; the first line that is not `>`
+            // ends the run.
+            if callout != nil {
+                if trimmed.hasPrefix(">") {
+                    callout?.body.append(Callout.strip(trimmed))
+                    continue
+                }
+                flushCallout()
+            }
+            if let opened = Callout.opening(trimmed) {
+                callout = (opened.kind, opened.title, [])
+                continue
+            }
+
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 // A diagram is the one fence whose *contents* are drawn rather
                 // than shown. Everything else — including a fence that merely
@@ -128,6 +150,7 @@ enum PreviewSuperset {
             out.append(await inlineConstructs(line, isDark: isDark, embeds: embeds))
         }
 
+        flushCallout()
         // An unterminated construct is not a construct — give the text back.
         if let pending = mathBlock { out.append("$$" + pending.joined(separator: "\n")) }
         if let pending = mermaid { out.append("```mermaid\n" + pending.joined(separator: "\n")) }
@@ -141,7 +164,12 @@ enum PreviewSuperset {
     private static func inlineConstructs(_ line: String,
                                          isDark: Bool,
                                          embeds: CollectionEmbedProvider?) async -> String {
-        guard line.contains("$") || line.contains("![[") else { return line }
+        // Every construct this pass can substitute. A line holding none of
+        // them is returned untouched — which is almost every line, and is what
+        // keeps this cheap enough to run on the whole note.
+        guard line.contains("$") || line.contains("![[")
+                || line.contains("==") || line.contains("%%")
+        else { return line }
         var out = ""
         var idx = line.startIndex
         while idx < line.endIndex {
@@ -175,8 +203,97 @@ enum PreviewSuperset {
         if s.contains("$") {
             s = inlineMath(in: s, isDark: isDark)
         }
+        // `==highlight==` and `%%comment%%` are the note dialect's own inline
+        // spellings — cmark-gfm has never heard of either, so without this they
+        // reach the page as literal `==` and `%%`.
+        if s.contains("==") {
+            s = s.replacing(/==([^=\n]+)==/) { m in
+                "<mark class=\"hn-highlight\">" + String(m.1) + "</mark>"
+            }
+        }
+        if s.contains("%%") {
+            // Dimmed, not deleted — the editor dims them, and a Preview that
+            // silently removed text would disagree with the document open in
+            // the other tab.
+            s = s.replacing(/%%([^%\n]+)%%/) { m in
+                "<span class=\"hn-comment\">%%" + String(m.1) + "%%</span>"
+            }
+        }
         return s
     }
+
+    /// `> [!type] Title` — Obsidian's callout, as a styled blockquote.
+    ///
+    /// HTML rather than an image, unlike maths and diagrams: a callout is
+    /// *prose*, and prose in a picture cannot be selected, searched, resized or
+    /// read aloud. The body stays Markdown and cmark-gfm still renders it — a
+    /// raw HTML block ends at a blank line, which is what lets the content
+    /// between the tags go through the normal pipeline.
+    enum Callout {
+
+        static func opening(_ trimmed: String) -> (kind: String, title: String)? {
+            guard trimmed.hasPrefix(">") else { return nil }
+            let afterQuote = strip(trimmed)
+            guard let match = try? /^\[!([A-Za-z]+)\]-?\s*(.*)$/.firstMatch(in: afterQuote)
+            else { return nil }
+            return (String(match.1).lowercased(), String(match.2))
+        }
+
+        /// One `>` and any single space after it.
+        static func strip(_ line: String) -> String {
+            var s = Substring(line)
+            if s.hasPrefix(">") { s = s.dropFirst() }
+            if s.hasPrefix(" ") { s = s.dropFirst() }
+            return String(s)
+        }
+
+        static func html(kind: String, title: String, body: [String]) -> String {
+            let shown = title.isEmpty ? kind.capitalized : title
+            let inner = body.joined(separator: "\n")
+            let open = "<blockquote class=\"hn-callout hn-callout-\(cssClass(kind))\">"
+            let head = "<p class=\"hn-callout-title\"><span class=\"hn-callout-glyph\">"
+                + glyph(kind) + "</span>" + escape(shown) + "</p>"
+            return open + "\n" + head + "\n\n" + inner + "\n\n</blockquote>"
+        }
+
+        /// The editor's own taxonomy (`StyleApplier.calloutStyle`), so the two
+        /// surfaces colour the same word the same way.
+        static func cssClass(_ kind: String) -> String {
+            switch kind {
+            case "tip", "hint", "important":                              return "tip"
+            case "warning", "caution", "attention":                       return "warning"
+            case "danger", "error", "bug", "failure", "fail", "missing":  return "danger"
+            case "success", "check", "done":                              return "success"
+            case "question", "help", "faq":                               return "question"
+            case "example":                                               return "example"
+            case "quote", "cite":                                         return "quote"
+            case "abstract", "summary", "tldr":                           return "abstract"
+            default:                                                      return "note"
+            }
+        }
+
+        /// A glyph, not an SF Symbol: a web view has no symbol font.
+        static func glyph(_ kind: String) -> String {
+            switch cssClass(kind) {
+            case "tip":       return "◆"
+            case "warning":   return "▲"
+            case "danger":    return "✕"
+            case "success":   return "✓"
+            case "question":  return "?"
+            case "example":   return "▸"
+            case "quote":     return "❝"
+            case "abstract":  return "≡"
+            default:          return "✎"
+            }
+        }
+
+        private static func escape(_ s: String) -> String {
+            s.replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+        }
+    }
+
 
     /// `![[target]]` / `![[target#heading]]` → the rendered card.
     private static func replaceEmbeds(in segment: String,

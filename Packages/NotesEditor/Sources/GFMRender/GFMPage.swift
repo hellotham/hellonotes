@@ -183,6 +183,56 @@ public extension GFMRenderer {
           padding: \(px(box.top)) \(px(box.trailing)) \(px(box.bottom)) \(px(box.leading));
         }
         img { background: transparent; }
+        /* ---- The note dialect ------------------------------------------
+           HelloNotes notes are a superset of GFM. These rules style the parts
+           cmark-gfm has never heard of, so Preview shows the note rather than
+           a GitHub approximation of it — and shows it the way the editor does.
+           Colours track the editor's `StyleApplier.calloutStyle` taxonomy. */
+        .hn-callout {
+          border-left: 3px solid var(--hn-callout-tint, var(--fgColor-accent, #6f42c1));
+          background: color-mix(in srgb, var(--hn-callout-tint, #6f42c1) 8%, transparent);
+          border-radius: 6px;
+          padding: 10px 14px;
+          margin: 16px 0;
+          color: inherit;
+        }
+        .hn-callout > :first-child { margin-top: 0; }
+        .hn-callout > :last-child { margin-bottom: 0; }
+        .hn-callout-title {
+          font-weight: 600;
+          color: var(--hn-callout-tint, var(--fgColor-accent, #6f42c1));
+          margin: 0 0 6px 0;
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .hn-callout-glyph { font-size: 0.9em; line-height: 1; }
+        .hn-callout-note      { --hn-callout-tint: var(--fgColor-accent, #6f42c1); }
+        .hn-callout-tip       { --hn-callout-tint: #3aa8a0; }
+        .hn-callout-warning   { --hn-callout-tint: #d98324; }
+        .hn-callout-danger    { --hn-callout-tint: #e5534b; }
+        .hn-callout-success   { --hn-callout-tint: #3fb950; }
+        .hn-callout-question  { --hn-callout-tint: #d4a72c; }
+        .hn-callout-example   { --hn-callout-tint: #a371f7; }
+        .hn-callout-quote     { --hn-callout-tint: var(--fgColor-muted, #8b949e); }
+        .hn-callout-abstract  { --hn-callout-tint: #3aa8a0; }
+
+        /* `==highlight==` and `%%comment%%` */
+        mark.hn-highlight {
+          background: color-mix(in srgb, #d4a72c 34%, transparent);
+          color: inherit;
+          border-radius: 3px;
+          padding: 0 2px;
+        }
+        .hn-comment { color: var(--fgColor-muted, #8b949e); opacity: .65; }
+
+        /* Rendered maths, diagrams and transclusion cards. The tags already
+           carry their point size in width/height; these rules only stop a wide
+           one overflowing and keep an inline formula on the text baseline. */
+        img.hn-math-inline { vertical-align: -0.25em; margin: 0 1px; }
+        img.hn-math-block, img.hn-diagram, img.hn-embed { max-width: 100%; height: auto; }
+        p.hn-math-wrap, p.hn-diagram-wrap { margin: 16px 0; }
+
         /* highlight.js paints spans; keep GitHub's code-block box from the md css. */
         .markdown-body pre code.hljs { padding: 0; background: transparent; }
         </style>
