@@ -14,6 +14,12 @@ import { href } from '../../lib/paths';
     <li><code>[[Note title]]</code> — link to a note.</li>
     <li><code>[[Note title#Heading]]</code> — link straight to a section. Headings autocomplete too.</li>
     <li><code>[[Note title|shown text]]</code> — link with different display text.</li>
+    <li>
+      <code>[[Folder/Note title]]</code> — name a note by its folder when two notes share a title.
+      Autocomplete offers titles and aliases, so this one is typed by hand; any trailing part of the
+      path works, and <code>Manual/Index</code> is enough to distinguish it from another{' '}
+      <code>Index</code> elsewhere.
+    </li>
   </ul>
   <p>
     Clicking a link opens that note. If the note does not exist yet, HelloNotes offers to create it,
@@ -53,7 +59,8 @@ aliases: [TextKit, TextKit 2]
   <h2 id="transclusion">Transclusion</h2>
   <p>
     Embed one note inside another with <code>![[Note title]]</code>, or embed a single section with{' '}
-    <code>![[Note title#Heading]]</code>. The embedded content renders as an inline card in the
+    <code>![[Note title#Heading]]</code>. Embeds accept a folder path in the same way links do —{' '}
+    <code>![[Manual/Index#Keyboard shortcuts]]</code>. The embedded content renders as an inline card in the
     editor and stays in sync with the source note — useful for definitions, boilerplate or a
     running index.
   </p>
