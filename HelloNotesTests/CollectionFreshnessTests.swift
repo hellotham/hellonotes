@@ -61,7 +61,7 @@ struct CollectionFreshnessTests {
         let second = Collection(rootURL: root)
         await second.activate(onExternalChange: {})
         defer { second.deactivate() }
-        try await Self.settle()
+        try await Self.eventually { second.notes.contains { $0.title == "Added" } }
 
         let titles = Set(second.notes.map(\.title))
         #expect(titles.contains("Added"),
@@ -96,7 +96,7 @@ struct CollectionFreshnessTests {
         let opened = Collection(rootURL: root)
         await opened.activate(onExternalChange: {})
         defer { opened.deactivate() }
-        try await Self.settle()
+        try await Self.eventually { opened.notes.count == 5 }
 
         #expect(opened.notes.count == 5,
                 "opened from a partial index cache and lost four notes that are on disk")
@@ -318,8 +318,32 @@ struct CollectionFreshnessTests {
 
     // MARK: -
 
+    /// Long enough that a background verification pass has certainly *started
+    /// and finished* on a slow machine — used where the assertion is that
+    /// nothing changed, which a short wait would satisfy vacuously.
     private static func settle() async throws {
-        try await Task.sleep(for: .milliseconds(250))
+        try await Task.sleep(for: .milliseconds(800))
+    }
+
+    /// Wait for a condition the background verification is expected to reach.
+    ///
+    /// A fixed sleep is the wrong instrument here: too short and the test fails
+    /// on a slow runner, too long and every run pays for it. This returns as
+    /// soon as the pass has landed.
+    ///
+    /// `aCacheHoldingFewerNotesThanTheFolderDoesNotDefineTheCollection` was
+    /// passing on CI for the wrong reason — the cache was storing absolute
+    /// paths, so every record was discarded as unusable and `activate` fell
+    /// through to a full scan before returning. Fixing the paths made the test
+    /// depend on the verification actually completing, which is what it was
+    /// always meant to be testing.
+    private static func eventually(_ timeout: Duration = .seconds(10),
+                                   _ condition: @MainActor () -> Bool) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
     }
 
     private static func makeVault(noteCount: Int) throws -> URL {
