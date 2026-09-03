@@ -30,10 +30,54 @@ final class CollectionEmbedProvider: @unchecked Sendable {
     /// its file's mtime advances — no explicit invalidation needed here.
     func update(notes: [Note]) {
         lock.lock(); defer { lock.unlock() }
-        notesByName = Dictionary(
-            notes.map { ($0.title.lowercased(), $0.fileURL) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        // **Indexed by every trailing path a `![[target]]` might name, not by
+        // title alone.**
+        //
+        // Wiki-link *navigation* resolves through `linkGraph`, which handles
+        // aliases and relative paths — `WikiLinkNavigation.resolve` says so in
+        // as many words. Transclusion had its own map keyed only on the title,
+        // so the two resolvers disagreed about what a target meant:
+        // `[[Examples/Nested Note]]` opened the note and
+        // `![[Examples/Nested Note]]` rendered nothing at all. The shipped tour
+        // uses the second form, so the one note in `DefaultCollection` that
+        // demonstrates transclusion demonstrated it not working — on both
+        // platforms, for anyone who opened it.
+        //
+        // Suffixes rather than a root-relative path, because this object is not
+        // told the collection root and does not need to be: "Nested Note",
+        // "Examples/Nested Note" and any deeper qualification all land on the
+        // same file, and a title still wins a tie because it is inserted first.
+        var map: [String: URL] = [:]
+        for note in notes {
+            let key = note.title.lowercased()
+            if map[key] == nil { map[key] = note.fileURL }
+        }
+        for note in notes {
+            for key in Self.pathKeys(for: note.fileURL) where map[key] == nil {
+                map[key] = note.fileURL
+            }
+        }
+        notesByName = map
+    }
+
+    /// The note a target names, or nil. Exposed so the resolver can be tested
+    /// without rendering an image — the drawing needs a graphics context and
+    /// the lookup is the part that was wrong.
+    func url(forName name: String) -> URL? {
+        let base = name.split(separator: "#", maxSplits: 1).first.map(String.init) ?? name
+        lock.lock(); defer { lock.unlock() }
+        return notesByName[base.lowercased()]
+    }
+
+    /// "Nested Note", "Examples/Nested Note", … — each trailing run of path
+    /// components, extension dropped, lowercased.
+    static func pathKeys(for url: URL) -> [String] {
+        var components = url.deletingPathExtension().pathComponents
+        components.removeAll { $0 == "/" }
+        guard !components.isEmpty else { return [] }
+        return (1...min(components.count, 4)).map {
+            components.suffix($0).joined(separator: "/").lowercased()
+        }
     }
 
     /// A rendered transclusion card for an `![[Note]]` target, or nil when the
