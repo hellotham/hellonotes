@@ -2,7 +2,7 @@
 
 Two artifacts, for the two things App Review asks for separately.
 
-## `support-screen-ipad.png` — the App Review screenshot (Guideline 2.1(b))
+## `support-screen-iphone.png` — the App Review screenshot (Guideline 2.1(b))
 
 App Store Connect requires a screenshot per in-app purchase before the product
 can be submitted, and a missing one is a Guideline 2.1(b) rejection ("one or
@@ -10,9 +10,17 @@ more of the In-App Purchase products have not been submitted for review") —
 which is exactly what happened to build 14. One file serves both products,
 because both appear on the one screen.
 
-Settings ▸ Support on an iPad Pro 11-inch M4 simulator (1668 × 2420), captured
-with `xcrun simctl io HN-iPad screenshot` against the **live** App Store, so the
-prices in it are real product data rather than placeholders. Both products have
+**App Store Connect rejects most valid device sizes here.** The IAP App Review
+screenshot does *not* accept the sizes the app screenshots accept: an iPad Pro
+11-inch capture (1668 × 2420) was refused, and so was the 13-inch one
+(2064 × 2752, kept as `support-screen-ipad.png` because it is the clearer
+picture of the screen). The size that was accepted is **1284 × 2778** — an
+iPhone 6.5" capture. Shoot this one on an iPhone simulator; do not reach for the
+iPad file and expect it to upload.
+
+Settings ▸ Support, captured with `xcrun simctl io <device> screenshot` against
+the **live** App Store, so the prices in it are real product data rather than
+placeholders. Both products have
 to be loading for it to be worth taking: the Champion consumable was created one
 morning and returned nothing for roughly forty-five minutes while it propagated,
 and a screenshot taken in that window would have shown "Champion is unavailable
