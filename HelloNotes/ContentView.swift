@@ -405,7 +405,7 @@ struct ContentView: View {
     /// the iPad's copy of this never did, so a jumped-to heading stayed
     /// highlighted until something else happened to clear it.
     private func scrollToHeading(_ title: String) {
-        hnJumpToHeadingInEditor(titled: title)
+        hnJumpToHeading(titled: title, in: activeEditor?.text ?? "")
     }
 
     private func beginLinkReview() {
@@ -1574,7 +1574,16 @@ struct ContentView: View {
         if let collection = editorCollection {
             NoteInspector(
                 noteText: activeEditor?.text ?? "",
-                onSelectHeading: { scrollToHeading($0.title) },
+                // The heading itself, not its name: it carries the offset the
+                // editors scroll to and the ordinal Preview counts to.
+                onSelectHeading: { heading in
+                    let text = activeEditor?.text ?? ""
+                    // By offset: two headings can share a name, and identity
+                    // is deliberately level+title.
+                    let ordinal = MarkdownParsing.headings(in: text)
+                        .firstIndex { $0.offset == heading.offset } ?? 0
+                    hnJumpToHeading(offset: heading.offset, ordinal: ordinal, title: heading.title)
+                },
                 summarize: { text in
                     try await IntelligenceService(settings: llmSettings).summarize(text)
                 },

@@ -78,6 +78,92 @@ public struct GFMPreview: View {
 /// view and released with it, so the memory cannot outlive what it describes.
 @MainActor final class GFMWebLoadState {
     var loaded: Int?
+
+    /// The web view this state belongs to, so a heading jump has something to
+    /// scroll. Weak: the coordinator must not keep the view alive.
+    weak var web: WKWebView?
+    /// Held in a `nonisolated` box so `deinit` — which is not on the main
+    /// actor — can still unregister it.
+    private let token = ObserverToken()
+
+    /// Unregisters on release. A `nonisolated deinit` may not touch
+    /// non-`Sendable` state, so the token is stored in a lock-guarded box whose
+    /// accessor is itself `nonisolated` — the observer must be removed when the
+    /// preview goes away, and `deinit` is the only place that knows.
+    nonisolated final class ObserverToken: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: NSObjectProtocol?
+
+        var isEmpty: Bool { lock.withLock { stored == nil } }
+        func set(_ token: NSObjectProtocol) { lock.withLock { stored = token } }
+        private func take() -> NSObjectProtocol? {
+            lock.withLock { defer { stored = nil }; return stored }
+        }
+        deinit { if let t = take() { NotificationCenter.default.removeObserver(t) } }
+    }
+
+    /// Answer heading jumps while this preview is the surface on screen.
+    ///
+    /// **The outline only ever worked in Edit mode**, and even there it landed
+    /// in the wrong place. The jump was posted as a find query for the heading's
+    /// own text, so the only listeners were the two inside `MarkdownEditorView`
+    /// — Preview, Markdown and Split had none and did nothing at all — and what
+    /// those two did was select the first occurrence of those words anywhere in
+    /// the file, which is the front matter's `title:` line as often as not.
+    ///
+    /// Every surface now answers the same positional notification, and the
+    /// `window != nil` guard makes the visible one the one that answers. In
+    /// Split both panes are visible and both jump, which is what you want.
+    func observeHeadingJumps() {
+        guard token.isEmpty else { return }
+        token.set(NotificationCenter.default.addObserver(
+            forName: Notification.Name("hn.editor.jumpToHeading"),
+            object: nil, queue: .main
+        ) { [weak self] note in
+            let title = note.userInfo?["title"] as? String ?? ""
+            let ordinal = note.userInfo?["ordinal"] as? Int
+            MainActor.assumeIsolated { [title, ordinal] in self?.scroll(to: title, ordinal: ordinal) }
+        })
+    }
+
+    /// Scroll to the heading whose text is `title`.
+    ///
+    /// By **text**, not by anchor: cmark-gfm emits bare `<h1>`…`<h6>` with no
+    /// `id`, and adding ids would change the rendered HTML that `GFMRender`'s
+    /// byte-parity tests compare against GitHub's own API. The page shell is
+    /// ours to script; the rendered markdown is not ours to alter.
+    ///
+    /// `DocumentHeading.title` is `plainText` — inline markup already stripped
+    /// — which is the same thing `textContent` gives back, so the two are
+    /// directly comparable.
+    private func scroll(to title: String, ordinal: Int?) {
+        guard let web, web.window != nil, !title.isEmpty else { return }
+        guard let json = try? JSONSerialization.data(withJSONObject: [title, ordinal ?? -1]),
+              let literal = String(data: json, encoding: .utf8) else { return }
+        // **Ordinal first, text second.** Two notes in the sample collection have
+        // a heading whose words appear earlier in the prose, and matching on text
+        // alone lands on the prose. Headings render in document order, so the
+        // n-th `<h1>…<h6>` here is the n-th row in the outline — exact even when
+        // two headings share a name. The text match stays as the fallback for a
+        // caller that has no ordinal, and is checked against the ordinal's
+        // element first so a mismatch degrades rather than jumping somewhere
+        // arbitrary.
+        web.evaluateJavaScript("""
+        (function (args) {
+          var t = args[0], n = args[1];
+          var hs = document.querySelectorAll('h1,h2,h3,h4,h5,h6');
+          if (n >= 0 && n < hs.length && hs[n].textContent.trim() === t) {
+            hs[n].scrollIntoView(true);
+            return true;
+          }
+          for (var i = 0; i < hs.length; i++) {
+            if (hs[i].textContent.trim() === t) { hs[i].scrollIntoView(true); return true; }
+          }
+          return false;
+        })(\(literal))
+        """)
+    }
+
 }
 
 #if canImport(AppKit)
@@ -87,7 +173,10 @@ struct GFMWebView: NSViewRepresentable {
     func makeCoordinator() -> GFMWebLoadState { GFMWebLoadState() }
     func makeNSView(context: Context) -> WKWebView {
         Self.log("make")
-        return Self.makeWebView()
+        let web = Self.makeWebView()
+        context.coordinator.web = web
+        context.coordinator.observeHeadingJumps()
+        return web
     }
     func updateNSView(_ web: WKWebView, context: Context) {
         Self.load(web, html, baseURL, context.coordinator)
@@ -107,7 +196,10 @@ struct GFMWebView: UIViewRepresentable {
     func makeCoordinator() -> GFMWebLoadState { GFMWebLoadState() }
     func makeUIView(context: Context) -> WKWebView {
         Self.log("make")
-        return Self.makeWebView()
+        let web = Self.makeWebView()
+        context.coordinator.web = web
+        context.coordinator.observeHeadingJumps()
+        return web
     }
     func updateUIView(_ web: WKWebView, context: Context) {
         Self.load(web, html, baseURL, context.coordinator)

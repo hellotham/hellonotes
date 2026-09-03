@@ -13,6 +13,43 @@ import Markdown
 nonisolated struct DocumentHeading: Hashable, Codable {
     let level: Int
     let title: String
+
+    /// UTF-16 offset of the heading's own line in the source, when it was parsed
+    /// from text rather than read back from the index.
+    ///
+    /// **Optional, and decoded with `decodeIfPresent`, on purpose.** This type is
+    /// persisted inside `NoteIndexRecord`, and synthesised decoding *throws* on a
+    /// missing key — so adding a non-optional field here would make every cached
+    /// record fail to decode, which is a silent wipe rather than a loud error.
+    /// Records written before this field simply carry `nil`, and nothing is worse
+    /// off: the outline parses live text, so the offset it uses is always fresh.
+    var offset: Int?
+
+    init(level: Int, title: String, offset: Int? = nil) {
+        self.level = level
+        self.title = title
+        self.offset = offset
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        level = try c.decode(Int.self, forKey: .level)
+        title = try c.decode(String.self, forKey: .title)
+        offset = try c.decodeIfPresent(Int.self, forKey: .offset)
+    }
+
+    // **Identity is the level and the title; the offset is derived.** Two
+    // headings that read the same are the same heading, whether one of them came
+    // from the index (no offset) and the other from live text (offset). Letting
+    // the offset into `==` made a cached record unequal to its freshly-parsed
+    // self, which is a difference in *where the value came from* rather than in
+    // what it says — and it is the search index's change signature, so every
+    // note would have looked edited whenever anything above a heading moved.
+    static func == (a: Self, b: Self) -> Bool { a.level == b.level && a.title == b.title }
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(level)
+        hasher.combine(title)
+    }
 }
 
 /// A `key: value` line from a note's YAML front matter.
@@ -258,7 +295,29 @@ nonisolated enum MarkdownParsing {
     static func headings(in text: String) -> [DocumentHeading] {
         var collector = HeadingCollector()
         collector.visit(Document(parsing: text))
-        return collector.headings
+        // Line -> UTF-16 offset, so a heading can be *jumped to* rather than
+        // searched for. swift-markdown reports a 1-based line for each heading;
+        // this turns that into the offset an `NSTextView`/`UITextView` wants.
+        let offsets = lineOffsets(in: text)
+        return collector.headings.map { heading in
+            let offset = heading.line.flatMap { line -> Int? in
+                offsets.indices.contains(line - 1) ? offsets[line - 1] : nil
+            }
+            return DocumentHeading(level: heading.level, title: heading.title, offset: offset)
+        }
+    }
+
+    /// UTF-16 offset of the start of every line.
+    static func lineOffsets(in text: String) -> [Int] {
+        let ns = text as NSString
+        var offsets = [0]
+        offsets.reserveCapacity(64)
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length),
+                               options: [.byLines, .substringNotRequired]) { _, _, enclosing, _ in
+            let next = enclosing.location + enclosing.length
+            if next < ns.length { offsets.append(next) }
+        }
+        return offsets
     }
 
     /// Headings via a fence-aware line scan — an order of magnitude faster than
@@ -315,9 +374,9 @@ nonisolated enum MarkdownParsing {
     }
 
     private struct HeadingCollector: MarkupWalker {
-        var headings: [DocumentHeading] = []
+        var headings: [(level: Int, title: String, line: Int?)] = []
         mutating func visitHeading(_ heading: Heading) {
-            headings.append(DocumentHeading(level: heading.level, title: heading.plainText))
+            headings.append((heading.level, heading.plainText, heading.range?.lowerBound.line))
         }
     }
 }

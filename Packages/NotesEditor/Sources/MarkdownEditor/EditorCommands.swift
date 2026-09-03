@@ -45,6 +45,33 @@ public protocol MarkdownFormatting: AnyObject {
     /// Replace `range` with `text`, undoably, leaving the caret after it.
     @discardableResult
     func performEdit(replacing range: NSRange, with text: String) -> Bool
+    /// Scroll so the character at `offset` sits at the *top* of the viewport.
+    /// A requirement rather than a constrained extension so `showHeading(at:)`
+    /// can be written once for every conformer; the two implementations are
+    /// `NSTextView`'s and `UITextView`'s, at the bottom of this file.
+    func scrollHeadingIntoView(at offset: Int)
+}
+
+public extension MarkdownFormatting {
+
+    /// Put the heading beginning at `offset` at the top of the viewport.
+    ///
+    /// A **position**, not a query — and one definition, because four surfaces
+    /// need it: the live editor and the raw-source pane on each platform. The
+    /// outline used to jump by handing the heading's own text to the find
+    /// machinery, which lands on the first occurrence of those words anywhere in
+    /// the file: the front matter's `title:` line, or any sentence that mentions
+    /// them, both of which come *before* the heading. The caller knows exactly
+    /// where the heading is; this goes there.
+    ///
+    /// The selection collapses to the heading's start rather than covering its
+    /// text — navigating should leave a caret, not a selection to dismiss.
+    func showHeading(at offset: Int) {
+        let length = (formattingText as NSString).length
+        guard offset >= 0, offset <= length else { return }
+        setFormattingSelection(NSRange(location: offset, length: 0))
+        scrollHeadingIntoView(at: offset)
+    }
 }
 
 extension MarkdownFormatting {
@@ -250,10 +277,10 @@ extension MarkdownUITextView: MarkdownFormatting {
     /// This existed only on the AppKit view, and it is not a protocol
     /// requirement, so nothing failed to compile — the four find notifications
     /// simply had no listener here. What that cost was not only the app's own
-    /// find bar (iOS has `UIFindInteraction` for that) but **every jump to a
-    /// heading**: `hnJumpToHeadingInEditor` posts `hn.editor.findQuery`, so
-    /// tapping an outline row, a mind-map section or a `[[link#heading]]` did
-    /// nothing at all on this platform.
+    /// find bar (iOS has `UIFindInteraction` for that). Heading jumps used to
+    /// arrive here too — as a query for the heading's own text, which is how
+    /// they landed on the front matter or on prose. They go through
+    /// `showHeading(at:)` now and carry a position.
     @discardableResult
     public func showMatch(of query: String, index: Int) -> Int {
         guard let document else { return 0 }
@@ -389,4 +416,40 @@ public extension MarkdownFormatting where Self: UITextView {
 // platforms apply commands through it, so "toggle a heading" means one thing
 // everywhere and only the *route to it* differs.
 
+#endif
+
+// MARK: - Scrolling a heading into view
+
+#if canImport(AppKit)
+public extension MarkdownFormatting where Self: NSTextView {
+    /// Scroll so the heading sits at the top rather than merely on screen —
+    /// `scrollRangeToVisible` does nothing when the target is already visible
+    /// at the bottom, which reads as the jump having failed.
+    func scrollHeadingIntoView(at offset: Int) {
+        guard let layoutManager, let container = textContainer else {
+            scrollRangeToVisible(NSRange(location: offset, length: 0)); return
+        }
+        let glyph = layoutManager.glyphRange(forCharacterRange: NSRange(location: offset, length: 0),
+                                             actualCharacterRange: nil)
+        let rect = layoutManager.boundingRect(forGlyphRange: glyph, in: container)
+        let top = rect.origin.y + textContainerInset.height
+        enclosingScrollView?.contentView.scroll(to: NSPoint(x: 0, y: top))
+        enclosingScrollView?.reflectScrolledClipView(enclosingScrollView!.contentView)
+    }
+}
+#else
+public extension MarkdownFormatting where Self: UITextView {
+    /// See the AppKit twin: top of the viewport, not merely visible.
+    func scrollHeadingIntoView(at offset: Int) {
+        let range = NSRange(location: offset, length: 0)
+        guard let start = position(from: beginningOfDocument, offset: offset),
+              let textRange = textRange(from: start, to: start) else {
+            scrollRangeToVisible(range); return
+        }
+        let rect = caretRect(for: textRange.start)
+        let top = max(0, min(rect.origin.y - textContainerInset.top,
+                             max(0, contentSize.height - bounds.height)))
+        setContentOffset(CGPoint(x: 0, y: top), animated: true)
+    }
+}
 #endif

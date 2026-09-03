@@ -168,6 +168,22 @@ struct SourceEditor: NSViewRepresentable {
             busTokens.removeAll()
             busDocumentId = documentId
 
+            // Jump to a heading. This pane shows the very document the outline
+            // was built from, so the offset applies directly. Markdown and Split
+            // had no listener at all before, which is why the outline did
+            // nothing in either.
+            busTokens.append(centre.addObserver(
+                forName: Notification.Name("hn.editor.jumpToHeading"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let offset = note.userInfo?["offset"] as? Int
+                MainActor.assumeIsolated { [offset] in
+                    guard let view = self?.busView, view.window != nil, let offset,
+                          offset <= (view.formattingText as NSString).length else { return }
+                    view.showHeading(at: offset)
+                }
+            })
+
             let formats: [(String, EditorFormatCommand)] = [
                 ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),
                 ("highlight", .highlight), ("inlineCode", .inlineCode),
@@ -326,6 +342,22 @@ struct SourceEditor: UIViewRepresentable {
             for token in busTokens { centre.removeObserver(token) }
             busTokens.removeAll()
             busDocumentId = documentId
+
+            // Jump to a heading. This pane shows the very document the outline
+            // was built from, so the offset applies directly. Markdown and Split
+            // had no listener at all before, which is why the outline did
+            // nothing in either.
+            busTokens.append(centre.addObserver(
+                forName: Notification.Name("hn.editor.jumpToHeading"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let offset = note.userInfo?["offset"] as? Int
+                MainActor.assumeIsolated { [offset] in
+                    guard let view = self?.busView, view.window != nil, let offset,
+                          offset <= (view.formattingText as NSString).length else { return }
+                    view.showHeading(at: offset)
+                }
+            })
 
             let formats: [(String, EditorFormatCommand)] = [
                 ("bold", .bold), ("italic", .italic), ("strikethrough", .strikethrough),

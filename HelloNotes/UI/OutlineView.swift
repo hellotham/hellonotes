@@ -41,6 +41,18 @@ extension Notification.Name {
     static let hnEditorFocusTitle = Notification.Name("hn.editor.focusTitle")
     /// Host → engine: clear find highlights.
     static let hnEditorClearHighlights = Notification.Name("hn.editor.clearHighlights")
+    /// Host → whichever surface is on screen: put this heading at the top.
+    ///
+    /// **Not a find.** This used to be posted as `findQuery`, so "jump to the
+    /// Maths heading" meant "select the first occurrence of the word Maths
+    /// anywhere in the file" — which is the front matter's `title:` line as
+    /// often as not, and prose before the heading the rest of the time. It
+    /// carries an `offset` (UTF-16, into the source) and an `ordinal` (the
+    /// heading's index in document order) so every surface can land on the
+    /// heading itself: the two text editors use the offset, and Preview uses
+    /// the ordinal, because rendered HTML has no source offsets but its
+    /// headings are in the same order.
+    static let hnEditorJumpToHeading = Notification.Name("hn.editor.jumpToHeading")
     /// Engine → host: number of matches for the last `findQuery` (`userInfo["count"]`).
     static let hnEditorFindResults = Notification.Name("hn.editor.findResults")
     /// Host → engine: replace the current find match (`userInfo` query/replacement/currentIndex).
@@ -59,13 +71,23 @@ extension Notification.Name {
 /// they do, "clear highlight" starts behaving differently depending on which
 /// outline you used.
 @MainActor
-func hnJumpToHeadingInEditor(titled title: String) {
-    NotificationCenter.default.post(
-        name: .hnEditorFindQuery, object: nil, userInfo: ["query": title]
-    )
+func hnJumpToHeading(offset: Int?, ordinal: Int, title: String) {
+    var info: [String: Any] = ["ordinal": ordinal, "title": title]
+    if let offset { info["offset"] = offset }
+    NotificationCenter.default.post(name: .hnEditorJumpToHeading, object: nil, userInfo: info)
     DispatchQueue.main.asyncAfter(deadline: .now() + hnHeadingHighlightDuration) {
         NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
     }
+}
+
+/// Jump to the heading *named* `title` — for `[[Note#Heading]]`, which carries a
+/// name and no position. The name is resolved against the document's headings
+/// here, so what travels is still a position.
+@MainActor
+func hnJumpToHeading(titled title: String, in text: String) {
+    let headings = MarkdownParsing.headings(in: text)
+    guard let ordinal = headings.firstIndex(where: { $0.title == title }) else { return }
+    hnJumpToHeading(offset: headings[ordinal].offset, ordinal: ordinal, title: title)
 }
 
 /// How long a jumped-to heading stays highlighted. Long enough to catch the

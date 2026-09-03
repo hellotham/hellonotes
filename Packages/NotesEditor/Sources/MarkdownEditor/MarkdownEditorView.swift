@@ -1265,7 +1265,22 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 MainActor.assumeIsolated { [level] in self?.textView?.apply(.heading(level)) }
             })
 
-            // Find bar + scroll-to-heading (both arrive as find queries).
+            // Jump to a heading — a *position*, never a search. See
+            // `hn.editor.jumpToHeading`.
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hn.editor.jumpToHeading"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let offset = note.userInfo?["offset"] as? Int
+                MainActor.assumeIsolated { [offset] in
+                    guard let self, let textView = self.textView, textView.window != nil,
+                          let offset, offset <= (textView.string as NSString).length else { return }
+                    textView.showHeading(at: offset)
+                }
+            })
+
+            // Find bar. (Heading jumps used to arrive here too, as a query for
+            // the heading's own text, which is how they landed on prose.)
             busTokens.append(center.addObserver(
                 forName: Notification.Name("hn.editor.findQuery"),
                 object: nil, queue: .main
@@ -2588,9 +2603,20 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                     view.findInteraction?.presentFindNavigator(showingReplace: true)
                 }
             })
-            // The app's own find bar, and every jump to a heading. These four
-            // are the AppKit view's, and they had no listener here — see
-            // `showMatch(of:index:)`.
+            busTokens.append(center.addObserver(
+                forName: Notification.Name("hn.editor.jumpToHeading"),
+                object: nil, queue: .main
+            ) { [weak self] note in
+                let offset = note.userInfo?["offset"] as? Int
+                MainActor.assumeIsolated { [offset] in
+                    guard let self, let textView = self.busView, textView.window != nil,
+                          let offset, offset <= (textView.text as NSString).length else { return }
+                    textView.showHeading(at: offset)
+                }
+            })
+
+            // The app's own find bar. These four are the AppKit view's, and they
+            // had no listener here — see `showMatch(of:index:)`.
             busTokens.append(center.addObserver(
                 forName: Notification.Name("hn.editor.findQuery"),
                 object: nil, queue: .main
