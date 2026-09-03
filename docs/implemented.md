@@ -4198,6 +4198,37 @@ was already correct. Worth knowing the failure has a shape you can grep for,
 because it is invisible in the source: the line looks perfectly normal, and only
 the rendered page shows the missing space.
 
+## 45 · 1.3.2 build 20 — both channels, one archive (2026-09-03)
+
+| | |
+|---|---|
+| **TestFlight** | iOS **and** macOS 1.3.2 (20), uploaded from `ExportOptions-AppStore-{iOS,macOS}.plist` (`destination = upload`, so the export *is* the upload) |
+| **DMG** | [v1.3.2](https://github.com/hellotham/hellonotes/releases/tag/v1.3.2) asset replaced — universal, notarised, stapled; 39.8 MB, `f71d5376…` (was 39.6 MB, `0156d247…`) |
+| Verified | `spctl` → `accepted / source=Notarized Developer ID`, staple validates offline, `x86_64 arm64`, `1.3.2 (20)` read from *inside* the mounted image |
+| Page | `scripts/check-download-page.sh` green against the live site after the deploy |
+
+**One archive, both channels.** `build/HelloNotes.xcarchive` was exported twice —
+once with `ExportOptions-AppStore-macOS.plist` for TestFlight, once with
+`ExportOptions.plist` (developer-id) for the DMG. Signing happens at export, not
+at archive time, so this is not a shortcut: it is the only way to *know* the two
+channels carry identical code. Building twice would have produced two binaries
+that merely ought to match.
+
+**The version stayed 1.3.2 by instruction, and that has a consequence worth
+writing down.** On the App Store side it is unremarkable — builds are numbered,
+and 20 supersedes 19. On the direct-download side the version string *is* the
+identity: v1.3.2 had already shipped on 2026-08-29 and been downloaded five
+times, so `gh release create` would have failed and the asset was replaced with
+`gh release upload --clobber`. Two different binaries now answer to "1.3.2", and
+the checksum printed on the download page changed under anyone who had verified
+the old one. The release body records both checksums and the rebuild date, which
+is the only thing that makes the change discoverable to someone holding the
+earlier file.
+
+The general rule this leaves: **a build number is free, a version string is a
+promise.** Reusing a marketing version is safe exactly where the artefact is
+addressed by something else, and lossy where the version is the address.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown
