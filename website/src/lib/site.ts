@@ -27,8 +27,8 @@ export const DOWNLOAD = {
   url: `${REPO}/releases/latest/download/HelloNotes.dmg`,
   releasesPage: `${REPO}/releases/latest`,
   fileName: 'HelloNotes.dmg',
-  size: '39.6 MB',
-  sha256: '0156d247603457c7367da79c61deeaa9b32612e3fd428184b2db02f10d4596da',
+  size: '39.8 MB',
+  sha256: 'f71d53768b315f1ca78cb0985aea9d3fcf6a4368e6dcda36f2caf95acb65a70b',
 } as const;
 
 /** Primary nav. Secondary/legal links live in the footer. */
