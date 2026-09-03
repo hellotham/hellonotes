@@ -235,11 +235,19 @@ struct CollectionFreshnessTests {
         try "# Beside".write(to: root.appending(path: "Beside.md"),
                              atomically: true, encoding: .utf8)
 
+        let stillReadable = (try? FileManager.default
+            .contentsOfDirectory(atPath: locked.path)) != nil
+        try #require(!stillReadable,
+                     "this process can list a 0o000 directory, so the premise does not hold here")
+
         await collection.rebuildFromScratch()
         try await Self.settle()
 
-        #expect(collection.notes.contains { $0.title == "Beside" },
-                "one unreadable folder threw away everything the walk did read")
+        #expect(collection.notes.contains { $0.title == "Beside" }, """
+            one unreadable folder threw away everything the walk did read.
+            state: \(collection.state)
+            notes: \(collection.notes.map(\.fileURL.path).sorted())
+            """)
     }
 
     /// The caution that verdict was protecting is kept, but made exact.
@@ -270,19 +278,37 @@ struct CollectionFreshnessTests {
             [.posixPermissions: 0o000], ofItemAtPath: locked.path)
         try FileManager.default.removeItem(at: root.appending(path: "Note 0.md"))
 
+        // **Check the premise before testing the consequence.** The whole test
+        // assumes `chmod 000` makes the folder unlistable, which is not true
+        // for every user a CI runner might be. Asserting the consequence
+        // without the premise produces a failure that looks like a bug in the
+        // code under test and is not one.
+        let stillReadable = (try? FileManager.default
+            .contentsOfDirectory(atPath: locked.path)) != nil
+        try #require(!stillReadable,
+                     "this process can list a 0o000 directory, so the premise does not hold here")
+
         await collection.rebuildFromScratch()
         try await Self.settle()
 
         let titles = Set(collection.notes.map(\.title))
-        // The paths, because this failed on CI and not here: if it fails again
-        // the message has to say which spelling of the root each side used.
+        // Every fact this depends on, printed once, because it has failed on CI
+        // twice for two different reasons and been diagnosed by inference both
+        // times. Inference about a machine is not evidence about a machine.
+        let facts = """
+            root:      \(root.path)
+            prefixes:  \(CollectionIndexCache.rootPrefixes(root))
+            state:     \(collection.state)
+            notes:     \(collection.notes.map(\.fileURL.path).sorted())
+            """
         #expect(titles.contains("Hidden"), """
             a note in the subtree the walk could not enter was removed on a guess.
-            root:  \(root.path)
-            notes: \(collection.notes.map(\.fileURL.path).sorted())
+            \(facts)
             """)
-        #expect(!titles.contains("Note 0"),
-                "a note the walk looked straight at and did not find was kept anyway")
+        #expect(!titles.contains("Note 0"), """
+            a note the walk looked straight at and did not find was kept anyway —             the pass either published nothing or could not place these paths under the root.
+            \(facts)
+            """)
         // The folder itself is a child of the root, and the root *was* listed —
         // so it survives even though its contents could not be read. Without
         // that the kept note would have no branch to sit on in the sidebar.
