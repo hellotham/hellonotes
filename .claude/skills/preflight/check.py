@@ -122,10 +122,10 @@ else:
     warns = [r for r in results if r["status"] == "WARN"]
     print(f"\n  {len(results) - len(fails) - len(warns)} passed, {len(warns)} warning(s), {len(fails)} failure(s)")
     print("\n  Not checked here (minutes, and needs the app closed):")
-    print("    ./scripts/run-tests.sh                                    # 374 app tests")
-    print("    swift test --package-path Packages/NotesEditor            # 401")
+    print("    ./scripts/run-tests.sh                                    # 425 app tests")
+    print("    swift test --package-path Packages/NotesEditor            # 402")
     print("    cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \\")
-    print("      -destination 'platform=iOS Simulator,name=HN-iPad'      # 381, THREE summaries")
+    print("      -destination 'platform=iOS Simulator,name=HN-iPad'      # 383, THREE summaries")
     print("    scripts/check-download-page.sh                            # page vs artefact")
     print("    App Store Connect: open every screenshot tab, per platform")
 
