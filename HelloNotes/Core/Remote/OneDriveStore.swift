@@ -87,6 +87,32 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return all
     }
 
+    /// Every item under `path`, from Graph's `/delta` walked from the start.
+    ///
+    /// A delta with no token *is* a recursive listing: Graph replays the whole
+    /// subtree in pages and then hands back a token for next time. That is the
+    /// same call `changes(since: nil,)` makes, asked here for the items alone —
+    /// so a vault of three hundred folders costs a few pages rather than three
+    /// hundred `children` requests six at a time.
+    func listRecursively(path: String) async throws -> [RemoteEntry]? {
+        var entries: [RemoteEntry] = []
+        var next: URL? = Self.deltaRequest(path: path, token: "").url
+        while let url = next {
+            let data: Data
+            do {
+                data = try await sendAuthed { Self.pageRequest(url: url, token: $0) }
+            } catch RemoteStoreError.http(let code, _) where code == 410 {
+                // The subtree changed under us mid-replay. Nothing partial is
+                // worth returning: fall back to walking, which is correct.
+                return nil
+            }
+            let page = Self.parseDeltaPage(data)
+            entries += page.changed
+            next = page.next.flatMap(URL.init(string:))
+        }
+        return entries
+    }
+
     func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? {
         var result = RemoteChangeSet()
         // The cursor *is* the next URL: Graph hands back a complete deltaLink

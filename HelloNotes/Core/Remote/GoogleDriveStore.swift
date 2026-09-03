@@ -119,6 +119,97 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return all
     }
 
+    /// Every item under `path`, in a handful of queries instead of one per
+    /// folder.
+    ///
+    /// **Drive has no "descendant of" query**, which is why this is shaped
+    /// differently from Dropbox's and Graph's — both of those hand back a whole
+    /// subtree directly. What Drive does allow is `'a' in parents or 'b' in
+    /// parents …`, so the subtree can be assembled in two steps:
+    ///
+    ///   1. one query for *every folder* in the Drive, asking for `parents`.
+    ///      Folders are orders of magnitude fewer than files, so this is a page
+    ///      or two, and it is enough to compute the vault's whole folder tree
+    ///      locally — including the paths, which Drive never returns.
+    ///   2. the files, asked for fifty parents at a time.
+    ///
+    /// Three hundred folders cost roughly eight queries this way rather than
+    /// three hundred listings six at a time. Any failure returns nil and the
+    /// caller walks exactly as before — a partial tree would be worse than a
+    /// slow one, because the walk's output is what the collection believes.
+    func listRecursively(path: String) async throws -> [RemoteEntry]? {
+        let rootID = try await resolveFolderID(path: path)
+        let rootPath = Self.normalizedPath(path)
+
+        // 1 · every folder, with its parent, so the tree can be built here.
+        var folderName: [String: String] = [:]
+        var folderParent: [String: String] = [:]
+        var pageToken: String?
+        repeat {
+            let token = pageToken
+            let data = try await sendAuthed { Self.allFoldersRequest(token: $0, pageToken: token) }
+            guard let page = try? Self.parseFolderTreePage(data) else { return nil }
+            for folder in page.folders {
+                folderName[folder.id] = folder.name
+                if let parent = folder.parent { folderParent[folder.id] = parent }
+            }
+            pageToken = page.nextPageToken
+        } while pageToken != nil
+
+        // Descendants of the vault root, with the path each one has.
+        var pathByID: [String: String] = [rootID: rootPath]
+        var childrenOf: [String: [String]] = [:]
+        for (id, parent) in folderParent { childrenOf[parent, default: []].append(id) }
+        var queue = [rootID]
+        var subtree: [String] = [rootID]
+        var folders: [RemoteEntry] = []
+        while let id = queue.popLast() {
+            for child in childrenOf[id] ?? [] {
+                guard let name = folderName[child], pathByID[child] == nil else { continue }
+                let childPath = (pathByID[id] ?? rootPath) + "/" + name
+                pathByID[child] = childPath
+                subtree.append(child)
+                queue.append(child)
+                folders.append(RemoteEntry(path: childPath, name: name,
+                                           isDirectory: true, size: 0))
+            }
+        }
+
+        // 2 · the files, fifty parents at a time — Drive's query has a length
+        // limit and an `or` chain is the only way to ask about several parents.
+        var files: [RemoteEntry] = []
+        var idsByPath: [String: String] = [:]
+        for chunk in stride(from: 0, to: subtree.count, by: 50).map({
+            Array(subtree[$0..<min($0 + 50, subtree.count)])
+        }) {
+            var token: String?
+            repeat {
+                let pageToken = token
+                let data = try await sendAuthed {
+                    Self.filesInParentsRequest(parents: chunk, token: $0, pageToken: pageToken)
+                }
+                guard let page = try? Self.parseFilesInParentsPage(data) else { return nil }
+                for item in page.items where !item.isFolder {
+                    guard let parent = item.parent, let base = pathByID[parent] else { continue }
+                    let full = base + "/" + item.name
+                    files.append(RemoteEntry(path: full, name: item.name, isDirectory: false,
+                                             size: item.size, modified: item.modified))
+                    idsByPath[full] = item.id
+                }
+                token = page.nextPageToken
+            } while token != nil
+        }
+
+        // Seed the id caches, so reading a file afterwards costs no extra
+        // resolution — the walk used to populate these as a side effect.
+        cacheLock.lock()
+        for (id, p) in pathByID where !p.isEmpty { folderIDs[p] = id }
+        for (p, id) in idsByPath { fileIDs[p] = id }
+        cacheLock.unlock()
+
+        return folders + files
+    }
+
     func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? {
         guard let cursor else {
             // No token yet: take one, and let this round be a full sync.
@@ -357,6 +448,82 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return (changed, removed,
                 root["nextPageToken"] as? String,
                 root["newStartPageToken"] as? String)
+    }
+
+    /// Every folder in the Drive, with its parent — the input to building the
+    /// vault's tree locally. `parents` is not in the ordinary listing's fields
+    /// because a per-folder listing already knows the parent it asked about.
+    static func allFoldersRequest(token: String, pageToken: String? = nil) -> URLRequest {
+        var c = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
+        c.queryItems = [
+            .init(name: "q", value: "mimeType='\(folderMIME)' and trashed=false"),
+            .init(name: "fields", value: "nextPageToken,files(id,name,parents)"),
+            .init(name: "pageSize", value: "1000"),
+        ]
+        if let pageToken { c.queryItems?.append(.init(name: "pageToken", value: pageToken)) }
+        var r = URLRequest(url: c.url!)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+
+    /// Files whose parent is any of `parents`. Drive has no descendant query,
+    /// but it does accept an `or` chain, which is what turns one request per
+    /// folder into one per fifty.
+    static func filesInParentsRequest(parents: [String], token: String,
+                                      pageToken: String? = nil) -> URLRequest {
+        let clause = parents.map { "'\($0)' in parents" }.joined(separator: " or ")
+        var c = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
+        c.queryItems = [
+            .init(name: "q", value: "(\(clause)) and trashed=false"),
+            .init(name: "fields",
+                  value: "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents)"),
+            .init(name: "pageSize", value: "1000"),
+        ]
+        if let pageToken { c.queryItems?.append(.init(name: "pageToken", value: pageToken)) }
+        var r = URLRequest(url: c.url!)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+
+    static func parseFolderTreePage(_ data: Data) throws
+        -> (folders: [(id: String, name: String, parent: String?)], nextPageToken: String?) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let files = root["files"] as? [[String: Any]] else {
+            throw RemoteStoreError.decoding("drive folder tree")
+        }
+        let folders = files.compactMap { f -> (String, String, String?)? in
+            guard let id = f["id"] as? String, let name = f["name"] as? String else { return nil }
+            return (id, name, (f["parents"] as? [String])?.first)
+        }
+        return (folders, root["nextPageToken"] as? String)
+    }
+
+    static func parseFilesInParentsPage(_ data: Data) throws
+        -> (items: [(id: String, name: String, isFolder: Bool, size: Int,
+                     modified: Date?, parent: String?)], nextPageToken: String?) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let files = root["files"] as? [[String: Any]] else {
+            throw RemoteStoreError.decoding("drive files in parents")
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        let items = files.compactMap { f -> (String, String, Bool, Int, Date?, String?)? in
+            guard let id = f["id"] as? String,
+                  let name = f["name"] as? String,
+                  let mime = f["mimeType"] as? String else { return nil }
+            let isFolder = mime == folderMIME
+            // Same rule the ordinary listing applies: Google-native documents
+            // have no bytes to download, so they are not notes.
+            if !isFolder && mime.hasPrefix("application/vnd.google-apps") { return nil }
+            let modified = (f["modifiedTime"] as? String).flatMap {
+                formatter.date(from: $0) ?? plain.date(from: $0)
+            }
+            return (id, name, isFolder,
+                    (f["size"] as? String).flatMap(Int.init) ?? 0,
+                    modified, (f["parents"] as? [String])?.first)
+        }
+        return (items, root["nextPageToken"] as? String)
     }
 
     static func listRequest(folderID: String, token: String, pageToken: String? = nil) -> URLRequest {

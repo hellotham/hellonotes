@@ -199,3 +199,88 @@ struct RecursiveListingTests {
         #expect(store.listCalls == 0)
     }
 }
+
+/// Every provider has answered the recursive-listing question.
+struct RecursiveListingCoverageTests {
+
+    private static func source(_ name: String) throws -> String {
+        let url = URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes/Core/Remote/\(name)")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// **Consistency is the point, not universality.** Two of these can return a
+    /// subtree in a few requests and two cannot, so the rule is not "everyone
+    /// implements it" — it is that nobody inherits the default silently. A
+    /// provider that walks should say it walks, and why, where the next person
+    /// will read it.
+    @Test func everyProviderStatesItsAnswer() throws {
+        for store in ["DropboxStore.swift", "OneDriveStore.swift",
+                      "GoogleDriveStore.swift", "BoxStore.swift"] {
+            let text = try Self.source(store)
+            #expect(text.contains("func listRecursively"),
+                    "\(store) inherits the default silently — implement it, or override it and say why not")
+        }
+    }
+
+    /// Box's decline carries its reason, so it reads as a decision.
+    @Test func boxExplainsWhyItDeclines() throws {
+        // Comment markers stripped *and* whitespace normalised: the assertion is
+        // that the reason is stated, not that a sentence happens to wrap in a
+        // particular place. The first two runs failed on
+        // "*eventually\n    /// consistent*" — a true sentence and a false
+        // negative, twice.
+        let box = try Self.source("BoxStore.swift")
+            .replacingOccurrences(of: "///", with: " ")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        // A local, so a failure prints the verdict rather than the whole file.
+        let statesTheReason = box.contains("eventually consistent")
+        #expect(statesTheReason,
+                "the reason Box cannot use search for an authoritative listing must be stated")
+    }
+}
+
+/// Google Drive assembles a subtree from two queries; these check the parsing
+/// that makes that possible, which needs no network.
+struct GoogleDriveTreeParsingTests {
+
+    @Test func aFolderPageYieldsIdsNamesAndParents() throws {
+        let json = Data("""
+        {"nextPageToken":"tok","files":[
+          {"id":"a","name":"Vault","parents":["root"]},
+          {"id":"b","name":"Daily","parents":["a"]},
+          {"id":"c","name":"Orphan"}
+        ]}
+        """.utf8)
+        let page = try GoogleDriveStore.parseFolderTreePage(json)
+        #expect(page.nextPageToken == "tok")
+        #expect(page.folders.count == 3)
+        #expect(page.folders[1].parent == "a")
+        #expect(page.folders[2].parent == nil, "a folder with no parents must not invent one")
+    }
+
+    /// Google-native documents have no bytes to download, so they are not notes
+    /// — the same rule the ordinary listing applies, applied here too.
+    @Test func nativeGoogleDocsAreSkippedButFoldersAreNot() throws {
+        let json = Data("""
+        {"files":[
+          {"id":"1","name":"Note.md","mimeType":"text/markdown","size":"12","parents":["a"]},
+          {"id":"2","name":"Sheet","mimeType":"application/vnd.google-apps.spreadsheet","parents":["a"]},
+          {"id":"3","name":"Sub","mimeType":"application/vnd.google-apps.folder","parents":["a"]}
+        ]}
+        """.utf8)
+        let page = try GoogleDriveStore.parseFilesInParentsPage(json)
+        #expect(page.items.map(\.name) == ["Note.md", "Sub"])
+        #expect(page.items[0].size == 12, "Drive returns size as a string")
+        #expect(page.items[1].isFolder)
+    }
+
+    /// The `or` chain is how one request covers many folders.
+    @Test func theParentsQueryAsksAboutEveryFolderInTheChunk() {
+        let request = GoogleDriveStore.filesInParentsRequest(parents: ["a", "b", "c"], token: "t")
+        let query = request.url?.query?.removingPercentEncoding ?? ""
+        #expect(query.contains("'a' in parents or 'b' in parents or 'c' in parents"))
+        #expect(query.contains("trashed=false"))
+    }
+}

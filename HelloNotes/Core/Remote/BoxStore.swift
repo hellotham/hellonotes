@@ -109,6 +109,22 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
         return all
     }
 
+    /// **Deliberately not implemented, and that is the answer rather than an
+    /// omission.**
+    ///
+    /// Box has no descendant listing. `/folders/:id/items` is one folder at a
+    /// time, and `/events` is a change stream rather than a tree. The one call
+    /// that looks like a fit — `/search?ancestor_folder_ids=` — is *eventually
+    /// consistent*: it is backed by an index that lags writes, so a vault added
+    /// moments after being created can come back short. The walk's output is
+    /// what the collection then believes it contains, so a listing that is
+    /// merely usually complete would silently lose notes, which is a far worse
+    /// failure than a slow open.
+    ///
+    /// So Box walks, six listings at a time, and says so here — the next person
+    /// to read this should not have to wonder whether it was simply forgotten.
+    func listRecursively(path: String) async throws -> [RemoteEntry]? { nil }
+
     func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? {
         // Without a position there is nothing to diff against; take one and let
         // the caller do its full sync this round.
