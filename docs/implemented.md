@@ -4153,7 +4153,15 @@ other assertion.
 - **The caret reveals the syntax it is inside**, so it decides what a screenshot
   shows. Front matter draws as raw YAML while the caret is in it and folds away
   when it is not — the first four attempts at the flagship shot all opened on a
-  `---` block for that reason alone.
+  `---` block for that reason alone. The same rule showed the LaTeX source of an
+  inline `$…$`, and the backticks of a code span, in three separate captures
+  that otherwise looked finished.
+- **A light/dark pair must differ only in the theme.** The website cross-fades
+  between them, so a different scroll position, a different set of open tabs or
+  a caret in a different place all read as a glitch rather than a theme. Two of
+  the ten had to be reshot for exactly that: `dark_01` because the caret sat in
+  a code span and showed its backticks where its twin did not, and `light_03`
+  because it was taken before the front-matter fold was understood.
 
 ## 23. Edit and Preview render the same document
 

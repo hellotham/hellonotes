@@ -43,13 +43,20 @@ are.
 
 ## State, 2026-09-03
 
-| Set | Shot from | Status |
-|---|---|---|
-| `iPhone-6.5/` | DefaultCollection | **complete** — 5 of 5 |
-| `iPad-13/` | DefaultCollection | **complete** — 5 of 5 |
-| `macOS/` | DefaultCollection | **4 of 10** — `light_01`…`light_04`; `light_05` (Ask Library) and all five dark still to shoot |
-| `macOS/superseded-samplevault/` | SampleVault, pre-1.3.3 | the previous complete set, kept only until the ten above exist. **Do not upload these** — they predate DefaultCollection, the two-column note row, wiki-link alias concealment and the link-graph path fix. |
+All three sets are complete and shot from `DefaultCollection`: 5 iPhone,
+5 iPad, 10 macOS (five scenes × light and dark). The previous SampleVault set
+is gone from the working tree — it is in git history if it is ever wanted, and
+leaving it beside the new one is how six stale files and four fresh ones come
+to look like ten.
 
 Scenes are numbered to match `website/src/lib/screens.ts`: 01 files, 02 maths
 and diagrams, 03 callouts and properties, 04 graph, 05 Ask Library. A caption is
 composited into the website frame, so a capture must match its scene.
+
+**A light/dark pair must differ only in the theme.** Same note, same tabs, same
+scroll position, same caret — the website cross-fades between them, so anything
+else that moves reads as a glitch. The caret matters more than it sounds:
+it reveals the syntax it sits inside, so a click landing in the front matter
+shows raw YAML, one landing in `$…$` shows the LaTeX source, and one landing in
+a code span shows its backticks. Click a plain paragraph, and check the pair
+against each other before filing them.
