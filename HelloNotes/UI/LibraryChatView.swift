@@ -71,7 +71,9 @@ struct LibraryChatView: View {
                                   systemImage: "exclamationmark.triangle", tint: .orange)
                     }
                     if let answer {
-                        Text(answer)
+                        // `AnswerMarkdown`, not `Text(answer)`: the model
+                        // replies in Markdown and this drew the asterisks.
+                        Text(AnswerMarkdown.attributed(answer))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }

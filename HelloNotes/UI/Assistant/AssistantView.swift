@@ -203,7 +203,11 @@ private struct MessageBubble: View {
     private func partView(_ part: MessagePart) -> some View {
         switch part {
         case .text(let text):
-            Text(LocalizedStringKey(text))
+            // Was `Text(LocalizedStringKey(text))`, which renders inline
+            // Markdown but is `.inlineOnly` — it dropped every line break, so
+            // a bulleted reply arrived as one paragraph — and it looked model
+            // output up in the localisation table on the way past.
+            Text(AnswerMarkdown.attributed(text))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .thinking(let text):

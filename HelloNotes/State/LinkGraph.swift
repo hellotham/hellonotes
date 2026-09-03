@@ -10,9 +10,17 @@ import Observation
 
 /// Builds and holds the collection's `[[wiki-link]]` graph: for any note, which
 /// notes link *to* it (backlinks) and which it links *out* to. Link targets are
-/// resolved through note titles **and** their `aliases:`, so `[[alias]]` counts
-/// as a link to the aliased note. Rebuilt off the main actor when the note set
-/// or a note's contents change.
+/// resolved through note titles, their `aliases:`, **and their path suffixes**,
+/// so `[[alias]]` and `[[Manual/Collections]]` both count as links to the note
+/// they name. Rebuilt off the main actor when the note set or a note's contents
+/// change.
+///
+/// The path suffixes were missing until they were seen to be missing: the graph
+/// window drew the bundled manual's four pages as unlinked orphans while
+/// `Manual/Index.md` linked to every one of them, because a title-only
+/// resolution map has no entry for `manual/collections`. Transclusion had
+/// resolved paths for a while by then, which is the shape of this bug — two
+/// resolvers for one question, and only one of them fixed.
 @MainActor
 @Observable
 final class LinkGraph {
@@ -49,9 +57,28 @@ final class LinkGraph {
                     text = read
                 }
                 loaded.append((url, text))
-                resolve[title.lowercased()] = url
-                for alias in MarkdownParsing.aliases(in: text) {
+                if resolve[title.lowercased()] == nil { resolve[title.lowercased()] = url }
+            }
+            // **Three passes, each first-wins**, and the order is the ranking:
+            // a title beats another note's alias, and both beat a path key we
+            // derived. Within a rank the earliest note wins, which makes the
+            // map a function of the (sorted) note list rather than of iteration
+            // order — this used to be last-wins, so with two notes titled
+            // "Index" the winner changed with the note order.
+            //
+            // First-wins is also what `CollectionEmbedProvider` has always
+            // done. The two were the same question answered twice and they
+            // disagreed: `[[Index]]` and `![[Index]]` could name different
+            // notes in the same collection.
+            for (url, text) in loaded {
+                for alias in MarkdownParsing.aliases(in: text)
+                where resolve[alias.lowercased()] == nil {
                     resolve[alias.lowercased()] = url
+                }
+            }
+            for (url, _) in loaded {
+                for key in MarkdownParsing.pathKeys(for: url) where resolve[key] == nil {
+                    resolve[key] = url
                 }
             }
             // Pass 2: index outgoing targets and resolved backlinks.
@@ -79,10 +106,21 @@ final class LinkGraph {
     /// thousands of notes), so it's always correct to call after any change:
     /// backlinks and alias resolution are derived fresh from every record.
     func load(pairs: [(note: Note, record: NoteIndexRecord)]) {
+        // Titles, then aliases, then path keys — each first-wins. See
+        // `rebuild(from:)` for why the ranking and the first-wins matter.
         var resolve: [String: URL] = [:]
-        for (note, record) in pairs {
+        for (note, _) in pairs where resolve[note.title.lowercased()] == nil {
             resolve[note.title.lowercased()] = note.fileURL
-            for alias in record.aliases { resolve[alias.lowercased()] = note.fileURL }
+        }
+        for (note, record) in pairs {
+            for alias in record.aliases where resolve[alias.lowercased()] == nil {
+                resolve[alias.lowercased()] = note.fileURL
+            }
+        }
+        for (note, _) in pairs {
+            for key in MarkdownParsing.pathKeys(for: note.fileURL) where resolve[key] == nil {
+                resolve[key] = note.fileURL
+            }
         }
         var back: [URL: Set<URL>] = [:]
         var out: [URL: [String]] = [:]
@@ -113,6 +151,9 @@ final class LinkGraph {
         // Its title/aliases still resolve to it (idempotent in the unchanged case).
         resolution[title.lowercased()] = url
         for alias in MarkdownParsing.aliases(in: text) { resolution[alias.lowercased()] = url }
+        for key in MarkdownParsing.pathKeys(for: url) where resolution[key] == nil {
+            resolution[key] = url
+        }
         // Recompute this note's outgoing targets and resolved backlinks.
         let targets = MarkdownParsing.wikiLinkTargets(in: text)
         outgoingByURL[url] = targets

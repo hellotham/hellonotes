@@ -162,6 +162,12 @@ struct ContentView: View {
     /// Unused by the column shells, which show one tree.
     @State private var bandContainerID: String?
 
+    /// Width of the compact shell's note list, for the same two-column rule the
+    /// sidebar follows (`ShellMetrics.noteRowTwoColumn`). An iPhone is under it
+    /// and stacks; a compact-width iPad window can be over it.
+    @State private var compactListWidth: CGFloat = 0
+    private var compactRowIsWide: Bool { compactListWidth >= ShellMetrics.noteRowTwoColumn }
+
     /// Everything the sidebar tree is built from — and keyed on. One
     /// construction, shared: see `SidebarTree.inputs`.
     private var sidebarInputs: SidebarTree.Inputs {
@@ -1988,6 +1994,10 @@ struct ContentView: View {
                 }
                     .padding(12)
                     .frame(width: 300)
+                    // See `NoteEditorView.bottomBar`: without this a compact
+                    // width turns the popover into a sheet and centres a
+                    // 300pt panel in it.
+                    .presentationCompactAdaptation(.popover)
             }
             Divider().frame(height: 11)
         }
@@ -2437,22 +2447,15 @@ struct ContentView: View {
                 )
             } else {
                 List(displayedNotes, selection: $selectedNoteID) { note in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 5) {
-                            Text(note.title)
-                                .font(.headline)
-                            if note.isOnlineOnly {
-                                Image(systemName: "icloud.and.arrow.down")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                                    .accessibilityLabel("Online only — not downloaded")
-                            }
-                        }
-                        Text(note.lastModified, format: .dateTime.year().month().day().hour().minute())
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .tag(note.id)
+                    // **The shared row, not a third one.** This built its own
+                    // — title, badge, and `.dateTime.year().month().day()…` —
+                    // so the compact shell was the one place that never got the
+                    // compact date or the two-column layout, and iPhone showed
+                    // "3 Sep 2026 at 12:00 pm" where every other surface showed
+                    // "12:00 pm". `NoteRowContent`'s own note says a row that
+                    // gains a field gains it on both platforms or neither; this
+                    // list was quietly the exception.
+                    noteRow(note, wide: compactRowIsWide)
                     .swipeActions(edge: .leading) {
                         if note.isOnlineOnly {
                             Button {
@@ -2469,6 +2472,7 @@ struct ContentView: View {
                         }
                     }
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { compactListWidth = $0 }
                 .searchable(text: $searchText, prompt: "Search \(railCollection?.name ?? "notes")")
                 // The compact shell's own field. Only one of the two
                 // `.searchFocused` bindings is ever in the hierarchy —

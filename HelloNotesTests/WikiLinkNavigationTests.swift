@@ -144,3 +144,70 @@ struct WikiLinkNavigationTests {
         #expect(destination == .none)
     }
 }
+
+/// Path-qualified targets resolve in the **link graph**, not only in
+/// transclusion.
+///
+/// `Manual/Index.md` writes `[[Manual/Collections]]`, `[[Manual/Markdown]]`,
+/// `[[Manual/Inspectors]]` and `[[Manual/Settings]]`. Every one of them was a
+/// broken link: `LinkGraph.resolution` held titles and aliases only, so the
+/// graph window drew the manual as four unlinked orphans and none of those
+/// pages had a backlink. `![[Manual/Collections]]` transcluded correctly the
+/// whole time, which is why nothing looked wrong from inside a note.
+struct LinkGraphPathResolutionTests {
+
+    private func note(_ path: String) -> Note {
+        Note(title: URL(filePath: path).deletingPathExtension().lastPathComponent,
+             fileURL: URL(filePath: path),
+             lastModified: Date())
+    }
+
+    private func record(outgoing: [String] = [], aliases: [String] = []) -> NoteIndexRecord {
+        NoteIndexRecord(relativePath: "", mtime: 0, size: 0, aliases: aliases,
+                        tags: [], headings: [], outgoing: outgoing)
+    }
+
+    @MainActor
+    @Test func aPathQualifiedTargetResolvesAndCountsAsABacklink() {
+        let index = note("/V/Manual/Index.md")
+        let collections = note("/V/Manual/Collections.md")
+        let graph = LinkGraph()
+        graph.load(pairs: [(index, record(outgoing: ["Manual/Collections"])),
+                           (collections, record())])
+
+        #expect(graph.resolve("Manual/Collections") == collections.fileURL)
+        #expect(graph.backlinks(for: collections, in: [index, collections]) == [index])
+        #expect(graph.outgoingLinks(for: index, in: [index, collections]) == [collections])
+    }
+
+    /// A title someone wrote outranks a path key we derived. Two notes named
+    /// `Index` — one at the root, one in `Manual/` — and the bare title must go
+    /// on meaning the one whose *title* claimed it, while the path key
+    /// disambiguates the other.
+    @MainActor
+    @Test func aRealTitleOutranksADerivedPathKey() {
+        let root = note("/V/Index.md")
+        let manual = note("/V/Manual/Index.md")
+        let graph = LinkGraph()
+        graph.load(pairs: [(root, record()), (manual, record())])
+
+        #expect(graph.resolve("index") == root.fileURL)
+        #expect(graph.resolve("Manual/Index") == manual.fileURL)
+    }
+
+    /// The two resolvers agree, which is the actual invariant — one question,
+    /// one answer, whether it is asked by a link or by an embed.
+    @MainActor
+    @Test func theGraphAndTheEmbedProviderAgree() {
+        let notes = [note("/V/Manual/Collections.md"), note("/V/Examples/Nested Note.md")]
+        let graph = LinkGraph()
+        graph.load(pairs: notes.map { ($0, record()) })
+        let embeds = CollectionEmbedProvider()
+        embeds.update(notes: notes)
+
+        for target in ["Manual/Collections", "Collections", "Examples/Nested Note", "Nested Note"] {
+            #expect(graph.resolve(target) == embeds.url(forName: target),
+                    "disagreed about \(target)")
+        }
+    }
+}

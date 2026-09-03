@@ -625,6 +625,17 @@ struct NoteEditorView: View {
     /// row is chosen whenever it fits — and falls back to scrolling only where
     /// it does not. Truncating instead would be worse than the bug: a command
     /// nobody can reach is a command that does not exist.
+    // **Every `.popover` in this bar states its compact adaptation.**
+    //
+    // A `.popover` on a compact width silently becomes a *sheet*, and a sheet
+    // gives content the full height. `referencesPopover` is
+    // `.frame(width: 320).frame(maxHeight: 360)`, so on an iPhone it drew as a
+    // 360pt island floating in the vertical middle of a 900pt sheet — no title,
+    // no grabber, no Done button, and nothing to say it was the Links panel.
+    // Properties and Outline did the same. `showGitPane` alone said
+    // `.presentationCompactAdaptation(.popover)`, so it alone looked right, and
+    // the difference was invisible from the Mac and from an iPad — the two
+    // places this bar was ever looked at.
     private var bottomBar: some View {
         // **The decision is about width, and only width.**
         //
@@ -722,14 +733,17 @@ struct NoteEditorView: View {
                 PropertiesEditor(properties: $properties, onChange: applyProperties)
                     .padding(12)
                     .frame(width: 320)
+                    .presentationCompactAdaptation(.popover)
             }
             barButton("Links to and from this note", "link") { showReferences = true }
                 .popover(isPresented: $showReferences, arrowEdge: .bottom) {
                     referencesPopover
+                        .presentationCompactAdaptation(.popover)
                 }
             barButton("Outline & statistics", "list.bullet.indent") { showOutline = true }
                 .popover(isPresented: $showOutline, arrowEdge: .bottom) {
                     OutlineView(text: editor.text, onSelectHeading: jumpToHeading)
+                        .presentationCompactAdaptation(.popover)
                 }
             barButton("Mind map of this note's ideas", "brain") { onShowMindMap() }
             if noteKind.isMarp {

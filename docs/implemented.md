@@ -4063,6 +4063,98 @@ it fail. A green test can be resting on the very defect you are about to remove.
 
 ---
 
+## 43 · Six things nobody could see from the other platform (2026-09-03)
+
+Found while shooting store screenshots — which is the point worth keeping: the
+screenshots were the first time anybody *looked at* several of these surfaces on
+the device that had them wrong.
+
+**The compact shell built its own note row.** `ContentView.noteList` drew title,
+cloud badge and `.dateTime.year().month().day().hour().minute()` inline instead
+of calling `NoteRowContent`, whose own header says a row that gains a field
+gains it on both platforms or neither. So the iPhone was the one surface that
+never got the compact date or the responsive two-column rule: it read
+"3 Sep 2026 at 12:00 pm" where every other surface read "12:00 pm", and fitted
+nine rows where it now fits fourteen. Three implementations of one row is the
+defect; the fix is that there is one.
+
+**Every `.popover` in the editor's bottom bar became a full-height sheet on
+iPhone.** SwiftUI substitutes a sheet at a compact width, silently, and a sheet
+hands its content the whole height — so `referencesPopover`
+(`.frame(width: 320).frame(maxHeight: 360)`) drew as a 360pt island floating in
+the middle of a 900pt sheet: no title, no grabber, no Done button, nothing
+saying it was the Links panel. `showGitPane` alone said
+`.presentationCompactAdaptation(.popover)` and alone looked right. The tell was
+that one instance of a repeated pattern behaved differently.
+`EditorToolbarContractTests.everyPopoverStatesItsCompactAdaptation` counts
+popovers against stated adaptations — and had to be taught to ignore comments,
+because its first run counted the sentence *describing* the modifier and failed
+4-against-5.
+
+**`[[Target|alias]]` showed its target.** The parser put the whole inner text in
+one content run, so the editor drew `Examples/Nested Note|example in a subfolder`
+where it should read *example in a subfolder*. Resolution never had the bug —
+`StyleApplier.baseTitle` splits on the pipe — which is exactly why it survived:
+the link always worked. Handing the `target|` prefix back as a marker range is
+the whole fix; `StyleSpec` already conceals a wiki link's markers when the caret
+is elsewhere.
+
+**The spell checker underlined the app's own vocabulary.** "transclusion",
+"blockquotes", "backlinks" and "unstyled" all drew the red misspelling squiggle
+— in the bundled manual, which is the first thing a new user reads, and in the
+screenshots, where it reads as a typo in the marketing.
+`MarkdownVocabulary.ignore(in:)` sets them as *ignored words* on the text view's
+own spell-document tag: nothing global, nothing written to the user's
+learned-words file. The list was derived by running `NSSpellChecker` over
+`DefaultCollection/*.md` with code, math, front matter, link targets, URLs and
+tags stripped — not from memory. That scan also reported `colour`, `licence`,
+`Organising` and `Summarise` (British spellings, correct, and not flagged by the
+dictionary the app runs against) and `frac`, `infty`, `sqrt` (LaTeX inside `$$`,
+visible only while the caret is in the block).
+
+**The link graph could not resolve a path.** `LinkGraph.resolution` held titles
+and aliases only, so `[[Manual/Collections]]` — five of which `Manual/Index.md`
+writes — resolved to nothing: no backlink, no outgoing link, no edge. The graph
+window drew the bundled manual as five orphans and reported 14 links where there
+are 22. `![[Manual/Collections]]` had transcluded correctly the whole time,
+which is the shape of the bug: **two resolvers for one question, and only one of
+them fixed.** `CollectionEmbedProvider.pathKeys` moved to
+`MarkdownParsing.pathKeys` and both now call it. They also disagreed about
+collisions — the graph was last-wins, the provider first-wins — so `[[Index]]`
+and `![[Index]]` could name different notes in the same collection. Both are
+first-wins now, in three ranks: a title beats another note's alias, and both
+beat a path key we derived.
+
+**Ask Your Library showed its answer's Markdown.** `Text(answer)` drew
+`**Creating Links:** Typing `[[` allows you to…` exactly like that. The
+Assistant did better with `Text(LocalizedStringKey(text))`, the usual SwiftUI
+trick, and paid for it twice: that path is `.inlineOnly`, so it discards every
+line break and folds a bulleted answer into one paragraph, and it looks
+arbitrary model output up in the localisation table on the way past. One
+renderer now (`AnswerMarkdown`), used by both — line-based, deliberately not the
+editor's document engine, because an answer bubble needs bold, code, links,
+bullets and line breaks and nothing else. Its test asserts the emphasis is
+*applied*, not merely that the asterisks are gone: a stripper would pass every
+other assertion.
+
+### What the screenshots taught, separately from the app
+
+- **A region capture is a screen recording.** `screencapture -R` raised a TCC
+  prompt — "requesting to bypass the system private window picker" — which is a
+  security dialog to leave alone, and which stole focus, so every keystroke and
+  menu click sent afterwards landed nowhere. `-l<windowID>` needs no such grant
+  and already includes the window's child windows, so a `.popover` composites
+  into the parent's capture with nothing to stitch.
+- **A locked screen has no windows.** `CGWindowListCopyWindowInfo` returns
+  nothing and System Events counts zero while the session is locked, so a
+  healthy app looks like it launched without a window. `ioreg -n Root -d1 -a |
+  grep CGSSessionScreenIsLocked` settles it in one command; it was nearly a
+  session spent hunting a regression that did not exist.
+- **The caret reveals the syntax it is inside**, so it decides what a screenshot
+  shows. Front matter draws as raw YAML while the caret is in it and folds away
+  when it is not — the first four attempts at the flagship shot all opened on a
+  `---` block for that reason alone.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown

@@ -32,6 +32,29 @@ nonisolated struct FrontMatterField: Hashable {
 /// background task.
 nonisolated enum MarkdownParsing {
 
+    /// The names a note answers to *by path*: `"Nested Note"`,
+    /// `"Examples/Nested Note"`, … — each trailing run of path components with
+    /// the extension dropped, lowercased.
+    ///
+    /// A wiki link may name a note by any suffix of its path, which is how
+    /// `[[Manual/Collections]]` disambiguates from another `Collections`
+    /// elsewhere. Transclusion has always understood that; the **link graph did
+    /// not** — it resolved titles and aliases only, so every path-qualified
+    /// link in the bundled manual was a broken link: no backlink, no outgoing
+    /// link, no edge in the graph. `Manual/Index.md` writes five of them, and
+    /// the graph window drew its four manual pages as unlinked orphans.
+    ///
+    /// Four components is the cap: a key long enough to include the collection
+    /// root is already unambiguous, and nobody writes a longer one.
+    static func pathKeys(for url: URL) -> [String] {
+        var components = url.deletingPathExtension().pathComponents
+        components.removeAll { $0 == "/" }
+        guard !components.isEmpty else { return [] }
+        return (1...Swift.min(components.count, 4)).map {
+            components.suffix($0).joined(separator: "/").lowercased()
+        }
+    }
+
     /// Matches `[[Target]]` and `[[Target|Alias]]`, capturing the target in
     /// group 1. Mirrors the wiki-link storage pattern
     /// (an unescaped `!` prefix — an image — is excluded).

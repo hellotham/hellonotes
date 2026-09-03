@@ -176,7 +176,11 @@ def keep_raw_inputs(raw):
     """
     import shutil
 
-    keep = Path("assets/screenshots-raw")
+    # macOS/ — the Mac raws are the ones that cost the author's machine and
+    # their vault to reshoot, so they get a named home beside the two device
+    # folders (iPhone-6.5/, iPad-13/) rather than sitting loose in the root
+    # where a later `*.png` glob would sweep all three together.
+    keep = Path("assets/screenshots-raw/macOS")
     keep.mkdir(parents=True, exist_ok=True)
     copied = 0
     for src in sorted(raw.glob("*.png")):

@@ -193,6 +193,7 @@ public final class MarkdownTextView: NSTextView {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
         textView.smartInsertDeleteEnabled = false
+        MarkdownVocabulary.ignore(in: textView)
 
         // AI-native: full Apple Intelligence Writing Tools (proofread,
         // rewrite, summarize — inline, because this is a real TextKit 2

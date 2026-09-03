@@ -71,14 +71,12 @@ final class CollectionEmbedProvider: @unchecked Sendable {
 
     /// "Nested Note", "Examples/Nested Note", … — each trailing run of path
     /// components, extension dropped, lowercased.
-    static func pathKeys(for url: URL) -> [String] {
-        var components = url.deletingPathExtension().pathComponents
-        components.removeAll { $0 == "/" }
-        guard !components.isEmpty else { return [] }
-        return (1...min(components.count, 4)).map {
-            components.suffix($0).joined(separator: "/").lowercased()
-        }
-    }
+    ///
+    /// One definition, in `MarkdownParsing`, because `LinkGraph` needs the same
+    /// answer: a target that transcludes must also be a link, and for a while
+    /// `![[Manual/Collections]]` rendered a card while `[[Manual/Collections]]`
+    /// counted as broken. Kept here as a name so the existing tests still read.
+    static func pathKeys(for url: URL) -> [String] { MarkdownParsing.pathKeys(for: url) }
 
     /// A rendered transclusion card for an `![[Note]]` target, or nil when the
     /// target isn't a note in this collection.

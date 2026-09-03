@@ -40,6 +40,23 @@ public enum InlineParser {
         func str(_ lo: Int, _ hi: Int) -> String {
             String(utf16CodeUnits: Array(b[lo..<hi]), count: hi - lo)
         }
+        /// The `target|` of an aliased wiki link, as a marker range.
+        ///
+        /// `[[Examples/Nested Note|example in a subfolder]]` must read as
+        /// *example in a subfolder*; the path is where the link goes, not what
+        /// it says. Resolution already knew that — `StyleApplier.baseTitle`
+        /// splits on the pipe — but the *display* did not, so every aliased
+        /// link in the collection showed its own plumbing, including in a store
+        /// screenshot. Handing the prefix back as a marker is all that is
+        /// needed: `StyleSpec` conceals a wiki link's markers `.whenInactive`,
+        /// so the source reappears the moment the caret enters the link, like
+        /// every other piece of syntax.
+        func aliasPrefix(contentLo lo: Int, contentHi hi: Int) -> NSRange? {
+            var p = lo
+            while p < hi, b[p] != 0x7C { p += 1 }   // |
+            guard p < hi else { return nil }
+            return NSRange(location: abs(lo), length: p + 1 - lo)
+        }
 
         while i < n {
             let c = b[i]
@@ -112,7 +129,8 @@ public enum InlineParser {
                         range: NSRange(location: abs(i), length: close + 2 - i),
                         contentRange: NSRange(location: abs(i + 3), length: close - (i + 3)),
                         markerRanges: [NSRange(location: abs(i), length: 3),
-                                       NSRange(location: abs(close), length: 2)]))
+                                       NSRange(location: abs(close), length: 2)]
+                            + (aliasPrefix(contentLo: i + 3, contentHi: close).map { [$0] } ?? [])))
                     i = close + 2
                 } else if i + 1 < n, b[i + 1] == 0x5B,
                           let link = matchMDLink(b, from: i + 1, count: n) {
@@ -135,7 +153,8 @@ public enum InlineParser {
                         range: NSRange(location: abs(i), length: close + 2 - i),
                         contentRange: NSRange(location: abs(i + 2), length: close - (i + 2)),
                         markerRanges: [NSRange(location: abs(i), length: 2),
-                                       NSRange(location: abs(close), length: 2)]))
+                                       NSRange(location: abs(close), length: 2)]
+                            + (aliasPrefix(contentLo: i + 2, contentHi: close).map { [$0] } ?? [])))
                     i = close + 2
                 } else if i + 1 < n, b[i + 1] == 0x5E,
                           let close = findChar(b, char: 0x5D, from: i + 2, count: n, stopAtNewline: true),

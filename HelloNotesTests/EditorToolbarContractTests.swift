@@ -98,6 +98,43 @@ struct EditorToolbarContractTests {
         #expect(installer.contains("\"Heading \\($0)\""))
     }
 
+    /// Every `.popover` states what it becomes at a compact width.
+    ///
+    /// SwiftUI turns a popover into a **sheet** when the width is compact, and
+    /// a sheet hands its content the whole height. Every panel in the editor's
+    /// bottom bar is content-sized (`referencesPopover` is
+    /// `.frame(width: 320).frame(maxHeight: 360)`), so on an iPhone each drew
+    /// as a small island floating in the middle of a full-height sheet — no
+    /// title, no grabber, no Done button. `showGitPane` had
+    /// `.presentationCompactAdaptation(.popover)` and looked right; its three
+    /// neighbours did not, and the difference is invisible on the Mac and on an
+    /// iPad, which are the only places this bar was ever looked at.
+    ///
+    /// The rule is *state it*, not *always adapt*: a future panel may well want
+    /// to be a real sheet on a phone. What it may not do is inherit an
+    /// adaptation nobody chose. Anything opting into the sheet must say so with
+    /// `.presentationCompactAdaptation(.sheet)`, which this accepts.
+    @Test func everyPopoverStatesItsCompactAdaptation() throws {
+        for file in ["UI/NoteEditorView.swift", "ContentView.swift"] {
+            // **Code only.** The first run of this counted 4 popovers against 5
+            // adaptations and failed — the fifth was the sentence above
+            // `bottomBar` explaining the rule, which names the modifier. A scan
+            // that reads its own documentation as source is measuring the wrong
+            // thing, and it fails in the direction that looks like a real bug.
+            let text = try Self.source(file)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            let popovers = text.components(separatedBy: ".popover(").count - 1
+            let stated = text.components(separatedBy: ".presentationCompactAdaptation(").count - 1
+            // One string literal, not a `+` chain: `#expect`'s comment is a
+            // `Comment`, which is `ExpressibleByStringLiteral` — a concatenation
+            // is an expression and does not convert.
+            #expect(popovers == stated,
+                    "\(file): \(popovers) popover(s) but \(stated) with a stated compact adaptation — an unstated one silently becomes a full-height sheet on iPhone, centring its content with no title bar")
+        }
+    }
+
     // MARK: -
 
     private static func source(_ name: String) throws -> String {

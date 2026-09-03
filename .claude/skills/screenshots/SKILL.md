@@ -1,6 +1,6 @@
 ---
 name: screenshots
-description: Capture App Store and website screenshots for iPhone, iPad and Mac at the exact sizes each store requires, from SampleVault only, keeping the raw originals. Use when store screenshots are missing, stale, or wrong for any platform.
+description: Capture App Store and website screenshots for iPhone, iPad and Mac at the exact sizes each store requires, from DefaultCollection (or SampleVault) only, keeping the raw originals. Use when store screenshots are missing, stale, or wrong for any platform.
 disable-model-invocation: true
 ---
 
@@ -42,9 +42,33 @@ reading:
   ~/Library/Containers/com.hellotham.HelloNotes/Data/Library/Preferences/com.hellotham.HelloNotes.plist
 ```
 
-Capture only once that names **SampleVault and nothing else**. A `PreToolUse`
-hook (`.claude/hooks/guard-screencapture.py`) enforces this and fails closed, so
-a forgotten check is a blocked command rather than a privacy incident.
+Capture only once that names **DefaultCollection or SampleVault and nothing
+else**. `DefaultCollection` is the one to shoot: it ships inside the binary, so
+it is public content by construction and it is what a reviewer sees. A
+`PreToolUse` hook (`.claude/hooks/guard-screencapture.py`) enforces this and
+fails closed, so a forgotten check is a blocked command rather than a privacy
+incident.
+
+**Only ever `screencapture -l<windowID>`.** A region capture (`-R`) or a
+full-screen one is a *screen* recording, and macOS raises a TCC dialog —
+"Claude is requesting to bypass the system private window picker" — which is a
+system security prompt you must not click through, and which **steals focus**,
+so the keystrokes and menu clicks you send next land nowhere. A window capture
+by id needs no such grant. It also already includes the window's **child**
+windows: a SwiftUI `.popover` is its own `CGWindow` but composites into the
+parent's capture, so there is nothing to stitch.
+
+**A locked screen has no windows.** `CGWindowListCopyWindowInfo` returns
+nothing and System Events counts zero windows while the session is locked, so a
+perfectly healthy app looks like it launched without a window — which is
+half an hour of hunting a regression that does not exist. Check first:
+
+```bash
+ioreg -n Root -d1 -a | grep -A 1 CGSSessionScreenIsLocked
+```
+
+`<true/>` means stop and ask the user to unlock; nothing on the Mac can be
+captured or driven until they do.
 
 **Back the plist up first and restore it after** — opening or closing a
 collection changes the user's own state.
@@ -78,12 +102,48 @@ osascript -e 'tell application "System Events" to tell process "HelloNotes"
 screencapture -l<id> -o -x raw/dark_1.png
 ```
 
-**Driving the app**: `click at` coordinates do **not** register in this SwiftUI
-app, but `click <element>` (AXPress) does —
+**Driving the app**: use the computer-use MCP's *background* app tools
+(`app_screenshot`, `app_click`, `app_batch`) rather than System Events. They
+return an accessibility summary with an index per control, click by coordinate
+**and** by element index, and do it all without fronting the app — where
+System Events' `entire contents` returned 96 elements with no titles and its
+`Open Quickly…` menu item opened nothing. Coordinates are window points
+(a 0.5-scale screenshot's frame is still 1280×800).
+
+Two things they cannot do, both of which have a workaround:
+
+- **A menu-presenting control is refused** in the background (opening it would
+  front the app). Use the menu bar: `View ▸ Graph View`, `View ▸ Ask Library`,
+  `File ▸ New Window` all work through System Events' `click menu item`.
+- **Scrolling is unreliable** — the scroll action sets the scrollbar's `AXValue`
+  and lands on 0. Navigate instead: the editor's **Outline & statistics**
+  popover lists every heading and clicking one scrolls to it exactly.
+
+Two editor details that decide whether a capture looks right, both caused by the
+same thing — **the caret reveals the syntax it is inside**:
+
+- Front matter draws as raw YAML while the caret is in it and folds away when it
+  is not. Click a body paragraph before shooting, or the flagship screenshot
+  opens on a `---` block.
+- Jumping via the outline *selects* the heading, so `## Diagrams` shows its
+  hashes and a selection highlight. Click a plain paragraph afterwards.
+
+`click <element>` (AXPress) through System Events also works if you need it —
 `click (first button of toolbar 1 of window 1 whose description is "Outline")`
-reaches every inspector toggle, and menu items work the same way. Notes are
-reachable via **File ▸ Open Quickly…**, views via the **View** menu (Edit,
-Preview, Markdown, Split, Graph View, Ask Library).
+— but the background tools are faster and do not disturb the user's frontmost
+app. Notes are reachable by clicking a sidebar row; views via the **View** menu
+(Edit, Preview, Markdown, Split, Graph View, Ask Library).
+
+**Capture with the app active, from inside the same AppleScript.** `activate`
+from one shell command and `screencapture` from the next captures an
+*inactive* window — grey traffic lights, which reads as a screenshot of a
+background app. Put both in one script so focus never returns to the terminal:
+
+```bash
+osascript -e 'tell application "HelloNotes" to activate
+delay 1.5
+do shell script "screencapture -l<id> -o -x /path/out.png"'
+```
 
 **Opening a collection is the one step nothing exposes to scripting.** The
 picker is a separate XPC process (`com.apple.appkit.xpc.openAndSavePanelService`),
@@ -99,8 +159,14 @@ from `cacheDisplay`, which paints materials flat white.
 ## Keep the originals
 
 ```bash
-cp raw/*.png assets/screenshots-raw/ && git add assets/screenshots-raw
+cp raw/*.png assets/screenshots-raw/macOS/ && git add assets/screenshots-raw
 ```
+
+One folder per device — `macOS/`, `iPhone-6.5/`, `iPad-13/` — and a set that is
+**half replaced is worse than one that is not started**, because six stale
+files beside four fresh ones look like ten. Move the old set to a
+`superseded-…/` subfolder and record the count in that folder's README until
+the new one is complete.
 
 Compositing is one-way — gradient, caption, rounded corners, drop shadow — so a
 finished website frame cannot be cropped back into a clean store screenshot.
