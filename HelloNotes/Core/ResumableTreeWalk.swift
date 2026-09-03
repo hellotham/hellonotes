@@ -356,6 +356,47 @@ nonisolated enum ResumableTreeWalk {
 /// A folder on disk, listed one level at a time.
 nonisolated struct LocalTreeSource: TreeSource {
     let root: URL
+
+    /// How many listings to keep in flight.
+    ///
+    /// **A folder on a File Provider is not a local folder wearing a path.**
+    /// The default of 1 is right for a real directory — a listing there is a
+    /// syscall over a warm cache and overlapping them buys nothing. It is
+    /// exactly wrong for iCloud Drive or any other Files provider, where
+    /// `contentsOfDirectory` is an XPC round trip into the provider's extension
+    /// and, for a folder it has not enumerated yet, a network fetch behind that.
+    /// Those are latencies with the app doing nothing at all, so a tree of N
+    /// folders cost N of them laid end to end — which is how adding a large
+    /// cloud vault came to take minutes.
+    ///
+    /// The classification was the bug: such a vault reaches
+    /// `LocalTreeSource` because it *has* a file path, inherited the serial
+    /// default meant for warm-cache syscalls, and so was walked one directory
+    /// at a time. `RemoteTreeSource` had already worked this out for the
+    /// direct-API providers and overlaps six.
+    ///
+    /// Nothing changes for an ordinary folder, which is the point: the width is
+    /// 1 unless the root is demonstrably provider-backed.
+    var listingConcurrency: Int { Self.isProviderBacked(root) ? 6 : 1 }
+
+    /// Whether `url` lives behind a file provider rather than on the disk.
+    ///
+    /// Two shapes, both by path, and deliberately not by asking the provider —
+    /// the question is asked once per scan and must not itself be a round trip:
+    ///
+    ///   * `…/Library/Mobile Documents/…` — iCloud Drive, including another
+    ///     app's ubiquity container, which is where an Obsidian vault lives.
+    ///   * `…/Library/CloudStorage/…` — every other Files provider on macOS
+    ///     (Dropbox, Google Drive, OneDrive, Box).
+    ///
+    /// `FileManager.isUbiquitousItem` would answer the first case and not the
+    /// second, and answers it by asking the coordinator — so it is both
+    /// narrower and more expensive than looking at the path.
+    static func isProviderBacked(_ url: URL) -> Bool {
+        let path = url.path
+        return path.contains("/Library/Mobile Documents/")
+            || path.contains("/Library/CloudStorage/")
+    }
     /// When false, non-Markdown files are dropped during the listing rather than
     /// collected and filtered later — the difference between reading and
     /// discarding a hundred thousand names, and ignoring them.

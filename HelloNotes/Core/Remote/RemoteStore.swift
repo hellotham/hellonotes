@@ -60,6 +60,23 @@ protocol RemoteStore: AnyObject, Sendable {
     /// design rather than polling the tree.
     func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet?
 
+    /// Every entry under `path`, at every depth, in as few round trips as the
+    /// provider allows — or `nil` when it has no such call wired up here.
+    ///
+    /// **This is the difference between one request and one per folder.** The
+    /// walk is latency-bound: `RemoteTreeSource` overlaps six listings precisely
+    /// because each is a round trip the app spends idle, and six-at-a-time is
+    /// still N/6 latencies for N folders. Every provider can return a whole
+    /// subtree in paginated batches instead — Dropbox `list_folder` with
+    /// `recursive: true`, Graph `/delta`, Drive `files.list` with a folder
+    /// query, Box `/folders/:id/items` recursed server-side — turning a few
+    /// hundred round trips into a few.
+    ///
+    /// `nil` is not a failure: the caller falls back to walking directory by
+    /// directory, so a provider gains this one at a time and nothing regresses
+    /// while it does.
+    func listRecursively(path: String) async throws -> [RemoteEntry]?
+
     /// A cursor marking "everything up to now", **without** fetching any data.
     ///
     /// Taken at the end of a full sync so the *first* refresh can already use
@@ -73,6 +90,7 @@ protocol RemoteStore: AnyObject, Sendable {
 }
 
 extension RemoteStore {
+    func listRecursively(path: String) async throws -> [RemoteEntry]? { nil }
     func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? { nil }
     func latestCursor(path: String) async throws -> String? { nil }
 }

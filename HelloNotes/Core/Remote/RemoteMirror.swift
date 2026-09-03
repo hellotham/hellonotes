@@ -326,7 +326,13 @@ final class RemoteMirror {
         var updated = manifest
         var seen = Set<String>()
         var outcome = RemoteSyncOutcome()
-        let source = RemoteTreeSource(store: store, remoteRoot: remoteRoot, cacheRoot: cacheRoot)
+        // One recursive listing for the whole tree where the provider has one,
+        // consulted by every `children(of:)` below. The walk is unchanged — it
+        // simply stops paying a round trip per folder. See
+        // `RecursiveListingCache`.
+        let source = RemoteTreeSource(
+            store: store, remoteRoot: remoteRoot, cacheRoot: cacheRoot,
+            prefetch: RecursiveListingCache(store: store, root: remoteRoot))
 
         // Counted once and then kept, rather than recounted per directory.
         // `entries.values.count(where:)` walked the *whole* manifest on every

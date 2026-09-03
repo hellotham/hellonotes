@@ -80,6 +80,26 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
         return all
     }
 
+    /// Every entry under `path`, from one recursive `list_folder` plus its
+    /// continuations — the same request `changes(since: nil,)` already makes to
+    /// obtain a cursor, asked here for the entries alone.
+    ///
+    /// A vault of three hundred folders costs three or four requests this way
+    /// rather than three hundred listings six at a time.
+    func listRecursively(path: String) async throws -> [RemoteEntry]? {
+        var data = try await sendAuthed {
+            Self.listFolderRequest(path: path, token: $0, recursive: true)
+        }
+        var page = try Self.parseListFolderPage(data)
+        var all = page.entries
+        while page.hasMore, let cursor = page.cursor {
+            data = try await sendAuthed { Self.listFolderContinueRequest(cursor: cursor, token: $0) }
+            page = try Self.parseListFolderPage(data)
+            all += page.entries
+        }
+        return all
+    }
+
     /// Dropbox's delta: a recursive `list_folder` issues a cursor, and
     /// `list_folder/continue` returns everything that changed after it —
     /// including deletions, which a plain re-list can only infer by absence.
