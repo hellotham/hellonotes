@@ -50,6 +50,12 @@ public protocol MarkdownFormatting: AnyObject {
     /// can be written once for every conformer; the two implementations are
     /// `NSTextView`'s and `UITextView`'s, at the bottom of this file.
     func scrollHeadingIntoView(at offset: Int)
+    /// The document's blocks, when this view has a parsed one.
+    ///
+    /// The live editor does — `EditorDocument` keeps `blocks` current through
+    /// the splicer, so the n-th heading's range is already known and costs no
+    /// parse. The raw-source view does not, and answers `nil`.
+    var formattingBlocks: [Block]? { get }
 }
 
 public extension MarkdownFormatting {
@@ -71,6 +77,47 @@ public extension MarkdownFormatting {
         guard offset >= 0, offset <= length else { return }
         setFormattingSelection(NSRange(location: offset, length: 0))
         scrollHeadingIntoView(at: offset)
+    }
+
+    /// Go to the `ordinal`-th heading, resolved against the blocks this view
+    /// already has. Returns false when it has none — the raw-source view — so
+    /// the caller can fall back to a scan off the main actor.
+    ///
+    /// **No parse, and nothing stale.** `EditorDocument.blocks` carries absolute
+    /// ranges that the splicer keeps in sync with every edit, so this is a walk
+    /// over an array that is already correct. That is the whole reason the jump
+    /// sends an ordinal rather than an offset: an offset is only true of the
+    /// text it was measured against, and keeping one true means re-parsing on
+    /// the actor that must never be blocked.
+    @discardableResult
+    func showHeading(ordinal: Int, title: String) -> Bool {
+        guard let blocks = formattingBlocks else { return false }
+        let headings = blocks.filter { if case .heading = $0.kind { return true }; return false }
+        guard !headings.isEmpty else { return true }
+
+        // The ordinal comes from the outline's parser and this list comes from
+        // the editor's; they agree on ordinary documents and this notices when
+        // they do not. Either way the destination is a *heading* — the failure
+        // mode is landing on the wrong one, never on prose.
+        let ns = formattingText as NSString
+        func text(of block: Block) -> String {
+            ns.substring(with: block.range)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .drop(while: { $0 == "#" })
+                .trimmingCharacters(in: .whitespaces)
+        }
+        let target: Block
+        if headings.indices.contains(ordinal), text(of: headings[ordinal]) == title {
+            target = headings[ordinal]
+        } else if let named = headings.first(where: { text(of: $0) == title }) {
+            target = named
+        } else if headings.indices.contains(ordinal) {
+            target = headings[ordinal]
+        } else {
+            return true
+        }
+        showHeading(at: target.range.location)
+        return true
     }
 }
 
@@ -211,6 +258,9 @@ extension MarkdownFormatting {
 #if canImport(AppKit)
 extension MarkdownTextView: MarkdownFormatting {
 
+    /// The live editor's own parse, kept current by the splicer.
+    public var formattingBlocks: [Block]? { document?.blocks }
+
     public var formattingText: String { string }
     public func formattingSelection() -> NSRange { selectedRange() }
     public func setFormattingSelection(_ range: NSRange) { setSelectedRange(range) }
@@ -248,6 +298,9 @@ extension MarkdownTextView: MarkdownFormatting {
 #else
 
 extension MarkdownUITextView: MarkdownFormatting {
+
+    /// The live editor's own parse, kept current by the splicer.
+    public var formattingBlocks: [Block]? { document?.blocks }
 
     public var formattingText: String { text ?? "" }
     public func formattingSelection() -> NSRange { selectedRange }

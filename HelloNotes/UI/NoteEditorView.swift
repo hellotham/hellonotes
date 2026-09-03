@@ -461,11 +461,9 @@ struct NoteEditorView: View {
 
     /// Scroll the editor to a heading by asking the engine to find its title in
     /// the displayed text, then clear the transient highlight shortly after.
-    private func jumpToHeading(_ heading: DocumentHeading) {
+    private func jumpToHeading(_ ordinal: Int, _ heading: DocumentHeading) {
         showOutline = false
-        let ordinal = MarkdownParsing.headings(in: editor.text)
-            .firstIndex { $0.offset == heading.offset } ?? 0
-        hnJumpToHeading(offset: heading.offset, ordinal: ordinal, title: heading.title)
+        hnJumpToHeading(ordinal: ordinal, title: heading.title)
     }
 
     // MARK: - Conflict banner

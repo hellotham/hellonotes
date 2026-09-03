@@ -13,43 +13,6 @@ import Markdown
 nonisolated struct DocumentHeading: Hashable, Codable {
     let level: Int
     let title: String
-
-    /// UTF-16 offset of the heading's own line in the source, when it was parsed
-    /// from text rather than read back from the index.
-    ///
-    /// **Optional, and decoded with `decodeIfPresent`, on purpose.** This type is
-    /// persisted inside `NoteIndexRecord`, and synthesised decoding *throws* on a
-    /// missing key — so adding a non-optional field here would make every cached
-    /// record fail to decode, which is a silent wipe rather than a loud error.
-    /// Records written before this field simply carry `nil`, and nothing is worse
-    /// off: the outline parses live text, so the offset it uses is always fresh.
-    var offset: Int?
-
-    init(level: Int, title: String, offset: Int? = nil) {
-        self.level = level
-        self.title = title
-        self.offset = offset
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        level = try c.decode(Int.self, forKey: .level)
-        title = try c.decode(String.self, forKey: .title)
-        offset = try c.decodeIfPresent(Int.self, forKey: .offset)
-    }
-
-    // **Identity is the level and the title; the offset is derived.** Two
-    // headings that read the same are the same heading, whether one of them came
-    // from the index (no offset) and the other from live text (offset). Letting
-    // the offset into `==` made a cached record unequal to its freshly-parsed
-    // self, which is a difference in *where the value came from* rather than in
-    // what it says — and it is the search index's change signature, so every
-    // note would have looked edited whenever anything above a heading moved.
-    static func == (a: Self, b: Self) -> Bool { a.level == b.level && a.title == b.title }
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(level)
-        hasher.combine(title)
-    }
 }
 
 /// A `key: value` line from a note's YAML front matter.
@@ -292,32 +255,23 @@ nonisolated enum MarkdownParsing {
     /// The headings in `text`, in document order, parsed from the GFM AST.
     /// Authoritative but expensive (a full CommonMark parse) — use for a single
     /// note (the outline); bulk indexing uses ``fastHeadings(in:)``.
+    /// The document's headings, in document order.
+    ///
+    /// **Front matter is removed first, and that is a fix rather than a
+    /// nicety.** A YAML block is `---`, some lines, `---` — and to CommonMark the
+    /// closing `---` under a run of text is a *setext underline*, so
+    /// `title: … tags: …` parsed as a level-2 heading and appeared in the
+    /// outline as a row reading "title: Rich Content tags: [tour]".
+    ///
+    /// It also made this function disagree with every other list of headings in
+    /// the app: `fastHeadings` skips `-` underlines for exactly this reason, the
+    /// editor's `BlockParser` has a `.frontMatter` block kind, and
+    /// `SourceHeadingScan` skips the block outright. The outline is what the
+    /// jump counts along, so a phantom first heading put every ordinal one out.
     static func headings(in text: String) -> [DocumentHeading] {
         var collector = HeadingCollector()
-        collector.visit(Document(parsing: text))
-        // Line -> UTF-16 offset, so a heading can be *jumped to* rather than
-        // searched for. swift-markdown reports a 1-based line for each heading;
-        // this turns that into the offset an `NSTextView`/`UITextView` wants.
-        let offsets = lineOffsets(in: text)
-        return collector.headings.map { heading in
-            let offset = heading.line.flatMap { line -> Int? in
-                offsets.indices.contains(line - 1) ? offsets[line - 1] : nil
-            }
-            return DocumentHeading(level: heading.level, title: heading.title, offset: offset)
-        }
-    }
-
-    /// UTF-16 offset of the start of every line.
-    static func lineOffsets(in text: String) -> [Int] {
-        let ns = text as NSString
-        var offsets = [0]
-        offsets.reserveCapacity(64)
-        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length),
-                               options: [.byLines, .substringNotRequired]) { _, _, enclosing, _ in
-            let next = enclosing.location + enclosing.length
-            if next < ns.length { offsets.append(next) }
-        }
-        return offsets
+        collector.visit(Document(parsing: FrontMatter.body(of: text)))
+        return collector.headings
     }
 
     /// Headings via a fence-aware line scan — an order of magnitude faster than
@@ -374,9 +328,9 @@ nonisolated enum MarkdownParsing {
     }
 
     private struct HeadingCollector: MarkupWalker {
-        var headings: [(level: Int, title: String, line: Int?)] = []
+        var headings: [DocumentHeading] = []
         mutating func visitHeading(_ heading: Heading) {
-            headings.append((heading.level, heading.plainText, heading.range?.lowerBound.line))
+            headings.append(DocumentHeading(level: heading.level, title: heading.plainText))
         }
     }
 }
@@ -386,5 +340,56 @@ private extension Array where Element: Hashable {
     nonisolated func uniqued() -> [Element] {
         var seen = Set<Element>()
         return filter { seen.insert($0).inserted }
+    }
+}
+
+/// Where the n-th heading starts, by a single fence-aware line scan.
+///
+/// For the raw-source pane, which keeps no parse of its own. It is deliberately
+/// **not** on the main actor: the caller runs it through `offMain`, so a whole
+/// document is read on an explicit navigation tap and never on the actor that
+/// draws and accepts keystrokes.
+///
+/// The offset it returns is only true of the `text` it was handed, which is why
+/// nothing stores one — the caller compares the view's text against what it
+/// scanned before using the answer, and drops it if the document moved
+/// underneath.
+nonisolated enum SourceHeadingScan {
+    static func offset(ofHeading ordinal: Int, in text: String) -> Int? {
+        guard ordinal >= 0 else { return nil }
+        let ns = text as NSString
+        var seen = -1
+        var inFence = false
+        var result: Int?
+        var inFrontMatter = false
+        var lineIndex = 0
+
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length),
+                               options: [.byLines]) { line, range, _, stop in
+            let raw = line ?? ""
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            defer { lineIndex += 1 }
+
+            // Front matter opens on the very first line and closes on the next
+            // `---`. Its `title:` line is exactly what the old text search used
+            // to land on, so it is skipped rather than merely not matched.
+            if lineIndex == 0, trimmed == "---" { inFrontMatter = true; return }
+            if inFrontMatter {
+                if trimmed == "---" { inFrontMatter = false }
+                return
+            }
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { inFence.toggle(); return }
+            guard !inFence else { return }
+
+            let hashes = trimmed.prefix(while: { $0 == "#" }).count
+            guard (1...6).contains(hashes),
+                  trimmed.dropFirst(hashes).first.map({ $0 == " " }) ?? false else { return }
+            seen += 1
+            if seen == ordinal {
+                result = range.location
+                stop.pointee = true
+            }
+        }
+        return result
     }
 }

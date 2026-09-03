@@ -27,6 +27,7 @@ import AppKit
 #else
 import UIKit
 #endif
+import MarkdownCore
 import MarkdownEditor
 
 #if canImport(AppKit)
@@ -35,6 +36,10 @@ import MarkdownEditor
 /// the same promise: the bar is shown in every editable mode, so every editable
 /// mode has to honour it. See `SourceTextView` in the UIKit branch.
 final class SourceTextView: NSTextView, MarkdownFormatting {
+
+    /// No parsed model here — this view shows raw Markdown and highlights it.
+    /// The jump falls back to a line scan off the main actor.
+    var formattingBlocks: [Block]? { nil }
     var formattingText: String { string }
     func formattingSelection() -> NSRange { selectedRange() }
     func setFormattingSelection(_ range: NSRange) { setSelectedRange(range) }
@@ -176,11 +181,23 @@ struct SourceEditor: NSViewRepresentable {
                 forName: Notification.Name("hn.editor.jumpToHeading"),
                 object: nil, queue: .main
             ) { [weak self] note in
-                let offset = note.userInfo?["offset"] as? Int
-                MainActor.assumeIsolated { [offset] in
-                    guard let view = self?.busView, view.window != nil, let offset,
-                          offset <= (view.formattingText as NSString).length else { return }
-                    view.showHeading(at: offset)
+                let ordinal = note.userInfo?["ordinal"] as? Int ?? 0
+                MainActor.assumeIsolated { [ordinal] in
+                    guard let view = self?.busView, view.window != nil else { return }
+                    let text = view.formattingText
+                    // **The scan is off the main actor.** This pane keeps no
+                    // parse, so finding the n-th heading means reading the text
+                    // — one pass, on an explicit tap, never while typing, and
+                    // never on this actor. The result is an offset into the text
+                    // it was measured from, used immediately and not stored.
+                    Task {
+                        let offset = await offMain { SourceHeadingScan.offset(ofHeading: ordinal, in: text) }
+                        guard let offset else { return }
+                        await MainActor.run {
+                            guard view.window != nil, view.formattingText == text else { return }
+                            view.showHeading(at: offset)
+                        }
+                    }
                 }
             })
 
@@ -225,6 +242,10 @@ struct SourceEditor: NSViewRepresentable {
 /// commands as the live one, with one implementation of what "toggle a
 /// heading" means.
 final class SourceTextView: UITextView, MarkdownFormatting {
+
+    /// No parsed model here — this view shows raw Markdown and highlights it.
+    /// The jump falls back to a line scan off the main actor.
+    var formattingBlocks: [Block]? { nil }
     var formattingText: String { text ?? "" }
     func formattingSelection() -> NSRange { selectedRange }
     func setFormattingSelection(_ range: NSRange) { selectedRange = range }
@@ -351,11 +372,23 @@ struct SourceEditor: UIViewRepresentable {
                 forName: Notification.Name("hn.editor.jumpToHeading"),
                 object: nil, queue: .main
             ) { [weak self] note in
-                let offset = note.userInfo?["offset"] as? Int
-                MainActor.assumeIsolated { [offset] in
-                    guard let view = self?.busView, view.window != nil, let offset,
-                          offset <= (view.formattingText as NSString).length else { return }
-                    view.showHeading(at: offset)
+                let ordinal = note.userInfo?["ordinal"] as? Int ?? 0
+                MainActor.assumeIsolated { [ordinal] in
+                    guard let view = self?.busView, view.window != nil else { return }
+                    let text = view.formattingText
+                    // **The scan is off the main actor.** This pane keeps no
+                    // parse, so finding the n-th heading means reading the text
+                    // — one pass, on an explicit tap, never while typing, and
+                    // never on this actor. The result is an offset into the text
+                    // it was measured from, used immediately and not stored.
+                    Task {
+                        let offset = await offMain { SourceHeadingScan.offset(ofHeading: ordinal, in: text) }
+                        guard let offset else { return }
+                        await MainActor.run {
+                            guard view.window != nil, view.formattingText == text else { return }
+                            view.showHeading(at: offset)
+                        }
+                    }
                 }
             })
 

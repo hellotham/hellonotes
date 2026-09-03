@@ -41,17 +41,28 @@ extension Notification.Name {
     static let hnEditorFocusTitle = Notification.Name("hn.editor.focusTitle")
     /// Host → engine: clear find highlights.
     static let hnEditorClearHighlights = Notification.Name("hn.editor.clearHighlights")
-    /// Host → whichever surface is on screen: put this heading at the top.
+    /// Host → whichever surface is on screen: put the n-th heading at the top.
     ///
-    /// **Not a find.** This used to be posted as `findQuery`, so "jump to the
-    /// Maths heading" meant "select the first occurrence of the word Maths
-    /// anywhere in the file" — which is the front matter's `title:` line as
-    /// often as not, and prose before the heading the rest of the time. It
-    /// carries an `offset` (UTF-16, into the source) and an `ordinal` (the
-    /// heading's index in document order) so every surface can land on the
-    /// heading itself: the two text editors use the offset, and Preview uses
-    /// the ordinal, because rendered HTML has no source offsets but its
-    /// headings are in the same order.
+    /// **Not a find, and not an offset either.**
+    ///
+    /// It began as a find — the heading's own text, posted as a search query —
+    /// so "go to Maths" meant "select the first occurrence of the word Maths",
+    /// which is the front matter's `title:` line as often as not.
+    ///
+    /// The obvious repair, a source offset, is worse than it looks: an offset is
+    /// only valid for the text it was measured against, so it goes stale the
+    /// moment anything above the heading is typed — and on iPad the inspector is
+    /// a *column*, so the outline is on screen while you type. Keeping it fresh
+    /// means re-parsing the document, and a whole-document parse is precisely
+    /// what may not happen on the editor's actor.
+    ///
+    /// So what travels is an **ordinal**: the heading's index in document order,
+    /// which the outline already knows because it drew that row. Each surface
+    /// resolves it against something it already maintains — the editor against
+    /// `EditorDocument.blocks`, whose ranges the splicer keeps current with no
+    /// parse at all; Preview against the n-th `<h1>`…`<h6>` in the DOM. The
+    /// `title` rides along only to notice when the two disagree, and the
+    /// fallback is still a *heading*, never prose.
     static let hnEditorJumpToHeading = Notification.Name("hn.editor.jumpToHeading")
     /// Engine → host: number of matches for the last `findQuery` (`userInfo["count"]`).
     static let hnEditorFindResults = Notification.Name("hn.editor.findResults")
@@ -71,23 +82,29 @@ extension Notification.Name {
 /// they do, "clear highlight" starts behaving differently depending on which
 /// outline you used.
 @MainActor
-func hnJumpToHeading(offset: Int?, ordinal: Int, title: String) {
-    var info: [String: Any] = ["ordinal": ordinal, "title": title]
-    if let offset { info["offset"] = offset }
-    NotificationCenter.default.post(name: .hnEditorJumpToHeading, object: nil, userInfo: info)
+func hnJumpToHeading(ordinal: Int, title: String) {
+    NotificationCenter.default.post(
+        name: .hnEditorJumpToHeading, object: nil,
+        userInfo: ["ordinal": ordinal, "title": title]
+    )
     DispatchQueue.main.asyncAfter(deadline: .now() + hnHeadingHighlightDuration) {
         NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
     }
 }
 
 /// Jump to the heading *named* `title` — for `[[Note#Heading]]`, which carries a
-/// name and no position. The name is resolved against the document's headings
-/// here, so what travels is still a position.
-@MainActor
-func hnJumpToHeading(titled title: String, in text: String) {
-    let headings = MarkdownParsing.headings(in: text)
-    guard let ordinal = headings.firstIndex(where: { $0.title == title }) else { return }
-    hnJumpToHeading(offset: headings[ordinal].offset, ordinal: ordinal, title: title)
+/// name and nothing else.
+///
+/// The name has to become an ordinal somewhere, and that means one pass over the
+/// text. It happens **off the main actor**, and only when a link is followed —
+/// never while typing. Every other caller already knows the ordinal, because the
+/// outline drew the row.
+func hnJumpToHeading(titled title: String, in text: String) async {
+    let ordinal = await offMain {
+        MarkdownParsing.headings(in: text).firstIndex { $0.title == title }
+    }
+    guard let ordinal else { return }
+    await MainActor.run { hnJumpToHeading(ordinal: ordinal, title: title) }
 }
 
 /// How long a jumped-to heading stays highlighted. Long enough to catch the
@@ -98,7 +115,7 @@ let hnHeadingHighlightDuration: TimeInterval = 1.2
 /// Clicking a heading jumps the editor to that section.
 struct OutlineView: View {
     let text: String
-    var onSelectHeading: (DocumentHeading) -> Void = { _ in }
+    var onSelectHeading: (Int, DocumentHeading) -> Void = { _, _ in }
 
     var body: some View {
         // Compute once per render: these were computed properties referenced
@@ -132,9 +149,9 @@ struct OutlineView: View {
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 1) {
-                            ForEach(Array(headings.enumerated()), id: \.offset) { _, heading in
+                            ForEach(Array(headings.enumerated()), id: \.offset) { ordinal, heading in
                                 Button {
-                                    onSelectHeading(heading)
+                                    onSelectHeading(ordinal, heading)
                                 } label: {
                                     Text(heading.title)
                                         .font(heading.level == 1 ? .callout.weight(.semibold) : .callout)

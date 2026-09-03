@@ -73,7 +73,7 @@ struct InspectorRequest: Equatable {
 struct NoteInspector: View {
     // Outline
     let noteText: String
-    var onSelectHeading: (DocumentHeading) -> Void
+    var onSelectHeading: (Int, DocumentHeading) -> Void
     /// Summarise the note. `nil` hides the affordance — no provider, nothing to
     /// offer, and an always-visible button that always fails is worse than none.
     var summarize: ((String) async throws -> String)? = nil

@@ -1271,11 +1271,11 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 forName: Notification.Name("hn.editor.jumpToHeading"),
                 object: nil, queue: .main
             ) { [weak self] note in
-                let offset = note.userInfo?["offset"] as? Int
-                MainActor.assumeIsolated { [offset] in
-                    guard let self, let textView = self.textView, textView.window != nil,
-                          let offset, offset <= (textView.string as NSString).length else { return }
-                    textView.showHeading(at: offset)
+                let ordinal = note.userInfo?["ordinal"] as? Int ?? 0
+                let title = note.userInfo?["title"] as? String ?? ""
+                MainActor.assumeIsolated { [ordinal, title] in
+                    guard let self, let textView = self.textView, textView.window != nil else { return }
+                    textView.showHeading(ordinal: ordinal, title: title)
                 }
             })
 
@@ -2607,11 +2607,11 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                 forName: Notification.Name("hn.editor.jumpToHeading"),
                 object: nil, queue: .main
             ) { [weak self] note in
-                let offset = note.userInfo?["offset"] as? Int
-                MainActor.assumeIsolated { [offset] in
-                    guard let self, let textView = self.busView, textView.window != nil,
-                          let offset, offset <= (textView.text as NSString).length else { return }
-                    textView.showHeading(at: offset)
+                let ordinal = note.userInfo?["ordinal"] as? Int ?? 0
+                let title = note.userInfo?["title"] as? String ?? ""
+                MainActor.assumeIsolated { [ordinal, title] in
+                    guard let self, let textView = self.busView, textView.window != nil else { return }
+                    textView.showHeading(ordinal: ordinal, title: title)
                 }
             })
 

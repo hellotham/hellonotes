@@ -19,25 +19,28 @@ import Testing
 
 struct HeadingJumpTests {
 
-    /// A heading knows where it starts.
-    @Test func headingsCarryTheirOffset() {
+    /// The n-th heading, found by a scan that never runs on the main actor.
+    @Test func findsTheNthHeading() {
         let text = """
         # First
 
         Some prose.
 
         ## Second
+
+        ### Third
         """
-        let headings = MarkdownParsing.headings(in: text)
-        #expect(headings.map(\.title) == ["First", "Second"])
-        #expect(headings[0].offset == 0)
-        let second = try! #require(headings[1].offset)
-        #expect((text as NSString).substring(from: second).hasPrefix("## Second"))
+        let ns = text as NSString
+        for (ordinal, expected) in [(0, "# First"), (1, "## Second"), (2, "### Third")] {
+            let offset = try! #require(SourceHeadingScan.offset(ofHeading: ordinal, in: text))
+            #expect(ns.substring(from: offset).hasPrefix(expected))
+        }
+        #expect(SourceHeadingScan.offset(ofHeading: 3, in: text) == nil)
     }
 
-    /// **The reported bug.** The words of the heading appear earlier, in the
-    /// front matter — a search lands there, a position does not.
-    @Test func theOffsetIsTheHeadingNotTheFirstMentionOfItsWords() {
+    /// **The reported bug.** The heading's words appear earlier, in the front
+    /// matter — a search lands there; counting headings cannot.
+    @Test func frontMatterIsNotAHeading() {
         let text = """
         ---
         title: Rich Content
@@ -49,77 +52,142 @@ struct HeadingJumpTests {
         Body.
         """
         let ns = text as NSString
-        let heading = MarkdownParsing.headings(in: text).first { $0.title == "Rich Content" }
-        let offset = try! #require(heading?.offset)
-
+        let offset = try! #require(SourceHeadingScan.offset(ofHeading: 0, in: text))
         #expect(ns.substring(from: offset).hasPrefix("# Rich Content"))
-        // What the old mechanism would have done, for contrast: the first
-        // occurrence of the text is the front-matter line, 4 characters in.
         #expect(ns.range(of: "Rich Content").location < offset,
                 "the words really do appear before the heading — that was the trap")
     }
 
-    /// Prose mentioning the heading's words also came first.
-    @Test func proseBeforeTheHeadingDoesNotWin() {
+    /// Prose mentioning the words is not a heading either.
+    @Test func proseIsNotAHeading() {
         let text = """
         # Note
 
         We will get to Diagrams in a moment.
 
         ## Diagrams
-
-        Here they are.
         """
         let ns = text as NSString
-        let offset = try! #require(MarkdownParsing.headings(in: text)
-            .first { $0.title == "Diagrams" }?.offset)
+        let offset = try! #require(SourceHeadingScan.offset(ofHeading: 1, in: text))
         #expect(ns.substring(from: offset).hasPrefix("## Diagrams"))
-        #expect(ns.range(of: "Diagrams").location < offset)
     }
 
-    /// Two headings with the same name are distinguished by position, which a
-    /// search cannot do at all.
-    @Test func duplicateHeadingsAreDistinctPositions() {
+    /// A `#` inside a fence is code, not a heading — otherwise every shell
+    /// comment in a note shifts every ordinal after it.
+    @Test func fencedHashesAreNotHeadings() {
         let text = """
-        ## Setup
+        # Real
 
-        one
+        ```bash
+        # not a heading
+        ```
 
-        ## Setup
-
-        two
+        ## Also real
         """
-        let headings = MarkdownParsing.headings(in: text).filter { $0.title == "Setup" }
-        #expect(headings.count == 2)
-        let a = try! #require(headings[0].offset), b = try! #require(headings[1].offset)
+        let ns = text as NSString
+        let offset = try! #require(SourceHeadingScan.offset(ofHeading: 1, in: text))
+        #expect(ns.substring(from: offset).hasPrefix("## Also real"))
+    }
+
+    /// `#tag` at the start of a line is a tag; a heading needs the space.
+    @Test func aTagIsNotAHeading() {
+        let text = "#tag alone\n\n# Actual\n"
+        let ns = text as NSString
+        let offset = try! #require(SourceHeadingScan.offset(ofHeading: 0, in: text))
+        #expect(ns.substring(from: offset).hasPrefix("# Actual"))
+    }
+
+    /// Two headings with the same name are distinct positions — which is the
+    /// thing a text search fundamentally cannot express.
+    @Test func duplicateHeadingsAreDistinct() {
+        let text = "## Setup\n\none\n\n## Setup\n\ntwo\n"
+        let a = try! #require(SourceHeadingScan.offset(ofHeading: 0, in: text))
+        let b = try! #require(SourceHeadingScan.offset(ofHeading: 1, in: text))
         #expect(a < b)
     }
 
-    /// Offsets are UTF-16, because that is what the text views index by. A note
-    /// with an emoji above the heading would otherwise land short.
+    /// Offsets are UTF-16, because that is what the text views index by.
     @Test func offsetsAreUTF16() {
-        let text = """
-        # 🇦🇺 Intro
-
-        ## Target
-        """
+        let text = "# 🇦🇺 Intro\n\n## Target\n"
         let ns = text as NSString
-        let offset = try! #require(MarkdownParsing.headings(in: text)
-            .first { $0.title == "Target" }?.offset)
+        let offset = try! #require(SourceHeadingScan.offset(ofHeading: 1, in: text))
         #expect(ns.substring(from: offset).hasPrefix("## Target"))
     }
 
-    /// A `DocumentHeading` written before offsets existed still decodes.
+    /// The ordinal survives an edit that an offset would not.
     ///
-    /// It is stored inside `NoteIndexRecord`, and synthesised decoding *throws*
-    /// on a missing key — so a non-optional field here would have made every
-    /// cached record fail to decode, which is a silent wipe of the index rather
-    /// than a loud error.
-    @Test func anOlderCachedHeadingStillDecodes() throws {
-        let json = Data(#"{"level":2,"title":"Older"}"#.utf8)
-        let heading = try JSONDecoder().decode(DocumentHeading.self, from: json)
-        #expect(heading.level == 2)
-        #expect(heading.title == "Older")
-        #expect(heading.offset == nil)
+    /// This is the whole argument for sending an ordinal. Type a paragraph above
+    /// a heading and every offset below it moves; the heading is still the n-th
+    /// heading. The outline can therefore be on screen while you type — which on
+    /// iPad it is, because the inspector is a column — without anything needing
+    /// to be recomputed on the actor that is accepting the keystrokes.
+    @Test func anEditAboveTheHeadingDoesNotMoveItsOrdinal() {
+        let before = "# One\n\n## Two\n"
+        let after  = "# One\n\nA new paragraph typed just now.\n\n## Two\n"
+
+        let oldOffset = try! #require(SourceHeadingScan.offset(ofHeading: 1, in: before))
+        let newOffset = try! #require(SourceHeadingScan.offset(ofHeading: 1, in: after))
+        #expect(oldOffset != newOffset, "the offset moved — which is the point")
+        #expect((after as NSString).substring(from: newOffset).hasPrefix("## Two"))
+        // The stale offset now points at something that is not the heading.
+        #expect(!(after as NSString).substring(from: oldOffset).hasPrefix("## Two"))
+    }
+}
+
+/// The outline's list of headings, which the jump counts along.
+struct OutlineHeadingListTests {
+
+    /// Front matter is not a heading — and CommonMark thinks it is.
+    ///
+    /// `---` under a run of text is a setext underline, so a YAML block parsed
+    /// as a level-2 heading titled `title: Rich Content tags: [tour]`. It was
+    /// visible in the outline popover the whole time and read as a feature.
+    /// Worse, it put every ordinal one out against the editor's own block
+    /// parser, which knows front matter when it sees it.
+    @Test func frontMatterIsNotListedAsAHeading() {
+        let text = """
+        ---
+        title: Rich Content
+        tags: [tour]
+        ---
+
+        # Rich Content
+
+        ## Callouts
+        """
+        let headings = MarkdownParsing.headings(in: text)
+        #expect(headings.map(\.title) == ["Rich Content", "Callouts"])
+        #expect(!headings.contains { $0.title.contains("tags:") })
+    }
+
+    /// The three lists that must agree, because the jump counts along one and
+    /// resolves against another.
+    @Test func everyHeadingListAgrees() {
+        let text = """
+        ---
+        title: T
+        ---
+
+        # One
+
+        ```
+        # not a heading
+        ```
+
+        ## Two
+
+        ### Three
+        """
+        let outline = MarkdownParsing.headings(in: text).map(\.title)
+        let fast = MarkdownParsing.fastHeadings(in: text).map(\.title)
+        #expect(outline == ["One", "Two", "Three"])
+        #expect(fast == outline, "the bulk index and the outline must count the same headings")
+
+        // And the raw-source scan lands on each of them in the same order.
+        let ns = text as NSString
+        for (ordinal, expected) in [(0, "# One"), (1, "## Two"), (2, "### Three")] {
+            let offset = try! #require(SourceHeadingScan.offset(ofHeading: ordinal, in: text))
+            #expect(ns.substring(from: offset).hasPrefix(expected))
+        }
     }
 }
