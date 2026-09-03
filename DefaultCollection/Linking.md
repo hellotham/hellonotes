@@ -6,8 +6,10 @@ aliases: [Links, Wiki Links]
 
 # Linking
 
-Type `[[` and HelloNotes offers every note in the collection. Links are by
-**name**, not by path, so moving a note between folders never breaks one.
+Type `[[` and HelloNotes offers every note in the collection. Links resolve by
+**name**, so moving a note between folders never breaks one. When two notes
+share a name, add as much of the folder path as you need — `[[Manual/Index]]` —
+and that still follows the note if the rest of the path changes.
 
 ## Try it
 

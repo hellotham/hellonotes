@@ -257,7 +257,7 @@ Local-first Markdown notes
 
 **Promotional text** (≤170 chars, editable any time without review):
 ```
-A fast, private Markdown knowledge base for Mac, iPhone and iPad. Wiki-links, backlinks, a graph view, diagrams, math and on-device AI — your notes stay plain files you own.
+A fast, private Markdown knowledge base for Mac, iPhone and iPad. Wiki-links, backlinks, a graph, diagrams, maths and on-device AI — your notes stay plain files you own.
 ```
 
 **Description** (≤4000 chars):
@@ -295,8 +295,23 @@ EXPORT & MORE
 • Multi-tab editing and open-in-new-window
 • Full light and dark support, keyboard-first
 
+SUPPORT THE APP
+Every feature is included for everyone. Backing HelloNotes — a one-off Champion contribution or an annual commercial licence — adds one thing: you can send a support request from inside the app. Nothing else is gated.
+
 Your files stay yours — readable in any editor, syncable with any tool. HelloNotes just makes them a joy to think in.
+
+Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+Privacy Policy: https://hellotham.com/hellonotes/privacy
 ```
+
+> **The EULA link in the Description is not optional.** Guideline 3.1.2(c) has
+> two halves and build 14 was rejected for missing both: the disclosures in the
+> binary (which `SupportSettingsView` renders and `SupportContractTests` guards)
+> **and**, when using Apple's standard EULA, a link to it in the App Description
+> itself. The app can be perfect and still be rejected for the description.
+> Both URLs above return 200 — and note the privacy one takes **no trailing
+> slash**: `…/privacy` is 200, `…/privacy/` is 404. Check with `curl`, never by
+> reading.
 
 **Keywords** (≤100 chars, comma‑separated, no spaces):
 ```
@@ -318,17 +333,36 @@ https://hellotham.com/hellonotes/
 © 2026 Hello Tham
 ```
 
-**Version** / **What’s New in This Version** (for 1.0):
+**Version** / **What’s New in This Version** — for 1.3.2:
 ```
-Initial release.
+HelloNotes runs properly on iPad now. Typing keeps up on a large vault, formatting lives in the system bar above the keyboard, and in portrait the navigation band splits into folders and notes so about a quarter more fits on screen.
+
+A note that has not finished downloading from iCloud no longer opens blank — the editor waits for the file, says which note it is waiting for, and will not save a buffer it never loaded.
+
+Opening a collection now notices what changed while the app was closed, and a folder it cannot read says so instead of quietly going missing.
+
+Also: wiki-links show their display text rather than their target, the graph resolves links written as a folder path, Ask Your Library formats its answers, and the spell checker stops underlining Markdown vocabulary.
 ```
+
+*(For 1.0 this said "Initial release." — it is per-version text and needs
+rewriting for each submission, which is easy to miss because the field keeps its
+previous contents.)*
 
 **App Review Information** (bottom of the page):
 - **Sign-in required:** No.
 - **Notes to reviewer** (paste):
   ```
-  HelloNotes is a local-first Markdown editor. On first launch, click "Open…" and choose any folder of .md files (a demo "SampleVault" ships with the source repo). All notes stay on-device in plain files; no account or network is required for core functionality. The optional Intelligence features default to Apple's on-device Foundation Models (shown only on Apple Intelligence hardware); users may alternatively configure a cloud model provider with their own API key, in which case submitted content goes to that provider under the user's own account.
+  HelloNotes is a local-first Markdown editor. Nothing needs to be set up: a sample collection is bundled in the app and opens by itself on first launch, so the tour, the manual and every feature below are reachable immediately. To use your own notes instead, choose Open… and pick any folder of .md files.
+
+  All notes stay on-device in plain files; no account and no network are required for any core feature. The optional Intelligence features default to Apple's on-device Foundation Models (shown only on Apple Intelligence hardware); a user may instead configure a cloud provider with their own API key, in which case note content goes to that provider under the user's own account.
+
+  IN-APP PURCHASES. Settings ▸ Support ▸ Support HelloNotes shows both products: Champion (a repeatable one-off contribution) and Commercial (an annual auto-renewable subscription). That screen carries the subscription's title, length, price per period, and working links to the Terms of Use (EULA) and the privacy policy. Every feature of the app is included for everyone; the only thing backing it adds is the ability to send a support request from inside the app, and that screen says so.
   ```
+
+  The path in that note is worth keeping accurate — it is how the reviewer finds
+  the purchase screen. `assets/iap-review/` holds a screenshot of it and an
+  82-second recording that walks the same path and follows both policy links
+  into Safari, for the Resolution Center if 3.1.2(c) is raised.
 - **Contact:** your name, phone, email.
 
 ---
