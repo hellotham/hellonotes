@@ -4163,6 +4163,41 @@ other assertion.
   a code span and showed its backticks where its twin did not, and `light_03`
   because it was taken before the front-matter fold was understood.
 
+## 44 · The 3.1.2(c) demonstration, and a word with no space in it (2026-09-03)
+
+App Review asks for two different things about the in-app purchases, and only
+one of them is a screenshot.
+
+**`assets/iap-review/support-screen-ipad.png`** is the Guideline 2.1(b) App
+Review screenshot — one file for both products, because both appear on the one
+screen — retaken against the live App Store so the prices are real. It had to be
+retaken anyway: the previous one predates the support-request gate, so it showed
+a screen that no longer exists.
+
+**`assets/iap-review/support-flow-ipad.mp4`** is the 3.1.2(c) demonstration, and
+it exists because a screenshot cannot show what the guideline actually asks for.
+The wording is *functional* links to the Terms of Use and the privacy policy, and
+function is not a thing a still image has. So the recording follows both: tapping
+Terms of Use loads Apple's standard EULA in Safari, tapping Privacy Policy loads
+`hellotham.com/hellonotes/privacy`, and it returns to the app after each. The
+other four disclosures — title, length, price per period, and the automatic
+renewal sentence — are on screen with live App Store prices.
+
+Following the links is also what found the next defect. The privacy page rendered
+**"HelloNotesreads and writes only the folders you explicitly open"** — one word
+where there should be two. `privacy.astro` ended a line with the `{APP.name}`
+expression and continued the sentence on the next line, and JSX discards the
+newline adjacent to an expression, so the two words met. It had been live on the
+public privacy policy — the one page a reviewer is required to open — for as long
+as the page has existed. The codebase already had the idiom for it (`{' '}`,
+used correctly in `manual/organising.astro`); this line simply never got it.
+
+A scan of every `.astro` file for the same shape — an expression at the end of a
+line with prose continuing below — found exactly one more candidate, and that one
+was already correct. Worth knowing the failure has a shape you can grep for,
+because it is invisible in the source: the line looks perfectly normal, and only
+the rendered page shows the missing space.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown
