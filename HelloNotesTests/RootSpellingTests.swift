@@ -66,3 +66,74 @@ struct RootSpellingTests {
         #expect(CollectionIndexCache.relativePath(of: file, in: root) == "Folder/Note.md")
     }
 }
+
+/// A collection whose *root* is a symlink.
+///
+/// `~/Notes` pointing into iCloud Drive is an ordinary setup, and it opened
+/// completely empty: `contentsOfDirectory(at:)` refuses a symlink at the end of
+/// the path with ENOTDIR, while `Collection.unavailability` — which uses the
+/// `atPath:` variant, and does not — reported the folder as perfectly healthy.
+/// So nothing was wrong, and nothing was there.
+@Suite @MainActor
+struct SymlinkedRootTests {
+
+    private func makeLinkedVault(noteCount: Int = 3) throws -> (link: URL, parent: URL) {
+        let parent = FileManager.default.temporaryDirectory
+            .appending(path: "hn-symroot-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let real = parent.appending(path: "Real", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: real.appending(path: "Sub", directoryHint: .isDirectory),
+                                                withIntermediateDirectories: true)
+        for i in 0..<noteCount {
+            try "# Note \(i)\n".write(to: real.appending(path: "Note \(i).md"),
+                                      atomically: true, encoding: .utf8)
+        }
+        try "# Nested\n".write(to: real.appending(path: "Sub/Nested.md"),
+                               atomically: true, encoding: .utf8)
+        let link = parent.appending(path: "Linked")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        return (link, parent)
+    }
+
+    /// The premise, so a failure below is about the app and not about the
+    /// filesystem: the URL enumerator really does refuse this.
+    @Test func theEnumeratorRefusesASymlinkedDirectory() throws {
+        let (link, parent) = try makeLinkedVault()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: link.path)) != nil,
+                "the path-based variant works, which is why nothing noticed")
+        #expect((try? FileManager.default.contentsOfDirectory(
+            at: link, includingPropertiesForKeys: nil)) == nil,
+                "the URL-based variant is the one that refuses it")
+    }
+
+    @Test func aSymlinkedRootFindsItsNotes() async throws {
+        let (link, parent) = try makeLinkedVault()
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let collection = Collection(rootURL: link)
+        await collection.scanOffMain()
+
+        #expect(collection.notes.count == 4, """
+            a collection reached through a symlink came up empty.
+            state: \(collection.state)
+            notes: \(collection.notes.map(\.fileURL.path).sorted())
+            """)
+        #expect(collection.notes.contains { $0.title == "Nested" },
+                "subdirectories under a symlinked root have to be walked too")
+    }
+
+    /// The notes keep the spelling the collection was opened with, so selection
+    /// and the index cache still match them.
+    @Test func notesKeepTheCollectionsOwnSpelling() async throws {
+        let (link, parent) = try makeLinkedVault(noteCount: 1)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let collection = Collection(rootURL: link)
+        await collection.scanOffMain()
+        let note = try #require(collection.notes.first { $0.title == "Note 0" })
+        #expect(note.fileURL.path.contains("/Linked/"),
+                "got \(note.fileURL.path) — a resolved path here breaks selection and the cache")
+        #expect(CollectionIndexCache.relativePath(of: note.fileURL, in: link) == "Note 0.md")
+    }
+}

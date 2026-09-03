@@ -390,21 +390,47 @@ nonisolated struct LocalTreeSource: TreeSource {
 
     func children(of directory: String) async throws -> DirectoryListing {
         let url = directory.isEmpty ? root : root.appending(path: directory)
+
+        // **`contentsOfDirectory(at:)` refuses a symlink at the end of the path
+        // with ENOTDIR**, even when the link points at a perfectly good
+        // directory. The `atPath:` variant does not, which is why nothing else
+        // in the app ever noticed: `Collection.unavailability` uses that one and
+        // reported the folder as fine, so a vault reached through a symlink —
+        // `~/Notes` pointing into iCloud Drive is the usual shape — passed every
+        // availability check and then failed its very first listing. The
+        // collection opened empty and said nothing.
+        //
+        // Resolved for the **enumeration only**. The resource values still come
+        // from the URLs the enumeration returned, so they stay pre-cached and no
+        // file pays an extra `stat`; only the URL that gets *stored* is rewritten
+        // back to the collection's own spelling of the path. That matters
+        // because every URL comparison in `Collection` — selection, drop
+        // targets, the index cache — is written against `rootURL`, and handing
+        // it a resolved path here would swap one spelling mismatch for another.
+        let resolved = url.resolvingSymlinksInPath()
+        let viaLink = resolved.standardizedFileURL.path != url.standardizedFileURL.path
         let contents = try FileManager.default.contentsOfDirectory(
-            at: url,
+            at: viaLink ? resolved : url,
             includingPropertiesForKeys: Self.resourceKeys,
             options: [.skipsHiddenFiles])
 
         var listing = DirectoryListing()
         listing.children.reserveCapacity(contents.count)
-        for child in contents {
-            guard let values = try? child.resourceValues(forKeys: Set(Self.resourceKeys)) else { continue }
+        for entry in contents {
+            guard let values = try? entry.resourceValues(forKeys: Set(Self.resourceKeys)) else { continue }
+            let child = viaLink ? url.appending(path: entry.lastPathComponent) : entry
             if values.isDirectory == true {
-                let isPackage = (try? child.resourceValues(forKeys: Self.directoryKeys))?.isPackage == true
+                let isPackage = (try? entry.resourceValues(forKeys: Self.directoryKeys))?.isPackage == true
                 listing.children.append(TreeChild(url: child, isDirectory: true,
                                                   isPackage: isPackage))
                 continue
             }
+            // A symlink reports `isDirectory == false` *and*
+            // `isRegularFile == false`, so a symlinked **sub**folder is skipped
+            // here rather than walked. That is deliberate for now: following one
+            // needs cycle detection that survives the walk's checkpoint, and a
+            // loop would be an unbounded walk of someone's vault. The root is
+            // the case that occurs in practice and it is handled above.
             guard values.isRegularFile == true else { continue }
             let isMarkdown = Collection.isMarkdown(child, contentType: nil)
             guard isMarkdown || includesNonNoteFiles else {
