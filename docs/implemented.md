@@ -4229,6 +4229,107 @@ The general rule this leaves: **a build number is free, a version string is a
 promise.** Reusing a marketing version is safe exactly where the artefact is
 addressed by something else, and lossy where the version is the address.
 
+## 46 · Four reports from an iPad, and what each one really was (2026-09-04)
+
+**The cloud badge outlived the download.** `EditorModel` waits for a dataless
+note and then reads it, but `Note.isOnlineOnly` is a value stored when the
+folder was walked. Nothing told it the bytes had landed, so the row claimed the
+note was still in the cloud while it was open on screen. The remote path had
+`adopt(hydrated:)` for precisely this; the iCloud path called nothing.
+
+**The tall shell could not put its band away.** `NavigationSplitView` hands
+column one a toggle for free; the tall shell is a `VStack` and was handed
+nothing, so 320pt of every portrait iPad went to navigation permanently — the
+one shell where what you are reading is the smaller half. Landscape was never
+affected: `shellKind` returns `.tall` only when `height > width`, so a landscape
+iPad is a column shell and already had its own toggle. Both were checked on the
+device rather than reasoned about.
+
+The toggle is a child view (`BandToggle`) rather than an `if` in `ContentView`,
+for the reason `SidebarLayout` already documents: `@Environment` resolves at the
+position of the view that *declares* it, and `ContentView` sits above
+`AdaptiveShell` — so `shell.kind` read there is always `.wide` and the button
+would never have appeared. Second instance of that trap in this file.
+
+**A scan said nothing at the one moment it mattered.** `CollectionConditionBar`
+was gated on `hasSelection` — "the bar explains the open note" — which is true
+of the stale and unavailable cases and exactly wrong for a scan: opening a
+collection, before any note is selected, is precisely when it was suppressed.
+All that remained was a spinner in the sidebar row, and for a vault that walks
+for minutes an indeterminate spinner cannot distinguish progress from a hang,
+which is the only question someone waiting has.
+
+It is a progress bar now, showing counts `WalkProgress` had computed all along
+and never displayed: items seen, folders read, folders remaining, and the folder
+being read. Determinate **only when it can honestly be** — `fraction` is non-nil
+solely when a previous complete run measured that tree, so a first scan shows
+rising counts against an indeterminate bar rather than inventing a percentage. A
+scan that announced itself now also concludes; progress that simply vanishes
+reads exactly like a scan that died.
+
+**The Obsidian picker was handed a path spelled the long way.**
+`/private/var/mobile/…` where the system says `/var/mobile/…` —
+`resolvingSymlinksInPath` normalises towards the short form and never back, so
+the `/private` spelling is the one nothing else produces, handed to a picker
+that resolves it out of process against a File Provider that knows the other.
+`directoryURL` remains a hint rather than an access grant, so this is a
+necessary condition rather than a sufficient one.
+
+## 47 · Opening a cloud collection: the class was wrong, not the code (2026-09-04)
+
+`ResumableTreeWalk` has always known it is latency-bound. A source declares how
+many listings it can usefully have in flight; `RemoteTreeSource` says six; the
+default is **one**, because a real directory listing is a syscall over a warm
+cache and overlapping those buys nothing and costs seek contention.
+
+A vault on iCloud Drive, Dropbox or any other Files provider has a *file path*.
+So it reaches `LocalTreeSource` and inherited the serial default — while every
+listing there is an XPC round trip into the provider's extension, with a network
+fetch behind it for a folder not yet enumerated. N folders, N latencies, laid end
+to end. The comment on `listingConcurrency` even names this cost — "that is the
+whole cost of adding a large cloud folder" — directly above the source that most
+cloud folders actually arrive through.
+
+`LocalTreeSource` reports six for a provider-backed root now, detected by path
+(`/Library/Mobile Documents/`, `/Library/CloudStorage/`) rather than by asking
+the coordinator: the question is asked once per scan and must not itself be a
+round trip. An ordinary folder still reports one, which matters —
+`theWalkIsCompetitiveWithTheEnumeratorOnARealisticVault` exists because routing
+width-1 through the concurrency window once made the local walk about four times
+slower.
+
+**And six in flight is still N/6 round trips.** Every provider can return a
+subtree in a few paginated requests, so `RemoteStore.listRecursively` asks for
+one, defaulting to nil so providers gain it individually:
+
+| Provider | How | ~300 folders |
+|---|---|---|
+| Dropbox | `list_folder` recursive — the call `changes(since: nil,)` already made for its cursor | 3–4 requests |
+| OneDrive | Graph `/delta` walked from the start | a few pages |
+| Google Drive | one query for every folder with `parents`, tree built locally, then files 50 parents at a time | ~8 queries |
+| Box | **declines** | walks, 6 at a time |
+
+Box is the interesting one, because the right answer was not to implement it.
+Its only recursive-shaped call is `/search?ancestor_folder_ids=`, which is
+*eventually consistent* — a vault added moments before can come back short. The
+walk's output is what the collection then believes it contains, so a listing
+that is merely usually complete would silently lose notes: a far worse failure
+than a slow open. It declines in the file, with the reason, so the next reader
+can tell a decision from an omission.
+
+`RecursiveListingCache` fetches once and answers every `children(of:)` from
+memory, deliberately **as a cache rather than a replacement for the walk**:
+building the tree straight from a recursive listing would discard checkpointing,
+incremental publishing, per-directory fault isolation and resumption, all worth
+more on a large interrupted sync than the walk's own bookkeeping. The walk is
+untouched; only its expensive step is free.
+
+Measured rather than asserted: a synthetic source with a provider's latency
+profile at least halves its wall clock when overlapped, and twenty folders cost
+twenty-one listings before the prefetch and one recursive request after, finding
+the same hundred files. None of the four network paths has been exercised
+against a live account — the evidence is shape and round-trip counts.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown
