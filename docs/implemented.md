@@ -3768,6 +3768,53 @@ menus share.
 
 ---
 
+## 42 · The one thing backing the app buys (2026-09-03)
+
+§36 ends "and neither of them gates anything". That is no longer true, and the
+reason is a promise the listing was making that the app could not keep.
+
+App Store Connect described Champion as offering **"priority support requests"**
+— a queue that does not exist anywhere in the product. Nothing ranked one
+request above another, because there was no way to make a request at all. Two
+ways out: build a queue, or stop promising one. What can honestly be offered is
+a *channel*, so there is now an in-app support request, and it is the single
+thing a purchase decides.
+
+Everything the app **does** stays included for everyone. The invariant that
+enforced that was `noFeatureConsultsAPurchase`, which failed the build if any
+file outside the store mentioned an entitlement; it is now
+`onlyTheSupportRequestConsultsAPurchase`, with an allow-list of three files that
+is meant to stay three. The absolute was easy to police and the boundary is
+worth more: a purchase still cannot decide what the app can do.
+
+An allow-list proves nothing about whether the permitted file uses what it
+permits, so a second test asserts the gate is *there* — remove it and the
+allow-list would go on passing quietly.
+
+**The app sends nothing.** `SupportRequestSection` composes a `mailto:` and
+hands it to the user's own mail client, where every word — including the
+diagnostics — can be read before it is sent. There is no endpoint and no
+account, which is what keeps the "Data Not Collected" privacy answer literally
+true. The diagnostics are versions and platform; a test enumerates the things
+that must never appear in them (`/Users/`, `.md`, collection names) because a
+diagnostic block is exactly where that answer quietly stops being true.
+
+The URL is built with `URLComponents` rather than string-joining: a summary
+containing `&` would otherwise truncate the body, and the request would arrive
+empty with the sender blamed for it.
+
+**And the purchase screen stopped saying nothing is gated.** It had said
+"Nothing on this screen unlocks a feature" for as long as that was true, and a
+stale reassurance is worse than none — the same error as the listing's
+"priority". What survives is the claim that still holds: every feature is
+included for everyone.
+
+Verified on the simulator rather than from the source, which caught something no
+test would have: the locked state told the reader the two products were "below"
+when they are above it. It names no direction now.
+
+---
+
 ## 37 · Nothing runs between two keystrokes (2026-09-02)
 
 > *"THERE IS NO CODE IN THE EDITOR LOOP — apart from capturing a key and
