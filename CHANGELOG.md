@@ -5,11 +5,20 @@ one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
-## 1.3.2 — unreleased
+## 1.3.2 — 2026-08-29 (direct download); App Store review pending
 
-*Dated 2026-08-20 when the first builds went to TestFlight. It has not shipped;
-everything below landed in the same version while it was being tested, so it is
-one release rather than several.*
+*Dated from 2026-08-20, when the first builds went to TestFlight: everything
+below landed in the same version while it was being tested, so it is one release
+rather than several.*
+
+*It shipped as a **direct download** on 2026-08-29 —
+[v1.3.2](https://github.com/hellotham/hellonotes/releases/tag/v1.3.2), notarised
+and stapled, and it is what the download button serves today
+(`scripts/check-download-page.sh` verifies that the page's version, size and
+checksum match the file it actually hands you). The **App Store** half of the
+same version has not been released yet. This heading said "unreleased" for a
+week after half of it had shipped, which is the same class of mistake as
+`site.ts` announcing a release that had not happened — see implemented.md §33.*
 
 ### The iPad is a first-class place to write
 
