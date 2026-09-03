@@ -159,9 +159,34 @@ nonisolated enum CollectionIndexCache {
 
     /// Every spelling of `root` a file URL under it might carry, each ending in
     /// a separator so `"Notes"` cannot prefix-match `"NotesArchive"`.
+    ///
+    /// **`resolvingSymlinksInPath` is not enough, and it fails in the direction
+    /// that surprises you.** It normalises *towards* the short name: given
+    /// `/private/var/x` it returns `/var/x`, not the other way round. So asking
+    /// it for "the other spelling" of a root already written as `/var/…` returns
+    /// the same string, and the set had one element where it needed two.
+    ///
+    /// That is exactly the shape CI failed in. `FileManager.temporaryDirectory`
+    /// reported the root as `/var/folders/…` while
+    /// `contentsOfDirectory(at:)` reported every file under it as
+    /// `/private/var/folders/…`, no prefix matched, and a merge could not place
+    /// a single note inside the collection it had just walked — so it kept a
+    /// note that had been deleted, on the grounds that it might live somewhere
+    /// the walk had not reached.
+    ///
+    /// The long form is therefore added by hand. `/private` in front of a path
+    /// that is not `/var` or `/tmp` names nothing and simply never matches.
     static func rootPrefixes(_ root: URL) -> [String] {
-        let forms = Set([root.standardizedFileURL.path,
-                         root.resolvingSymlinksInPath().standardizedFileURL.path])
+        var forms = Set<String>()
+        for base in [root.standardizedFileURL.path,
+                     root.resolvingSymlinksInPath().standardizedFileURL.path] {
+            forms.insert(base)
+            if base.hasPrefix("/private/") {
+                forms.insert(String(base.dropFirst("/private".count)))
+            } else {
+                forms.insert("/private" + base)
+            }
+        }
         return forms.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
     }
 
