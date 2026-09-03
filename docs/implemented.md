@@ -3702,6 +3702,11 @@ Three checks were written here. The one that shipped is the one that could fail.
 
 ## 36 · Two ways to back the app, and neither of them gates anything (2026-09-02)
 
+> **Superseded in part by [§42](#42--the-one-thing-backing-the-app-buys-2026-09-03).**
+> Exactly one thing consults a purchase now — an in-app support request — and
+> `noFeatureConsultsAPurchase` is `onlyTheSupportRequestConsultsAPurchase`.
+> Everything below about the *products* still holds.
+
 App Review rejected build 14 under **guideline 3.1.2(c)**: the binary sold an
 auto-renewable subscription and had no purchase screen at all. The subscription
 existed in App Store Connect; nothing in the app had ever mentioned it.
@@ -3749,7 +3754,9 @@ is a rejection. It was caught by `curl`, not by reading.
 **Nothing is gated, and that is tested.** No feature consults a purchase —
 `noFeatureConsultsAPurchase` walks every Swift file outside the store and its own
 screen and fails if any of them so much as mentions `hasCommercialLicence` or
-`championCount`. A paywall cannot be added by accident.
+`championCount`. A paywall cannot be added by accident. *(§42: one thing does
+now — a support request, which is a channel rather than a feature. The test
+became an allow-list of three files and still fails for anything else.)*
 
 **A spinner that never stops is a lie.** Run against the live App Store, the
 newly created Champion product was simply absent — propagation takes hours — and

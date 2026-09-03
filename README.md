@@ -40,7 +40,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - A directional **Graph** view (arrows, focus tracing, whole-collection or N-links-around-a-note scope) and a content-based **Mind Map** of a note's ideas (sections → branches, bullets → leaves, linked notes → jump-off chips).
 
 **Organise & find**
-- One collapsible **sidebar** holding every place: **Recents** and **Bookmarks** pinned above each open collection, which expands into its own folder tree. Apple Notes' account-then-folders arrangement, and the reason the window has exactly one show/hide control — see [docs/shell-chrome.md](docs/shell-chrome.md).
+- One collapsible **sidebar** holding every place: **Recents** and **Bookmarks** pinned above each open collection, which expands into its own folder tree. Apple Notes' account-then-folders arrangement, and the reason the window has exactly one show/hide control. Where the window is *taller than it is wide* — an iPad in portrait — that navigation becomes a band across the top and splits into two panes, Finder-style: folders on the left, the notes inside the selected one on the right. Both are the same tree; the band is simply too wide and too short for one list. See [docs/shell-chrome.md](docs/shell-chrome.md).
 - An **inspector** answering "what is this, and what touches it?" — Outline · Tags · References · Properties · History, reopening on its last-used tab. Its five tabs are selected from the toolbar directly above it (Pages' `Format`/`Document` pattern), so the panel itself carries no chrome.
 - The note's title is shown **inline above the body as its H1** and renamed in place, which renames the file and rewrites every `[[wiki-link]]` to it; the caret crosses between title and body as one flow.
 - Full-text search with snippets (cross-collection by design, from an always-expanded field beside the sidebar — ⌥⌘F), Open Quickly (⇧⌘O), nested `#tags` (with autocomplete) **and front-matter `tags:` — both spellings count, so an Obsidian vault's tags are visible here**, bookmarks, daily notes, and templates.
@@ -52,9 +52,12 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **Suggest as I type** *(Mac, off by default)* — ghost text after the cursor, ⌥⇥ to accept. On-device only, and never part of the note until accepted: it is drawn, never stored, so it cannot reach a save, the index or a Git diff.
 - **Ask Library** — retrieval chat grounded in your notes, with citations you can jump to. An agentic **Assistant** with tools (search, read, edit-with-approval, web search/fetch), skills and deep research.
 - **All of the above run on iPhone and iPad too**, except the palette and typing suggestions.
-  iPad carries the menu bar and its shortcuts, file tabs, a keyboard format bar, and the
-  inspector over the note rather than beside it — an iPad is never wide enough for a third
-  column, and a threshold that decides whether a panel *may* open is a threshold that hides it.
+  iPad carries the menu bar and its shortcuts, file tabs, and the inspector over the note
+  rather than beside it — an iPad is never wide enough for a third column, and a threshold
+  that decides whether a panel *may* open is a threshold that hides it. Formatting lives in
+  **the system's own bar above the keyboard** — the floating shortcuts row on iPad, an
+  accessory bar on iPhone — so it costs the app no screen space, appears with a hardware
+  keyboard too, and shows whenever there is a cursor rather than following the view mode.
 - Bring your own model: **local** (Apple Foundation Models, MLX, Ollama, LM Studio) or **your own cloud API key** — Anthropic, Gemini, OpenAI, Mistral, Groq, OpenRouter, xAI (Grok), DeepSeek, Cerebras, Together AI, Perplexity, and Ollama Cloud. Keys live in the Keychain; cloud providers are off until you configure one.
 - **The model list is asked for, not remembered.** Fourteen of the sixteen providers publish one, and **Refresh** pulls what your key can actually reach rather than a table that goes stale. Eight of those also state each model's context window, which the app then *uses* — so a million-token model is read as one. Temperature, context budget and reply length are settable per provider, over the range that provider genuinely accepts. Where a provider publishes nothing, Settings says so rather than presenting a fallback as a fact.
 
@@ -81,6 +84,10 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - Accessibility: VoiceOver labels throughout, a **headings rotor** in the editor on both platforms, and Reduce Motion support.
 
 > WebView policy: the *editing path is 100% native TextKit 2*. A `WKWebView` appears only in read-only rendering surfaces — the macOS/iOS GFM **Preview** and the **Marp slides** preview — never in the editor itself.
+
+**Free, and what backing it adds**
+- Every feature is included for everyone. Two voluntary products — **Champion** (a one-off contribution, repeatable and counted) and **Commercial** (an annual licence for using it at work) — and the only thing either unlocks is an **in-app support request**, which is a channel to the person who makes it rather than a faster queue. `SupportContractTests` fails the build if anything else starts consulting a purchase.
+- The support request composes a message and hands it to your own mail app; HelloNotes sends nothing itself and includes nothing about your notes — app and system versions only.
 
 ## 🏗️ Architecture at a glance
 A strict **4-layer architecture** keeps macOS and iOS sharing everything but the shell:

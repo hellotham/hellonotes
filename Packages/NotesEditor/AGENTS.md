@@ -18,9 +18,9 @@ GitHub-identical Preview + parity tests).
 All three are run **from the repository root**, not from this directory.
 
 ```bash
-swift test --package-path Packages/NotesEditor                 # 401 tests, 31 suites
+swift test --package-path Packages/NotesEditor                 # 402 tests, 31 suites
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'           # 381 tests — run these too
+  -destination 'platform=iOS Simulator,name=HN-iPad'           # 383 tests — run these too
 # ^ prints THREE bundle summaries (169/12, 18/4, 194/13). The total is their sum;
 #   reading only the last one says "194 in 13" and looks exactly like two thirds
 #   of the suite having silently stopped running.

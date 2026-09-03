@@ -137,10 +137,13 @@ struct ShellContractTests {
             let pointer = ShellContext(kind: kind, size: CGSize(width: scene.width, height: scene.height),
                                        paneWidth: paneWidth, prefersTouch: false)
 
-            #expect(!touch.showsFormatBar,
-                    "\(scene.name): touch editing uses the keyboard accessory bar, not a format bar")
-            #expect(pointer.showsFormatBar == (paneWidth >= ShellMetrics.formatBarMinPane),
-                    "\(scene.name): pane \(Int(paneWidth))")
+            // **The format-bar assertions are gone with the format bar.**
+            // `showsFormatBar` outlived every view that read it: formatting is
+            // the system's shortcuts bar on touch and the Format menu on the
+            // Mac, and `shell-chrome.md` D1 ("one row of chrome, ever") is why
+            // there is no pane-level bar to gate. A predicate with a test and
+            // no implementation is worse than neither — it reads as coverage.
+            // What formatting actually does is `EditorToolbarContractTests`.
             #expect(touch.tabBarHeight >= 44, "\(scene.name): HIG touch target")
             // Decision 12 — below 960pt there must be a way back to the library.
             #expect(pointer.needsLibraryAffordance == (kind == .compact),

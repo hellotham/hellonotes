@@ -127,8 +127,8 @@ middle of a code editor, and a Markdown *editor* is no different. Editing uses t
 |---|---|---|---|---|---|
 | **Reading** | hidden, fully rendered | fixed measure, centred | break out | none | prose |
 | **Editing** (live) | revealed at the caret | proportional to pane | full pane | format / accessory bar | prose |
-| **Source** | all visible, unstyled | proportional, or off → h-scroll | n/a — plain text | format bar | monospace |
-| **Split** | Editing \| Reading | each half by its own rule | each half | format bar | both |
+| **Source** | all visible, unstyled | proportional, or off → h-scroll | n/a — plain text | Format menu · system bar | monospace |
+| **Split** | Editing \| Reading | each half by its own rule | each half | Format menu · system bar | both |
 
 ---
 
@@ -233,14 +233,24 @@ compress*, and the caret must stay visible above the keyboard.
 
 | Context | Placement | Height | Contents |
 |---|---|---|---|
-| Pointer · pane ≥ 560 · Edit | persistent format bar, top of each pane | 36 | style · lists · link · **insert: table, code, math, Mermaid, callout, image** |
-| Pointer · pane < 560 | format bar collapses to overflow ⋯ | 36 | same set, one menu deep |
+| Pointer (any pane width) | **no bar** — the **Format** menu | 0 | style · lists · link · insert: table, code, math, Mermaid, callout, image |
+| Touch | **the system's own bar above the keyboard** | 0 to us | the floating shortcuts row on iPad, an `inputAccessoryView` on iPhone |
 | Pointer · any size | window toolbar (native) | 52 | mode switcher · find · inspector toggle · split pane |
 | Pointer · always | menu bar — Format menu | — | every command, keyboard-first |
 | Touch · editing | **keyboard accessory bar** above the keyboard | 44 | scrolling row of the same actions |
 | Touch · reading | none | — | mode switcher in the nav bar only |
 
-Two bars, two scopes: the window toolbar acts on the **document**, the pane's format bar on the
+**There is no pane-level format bar, and there was never a view for one.**
+`ShellMetrics.formatBar`, `formatBarMinPane` and `ShellContext.showsFormatBar`
+described one for a while and nothing read them — a predicate with a test and no
+implementation, which reads as coverage and is worse than neither. They are
+gone. `shell-chrome.md` D1 is the reason there is no such bar to gate: one row
+of chrome, ever. Formatting is the **Format** menu with a pointer and the
+system's shortcuts bar with a finger, which costs the app no row at all and
+appears with a hardware keyboard too. What it actually does is asserted by
+`EditorToolbarContractTests`.
+
+Historically: two bars, two scopes — the window toolbar acted on the **document**, the pane's format bar on the
 **selection**. The toolbar is always a shortcut, never the only route.
 
 ---

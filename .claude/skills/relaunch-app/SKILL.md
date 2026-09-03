@@ -116,7 +116,7 @@ launching. Work around it rather than paying for it repeatedly:
 
   It quits the user's app first (gracefully — it may hold unsaved edits), runs
   the suite, and kills any test host afterwards whatever the result. The whole
-  suite is ~2s and 119 tests; scope it with `-only-testing:` only if you have a
+  suite is ~8s and 425 tests; scope it with `-only-testing:` only if you have a
   reason.
 
 - **Why by hand goes wrong.** The bundle is *injected* into the app, so the test

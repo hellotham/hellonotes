@@ -7,8 +7,11 @@
 //  Is there a pointer? — asked of the hardware, not of the operating system.
 //
 //  `AdaptiveShell` takes `prefersTouch`, and it does more than size hit targets:
-//  `ShellContext.showsFormatBar` is `!prefersTouch && paneWidth >= …`, so it
-//  **removes a region**, and `tabBarHeight` changes with it. The Mac passed
+//  `tabBarHeight` changes with it, and so does the floor a note row may be
+//  compressed to (`noteRowTouchMinimum` vs `noteRowPointerMinimum`) — a finger
+//  needs 44pt where a pointer needs 24, which is nearly half the rows a short
+//  band can show. It used to decide a format bar too, until that bar turned out
+//  never to have been built. The Mac passed
 //  `false` and the iPad passed `true`, both hard-coded — so a Mac window and an
 //  iPad of the same size rendered different shells, which the layout contract
 //  forbids in as many words: chosen by the axis of abundance, *never by device*.

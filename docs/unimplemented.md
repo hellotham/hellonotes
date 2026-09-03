@@ -53,6 +53,14 @@
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): flush-on-quit handshake; atomic assistant writes; surfaced file-operation failures (create/rename/duplicate/delete/folder/move) + partial-rename link-rewrite reporting; export-error alerts; off-main reconcile read; no-config-wipe persist; serialized git status/history/content reads.*
 *Resolved and moved to [implemented.md §7](implemented.md#7--post-review-fix-pass-2026-07-19): `createRepository`/`cloneRepository` routed through the git FIFO queue; serialized `EditorModel` writes (no stale-on-quit race).*
 
+- 🟡 **A symlinked *subfolder* inside a vault is skipped, not walked** — a
+  symlink reports neither `isDirectory` nor `isRegularFile`, so
+  `LocalTreeSource.children(of:)` falls through both branches and its contents
+  never enter the index. The *root* being a symlink is handled (§41); a symlink
+  further down is not. **Why it is left:** following one needs cycle detection
+  that survives the walk's checkpoint, and a loop is an unbounded walk of
+  someone's vault. **Fix:** a visited-set of resolved directory paths, persisted
+  with the checkpoint so a resumed walk cannot re-enter a cycle.
 - 🟡 **Assistant edit vs. open editor buffer** — the assistant's writes are now atomic, but if the same note is open in the editor with unsaved edits, the change still races the editor's autosave/reconcile (the write goes to disk, not through the open `EditorModel`). Reconciliation raises a conflict in the common case, but a narrow window remains. **Fix:** route assistant writes through the open buffer when the note is being edited.
 - ✅ ~~**`ChatSessionStore` write is `try?`**~~ — resolved (§20): save/clear failures now report through the assistant's `errorText`, except `fileNoSuchFile` on clear (an empty conversation).
 
@@ -130,9 +138,14 @@ decisions are not:
 - 🟡 **Manual pane splitting** (decision 2) — `ShellMetrics.maxPanes` computes
   the ceiling (`min(4, pane/320)`) and the contract test asserts it, but there is
   no split command and no second pane. Today: one pane, plus tabs.
-- 🟡 **The persistent format bar** (decision 3) — `ShellContext.showsFormatBar`
-  resolves the rule (pointer, pane ≥560, editing) and is tested; the bar itself
-  isn't built. Formatting is still menu- and shortcut-driven.
+- ✅ ~~**The persistent format bar** (decision 3)~~ — **superseded, not built.**
+  `ShellContext.showsFormatBar` resolved the rule and was tested while no view
+  ever read it, which reads as coverage and is worse than neither; the predicate
+  and its constants are gone (§41). Formatting is the **Format** menu with a
+  pointer and **the system's own bar above the keyboard** with a finger — the
+  floating shortcuts row on iPad, an `inputAccessoryView` on iPhone. That costs
+  the app no row at all, which `shell-chrome.md` D1 ("one row of chrome, ever")
+  wanted, and it appears with a hardware keyboard too.
 - 🟡 **Column widths remembered per window** (decision 4) — dragging and
   collapsing work and are clamped to the contract's floors and caps, but only
   via the system's own state restoration; nothing is stored deliberately.

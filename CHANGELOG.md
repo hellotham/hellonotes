@@ -5,7 +5,81 @@ one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
-## 1.3.2 — 2026-08-20
+## 1.3.2 — unreleased
+
+*Dated 2026-08-20 when the first builds went to TestFlight. It has not shipped;
+everything below landed in the same version while it was being tested, so it is
+one release rather than several.*
+
+### The iPad is a first-class place to write
+
+**Typing keeps up.** On a 2,000-note vault in iCloud, every keystroke was doing
+work that had nothing to do with the keystroke: two whole-document parses, a
+pair of syscalls per sidebar row, spell checking that blocked on a cross-thread
+lock, and a cache flush on every save that also threw away the document being
+typed into. Worst-case cost per keystroke went from **11.90 ms to 0.68 ms** on a
+120 KB note. Nothing of ours now runs between two keystrokes.
+
+**Note text is sized for the platform it is on.** It was 16pt everywhere — a
+macOS number, and a point *below* iOS's own body size, so notes read smaller
+than the app's own labels. On iPhone and iPad it now follows the system Text
+Size as well, which it never did before.
+
+**Formatting moved into the system's own bar** above the keyboard: the floating
+shortcuts row on iPad, an accessory bar on iPhone. It costs no screen space,
+appears with a hardware keyboard, and shows whenever there is a cursor instead
+of following the view mode.
+
+**In portrait, the navigation band is two panes** — folders on the left, the
+notes inside the selected one on the right, the way Finder does it. Rows carry
+their date in a trailing column rather than on a second line, and are as tall as
+what is in them: about a quarter more of your notes on screen, on both
+platforms.
+
+**Scroll past the end of a note**, so the last line is not stuck against the
+bottom of the window. On the Mac too.
+
+### Your notes, and the truth about them
+
+**A note that cannot be read is no longer treated as an empty note.** Opening
+one that had not finished downloading showed a blank editor — and typing into
+that blank could overwrite the real note on the next autosave. The editor now
+waits for the file, says which note it is waiting for, and refuses to save a
+buffer it never loaded. Your edit is kept, not discarded.
+
+**Opening a collection notices what changed while the app was closed.** It reads
+its index for the first frame and then checks the folder, so the list is
+immediate *and* right.
+
+**Rescan Collection works on a collection that already has notes.** It did
+nothing at all before — one folder the app could not read discarded the whole
+pass in silence, and closing and re-adding the collection was the only repair.
+
+**A folder that cannot be read now says which one, and why.** It used to report
+"is being re-indexed", which was untrue — nothing was running — and never went
+away.
+
+**A vault reached through a symlink opens.** It came up empty, and reported
+itself perfectly healthy while doing so.
+
+### Backing HelloNotes
+
+Every feature is included for everyone. Two voluntary products — **Champion**, a
+repeatable one-off contribution, and **Commercial**, an annual licence for using
+it at work — and the only thing either one adds is an **in-app support request**:
+a way to reach the person who makes it. It composes the message and hands it to
+your own mail app, so nothing is sent by HelloNotes and nothing about your notes
+goes with it.
+
+### A collection to start from
+
+The app ships with one: a short tour and the user manual, in real Markdown files
+you can edit, break or delete. Close it like any other collection; reopen it
+from **File ▸ Open Default Collection**.
+
+---
+
+## 1.3.2 — 2026-08-20 · first TestFlight builds
 
 HelloNotes runs on iPad properly rather than nominally, and one rendering fix
 turns out to have affected the Mac just as much.

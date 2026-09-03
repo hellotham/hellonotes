@@ -33,7 +33,7 @@ xcodebuild build -project HelloNotes.xcodeproj -scheme HelloNotes \
 ## Test
 
 ```bash
-./scripts/run-tests.sh                                     # app suite: 374 tests, 46 suites
+./scripts/run-tests.sh                                     # app suite: 425 tests, 56 suites
 swift test --package-path Packages/NotesEditor             # editor, macOS: 401
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
   -destination 'platform=iOS Simulator,name=HN-iPad'       # editor, iOS: 381

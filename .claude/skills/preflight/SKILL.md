@@ -43,10 +43,10 @@ The slow gates are **named, not run** — they take minutes and one of them need
 the user's app closed:
 
 ```bash
-./scripts/run-tests.sh                                     # 374 app tests, 46 suites
-swift test --package-path Packages/NotesEditor             # 401
+./scripts/run-tests.sh                                     # 425 app tests, 56 suites
+swift test --package-path Packages/NotesEditor             # 402
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'       # 381 — THREE summaries, sum them
+  -destination 'platform=iOS Simulator,name=HN-iPad'       # 383 — THREE summaries, sum them
 scripts/check-download-page.sh                             # live page vs what latest serves
 ```
 

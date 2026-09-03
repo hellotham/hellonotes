@@ -98,7 +98,6 @@ enum ShellMetrics {
     static let insets: CGFloat = 16
 
     // Chrome — definite heights (S3)
-    static let formatBar: CGFloat = 36
     static let statusBar: CGFloat = 28
     static let tabBarPointer: CGFloat = 32
     static let tabBarTouch: CGFloat = 44
@@ -108,10 +107,6 @@ enum ShellMetrics {
 
     /// The navigation band across the top of a tall shell.
     static let bandIdeal: CGFloat = 320
-
-    /// The format bar is persistent from this pane width up (decision 3);
-    /// below it, the same commands collapse into an overflow menu.
-    static let formatBarMinPane: CGFloat = 560
 
     // MARK: Shell thresholds (Part 4)
 
@@ -351,9 +346,6 @@ struct ShellContext: Equatable, Sendable {
     var paneWidth: CGFloat = 1470
     /// Touch sizing: bigger hit targets, no hover-only affordances.
     var prefersTouch: Bool = false
-
-    /// Decision 3 — a persistent format bar needs a pointer and room.
-    var showsFormatBar: Bool { !prefersTouch && paneWidth >= ShellMetrics.formatBarMinPane }
 
     /// Tab bars are never removed; they only change height (HIG: 44pt touch).
     var tabBarHeight: CGFloat { prefersTouch ? ShellMetrics.tabBarTouch : ShellMetrics.tabBarPointer }

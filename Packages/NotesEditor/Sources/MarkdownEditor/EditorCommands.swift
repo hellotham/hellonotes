@@ -362,9 +362,12 @@ public extension MarkdownFormatting where Self: UITextView {
             inputAssistantItem.trailingBarButtonGroups = [headings]
         } else {
             // iPhone has no shortcuts bar. An accessory above the keyboard is
-            // the native answer there, and it cannot overlap the app's bottom
-            // bar because `KeyboardOverlap` insets that bar by the keyboard's
-            // whole frame — accessory included.
+            // the native answer there, and it does not overlap the app's bottom
+            // bar because SwiftUI's own keyboard safe area accounts for an
+            // accessory view. (An earlier `KeyboardOverlap` measured the
+            // keyboard frame by hand; it existed only to compensate for a
+            // hand-rolled accessory on *iPad*, which the shortcuts bar replaced,
+            // and it is gone.)
             let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
             bar.autoresizingMask = .flexibleWidth
             bar.items = inline.barButtonItems + blocks.barButtonItems

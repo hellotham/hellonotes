@@ -55,4 +55,6 @@ The [[Start Here|tour]] shows you the app. This is the reference.
 
 > [!note] On iPhone and iPad
 > The same commands live in the toolbar and the ⋯ menu. A hardware keyboard
-> gets the shortcuts above.
+> gets the shortcuts above. Formatting is on the bar above the keyboard — the
+> floating shortcuts row on iPad, its own bar on iPhone — and appears whenever
+> there is a cursor, in any editing view.

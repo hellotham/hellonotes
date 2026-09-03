@@ -27,5 +27,6 @@ Your commit identity, and accounts for hosts you push to.
 
 ## Support
 
-HelloNotes is free, and paid for by the people who choose to. See
-[[Manual/Supporting HelloNotes]].
+HelloNotes is free and every feature is included for everyone; it is paid for
+by the people who choose to. Backing it also lets you send a support request
+from inside the app. See [[Manual/Supporting HelloNotes]].

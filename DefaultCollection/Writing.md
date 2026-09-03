@@ -17,6 +17,12 @@ some text with `**bold**` and `*italic*` in it.
 Formatting has shortcuts where you would expect: **⌘B** for bold, **⌘I** for
 italic, **⇧⌘7** for a bulleted list, **⇧⌘9** for a numbered one.
 
+Without a keyboard, the same commands are on the bar above it. On iPad that is
+the row iPadOS floats over the keyboard — bold, italic and the rest sit beside
+the language selector and the dictation button, and they stay there when a
+hardware keyboard is attached. On iPhone they are on a bar of their own directly
+above the keys. On the Mac they are in the **Format** menu.
+
 ## The four views
 
 | View | What it is for |

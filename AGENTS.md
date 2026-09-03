@@ -27,7 +27,7 @@
 # Commands
 - Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification.
 - Editor tests (macOS): `swift test --package-path Packages/NotesEditor`
-- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 381 tests in 29 suites). It runs **three bundles** and prints a summary line for each — 169/12, 18/4, 194/13 — so the total is their *sum*; reading only the last one says "194 in 13" and looks like two thirds of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-26-5`.
+- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 383 tests in 29 suites). It runs **three bundles** and prints a summary line for each — 18/4, 169/12, 196/13 — so the total is their *sum*; reading only the last one says "196 in 13" and looks like two thirds of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-26-5`.
 - **Look at the iOS app without the user's device**: `xcodebuild build -destination 'platform=iOS Simulator,name=HN-iPad'`, then `xcrun simctl install HN-iPad <app>`, `xcrun simctl launch HN-iPad com.hellotham.HelloNotes`, and `xcrun simctl io HN-iPad screenshot out.png` — which is readable. A whole iPad session was shipped blind (a keyboard bar that never rendered, a zero-width one, five inspector toggles that could not work at that width) because nobody looked. `simctl` has no tap injection, so driving the UI still needs the live panel — which needs `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` from the user.
 - Is it running on the device? `xcrun devicectl device info processes --device <id> | grep "HelloNotes.app/HelloNotes"` — **capital H**. A lower-cased pattern matches nothing and reads exactly like a crash-on-launch; an hour went into diagnosing a crash that never happened. Cross-check against `--domain-type systemCrashLogs`: no new `.ips` means no crash, whatever the process list appears to say.
 - Layout contract: `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -only-testing:HelloNotesTests/ShellContractTests` (~2s, headless — run it after any shell or representable change).
@@ -35,7 +35,7 @@
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 374 tests in 46 suites, ~4s.
+  afterwards whatever the result. 425 tests in 56 suites, ~8s.
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **58 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
@@ -181,7 +181,7 @@
   changes the user's state.
 - **Read every summary a command prints.** The iOS editor suite emits **three**
   bundle lines (169/12, 18/4, 194/13); `tail -3` shows the last one, and
-  reporting "194 of 381 tests ran" from it invented a coverage hole that did not
+  reporting "196 of 383 tests ran" from it invented a coverage hole that did not
   exist. Same failure shape as the `> 600` spec guard: a number that is true of
   a fragment reads exactly like a number that is true of the whole.
 - **Look at the artefact before describing it.** Four claims in one session came
@@ -204,5 +204,46 @@
   XPC process (`com.apple.appkit.xpc.openAndSavePanelService`), and keystrokes
   aimed at it land on the app instead — where `⌘⇧G` is **Graph View**, so a
   mistimed "go to folder" silently opens a graph window over the user's vault.
+- **One directory, two names — and Foundation only ever offers you one.**
+  `/var/x` and `/private/var/x` are the same folder; `standardizedFileURL` does
+  **not** unify them (it resolves `.` and `..` and stops), and
+  `resolvingSymlinksInPath` normalises *towards the short form* — given
+  `/private/var/x` it returns `/var/x`, never the reverse. So "ask for the other
+  spelling" silently returns the same string. Compare paths through
+  `CollectionIndexCache.rootPrefixes(root)`, which carries both by hand, and
+  never per file: resolving symlinks per note is the syscall-per-file trap
+  `ResumableTreeWalk` already warns about. When no prefix matches,
+  `relativePath` returns an **absolute** path, and the cache will happily store
+  it — that is how a collection came to disagree with itself about the names of
+  its own notes.
+- **`contentsOfDirectory(at:)` refuses a symlink at the end of a path** with
+  ENOTDIR; `contentsOfDirectory(atPath:)` follows it. `Collection.unavailability`
+  uses the second, so a vault reached through a symlink passed every health check
+  and then failed its first listing — healthy, and empty. Resolve for the
+  *enumeration* only and keep the collection's own spelling on the URLs you
+  store, or you trade one mismatch for another.
+- **"The same notes" is a set, not an array.** `CollectionIndexCache.notes(for:)`
+  sorts a **Dictionary's** values, and dictionary order depends on the process's
+  hash seed — so two notes sharing a modification date come out in a different
+  order on a different run. Comparing pictures as `[Note]` called that a change
+  and rebuilt the sidebar on every launch. Ties are ordinary: anything written,
+  copied or checked out in one batch shares a date.
+- **A green test can be resting on the defect you are about to remove.** With
+  absolute paths in the cache, `notes(for:)` discarded every record and
+  `activate` fell through to a synchronous scan — so the test for the
+  *asynchronous* verification never had to wait for it, and passed. Fixing the
+  cache made it fail. When a fix breaks an unrelated-looking test, suspect the
+  test was passing for the wrong reason.
+- **Exactly one thing consults a purchase, and it is not a feature.** Backing the
+  app buys an in-app **support request** — a channel, never a queue, and never
+  "priority" (the listing promised that and no queue existed).
+  `SupportContractTests.onlyTheSupportRequestConsultsAPurchase` allows three
+  files and is meant to stay three; a second test asserts the gate is actually
+  present, because an allow-list proves nothing about whether the file uses what
+  it permits. The purchase screen must not claim nothing is gated.
+- **`DefaultCollection/` ships inside the binary.** It is the tour and the user
+  manual, and a reviewer reads it. When behaviour changes, its notes are part of
+  the change — `Manual/Supporting HelloNotes.md` said "nothing is locked" for a
+  while after something was.
 - Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts).
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.
