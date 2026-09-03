@@ -88,6 +88,27 @@ final class StoreService {
     /// When the active licence renews or lapses, if the App Store said.
     private(set) var commercialRenewal: Date?
 
+    /// Whether an in-app support request can be sent.
+    ///
+    /// **The one thing a purchase decides.** Everything the app *does* is
+    /// included for everyone — the editor, the index, the Intelligence
+    /// features, all of it — and `SupportContractTests` fails the build if any
+    /// of that starts consulting a purchase. What backing buys is a channel to
+    /// the person who makes it, which is a promise about someone's time rather
+    /// than a capability withheld from the binary.
+    ///
+    /// Stated as one property so there is one answer, and so the test that
+    /// polices the boundary has a single name to allow.
+    var canRequestSupport: Bool { championCount > 0 || hasCommercialLicence }
+
+    /// How the entitlement was earned, for the request itself to quote. `nil`
+    /// when there is none.
+    var supportEntitlement: String? {
+        if hasCommercialLicence { return "Commercial licence" }
+        if championCount > 0 { return "Champion ×\(championCount)" }
+        return nil
+    }
+
     /// Set after a purchase completes, for a transient thank-you.
     var lastThanks: String?
     /// Set when a purchase or restore fails in a way worth showing.

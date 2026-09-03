@@ -45,13 +45,20 @@ struct SupportSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Text("HelloNotes is free, and everything in it is included. Nothing on this screen unlocks a feature, removes a limit, or changes how the app works.")
+                // **This used to say "nothing on this screen unlocks a
+                // feature", and that is no longer true.** One thing does: a
+                // support request. Everything the app *does* is still included
+                // for everyone, which is the claim worth keeping precise —
+                // overstating it is how a listing promises "priority support"
+                // that no queue anywhere implements.
+                Text("HelloNotes is free, and every feature is included for everyone. Backing the app adds one thing: you can send a support request from inside it.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
             championSection
             commercialSection
+            SupportRequestSection(store: store)
 
             Section {
                 Link(destination: Self.eulaURL) {

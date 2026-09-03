@@ -120,25 +120,109 @@ struct SupportContractTests {
 
     /// Nothing is gated. If a feature ever starts consulting a purchase, this
     /// is where it gets caught.
-    @Test func noFeatureConsultsAPurchase() throws {
+    /// **Exactly one thing is gated, and it is not a feature of the app.**
+    ///
+    /// Backing HelloNotes buys a support request — a channel to the person who
+    /// makes it. Everything the app *does* stays included for everyone, and
+    /// this fails the build the moment anything else starts asking whether a
+    /// purchase was made.
+    ///
+    /// The allow-list is three files and is meant to stay three. Adding a
+    /// fourth is the decision this test exists to make deliberate.
+    @Test func onlyTheSupportRequestConsultsAPurchase() throws {
         let root = URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "HelloNotes")
+        let allowed: Set<String> = [
+            "StoreService.swift",           // owns the entitlement
+            "SupportSettingsView.swift",    // the purchase screen itself
+            "SupportRequestSection.swift",  // the one gated affordance
+        ]
         let readers = try FileManager.default
             .enumerator(at: root, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL }
             .filter { $0.pathExtension == "swift" }
-            .filter { url in
-                // The store and its own screen are allowed to mention it.
-                url.lastPathComponent != "StoreService.swift"
-                    && url.lastPathComponent != "SupportSettingsView.swift"
-            }
+            .filter { !allowed.contains($0.lastPathComponent) }
             .filter { url in
                 guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-                return text.contains("hasCommercialLicence") || text.contains("championCount")
+                return text.contains("hasCommercialLicence")
+                    || text.contains("championCount")
+                    || text.contains("canRequestSupport")
             } ?? []
         #expect(readers.isEmpty,
                 "a purchase must not decide what the app does: \(readers.map(\.lastPathComponent))")
+    }
+
+    /// …and the gate is actually there.
+    ///
+    /// The negative half of the test above: an allow-list that permits a file
+    /// to consult a purchase proves nothing about whether it does. If the gate
+    /// is ever removed, the allow-list would go on passing quietly.
+    @Test func theSupportRequestIsGatedAndSaysSo() throws {
+        let section = try Self.source("UI/SupportRequestSection.swift")
+        #expect(section.contains("store.canRequestSupport"),
+                "the support request must consult the entitlement")
+        // The requirement is that it *explains* the condition rather than
+        // simply refusing — a disabled control with no reason is the shape of a
+        // bug, not of a paid channel.
+        #expect(section.contains("Champion") && section.contains("commercial licence"),
+                "an unentitled user has to be told which of the two unlocks this")
+        // Caught by looking at the screen: it said the two options were
+        // "below" and they are above. A sentence that names a direction is a
+        // sentence that goes stale when the layout moves.
+        for direction in ["are below", "are above", "shown below", "shown above"] {
+            #expect(!section.contains(direction),
+                    "the copy points somewhere — it will be wrong when the screen is reordered")
+        }
+
+        let store = try Self.source("State/StoreService.swift")
+        #expect(store.contains("championCount > 0 || hasCommercialLicence"),
+                "either kind of backing earns it")
+    }
+
+    /// The purchase screen must not claim nothing is gated, because something
+    /// is now.
+    ///
+    /// It said "Nothing on this screen unlocks a feature" for as long as that
+    /// was true, and a stale reassurance is worse than none: it is the same
+    /// class of error as the listing promising "priority support requests" that
+    /// no queue implements.
+    @Test func thePurchaseScreenDoesNotOverstateWhatIsIncluded() throws {
+        let screen = try Self.source("UI/SupportSettingsView.swift")
+        #expect(!screen.contains("Nothing on this screen unlocks a feature"),
+                "a support request does unlock — the copy has to say so")
+        #expect(screen.contains("every feature is included for everyone"),
+                "and the claim that survives is about features, which is still true")
+    }
+
+    /// Nothing about anyone's notes goes into a support request.
+    ///
+    /// The app's privacy answer is "Data Not Collected", and a diagnostic block
+    /// is exactly where that quietly stops being true.
+    @Test func aSupportRequestCarriesVersionsAndNothingElse() {
+        let body = SupportRequestSection.body(summary: "Sync stopped",
+                                              entitlement: "Champion ×2")
+        #expect(body.contains("Sync stopped"))
+        #expect(body.contains("Champion ×2"))
+        for leak in ["/Users/", "/Volumes/", ".md", "Collection", "vault"] {
+            #expect(!body.contains(leak), "a support request must not carry \(leak)")
+        }
+    }
+
+    /// The address is the published one, and the message survives punctuation.
+    ///
+    /// Built with `URLComponents` rather than string-joining: a summary
+    /// containing `&` would otherwise truncate the body, and the request would
+    /// arrive empty with the sender blamed for it.
+    @Test func theComposedMailIsAddressedAndIntact() throws {
+        let url = try #require(SupportRequestSection.composeURL(
+            summary: "Tags & links stop resolving", entitlement: nil))
+        #expect(url.scheme == "mailto")
+        #expect(url.absoluteString.contains("info@hellotham.com"))
+        let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        let body = try #require(query.first { $0.name == "body" }?.value)
+        #expect(body.contains("Tags & links stop resolving"),
+                "the ampersand truncated the body")
     }
 
     // MARK: -

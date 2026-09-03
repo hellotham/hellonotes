@@ -3768,6 +3768,247 @@ menus share.
 
 ---
 
+## 37 · Nothing runs between two keystrokes (2026-09-02)
+
+> *"THERE IS NO CODE IN THE EDITOR LOOP — apart from capturing a key and
+> displaying on screen. NOTHING. Everything else is outside the loop, on
+> different threads."*
+
+Typing on an iPad, against a 2,000-note vault in iCloud Drive, could not keep up
+— and the lag varied, sometimes locking the keyboard entirely. Varying lag is
+the tell: a constant cost is slow, a varying one is *something else running*.
+
+What was running, per keystroke:
+
+- **Two whole-document cmark parses.** `GFMLiveStyle` was asked for the styled
+  runs and for the unrendered ranges separately, and each parsed the document
+  again. One parse now answers both (`styleInputs`), and the whole-document pass
+  came off the keystroke entirely — the overlay shifts for the edit and a
+  coalesced refresh follows 120 ms later.
+- **Two syscalls per sidebar row**, `fileExists` and a `resourceValues` for the
+  cloud badge.
+- **iOS spell checking**, whose autocorrection controller blocks on
+  `UIKeyboardTaskQueue`'s condition lock.
+- **`documents.forgetAll()` on every save.** It hung off
+  `.onChange(of: library.allNotes)`, and `Note` is `Hashable` over
+  `lastModified` — so *any* save changed the list and dropped every parsed
+  document, including the one being typed into. That is also what ejected focus
+  after creating a note.
+- **Saving, and announcing the save.** A save taken mid-keystroke is already out
+  of date, and the announcement was a layout shift.
+
+Measured worst-case per keystroke: **11.90 ms → 0.68 ms** on a 120 KB note, and
+108.95 ms → 11.97 ms on a 3.8 MB one. On the device, `onEdit` is 0.00 ms —
+78 keystrokes produced 78 log lines and nothing else.
+
+**Three instruments were wrong before any of this was found.**
+
+The existing performance test used a **3.8 MB** document, which is *above*
+`gfmOverlayMaxLength` (200,000) — so it took the fast path and could never have
+caught the bug it was written for. `keystrokeStaysSubFrameJustUnderTheOverlayCap`
+runs at 120 KB now.
+
+The watchdog could not see the stall it existed for: a 250 ms poll and a 300 ms
+stack threshold against stalls of 130–300 ms. It is 40 ms and 90 ms.
+
+And the probe added to measure the keystroke cost **225 ms of it**, writing to a
+file synchronously on the main actor. Its I/O is on a serial background queue.
+
+**A data-loss path opened while emptying the loop and was caught before it
+shipped.** With `scheduleSave()` reduced to a no-op, `model.text = snapshot` no
+longer wrote anything, and 67 typed characters never reached disk. The save is
+explicit in `landPendingSync()` now, plus a flush on mode change.
+
+---
+
+## 38 · The iPad has its own metrics, and 16 was a macOS number (2026-09-03)
+
+Note text looked small on iPad because it was. The editor's base size was
+`16 * textScale` on both platforms — 3pt above macOS's 13pt system font, and
+**1pt below** iOS's 17pt `.body`. The reading surface came out smaller than the
+app's own sidebar labels: measured 16.1pt body against 15.6pt chrome, where the
+Mac has 16 against 13. A constant that encodes a *relationship* to the platform
+cannot survive being copied to a platform with different metrics; it inverts.
+
+iOS derives its base from `UIFontMetrics` now, which also closes an
+accessibility gap nobody had noticed: **note text never followed the system Text
+Size.** The in-app slider drove the editor and Dynamic Type drove only the
+chrome, so raising Text Size in Settings grew the sidebar and left the note
+exactly as it was.
+
+**Changing it broke Edit ≡ Preview, which is how the real defect surfaced.**
+`GFMPage.page` took a *scale* and computed `16 * scale`; `EditorTheme` took a
+*size*. Two surfaces deriving one quantity from two sources, agreeing only
+because both started at 16 — so the moment the editor moved to 17, Preview kept
+rendering at 16. `NoteEditorPane` was passing both at once.
+
+It was found by measuring rather than reasoning: the H1 refused to grow and the
+ratio came back 1.022 where 1.063 was predicted. The parity harness could not
+have caught it — it runs on macOS, where the coincidence still holds. The page
+takes an absolute base in points now, and `GFMPreview` measures at **the theme's
+own size**, so divergence is not something a caller can express.
+
+**The sidebar row spent two lines on a note**: the title, then
+"2 Sep 2026 at 7:28 am" underneath — 21 characters, wider than the title it
+would have sat beside. The date now says the nearest unit that differs (a time
+today, "Yesterday", a weekday, a day and month, a numeric date), which fits a
+column; and over `ShellMetrics.noteRowTwoColumn` it moves up beside the title.
+Width decides, not device. A search row keeps its snippet on a second line —
+prose needs the width, a date never does.
+
+The single-line row first came out at **66pt**, taller than the 63.5pt two-line
+row it replaced: a `minHeight` on row content is *added* to the List's insets
+rather than absorbed. The floor belongs to the List.
+
+**And the tall shell's band became two panes** (`shell-chrome.md` D2a). On an
+iPad in portrait the band is 834pt wide and 320pt tall, so one tree spends its
+width on nothing and runs out of height in eight rows. D2 — "collections and
+folders are one tree" — still holds for a sidebar *column*, where it was written
+and where a 220–340pt width leaves room for one list; the band is a
+`NavigationStack` in a `VStack`, not column one of a `NavigationSplitView`, so
+there is no platform-placed toggle to lose. Both panes derive from
+`SidebarTree.roots`, so "in one pane and not the other" is not reachable.
+
+Row heights came down to what the rows contain, measured with
+`NSLayoutManager.defaultLineHeight`: a Mac note row is 30pt of text and was
+given 42. Deriving a height from content makes every unstated intrinsic size in
+the row a clipping hazard, which is why the collection row's close button now
+states its symbol size.
+
+---
+
+## 39 · A picture believed rather than checked (2026-09-03)
+
+**Launch stopped noticing changes made while the app was closed.** The startup
+walk had been replaced by a read of `CollectionIndexCache`, on the written
+reasoning that the watcher would report anything that had moved. It cannot:
+`DirectoryObserver` opens its stream at `kFSEventStreamEventIdSinceNow`, so
+nothing from before launch is ever delivered — a claim made from reasoning,
+contradicted by the line of code it was reasoning about. The cache is not a
+directory listing either: it holds one record per *parsed* note, and
+`refreshDerived` deliberately skips notes that are not local, so on a
+part-downloaded cloud vault it is a strict subset of the folder.
+
+The cache decides the first frame; the folder decides the truth. Paint from the
+cache, then verify against disk in the background — and `apply` ignores a
+picture identical to the one on screen, so an unchanged folder costs no revision
+bump and no outline rebuild.
+
+**Rescan Collection did nothing on a collection that already had notes** — older
+than the above, and the reason the only reliable repair was to close the
+collection and add it back. `WalkResult.isComplete` is `issues.isEmpty`, so one
+directory the walk cannot list marks the whole pass incomplete even though it
+drained the frontier and read everything else. That verdict reached a branch
+that published only when nothing was on screen yet: a fresh collection has an
+empty list, so it published; a populated one discarded the entire pass in
+silence.
+
+An incomplete pass merges now, and merges precisely: a pass that started at the
+root and drained its frontier visited every directory *except the ones it
+names*, so it can tell a deletion from a blind spot.
+
+**And the banner that could not go away.** `StaleReason.scanIncomplete` meant
+both "a scan was interrupted" and "a folder could not be read", under one
+message that said *"is being re-indexed … until it finishes"*. For the second,
+nothing was in progress and nothing ever would be, so the message was untrue and
+unclearable. The reasons are separate, and the unreadable one names the folder
+and quotes the system's own error — "permission denied" and "no such file" are
+fixed in completely different ways. One retry first, because on iOS a listing
+can fail purely because the File Provider was not ready.
+
+---
+
+## 40 · A note that could not be read is not an empty note (2026-09-03)
+
+Reported as *"clicking a file that hasn't materialised does nothing — I have to
+click again after it materialises."* Two faults, and the second is much worse
+than the one reported.
+
+**The tab appeared only after the content did.** `EditorTabs.editor(for:)`
+appended the model to `editors` after `await model.open(note)`, and `open`
+blocks in the file coordinator until a cloud file arrives — so the click had no
+visible effect at all for the length of the download. The editor already knew
+how to say it was downloading; it just had to be on screen to say it.
+
+**A failed read became an empty note.** `open` did
+`try? FileIO.readString(…) ?? ""`, with a comment claiming the read would
+materialise the file on its way past. Sometimes it does. When it does not, `""`
+is not a failure — it is an empty document. `lastSavedText` became empty too, so
+the first character typed made the buffer dirty against an empty baseline and
+the next autosave wrote that over the original.
+`FileIO.hasContentAvailable` says this in as many words — *"an editor that opens
+one will upload the emptiness back over the original"* — and the editor was the
+one place not asking it.
+
+The editor materialises and waits before reading (`FileIO.materialise`, which
+polls, because `startDownloadingUbiquitousItem` has no completion handler), and
+a buffer that was never loaded is **never written**. The edit is refused, not
+discarded: the buffer stays dirty, as it does for every other blocked save.
+
+Demonstrated by removing the guard and watching an hour of work become the
+single character `"x"` on disk.
+
+---
+
+## 41 · One folder, two names (2026-09-03)
+
+CI was red for four rounds while this machine was green every time, and the
+first two diagnoses were made by reasoning about a machine that could not be
+seen. Both were wrong. What settled it was making the test print its own facts:
+
+    root:     /var/folders/…/hn-freshness-…
+    prefixes: ["/var/folders/…/hn-freshness-…/"]
+    notes:    ["/private/var/folders/…/Note 0.md", …]
+
+**`/var` and `/private/var` are one directory with two names**, and
+`standardizedFileURL` does not unify them — it resolves `.` and `..` and stops.
+`FileManager.temporaryDirectory` named a collection's root one way while
+`contentsOfDirectory(at:)` named every file inside it the other, so no prefix
+matched and `relativePath` returned each file's *absolute* path as though it
+were relative. The cache stored that, and reopening built
+`root.appending(path: "/private/var/…/Note.md")` — a URL for a file that does
+not exist.
+
+**The helper meant to cover this covered nothing**, because
+`resolvingSymlinksInPath` fails in the direction that surprises you: it
+normalises *towards* the short name. Given `/private/var/x` it returns `/var/x`,
+not the reverse, so asking it for "the other spelling" of a root already written
+as `/var/…` returns the same string. The long form is added by hand now.
+
+**Same notes in a different order is not a change.**
+`CollectionIndexCache.notes(for:)` sorts a **Dictionary's** values, and a
+dictionary's iteration order depends on the process's hash seed. With distinct
+modification dates the sort has something to order by; with a tie it has
+nothing, so the same notes came out ordered differently on different runs — and
+comparing the two pictures as arrays of `Note` called that a change, republished,
+and rebuilt the whole sidebar on every launch. Ties are not exotic: anything
+written, copied or checked out in one batch shares a date. A picture is compared
+as sets of relative path plus fingerprint now.
+
+**`compactDate` ignored the `now` it was given** — `isDateInToday` asks the
+calendar what today is, so a date was "today" according to the machine's clock
+rather than the caller's reference. Wrong for anyone whose day rolled over with
+the app open.
+
+**And a vault reached through a symlink was not a vault.**
+`contentsOfDirectory(at:)` refuses a symlink at the *end* of a path with
+ENOTDIR, even when the link points at a good directory — while the `atPath:`
+variant does not, and that is the one `Collection.unavailability` uses. So
+`~/Notes` pointing into iCloud Drive passed every availability check, reported
+itself healthy, and failed its very first listing: nothing was wrong, and
+nothing was there. Resolved for the enumeration only; the stored URLs keep the
+collection's own spelling, because swapping it would trade one mismatch for
+another.
+
+**One test was passing because of a bug.** With absolute paths in the cache,
+`notes(for:)` discarded every record as unusable and `activate` fell through to
+a synchronous full scan — so
+`aCacheHoldingFewerNotesThanTheFolderDoesNotDefineTheCollection` never had to
+wait for the asynchronous verification it existed to test. Fixing the cache made
+it fail. A green test can be resting on the very defect you are about to remove.
+
+---
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown
