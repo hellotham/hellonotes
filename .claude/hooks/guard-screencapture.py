@@ -52,7 +52,14 @@ PREFS = Path(
     / "Preferences/com.hellotham.HelloNotes.plist"
 )
 FORCE_RUNNING = os.environ.get("HN_GUARD_ASSUME_RUNNING") == "1"
-SAFE_VAULT = "SampleVault"
+# Vaults whose contents are ours to publish. `SampleVault` is the repo's
+# marketing fixture; `DefaultCollection` is the tour and user manual that ship
+# *inside the binary* and are copied into the app's own container on first
+# launch — so it is public content by construction, and strictly safer than a
+# fixture anyone could have edited. The store screenshots are taken from it now,
+# and a guard that refused it would have to be turned off to do the job, which
+# is how a guard stops guarding.
+SAFE_VAULTS = {"SampleVault", "DefaultCollection"}
 
 
 def deny(reason: str) -> None:
@@ -99,17 +106,19 @@ except Exception as exc:
         f"could not be read ({exc.__class__.__name__}), so which vault is on "
         "screen is unknown.\n"
         "This guard fails closed on purpose — see .claude/hooks/"
-        "guard-screencapture.py. Quit HelloNotes, or open SampleVault, then "
-        "retry."
+        "guard-screencapture.py. Quit HelloNotes, or open SampleVault or "
+        "DefaultCollection, then retry."
     )
 
-others = [p for p in collections if Path(str(p)).name != SAFE_VAULT]
+others = [p for p in collections if Path(str(p)).name not in SAFE_VAULTS]
 if others:
     listed = "\n  ".join(str(p) for p in others)
     deny(
-        "screencapture blocked: HelloNotes has a non-SampleVault collection "
-        "open, so a capture may contain private notes.\n  " + listed + "\n\n"
-        "Close it and open SampleVault only, then retry. Verify by READING, "
+        "screencapture blocked: HelloNotes has a collection open that is not "
+        "SampleVault or DefaultCollection, so a capture may contain private "
+        "notes.\n  " + listed + "\n\n"
+        "Close it and leave only one of those open, then retry. Verify by "
+        "READING, "
         "never by capturing to look:\n"
         '  /usr/libexec/PlistBuddy -c "Print :collectionPaths" \\\n'
         f"    {PREFS}\n\n"
@@ -121,7 +130,7 @@ if not collections:
     deny(
         "screencapture blocked: HelloNotes is running but reports no open "
         "collection, so what is on screen cannot be confirmed. Open "
-        "SampleVault, or quit the app, then retry."
+        "SampleVault or DefaultCollection, or quit the app, then retry."
     )
 
 sys.exit(0)

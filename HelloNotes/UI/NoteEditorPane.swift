@@ -46,6 +46,10 @@ struct NoteEditorPane: View {
     var linkTargets: [String]? = nil
     /// Renders `![[Note]]` transclusion cards.
     var embedProvider: CollectionEmbedProvider? = nil
+
+    /// The note with its maths and transclusions already drawn, or nil until
+    /// the first pass finishes.
+    @State private var supersetMarkdown: String?
     /// What `[[` and `#` complete to. Defaults to the collection's index.
     var completionSource: WikiCompletionSource? = nil
     /// Preview mode is this pane with no caret.
@@ -204,13 +208,24 @@ struct NoteEditorPane: View {
     }
 
     /// Read-only rendered preview (WKWebView over the shared HTML export),
-    /// through `GitHubMarkdown.prepare` exactly as the Mac's `githubPreview` is.
+    /// through `GitHubMarkdown.prepare` exactly as the Mac's `githubPreview` is
+    /// — and through `PreviewSuperset` first, which draws the parts of a note
+    /// that are not GFM at all.
+    ///
+    /// **Rendered asynchronously, and that is not incidental.** Maths and
+    /// transclusion cards are bitmaps produced by the same renderers the editor
+    /// uses, and a transclusion has to *read another note* to draw. Doing that
+    /// on the way into a `View`'s body would put a file read on the main actor
+    /// once per embed, which is the exact hazard `CollectionEmbedProvider`'s own
+    /// notes describe. So the substitution runs in a task and the page is
+    /// rebuilt when it lands; until then Preview shows the plain-GFM page, which
+    /// is what it always showed.
     private var preview: some View {
         // `GFMPreview` — the package's own preview, cross-platform since it was
         // written. `MarkdownWebView` was a second WKWebView wrapper over the
         // same renderer, in the app, on one platform.
         GFMPreview(
-            markdown: GitHubMarkdown.prepare(editor.text),
+            markdown: supersetMarkdown ?? GitHubMarkdown.prepare(editor.text),
             baseURL: note.fileURL.deletingLastPathComponent(),
             // No size here: the theme below states it, and `GFMPreview`
             // measures the page at the theme's own size. Passing both is what
@@ -222,6 +237,22 @@ struct NoteEditorPane: View {
                                accent: appearance.editorAccentPlatformColor),
             isDark: colorScheme == .dark
         )
+        // Keyed on the text, the appearance and the collection's note set: the
+        // first two change what is drawn, and the third changes what an
+        // `![[embed]]` resolves to.
+        .task(id: supersetKey) {
+            supersetMarkdown = GitHubMarkdown.prepare(
+                await PreviewSuperset.apply(to: editor.text,
+                                            isDark: colorScheme == .dark,
+                                            embeds: embedProvider ?? collection?.embedProvider))
+        }
+    }
+
+    /// What the superset pass depends on. `derivedRevision` rather than the
+    /// note list itself, so adding a note re-resolves embeds without making
+    /// this string O(notes) on every render.
+    private var supersetKey: String {
+        "\(editor.text.hashValue)|\(colorScheme == .dark)|\(collection?.derivedRevision ?? 0)"
     }
 
     /// Source + preview together — side by side on a wide (landscape) screen,

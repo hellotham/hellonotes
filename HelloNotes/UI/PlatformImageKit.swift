@@ -71,6 +71,22 @@ nonisolated enum PlatformImageKit {
     /// The natural point size of a `PlatformImage`.
     static func size(of image: PlatformImage) -> CGSize { image.size }
 
+    /// PNG bytes for an image, for embedding as a `data:` URI.
+    ///
+    /// The bitmap is at the device's scale (2× or 3×) while `image.size` is in
+    /// points — the caller writes the *point* size into the tag's width and
+    /// height so the page draws it at the size the editor draws it, not at
+    /// twice that.
+    static func pngData(_ image: PlatformImage) -> Data? {
+        #if canImport(AppKit)
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .png, properties: [:])
+        #else
+        return image.pngData()
+        #endif
+    }
+
     /// Load an image file from disk (cross-platform).
     static func loadImage(contentsOf url: URL) -> PlatformImage? {
         #if canImport(AppKit)
