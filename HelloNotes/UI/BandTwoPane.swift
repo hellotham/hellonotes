@@ -321,3 +321,37 @@ struct SidebarLayout<Column: View, Band: View>: View {
         if shell.kind == .tall { band() } else { column() }
     }
 }
+
+/// The tall shell's sidebar toggle.
+///
+/// `NavigationSplitView` hands column one a toggle for free, and the tall shell
+/// is a `VStack`, so it was handed nothing: its 320pt band held that much of
+/// every portrait iPad screen with no way to put it away — the one shell where
+/// what you are reading is the smaller half.
+///
+/// It resolves `@Environment(\.shell)` itself for the reason `SidebarLayout`
+/// above spells out: the toolbar is *declared* in `ContentView`, which sits
+/// above the shell, but each item's content is *placed* inside it, where the
+/// environment is real. Reading the kind in `ContentView` would answer `.wide`
+/// in every window and the button would never appear.
+///
+/// Nothing at all in the other shells, rather than a disabled button: they have
+/// a working toggle of their own, and two toggles for one sidebar is worse than
+/// one.
+struct BandToggle: View {
+    @Binding var hidden: Bool
+    @Environment(\.shell) private var shell
+
+    var body: some View {
+        if shell.kind == .tall {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { hidden.toggle() }
+            } label: {
+                Label(hidden ? "Show Collections" : "Hide Collections",
+                      systemImage: hidden ? "sidebar.leading" : "sidebar.squares.leading")
+            }
+            .help(hidden ? "Show the collection list" : "Hide the collection list")
+            .accessibilityIdentifier("shell.bandToggle")
+        }
+    }
+}

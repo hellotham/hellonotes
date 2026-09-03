@@ -62,6 +62,28 @@ struct CollectionConditionBar: View {
     let onLocate: (Collection) -> Void
 
     var body: some View {
+        if let collection {
+            // **A scan is the collection's condition, not the note's.**
+            //
+            // Everything here used to require `hasSelection`, on the reasoning
+            // that the bar explains the open note. That is true of the stale and
+            // unavailable cases and exactly wrong for a scan: you open a
+            // collection, no note is selected yet, and the one moment the app
+            // most needs to say "this is going to take a while" was the one
+            // moment the strip was suppressed. On a large cloud vault that ran
+            // for minutes with nothing on screen but a spinner in the sidebar.
+            if collection.showsScanProgress, let scan = collection.scanProgress {
+                ScanProgressStrip(collection: collection, scan: scan)
+            } else if let summary = collection.lastScanSummary {
+                ConditionStrip(symbol: summary.wasCancelled ? "stop.circle" : "checkmark.circle",
+                               tint: .secondary,
+                               message: summary.wasCancelled
+                                   ? "Stopped scanning \(collection.name) — \(summary.notes.formatted()) notes found so far."
+                                   : "Scanned \(collection.name) — \(summary.notes.formatted()) notes in \(summary.folders.formatted()) folders.") {
+                    EmptyView()
+                }
+            }
+        }
         if let collection, hasSelection {
             if case .unavailable(let reason) = collection.state {
                 ConditionStrip(symbol: "exclamationmark.triangle.fill", tint: .orange,
@@ -73,14 +95,7 @@ struct CollectionConditionBar: View {
                         .font(.caption)
                         .buttonStyle(.borderless)
                 }
-            } else if collection.showsScanProgress, let scan = collection.scanProgress {
-                ConditionStrip(symbol: "clock.arrow.circlepath", tint: .secondary,
-                               message: "Scanning \(collection.name) — \(scan.itemsSeen) items so far.") {
-                    Button("Stop") { collection.cancelScan() }
-                        .font(.caption)
-                        .buttonStyle(.borderless)
-                }
-            } else if let reason = collection.staleReason {
+            } else if let reason = collection.staleReason, !collection.showsScanProgress {
                 // The wording is the reason's, not this view's. Three surfaces
                 // used to phrase this independently and all three said a scan
                 // was running — which for an unreadable folder is simply untrue,
@@ -152,5 +167,82 @@ struct SearchCompletenessNotice: View {
                 }
             }
         }
+    }
+}
+
+/// What a scan is doing, while it does it.
+///
+/// **A spinner is the wrong instrument for minutes.** A large cloud vault can
+/// walk for several of them, and an indeterminate spinner says only "something
+/// is happening" — it cannot distinguish progress from a hang, which is the one
+/// question someone waiting actually has. This shows the work itself: a bar, the
+/// counts, and the folder currently being read.
+///
+/// The bar is **determinate when it can honestly be**. `WalkProgress.fraction`
+/// is non-nil only when a previous complete run measured this tree, so a first
+/// scan cannot know its own size and does not pretend to — it shows an
+/// indeterminate bar with rising counts, which is a true statement about an
+/// unknown total. Claiming a percentage we cannot compute would be worse than
+/// the spinner it replaces.
+struct ScanProgressStrip: View {
+    let collection: Collection
+    let scan: WalkProgress
+
+    /// "1,240 notes in 86 folders", and the folders left when we know them.
+    private var counts: String {
+        var parts = ["\(scan.itemsSeen.formatted()) items"]
+        if scan.directoriesVisited > 0 {
+            parts.append("\(scan.directoriesVisited.formatted()) folders read")
+        }
+        if scan.directoriesRemaining > 0 {
+            parts.append("\(scan.directoriesRemaining.formatted()) to go")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The tail of the path being read — the whole path is too long for a strip
+    /// and the leading components are the same for every row anyway.
+    private var where_: String? {
+        let tail = scan.currentPath.split(separator: "/").suffix(2).joined(separator: "/")
+        return tail.isEmpty ? nil : tail
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("Scanning \(collection.name)")
+                        .font(.caption.weight(.medium))
+                    Text(counts)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                if let fraction = scan.fraction {
+                    ProgressView(value: min(max(fraction, 0), 1))
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                }
+                if let where_ {
+                    Text(where_)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+            Button("Stop") { collection.cancelScan() }
+                .font(.caption)
+                .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Scanning \(collection.name). \(counts).")
     }
 }

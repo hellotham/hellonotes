@@ -48,6 +48,16 @@ final class EditorModel {
     /// watcher) and patch its index from memory without re-reading the vault.
     var onSaved: (@MainActor (URL, String) -> Void)?
 
+    /// Called once a note that was online-only has finished downloading, so the
+    /// owning collection can drop the cloud badge from its row.
+    ///
+    /// The download is the editor's to wait for, but the badge belongs to the
+    /// note in the sidebar, and `Note.isOnlineOnly` is a stored value set when
+    /// the folder was walked. Nothing told it the file had arrived, so the icon
+    /// sat there afterwards saying the note was still in the cloud while the
+    /// note was open on screen.
+    var onBecameAvailable: (@MainActor (URL) -> Void)?
+
     /// Asked before every write; a non-nil return refuses the save and becomes
     /// `saveError`. Set by the shell, which knows whether the note's collection
     /// is still readable.
@@ -132,6 +142,7 @@ final class EditorModel {
                 isDownloading = true
                 let arrived = await FileIO.materialise(at: url)
                 isDownloading = false
+                if arrived { onBecameAvailable?(url) }
                 if !arrived {
                     loadFailure = "“\(note.title)” hasn’t finished downloading from the cloud. "
                                 + "It will open once the download completes."

@@ -264,6 +264,10 @@ struct ContentView: View {
     /// for a control that never lies.
     @SceneStorage("inspectorPresented") private var inspectorPresented = false
 
+    /// Whether the tall shell's navigation band is hidden. Per scene, like the
+    /// inspector — a window remembers whether you were reading or navigating.
+    @SceneStorage("bandHidden") private var bandHidden = false
+
     /// Left-rail visibility, so the native sidebar toggle works. Below 960pt
     /// the shell overrides this and the library becomes an overlay (decision 12).
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -578,6 +582,7 @@ struct ContentView: View {
     private var shellCore: some View {
         AdaptiveShell(
             inspectorPresented: $inspectorPresented,
+            bandHidden: $bandHidden,
             columnVisibility: $columnVisibility,
             // Asked of the hardware, not of the OS — see `PointerPresence`. It
             // decides whether the format bar exists at all, so hard-coding it
@@ -1742,6 +1747,14 @@ struct ContentView: View {
         // it is too narrow to hold a field beside the toggle. Here it also
         // survives the sidebar being collapsed, which is when P2 needs it.
         ToolbarItem(placement: .barLeading) { searchField }
+        // The tall shell's own sidebar toggle. `NavigationSplitView` supplies
+        // one to column one in the column shells; the tall shell is a `VStack`
+        // and is supplied nothing, so its 320pt band could not be put away —
+        // on a portrait iPad that is the larger half of the screen given to
+        // navigation while you are reading. Shown only where there is a band
+        // to hide: a control that does nothing is worse than no control.
+        ToolbarItem(placement: .barLeading) { bandToggle }
+
         // Leading — the sidebar's own controls, which hide along with it.
         ToolbarItem(placement: .navigation) {
             Menu {
@@ -2513,6 +2526,15 @@ struct ContentView: View {
         return railCollection?.name ?? "Library"
     }
 
+    /// Hide or show the tall shell's navigation band.
+    ///
+    /// A child view, not an `if` out here: `@Environment` resolves at the
+    /// position of the view that *declares* it, and `ContentView` sits above
+    /// `AdaptiveShell` — so a `shell.kind` read here is always the default
+    /// `.wide` and the branch would never be taken. `BandTwoPane` documents the
+    /// same trap; this is the toolbar's copy of it.
+    private var bandToggle: some View { BandToggle(hidden: $bandHidden) }
+
     /// Library-wide commands, shown in the Library place. The iPad has no
     /// separate Graph / Ask Library / Assistant windows, so this is the short
     /// list the platform actually has.
@@ -2728,6 +2750,14 @@ struct ContentView: View {
         // it is too narrow to hold a field beside the toggle. Here it also
         // survives the sidebar being collapsed, which is when P2 needs it.
         ToolbarItem(placement: .barLeading) { searchField }
+        // The tall shell's own sidebar toggle. `NavigationSplitView` supplies
+        // one to column one in the column shells; the tall shell is a `VStack`
+        // and is supplied nothing, so its 320pt band could not be put away —
+        // on a portrait iPad that is the larger half of the screen given to
+        // navigation while you are reading. Shown only where there is a band
+        // to hide: a control that does nothing is worse than no control.
+        ToolbarItem(placement: .barLeading) { bandToggle }
+
         // Leading — the commands that have to survive a collapsed sidebar.
         if showsShellCommands {
             ToolbarItem(placement: .barLeading) { shellCommandMenu }
@@ -2858,6 +2888,9 @@ struct ContentView: View {
     private func wireTabs() {
         tabs.onNoteSaved = { @MainActor url, text in
             library.collection(containing: url)?.noteDidSave(url, text: text)
+        }
+        tabs.onNoteBecameAvailable = { @MainActor url in
+            library.collection(containing: url)?.noteBecameAvailable(url)
         }
         tabs.prepareToOpen = { @MainActor url in
             await library.collection(containing: url)?.hydrateIfNeeded(url)

@@ -26,6 +26,10 @@ final class EditorTabs {
     /// the file watcher for its own write and refresh its index incrementally.
     var onNoteSaved: (@MainActor (URL, String) -> Void)?
 
+    /// A note finished downloading from the cloud — see
+    /// `EditorModel.onBecameAvailable`.
+    var onNoteBecameAvailable: (@MainActor (URL) -> Void)?
+
     /// Asked before every editor write: return a reason to refuse it. The shell
     /// blocks saves into a collection whose folder has gone missing.
     var saveBlocked: (@MainActor (URL) -> String?)?
@@ -65,6 +69,7 @@ final class EditorTabs {
         let task = Task { [weak self] () -> EditorModel in
             let model = EditorModel()
             model.onSaved = { [weak self] url, text in self?.onNoteSaved?(url, text) }
+            model.onBecameAvailable = { [weak self] url in self?.onNoteBecameAvailable?(url) }
             model.saveBlockedReason = { [weak self] url in self?.saveBlocked?(url) }
             // **The tab appears first, then it fills in.**
             //

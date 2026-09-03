@@ -193,6 +193,34 @@ final class Collection: Identifiable {
     /// this existed — a progress bar that flashes is worse than none.
     private(set) var showsScanProgress = false
 
+    /// What the last scan found, for a few seconds after it finished.
+    ///
+    /// **A scan that was worth announcing is worth concluding.** Only set when
+    /// `showsScanProgress` had been reached, so a fast scan still says nothing
+    /// at all; cleared on a timer, because this is a receipt rather than a
+    /// state. Without it the progress simply vanished, which reads the same as
+    /// the scan dying — and on a cloud vault that ran for minutes, that is the
+    /// reading people actually reached.
+    private(set) var lastScanSummary: ScanSummary?
+
+    nonisolated struct ScanSummary: Equatable, Sendable {
+        var notes: Int
+        var folders: Int
+        var wasCancelled: Bool
+    }
+
+    private var summaryClear: Task<Void, Never>?
+
+    private func announce(_ summary: ScanSummary) {
+        lastScanSummary = summary
+        summaryClear?.cancel()
+        summaryClear = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            self?.lastScanSummary = nil
+        }
+    }
+
     private var currentScan: Task<WalkResult, Never>?
 
     /// Stop the running scan. Whatever it found is kept, and the checkpoint it
@@ -806,6 +834,13 @@ final class Collection: Identifiable {
         }
         defer {
             reveal.cancel()
+            // Only conclude a scan that announced itself. A scan nobody was
+            // told about needs no receipt.
+            if showsScanProgress {
+                announce(ScanSummary(notes: notes.count,
+                                     folders: folders.count,
+                                     wasCancelled: Task.isCancelled))
+            }
             showsScanProgress = false
             scanProgress = nil
             currentScan = nil
@@ -1199,6 +1234,19 @@ final class Collection: Identifiable {
         } catch {
             report("Couldn't download “\(url.lastPathComponent)” from \(remote.store.providerName): \(error.localizedDescription)")
         }
+    }
+
+    /// A note the editor waited for has finished downloading: drop its cloud
+    /// badge without re-walking the folder.
+    ///
+    /// `Note.isOnlineOnly` is a stored value written when the folder was walked,
+    /// so nothing cleared it when the *editor* materialised a file — the row
+    /// went on claiming the note was in the cloud while it was open on screen.
+    /// The remote path already had `adopt(hydrated:)` for exactly this; the
+    /// iCloud path simply never called anything.
+    func noteBecameAvailable(_ url: URL) {
+        guard notes.contains(where: { $0.fileURL == url && $0.isOnlineOnly }) else { return }
+        adopt(hydrated: url)
     }
 
     /// Mark a just-downloaded note as local, without re-walking the folder.

@@ -54,7 +54,7 @@ nonisolated enum ObsidianVault {
     #if os(iOS)
     /// The iCloud Drive root, as a hint of last resort.
     private static var iCloudDriveHint: URL? {
-        URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs",
+        URL(fileURLWithPath: "/var/mobile/Library/Mobile Documents/com~apple~CloudDocs",
             isDirectory: true)
     }
 
@@ -73,7 +73,14 @@ nonisolated enum ObsidianVault {
     /// rather than through `FileManager` — there is nothing here for us to
     /// resolve, and pretending otherwise would just fail differently.
     private static var pickerStartDirectory: URL? {
-        URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/iCloud~md~obsidian/Documents",
+        // **`/var`, not `/private/var`.** They are one directory under two
+        // names, and the system spells this one `/var/mobile/…`:
+        // `resolvingSymlinksInPath` normalises *towards* the short form and
+        // never back, so a `/private`-prefixed URL is the spelling nothing else
+        // produces. The picker resolves this out of process, against a
+        // File Provider that knows the short form — handing it the long one is
+        // the difference between a hint it can match and a string it cannot.
+        URL(fileURLWithPath: "/var/mobile/Library/Mobile Documents/iCloud~md~obsidian/Documents",
             isDirectory: true)
     }
     #else

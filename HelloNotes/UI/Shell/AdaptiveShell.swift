@@ -22,6 +22,14 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
     /// Whether the inspector rail is showing. Bound so a toolbar item and the
     /// View menu can toggle it, and so it can be remembered (decision 10).
     @Binding var inspectorPresented: Bool
+
+    /// Whether the tall shell's navigation band is hidden.
+    ///
+    /// The column shells get a sidebar toggle from `NavigationSplitView` for
+    /// free. The tall shell is a `VStack` and gets nothing, so the band held a
+    /// fixed 320pt of every portrait iPad screen with no way to reclaim it —
+    /// the one shell where the note being read is the smaller half.
+    @Binding var bandHidden: Bool
     /// Column visibility for the wide shells, so the sidebar toggle works.
     @Binding var columnVisibility: NavigationSplitViewVisibility
 
@@ -114,11 +122,13 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
             // must, or `.navigationTitle` and every toolbar button silently
             // disappears. One cell now rather than two: collections and folders
             // are a single tree (D2), so there is nothing to sit beside.
-            NavigationStack { sidebar() }
-                .frame(height: ShellMetrics.bandIdeal)
-                .accessibilityIdentifier("shell.band")
+            if !bandHidden {
+                NavigationStack { sidebar() }
+                    .frame(height: ShellMetrics.bandIdeal)
+                    .accessibilityIdentifier("shell.band")
 
-            Divider()
+                Divider()
+            }
 
             HStack(spacing: 0) {
                 EditorPaneContainer { NavigationStack { pane() } }

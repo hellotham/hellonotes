@@ -75,6 +75,7 @@ struct ShellViewportTests {
     private func oversizedShell() -> some View {
         AdaptiveShell(
             inspectorPresented: .constant(true),
+            bandHidden: .constant(false),
             columnVisibility: .constant(.all),
             // 2,000 notes' worth of tree in the one sidebar there now is.
             sidebar: { OversizedViewport(tag: "sidebar", contentHeight: 56_000) },
