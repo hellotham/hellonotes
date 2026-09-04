@@ -4385,6 +4385,43 @@ and **macOS 1.3.2 (21) as one**, the purchases being app-level and riding the
 iOS submission. Both platforms are set to release automatically on approval, so
 everything downstream of approval has to be ready before it lands.
 
+## 49 · 1.3.2 build 21 — the direct download catches up (2026-09-04)
+
+The App Store had build 21 in review while `releases/latest` still served build
+20, and the gap was not cosmetic: the heading jump, the cloud-open work, the
+scan progress bar and the cloud badge fix were all on the store side and none of
+them on the download side. Re-cut from the same source, verified and published.
+
+**It stays 1.3.2, and that is the interesting part.** `check-download-page.sh`
+compares the site's version against the App Store's with `!=` — an *exact*
+match, not "no newer" — once the app is public. 1.3.2 (21) is what is in review,
+so a 1.3.3 disk image would have passed every local check today and failed the
+moment Apple approved, on a page nobody would think to re-run a checker against.
+The version is a promise about which listing the page corresponds to, not a
+description of how much has changed since the last download.
+
+The cost is real and worth naming: **three distinct binaries have now been
+served as "1.3.2"** — 29 August, 3 September (build 20) and 4 September (build
+21). Someone who downloaded on any of those days has a different file, and
+"1.3.2" does not distinguish them. The release notes carry a checksum table for
+exactly that reason, so a user comparing `shasum` output against the page can
+tell "I have an older 1.3.2" from "this download was tampered with" — which is
+the only question a checksum is there to answer.
+
+**Order matters and is not a style preference.** Publishing precedes the website
+sync because the download button points at
+`releases/latest/download/HelloNotes.dmg`; `site.ts` only says what that will
+be. Update the page first and there is a window where it prints a checksum for a
+file nobody is being served, which reads as a tampered download rather than as a
+deploy in progress. Verified by fetching the button's own URL and hashing what
+came back, rather than by trusting that the upload worked.
+
+Verified as a user's Mac would: DMG `accepted / source=Notarized Developer ID`,
+universal (`x86_64 arm64`), app accepted and **stapled** (`stapler validate`
+works offline, which is the case that matters), `LSMinimumSystemVersion` 26.5,
+and `CFBundleShortVersionString` 1.3.2 read from inside the mounted image rather
+than assumed. 40.0 MB, `0c70b7b0…`.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown
