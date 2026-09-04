@@ -7,7 +7,8 @@
 > already been closed; see [implemented.md §20](implemented.md).)
 >
 > **2026-08-25 doc-currency pass (spot-check, not a full reconciliation):** the project
-> is at 1.3.2 (build 8) and ships on macOS + iOS from one App Store Connect record —
+> is at 1.3.2 (build 21, in App Review on both platforms as of 2026-09-04) and ships
+> on macOS + iOS from one App Store Connect record —
 > see `docs/production.md`. Three stale file references from the pre-2026-08-22
 > `MacContentView`/`iOSContentView` split were corrected below (search this file for
 > "2026-08-22 merge"), including one, the References-tab `unlinkedMentions: []` gap,
@@ -43,6 +44,21 @@
 ## 0 · Release blockers & App-Store packaging
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): privacy manifest, `.md` UTI import, optimized Release build, and the in-app acknowledgements screen.*
+
+- 🔴 **The website has no App Store presence, and must not gain one before
+  approval.** `website/` is written end to end as a Mac/DMG site — the download
+  page is titled "Download — HelloNotes for Mac", `APP.minOS` is
+  `macOS 26.5 or later`, and there is not one `apps.apple.com` link anywhere in
+  `website/src`. Once 1.3.2 (21) is approved it is live on **both** the iOS and
+  Mac App Stores (both platforms are set to release automatically), so the site
+  will be understating what ships until it is updated: App Store links, iPhone
+  and iPad in the copy and metadata, and the screenshots page. Two constraints
+  make the timing not a matter of taste: **the deploy is automatic** — any push
+  touching `website/**` publishes, per `deploy-website.yml` — and a live link to
+  an app Apple has not yet approved is a broken link on the front page. So this
+  is prepared but held. Note the channels have diverged: the direct-download DMG
+  already shipped as 1.3.2, so a *new* DMG needs 1.3.3 while the App Store side
+  is still 1.3.2 (n).
 
 - 🟡 **No macOS 26 layered app icon** — the classic 16→1024 PNG ladder is complete; there is no Icon Composer `.icon` layered asset for the 26 look (needs artwork). Legacy icon still ships fine.
 

@@ -4330,6 +4330,61 @@ twenty-one listings before the prefetch and one recursive request after, finding
 the same hundred files. None of the four network paths has been exercised
 against a live account — the evidence is shape and round-trip counts.
 
+## 48 · The submission that could not contain its own purchases (2026-09-04)
+
+1.3.2 was rejected on four guidelines at once, and only one of them was about
+the app. The other three were App Store Connect *state* — invisible from the
+repository, unmoved by any rebuild, and each one reproducible forever by doing
+the obvious thing.
+
+**Guideline 2.1(b) — "one or more of the In-App Purchase products have not been
+submitted for review" — was structural and self-perpetuating.** App Store
+Connect allows one open review submission per platform, and a version belongs to
+exactly one of them. In-app purchases can only be submitted from a **draft**
+submission, and a draft refuses to submit while it holds no version: *"To submit
+your items for review, add an app version for the selected platform."* Meanwhile
+the version page's button reads **Update Review** whenever a submission is
+already in flight, and it attaches the version to *that* submission — not to the
+draft holding the purchases. So the binary went to Apple, the products stayed
+behind, and every resubmission reproduced the rejection exactly.
+
+The button's label is the entire mechanism. Only with no submission open does it
+become **Add for Review ⌄**, a dropdown that offers the existing draft by name.
+Cancelling the in-flight submission is therefore not a workaround; it is the
+only way the version and its purchases can end up in one place. Reply to Apple
+*before* cancelling — the message thread belongs to that submission — and put
+anything Apple asked to be shown into the version's **Notes** and **Attachment**
+fields as well, because those travel with the version and a reply does not.
+
+**Guideline 2.1 — "where is the demo SampleVault" — had been fixed in the app
+and on one platform's store listing only.** `DefaultCollection` ships inside the
+binary and opens itself on first launch, and the iOS screenshots had been reshot
+to show it. The macOS screenshots had not: all ten still showed a sidebar
+reading *SampleVault*, a graph window titled *Graph — SampleVault*, and a README
+describing a folder no reviewer could find. The correction had been applied to
+the platform where the question was asked, not to the one where the picture was
+still wrong — and "screenshots updated", true of a set, reads exactly like a
+fact about the product.
+
+**The App Review screenshot for an in-app purchase does not accept the sizes app
+screenshots accept.** An iPad Pro 11-inch capture (1668 × 2420) was refused; so
+was the 13-inch (2064 × 2752). What uploaded was **1284 × 2778**, an iPhone 6.5"
+capture. Both files are committed, with the refused sizes written down next to
+them, because the only way to learn this rule is to be turned away by the form.
+
+Guideline 5 (China / OpenAI) needed no code either: China mainland is deselected
+in Availability, and every OpenAI reference is out of the name, subtitle,
+promotional text, description, keywords and screenshots. The app ships no
+ChatGPT integration and no OpenAI credentials — the intelligence features default
+to Apple's on-device Foundation Models, and a user may point them at a provider
+they already hold an account with.
+
+Submitted 2026-09-04: **iOS 1.3.2 (21) as four items** — the version, the
+Champion consumable, the Commercial subscription and its subscription group —
+and **macOS 1.3.2 (21) as one**, the purchases being app-level and riding the
+iOS submission. Both platforms are set to release automatically on approval, so
+everything downstream of approval has to be ready before it lands.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown
