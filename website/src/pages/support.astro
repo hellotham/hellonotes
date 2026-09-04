@@ -53,9 +53,10 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
 
         <h3>Why don’t I see the intelligence features?</h3>
         <p>
-          Summarise, Suggest and “Ask your library” require a Mac with <strong>Apple
-          Intelligence</strong> available and enabled (Apple silicon, a recent macOS, and the
-          feature turned on in System Settings). Everything else in {APP.name} works without it.
+          Summarise, Suggest and “Ask your library” require a device with <strong>Apple
+          Intelligence</strong> available and enabled — an Apple silicon Mac, or a recent iPhone or
+          iPad — with the feature turned on in Settings. Everything else in {APP.name} works
+          without it.
           You can also configure your own model instead — see{' '}
           <a href={href('/manual/ai')}>AI &amp; intelligence</a>.
         </p>
@@ -83,7 +84,7 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
         </p>
 
         <h3>What are the system requirements?</h3>
-        <p>{APP.minOS}, on Apple silicon or Intel.</p>
+        <p>{APP.minMacOS}, on Apple silicon or Intel — or {APP.minIOS}.</p>
 
         <h3>How do I uninstall it?</h3>
         <p>
@@ -95,7 +96,7 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
         <p>To help us fix something quickly, it’s useful to include:</p>
         <ul>
           <li>What you did, what you expected, and what happened instead</li>
-          <li>Your macOS version and Mac model</li>
+          <li>Your OS version and device model</li>
           <li>Whether the collection is local, in a cloud folder, or a Git repository</li>
           <li>A screenshot, if the problem is visual</li>
         </ul>

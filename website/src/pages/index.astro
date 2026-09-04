@@ -2,7 +2,7 @@
 import PageLayout from '../layouts/PageLayout.astro';
 import Shot from '../components/Shot.astro';
 import { href } from '../lib/paths';
-import { APP, PUBLISHER, DOWNLOAD, REPO } from '../lib/site';
+import { APP, APP_STORE, PUBLISHER, REPO } from '../lib/site';
 import { byId } from '../lib/screens';
 
 const features = [
@@ -28,7 +28,7 @@ const features = [
   },
   {
     icon: '✨',
-    title: 'Intelligence on your Mac',
+    title: 'Intelligence on your device',
     body: 'Summarise, suggest tags and links, find the links you meant to make, or ask questions across your whole library — on-device with Apple Intelligence, or your own model if you prefer.',
   },
   {
@@ -47,8 +47,8 @@ const showcase = [
 ---
 
 <PageLayout
-  title="HelloNotes — a private, local-first Markdown knowledge base for Mac"
-  description="HelloNotes is a fast, private, local-first Markdown knowledge base for your Mac. Wiki-links, backlinks, a graph view, diagrams, maths and on-device AI — over notes that stay plain files you own."
+  title="HelloNotes — a private, local-first Markdown knowledge base for Mac, iPhone & iPad"
+  description="HelloNotes is a fast, private, local-first Markdown knowledge base for Mac, iPhone and iPad. Wiki-links, backlinks, a graph view, diagrams, maths and on-device AI — over notes that stay plain files you own."
   appSchema
 >
   <!-- Hero -->
@@ -75,8 +75,9 @@ const showcase = [
         Think in <span class="gradient-text">plain Markdown.</span>
       </h1>
       <p class="mx-auto mt-4 max-w-[640px] text-[clamp(18px,2.4vw,23px)] text-muted">
-        A fast, private, local-first knowledge base for your Mac. Wiki-links, backlinks, a graph
-        view, diagrams, maths and on-device AI — over notes that stay plain files you own.
+        A fast, private, local-first knowledge base for Mac, iPhone and iPad. Wiki-links,
+        backlinks, a graph view, diagrams, maths and on-device AI — over notes that stay plain
+        files you own.
       </p>
 
       <div class="mt-8 flex flex-wrap justify-center gap-3.5">
@@ -84,7 +85,7 @@ const showcase = [
           href={href('/download')}
           class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-cta transition hover:brightness-95"
         >
-          Download for Mac
+          Download
         </a>
         <a
           href={href('/features')}
@@ -95,7 +96,10 @@ const showcase = [
       </div>
 
       <p class="mt-4 text-sm text-muted">
-        Version {APP.version} · {APP.minOS} · {APP.architectures} · Free
+        Version {APP.version} · {APP.platforms} · Free
+      </p>
+      <p class="mt-1 text-sm text-muted">
+        On the App Store for iPhone, iPad and Mac — or a direct download for Mac
       </p>
       <p class="mt-1 text-sm text-muted">
         Signed and notarised by Apple · No account · Nothing collected
@@ -213,22 +217,35 @@ const showcase = [
         Start writing today
       </h2>
       <p class="mx-auto mt-3 max-w-[560px] text-muted">
-        {APP.name} {APP.version} is a free, signed and notarised download for {APP.minOS}.
+        {APP.name} {APP.version} is free on the App Store for iPhone, iPad and Mac.
       </p>
+      {/* Two store buttons rather than one: a single link cannot serve both
+          stores, and inferring the visitor's device is a guess that gets a Mac
+          user the iPhone listing often enough to be worse than asking. */}
       <div class="mt-7 flex flex-wrap justify-center gap-3.5">
         <a
-          href={href('/download')}
+          href={APP_STORE.ios}
           class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-cta transition hover:brightness-95"
         >
-          Download {DOWNLOAD.fileName}
+          App Store — iPhone &amp; iPad
         </a>
         <a
-          href={REPO}
+          href={APP_STORE.mac}
           class="inline-flex items-center gap-2.5 rounded-full border border-line bg-chip px-6 py-3.5 text-base font-bold text-ink transition hover:border-edge hover:text-emphasis"
         >
-          View source on GitHub
+          Mac App Store
         </a>
       </div>
+      <p class="mt-6 text-sm text-muted">
+        Prefer not to use the App Store? The{' '}
+        <a href={href('/download')} class="font-semibold text-link hover:text-emphasis">
+          direct download
+        </a>{' '}
+        for Mac is signed and notarised, or{' '}
+        <a href={REPO} class="font-semibold text-link hover:text-emphasis">
+          build it from source
+        </a>.
+      </p>
       <p class="mt-6 text-sm text-muted">
         Published by{' '}
         <a href={PUBLISHER.site} class="font-semibold text-link hover:text-emphasis">{PUBLISHER.name}</a>.

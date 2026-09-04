@@ -43,7 +43,7 @@ const appLd = {
   '@type': 'SoftwareApplication',
   name: APP.name,
   applicationCategory: 'ProductivityApplication',
-  operatingSystem: APP.minOS,
+  operatingSystem: APP.platforms,
   url: new URL(href('/'), Astro.site).href,
   downloadUrl: DOWNLOAD.url,
   softwareVersion: APP.version,

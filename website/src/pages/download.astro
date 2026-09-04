@@ -2,14 +2,14 @@
 import PageLayout from '../layouts/PageLayout.astro';
 import Prose from '../components/Prose.astro';
 import { href } from '../lib/paths';
-import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
+import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
 ---
 
 <PageLayout
-  title="Download — HelloNotes for Mac"
-  description={`Download HelloNotes ${APP.version} for macOS — a free, signed and notarised universal app for Apple silicon and Intel. Requires ${APP.minOS}.`}
+  title="Download — HelloNotes for Mac, iPhone & iPad"
+  description={`Get HelloNotes ${APP.version} free on the App Store for iPhone, iPad and Mac, or as a signed and notarised direct download for macOS. Requires ${APP.platforms}.`}
   heading={`Download ${APP.name}`}
-  intro={`Version ${APP.version} — free, signed and notarised by Apple.`}
+  intro={`Version ${APP.version} — free on the App Store, or as a direct download for Mac.`}
   appSchema
 >
   <div class="mx-auto max-w-[1120px] px-6 py-12">
@@ -18,7 +18,12 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
           width, and a <pre> never wraps — without this the code blocks push the
           whole page wider than a phone. */}
       <div class="min-w-0">
-        <!-- Primary download -->
+        {/* Two channels, not one. The App Store is the only route to iPhone and
+            iPad and the only one that updates itself, so it leads; the direct
+            download stays because it predates the store listing, needs no Apple
+            account, and is the build the checksum below describes. */}
+
+        <!-- App Store -->
         <div class="rounded-card border border-line bg-card p-8">
           <div class="flex flex-wrap items-center gap-5">
             <img
@@ -32,36 +37,80 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
               <h2 class="text-2xl font-extrabold tracking-[-0.02em]">
                 {APP.name} {APP.version}
               </h2>
-              <p class="mt-1 text-muted">
-                {DOWNLOAD.fileName} · {DOWNLOAD.size} · {APP.architectures}
-              </p>
+              <p class="mt-1 text-muted">On the App Store · Free · Updates automatically</p>
             </div>
           </div>
 
+          <div class="mt-7 grid gap-3 sm:grid-cols-2">
+            <a
+              href={APP_STORE.ios}
+              class="brand-gradient inline-flex items-center justify-center rounded-full px-6 py-4 text-base font-bold text-white shadow-cta transition hover:brightness-95"
+            >
+              iPhone &amp; iPad
+            </a>
+            <a
+              href={APP_STORE.mac}
+              class="inline-flex items-center justify-center rounded-full border border-line bg-chip px-6 py-4 text-base font-bold text-ink transition hover:border-edge hover:text-emphasis"
+            >
+              Mac
+            </a>
+          </div>
+
+          <p class="mt-4 text-center text-sm text-muted">
+            Requires {APP.platforms}. Free on every device you own. The optional in-app
+            purchases back the work and add an in-app support request; every feature of the app
+            is included either way.
+          </p>
+        </div>
+
+        <!-- Direct download -->
+        <div class="mt-5 rounded-card border border-line bg-card p-8">
+          <h2 class="text-xl font-extrabold tracking-[-0.02em]">Direct download for Mac</h2>
+          <p class="mt-1 text-muted">
+            {DOWNLOAD.fileName} · {DOWNLOAD.size} · {APP.architectures}
+          </p>
+
           <a
             href={DOWNLOAD.url}
-            class="brand-gradient mt-7 inline-flex w-full items-center justify-center rounded-full px-6 py-4 text-lg font-bold text-white shadow-cta transition hover:brightness-95"
+            class="mt-6 inline-flex w-full items-center justify-center rounded-full border border-edge bg-chip px-6 py-4 text-lg font-bold text-ink transition hover:text-emphasis"
           >
-            Download for Mac
+            Download {DOWNLOAD.fileName}
           </a>
 
           <p class="mt-4 text-center text-sm text-muted">
-            Requires {APP.minOS}. Also available on the{' '}
+            Requires {APP.minMacOS}. No Apple account needed. Also on the{' '}
             <a href={DOWNLOAD.releasesPage} class="text-link hover:text-emphasis">releases page</a>.
           </p>
         </div>
 
         <Prose>
           <h2 id="installing">Installing</h2>
+          <p>
+            From the App Store there is nothing to install by hand — open the listing for your
+            device, install, and launch.
+          </p>
+          <p>From the disk image:</p>
           <ol>
             <li>Download <code>{DOWNLOAD.fileName}</code> and open it — a disk image window appears.</li>
             <li>Drag the <strong>{APP.name}</strong> icon onto the <strong>Applications</strong> folder shown beside it.</li>
             <li>Eject the disk image, then open {APP.name} from Applications or Launchpad.</li>
-            <li>
-              On first launch, choose <strong>Open…</strong> and pick any folder of Markdown files —
-              or an empty folder to start fresh.
-            </li>
           </ol>
+
+          <h2 id="first-launch">The first launch</h2>
+          <p>
+            Either way, {APP.name} opens with something in it. A collection called{' '}
+            <strong>DefaultCollection</strong> ships inside the app — a short guided tour plus the
+            user manual, written in {APP.name} and demonstrating the features it describes — and it
+            is copied into your documents and opened for you the first time you launch. Nothing to
+            choose, download or sign in to.
+          </p>
+          <p>
+            When you want your own notes, use <strong>Open…</strong> and pick any folder of Markdown
+            files — an existing vault, or an empty folder to start fresh. If you ever close the
+            default collection you can bring it back from{' '}
+            <strong>File ▸ Open Default Collection</strong>, or the <strong>+</strong> button at the
+            top of the sidebar.
+          </p>
 
           <p>
             Because the app is signed with a Developer ID and notarised by Apple, macOS opens it
@@ -114,16 +163,20 @@ import { APP, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
           <h2 class="text-sm font-bold tracking-wider text-muted uppercase">Requirements</h2>
           <dl class="mt-4 space-y-3 text-[15px]">
             <div>
-              <dt class="text-muted">Operating system</dt>
-              <dd class="font-semibold">{APP.minOS}</dd>
+              <dt class="text-muted">Mac</dt>
+              <dd class="font-semibold">{APP.minMacOS}</dd>
             </div>
             <div>
-              <dt class="text-muted">Architecture</dt>
+              <dt class="text-muted">iPhone &amp; iPad</dt>
+              <dd class="font-semibold">{APP.minIOS}</dd>
+            </div>
+            <div>
+              <dt class="text-muted">Mac architecture</dt>
               <dd class="font-semibold">{APP.architectures}</dd>
             </div>
             <div>
               <dt class="text-muted">Price</dt>
-              <dd class="font-semibold">Free</dd>
+              <dd class="font-semibold">Free · optional support purchases</dd>
             </div>
             <div>
               <dt class="text-muted">Account required</dt>
