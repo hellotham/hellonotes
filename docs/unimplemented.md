@@ -56,7 +56,14 @@
   make the timing not a matter of taste: **the deploy is automatic** — any push
   touching `website/**` publishes, per `deploy-website.yml` — and a live link to
   an app Apple has not yet approved is a broken link on the front page. So this
-  is prepared but held. Note the channels have diverged: the direct-download DMG
+  is **written and held on the branch `website/app-store-launch`** (pushed —
+  branch pushes do not deploy, only `main` does): build clean, site audit clean,
+  no horizontal overflow at 375 or 1280. Merge it to `main` the moment App
+  Review approves and the listings go live. It also corrects two claims that
+  were already wrong rather than merely narrow — the download page told
+  first-time users to pick a folder on first launch, which `DefaultCollection`
+  has not required since it began shipping inside the binary, and Support said
+  the intelligence features need *a Mac*. Note the channels have diverged: the direct-download DMG
   already shipped as 1.3.2, so a *new* DMG needs 1.3.3 while the App Store side
   is still 1.3.2 (n).
 
