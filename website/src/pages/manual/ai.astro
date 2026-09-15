@@ -213,7 +213,19 @@ import { href } from '../../lib/paths';
       model another way and choose <strong>Choose a Model Folder…</strong>. Once a model is on your
       device it works offline.
     </li>
+    <li>
+      <strong>A model you already have</strong> — on a Mac, models downloaded with other MLX tools
+      are in your Hugging Face cache, <code>~/.cache/huggingface/hub</code>. Choose the model’s own
+      folder there, named like <code>models--mlx-community--…</code>, rather than a folder inside
+      it; press <kbd>⇧⌘G</kbd> in the Open panel to type the path.
+    </li>
   </ul>
+  <p>
+    Not every open model can use tools — Gemma 3, for one, has no way to be shown them. With such a
+    model the AI settings say so, the Assistant chats without reading or changing your notes, and
+    Research isn’t available; the writing tools work as usual. The suggested models can all use
+    tools.
+  </p>
   <p>
     MLX runs on the device itself, so it is not available in the iOS Simulator.
   </p>
