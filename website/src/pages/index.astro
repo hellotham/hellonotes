@@ -219,21 +219,21 @@ const showcase = [
       <p class="mx-auto mt-3 max-w-[560px] text-muted">
         {APP.name} {APP.version} is free on the App Store for iPhone, iPad and Mac.
       </p>
-      {/* Two store buttons rather than one: a single link cannot serve both
-          stores, and inferring the visitor's device is a guess that gets a Mac
-          user the iPhone listing often enough to be worse than asking. */}
+      {/* One button, because Apple serves one page. The record ships both
+          platforms and `?mt=12` is dropped on redirect, so a second "Mac App
+          Store" link would land in exactly the same place. */}
       <div class="mt-7 flex flex-wrap justify-center gap-3.5">
         <a
-          href={APP_STORE.ios}
+          href={APP_STORE.url}
           class="brand-gradient inline-flex items-center gap-2.5 rounded-full px-6 py-3.5 text-base font-bold text-white shadow-cta transition hover:brightness-95"
         >
-          App Store — iPhone &amp; iPad
+          Download on the App Store
         </a>
         <a
-          href={APP_STORE.mac}
+          href={REPO}
           class="inline-flex items-center gap-2.5 rounded-full border border-line bg-chip px-6 py-3.5 text-base font-bold text-ink transition hover:border-edge hover:text-emphasis"
         >
-          Mac App Store
+          View source on GitHub
         </a>
       </div>
       <p class="mt-6 text-sm text-muted">
@@ -241,10 +241,7 @@ const showcase = [
         <a href={href('/download')} class="font-semibold text-link hover:text-emphasis">
           direct download
         </a>{' '}
-        for Mac is signed and notarised, or{' '}
-        <a href={REPO} class="font-semibold text-link hover:text-emphasis">
-          build it from source
-        </a>.
+        for Mac is signed and notarised.
       </p>
       <p class="mt-6 text-sm text-muted">
         Published by{' '}

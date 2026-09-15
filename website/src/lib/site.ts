@@ -23,18 +23,22 @@ export const APP = {
 } as const;
 
 /**
- * The App Store listing. One App Store Connect record ships both platforms, so
- * both links carry the same id — `mt=12` is what selects the Mac App Store.
+ * The App Store listing — **one** page for all three platforms.
  *
- * These 404 until App Review approves the version, which is why this whole
- * change is staged rather than deployed: pushing anything under `website/**`
- * publishes the site (see .github/workflows/deploy-website.yml), and a dead
- * store link on the front page is worse than no link at all.
+ * Both platforms ship from a single App Store Connect record, and Apple serves
+ * them as one unified product page: `?mt=12` (the legacy "Mac App Store"
+ * selector) is *dropped on redirect*, so a separate Mac link resolves to
+ * exactly the same URL as the iPhone one. Two buttons here would be two ways to
+ * reach the same place, which reads as a mistake rather than a choice — hence
+ * one link, and copy that names the devices instead.
+ *
+ * Verified live 2026-09-15: both forms 200 and both land on
+ * apps.apple.com/…/app/hellonotes/id6803259848, whose page lists Mac, iPhone
+ * and iPad.
  */
 export const APP_STORE = {
   id: '6803259848',
-  ios: 'https://apps.apple.com/app/id6803259848',
-  mac: 'https://apps.apple.com/app/id6803259848?mt=12',
+  url: 'https://apps.apple.com/app/id6803259848',
 } as const;
 
 export const PUBLISHER = {

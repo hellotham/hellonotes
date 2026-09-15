@@ -37,24 +37,18 @@ import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
               <h2 class="text-2xl font-extrabold tracking-[-0.02em]">
                 {APP.name} {APP.version}
               </h2>
-              <p class="mt-1 text-muted">On the App Store · Free · Updates automatically</p>
+              <p class="mt-1 text-muted">
+              On the App Store for iPhone, iPad and Mac · Free · Updates automatically
+            </p>
             </div>
           </div>
 
-          <div class="mt-7 grid gap-3 sm:grid-cols-2">
-            <a
-              href={APP_STORE.ios}
-              class="brand-gradient inline-flex items-center justify-center rounded-full px-6 py-4 text-base font-bold text-white shadow-cta transition hover:brightness-95"
-            >
-              iPhone &amp; iPad
-            </a>
-            <a
-              href={APP_STORE.mac}
-              class="inline-flex items-center justify-center rounded-full border border-line bg-chip px-6 py-4 text-base font-bold text-ink transition hover:border-edge hover:text-emphasis"
-            >
-              Mac
-            </a>
-          </div>
+          <a
+            href={APP_STORE.url}
+            class="brand-gradient mt-7 inline-flex w-full items-center justify-center rounded-full px-6 py-4 text-lg font-bold text-white shadow-cta transition hover:brightness-95"
+          >
+            View on the App Store
+          </a>
 
           <p class="mt-4 text-center text-sm text-muted">
             Requires {APP.platforms}. Free on every device you own. The optional in-app
