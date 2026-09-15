@@ -1,15 +1,22 @@
 ---
+import { Image } from 'astro:assets';
+
 import PageLayout from '../layouts/PageLayout.astro';
 import Shot from '../components/Shot.astro';
 import { href } from '../lib/paths';
 import { SCREENS } from '../lib/screens';
+import { DEVICE_SHOTS } from '../lib/devices';
+import { APP } from '../lib/site';
+
+const phones = DEVICE_SHOTS.filter((s) => s.device === 'iPhone');
+const pads = DEVICE_SHOTS.filter((s) => s.device === 'iPad');
 ---
 
 <PageLayout
   title="Screenshots — HelloNotes"
-  description="See HelloNotes in action, in both light and dark appearance: the native Markdown editor, inline maths and diagrams, callouts and properties, the graph view, and on-device AI answering questions from your notes."
+  description="See HelloNotes in action on Mac, iPhone and iPad: the native Markdown editor, inline maths and diagrams, callouts and properties, the graph view, and on-device AI answering questions from your notes."
   heading="Screenshots"
-  intro="A closer look at the editor, the graph, and the on-device intelligence."
+  intro="A closer look at the editor, the graph, and the on-device intelligence — on every platform it runs on."
 >
   <div class="mx-auto max-w-[1000px] px-6 py-12">
     {/*
@@ -21,8 +28,12 @@ import { SCREENS } from '../lib/screens';
     <p class="mb-12 text-center text-muted">
       Every shot exists in both appearances. Use the{' '}
       <span class="font-semibold text-ink">appearance control</span> in the menu bar above to
-      switch — HelloNotes itself does the same, following your Mac or pinned in Settings.
+      switch — HelloNotes itself does the same, following your device or pinned in Settings.
     </p>
+
+    <h2 class="mb-12 text-center text-[clamp(24px,3.4vw,32px)] font-extrabold tracking-[-0.02em]">
+      On the Mac
+    </h2>
 
     <div class="space-y-20">
       {
@@ -44,16 +55,65 @@ import { SCREENS } from '../lib/screens';
       }
     </div>
 
+    {/* Raw device captures, framed by CSS — see src/lib/devices.ts for why these
+        do not go through Shot.astro. They are dark-appearance only, so this
+        section deliberately makes no claim about following the site's theme. */}
+    <section class="mt-24 border-t border-line pt-16">
+      <div class="mx-auto mb-12 max-w-[680px] text-center">
+        <h2 class="text-[clamp(24px,3.4vw,32px)] font-extrabold tracking-[-0.02em]">
+          On iPhone and iPad
+        </h2>
+        <p class="mt-3 text-muted">
+          The same app over the same files. Notes in a folder you choose sync however you already
+          sync — iCloud Drive, Dropbox, a Git remote — and nothing passes through us.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-start justify-center gap-10">
+        {
+          phones.map((s) => (
+            <figure class="w-full max-w-[300px]">
+              <Image
+                src={s.image}
+                alt={s.alt}
+                widths={[300, 600]}
+                sizes="(max-width: 640px) 80vw, 300px"
+                loading="lazy"
+                class="w-full rounded-[28px] border border-line shadow-plate"
+              />
+              <figcaption class="mt-4 text-center text-sm text-muted">{s.caption}</figcaption>
+            </figure>
+          ))
+        }
+      </div>
+
+      {
+        pads.map((s) => (
+          <figure class="mx-auto mt-14 w-full max-w-[720px]">
+            <Image
+              src={s.image}
+              alt={s.alt}
+              widths={[720, 1440]}
+              sizes="(max-width: 768px) 100vw, 720px"
+              loading="lazy"
+              class="w-full rounded-card border border-line shadow-plate"
+            />
+            <figcaption class="mt-4 text-center text-sm text-muted">{s.caption}</figcaption>
+          </figure>
+        ))
+      }
+    </section>
+
     <div class="mt-20 border-t border-line pt-10 text-center">
       <p class="text-muted">
-        Screenshots show HelloNotes 1.0 on macOS. Interested in how it all works?
+        Screenshots show {APP.name} {APP.version}. Interested in how it all works?
       </p>
       <div class="mt-5 flex flex-wrap justify-center gap-3.5">
         <a
           href={href('/download')}
           class="brand-gradient inline-flex items-center rounded-full px-6 py-3.5 font-bold text-white shadow-cta transition hover:brightness-95"
         >
-          Download for Mac
+          Download
         </a>
         <a
           href={href('/features')}

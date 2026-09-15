@@ -13,8 +13,9 @@ import dark05 from '../assets/screens/dark_05.png';
 
 /**
  * The product screenshots, each captured twice — once with the app's Appearance
- * set to Light and once to Dark, from the same SampleVault, same window size and
- * same note. Nothing but the app's own theme differs between the pair, which is
+ * set to Light and once to Dark, from the same DefaultCollection, same window
+ * size and same note. (DefaultCollection ships inside the binary, so every shot
+ * is content a reader can open for themselves rather than a private vault.) Nothing but the app's own theme differs between the pair, which is
  * the point: it shows the setting rather than just decorating the page.
  *
  * Regenerate with scripts/make-screenshots.py; see docs/website.md.
@@ -36,7 +37,7 @@ export const SCREENS: Screen[] = [
     dark: dark01,
     alt: 'The HelloNotes window showing the sidebar of collections and folders, and a note open in the editor',
     title: 'Your notes, your files',
-    body: 'The note list is a view of a real folder on your Mac. Collections, folders, links and tags — over ordinary Markdown files you can open in any other app.',
+    body: 'The note list is a view of a real folder on your device. Collections, folders, links and tags — over ordinary Markdown files you can open in any other app.',
   },
   {
     id: 'maths',

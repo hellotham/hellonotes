@@ -7,9 +7,38 @@ export const APP = {
   name: 'HelloNotes',
   tagline: 'Think in plain Markdown.',
   version: '1.3.2',
-  minOS: 'macOS 26.5 or later',
+  /** The Mac floor. Also the DMG's requirement — that channel is Mac-only. */
+  minMacOS: 'macOS 26.5 or later',
+  minIOS: 'iOS & iPadOS 26.5 or later',
+  /**
+   * Both floors in one phrase, for the places that name the requirement once.
+   * `minOS` used to be the single Mac string and is deliberately gone rather
+   * than kept as an alias: every remaining reader had to be looked at, because
+   * a Mac-only sentence on a page that now also sells an iPhone app is wrong in
+   * a way no build catches.
+   */
+  platforms: 'macOS, iOS & iPadOS 26.5 or later',
   /** Universal binary — verified with `lipo -info` on the shipped DMG. */
   architectures: 'Apple silicon & Intel',
+} as const;
+
+/**
+ * The App Store listing — **one** page for all three platforms.
+ *
+ * Both platforms ship from a single App Store Connect record, and Apple serves
+ * them as one unified product page: `?mt=12` (the legacy "Mac App Store"
+ * selector) is *dropped on redirect*, so a separate Mac link resolves to
+ * exactly the same URL as the iPhone one. Two buttons here would be two ways to
+ * reach the same place, which reads as a mistake rather than a choice — hence
+ * one link, and copy that names the devices instead.
+ *
+ * Verified live 2026-09-15: both forms 200 and both land on
+ * apps.apple.com/…/app/hellonotes/id6803259848, whose page lists Mac, iPhone
+ * and iPad.
+ */
+export const APP_STORE = {
+  id: '6803259848',
+  url: 'https://apps.apple.com/app/id6803259848',
 } as const;
 
 export const PUBLISHER = {
