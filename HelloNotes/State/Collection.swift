@@ -324,7 +324,12 @@ final class Collection: Identifiable {
             // Reading and preparing happens off the main actor; so does the
             // tokenising inside `rebuild`, because the index is an actor.
             let documents: [RelatednessDocument] = notes.compactMap { note in
-                guard let raw = try? FileIO.readString(at: note.fileURL) else { return nil }
+                // Only notes already on this device. The first Compose, Research
+                // or Suggest Links builds this, and reading an online-only note
+                // downloads it — so without the check that one request pulled
+                // the whole cloud vault local.
+                guard FileIO.hasContentAvailable(note),
+                      let raw = try? FileIO.readString(at: note.fileURL) else { return nil }
                 let text = RetrievalText.prepare(raw)
                 guard text.count >= 80 else { return nil }
                 return RelatednessDocument(url: note.fileURL, title: note.title, text: text)
@@ -494,6 +499,24 @@ final class Collection: Identifiable {
     /// can least afford it.
     private var recentSelfWrites: [String: Date] = [:]
 
+    /// What `activate` was told to call when the folder changes underneath the
+    /// open editors — kept so a change the app makes *outside* an editor can
+    /// send the same message. See `noteChangedOutsideEditor()`.
+    private var externalChangeHandler: (@MainActor () -> Void)?
+
+    /// The app rewrote a note outside any editor — an approved Assistant edit.
+    ///
+    /// Such a write goes through `noteDidSave`, which records it as the app's
+    /// own so the watcher does not re-walk the folder for it. The price is that
+    /// the watcher then never tells the open editors either: a tab showing that
+    /// note kept its old text, and its next save put that text back over the
+    /// approved change. This is the message the watcher would have sent — an
+    /// editor with a clean buffer reloads, and one holding unsaved typing raises
+    /// a conflict rather than losing either side.
+    func noteChangedOutsideEditor() {
+        externalChangeHandler?()
+    }
+
     /// How long a write of our own goes on explaining a change notification.
     ///
     /// **Sized for a File Provider volume, not a local disk.** At 3s this was
@@ -560,7 +583,7 @@ final class Collection: Identifiable {
     /// (a click that does nothing) or an autosave mistaken for someone else's
     /// edit (a spurious rescan). The audit found four different normalisations
     /// across `Collection.id`, scanned URLs, `recentSelfWrites` and
-    /// `AgentTool.isWithinRoot` — on a `/var`- or symlink-rooted vault those
+    /// the Assistant's `ToolContext.isWithinRoot` — on a `/var`- or symlink-rooted vault those
     /// disagree, and the app treats its own writes as external changes.
     ///
     /// Applied to `rootURL` at init, so every URL the scan derives from it is
@@ -1444,6 +1467,7 @@ final class Collection: Identifiable {
     /// Stop watching and relinquish the security scope. Call before closing.
     func deactivate() {
         stopObserving()
+        externalChangeHandler = nil
         if securityScoped { rootURL.stopAccessingSecurityScopedResource(); securityScoped = false }
     }
 
@@ -1533,6 +1557,7 @@ final class Collection: Identifiable {
     /// what they mean are not.
     private func startObserving(onExternalChange: @escaping @MainActor () -> Void) {
         stopObserving()
+        externalChangeHandler = onExternalChange
         #if os(macOS)
         let watcher = FileWatcher { [weak self] event in
             Task { @MainActor [weak self] in
@@ -1917,18 +1942,26 @@ final class Collection: Identifiable {
     }
 
     func createNote(title: String = "Untitled", in directory: URL? = nil) async -> Note? {
-        let fileManager = FileManager.default
         let base = title.isEmpty ? "Untitled" : title
         let folder = directory ?? rootURL
-        var candidate = folder.appendingPathComponent("\(base).md")
-        var counter = 2
-        while fileManager.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent("\(base) \(counter).md")
-            counter += 1
+        // The file system work runs off the main actor. On a File Provider
+        // folder both the existence checks and the coordinated create wait for
+        // the provider, and every New Note — and the Assistant's create_note —
+        // awaits this.
+        let candidate = await offMain { () -> URL in
+            var candidate = folder.appendingPathComponent("\(base).md")
+            var counter = 2
+            while FileManager.default.fileExists(atPath: candidate.path) {
+                candidate = folder.appendingPathComponent("\(base) \(counter).md")
+                counter += 1
+            }
+            return candidate
         }
-
+        // Registered before the file exists, so no watcher can hear about it
+        // first and take it for an external change (see `adopt(createdAt:)`).
+        rememberSelfWrite(candidate)
         do {
-            try FileIO.create(Data(), at: candidate)
+            try await offMain { try FileIO.create(Data(), at: candidate) }
         } catch {
             report("Couldn't create the note: \(error.localizedDescription)")
             return nil
@@ -1966,6 +1999,12 @@ final class Collection: Identifiable {
         // Same order `ScanAccumulator.sorted` uses, so an inserted note sits
         // exactly where a scan would have put it — newest first.
         notes.sort { $0.lastModified > $1.lastModified }
+        // A note created in a folder the picture has never seen brings the
+        // folder with it, derived the way the cache derives folders — rather
+        // than waiting for a walk of the whole collection to discover it.
+        let known = Set(folders.map(\.standardizedFileURL.path))
+        let arrived = Self.folders(from: [note], root: rootURL).filter { !known.contains($0.path) }
+        if !arrived.isEmpty { folders = (folders + arrived).sorted { $0.path < $1.path } }
         revision &+= 1
 
         // The derived indexes take the same O(1) path a save does. The note is

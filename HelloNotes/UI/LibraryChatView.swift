@@ -115,13 +115,17 @@ struct LibraryChatView: View {
             // Retrieval reads note files on demand (the search index no longer
             // keeps content in memory), so it runs off the main actor.
             let retrieved = await retrieve(q)
-            sources = retrieved
-            let context = await offMain {
-                retrieved.map { note in
-                    (title: note.title,
-                     text: (try? FileIO.readString(at: note.fileURL)) ?? "")
+            // A note that can't be read is left out, not sent as an empty one —
+            // and not listed as a source for an answer it took no part in.
+            let read = await offMain {
+                retrieved.compactMap { note -> (note: Note, text: String)? in
+                    guard FileIO.hasContentAvailable(note),
+                          let text = try? FileIO.readString(at: note.fileURL) else { return nil }
+                    return (note: note, text: text)
                 }
             }
+            sources = read.map(\.note)
+            let context = read.map { (title: $0.note.title, text: $0.text) }
             do {
                 if context.isEmpty {
                     answer = "I couldn't find any notes related to that."
@@ -163,7 +167,10 @@ struct LibraryChatView: View {
         let candidates = notes
         let scored = await offMain { () -> [(Note, Int)] in
             candidates.compactMap { note in
-                guard let text = (try? FileIO.readString(at: note.fileURL))?.lowercased()
+                // Only notes already on this device: reading an online-only note
+                // downloads it, and this reads every note in every collection.
+                guard FileIO.hasContentAvailable(note),
+                      let text = (try? FileIO.readString(at: note.fileURL))?.lowercased()
                 else { return nil }
                 let score = keywords.reduce(0) { acc, kw in
                     acc + max(0, text.components(separatedBy: kw).count - 1)

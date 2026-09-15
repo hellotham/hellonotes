@@ -19,12 +19,13 @@ struct SkillStoreTests {
     }
 
     @Test
-    func discoversAndParsesSkillFrontMatter() throws {
+    func discoversAndParsesSkillFrontMatter() async throws {
         let indexer = Collection(rootURL: sampleVault())
         indexer.scan()
 
         let store = SkillStore()
-        store.refresh(from: indexer.notes)
+        // The read happens off the main actor, so the list arrives later.
+        await store.refresh(from: indexer.notes).value
 
         let skill = try #require(store.skill(named: "weekly-review"))
         #expect(skill.description.contains("weekly review"))

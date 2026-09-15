@@ -7,15 +7,15 @@
 //  "Rewrite with AI…" for the editor's selection: pick a canned task or
 //  type an instruction, preview the provider's rewrite, then Replace the
 //  selection (undoable — it applies through the editor's normal edit path)
-//  or Insert Below. Complements Apple Writing Tools with the user's own
-//  provider choice and free-form instructions.
+//  or Insert Below. Complements Apple Writing Tools with the model the person
+//  chose and free-form instructions.
 //
 
 import SwiftUI
 
 struct RewriteSelectionView: View {
     /// What is being rewritten. A whole note also offers **Expand**, which has
-    /// its own prompt path in the provider rather than being one more
+    /// its own prompt path rather than being one more
     /// instruction — and the commit buttons have to say "Note", because
     /// "Replace Selection" over a whole note describes the wrong blast radius.
     enum Subject { case selection, wholeNote }
@@ -55,7 +55,7 @@ struct RewriteSelectionView: View {
                       systemImage: "sparkles")
                     .font(.headline)
                 Spacer()
-                Text(intelligence.providerName)
+                Text(intelligence.modelName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Close") { cancelAndDismiss() }   // Replace/Insert are the commits; this just dismisses
@@ -142,9 +142,8 @@ struct RewriteSelectionView: View {
         .panelFrame(width: 520, height: 480)
     }
 
-    /// Expand is not one of the saved instructions — it routes to the
-    /// provider's own expansion path, which on Apple Intelligence is a
-    /// different structured call rather than a differently-worded prompt.
+    /// Expand is not one of the saved instructions — it has its own path,
+    /// which budgets for a reply larger than the note rather than the same size.
     private static let expandLabel = "Expand"
 
     private var chipLabels: [String] {

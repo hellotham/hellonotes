@@ -280,7 +280,7 @@ struct NoteInspector: View {
                             .font(.caption2)
                     }
                     .buttonStyle(.borderless)
-                    .help("Add the summary to the top of the note as a > [!summary] callout")
+                    .help("Save the summary in the note's summary: property")
                 }
             }
         }

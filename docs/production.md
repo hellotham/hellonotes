@@ -8,6 +8,12 @@ to an approved App Store release. Copy‑paste values are given for every field.
 > 2026-09-07** and both platforms read *Ready for Distribution*; the public
 > listing is <https://apps.apple.com/app/id6803259848>.
 >
+> **1.3.3 is in preparation** on `release/1.3.3`: macOS 27 / iOS 27 floor, every
+> AI feature rebuilt on Apple Foundation Models (on-device, MLX, and Private
+> Cloud Compute once Apple grants the entitlement), the sixteen bespoke provider
+> integrations removed, and China mainland to be re-enabled. Its App Store copy is
+> in [`app-store-listing.md`](app-store-listing.md).
+>
 > They share one app record and one bundle ID. **They do not share metadata.**
 > Promotional text, description, screenshots, What's New and the reviewer notes
 > are *per platform* — live proof: the macOS description opens "…for your Mac"
@@ -38,8 +44,8 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | Version / build | `MARKETING_VERSION = 1.3.2`, `CURRENT_PROJECT_VERSION = 21` — **verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
-| Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync) · App Group · iCloud KV store · Audio input — see §1b for the full current list and what each is for |
-| Min OS | **macOS 26.5 / iOS 26.5** |
+| Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
+| Min OS | **macOS 26.5 / iOS 26.5** for 1.3.2 · **macOS 27 / iOS 27 from 1.3.3** |
 | Website | <https://hellotham.com/hellonotes/> — Privacy, Support, and (since 2026-09-15) the App Store links and iPhone/iPad screenshots |
 
 ---
@@ -52,7 +58,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 2. You are **Account Holder / Admin / App Manager** on the team in both
    [App Store Connect](https://appstoreconnect.apple.com) and the
    [Developer portal](https://developer.apple.com/account).
-3. **Xcode 26** signed in: Xcode ▸ Settings ▸ Accounts ▸ add the Hello Tham Apple
+3. **Xcode 27** (1.3.3 builds against the 27 SDKs; 1.3.2 was Xcode 26) signed in: Xcode ▸ Settings ▸ Accounts ▸ add the Hello Tham Apple
    ID ▸ select the team. Let it create a **“Apple Distribution”** certificate when
    prompted (or Manage Certificates ▸ **+** ▸ *Apple Distribution*).
 4. **Agreements:** App Store Connect ▸ **Business** ▸ accept the *Paid Apps* /
@@ -77,7 +83,10 @@ to an approved App Store release. Copy‑paste values are given for every field.
 Work through each; several are genuine blockers or reviewer red flags.
 
 ### 1a. ✅ Minimum macOS version — done
-**`MACOSX_DEPLOYMENT_TARGET = 26.5`**, matching iOS.
+**`MACOSX_DEPLOYMENT_TARGET = 26.5`**, matching iOS — and **27.0 on both from 1.3.3**,
+because the rebuilt AI layer uses what only the 27 SDKs have: the `LanguageModel`
+protocol that lets an MLX model run in a `LanguageModelSession`, dynamic
+profiles, and Private Cloud Compute.
 
 It sat at 15.0 for 1.3.1, which was wrong in a way nothing caught: the Widgets,
 Preview and Thumbnail extensions were already 26.5, so the app promised an OS its
@@ -109,9 +118,9 @@ copy):
 <key>com.apple.security.device.audio-input</key>                 <true/>
 ```
 What each is for: `files.bookmarks.app-scope` is required for the security-scoped
-bookmarks that remember collection folders across launches; `network.client` also
-covers the optional cloud AI providers and the assistant's web search/fetch
-tools; `application-groups` (`group.com.hellotham.HelloNotes`) shares the
+bookmarks that remember collection folders across launches (and, from 1.3.3, a
+chosen MLX model folder); `network.client` also covers MLX model downloads from
+Hugging Face and the assistant's web search/fetch tools; `application-groups` (`group.com.hellotham.HelloNotes`) shares the
 widget's recent/daily-note snapshot with `HelloNotesWidgetsExtension` (see
 `docs/xcode-targets-setup.md`); `ubiquity-kvstore-identifier` and
 `device.audio-input` back the iCloud key-value preference sync and the
@@ -121,6 +130,36 @@ Verified present in the Release build. Git push/fetch to a remote can reach the
 network. Note: SSH‑agent/keychain credential access from a sandbox is still
 limited — **HTTPS remotes with a personal access token** are the reliable path
 for end users.
+
+### 1b-PCC. ⏳ Private Cloud Compute — the entitlement Apple has not granted yet
+
+`com.apple.developer.private-cloud-compute` is a **managed** entitlement: request
+it at <https://developer.apple.com/contact/request/private-cloud-compute/>. The
+form stays locked (*Access Unavailable*) until the App Store Small Business
+Program enrolment is approved; the request was waiting on that as of 2026-09-15.
+**Never add the key to `HelloNotes.entitlements` before Apple assigns it** — a
+profile without it fails to sign.
+
+**Without it, offering the model crashes the app.** Measured in the signed app:
+`PrivateCloudComputeLanguageModel.availability` reports `.available`, and the
+first request ends the process with `fatalError("Missing entitlement: …")` inside
+Foundation Models. An unsandboxed command-line probe reports the same
+availability and does *not* crash, which is exactly how it looks safe. So the app
+offers Private Cloud Compute only when built with the `PRIVATE_CLOUD_COMPUTE`
+compilation condition (`LanguageModels.privateCloudComputeEnabled`; on the Mac
+the signed entitlement is checked at runtime as well).
+
+When Apple grants it, in **one** change:
+1. Add `<key>com.apple.developer.private-cloud-compute</key><true/>` to
+   `HelloNotes/HelloNotes.entitlements`.
+2. Add `PRIVATE_CLOUD_COMPUTE` to the app target's
+   `SWIFT_ACTIVE_COMPILATION_CONDITIONS`, Debug **and** Release.
+3. Run `PrivateCloudComputeEntitlementTests` (fails if 1 and 2 disagree), then
+   `TEST_RUNNER_HN_PCC_PROBE=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/PrivateCloudComputeProbe`
+   for one real request from inside the app.
+4. Add Private Cloud Compute to the listing copy (`app-store-listing.md` says
+   where) and to the privacy policy, and re-read Apple's current guidance on how
+   Private Cloud Compute processing is declared in App Privacy (§5).
 
 ### 1c. ✅ Info.plist document types — done
 The placeholder `com.example.*` UTIs were replaced with a proper Markdown
@@ -201,14 +240,18 @@ removed at M4 and is no longer a dependency.
 A shared scheme (`HelloNotes.xcodeproj/xcshareddata/xcschemes/HelloNotes.xcscheme`)
 is committed, so these commands (and Appendix A / CI) work from a clean checkout: 
 ```bash
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
-  -destination 'platform=macOS' -only-testing:HelloNotesTests test   # green
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+./scripts/run-tests.sh                                              # green (never a bare xcodebuild test)
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation \
   -destination 'platform=macOS' -configuration Release build         # builds clean
 # …and BOTH slices, exactly as the archive builds them:
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation \
   -destination 'generic/platform=macOS' -configuration Release build
 ```
+**`-skipPackagePluginValidation` is required from 1.3.3.** mlx-swift's `Cmlx`
+target carries a `CudaBuild` build-tool plugin (inert on Apple platforms), and
+`xcodebuild` refuses to run a package plugin nobody has trusted — the build fails
+at *Validate plug-in* before compiling anything. In Xcode's GUI it is a one-time
+**Trust & Enable** prompt instead.
 This is the macOS half only. For the iOS half, run the iOS test/build commands
 in the repo-root `CLAUDE.md` (Commands section) — kept there rather than
 duplicated here, so there is exactly one place these commands can drift from
@@ -304,7 +347,7 @@ other, and the page gives you no hint that a sibling exists.
 
 | Rule | Why, and what it cost |
 |---|---|
-| **No reference to OpenAI or ChatGPT** in name, subtitle, promotional text, description, keywords **or screenshots** | Guideline 5. China tightened its rules on generative-AI services, and a metadata mention is enough. The live text names *Anthropic, Mistral, Gemini*. Also: **China mainland is deselected** in Availability (§7), which is the resolution Apple offered. |
+| **No reference to OpenAI or ChatGPT** — and from 1.3.3 no third-party AI service at all — in name, subtitle, promotional text, description, keywords **or screenshots** | Guideline 5. China tightened its rules on generative-AI services, and a metadata mention is enough. The 1.3.2 live text names *Anthropic, Mistral, Gemini*; the 1.3.3 copy names none, and `StoreListingTests.noThirdPartyAIServiceIsNamed` holds it there. China mainland was deselected for 1.3.2 (§7) and is to be re-enabled with 1.3.3. |
 | **A link to Apple's standard EULA in the Description** | Guideline 3.1.2(c) has two halves and build 14 was rejected for missing both: the disclosures in the binary (`SupportSettingsView`, guarded by `SupportContractTests`) **and** the EULA link in the description. The app can be perfect and still be rejected for the description. |
 | **The subscription's full terms in the Description** | The live copy ends with a `SUPPORTING HELLONOTES (OPTIONAL)` section naming the price (A$50/year), that it is auto-renewable, when it renews, and how to cancel (`Settings > your name > Subscriptions`). |
 | **Both policy URLs resolve** | Check with `curl`, never by reading. The privacy one takes **no trailing slash**: `…/privacy` is 200, `…/privacy/` is 404. |
@@ -315,10 +358,11 @@ curl -sIL -o /dev/null -w '%{http_code}\n' https://hellotham.com/hellonotes/priv
 curl -sIL -o /dev/null -w '%{http_code}\n' https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 ```
 
-**Subtitle** (≤30 chars) — stable across releases:
-```
-Local-first Markdown notes
-```
+**The copy for the version being prepared lives in [`app-store-listing.md`](app-store-listing.md)**
+— subtitle, promotional text, keywords, What's New, both descriptions and the
+reviewer notes — where `StoreListingTests` checks it against the limits and the
+rules above before anything is pasted. Refresh that file from App Store Connect
+before editing it for a new version.
 
 ### Reviewer notes — what must be covered
 
@@ -339,17 +383,19 @@ order, every question a reviewer has actually asked:
 3. **"What do they unlock?"** — every feature is included for everyone; backing
    the app adds an in-app **support request** and nothing else. Say that
    plainly. It must **not** claim nothing is gated — something is.
-4. **Guideline 5** — China mainland deselected; the app ships no ChatGPT
-   integration and no OpenAI credentials.
+4. **Guideline 5** — the app ships no third-party AI service, no ChatGPT or
+   OpenAI integration, and no AI credentials of any kind: its AI is Apple
+   Foundation Models, plus open models the person may choose to download and run
+   on the device with MLX.
 
 `assets/iap-review/` holds the App Review screenshot and an 82-second recording
 that walks the purchase path and follows both policy links into Safari, for the
 Resolution Center if 3.1.2(c) is raised. See §8 for that screenshot's size rule,
 which is not the app-screenshot rule.
 
-- **Sign-in required:** No. The app has no account of any kind. The three
-  optional screens where a user supplies *their own* third-party credentials
-  (Git, a cloud folder, an AI provider key) are not logins to a HelloNotes
+- **Sign-in required:** No. The app has no account of any kind. The optional
+  screens where a user supplies *their own* third-party credentials (Git, a cloud
+  folder — and before 1.3.3, an AI provider key) are not logins to a HelloNotes
   service — an automated scan has flagged them as such before, so the notes say
   so explicitly.
 - **Contact:** your name, phone, email.
@@ -391,14 +437,10 @@ previous contents.)*
 
 **App Review Information** (bottom of the page):
 - **Sign-in required:** No.
-- **Notes to reviewer** (paste):
-  ```
-  HelloNotes is a local-first Markdown editor. Nothing needs to be set up: a sample collection is bundled in the app and opens by itself on first launch, so the tour, the manual and every feature below are reachable immediately. To use your own notes instead, choose Open… and pick any folder of .md files.
-
-  All notes stay on-device in plain files; no account and no network are required for any core feature. The optional Intelligence features default to Apple's on-device Foundation Models (shown only on Apple Intelligence hardware); a user may instead configure a cloud provider with their own API key, in which case note content goes to that provider under the user's own account.
-
-  IN-APP PURCHASES. Settings ▸ Support ▸ Support HelloNotes shows both products: Champion (a repeatable one-off contribution) and Commercial (an annual auto-renewable subscription). That screen carries the subscription's title, length, price per period, and working links to the Terms of Use (EULA) and the privacy policy. Every feature of the app is included for everyone; the only thing backing it adds is the ability to send a support request from inside the app, and that screen says so.
-  ```
+- **Notes to reviewer:** paste from [`app-store-listing.md`](app-store-listing.md)
+  (*Notes to reviewer*). The 1.3.2 note told reviewers a user "may instead
+  configure a cloud provider with their own API key"; that is no longer true and
+  must not be pasted again.
 
   The path in that note is worth keeping accurate — it is how the reviewer finds
   the purchase screen. `assets/iap-review/` holds a screenshot of it and an
@@ -416,9 +458,13 @@ App Store Connect ▸ your app ▸ **App Privacy**.
   This remains accurate under Apple's definition (data "collected" = transmitted
   off-device **to the developer or their partners**): HelloNotes has no backend,
   no analytics, and no developer-operated endpoint. Everything the app sends
-  goes to **user-configured destinations under the user's own credentials** —
-  a Git remote, a cloud LLM provider the user enabled with their own API key,
-  or a web page the assistant fetches at the user's request. Disclose these
+  goes to **destinations the user directs** — a Git remote under their own
+  credentials, a web page or search the assistant makes at their request, or (from
+  1.3.3) Hugging Face when they choose to download an MLX model, which sends no
+  note content. 1.3.2 also listed a cloud LLM provider under the user's own API
+  key; 1.3.3 removes those. Apple's on-device model sends nothing. When Private
+  Cloud Compute is enabled (§1b-PCC), re-read Apple's guidance for it before
+  answering this again. Disclose these
   user-directed flows plainly in the privacy policy (Appendix C) and the app
   description; do **not** claim "nothing is ever sent to a server."
 - **Privacy Policy URL** (required even when nothing is collected). ✅ **Live** — the
@@ -445,13 +491,24 @@ Result: **4+**.
   purchases (§4) — the listing therefore carries an *Offers In-App Purchases*
   badge, so any page of ours claiming the app is simply "free, no purchases"
   contradicts the store one tap later.
-- **Availability: 174 of 175 territories. China mainland is deliberately
-  deselected.** That is the resolution Apple offered for the **Guideline 5**
-  rejection: China requires a permit for generative-AI services, and the app
-  offers optional third-party AI providers. Deselecting the storefront removes
-  the question. It is reversible in a later version if that changes — **do not
-  silently re-enable it**, and do not treat the row as an oversight when the
-  availability count reads 174.
+- **Availability for 1.3.2: 174 of 175 territories — China mainland
+  deliberately deselected.** That is the resolution Apple offered for the
+  **Guideline 5** rejection: China requires a permit for generative-AI services,
+  and 1.3.2 offered optional third-party AI providers. Deselecting the storefront
+  removed the question.
+- **For 1.3.3: re-enable China mainland** — a decision taken on 2026-09-15, not
+  a row to flip silently. It rests on 1.3.3 removing every third-party AI
+  service: the AI is Apple Foundation Models and on-device MLX. Two things are
+  still generative AI a Chinese reviewer may ask about, and the reviewer notes
+  (`app-store-listing.md`) answer them rather than hide them: an MLX model is an
+  open model the person downloads and runs locally (from Hugging Face, which is
+  unreachable there, or from a folder they supply), and the Assistant's web tools
+  — it searches DuckDuckGo on its own when a question needs it, and reads whole
+  pages only on a model with a 16,000-token window — as does Research in New Note
+  from a Prompt. If Guideline 5 comes back for China, the answer is in that same
+  pair — not in the rest of the app. No AI service is named anywhere in the app's
+  own code or bundle (`ShippedContentTests`); the only such strings in the binary
+  are swift-huggingface's Inference Providers enum, which HelloNotes does not use.
 
 ---
 
@@ -565,7 +622,7 @@ toolbar destination set to **Any iOS Device (arm64)**.
 ```
 Then (see the full script in Appendix A):
 ```bash
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation \
   -configuration Release -destination 'generic/platform=macOS' \
   -archivePath build/HelloNotes.xcarchive archive
 
@@ -587,7 +644,7 @@ to inspect, and use the AppStore one to ship. Toolbar/GUI archiving works
 too (destination **Any iOS Device (arm64)**), but headless is the same shape as
 the macOS path above with the iOS destination and plist swapped in:
 ```bash
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation \
   -configuration Release -destination 'generic/platform=iOS' \
   -archivePath build/HelloNotes-iOS.xcarchive archive
 
@@ -706,7 +763,7 @@ For an App Store upload there is no script — it is two commands, and the expor
 
 ```bash
 # macOS
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation \
   -configuration Release -destination 'generic/platform=macOS' \
   -archivePath build/HelloNotes.xcarchive archive
 xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
@@ -714,7 +771,7 @@ xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
   -exportPath build/export -allowProvisioningUpdates
 
 # iOS
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation \
   -configuration Release -destination 'generic/platform=iOS' \
   -archivePath build/HelloNotes-iOS.xcarchive archive
 xcodebuild -exportArchive -archivePath build/HelloNotes-iOS.xcarchive \
@@ -787,7 +844,7 @@ Distribution), **or** headlessly — no Xcode UI needed:
 ```bash
 # 1 · Archive (universal: arm64 + x86_64)
 xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
-  -destination 'generic/platform=macOS' \
+  -destination 'generic/platform=macOS' -skipPackagePluginValidation \
   -archivePath build/HelloNotes.xcarchive -allowProvisioningUpdates
 
 # 2 · Export with Developer ID  (ExportOptions.plist: method=developer-id,
@@ -822,8 +879,9 @@ hdiutil detach /tmp/hn
 > - `package-dmg.sh` **overwrites `dist/HelloNotes.dmg` (`rm -f`)**. Move the previous
 >   build aside first if you want to keep it.
 > - The DMG bakes in whatever `Config/Secrets.xcconfig` held at build time. Building
->   on a machine without it ships with **empty cloud provider keys** — the app still
->   runs, those providers just report "not configured".
+>   on a machine without it ships with **empty cloud-storage keys** (Dropbox, Box,
+>   Google Drive, OneDrive) — the app still runs, those providers just report
+>   "not configured". There are no AI keys in it from 1.3.3.
 > - Do §1h's Release check *before* archiving: an archive is the slowest possible way
 >   to discover a Release‑only compile failure.
 
@@ -838,17 +896,23 @@ hdiutil detach /tmp/hn
 - [ ] `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` **read fresh** from
       `project.pbxproj`; build number unique and higher than any prior upload
 - [ ] **Release** build clean on both platforms — Debug proves nothing (§1h)
-- [ ] `Config/Secrets.xcconfig` present, or the build ships empty provider keys
+- [ ] `Config/Secrets.xcconfig` present, or the build ships empty cloud-storage keys
+- [ ] `./scripts/run-tests.sh` green, including `StoreListingTests` and
+      `PrivateCloudComputeEntitlementTests`; and the model evaluations
+      (`TEST_RUNNER_HN_EVALUATIONS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/IntelligenceEvaluationTests`)
+      green on an Apple Intelligence Mac
 
 **Metadata — per platform, both of them**
 - [ ] Description carries the **EULA link** and the subscription's full terms
-- [ ] **No OpenAI/ChatGPT reference** in name, subtitle, promo, description,
-      keywords **or screenshots**
+- [ ] **No OpenAI/ChatGPT reference, and no third-party AI service**, in name,
+      subtitle, promo, description, keywords **or screenshots** — and Private
+      Cloud Compute mentioned only if the build carries its entitlement (§1b-PCC)
 - [ ] Privacy and EULA URLs `curl` to 200 (privacy takes no trailing slash)
 - [ ] Reviewer notes answer all four questions in §4 — and point at
       `DefaultCollection` *in the binary*, never at the repo
 - [ ] App Privacy = *Data Not Collected*; age rating 4+; pricing set
-- [ ] Availability still excludes **China mainland** (§7)
+- [ ] Availability matches the version's decision (§7): China mainland
+      **excluded for 1.3.2**, **re-enabled for 1.3.3**
 
 **Screenshots — walk the grid and count (§8)**
 - [ ] iPhone 6.5" 1284×2778 · **iPad 13" 2064×2752** · Mac 2560×1600, 3–10 each
@@ -897,6 +961,15 @@ hdiutil detach /tmp/hn
 >   are sent to that provider under your account and their privacy terms.
 >   Cloud providers are off until you configure one, and your key is stored in
 >   the Keychain. We never see, proxy, or store this traffic.
+>
+> *(1.3.3 draft of the two bullets above, for the live page when 1.3.3 ships:)*
+> **AI:** summarise, suggest, rewrite, “ask your library” and the Assistant use
+> Apple Foundation Models on your device, or an open model you choose to download
+> and run on your device with MLX; content processed this way never leaves your
+> device. Downloading an MLX model contacts Hugging Face and sends none of your
+> notes. HelloNotes has no third‑party AI services and stores no AI credentials;
+> keys stored by earlier versions are deleted. *(Add Private Cloud Compute here
+> only when §1b-PCC is done.)*
 > - **Assistant web tools:** if you ask the assistant to search or fetch a web
 >   page, the query/URL is sent to the search engine or site in question.
 > - **Version control:** if you choose to use the built‑in Git features and

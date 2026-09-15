@@ -29,9 +29,9 @@ import UIKit
 /// The Preferences window (⌘,): a tabbed container for all app settings. AI /
 /// LLM provider configuration also remains reachable from the Assistant window.
 struct PreferencesView: View {
-    /// Shared LLM configuration, so the AI tab and the Assistant sheet edit the
-    /// same providers, keys and defaults.
-    var llmSettings: LLMSettings
+    /// Shared AI settings, so the AI tab and the Assistant's sheet edit the
+    /// same choices.
+    var intelligenceSettings: IntelligenceSettings
     /// App-wide theming (appearance, accent, text size).
     var appearance: AppearanceSettings
     /// Git hosting accounts. Shared with the window rather than owned here —
@@ -65,7 +65,7 @@ struct PreferencesView: View {
             GitSettingsView(store: gitAccounts, git: settingsGit)
                 .tabItem { Label("Git", systemImage: "arrow.trianglehead.branch") }
 
-            LLMSettingsForm(settings: llmSettings)
+            IntelligenceSettingsForm(settings: intelligenceSettings)
                 .tabItem { Label("AI", systemImage: "sparkles") }
 
             // Both platforms, for the reason the file's header gives: a screen
@@ -94,15 +94,15 @@ struct GeneralSettingsView: View {
 #else
 struct iOSSettingsView: View {
     @Bindable var settings: AppearanceSettings
-    /// Provider configuration and API keys.
+    /// Which model does what.
     ///
-    /// Present here for the same reason Git is: **credentials belong in
-    /// Settings on both platforms.** macOS has had an AI tab since the
-    /// Preferences window existed; iOS reached the identical form only from
-    /// the editor band's "AI Settings…" and the command palette, so someone
-    /// looking for their keys where keys live found appearance, Git and
-    /// folders — and no mention of AI at all.
-    var llmSettings: LLMSettings
+    /// Present here for the same reason Git is: **settings belong in Settings
+    /// on both platforms.** macOS has had an AI tab since the Preferences
+    /// window existed; iOS once reached the identical form only from the
+    /// editor band's "AI Settings…" and the command palette, so someone looking
+    /// for it where settings live found appearance, Git and folders — and no
+    /// mention of AI at all.
+    var intelligenceSettings: IntelligenceSettings
     /// The focused collection's Git service, if it is in a repository.
     /// `GitSettingsView` and `GitAccountsStore` were never Mac-specific — the
     /// view imports nothing but SwiftUI and the store nothing but Foundation;
@@ -129,16 +129,16 @@ struct iOSSettingsView: View {
                         // second, smaller iOS spelling of it. Entering a key
                         // and removing one are the same two controls here.
                         //
-                        // **Not wrapped in a `Form`.** `LLMSettingsForm` is one
+                        // **Not wrapped in a `Form`.** `IntelligenceSettingsForm` is one
                         // already (`.formStyle(.grouped)`), and `Form { Form { … } }`
                         // collapses: the screen rendered as a clipped stub with
                         // a half-drawn "Defaults" label and nothing else. It
                         // shipped that way in build 11 because the screen was
                         // added and never looked at.
-                        LLMSettingsForm(settings: llmSettings)
+                        IntelligenceSettingsForm(settings: intelligenceSettings)
                             .navigationTitle("AI")
                     } label: {
-                        Label("Providers & API Keys", systemImage: "sparkles")
+                        Label("Models", systemImage: "sparkles")
                     }
                 }
 
@@ -159,7 +159,7 @@ struct iOSSettingsView: View {
                 Section("Support") {
                     NavigationLink {
                         // `SupportSettingsView` is a `Form` already, exactly as
-                        // `LLMSettingsForm` is. Pushed as a destination that is
+                        // `IntelligenceSettingsForm` is. Pushed as a destination that is
                         // correct; wrapped in another `Form` it would render as
                         // the same clipped stub the AI screen shipped as in
                         // build 11.
@@ -195,7 +195,7 @@ struct iOSSettingsView: View {
 /// a gated sheet stack is how the Mac lost `largeFolderAlert` the moment
 /// anything else in that chain moved.
 struct AppSettingsView: View {
-    var llmSettings: LLMSettings
+    var intelligenceSettings: IntelligenceSettings
     var appearance: AppearanceSettings
     var git: GitService?
     var accounts: GitAccountsStore?
@@ -205,10 +205,10 @@ struct AppSettingsView: View {
         #if os(macOS)
         // A store is always available here — the shell owns one whether or not
         // a collection is open, which is the whole point of the Git tab.
-        PreferencesView(llmSettings: llmSettings, appearance: appearance,
+        PreferencesView(intelligenceSettings: intelligenceSettings, appearance: appearance,
                         gitAccounts: accounts ?? GitAccountsStore(), store: store)
         #else
-        iOSSettingsView(settings: appearance, llmSettings: llmSettings,
+        iOSSettingsView(settings: appearance, intelligenceSettings: intelligenceSettings,
                         git: git, accounts: accounts, store: store)
         #endif
     }

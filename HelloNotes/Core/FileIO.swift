@@ -131,6 +131,36 @@ nonisolated enum FileIO {
         try write(Data(string.utf8), to: url)
     }
 
+    /// Coordinated *compare-and-replace*: write `string` only if the file still
+    /// reads as `expected`. Returns `false`, having written nothing, when it
+    /// does not.
+    ///
+    /// For a write computed from an earlier read that someone then approved —
+    /// an Assistant edit. Between that read and the approval the editor may
+    /// save the person's own typing (clicking Approve in another window is
+    /// enough to end editing there), and a plain `write` would put the approved
+    /// text over it without a word. The comparison happens inside the same
+    /// coordinated write, so no other coordinated writer — the editor's
+    /// `write`, a sync provider — can land between the check and the replace.
+    /// The file is decoded exactly as `readString` decodes it, so a note read
+    /// with that compares equal to itself.
+    static func replace(_ string: String, at url: URL, ifContentsEqual expected: String) throws -> Bool {
+        var coordinatorError: NSError?
+        var outcome: Result<Bool, Error> = .success(false)
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+            outcome = Result {
+                // Inside the write claim, so this read is already coordinated.
+                let current = try Data(contentsOf: actualURL)
+                guard String(data: current, encoding: .utf8) == expected else { return false }
+                try Data(string.utf8).write(to: actualURL, options: .atomic)
+                return true
+            }
+        }
+        if let coordinatorError { throw coordinatorError }
+        return try outcome.get()
+    }
+
     /// Coordinated *create* of a new file that must not already exist (daily
     /// notes, new-note creation). Fails if a file is already there, preserving
     /// the `.withoutOverwriting` guarantee callers relied on.
@@ -166,8 +196,17 @@ nonisolated enum FileIO {
     ///
     /// The deadline is there so a provider that never finishes leaves the user
     /// with a message rather than a spinner with no end.
+    ///
+    /// **`@concurrent`, or it polls on the main actor.** A plain `async`
+    /// function on this `nonisolated` enum inherits its caller's actor under
+    /// approachable concurrency, and both callers are main-actor classes — so
+    /// every metadata query to the provider, and the download request, ran on
+    /// the main thread every 200 ms for up to a minute. Measured by a probe
+    /// built with this target's flags: main thread before and after the sleep
+    /// without the attribute, the cooperative pool with it.
     /// - Returns: whether the content is available now.
     @discardableResult
+    @concurrent
     static func materialise(at url: URL, timeout: Duration = .seconds(60)) async -> Bool {
         if isMaterialized(at: url) { return true }
         try? download(at: url)

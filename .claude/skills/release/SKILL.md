@@ -20,7 +20,7 @@ broke every archive while Debug stayed green for ~6,400 lines of work
 Release-only failure, so check first:
 
 ```bash
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation \
   -configuration Release -destination 'generic/platform=macOS' build 2>&1 | tail -5
 ```
 
@@ -37,7 +37,7 @@ held at build time**. Building without it ships empty cloud-provider keys.
 ```bash
 # 1 · Archive (universal: arm64 + x86_64)
 xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
-  -destination 'generic/platform=macOS' \
+  -destination 'generic/platform=macOS' -skipPackagePluginValidation \
   -archivePath build/HelloNotes.xcarchive -allowProvisioningUpdates
 
 # 2 · Export with Developer ID

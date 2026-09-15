@@ -510,7 +510,10 @@ final class RemoteMirror {
         fm.createFile(atPath: url.path, contents: Data())
     }
 
-    static func relativePath(of url: URL, in root: URL) -> String {
+    /// `nonisolated`: the scan's accumulator calls this for every file of a
+    /// mirrored collection from off the main actor, and as a main-actor method
+    /// of this class each of those calls hopped to the main thread and back.
+    nonisolated static func relativePath(of url: URL, in root: URL) -> String {
         let full = url.standardizedFileURL.path
         let base = root.standardizedFileURL.path
         guard full.hasPrefix(base) else { return url.lastPathComponent }

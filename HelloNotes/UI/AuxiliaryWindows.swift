@@ -103,7 +103,7 @@ struct LibraryChatWindowView: View {
     var onOpenNote: ((Note) -> Void)?
 
     @Environment(Library.self) private var library
-    @Environment(LLMSettings.self) private var llmSettings
+    @Environment(IntelligenceSettings.self) private var intelligenceSettings
 
     /// Taken once, as the window appears. Held in `@State` rather than read
     /// from the library in `body`, because taking it *is* a mutation — a body
@@ -111,7 +111,7 @@ struct LibraryChatWindowView: View {
     @State private var seed: String?
 
     var body: some View {
-        LibraryChatView(intelligence: IntelligenceService(settings: llmSettings),
+        LibraryChatView(intelligence: IntelligenceService(settings: intelligenceSettings),
                         notes: library.allNotes,
                         searches: library.collections.map(\.search),
                         onOpenNote: { note in

@@ -168,14 +168,26 @@ final class HelloNotesUITests: XCTestCase {
         let app = launchPastSplash()
         try openSettings(app)
 
-        let providers = app.buttons["Providers & API Keys"]
-        reveal(providers, in: app)
-        providers.tap()
+        let models = app.buttons["Models"]
+        reveal(models, in: app)
+        models.tap()
 
-        XCTAssertTrue(app.staticTexts["Chat provider"].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.staticTexts["Writing tools"].waitForExistence(timeout: 5),
                       "AI settings opened but drew no content — the form collapsed")
-        XCTAssertTrue(app.staticTexts["Providers"].exists,
-                      "the provider list is missing from AI settings")
+        // Kept with the result: a screen that draws *something* can still draw
+        // it badly, and only a picture shows that.
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "AI settings"
+        shot.lifetime = .keepAlways
+        add(shot)
+        // A section header may be drawn in capitals depending on the form
+        // style, so either spelling counts.
+        func mlxHeader() -> Bool {
+            app.staticTexts["MLX MODELS"].exists || app.staticTexts["MLX Models"].exists
+        }
+        var attempts = 0
+        while !mlxHeader() && attempts < 12 { app.swipeUp(); attempts += 1 }
+        XCTAssertTrue(mlxHeader(), "the MLX section is missing from AI settings")
         #else
         throw XCTSkip("iOS navigation test.")
         #endif

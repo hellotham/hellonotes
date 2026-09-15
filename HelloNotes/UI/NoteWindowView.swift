@@ -29,7 +29,7 @@ struct NoteWindowView: View {
 
     @Environment(Library.self) private var library
     @Environment(AppearanceSettings.self) private var appearance
-    @Environment(LLMSettings.self) private var llmSettings
+    @Environment(IntelligenceSettings.self) private var intelligenceSettings
     @Environment(\.openWindow) private var openWindow
 
     @State private var editor = EditorModel()

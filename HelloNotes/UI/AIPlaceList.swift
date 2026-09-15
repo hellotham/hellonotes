@@ -84,7 +84,7 @@ struct AIPlaceList: View {
                 if !hasOpenNote {
                     Text("Open a note to use these.")
                 } else if ai == nil {
-                    Text("No AI provider is configured. Set one up in AI Settings.")
+                    Text("AI isn't available right now — AI Settings says why.")
                 }
             }
             .disabled(ai == nil)

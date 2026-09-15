@@ -159,8 +159,8 @@ actor RefreshCoordinator {
 }
 
 /// Access tokens for direct-API providers, stored in the login Keychain
-/// (`ThisDeviceOnly` — long-lived secrets stay off backups). Mirrors the shape
-/// of `LLMKeychain`, keyed by a provider id string.
+/// (`ThisDeviceOnly` — long-lived secrets stay off backups), keyed by a
+/// provider id string.
 enum RemoteTokenStore {
     private static let service = "com.hellotham.HelloNotes.remote-tokens"
 

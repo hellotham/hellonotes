@@ -26,9 +26,15 @@ import Foundation
 ///  * `@concurrent` guarantees the hop to the concurrent executor, rather than
 ///    inheriting the caller's actor the way a plain `nonisolated async`
 ///    function does under approachable concurrency.
-///  * `body` is a **nonisolated** `@Sendable` function type, so a closure that
-///    touches main-actor state is a *compile error* rather than a silent hop.
-///    The rule stops depending on anyone remembering it.
+///  * `body` is a **nonisolated** `@Sendable` function type, so the compiler
+///    flags a closure that touches main-actor state instead of letting it hop
+///    silently. **In this target that is a warning, not an error**: the app
+///    builds in the Swift 5 language mode, where isolation violations are
+///    warnings, and at runtime the call still hops to the main thread — checked
+///    with a probe built with this target's flags. So a warning inside an
+///    `offMain` closure is a main-actor stall in waiting; treat it as the error
+///    it would be in Swift 6. (The test target reports the same code as an
+///    error.)
 ///
 /// Prefer this to `Task.detached` for any work that must not block the editor.
 @concurrent

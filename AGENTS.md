@@ -6,10 +6,10 @@
 //
 
 # HelloNotes Architecture Rules
-- Target Environment: macOS 26.5+ / iOS 26.5+ / Swift 5.10+ / Xcode 26. The floor is high on
-  purpose: the Intelligence features run on Foundation Models, and the Quick Look extensions
-  already required 26.5 while the app claimed 15.0 — an app cannot promise an OS its own
-  embedded extensions refuse to run on.
+- Target Environment: macOS 27+ / iOS 27+ / Swift 5.10+ / Xcode 27 (from 1.3.3; 1.3.2 was 26.5).
+  The floor is high on purpose: every AI feature runs on the 27 Foundation Models API (the
+  `LanguageModel` protocol MLX plugs into, dynamic profiles, Private Cloud Compute), and an app
+  cannot promise an OS its own embedded extensions refuse to run on.
 - Multiplatform: One shell, `AdaptiveShell`, chosen by the *axis of abundance* (width/height), never by device — a Mac window and an iPad of the same size get the same layout. See `docs/layout-architecture.md`.
 - The window has **exactly one collapsible column**: a sidebar holding a *single tree* — Recents and Bookmarks pinned at the top, then one root per open collection, expanding into that collection's folders. SwiftUI only gives a correctly-placed sidebar toggle to column one, which is why everything navigational lives there and **no command may live inside it** (a hidden command is an unreachable command). Commands go in the toolbar: search leading, New Note / Open Quickly centre, the five inspector toggles trailing. See `docs/shell-chrome.md`.
 - Anything keyed on a collection (the outline cache key, drop targets, "New Note" at a root) reads the sidebar's selection. **A cache key must name everything the cached value depends on** — keying the outline on one collection made opening or closing another invisible.
@@ -19,23 +19,24 @@
 - Build Verification: After writing code, use the Xcode MCP tool to run a compilation check to ensure 0 errors.
 
 # Layout
-- App: `HelloNotes/` — `Core/` (parsing, FileIO, indexes), `State/` (@Observable services), `UI/`, `LLM/`; `UI/Shell/` holds the layout contract; `ContentView` (one struct, both platforms — merged from the former `MacContentView`/`iOSContentView` split on 2026-08-22, because every cross-platform divergence traced back to two files a one-sided `#if` kept from seeing each other) supplies its slots.
+- App: `HelloNotes/` — `Core/` (parsing, FileIO, indexes), `State/` (@Observable services), `UI/`, `Intelligence/` (Foundation Models: `Models/`, `Features/`, `Assistant/`, `Tools/`); `UI/Shell/` holds the layout contract; `ContentView` (one struct, both platforms — merged from the former `MacContentView`/`iOSContentView` split on 2026-08-22, because every cross-platform divergence traced back to two files a one-sided `#if` kept from seeing each other) supplies its slots.
 - Editor: `Packages/NotesEditor` (MarkdownCore / MarkdownEditor / GFMRender) — the app's only editor; the old engine fork is gone.
 - Website: `website/` (Astro 7 + Tailwind 4) — see `website/CLAUDE.md` and `docs/website.md`.
 - Docs: shipped work → `docs/implemented.md`; backlog only → `docs/unimplemented.md`.
 
 # Commands
-- Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification.
+- Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification. **Every app `xcodebuild` needs `-skipPackagePluginValidation`**: mlx-swift's `Cmlx` target carries a `CudaBuild` build-tool plugin (inert on Apple platforms), and without the flag the build fails at "Validate plug-in" before compiling a file. Xcode's GUI asks once to Trust & Enable instead. The Hugging Face bridges in `Intelligence/Models/MLXBridge.swift` are hand-written rather than mlx-swift-lm's macros for the same reason — a macro plugin would need `-skipMacroValidation` everywhere too.
 - Editor tests (macOS): `swift test --package-path Packages/NotesEditor`
-- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 387 tests in 30 suites, verified 2026-09-04). It runs **three bundles** and prints a summary line for each — 18/4, 173/13, 196/13 — so the total is their *sum*; reading only the last one says "196 in 13" and looks like two thirds of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-26-5`.
+- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 387 tests in 30 suites, verified 2026-09-04). It runs **three bundles** and prints a summary line for each — 18/4, 173/13, 196/13 — so the total is their *sum*; reading only the last one says "196 in 13" and looks like two thirds of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
 - **Look at the iOS app without the user's device**: `xcodebuild build -destination 'platform=iOS Simulator,name=HN-iPad'`, then `xcrun simctl install HN-iPad <app>`, `xcrun simctl launch HN-iPad com.hellotham.HelloNotes`, and `xcrun simctl io HN-iPad screenshot out.png` — which is readable. A whole iPad session was shipped blind (a keyboard bar that never rendered, a zero-width one, five inspector toggles that could not work at that width) because nobody looked. `simctl` has no tap injection, so driving the UI still needs the live panel — which needs `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` from the user.
 - Is it running on the device? `xcrun devicectl device info processes --device <id> | grep "HelloNotes.app/HelloNotes"` — **capital H**. A lower-cased pattern matches nothing and reads exactly like a crash-on-launch; an hour went into diagnosing a crash that never happened. Cross-check against `--domain-type systemCrashLogs`: no new `.ips` means no crash, whatever the process list appears to say.
-- Layout contract: `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -only-testing:HelloNotesTests/ShellContractTests` (~2s, headless — run it after any shell or representable change).
+- Layout contract: `./scripts/run-tests.sh -only-testing:HelloNotesTests/ShellContractTests` (~2s — run it after any shell or representable change).
+- **Model evaluations** (Apple's Evaluations framework, real on-device model, ~30s, opt-in — needs Apple Intelligence, so never CI): `TEST_RUNNER_HN_EVALUATIONS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/IntelligenceEvaluationTests`. Tags, links, rewrites, long-note summaries and Assistant tool trajectories. Run after touching any prompt, schema, tool, `HistoryWindow` or `TokenBudget` — the unit tests prove plumbing and could not see the two defects this suite found in its first hour (below). Read per-sample results with `xcrun xcresulttool export attachments --path <xcresult> --output-path <dir>` (`.xcevalresult` JSON). Two more opt-in probes run inside the signed app: `TEST_RUNNER_HN_RESEARCH_PROBE=1 … -only-testing:HelloNotesTests/ResearchProbe` (a real deep-research run, ~30s, searches the web) and `TEST_RUNNER_HN_PCC_PROBE=1 … -only-testing:HelloNotesTests/PrivateCloudComputeProbe` (one PCC request; does nothing unless the build is entitled).
 - App tests (macOS): `./scripts/run-tests.sh` — **never a bare `xcodebuild test`**.
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 477 tests in 67 suites, ~9s.
+  afterwards whatever the result. 497 tests in 75 suites, ~9s (1.3.3).
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **58 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
@@ -59,7 +60,7 @@
   a `grep`/`sed` output captured before the loss verifies the reconstruction
   line-for-line.
 - `project.pbxproj`: git is the source of truth. Never accept an Xcode regenerate/modernize prompt; recover with `git checkout HEAD -- HelloNotes.xcodeproj/project.pbxproj`.
-- Secrets: `Config/Secrets.xcconfig` (git-ignored) holds provider keys; the DMG bakes in whatever it held at build time. Never touch the repo-root `.env`.
+- Secrets: `Config/Secrets.xcconfig` (git-ignored) holds the cloud-storage provider keys (Dropbox, Box, Google Drive, OneDrive — there are no AI keys from 1.3.3); the DMG bakes in whatever it held at build time. Never touch the repo-root `.env`.
 - **Editor rendering, the box model and the parity harness have their own rules,
   and they live in `Packages/NotesEditor/CLAUDE.md`.** Read that file before
   touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle`,
@@ -67,37 +68,28 @@
   moved out of here because they are unreadable noise for website, LLM, shell
   and State work — which is most work — and are auto-loaded the moment you edit
   anything under `Packages/NotesEditor/`.
-- **A model list or a context window is a thing you *ask* for, never a thing you
-  remember.** `ModelCatalog.suggestedModels` is now only a seed: fourteen of the
-  sixteen providers publish a model list and eight of those state a per-model
-  context window, so `LLMProvider.availableModels()` is the source of truth and
-  the table is the fallback. When touching it, **re-check each provider's docs**
-  — Anthropic's `/v1/models` gained `max_input_tokens` and a `capabilities`
-  object after this adapter was written, and working from recollection would
-  have missed both. The field mapping in `ModelDiscovery` is an **allow-list of
-  key names** and must stay one: xAI returns `long_context_threshold`, which is
-  the token count above which input is billed at a higher rate and *not* a
-  window, so anything scooping up "the field with `context` in the name" reports
-  200k for a model holding far more. Two more traps, both silent: an empty
-  `supported_parameters` is *silence*, not "no tools" — a discovered `false`
-  overrides the table's `true` and switches Deep Research off; and Gemini and
-  Anthropic report an **input** limit while the OpenAI-compatible family reports
-  a **total** window, so the reply's share must be reserved (capped at half — a
-  live OpenRouter entry claims a 943,718-token output cap on a 1,048,576-token
-  window).
-- **One number cannot be both a floor and a cap.** `IntelligenceNeeds.inputBudget`
-  was read as a minimum by `satisfied(by:)` and as a maximum by
-  `IntelligenceService.budget(for:)` via `min(feature, provider)`. The floor was
-  always the smaller operand, so the provider's budget never once mattered: Ask
-  Library sent 12,000 characters to a million-token model — 0.3% of its window —
-  and raising the provider's number changed nothing, which is exactly why it was
-  invisible. It is `minimumBudget` and `inputCeiling` now.
+- **A context window is a thing you *ask* the model for, never a thing you
+  remember.** The provider layer kept per-provider tables that were wrong the week
+  after they were written; it is gone (1.3.3). `LanguageModels.contextSize(of:)`
+  reads `SystemLanguageModel.contextSize` (8,192 for AFM 3 Core Advanced on this
+  generation, not the 4,096 the docs quote for Core) and Private Cloud Compute's
+  `contextSize` (32,768). Budgets are **tokens, estimated script-aware**
+  (`TokenBudget`): the on-device model counts 44 English characters as 11 tokens
+  and 24 Chinese characters as 19, so an English character ratio sends a Chinese
+  note five times over the window.
+- **Never truncate text you are about to replace.** The old rewrite trimmed the
+  selection to the budget, then replaced the *whole* selection with a rewrite of
+  its beginning — deleting the rest. A feature whose output replaces its input
+  refuses over-length input (`IntelligenceService.rewrite`); one that describes
+  its input processes all of it (`summarize` goes through parts, then the parts);
+  only a *suggestion* may read an opening (tags, links).
 - **Adding a non-optional stored property to a persisted `Codable` type silently
   resets the user's configuration.** Synthesised decoding *throws* on a missing
-  key, and `LLMSettings.init` decodes with `try?` falling back to defaults for
-  every provider — so the failure is not loud, it is a wipe. `ProviderConfig` and
-  `ModelInfo` decode field by field with `decodeIfPresent`, and anything else
-  stored in `UserDefaults` must too.
+  key, and a settings object that decodes with `try?` and falls back to defaults
+  turns that into a silent wipe (1.3.2's `LLMSettings` had exactly that shape).
+  Anything stored in `UserDefaults` decodes field by field or reads plain keys
+  leniently — `ModelChoice(stored:fallback:)`, and `IntelligenceMigration` reads
+  only `kind` and `model` from the old provider blob.
 - **Concurrency in `ResumableTreeWalk` buys back *latency*, nothing else — and
   the serial path must not pay for it.** A provider listing is a network round
   trip spent idle, so `TreeSource.listingConcurrency` (6 for `RemoteTreeSource`)
@@ -109,7 +101,7 @@
   *next to apply*, not *next to fetch***: an in-flight listing is still inside
   `frontier[head...]`, so a checkpoint taken mid-window loses nothing. Only
   fetching overlaps — `onBatch` is not `@Sendable`.
-- **`Form { LLMSettingsForm(…) }` collapses — the shared AI settings form is
+- **`Form { IntelligenceSettingsForm(…) }` collapses — the shared AI settings form is
   already a `Form`.** Nesting one Form in another renders a clipped stub: a
   half-drawn section header in an empty box and nothing else. That is how the
   iOS AI settings screen shipped in build 11 having never once drawn. Related
@@ -125,8 +117,8 @@
   iPhone 13 Pro Max is 1284×2778 px at 3× = **428×926 pt**), never from the
   screenshot's displayed pixels; and a plain `tap` **does not drive a `UISwitch`**
   — use `touch_path` with a ~120ms dwell, or you will diagnose a working toggle
-  as broken. To reach a state that needs credentials, seed it:
-  `xcrun simctl spawn <dev> defaults write com.hellotham.HelloNotes llmProviders -data <hex>`.
+  as broken. To reach a settings state, seed it:
+  `xcrun simctl spawn <dev> defaults write com.hellotham.HelloNotes aiAssistantModel -string mlx`.
 - **Suggestions write front matter, never the body.** Tags → `tags:`, links →
   `related:`, summaries → `summary:`, via `NoteEdits.appending(_:toListProperty:of:)`
   and `setting(_:property:of:)`. Three YAML rules travel with that: a value
@@ -245,5 +237,77 @@
   manual, and a reviewer reads it. When behaviour changes, its notes are part of
   the change — `Manual/Supporting HelloNotes.md` said "nothing is locked" for a
   while after something was.
+- **Private Cloud Compute without its entitlement is a crash, not an error.**
+  `PrivateCloudComputeLanguageModel.availability` reports `.available` in a signed
+  app that lacks `com.apple.developer.private-cloud-compute`, and the first request
+  ends the process with a `fatalError` inside Foundation Models — it killed the test
+  host, and a concurrent evaluation with it. An unsandboxed `swiftc` probe reports
+  the same availability and does *not* crash, so probing outside the app proved
+  nothing. The model is only created and offered under the `PRIVATE_CLOUD_COMPUTE`
+  compilation condition (`LanguageModels.privateCloudComputeEnabled`), added in the
+  same change as the entitlement; `PrivateCloudComputeEntitlementTests` fails if
+  they disagree. Never add the entitlement before Apple assigns it (signing breaks).
+  Steps: `docs/production.md` §1b-PCC.
+- **A profile's `historyTransform` is handed the instructions entry too** —
+  `["instructions", "prompt"]` on the first request — and that entry carries the
+  tool definitions. `HistoryWindow.fit` first trimmed from the latest prompt and
+  dropped it: the on-device Assistant had no tools and no instructions, and
+  answered questions about the vault by inventing notes. Unit tests passed; only
+  the evaluation's tool-call score (0) showed it. Keep instructions, trim turns.
+- **The model issues parallel tool calls** (four lookups in one step, run
+  concurrently), so two edits can ask for approval at once. `PermissionBroker`
+  queues; it used to deny a prompt raised while another showed, which fails the
+  second edit for nothing. And a tool that *throws* aborts the whole response
+  (`ToolCallError`, transcript rolled back) — recoverable failures are returned
+  as text (`ToolOutcome`), only cancellation propagates.
+- **Don't use `SystemLanguageModel(useCase: .contentTagging)` for tags.** Measured:
+  it extracts key *phrases* ("bikes along the Kamo river") whatever the schema's
+  `@Guide` says, and its guardrail refused a sourdough-baking note. The general
+  model asked for *topics* works; name the note's language in the instructions
+  (`NLLanguageRecognizer`) — a guide saying "in the note's language" is ignored.
+- **Every tool, profile and `@Generable` type the framework calls is
+  `nonisolated`.** This target defaults to `MainActor` and is Swift 5 mode, so an
+  isolation mistake is a *warning*, not an error. Tools hop to the main-actor
+  `ToolContext` for work; `WebGuard` is `nonisolated` because its synchronous DNS
+  lookup was running on the main thread.
+- **What ships is what is in the bundle, not what runs.** The repo `README.md` sat
+  in the app target's Resources phase from the first commit, so every App Store
+  build carried a list of fourteen AI services; and a type name or string literal
+  is compiled into the binary (`OpenAISettingsButton`, a table of provider names
+  for an upgrade notice). `ShippedContentTests` fails if Resources copies anything
+  but `DefaultCollection` or if app code or bundled notes name an AI service.
+  A clean `strings` scan of the binary is not proof a name is gone: an optimised
+  build folds some short literals into the machine code, where no scan sees them
+  (checked with `swiftc -O`: `"Groqish"` vanished, `"OpenAI"` did not). Check the
+  source, which is what the test does.
+- **A write the app makes outside the editor must tell the open editors, and an
+  approved write must replace only what was approved.** `noteDidSave` registers a
+  write as the app's own, so the watcher ignores it — and a tab showing that note
+  then saves its stale text over the change. Call
+  `Collection.noteChangedOutsideEditor()`. A write computed from an earlier read
+  that someone approved goes through `FileIO.replace(_:at:ifContentsEqual:)`:
+  clicking Approve in the Assistant's window ends editing in the note's window,
+  which saves typing the diff never showed. And never read a note as `?? ""` on
+  a path that shows or replaces it — an unreadable note is not an empty one.
+- **A `nonisolated async` helper that waits or polls must be `@concurrent`.**
+  Under approachable concurrency it inherits the caller's actor, so
+  `FileIO.materialise` polled the file provider on the main thread every 200 ms
+  for up to a minute, from both the editor and the Assistant. `offMain` catches
+  main-actor state in its closure only as a *warning* in this target — and the
+  call still hops at runtime.
+- **A streaming reply must not redraw the conversation per snapshot.** The
+  on-device model yields ~40 snapshots a second; redrawing each re-parsed the
+  reply's Markdown from line one (15 ms at 30 KB). `AssistantModel` follows at
+  most ten times a second with a trailing catch-up (a tool call followed by a
+  pause must still appear), and `AnswerMarkdown.Streaming` parses only new lines.
+  Anything shown per line of a note — the approval diff — is computed once off
+  the main actor and laid out in a `LazyVStack` (a plain `VStack` of 10,000 lines
+  took 898 ms).
+- **A test that reads a document fails silently when the document is
+  restructured.** `StoreListingTests` read the listing fields out of
+  `production.md`; rewriting that file to stop duplicating live metadata removed
+  them, and the 3.1.2(c) guard failed on every run for a week, unread. The copy for
+  the version in preparation now lives in `docs/app-store-listing.md`. When you
+  restructure a file, grep the tests for its name first.
 - Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts).
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.

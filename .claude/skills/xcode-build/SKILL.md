@@ -13,14 +13,20 @@ different problem.
 ```bash
 # macOS, per-change gate
 xcodebuild build -project HelloNotes.xcodeproj -scheme HelloNotes \
-  -destination 'platform=macOS' -configuration Debug \
+  -destination 'platform=macOS' -configuration Debug -skipPackagePluginValidation \
   -clonedSourcePackagesDirPath ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM \
   2>&1 | grep -E "error:|BUILD SUCCEEDED|BUILD FAILED" | tail -5
 
 # iOS simulator
 xcodebuild build -project HelloNotes.xcodeproj -scheme HelloNotes \
-  -destination 'platform=iOS Simulator,name=HN-iPhone' -configuration Debug
+  -destination 'platform=iOS Simulator,name=HN-iPhone' -configuration Debug -skipPackagePluginValidation
 ```
+
+- **`-skipPackagePluginValidation` on every app build.** mlx-swift's `Cmlx`
+  target carries a `CudaBuild` build-tool plugin; it emits nothing on Apple
+  platforms, but `xcodebuild` refuses to run any package plugin nobody has
+  trusted, and a command line cannot click "Trust & Enable". Without the flag
+  the build fails at "Validate plug-in" before compiling a single file.
 
 - **A long `xcodebuild` is a cold build, not a hang.** 74 targets, 30–47 minutes
   from cold. Do not kill it and do not "diagnose" it.
@@ -38,7 +44,7 @@ swift test --package-path Packages/NotesEditor             # editor, macOS: 401
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
   -destination 'platform=iOS Simulator,name=HN-iPad'       # editor, iOS: 381
 xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes \
-  -destination 'platform=macOS' \
+  -destination 'platform=macOS' -skipPackagePluginValidation \
   -only-testing:HelloNotesTests/ShellContractTests         # layout contract, ~2s
 ```
 

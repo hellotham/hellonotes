@@ -11,7 +11,7 @@ This document describes the software architecture of HelloNotes and evaluates th
 
 ## 1. Architectural overview
 
-HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps share everything except the platform shell. Data flows in one direction: the file system is the source of truth, the Core layer reads/writes it, State projects it as observable values, and the UI renders State. The AI stack (`HelloNotes/LLM/`) follows the same split — `Sendable` value-type adapters at the Core tier, `@MainActor @Observable` models at the State tier.
+HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps share everything except the platform shell. Data flows in one direction: the file system is the source of truth, the Core layer reads/writes it, State projects it as observable values, and the UI renders State. The AI stack (`HelloNotes/Intelligence/`, 1.3.3) follows the same split — `nonisolated` Foundation Models tools, profiles and value types at the Core tier, `@MainActor @Observable` models at the State tier.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -33,7 +33,7 @@ HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps
 │  Layer 1 — Core / Domain  (pure Swift, UI-agnostic)         │
 │    CollectionFile/Tree, MarkdownParsing (swift-markdown      │
 │    AST), FrontMatter, layouts, Marp, Obsidian import,        │
-│    FileWatcher (FSEvents), LLM provider adapters             │
+│    FileWatcher (FSEvents), MLX download/tokenizer bridges           │
 └─────────────────────────────────────────────────────────────┘
              ▲                                   │
              │  reads/writes                     │ observes
@@ -51,7 +51,7 @@ HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps
 - **@Observable models are `@MainActor`.** They spawn detached work for scanning, parsing, and Git, then mutate observable state back on the main actor.
 - Autosave is **debounced** (write coalesced ~500 ms after the last keystroke, plus a flush on note-switch / app-resign / termination) to avoid write amplification and data loss.
 - Git operations are **FIFO-serialized inside `GitService`** (each operation chains behind the previous via task chaining on the main actor, with the blocking libgit2 work detached) so commits/pushes/fetches never overlap on a repository.
-- LLM streaming runs in `Sendable` provider structs over `URLSession.bytes` inside `AsyncThrowingStream` — fully off-main; the `@MainActor` `AssistantModel` consumes the stream and publishes UI state.
+- Model requests run inside Foundation Models (`LanguageModelSession`); tools are `@concurrent` and hop to the main-actor `ToolContext` only for collection work; the `@MainActor` `AssistantModel` mirrors the session's live transcript into UI state.
 
 ## 3. Data model (Core / State)
 - `Note` — value type: `id` (== `fileURL`), `title`, `fileURL`, `lastModified`. `CollectionFile` is its non-Markdown sibling (PDF/image/CSV/other) for the file viewer.
@@ -60,14 +60,14 @@ HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps
 - `LinkGraph` — resolves link targets through **titles and `aliases:`**, indexed **by note URL**: `backlinksByURL`, `outgoingByURL`, and a `resolution` map (title/alias → URL). Rebuilt asynchronously on change.
 - `CollectionSearchModel` — an in-memory cache of note text, headings, tags, and aliases powering full-text search, Open Quickly, the tag tree, link candidates, and unlinked mentions.
 - `GitService` — per-collection status/commit/push/fetch/history; `GitCredentials` (Keychain HTTPS tokens) and `GitHostAPI` (clone / create-remote) support hosting integration.
-- LLM tier: `LLMSettings` (providers/models/keys via `LLMKeychain`), `AssistantModel` (agent loop over `AgentRunner` + `ToolRegistry`), `SkillStore` (skills parsed from notes), `PermissionBroker` (explicit approval for mutating tools), `ChatSessionStore` (JSONL transcripts under Application Support), `IntelligenceService`/`NoteIntelligence` (summarise/suggest).
+- Intelligence tier (1.3.3): `IntelligenceSettings` (which model for the Assistant and the writing tools), `LanguageModels` (a choice → a Foundation Models `LanguageModel`, with availability, context size and Private Cloud Compute gating), `MLXModelStore` (open models), `AssistantModel` + `AssistantProfile` (one dynamic-profile session per collection), `ToolContext` + the tools, `SkillStore`, `PermissionBroker` (queued approvals), `ChatSessionStore` (Foundation Models `Transcript` JSON), `IntelligenceService` (the writing tools).
 - Pure Core value/logic types: `TagTree`, `MentionScanner`, `TemplateExpander`, `FrontMatter` (typed YAML properties), `GraphLayout` (force-directed) + `LayoutRelaxation` (collision avoidance), `DocumentStatistics`, `MarkdownExport`, `CollectionTree`, `FuzzyMatch`, `MarpSlides`, `ObsidianVault`, `SmartPaste`, `VisionAlt`, `BuildInfo`.
 
 ## 4. Persistence strategy
 - **No database.** Note content lives in `.md` files.
 - **Security-scoped bookmarks** (`com.apple.security.files.bookmarks.app-scope`) persist collection access across launches (sandbox-friendly), stored in `UserDefaults`. On launch we resolve each bookmark, call `startAccessingSecurityScopedResource()`, and re-scan.
 - Lightweight UI preferences (last-opened note, sort order, appearance, editor mode) live in `UserDefaults` / `@AppStorage` — these are *caches*, never the source of truth.
-- The only app data written outside collections and `UserDefaults`: **API keys, git tokens and cloud OAuth tokens in the Keychain**, **assistant chat transcripts** as JSONL under Application Support (per collection, atomic writes), and the **direct-API mirror caches** (`Application Support/RemoteMirror/<provider>/<folder>`) — working copies, never the source of truth; the provider is.
+- The only app data written outside collections and `UserDefaults`: **git tokens and cloud OAuth tokens in the Keychain** (AI API keys existed until 1.3.3, which deletes them), **assistant conversations** as `Transcript` JSON under Application Support (per collection, atomic writes), **downloaded MLX models** in the Hugging Face cache under Library/Caches, and the **direct-API mirror caches** (`Application Support/RemoteMirror/<provider>/<folder>`) — working copies, never the source of truth; the provider is.
 - **Cloud folders are just paths.** Box/Dropbox/OneDrive/Google Drive/iCloud expose their storage through Apple's **File Provider** layer (`~/Library/CloudStorage/…`, or Files on iOS), where a file may be *dataless* (metadata local, bytes remote). So **all vault content I/O goes through `FileIO`**, which wraps reads/writes in `NSFileCoordinator`: a coordinated read materialises the file on demand, whereas an uncoordinated one can fail outright (`EDEADLK`). Coordination is a no-op for ordinary local files, so this is uniform. Indexing additionally consults `FileIO.isMaterialized` and **skips online-only notes** rather than downloading an entire vault to build a search index. App-private files (index cache, chat transcripts, widget snapshot) keep direct writes — they never live in a user's cloud folder.
 
 ## 5. Package evaluation
@@ -141,21 +141,33 @@ Used by the Core layer for structural parsing that the editor doesn't give us �
 | **Hand-rolled subsequence/fuzzy match** | A few hundred lines; fine for a personal vault. | **Recommended** for MVP. |
 | Full-text index (SQLite FTS / custom) | Needed only at very large scale. | Deferred (P2) — and even then, an *index cache*, never the source of truth. |
 
-### 5.9 LLM providers (v1.0)  ⟶ **protocol + adapters, no LLM framework** ✅
+### 5.9 Language models (1.3.3)  ⟶ **Foundation Models only** ✅
 
-A single `LLMProvider` protocol (streaming chat + tool calls) with five `Sendable` adapters: **Apple Foundation Models** (on-device, macOS 26+ gated), **MLX** (`mlx-swift` local inference, models via `Hub`/`Tokenizers`), **OpenAI-compatible**, **Anthropic**, and **Gemini** (hand-rolled SSE over `URLSession.bytes`, no SDK lock-in). The one **OpenAI-compatible** adapter serves eleven providers that differ only by base URL and a couple of headers — OpenAI, Mistral, Groq, OpenRouter, **xAI (Grok)**, **DeepSeek**, **Cerebras**, **Together AI**, **Perplexity**, and **Ollama** (both the local server and the hosted **Ollama Cloud**) plus LM Studio — so `ModelCatalog` (the data-driven `ProviderKind` enum) is the *only* thing that changes to add another; `ProviderFactory` dispatches on `kind.wire`, never on the kind itself. API keys live in the Keychain (`LLMKeychain`); cloud providers are off until the user configures one.
+Every AI feature is a `LanguageModelSession` over one of three models, because
+that is everything Foundation Models can reach from an app: Apple's on-device
+`SystemLanguageModel` (AFM 3 Core, or Core Advanced on the most capable Apple
+silicon), `PrivateCloudComputeLanguageModel` (only in a build with Apple's managed
+entitlement — without it the framework reports the model available and then
+terminates the process on the first request), and an open model run in-process by
+mlx-swift-lm's `MLXLanguageModel`, which conforms to the same `LanguageModel`
+protocol. Guided generation, tool calling and streaming work identically on all
+three, so there is one path per feature.
 
-**What a model can do is asked, not tabulated.** `LLMProvider.availableModels()` returns
-`[ModelInfo]`, and `ModelDiscovery` holds the per-provider mapping — fourteen of the sixteen
-publish a model list, eight of those also state a context window. Support is uneven enough
-that the mapping is written out rather than pattern-matched, and the key names it reads are an
-**allow-list**: xAI's `long_context_threshold` is a billing breakpoint, not a window, and
-scooping up "the field with `context` in the name" under-reports a 1M model as 200k. Gemini and
-Anthropic report an *input* limit; the OpenAI-compatible family reports a *total* one, so
-`inputTokens(total:output:)` reserves the reply's share and `ModelInfo.inputTokenLimit` means
-one thing everywhere. `ProviderCapabilities.of(_:config:)` resolves user override → discovered
-→ the static table, and carries a `BudgetSource` so Settings can say which of the three a
-number came from. The agent runtime (`AgentRunner` + `AgentTool` registry + `PermissionBroker`) keeps mutating tools behind explicit user approval. Frameworks like LangChain-style abstractions were rejected — the protocol is ~100 lines and owns its wire formats.
+This replaced (1.3.2 and earlier) a hand-written `LLMProvider` protocol with five
+adapters serving sixteen providers, per-provider model discovery and context
+tables, a Keychain of API keys and a hand-rolled agent loop — about 4,500 lines
+whose purpose the framework now serves. Removing the third-party services is also
+what lets the app ship where they cannot.
+
+What a model can do is still **asked, not tabulated** — now of the model itself:
+`contextSize`, `variant.displayName`, `capabilities`, `availability`, and PCC's
+`quotaUsage`. Budgets are tokens, estimated script-aware (`TokenBudget`), because
+CJK text costs about one token a character against English's four characters a
+token. The Assistant is a `DynamicProfile`: model, temperature, reasoning, tools
+chosen by window (five on 8K, the full set from 16K), a `historyTransform` that
+keeps the instructions and the recent whole turns, and a tool-call budget that
+disallows tools for the next request once spent. Mutating tools stay behind
+explicit, queued approval. See implemented.md §51.
 
 ### 5.10 Cloud storage  ⟶ **File Provider first; direct APIs via `URLSession`, no vendor SDKs** ✅
 
@@ -185,12 +197,13 @@ Shared concerns live in `RemoteStore.swift`: Keychain token storage and a **sing
 | swift-markdown | GFM AST parsing + HTML export | Resolved | **Yes** |
 | SwiftGitX | Git async engine | Resolved | **Yes** |
 | beautiful-mermaid-swift (`BeautifulMermaid`, `MermaidPlayground`) | Native Mermaid | Resolved | **Yes** |
-| OpenAI | OpenAI-compatible provider transport | Resolved | **Yes** |
-| mlx-swift (`MLXLLM`, `MLXLMCommon`) | Local LLM inference (Apple silicon) | Resolved | **Yes** |
-| swift-transformers (`Tokenizers`, `Hub`) | Tokenizers + model downloads for MLX | Resolved | **Yes** |
+| mlx-swift-lm (`MLXLLM`, `MLXLMCommon`, `MLXFoundationModels`) — pinned by revision | Open models as Foundation Models `LanguageModel`s (1.3.3) | Resolved | **Yes** |
+| mlx-swift | MLX array framework (via mlx-swift-lm) | Resolved | Transitive |
+| swift-transformers (`Tokenizers`) | Tokenizers for MLX | Resolved | **Yes** |
+| swift-huggingface (`HuggingFace`) | Hugging Face downloads for MLX | Resolved | **Yes** |
 | HighlighterSwift | Code-block highlighting (`CodeHighlighterAdapter`) | Resolved | **Yes** (direct) |
 | SwiftMath | Math rendering (`MathImageRenderer`) | Resolved | **Yes** (direct) |
-| elk-swift, swift-cmark, libgit2, swift-collections | Transitive deps | Resolved | Transitive |
+| elk-swift, swift-cmark, libgit2, swift-collections, swift-jinja, yyjson, swift-crypto, EventSource | Transitive deps | Resolved | Transitive |
 
 > **Editor:** the live editor is the in-repo `Packages/NotesEditor` package — `MarkdownCore` (incremental block/inline parser + style spec), `MarkdownEditor` (TextKit 2 `NSTextView`/`UITextView`), and `GFMRender` (cmark-gfm for GitHub-identical Preview + spec/API parity). It builds for both macOS and iOS. The earlier `ChristineTham/swift-markdown-engine` fork that first unblocked the editor was **removed at M4** once this greenfield rewrite reached parity; see [implemented.md](implemented.md).
 
@@ -212,10 +225,10 @@ Shared concerns live in `RemoteStore.swift`: Keychain token storage and a **sing
 | 2 State | `State/EditorModel.swift`, `State/EditorTabs.swift` | Open document + debounced autosave + conflicts; one editor per tab |
 | 2 State | `State/LinkGraph.swift`, `State/CollectionSearchModel.swift` | Alias-aware backlinks/outgoing/resolution; cached text/headings/tags/aliases → search, Open Quickly, mentions |
 | 2 State | `State/GitService.swift`, `State/GitCredentials.swift`, `State/GitHostAPI.swift` | FIFO-serialized status/commit/push/fetch + history; Keychain HTTPS tokens; clone/create-remote |
-| 2 State | `State/AppearanceSettings.swift`, `State/BookmarksStore.swift`, `State/NoteIntelligence.swift` | Theme/accent/text-size; per-collection bookmarks; Apple Intelligence actions |
-| LLM | `LLM/LLMProvider.swift`, `LLM/Adapters/*` | Streaming provider protocol; Apple / MLX / OpenAI-compatible / Anthropic / Gemini adapters |
-| LLM | `LLM/AssistantModel.swift`, `LLM/Agent/*` | Agent loop; tools (collection CRUD/search, web search/fetch), skills, deep research, permission broker |
-| LLM | `LLM/LLMSettings.swift`, `LLM/LLMKeychain.swift`, `LLM/ChatSessionStore.swift`, `LLM/ModelCatalog.swift`, `LLM/IntelligenceService.swift` | Provider/model config; Keychain keys; JSONL transcripts; model catalog; summarise/ask services |
+| 2 State | `State/AppearanceSettings.swift`, `State/BookmarksStore.swift` | Theme/accent/text-size; per-collection bookmarks |
+| Intelligence | `Intelligence/IntelligenceSettings.swift`, `Intelligence/IntelligenceMigration.swift`, `Intelligence/Models/*` | Model choices; the one-time 1.3.2 migration; `LanguageModels`, `TokenBudget`, `MLXModelStore`, `MLXBridge` |
+| Intelligence | `Intelligence/Features/*` | `IntelligenceService` (writing tools), `DeepResearch`, the compose and ghost-text prompts |
+| Intelligence | `Intelligence/Assistant/*`, `Intelligence/Tools/*` | `AssistantModel`/`AssistantProfile`/`ChatSessionStore`; `ToolContext`, note/web/skill tools, `PermissionBroker`, `WebGuard` |
 | 3 UI | `UI/NoteEditorView.swift` | Hosts `NativeTextViewWrapper`; view modes; find/replace; references, properties, autocomplete overlays |
 | 3 UI | `UI/PropertiesEditor.swift`, `UI/OutlineView.swift`, `UI/WikiLinkCompletionList.swift`, `UI/FindReplaceBar.swift` | Editable properties, outline+stats, `[[…]]`/`#tag` completion, ⌘F bar |
 | 3 UI | `UI/GraphView.swift`, `UI/MindMapView.swift`, `UI/NoteHistoryView.swift`, `UI/NoteWindowView.swift`, `UI/AuxiliaryWindows.swift` | Directional graph, idea mind map, version history, standalone note window, window scenes |

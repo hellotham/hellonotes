@@ -18,29 +18,27 @@ import SwiftUI
 
 struct AssistantHost: View {
     @Environment(Library.self) private var library
-    @Environment(LLMSettings.self) private var llmSettings
+    @Environment(IntelligenceSettings.self) private var intelligenceSettings
 
     @State private var model: AssistantModel?
     @State private var permissions = PermissionBroker()
     @State private var skills = SkillStore()
-    @State private var showLLMSettings = false
+    @State private var showSettings = false
 
     var body: some View {
         Group {
             if let model {
-                AssistantView(model: model) { showLLMSettings = true }
+                AssistantView(model: model) { showSettings = true }
             } else {
                 ProgressView()
             }
         }
-        .sheet(isPresented: $showLLMSettings) {
-            LLMSettingsView(settings: llmSettings)
+        .sheet(isPresented: $showSettings) {
+            IntelligenceSettingsView(settings: intelligenceSettings)
         }
         .task {
             if model == nil {
-                let m = AssistantModel(settings: llmSettings)
-                m.registry = ToolRegistry(tools: CollectionTools.all())
-                model = m
+                model = AssistantModel(settings: intelligenceSettings)
             }
             syncFocusedServices()
         }
@@ -50,13 +48,13 @@ struct AssistantHost: View {
         }
     }
 
-    /// Point the assistant's tools and chat store at the focused collection.
+    /// Point the assistant's tools and conversation at the focused collection.
     private func syncFocusedServices() {
         guard let model, let c = library.focused else { return }
+        skills.refresh(from: c.notes)
         model.toolContext = ToolContext(
             collection: c, search: c.search, git: c.git, permissions: permissions,
-            settings: llmSettings, skills: skills)
+            settings: intelligenceSettings, skills: skills)
         model.sessionStore = ChatSessionStore(collectionURL: c.rootURL)
-        skills.refresh(from: c.notes)
     }
 }

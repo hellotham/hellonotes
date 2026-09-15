@@ -102,9 +102,9 @@ struct ContentView: View {
     /// launcher instead.
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
 
-    /// Shared LLM configuration (the Assistant and Ask Library windows own
-    /// their models; the editor's intelligence features read this directly).
-    @Environment(LLMSettings.self) private var llmSettings
+    /// Which model does what (the Assistant and Ask Library windows own their
+    /// models; the editor's writing tools read this directly).
+    @Environment(IntelligenceSettings.self) private var intelligenceSettings
 
     /// Opt-in background local auto-commit (never auto-pushes).
     @AppStorage("gitAutoCommit") private var autoCommit = false
@@ -876,8 +876,8 @@ struct ContentView: View {
             }
         }
 
-        .onReceive(NotificationCenter.default.publisher(for: .hnOpenAISettings)) { _ in
-            showLLMSettings = true
+        .onReceive(NotificationCenter.default.publisher(for: .hnShowAISettings)) { _ in
+            showAISettings = true
         }
 
         .onReceive(NotificationCenter.default.publisher(for: .hnShowSplash)) { note in
@@ -928,12 +928,12 @@ struct ContentView: View {
         // scene, so it is the only one. `AppSettingsView` is the name that
         // lets this line exist without a gate around it.
         .sheet(isPresented: $showSettings) {
-            AppSettingsView(llmSettings: llmSettings, appearance: appearance,
+            AppSettingsView(intelligenceSettings: intelligenceSettings, appearance: appearance,
                             git: focused?.git, accounts: gitAccounts, store: store)
         }
-        .sheet(isPresented: $showLLMSettings) {
+        .sheet(isPresented: $showAISettings) {
             NavigationStack {
-                LLMSettingsView(settings: llmSettings)
+                IntelligenceSettingsView(settings: intelligenceSettings)
             }
         }
         .sheet(isPresented: $showPalette) {
@@ -956,7 +956,7 @@ struct ContentView: View {
         .sheet(isPresented: $showCompose, onDismiss: { composer.reset() }) {
             ComposeNoteView(
                 composer: composer,
-                availability: { NoteComposer.unavailableReason(for: $0, settings: llmSettings) },
+                availability: { NoteComposer.unavailableReason(for: $0, settings: intelligenceSettings) },
                 onRun: { prompt, mode, depth in runCompose(prompt, mode: mode, depth: depth) },
                 onCreate: { draft in
                     // `railCollection ?? focused`, matching `runCompose`. Asking
@@ -1219,7 +1219,7 @@ struct ContentView: View {
         guard let scope = railCollection ?? focused else { return }
         ComposeRun.start(prompt: prompt, mode: mode, depth: depth, in: scope,
                          composer: composer, permissions: composePermissions,
-                         settings: llmSettings)
+                         settings: intelligenceSettings)
     }
 
     /// The AI commands, or `nil` when they would only disappoint — no note
@@ -1232,10 +1232,10 @@ struct ContentView: View {
         // presentation underneath a sheet that is already up. The merge kept
         // the note check and dropped this one.
         guard !showOpenQuickly, activeEditor?.note != nil else { return nil }
-        let intelligence = IntelligenceService(settings: llmSettings)
+        let intelligence = IntelligenceService(settings: intelligenceSettings)
         guard intelligence.isAvailable else { return nil }
         return AIActions(
-            providerName: intelligence.providerName,
+            modelName: intelligence.modelName,
             summarize: { askInspector(.summarize) },
             suggestTags: { askInspector(.suggestTags) },
             suggestLinks: { askInspector(.suggestLinks) },
@@ -1586,7 +1586,7 @@ struct ContentView: View {
                     hnJumpToHeading(ordinal: ordinal, title: heading.title)
                 },
                 summarize: { text in
-                    try await IntelligenceService(settings: llmSettings).summarize(text)
+                    try await IntelligenceService(settings: intelligenceSettings).summarize(text)
                 },
                 onInsertSummary: { saveSummary($0) },
                 allTags: collection.search.allTags(),
@@ -1599,7 +1599,7 @@ struct ContentView: View {
                     set: { selectedTag = $0; if $0 != nil { searchText = "" } }
                 ),
                 suggestTags: { text, existing in
-                    try await IntelligenceService(settings: llmSettings)
+                    try await IntelligenceService(settings: intelligenceSettings)
                         .suggestTags(for: text, existing: existing)
                 },
                 onInsertTag: { insertTag($0) },
@@ -1646,7 +1646,7 @@ struct ContentView: View {
         let neighbours = await collection.relatedNotes(
             to: text, excluding: selectedNote?.fileURL, limit: 40)
         guard !neighbours.isEmpty else { return [] }
-        return try await IntelligenceService(settings: llmSettings)
+        return try await IntelligenceService(settings: intelligenceSettings)
             .suggestLinks(for: text, candidates: neighbours.map(\.title))
     }
 
@@ -2165,7 +2165,7 @@ struct ContentView: View {
     /// The agentic assistant, and the provider/key settings it needs. Both were
     /// macOS-only until 1.3 — and without the second, an iPad had no way to
     /// enter an API key at all, so every provider but Apple was unreachable.
-    @State private var showLLMSettings = false
+    @State private var showAISettings = false
 
     /// Search and a tag filter are questions about the library and override the
     /// rail's scope; otherwise the Library place owns the note-list column.
@@ -2567,7 +2567,7 @@ struct ContentView: View {
             .init(title: "Assistant", symbol: "sparkles", isEnabled: scope != nil) {
                 auxiliary.open(.assistant)
             },
-            .init(title: "AI Settings…", symbol: "brain") { showLLMSettings = true },
+            .init(title: "AI Settings…", symbol: "brain") { showAISettings = true },
             .init(title: "Settings…", symbol: "gearshape") { showSettings = true },
         ]
     }
@@ -2623,7 +2623,7 @@ struct ContentView: View {
             compose: scope == nil ? nil : { showCompose = true },
             assistant: { auxiliary.open(.assistant) },
             // iOS has no Preferences window, so AI settings needs a row here.
-            aiSettings: { showLLMSettings = true },
+            aiSettings: { showAISettings = true },
             hasOpenNote: editor.note != nil)
     }
 
@@ -2837,7 +2837,7 @@ struct ContentView: View {
             addCollectionItems
             Divider()
             Button {
-                showLLMSettings = true
+                showAISettings = true
             } label: {
                 Label("AI Settings…", systemImage: "brain")
             }
@@ -2972,7 +2972,7 @@ struct ContentView: View {
             }
             if let ai = aiActions {
                 Divider()
-                Section("Using \(ai.providerName)") {
+                Section("Using \(ai.modelName)") {
                     Button { ai.summarize() } label: { Label("Summarise Note", systemImage: "text.append") }
                     Button { ai.suggestTags() } label: { Label("Suggest Tags", systemImage: "number") }
                     Button { ai.suggestLinks() } label: { Label("Suggest Links", systemImage: "link") }

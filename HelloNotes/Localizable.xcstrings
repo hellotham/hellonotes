@@ -13,9 +13,6 @@
     "“Auto” follows the system light/dark setting." : {
 
     },
-    "“Intelligence provider” powers Summarize, Suggest Tags/Links, Expand and Ask Library. Defaults to on-device Apple Intelligence." : {
-
-    },
     "#%@" : {
 
     },
@@ -207,9 +204,6 @@
     "Add a hosting account in Git Settings to create a remote." : {
 
     },
-    "Add a provider…" : {
-
-    },
     "Add an account" : {
 
     },
@@ -259,9 +253,6 @@
 
     },
     "Ask a question about your notes…" : {
-
-    },
-    "Ask anything. Switch providers from the menu above. Your API keys stay in the Keychain." : {
 
     },
     "Ask Library" : {
@@ -319,9 +310,6 @@
 
     },
     "Chat only" : {
-
-    },
-    "Chat provider" : {
 
     },
     "Chat with %@" : {
@@ -537,9 +525,6 @@
     "Intelligence" : {
 
     },
-    "Intelligence provider" : {
-
-    },
     "Italic" : {
 
     },
@@ -712,9 +697,6 @@
 
     },
     "OUTLINE" : {
-
-    },
-    "Paste your API key" : {
 
     },
     "Pasted images" : {

@@ -25,7 +25,7 @@ it does. Never reach for `killall -9` or `pkill -9` on HelloNotes yourself.
 
    ```bash
    xcodebuild build -project HelloNotes.xcodeproj -scheme HelloNotes \
-     -destination 'platform=macOS' -configuration Debug \
+     -destination 'platform=macOS' -configuration Debug -skipPackagePluginValidation \
      -clonedSourcePackagesDirPath ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM \
      2>&1 | grep -E "error:|BUILD SUCCEEDED|BUILD FAILED" | tail -5
    ```

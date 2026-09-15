@@ -24,14 +24,20 @@ struct EditApprovalView: View {
                     Text(prompt.title).font(.headline)
                 }
                 Text(prompt.detail).font(.callout).foregroundStyle(.secondary)
+                // The model can propose several changes at once; they queue, and
+                // saying so stops the next card reading as the same one again.
+                if broker.queuedCount > 0 {
+                    Text(broker.queuedCount == 1 ? "1 more change is waiting." : "\(broker.queuedCount) more changes are waiting.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
 
-                if let diff = prompt.diff { diffView(diff) }
+                if let diff = prompt.diff { DiffPreview(diff: diff, requestID: prompt.id) }
 
                 HStack {
                     Button("Allow all this session") {
                         broker.respond(approved: true, allowAll: true)
                     }
-                    .help("Auto-approve every change for the rest of this chat")
+                    .help("Approve the rest of this conversation's changes without asking. Deleting a note still asks.")
                     Spacer()
                     Button("Deny", role: .cancel) { broker.respond(approved: false) }
                         .keyboardShortcut(.cancelAction)
@@ -47,42 +53,71 @@ struct EditApprovalView: View {
             .shadow(radius: 20)
         }
     }
+}
 
-    @ViewBuilder
-    private func diffView(_ diff: EditDiff) -> some View {
+/// The proposed change as a line diff.
+///
+/// **Computed once per request, off the main actor, and laid out lazily.**
+/// This used to diff inside `body` and give every line its own `Text` in a plain
+/// `VStack`, and `delete_note` and `write_note` put the whole note in the diff:
+/// measured, a 2,000-line note took 162 ms to lay out and a 10,000-line one
+/// 898 ms — a frozen app each time the card appeared, and again each time the
+/// count of waiting changes moved. Rows are capped as well; the opening of a
+/// long note identifies it, and nobody reads ten thousand lines on a card.
+private struct DiffPreview: View {
+    let diff: EditDiff
+    let requestID: UUID
+
+    @State private var lines: [DiffLine] = []
+    @State private var hiddenCount = 0
+
+    private static let rowLimit = 1_000
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(diff.path, systemImage: "doc.text").font(.caption.monospaced()).foregroundStyle(.secondary)
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(diffLines(diff).enumerated()), id: \.offset) { _, line in
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(lines.indices, id: \.self) { index in
+                        let line = lines[index]
                         Text(line.text.isEmpty ? " " : line.text)
                             .font(.system(.caption, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(line.kind.color)
-                            .foregroundStyle(line.kind.fg)
+                            .background(line.kind.background)
+                            .foregroundStyle(line.kind.foreground)
+                    }
+                    if hiddenCount > 0 {
+                        Text(hiddenCount == 1 ? "1 more line not shown" : "\(hiddenCount) more lines not shown")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(6)
                     }
                 }
             }
             .frame(maxHeight: 260)
             .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
         }
+        .task(id: requestID) {
+            let diff = diff
+            let all = await offMain { DiffLine.lines(for: diff) }
+            lines = Array(all.prefix(Self.rowLimit))
+            hiddenCount = max(0, all.count - Self.rowLimit)
+        }
     }
+}
 
-    // MARK: - Minimal line diff
+// MARK: - Minimal line diff
 
-    private struct DiffLine { enum Kind { case same, add, remove
-        var color: Color { switch self { case .same: return .clear; case .add: return .green.opacity(0.18); case .remove: return .red.opacity(0.18) } }
-        var fg: Color { switch self { case .same: return .secondary; case .add: return .green; case .remove: return .red } }
-    }
-        let text: String; let kind: Kind
-    }
+private nonisolated struct DiffLine: Sendable {
+    enum Kind: Sendable { case same, add, remove }
+    let text: String
+    let kind: Kind
 
     /// A cheap prefix/suffix-anchored line diff — good enough to preview an edit.
-    private func diffLines(_ diff: EditDiff) -> [DiffLine] {
-        if diff.isCreation { return diff.after.lines.map { DiffLine(text: "+ " + $0, kind: .add) } }
-        if diff.isDeletion { return diff.before.lines.map { DiffLine(text: "- " + $0, kind: .remove) } }
-        let before = diff.before.lines, after = diff.after.lines
+    static func lines(for diff: EditDiff) -> [DiffLine] {
+        if diff.isCreation { return split(diff.after).map { DiffLine(text: "+ " + $0, kind: .add) } }
+        if diff.isDeletion { return split(diff.before).map { DiffLine(text: "- " + $0, kind: .remove) } }
+        let before = split(diff.before), after = split(diff.after)
         var head = 0
         while head < before.count && head < after.count && before[head] == after[head] { head += 1 }
         var tail = 0
@@ -96,8 +131,25 @@ struct EditApprovalView: View {
         for line in after.suffix(tail).prefix(3) { out.append(DiffLine(text: "  " + line, kind: .same)) }
         return out.isEmpty ? [DiffLine(text: "(no textual change)", kind: .same)] : out
     }
+
+    private static func split(_ text: String) -> [String] {
+        text.isEmpty ? [] : text.components(separatedBy: "\n")
+    }
 }
 
-private extension String {
-    var lines: [String] { isEmpty ? [] : components(separatedBy: "\n") }
+private extension DiffLine.Kind {
+    var background: Color {
+        switch self {
+        case .same: .clear
+        case .add: .green.opacity(0.18)
+        case .remove: .red.opacity(0.18)
+        }
+    }
+    var foreground: Color {
+        switch self {
+        case .same: .secondary
+        case .add: .green
+        case .remove: .red
+        }
+    }
 }

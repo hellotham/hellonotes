@@ -84,4 +84,33 @@ struct AnswerMarkdownTests {
         }
         #expect(bolded, "asterisks were removed without applying emphasis")
     }
+    /// The streaming renderer draws a growing reply a line at a time, and must
+    /// draw exactly what the whole-text renderer draws — at every length the
+    /// reply passes through, character by character, fences and all.
+    @Test func streamingRendersEveryPrefixExactlyAsTheWholeText() {
+        let reply = """
+        # Plan
+
+        Here is **what I found** in `Weekly Review`:
+
+        1. Read the [[Inbox]] note
+        - a bullet with *emphasis*
+          - nested
+        > a quote
+
+        ```swift
+        let x = "**not bold**"
+        ```
+        宇宙の話 — 終わり
+        """
+        let renderer = AnswerMarkdown.Streaming()
+        var prefix = ""
+        for character in reply {
+            prefix.append(character)
+            #expect(renderer.attributed(prefix) == AnswerMarkdown.attributed(prefix),
+                    "diverged after \(prefix.count) characters")
+        }
+        // A different reply in the same row starts over rather than appending.
+        #expect(renderer.attributed("Another answer") == AnswerMarkdown.attributed("Another answer"))
+    }
 }

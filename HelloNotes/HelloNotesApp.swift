@@ -12,9 +12,9 @@ struct HelloNotesApp: App {
     @State private var library: Library
     /// Deep-link / App-Intents / Services navigation entry point.
     @State private var router: NavigationRouter
-    /// Shared LLM configuration (providers, keys, intelligence provider), so
-    /// every window — including standalone note windows — sees the same settings.
-    @State private var llmSettings = LLMSettings()
+    /// Which model does what (Assistant, writing tools, MLX), so every window —
+    /// including standalone note windows — sees the same settings.
+    @State private var intelligenceSettings = IntelligenceSettings()
     /// App-wide theming (appearance, accent, text size), applied at every root.
     @State private var appearance = AppearanceSettings()
     /// Git hosting accounts, at app level because **Settings needs them too**.
@@ -66,7 +66,7 @@ struct HelloNotesApp: App {
     /// Every app-wide observable, injected in one place.
     ///
     /// The macOS and iOS scenes used to carry their own lists, and the iOS one
-    /// was missing `llmSettings` — so **every iOS launch died** in SwiftUI's
+    /// was missing the AI settings object — so **every iOS launch died** in SwiftUI's
     /// environment lookup (`No Observable object of type LLMSettings found`)
     /// the moment `iOSContentView` read it. Nothing caught it: both platforms
     /// compile, the macOS app is unaffected, and the crash only appears when
@@ -79,7 +79,7 @@ struct HelloNotesApp: App {
         content
             .environment(library)
             .environment(router)
-            .environment(llmSettings)
+            .environment(intelligenceSettings)
             .environment(appearance)
             .environment(gitAccounts)
             .environment(store)
@@ -164,7 +164,7 @@ struct HelloNotesApp: App {
         // menu-bar item is an extra *route* on the platform that has the
         // concept, not a feature the iPad lacks.
         Settings {
-            PreferencesView(llmSettings: llmSettings, appearance: appearance,
+            PreferencesView(intelligenceSettings: intelligenceSettings, appearance: appearance,
                             gitAccounts: gitAccounts, store: store)
                 .themedRoot(appearance)
         }

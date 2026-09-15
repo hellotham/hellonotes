@@ -17,13 +17,11 @@
 import Foundation
 
 nonisolated enum NoteEdits {
-    /// The note with `tag` appended as a plain `#tag`.
+    /// The note with `tag` added to its `tags:` front-matter property.
     ///
-    /// Plain body text rather than front matter, because a note's own tags are
-    /// parsed from its body (`MarkdownParsing.tags`) — that is where a tag has
-    /// to be for the rail to show it back. Joins the last line when that line is
-    /// already nothing but tags, so accepting three suggestions gives one tag
-    /// line rather than three.
+    /// Front matter, never the body: `MarkdownParsing.tags` reads the `tags:`
+    /// key as well as inline tags in the body, so the rail shows it back either
+    /// way — and a suggestion that edits prose is one the person did not write.
     static func addingTag(_ tag: String, to text: String) -> String {
         appending(tag, toListProperty: "tags", of: text)
     }

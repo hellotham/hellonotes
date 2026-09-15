@@ -79,7 +79,7 @@ struct ScreenRenderTests {
 
     /// The screen that shipped broken.
     @Test func aiSettingsDrawsItsContent() {
-        let painted = paintedPixels(LLMSettingsForm(settings: LLMSettings()))
+        let painted = paintedPixels(IntelligenceSettingsForm(settings: IntelligenceSettings()))
         #expect(painted > 2_000,
                 "AI settings painted \(painted) glyph pixels — that is a collapsed form, not a screen")
     }

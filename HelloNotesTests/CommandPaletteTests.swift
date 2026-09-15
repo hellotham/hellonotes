@@ -48,7 +48,7 @@ struct CommandPaletteTests {
                 cloneRepository: {}, newRepository: {}),
             acknowledgements: {}, refreshCloudCollection: {},
             commandPalette: {},
-            ai: AIActions(providerName: "Test", summarize: {}, suggestTags: {},
+            ai: AIActions(modelName: "Test", summarize: {}, suggestTags: {},
                           suggestLinks: {}, rewriteNote: {}),
             reviewLinks: {}, composeNote: {},
             newWindow: {}, find: {}, searchAllCollections: {},

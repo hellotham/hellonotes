@@ -12,13 +12,13 @@
 //  what makes the feature cuttable: delete this file and the editor still
 //  compiles, still runs its tests, and simply never has a suggestion to draw.
 //
-//  On-device only, and not as a preference. A cloud round trip cannot feel like
-//  ghost text — by the time it lands the user has typed past the sentence it
-//  was completing, and the suggestion is refused as stale anyway. So this asks
-//  `IntelligenceNeeds.inlineCompletion`, whose `onDevice` flag exists for
-//  exactly this feature and no other, and stays silent when the answer is no.
-//  Silent rather than complaining: an editor that nags about a provider every
-//  time you stop typing is worse than one that never completes.
+//  On-device only, and not as a preference. A network round trip cannot feel
+//  like ghost text — by the time it lands the user has typed past the sentence
+//  it was completing, and the suggestion is refused as stale anyway. So this
+//  asks `IntelligenceService.supportsInlineCompletion` — the on-device model or
+//  an MLX model, never Private Cloud Compute — and stays silent when the answer
+//  is no. Silent rather than complaining: an editor that nags about a model
+//  every time you stop typing is worse than one that never completes.
 //
 
 //  Cross-platform. It was macOS-only until the iOS editor grew somewhere to
@@ -61,8 +61,8 @@ final class InlineCompletionModel {
     /// explains itself rather than appearing to do nothing.
     static func unavailableReason(_ intelligence: IntelligenceService) -> String? {
         if case .unavailable(let why) = intelligence.availability { return why }
-        guard !intelligence.can(.inlineCompletion) else { return nil }
-        return "\(intelligence.providerName) runs in the cloud. Completions have to be on-device to appear as you type."
+        guard !intelligence.runsOnDevice else { return nil }
+        return "\(intelligence.modelName) runs on Apple's servers. Suggestions as you type need a model on this device — choose On-Device or an MLX model for writing tools."
     }
 
     func cancel() {
@@ -77,7 +77,7 @@ final class InlineCompletionModel {
         task?.cancel()
         guard isEnabled,
               context.prefix.count >= Self.minimumPrefix,
-              let intelligence, intelligence.can(.inlineCompletion) else {
+              let intelligence, intelligence.supportsInlineCompletion else {
             proxy.clearInlineSuggestion()
             return
         }

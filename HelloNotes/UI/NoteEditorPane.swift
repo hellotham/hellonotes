@@ -29,7 +29,7 @@ struct NoteEditorPane: View {
     /// completion has to be asked of the vocabulary the note lives in.
     let collection: Collection?
     let appearance: AppearanceSettings
-    let llmSettings: LLMSettings
+    let intelligenceSettings: IntelligenceSettings
     let mode: EditorMode
 
     var onOpenWikiLink: (String) -> Void
@@ -188,7 +188,7 @@ struct NoteEditorPane: View {
                 headings: { name in collection?.search.headings(forName: name) ?? [] },
                 currentText: { editor.text }
             ),
-            intelligence: IntelligenceService(settings: llmSettings)
+            intelligence: IntelligenceService(settings: intelligenceSettings)
         )
     }
 

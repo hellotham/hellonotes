@@ -76,7 +76,7 @@ collection changes the user's own state.
 ## iOS and iPadOS — simulators, costs nothing
 
 ```bash
-xcodebuild build -destination 'platform=iOS Simulator,name=HN-iPhone'
+xcodebuild build -skipPackagePluginValidation -destination 'platform=iOS Simulator,name=HN-iPhone'
 xcrun simctl install HN-iPhone <app> && xcrun simctl launch HN-iPhone com.hellotham.HelloNotes
 xcrun simctl status_bar HN-iPhone override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3
 xcrun simctl io HN-iPhone screenshot shot.png

@@ -15,11 +15,13 @@ reading and editing column widths.
 Which view a note opens in, whether non-note files appear in the sidebar, how
 daily notes are named and where they go, and the template folder.
 
-## Intelligence
+## AI
 
-Off unless configured. Uses Apple's on-device models where available; otherwise
-add your own API key for one of the supported providers. Per-feature settings let
-you choose the model, temperature and context budget.
+Choose the model for the Assistant and the model for the writing tools — On-Device
+or an MLX model — each with a line saying where your text goes. Download or remove
+a suggested MLX model, name one on Hugging Face, or choose a model folder. Set the Assistant's
+creativity, and how much it thinks on models that reason. Turn suggestions as you
+type on or off.
 
 ## Git
 

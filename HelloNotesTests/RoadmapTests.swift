@@ -94,6 +94,20 @@ struct FileIOTests {
         #expect(try FileIO.readString(at: url) == "new")
     }
 
+    /// Compare-and-replace writes only over the text it was told to expect, and
+    /// leaves anything else exactly as it found it.
+    @Test func replaceWritesOnlyOverTheExpectedText() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileIO.write("café ☕️ before", to: url)
+
+        #expect(try FileIO.replace("after", at: url, ifContentsEqual: "café ☕️ before"))
+        #expect(try FileIO.readString(at: url) == "after")
+
+        #expect(try FileIO.replace("clobbered", at: url, ifContentsEqual: "before") == false)
+        #expect(try FileIO.readString(at: url) == "after")   // unchanged
+    }
+
     /// The no-regression invariant that Phase 1's indexing guards depend on: an
     /// ordinary local file is never treated as online-only, so it is always
     /// indexed (never skipped as if it were an un-downloaded cloud file).

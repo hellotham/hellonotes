@@ -103,6 +103,7 @@ cleanup_preview_dylibs
 xcodebuild test \
   -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'platform=macOS' \
+  -skipPackagePluginValidation \
   -clonedSourcePackagesDirPath ~/Library/Developer/Xcode/DerivedData/HelloNotes-SPM \
   "${@:--only-testing:HelloNotesTests}"
 # NOT `status=$?`: in zsh `status` is a read-only alias for `$?`, so the

@@ -33,7 +33,7 @@ enum ComposeRun {
                       in collection: Collection,
                       composer: NoteComposer,
                       permissions: PermissionBroker,
-                      settings: LLMSettings) {
+                      settings: IntelligenceSettings) {
         switch mode {
         case .write:
             composer.compose(prompt: prompt, in: collection, settings: settings)

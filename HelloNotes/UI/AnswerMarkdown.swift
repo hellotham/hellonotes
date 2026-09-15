@@ -34,26 +34,68 @@ enum AnswerMarkdown {
     static func attributed(_ markdown: String) -> AttributedString {
         var out = AttributedString()
         var inFence = false
-
         for (i, raw) in markdown.components(separatedBy: "\n").enumerated() {
-            if i > 0 { out += AttributedString("\n") }
-            let trimmed = raw.trimmingCharacters(in: .whitespaces)
-
-            if trimmed.hasPrefix("```") {
-                // The fence itself draws nothing — it is punctuation, and a
-                // visible ``` is the whole complaint this file exists about.
-                inFence.toggle()
-                continue
-            }
-            if inFence {
-                var line = AttributedString(raw)
-                line.font = .system(.body, design: .monospaced)
-                out += line
-                continue
-            }
-            out += line(raw, trimmed: trimmed)
+            append(raw, isFirst: i == 0, inFence: &inFence, to: &out)
         }
         return out
+    }
+
+    /// One line of an answer, appended to what came before it. The fence state
+    /// is the only thing a line hands to the next, which is what lets
+    /// `Streaming` render a growing answer a line at a time.
+    fileprivate static func append(_ raw: String, isFirst: Bool,
+                                   inFence: inout Bool, to out: inout AttributedString) {
+        if !isFirst { out += AttributedString("\n") }
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+
+        if trimmed.hasPrefix("```") {
+            // The fence itself draws nothing — it is punctuation, and a
+            // visible ``` is the whole complaint this file exists about.
+            inFence.toggle()
+            return
+        }
+        if inFence {
+            var line = AttributedString(raw)
+            line.font = .system(.body, design: .monospaced)
+            out += line
+            return
+        }
+        out += line(raw, trimmed: trimmed)
+    }
+
+    /// An answer that is still arriving, rendered without re-reading what has
+    /// already been rendered.
+    ///
+    /// A streaming reply only ever grows, so every line before the last line
+    /// break is finished: it is parsed once and kept, and each new snapshot
+    /// parses the lines that are new plus the one still being written. Parsing
+    /// the whole reply per snapshot cost 2 ms at 2 KB and 15 ms at 30 KB,
+    /// measured, several times a second. Text that is not a continuation of
+    /// what was rendered — a different reply in the same row — starts over.
+    /// The output is identical to `attributed(_:)`.
+    final class Streaming {
+        private var source = ""                 // rendered text, ending in a line break (or empty)
+        private var rendered = AttributedString()
+        private var inFence = false
+
+        func attributed(_ markdown: String) -> AttributedString {
+            if !markdown.utf8.starts(with: source.utf8) {
+                source = ""
+                rendered = AttributedString()
+                inFence = false
+            }
+            let fresh = Substring(markdown.utf8.dropFirst(source.utf8.count))
+            var lines = fresh.components(separatedBy: "\n")
+            let unfinished = lines.removeLast()   // text after the last line break, possibly empty
+            for line in lines {
+                AnswerMarkdown.append(line, isFirst: source.isEmpty, inFence: &inFence, to: &rendered)
+                source += line + "\n"
+            }
+            var out = rendered
+            var fence = inFence
+            AnswerMarkdown.append(unfinished, isFirst: source.isEmpty, inFence: &fence, to: &out)
+            return out
+        }
     }
 
     // MARK: -

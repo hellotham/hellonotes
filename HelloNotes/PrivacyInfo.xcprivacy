@@ -3,9 +3,12 @@
 <plist version="1.0">
 <dict>
 	<!-- HelloNotes is local-first: it collects no data and performs no tracking.
-	     Notes are the user's own .md files on disk; API keys/tokens stay in the
-	     Keychain; chat transcripts stay on-device. Network calls go only to the
-	     user's own configured LLM/git endpoints. -->
+	     Notes are the user's own .md files on disk; git and cloud-storage tokens
+	     stay in the Keychain; chat transcripts stay on-device. AI runs on Apple's
+	     Foundation Models — on-device, or Apple's Private Cloud Compute when the
+	     user chooses it — or on an MLX model downloaded from Hugging Face. Other
+	     network calls go only to the user's own git and cloud-storage endpoints,
+	     and to web pages the Assistant is asked to read. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>

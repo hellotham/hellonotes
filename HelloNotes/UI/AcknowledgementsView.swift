@@ -31,13 +31,16 @@ enum Acknowledgements {
         .init(name: "SwiftMath", license: "MIT", url: "https://github.com/mgriebling/SwiftMath", role: "LaTeX math rendering"),
         .init(name: "beautiful-mermaid-swift", license: "MIT", url: "https://github.com/lukilabs/beautiful-mermaid-swift", role: "Mermaid diagram rendering"),
         .init(name: "elk-swift", license: "MIT", url: "https://github.com/lukilabs/elk-swift", role: "ELK graph/diagram layout"),
-        .init(name: "MLX Swift", license: "MIT", url: "https://github.com/ml-explore/mlx-swift", role: "On-device LLM inference (Apple silicon)"),
-        .init(name: "swift-transformers", license: "Apache-2.0", url: "https://github.com/huggingface/swift-transformers", role: "Tokenizers & model downloads (MLX)"),
-        .init(name: "OpenAI (MacPaw)", license: "MIT", url: "https://github.com/MacPaw/OpenAI", role: "OpenAI-compatible provider transport"),
-        .init(name: "GzipSwift", license: "MIT", url: "https://github.com/1024jp/GzipSwift", role: "Compression (transitive)"),
+        .init(name: "MLX Swift", license: "MIT", url: "https://github.com/ml-explore/mlx-swift", role: "On-device model inference (Apple silicon)"),
+        .init(name: "MLX Swift LM", license: "MIT", url: "https://github.com/ml-explore/mlx-swift-lm", role: "Open language models for Foundation Models"),
+        .init(name: "swift-transformers", license: "Apache-2.0", url: "https://github.com/huggingface/swift-transformers", role: "Tokenizers (MLX)"),
+        .init(name: "swift-huggingface", license: "Apache-2.0", url: "https://github.com/huggingface/swift-huggingface", role: "Model downloads (MLX)"),
+        .init(name: "swift-jinja", license: "Apache-2.0", url: "https://github.com/huggingface/swift-jinja", role: "Chat templates (transitive)"),
+        .init(name: "yyjson", license: "MIT", url: "https://github.com/ibireme/yyjson", role: "JSON parsing (transitive)"),
+        .init(name: "swift-crypto", license: "Apache-2.0", url: "https://github.com/apple/swift-crypto", role: "Hashing (transitive)"),
+        .init(name: "EventSource", license: "MIT", url: "https://github.com/mattt/EventSource", role: "Streaming downloads (transitive)"),
         .init(name: "swift-collections", license: "Apache-2.0", url: "https://github.com/apple/swift-collections", role: "Data structures (transitive)"),
         .init(name: "swift-numerics", license: "Apache-2.0", url: "https://github.com/apple/swift-numerics", role: "Numerics (transitive)"),
-        .init(name: "swift-http-types", license: "Apache-2.0", url: "https://github.com/apple/swift-http-types", role: "HTTP types (transitive)"),
     ]
 }
 

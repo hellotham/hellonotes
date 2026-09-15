@@ -270,8 +270,9 @@ Traps, each one paid for:
 **Shoot at 1470×852**, not 1470×923: 923 only fits with the Dock hidden, and the
 compositor scales to fit, so any *consistent* size works.
 
-**Scene 5 (Ask Library) needs no API keys.** Apple Intelligence is the default
-intelligence provider, so the answer is generated on-device. Two things to know:
+**Scene 5 (Ask Library) needs nothing set up.** On-Device (Apple Intelligence) is
+the default writing-tools model, so the answer is generated on the Mac — and from
+1.3.3 there are no API keys to configure at all. Two things to know:
 
 - The on-device model is **not deterministic and not always right**. Across four
   runs of the same question it produced a clean answer, a verbatim dump of

@@ -4461,6 +4461,183 @@ places read it; an alias would have compiled and left Mac-only sentences on
 pages that now also sell an iPhone app. They did not all want the same answer —
 the DMG card still says macOS 26.5, because that channel really is Mac-only.
 
+## 51 · 1.3.3: every AI feature on Foundation Models, and what only running it could show (2026-09-15)
+
+1.3.3 raises the floor to **macOS 27 / iOS 27** and replaces the whole AI layer.
+Sixteen bespoke provider integrations — three HTTP wire formats, per-provider
+model discovery and context tables, a Keychain of API keys, a hand-written agent
+loop — came out (`HelloNotes/LLM/`, ~4,500 lines, and the OpenAI and
+mlx-swift-examples packages). What replaced them is one API over the three models
+Foundation Models can reach from an app:
+
+| Choice | Model | Where the text goes |
+|---|---|---|
+| **On-Device** | `SystemLanguageModel` — AFM 3 Core, or Core Advanced on the most capable Apple silicon (the SDK decides; `variant` is read-only) | nowhere |
+| **Private Cloud Compute** | `PrivateCloudComputeLanguageModel` — only in a build with Apple's managed entitlement | Apple's servers |
+| **MLX** | `MLXLanguageModel` (mlx-swift-lm, pinned by revision — its adapter is in no tag yet) | nowhere |
+
+Settings hold two choices, as before — the Assistant, and the writing tools — plus
+creativity and, on models that reason, a thinking level. `IntelligenceMigration`
+carries a 1.3.2 install across once: Apple and MLX map across (with the MLX model
+id), every other provider maps to On-Device with a one-time notice naming it, the
+old keys are removed and **the stored API keys are deleted** — live credentials
+for services the build can no longer call. Conversations convert from the old
+JSONL to a Foundation Models `Transcript`, text turns only.
+
+**The structure** (`HelloNotes/Intelligence/`):
+
+- `Models/` — `LanguageModels` (the one place a choice becomes a model: availability,
+  name, where it runs, context size, reasoning, PCC quota), `TokenBudget`
+  (script-aware token estimates and lossless chunking), `MLXModelStore` (curated
+  catalog filtered by device memory, download with progress, removal, custom
+  Hugging Face ids, and **a model folder** — Hugging Face is unreachable from
+  mainland China), and `MLXBridge` (downloader and tokenizer, hand-written instead
+  of the package's macros so no build needs macro validation skipped).
+- `Features/` — `IntelligenceService` (one path for every writing tool), deep
+  research (a `@Generable` plan, a session per sub-question, a synthesis that
+  reasons deeper where the model can).
+- `Assistant/` — a `DynamicProfile` (model, temperature, reasoning, tools, a
+  history window, and a tool-call budget that switches tool calling off for the
+  next request once spent), the view model, and the transcript store.
+- `Tools/` — `nonisolated` Foundation Models tools over a main-actor
+  `ToolContext`; five tools on an 8K window, the full set on 16K and above.
+
+Behaviour that changed on purpose:
+
+- **Summaries cover the whole note** — in parts, then the parts — instead of the
+  first 4,000 characters.
+- **Rewrite refuses input it cannot hold.** The old path trimmed the selection and
+  replaced all of it with a rewrite of its beginning, deleting the rest.
+- **Link suggestions are a schema**, `anyOf` the candidate titles, so an invented
+  title cannot be generated at all.
+- **Assistant edits go through `noteDidSave`.** The old tools wrote and rescanned,
+  which never uploaded: an Assistant edit in a direct cloud collection was
+  overwritten by the next sync.
+- **Approvals queue.** Skill descriptions moved out of the instructions into the
+  `load_skill` tool's output — they are text from vault files.
+- **Research runs on an 8,000-token model.** It was first gated at 16,000, which —
+  with Private Cloud Compute not yet available — would have taken Research away
+  from every iPhone, iPad and on-device Mac. Tool output already scales to the
+  window, so the floor came down, and a real run (`ResearchProbe`) planned two
+  sub-questions, read the web and synthesised a correct answer on AFM 3 Core
+  Advanced in 30 seconds. AFM 3 Core (4,096) is still refused, with a reason.
+
+**What only running it showed.** The rewrite compiled first time on both
+platforms and passed its unit tests, and four defects were still waiting:
+
+1. **Private Cloud Compute without the entitlement crashes the app.** Inside the
+   signed app `availability` said `.available`; the first request hit a
+   `fatalError` in Foundation Models and took down the test host. The same probe
+   as an unsandboxed command-line tool reported the same availability and did not
+   crash. So the model is created and offered only under the
+   `PRIVATE_CLOUD_COMPUTE` compilation condition, added in the same change as the
+   entitlement, with a test that fails if the two disagree (`production.md` §1b-PCC).
+2. **The Assistant had no tools.** A profile's `historyTransform` is handed the
+   instructions entry as part of the history, and `HistoryWindow` trimmed from the
+   latest prompt — dropping the entry that carries the tool definitions. The
+   on-device model answered "What are the headings in my Welcome note?" with
+   headings the note does not have. Found by the Evaluations suite as a tool-call
+   score of 0.33; the unit tests had nothing to say.
+3. **Tags from Apple's content-tagging adapter were not tags.** It returned key
+   phrases ("bikes along the Kamo river") whatever the schema asked, and its
+   guardrail refused a sourdough-baking note. The general model asked for topics,
+   with the note's language named in the instructions, returns Chinese tags for a
+   Chinese note; normalisation now hyphenates a two-word topic instead of dropping it.
+4. **The model makes parallel tool calls** — four in one step, run concurrently —
+   which is why the permission broker had to stop denying a second prompt.
+
+Measured on this Mac (AFM 3 Core Advanced, 8,192 tokens): the evaluation suite
+(`IntelligenceEvaluationTests` — tags, constrained links, Markdown-preserving
+rewrites, a 45,000-character note summarised through parts, and Assistant
+trajectories that must read before answering and never edit unasked) passes in
+~28s. It is opt-in and local, because it needs Apple Intelligence.
+
+**Build and tooling:** every app `xcodebuild` needs `-skipPackagePluginValidation`
+— mlx-swift's `Cmlx` carries an inert `CudaBuild` plugin that fails validation
+otherwise — and the scripts, CI and skills pass it. Two Xcode 27 isolation
+changes in the editor package (`CodeHighlighting`, `BlockRenderer` now
+`nonisolated`). iOS 27 simulators replace the 26.5 ones under the same names.
+
+**Also fixed on the way:** `StoreListingTests` had been failing on every run since
+`production.md` stopped carrying the listing copy; the copy for the version being
+prepared now lives in `docs/app-store-listing.md`, with new checks that no
+third-party AI service is named (Guideline 5) and that Private Cloud Compute is
+only listed in a build that can offer it. The listing's support paragraph no
+longer says backing "unlocks nothing" — it unlocks the in-app support request.
+
+### 51.1 Review before commit: what ships, what blocks, and what an approval replaces
+
+Three read-only reviews (vault I/O, main-actor, and a second docs fact-check)
+plus a scan of the built bundle, all run before the 1.3.3 work was committed.
+
+**What ships.** Removing the providers had not removed their names from the app:
+the repository `README.md` had been in the app target's Resources phase since the
+first commit — every build on the App Store carried a list of fourteen AI
+services and "your own cloud API key" — and the upgrade code kept a table of
+those names so a notice could say which one had been retired. Swift type names
+and string literals are compiled into the binary, so `OpenAISettingsButton` was
+a third. The README is out of the bundle, the notice no longer names the service
+(`hasRetiredProvider`), the button is `AISettingsButton`, and
+`ShippedContentTests` fails if the Resources phase copies anything but the
+bundled collection or if app code or bundled notes name an AI service — both
+checked against HEAD, where they fail. The migration's Keychain sweep lists
+accounts from the Keychain instead of from the removed table, and is now tested
+against the real Keychain, because the listing promises the keys are deleted.
+Strings that remain in the binary come from swift-huggingface's Inference
+Providers enum ("Groq", "Cerebras", "Together AI"), which the app does not use.
+
+**What an approval replaces.** Four defects in the Assistant's tools, all new in
+this rewrite or made reachable by it:
+
+1. *An unreadable note read as an empty one* (`?? ""`), so the approval card for
+   deleting or rewriting a note that had not downloaded showed an empty "before",
+   and `read_note` told the model the note was empty. `readContents` now
+   downloads first (mirror hydration or File Provider materialisation) and throws.
+2. *An approved edit could overwrite typing saved while the card was up* —
+   clicking Approve in the Assistant's window ends editing in the note's window,
+   which saves. `FileIO.replace(_:at:ifContentsEqual:)` compares and writes inside
+   one coordinated write; a mismatch refuses the change and tells the model to
+   read again.
+3. *Open editors were never told.* Routing tool writes through `noteDidSave`
+   (for the upload and the index patch) registers them as the app's own, so the
+   watcher ignored them, and a tab showing the note saved its stale text back over
+   the approved change. 1.3.2 wrote directly and the watcher reported it.
+   `Collection.noteChangedOutsideEditor()` sends the watcher's message.
+4. *`ChatSessionStore.clear()` lost to a save already writing* and the cleared
+   conversation came back. The delete now runs last in the write queue.
+
+**What blocked.** Measured by the main-actor review: the approval card laid out
+the whole diff in a plain `VStack` from inside `body` (162 ms at 2,000 lines,
+898 ms at 10,000 — `delete_note` and `write_note` diff the whole note); it is now
+computed once off the main actor and laid out lazily, capped at 1,000 rows. The
+streaming reply redrew about 40 times a second and re-parsed its Markdown from
+the first line each time (2 ms at 2 KB, 15 ms at 30 KB); redraws now follow at
+most ten times a second with a trailing catch-up, and `AnswerMarkdown.Streaming`
+parses only new lines, tested to match the whole-text renderer at every prefix.
+Unmeasured but proven by isolation: `FileIO.materialise` inherited the main
+actor and polled the provider there every 200 ms for up to a minute (now
+`@concurrent`, which fixes the editor's open path too); containment and
+existence checks, `SkillStore.refresh`, `NoteComposer.create`'s write and
+`Collection.createNote`'s create ran on the main actor; `create_note` awaited a
+whole-collection walk for a new folder (`adopt(createdAt:)` now brings the
+folder with the note); every tool result waited for its Git commit, which can
+queue behind a push; `RemoteMirror.relativePath` hopped to the main thread once
+per file of a mirrored collection's scan. `grep_collection`, Ask Library's
+retrieval, the relatedness index and skills now skip notes that are not on the
+device instead of downloading a cloud vault to answer one question.
+
+Also found: `offMain` violations are **warnings** in this target (Swift 5 mode),
+not the compile errors its comment promised — and still hop at runtime.
+
+**The docs.** The second fact-check found seven false claims on the website's AI
+manual and privacy page, including that web searches happen only when asked (the
+Assistant may search on its own; the engine is DuckDuckGo, and a query can carry
+words from notes) and that "→" accepts a suggestion on iPhone. The same web claim
+was corrected in `DefaultCollection/Intelligence.md`, the listing, and the
+Allow-all tooltip; the README's AI sections describe 1.3.3.
+
+Tests: 497 in 75 suites; the five model evaluations pass unchanged.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown

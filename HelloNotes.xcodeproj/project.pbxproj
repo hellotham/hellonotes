@@ -10,14 +10,13 @@
 		8768A2523001B49B00346ACB /* BeautifulMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = 8768A2513001B49B00346ACB /* BeautifulMermaid */; };
 		8768A2543001B49B00346ACB /* MermaidPlayground in Frameworks */ = {isa = PBXBuildFile; productRef = 8768A2533001B49B00346ACB /* MermaidPlayground */; };
 		8768A2573001B5FE00346ACB /* SwiftGitX in Frameworks */ = {isa = PBXBuildFile; productRef = 8768A2563001B5FE00346ACB /* SwiftGitX */; };
-		8768A2593001B75700346ACB /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 8768A2583001B75100346ACB /* README.md */; };
 		8768A2613001B75700346ACB /* DefaultCollection in Resources */ = {isa = PBXBuildFile; fileRef = 8768A2603001B75100346ACB /* DefaultCollection */; };
 		8768A2E73001C10000346ACB /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 8768A2E53001C10000346ACB /* Markdown */; };
-		87B9A8DB3004E31B0026D3ED /* OpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B1 /* OpenAI */; };
 		87B9A8DC3004E31B0026D3ED /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B3 /* MLXLLM */; };
 		87B9A8DD3004E31B0026D3ED /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B4 /* MLXLMCommon */; };
 		87B9A8DE3004E31B0026D3ED /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B5 /* Tokenizers */; };
-		87B9A8DF3004E31B0026D3ED /* Hub in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B6 /* Hub */; };
+		87B9A8DF3004E31B0026D3ED /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B6 /* HuggingFace */; };
+		87B9A8E03004E31B0026D3ED /* MLXFoundationModels in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE000000000000000000B7 /* MLXFoundationModels */; };
 		87B9AAA63004F6B80026D3ED /* ElkSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 87B9AAA53004F6B80026D3ED /* ElkSwift */; };
 		87E4E451300C957700F6586B /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E437300C94DD00F6586B /* WidgetKit.framework */; };
 		87E4E452300C957700F6586B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87E4E439300C94DD00F6586B /* SwiftUI.framework */; };
@@ -245,12 +244,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				87B9A8DF3004E31B0026D3ED /* Hub in Frameworks */,
+				87B9A8DF3004E31B0026D3ED /* HuggingFace in Frameworks */,
+				87B9A8E03004E31B0026D3ED /* MLXFoundationModels in Frameworks */,
 				87B9A8DE3004E31B0026D3ED /* Tokenizers in Frameworks */,
 				87B9A8DD3004E31B0026D3ED /* MLXLMCommon in Frameworks */,
 				87B9A8DC3004E31B0026D3ED /* MLXLLM in Frameworks */,
 				87B9AAA63004F6B80026D3ED /* ElkSwift in Frameworks */,
-				87B9A8DB3004E31B0026D3ED /* OpenAI in Frameworks */,
 				8768A2523001B49B00346ACB /* BeautifulMermaid in Frameworks */,
 				8768A2543001B49B00346ACB /* MermaidPlayground in Frameworks */,
 				8768A2573001B5FE00346ACB /* SwiftGitX in Frameworks */,
@@ -406,11 +405,11 @@
 				87ED170000000000000000B2 /* MarkdownEditor */,
 				87ED170000000000000000B3 /* Highlighter */,
 				87ED170000000000000000B5 /* SwiftMath */,
-				CAFE000000000000000000B1 /* OpenAI */,
 				CAFE000000000000000000B3 /* MLXLLM */,
 				CAFE000000000000000000B4 /* MLXLMCommon */,
 				CAFE000000000000000000B5 /* Tokenizers */,
-				CAFE000000000000000000B6 /* Hub */,
+				CAFE000000000000000000B6 /* HuggingFace */,
+				CAFE000000000000000000B7 /* MLXFoundationModels */,
 				87B9AAA53004F6B80026D3ED /* ElkSwift */,
 			);
 			productName = HelloNotes;
@@ -631,9 +630,9 @@
 				8768A24E3001B3D300346ACB /* XCRemoteSwiftPackageReference "swift-markdown" */,
 				8768A2503001B49B00346ACB /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */,
 				8768A2553001B5FE00346ACB /* XCRemoteSwiftPackageReference "SwiftGitX" */,
-				CAFE000000000000000000A1 /* XCRemoteSwiftPackageReference "OpenAI" */,
-				CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
+				CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				CAFE000000000000000000A4 /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				CAFE000000000000000000A5 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				87B9AAA43004F6B80026D3ED /* XCRemoteSwiftPackageReference "elk-swift" */,
 				87ED170000000000000000C2 /* XCRemoteSwiftPackageReference "HighlighterSwift" */,
 				87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */,
@@ -660,7 +659,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8768A2593001B75700346ACB /* README.md in Resources */,
 				8768A2613001B75700346ACB /* DefaultCollection in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1652,20 +1650,12 @@
 				minimumVersion = 1.7.0;
 			};
 		};
-		CAFE000000000000000000A1 /* XCRemoteSwiftPackageReference "OpenAI" */ = {
+		CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/MacPaw/OpenAI.git";
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm.git";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.5.0;
-			};
-		};
-		CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ml-explore/mlx-swift-examples.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.29.1;
+				kind = revision;
+				revision = 3e6ea1ede1596f05c1715d6b82567619276e98f0;
 			};
 		};
 		CAFE000000000000000000A4 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
@@ -1673,7 +1663,15 @@
 			repositoryURL = "https://github.com/huggingface/swift-transformers.git";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 1.0.0;
+				minimumVersion = 1.3.4;
+			};
+		};
+		CAFE000000000000000000A5 /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-huggingface.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.10.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -1724,19 +1722,14 @@
 			package = 87ED170000000000000000C5 /* XCRemoteSwiftPackageReference "SwiftMath" */;
 			productName = SwiftMath;
 		};
-		CAFE000000000000000000B1 /* OpenAI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CAFE000000000000000000A1 /* XCRemoteSwiftPackageReference "OpenAI" */;
-			productName = OpenAI;
-		};
 		CAFE000000000000000000B3 /* MLXLLM */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */;
+			package = CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLLM;
 		};
 		CAFE000000000000000000B4 /* MLXLMCommon */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */;
+			package = CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLMCommon;
 		};
 		CAFE000000000000000000B5 /* Tokenizers */ = {
@@ -1744,10 +1737,15 @@
 			package = CAFE000000000000000000A4 /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Tokenizers;
 		};
-		CAFE000000000000000000B6 /* Hub */ = {
+		CAFE000000000000000000B6 /* HuggingFace */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CAFE000000000000000000A4 /* XCRemoteSwiftPackageReference "swift-transformers" */;
-			productName = Hub;
+			package = CAFE000000000000000000A5 /* XCRemoteSwiftPackageReference "swift-huggingface" */;
+			productName = HuggingFace;
+		};
+		CAFE000000000000000000B7 /* MLXFoundationModels */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CAFE000000000000000000A3 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXFoundationModels;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

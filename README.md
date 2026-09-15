@@ -1,6 +1,6 @@
 # HelloNotes
 
-> **Version 1.3.2** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
+> **Version 1.3.3** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
 
 HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps like Obsidian and cross-platform editors like Typora. It's built strictly on modern Swift — **AppKit + TextKit 2 + SwiftUI** — prioritising high-FPS text rendering, plain `.md` files as the absolute source of truth, and seamless background Git synchronisation. **No proprietary database. Your files in Finder *are* the database** — and those files can live locally *or* in Box, Dropbox, OneDrive, Google Drive or iCloud, opened on demand without pulling the whole vault down.
 
@@ -47,19 +47,19 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 
 **AI, on your terms — and where you'd look for it**
 - **Filed by what it acts on, not by the fact a model made it.** Summarise Note, Suggest Tags, Suggest Links and Rewrite live in the **Note** menu beside Rename and Duplicate, and each answer lands in the inspector tab that already owns that kind of information — summary in Outline, tags in Tags, links in References. **Accepting one writes a property, never your prose** — `tags:`, `related:`, `summary:` — so it is visible in Properties and removable there, and a `related:` link is still a real link the graph sees. A **command palette** (⇧⌘P) runs anything by name, generated from the same command surface the menu bar is, so a command that goes missing from it is a test failure.
-- **Review Links** (⇧⌘L) walks a note's unmade links one at a time — **Link / Skip / Never** — showing the phrase in its sentence and the target's opening lines. "Never" persists per collection, stored outside the vault so it never reaches a shared repo. Needs no AI provider at all: it is an exact scan of your own text.
+- **Review Links** (⇧⌘L) walks a note's unmade links one at a time — **Link / Skip / Never** — showing the phrase in its sentence and the target's opening lines. "Never" persists per collection, stored outside the vault so it never reaches a shared repo. Needs no AI at all: it is an exact scan of your own text.
 - **New Note from a Prompt** (⌃⌘N) writes a note, or researches a question on the web and lands the cited synthesis *as a note* — connected to what you already have, since every `[[link]]` the model returns is verified against the collection and the invented ones are unwrapped to plain text. You read the whole draft before the file exists.
-- **Suggest as I type** *(Mac, off by default)* — ghost text after the cursor, ⌥⇥ to accept. On-device only, and never part of the note until accepted: it is drawn, never stored, so it cannot reach a save, the index or a Git diff.
-- **Ask Library** — retrieval chat grounded in your notes, with citations you can jump to. An agentic **Assistant** with tools (search, read, edit-with-approval, web search/fetch), skills and deep research.
-- **All of the above run on iPhone and iPad too**, except the palette and typing suggestions.
+- **Suggest as I type** *(off by default)* — ghost text after the cursor, ⌥⇥ to accept (or tap it, on iPhone and iPad). On-device only, and never part of the note until accepted: it is drawn, never stored, so it cannot reach a save, the index or a Git diff.
+- **Ask Library** — retrieval chat grounded in your notes, with citations you can jump to. An agentic **Assistant** with tools (search, read, edit-with-approval, web search — and, on a model with a 16K window, web fetch and deep research) and skills.
+- **All of the above run on iPhone and iPad too**, except the palette.
   iPad carries the menu bar and its shortcuts, file tabs, and the inspector over the note
   rather than beside it — an iPad is never wide enough for a third column, and a threshold
   that decides whether a panel *may* open is a threshold that hides it. Formatting lives in
   **the system's own bar above the keyboard** — the floating shortcuts row on iPad, an
   accessory bar on iPhone — so it costs the app no screen space, appears with a hardware
   keyboard too, and shows whenever there is a cursor rather than following the view mode.
-- Bring your own model: **local** (Apple Foundation Models, MLX, Ollama, LM Studio) or **your own cloud API key** — Anthropic, Gemini, OpenAI, Mistral, Groq, OpenRouter, xAI (Grok), DeepSeek, Cerebras, Together AI, Perplexity, and Ollama Cloud. Keys live in the Keychain; cloud providers are off until you configure one.
-- **The model list is asked for, not remembered.** Fourteen of the sixteen providers publish one, and **Refresh** pulls what your key can actually reach rather than a table that goes stale. Eight of those also state each model's context window, which the app then *uses* — so a million-token model is read as one. Temperature, context budget and reply length are settable per provider, over the range that provider genuinely accepts. Where a provider publishes nothing, Settings says so rather than presenting a fallback as a fact.
+- **AI on Apple Foundation Models, and nothing else.** Every feature runs on the device: **On-Device** (Apple Intelligence — AFM 3 Core or Core Advanced, whichever the hardware runs) or an open **MLX** model you download, plugged into Foundation Models through its `LanguageModel` protocol. No third-party AI services and no API keys; keys stored by earlier versions are deleted on upgrade.
+- **Every feature fits the model's window.** Apple Intelligence is asked for its context size (an MLX model is given one sized to the device's memory), and each feature sizes what it sends to fit — a long note is summarised in parts rather than cut off, a rewrite too large to return whole is refused rather than truncated, and the Assistant sends the recent turns that fit while the whole conversation stays on screen.
 
 **Cloud storage — two ways, no lock-in**
 - **Open a cloud folder like any other** (recommended). Box, Dropbox, OneDrive (personal *and* business), Google Drive and iCloud Drive all surface through Apple's **File Provider** layer, so their folders are just paths — point HelloNotes at one and it works. Files stay **online-only until you open them**: all vault I/O is `NSFileCoordinator`-coordinated so a cloud file materialises on demand, and indexing deliberately **skips un-downloaded notes** rather than dragging your whole vault local. Online-only notes get a cloud badge, a "N online-only" status, per-note **Download / Remove Download**, and a provider label; Git is guarded on cloud folders (auto-commit off) since libgit2 needs real local objects.
@@ -98,14 +98,14 @@ A strict **4-layer architecture** keeps macOS and iOS sharing everything but the
 
 The **editor** is a separate local SPM package, [`Packages/NotesEditor`](Packages/NotesEditor) — `MarkdownCore` (incremental block/inline parser + style spec), `MarkdownEditor` (TextKit 2 `NSTextView`/`UITextView`), and `GFMRender` (cmark-gfm for the GitHub-identical Preview + spec/API parity).
 
-The **LLM layer** (`HelloNotes/LLM/`) follows the same split: `Sendable` provider adapters + agent tools at the Core tier; `@MainActor @Observable` models (`LLMSettings`, `AssistantModel`, `SkillStore`, `PermissionBroker`) at the State tier. Chat transcripts persist as JSONL under Application Support; API keys in the Keychain.
+The **Intelligence layer** (`HelloNotes/Intelligence/`) is built on the Foundation Models framework: `LanguageModels` resolves the chosen model (on-device or MLX), `IntelligenceService` and `DeepResearch` run the writing tools and research, and the Assistant is a `LanguageModelSession` driven by a dynamic profile over the collection tools (`ToolContext`, with every change approved through `PermissionBroker`). Chat transcripts persist as Foundation Models `Transcript` JSON under Application Support.
 
 Full detail, data flow, and concurrency model: [docs/architecture.md](docs/architecture.md).
 
 ## 📦 Tech stack & Swift packages
 Swift Package Manager, native Apple frameworks first.
 
-**Apple frameworks:** SwiftUI · AppKit / TextKit 2 · Vision (image alt-text) · PDFKit / QuickLook · Security (Keychain) · libgit2 (via SwiftGitX)
+**Apple frameworks:** SwiftUI · AppKit / TextKit 2 · Foundation Models · Vision (image alt-text) · PDFKit / QuickLook · Security (Keychain) · libgit2 (via SwiftGitX)
 
 **Packages** (see [architecture.md](docs/architecture.md) for how each is used):
 
@@ -118,11 +118,11 @@ Swift Package Manager, native Apple frameworks first.
 | [beautiful-mermaid-swift](https://github.com/lukilabs/beautiful-mermaid-swift) + [elk-swift](https://github.com/lukilabs/elk-swift) | Native Mermaid diagram rendering + ELK layout |
 | [HighlighterSwift](https://github.com/smittytone/HighlighterSwift) | Code-block syntax highlighting (GitHub theme, matching the Preview) |
 | [SwiftMath](https://github.com/mgriebling/SwiftMath) | Native LaTeX math rendering (no WebView) |
-| [mlx-swift](https://github.com/ml-explore/mlx-swift) + [swift-transformers](https://github.com/huggingface/swift-transformers) | Local LLM inference on Apple silicon (MLX provider) |
-| [OpenAI](https://github.com/MacPaw/OpenAI) | OpenAI-compatible provider transport |
+| [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) (`MLXFoundationModels`) + [mlx-swift](https://github.com/ml-explore/mlx-swift) | Open models on Apple silicon, as a Foundation Models `LanguageModel` |
+| [swift-transformers](https://github.com/huggingface/swift-transformers) + [swift-huggingface](https://github.com/huggingface/swift-huggingface) | Tokenizers and Hugging Face Hub downloads for MLX models |
 
 ## 🚀 Build & run
-Requirements: **macOS 26.5+**, **Xcode 26+** (Swift 5.10+). iOS/iPadOS **26.5+**.
+Requirements: **macOS 27+**, **Xcode 27+** (Swift 5.10+). iOS/iPadOS **27+**.
 
 ```bash
 git clone https://github.com/hellotham/hellonotes.git
@@ -172,9 +172,9 @@ HelloNotes/            App sources (synchronised Xcode group)
   ├─ State/            Layer 2 — @Observable models (library/collections,
   │                     editor/tabs, link graph, search, git, appearance,
   │                     bookmarks/recents/credentials)
-  ├─ LLM/              AI layer — provider adapters (Anthropic, OpenAI-compat,
-  │                     Gemini, MLX, Apple), agent runtime (tools, skills,
-  │                     permissions, deep research), settings & chat stores
+  ├─ Intelligence/     AI layer on Foundation Models — models (on-device,
+  │                     MLX), writing tools and research, the Assistant
+  │                     (profile, tools, approvals, skills), settings & chats
   ├─ UI/               Layer 3 — shared views (editor host, tree, references,
   │                     graph, mind map, slides, viewers, assistant, splash)
   │   └─ Shell/        Layer 4 — the layout contract (ShellContract), the
@@ -241,7 +241,7 @@ only the live site is wrong). See [docs/website.md](docs/website.md):
   newline between text and an inline `<a>` eats the space. 28 of these shipped; use `{' '}`.
 
 ## 🤝 Contributing / working rules
-Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 26.5+ / iOS 26.5+ / Swift 5.10+ / Xcode 26; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.
+Project conventions live in [CLAUDE.md](CLAUDE.md): macOS 27+ / iOS 27+ / Swift 5.10+ / Xcode 27; `@Observable` only (no `ObservableObject`/`StateObject`); no CoreData/SwiftData; Git via SwiftGitX; every change must build clean (0 errors) before it's done.
 
 ## 📄 License
 See [LICENSE](LICENSE).

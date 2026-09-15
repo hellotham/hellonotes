@@ -50,12 +50,6 @@ final class NoteComposer {
             }
         }
 
-        var needs: IntelligenceNeeds {
-            switch self {
-            case .write: .compose
-            case .research: .deepResearch
-            }
-        }
     }
 
     private(set) var phase: Phase = .idle
@@ -74,39 +68,23 @@ final class NoteComposer {
 
     /// Why `mode` cannot run, or `nil` when it can.
     ///
-    /// The two modes route to different providers, and that is not an oversight
-    /// to be tidied away: writing a note is an intelligence feature and follows
-    /// the intelligence provider (on-device by default, which is the right
-    /// default for something composed from your own notes); research drives
-    /// tools and web sub-agents, which is the assistant's provider. Collapsing
-    /// them would force one of the two to be wrong.
+    /// The two modes use different models, and that is not an oversight to be
+    /// tidied away: writing a note is a writing tool and follows the writing
+    /// tools' model (on-device by default, which is the right default for
+    /// something composed from your own notes); research drives tools and reads
+    /// the web, which is the Assistant's model. Collapsing them would force one
+    /// of the two to be wrong.
     ///
     /// Static, and the single answer for both platforms *and* for
-    /// `DeepResearchTool` itself — so the sheet can never offer a run that the
-    /// tool then refuses, which is the failure mode that makes a feature look
-    /// broken rather than unconfigured.
-    static func unavailableReason(for mode: Mode, settings: LLMSettings) -> String? {
+    /// `DeepResearch` itself — so the sheet can never offer a run the research
+    /// then refuses, which is the failure that makes a feature look broken
+    /// rather than unconfigured.
+    static func unavailableReason(for mode: Mode, settings: IntelligenceSettings) -> String? {
         switch mode {
         case .write:
-            let intelligence = IntelligenceService(settings: settings)
-            if case .unavailable(let why) = intelligence.availability { return why }
-            guard intelligence.can(.compose) else {
-                return "\(intelligence.providerName) can't hold enough context to write a note."
-            }
-            return nil
-
+            IntelligenceService(settings: settings).availability.reason
         case .research:
-            let kind = settings.activeProvider
-            guard settings.isReady(kind) else {
-                return "\(kind.displayName) isn't set up. Add it in Assistant Settings, or choose another provider there."
-            }
-            let caps = ProviderCapabilities.of(kind, config: settings.config(for: kind))
-            guard IntelligenceNeeds.deepResearch.satisfied(by: caps) else {
-                return caps.toolUse
-                    ? "\(kind.displayName) can't hold enough context for deep research."
-                    : "\(kind.displayName) can't search the web. Research needs a provider that can call tools."
-            }
-            return nil
+            DeepResearch.unavailableReason(settings: settings)
         }
     }
 
@@ -125,7 +103,7 @@ final class NoteComposer {
     }
 
     /// Write a note from `prompt`, linking notes the collection already has.
-    func compose(prompt: String, in collection: Collection, settings: LLMSettings) {
+    func compose(prompt: String, in collection: Collection, settings: IntelligenceSettings) {
         let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
         run { [weak self] in
@@ -147,7 +125,7 @@ final class NoteComposer {
     }
 
     /// Research `question` on the web and land the cited synthesis as a note.
-    func research(question: String, depth: Int, context: ToolContext, settings: LLMSettings) {
+    func research(question: String, depth: Int, context: ToolContext, settings: IntelligenceSettings) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty else { return }
         run { [weak self] in
@@ -156,13 +134,14 @@ final class NoteComposer {
             phase = .working("Finding related notes…")
             let related = await relatedTitles(to: question, in: collection)
 
-            // Deep research decomposes the question and runs a web sub-agent per
-            // sub-question, so this is minutes, not seconds.
+            // Deep research plans the question and researches each part in its
+            // own session, so this is minutes, not seconds — and each step says
+            // what it is doing.
             phase = .working("Researching — this can take a few minutes…")
-            let synthesis = try await DeepResearchTool().run(
-                .object(["question": .string(researchBrief(question, offering: related)),
-                         "depth": .int(depth)]),
-                context: context)
+            var research = DeepResearch(settings: settings, context: context)
+            research.onProgress = { [weak self] step in self?.phase = .working(step) }
+            let synthesis = try await research.run(
+                question: researchBrief(question, offering: related), depth: depth)
             try Task.checkCancellation()
 
             phase = .working("Linking to your notes…")
@@ -185,8 +164,12 @@ final class NoteComposer {
     /// front of a draft they are looking at would be ceremony, not consent.
     func create(_ draft: NoteDraft, in collection: Collection) async -> Note? {
         guard let note = await collection.createNote(title: draft.title) else { return nil }
+        let data = Data(draft.markdown.utf8)
+        let url = note.fileURL
         do {
-            try FileIO.write(Data(draft.markdown.utf8), to: note.fileURL)
+            // Off the main actor: a coordinated write to a cloud folder waits
+            // for its provider.
+            try await offMain { try FileIO.write(data, to: url) }
         } catch {
             collection.lastError = "Couldn't write the note: \(error.localizedDescription)"
             return note

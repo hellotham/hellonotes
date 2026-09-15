@@ -25,9 +25,8 @@
 //  two on-device embedding models against a term-weighted lexical index on a
 //  real 2,027-note vault, and the lexical index won on quality *and* cost —
 //  52.1% recall@10 against 38.3%, built in 2.4 seconds against 951. That is a
-//  statement about today's on-device models, not a law. Pairing this protocol
-//  with `LLM/ProviderCapabilities.swift` means adopting a better one is a
-//  re-measurement, not a rewrite.
+//  statement about today's on-device models, not a law. Because the scorer is
+//  a protocol, adopting a better one is a re-measurement, not a rewrite.
 //
 
 import Foundation

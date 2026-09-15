@@ -347,8 +347,8 @@ struct AppActions {
 /// panel" is organised by which technology produced the answer, which is the one
 /// fact a reader does not care about.
 struct AIActions {
-    /// Who is doing the work, so the menu can say so rather than implying magic.
-    var providerName: String
+    /// Which model does the work, so the menu can say so rather than implying magic.
+    var modelName: String
     /// Summarise the note; lands at the top of the Outline tab.
     var summarize: () -> Void
     /// Suggest tags the note's content implies; lands in the Tags tab.

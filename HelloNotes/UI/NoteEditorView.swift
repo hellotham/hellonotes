@@ -69,14 +69,14 @@ struct NoteEditorView: View {
     var onShowMindMap: () -> Void = { }
 
     /// The window's AI commands, so the bottom bar can offer them where a
-    /// writer's eyes already are. `nil` when there is no working provider.
+    /// writer's eyes already are. `nil` when there is no working model.
     var ai: AIActions? = nil
 
     /// What the collection can do with a selected phrase — the floating bar.
     var selectionActions: SelectionActions? = nil
 
     @Environment(\.openWindow) private var openWindow
-    @Environment(LLMSettings.self) private var llmSettings
+    @Environment(IntelligenceSettings.self) private var intelligenceSettings
     @Environment(AppearanceSettings.self) private var appearance
     /// The pane this editor was given — the width rules resolve against it.
     @Environment(\.shell) private var shell
@@ -98,8 +98,8 @@ struct NoteEditorView: View {
     private var mode: EditorMode { EditorMode.mode(storedMode) }
     private var modeBinding: Binding<EditorMode> { EditorMode.binding($storedMode) }
 
-    /// The intelligence service for the user's chosen provider.
-    private var intelligence: IntelligenceService { IntelligenceService(settings: llmSettings) }
+    /// The writing tools, on the model the person chose for them.
+    private var intelligence: IntelligenceService { IntelligenceService(settings: intelligenceSettings) }
 
     @State private var showMermaid = false
     @State private var showSlides = false
@@ -230,7 +230,7 @@ struct NoteEditorView: View {
                         // which has no shell around it.
                         collection: nil,
                         appearance: appearance,
-                        llmSettings: llmSettings,
+                        intelligenceSettings: intelligenceSettings,
                         mode: mode,
                         onOpenWikiLink: onOpenWikiLink,
                         selectionActions: selectionActions,
@@ -764,13 +764,13 @@ struct NoteEditorView: View {
                     Divider()
                     Button("Rewrite or Expand Note…", systemImage: "wand.and.stars", action: ai.rewriteNote)
                     Divider()
-                    Text("via \(ai.providerName)")
+                    Text("via \(ai.modelName)")
                 } label: {
                     Image(systemName: "sparkles")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Summarise, suggest and rewrite with \(ai.providerName)")
+                .help("Summarise, suggest and rewrite with \(ai.modelName)")
             }
             if git.status.isRepository {
                 barButton("Version history (Git)", "clock.arrow.circlepath") { showHistory = true }
