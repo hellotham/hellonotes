@@ -39,7 +39,13 @@ import UIKit
 /// and backgrounds stay the editor theme's — and caches per content hash,
 /// so the engine underneath is swappable (highlight.js today, tree-sitter
 /// tomorrow) without touching the editor.
-public protocol CodeHighlighting: Sendable {
+///
+/// `nonisolated`, like `CodeColorRun` below and for the same reason: the target
+/// defaults to `MainActor` isolation, and from Xcode 27 a protocol declared here
+/// is *inferred* main-actor-isolated — which makes it impossible for the actor
+/// this protocol exists to be implemented by to conform at all
+/// (`CodeHighlighterAdapter` stopped compiling).
+public nonisolated protocol CodeHighlighting: Sendable {
     /// The foreground colours for `code` in `language`, or empty when the
     /// language is unknown or highlighting fails.
     func highlight(_ code: String, language: String) async -> [CodeColorRun]

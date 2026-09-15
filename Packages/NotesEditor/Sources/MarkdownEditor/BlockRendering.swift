@@ -49,13 +49,19 @@ public enum BlockEmbedKind: Sendable, Equatable, Hashable {
 /// Renders block embeds to images sized to fit `maxWidth` (points, the text
 /// container's usable width). Runs off the main actor. Return nil to leave
 /// the source visible (unknown target, render failure, unsupported kind).
-public protocol BlockRenderer: Sendable {
+///
+/// `nonisolated` for the same reason as `CodeHighlighting`: under this target's
+/// `MainActor` default, Xcode 27 infers the protocol main-actor-isolated, and the
+/// actor that implements it (`BlockRenderAdapter`) can then no longer conform.
+public nonisolated protocol BlockRenderer: Sendable {
     func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage?
     /// Render an inline `$…$` math span at (roughly) `fontSize`. Optional.
     func renderInlineMath(_ latex: String, fontSize: CGFloat, darkMode: Bool) async -> PlatformImage?
 }
 
-public extension BlockRenderer {
+// `nonisolated` too, or the default implementation is inferred `@MainActor`
+// and cannot satisfy the now-nonisolated requirement.
+public nonisolated extension BlockRenderer {
     func renderInlineMath(_ latex: String, fontSize: CGFloat, darkMode: Bool) async -> PlatformImage? { nil }
 }
 
