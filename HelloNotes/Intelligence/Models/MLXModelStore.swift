@@ -135,6 +135,22 @@ final class MLXModelStore {
     /// person chooses something else.
     private var scopedFolder: URL?
 
+    /// Where the chosen folder's model actually is — the folder itself, or the
+    /// current snapshot inside a Hugging Face cache's model folder — found by
+    /// `refreshAvailability()`, which reads the disk to decide.
+    private(set) var folderModel: FolderModel?
+
+    /// Whether the chosen model's chat template can show it tools — decided by
+    /// `MLXChatTemplate` once the model is on disk. Until then, and for a model
+    /// with no template to read, assumed: refusing tools on a guess would take
+    /// the Assistant's work away from models that can do it.
+    private(set) var toolsSupported = true
+
+    struct FolderModel: Equatable {
+        let directory: URL
+        let name: String
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         restore()
@@ -147,7 +163,7 @@ final class MLXModelStore {
     var modelName: String {
         switch source {
         case .hub(let id): MLXCatalog.model(id: id)?.name ?? Self.shortName(ofRepository: id)
-        case .folder(let url): url.lastPathComponent
+        case .folder(let url): folderModel?.name ?? url.lastPathComponent
         case nil: "MLX"
         }
     }
@@ -165,6 +181,7 @@ final class MLXModelStore {
         let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return }
         closeFolderScope()
+        folderModel = nil
         source = .hub(id)
         defaults.set(id, forKey: Keys.model)
         defaults.removeObject(forKey: Keys.folderBookmark)
@@ -182,9 +199,22 @@ final class MLXModelStore {
         }
         closeFolderScope()
         if scoped { scopedFolder = url }
-        source = .folder(url)
         defaults.set("folder:\(url.lastPathComponent)", forKey: Keys.model)
         defaults.set(bookmark, forKey: Keys.folderBookmark)
+        use(folder: url)
+    }
+
+    /// Use a model folder this process can already read, without keeping a
+    /// bookmark to it. `choose(folder:)` does this after minting the bookmark;
+    /// the evaluation harness calls it directly, because the test host reads
+    /// the folder without the security scope a bookmark carries.
+    func use(folder url: URL) {
+        folderModel = nil
+        source = .folder(url)
+        // Not available until the folder has been read: until then the model
+        // would load from the chosen folder itself, which for a cache's model
+        // folder is not where the model is.
+        availability = .unavailable("Checking “\(url.lastPathComponent)”…")
         lastError = nil
         Task { await refreshAvailability() }
     }
@@ -216,7 +246,8 @@ final class MLXModelStore {
     /// The chosen model as a Foundation Models `LanguageModel`.
     func languageModel() throws -> MLXLanguageModel {
         guard let source else { throw MLXModelError.noModelChosen }
-        var capabilities: [LanguageModelCapabilities.Capability] = [.guidedGeneration, .toolCalling]
+        var capabilities: [LanguageModelCapabilities.Capability] = [.guidedGeneration]
+        if toolsSupported { capabilities.append(.toolCalling) }
         if reasons { capabilities.append(.reasoning) }
 
         switch source {
@@ -236,10 +267,11 @@ final class MLXModelStore {
                 })
 
         case .folder(let url):
+            let directory = folderModel?.directory ?? url
             return MLXLanguageModel(
-                configuration: ModelConfiguration(directory: url),
+                configuration: ModelConfiguration(directory: directory),
                 capabilities: capabilities,
-                weightsLocation: { _ in url },
+                weightsLocation: { _ in directory },
                 load: { configuration, progress in
                     try await loadModelContainer(
                         from: HubModelDownloader(localFilesOnly: true),
@@ -262,12 +294,25 @@ final class MLXModelStore {
             availability = .unavailable(MLXModelError.noModelChosen.localizedDescription)
             return
         }
-        if case .folder(let folder) = source,
-           let missing = await offMain({ MLXModelStore.firstFileNotOnDevice(in: folder) }) {
-            availability = .unavailable("“\(missing)” in \(folder.lastPathComponent) hasn't downloaded to this device yet. Download the folder, then choose the model again.")
-            return
+        if case .folder(let folder) = source {
+            let resolution = await offMain { MLXModelFolder.resolve(folder) }
+            guard source == .folder(folder) else { return }   // chosen again meanwhile
+            guard case .model(let directory, let name) = resolution else {
+                let problem = MLXModelFolder.problem(with: resolution, folderName: folder.lastPathComponent)
+                    ?? MLXModelError.folderUnreadable(folder.lastPathComponent).localizedDescription
+                folderModel = nil
+                lastError = problem
+                availability = .unavailable(problem)
+                return
+            }
+            folderModel = FolderModel(directory: directory, name: name)
+            if let missing = await offMain({ MLXModelStore.firstFileNotOnDevice(in: directory) }) {
+                availability = .unavailable("“\(missing)” in \(folder.lastPathComponent) hasn't downloaded to this device yet. Download the folder, then choose the model again.")
+                return
+            }
         }
         refreshDownloaded()
+        await refreshToolSupport()
         do {
             let model = try languageModel()
             switch await model.availability {
@@ -288,6 +333,25 @@ final class MLXModelStore {
             availability = .unavailable(error.localizedDescription)
         }
         #endif
+    }
+
+    /// Read the chosen model's chat template, if it is on disk, to learn
+    /// whether it can use tools.
+    private func refreshToolSupport() async {
+        let directory: URL?
+        switch source {
+        case .folder: directory = folderModel?.directory
+        case .hub(let id): directory = downloaded.contains(id) ? Self.snapshotDirectory(forRepository: id) : nil
+        case nil: directory = nil
+        }
+        guard let directory else {
+            toolsSupported = true
+            return
+        }
+        let chosen = source
+        let renders = await offMain { MLXChatTemplate.rendersTools(in: directory) }
+        guard source == chosen else { return }   // chosen again meanwhile
+        toolsSupported = renders ?? true
     }
 
     /// The first file in a chosen model folder whose bytes are still in the cloud.

@@ -18,6 +18,13 @@
 //
 //      TEST_RUNNER_HN_EVALUATIONS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/IntelligenceEvaluationTests
 //
+//  To evaluate an MLX model instead, add the **absolute** path of its folder — an
+//  MLX model folder, or a model's folder in a Hugging Face cache — which is
+//  loaded through the same path as the app's "Choose a Model Folder…" (a `~`
+//  would expand to the test host's sandbox container, not your home):
+//
+//      TEST_RUNNER_HN_EVAL_MLX_FOLDER=/Users/you/.cache/huggingface/hub/models--org--name
+//
 //  and read the report under the test run in Xcode's Report navigator. Every
 //  sample is synthetic: nothing here reads a real vault, so a Foundation Models
 //  trace of a run holds nothing private.
@@ -29,40 +36,87 @@ import Evaluations
 import FoundationModels
 @testable import HelloNotes
 
+/// The MLX model to evaluate instead of the on-device model, if one was given.
+private let mlxFolder: URL? = ProcessInfo.processInfo.environment["HN_EVAL_MLX_FOLDER"]
+    .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+
+/// Whether the evaluated model can call tools: the on-device model can; an MLX
+/// model can if its chat template shows it tools — the same test the app makes.
+private let evaluatedModelUsesTools: Bool = {
+    guard let mlxFolder, case .model(let directory, _) = MLXModelFolder.resolve(mlxFolder) else { return true }
+    return MLXChatTemplate.rendersTools(in: directory) ?? true
+}()
+
 /// Whether evaluations were asked for, and can run here.
 private let evaluationsEnabled =
     ProcessInfo.processInfo.environment["HN_EVALUATIONS"] == "1"
-    && SystemLanguageModel.default.isAvailable
+    && (mlxFolder != nil || SystemLanguageModel.default.isAvailable)
 
-/// The features under test, on the on-device model, with settings kept out of
-/// the person's own preferences.
+/// The features under test, with settings kept out of the person's own
+/// preferences — including an MLX store of its own, so the person's chosen MLX
+/// model is neither read nor replaced.
 @MainActor
 private enum Features {
+    static let choice: ModelChoice = mlxFolder == nil ? .onDevice : .mlx
+
     static let settings: IntelligenceSettings = {
         let defaults = UserDefaults(suiteName: "HelloNotesEvaluations")!
         defaults.set(true, forKey: IntelligenceMigration.doneKey)
-        let settings = IntelligenceSettings(defaults: defaults)
-        settings.featuresModel = .onDevice
-        settings.assistantModel = .onDevice
+        defaults.removeObject(forKey: MLXModelStore.Keys.model)
+        defaults.removeObject(forKey: MLXModelStore.Keys.folderBookmark)
+        let settings = IntelligenceSettings(
+            defaults: defaults, models: LanguageModels(mlx: MLXModelStore(defaults: defaults)))
+        settings.featuresModel = choice
+        settings.assistantModel = choice
         return settings
     }()
+
+    private static var preparation: Task<Void, Error>?
+
+    /// Choose the MLX model, once, and fail with the app's own explanation if
+    /// it cannot run — before any evaluation reports a model failure that is
+    /// really a missing folder.
+    ///
+    /// One shared task, not a flag: separate suites run in parallel, and two
+    /// callers each choosing the folder would each mark the model "Checking…"
+    /// while the other's evaluation was using it.
+    static func prepare() async throws {
+        if preparation == nil {
+            preparation = Task { @MainActor in
+                if let mlxFolder {
+                    let store = settings.mlx
+                    store.use(folder: mlxFolder)
+                    await store.refreshAvailability()
+                    if let reason = store.availability.reason { throw IntelligenceError.unavailable(reason) }
+                    print("EVAL model: MLX \(store.modelName) from \(store.folderModel?.directory.path ?? mlxFolder.path)")
+                } else {
+                    print("EVAL model: on-device \(settings.models.name(of: .onDevice))")
+                }
+            }
+        }
+        try await preparation?.value
+    }
 
     static var service: IntelligenceService { IntelligenceService(settings: settings) }
 
     static func tags(_ note: String) async throws -> [String] {
-        try await service.suggestTags(for: note, existing: [])
+        try await prepare()
+        return try await service.suggestTags(for: note, existing: [])
     }
 
     static func links(_ note: String, candidates: [String]) async throws -> [String] {
-        try await service.suggestLinks(for: note, candidates: candidates)
+        try await prepare()
+        return try await service.suggestLinks(for: note, candidates: candidates)
     }
 
     static func rewrite(_ text: String, instruction: String) async throws -> String {
-        try await service.rewrite(text, instruction: instruction)
+        try await prepare()
+        return try await service.rewrite(text, instruction: instruction)
     }
 
     static func summary(_ note: String) async throws -> String {
-        try await service.summarize(note)
+        try await prepare()
+        return try await service.summarize(note)
     }
 }
 
@@ -337,11 +391,12 @@ private enum AssistantHarness {
         }
         defer { denier.cancel() }
 
+        try await Features.prepare()
         let models = Features.settings.models
-        let window = models.knownContextSize(of: .onDevice)
+        let window = models.knownContextSize(of: Features.choice)
         let tools = NoteTools.tools(for: context, contextTokens: window)
         let profile = AssistantProfile(
-            model: models.onDevice,
+            model: try models.model(for: Features.choice),
             instructions: AssistantInstructions.text(toolNames: Set(tools.map(\.name)),
                                                      collectionName: "SampleVault",
                                                      noteCount: collection.notes.count),
@@ -403,11 +458,70 @@ struct IntelligenceEvaluationTests {
         #expect(result.aggregateValue(.mean(of: Self.longSummary.coversTheEnd)) == 1)
     }
 
-    @Test(.evaluates(Self.assistant, recordTranscripts: true), .enabled(if: evaluationsEnabled))
+    @Test(.evaluates(Self.assistant, recordTranscripts: true),
+          .enabled(if: evaluationsEnabled && evaluatedModelUsesTools, "the model can't call tools"))
     func assistantReadsBeforeItAnswersAndNeverEditsUnasked() {
         let result = EvaluationContext.current.result
         #expect(result.aggregateValue(.mean(of: .toolsAllPass)) >= 0.66)
         #expect(result.aggregateValue(.mean(of: Self.assistant.answered)) >= 0.66)
+    }
+}
+
+/// A model that can't call tools is given none. Found on Gemma 3 27B, whose
+/// template drops tool definitions: offered the Assistant's tools it wrote
+/// `read_note("Welcome")` in a code block as its answer, and nothing ran. This
+/// drives the real `AssistantModel` — the same session, instructions and tool
+/// decision the app makes — and requires an answer in words.
+@Suite(.serialized)
+struct AssistantWithoutToolsEvaluation {
+    @Test(.enabled(if: evaluationsEnabled && !evaluatedModelUsesTools, "the model can call tools"),
+          .timeLimit(.minutes(10)))
+    @MainActor
+    func aModelWithoutToolsAnswersInsteadOfImitatingCalls() async throws {
+        try await Features.prepare()
+        let manager = FileManager.default
+        let base = manager.temporaryDirectory.appendingPathComponent("ChatOnlyEval-\(UUID().uuidString)", isDirectory: true)
+        let vault = base.appendingPathComponent("SampleVault", isDirectory: true)
+        try manager.createDirectory(at: base, withIntermediateDirectories: true)
+        try manager.copyItem(at: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("SampleVault"), to: vault)
+        defer { try? manager.removeItem(at: base) }
+
+        let collection = Collection(rootURL: vault)
+        collection.scan()
+        let assistant = AssistantModel(settings: Features.settings)
+        assistant.toolContext = ToolContext(collection: collection, search: collection.search,
+                                            git: GitService(), permissions: PermissionBroker())
+        assistant.sessionStore = ChatSessionStore(collectionURL: vault, baseDirectory: base)
+        #expect(assistant.agentMode && !assistant.canUseTools)
+
+        assistant.input = "What are the section headings in my Welcome note?"
+        assistant.send()
+        let deadline = ContinuousClock.now + .seconds(8 * 60)
+        while assistant.isResponding && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+
+        #expect(!assistant.isResponding, "no answer within eight minutes")
+        #expect(assistant.errorText == nil, "\(assistant.errorText ?? "")")
+        let calls = assistant.entries.filter { if case .toolCalls = $0 { true } else { false } }
+        let reply = assistant.entries.compactMap { entry -> String? in
+            guard case .response(let response) = entry else { return nil }
+            return response.segments.map(\.description).joined()
+        }.joined()
+        print("EVAL chat-only reply:", reply.prefix(400))
+        #expect(calls.isEmpty)
+        #expect(!reply.isEmpty)
+        #expect(!reply.contains("tool_code") && !reply.contains("read_note("),
+                "the model imitated a tool call instead of answering")
+        // And it must not describe a note it cannot see. The first version of
+        // this passed while the model listed four headings the note lacks.
+        let admits = ["can't", "cannot", "can not", "unable", "don't have access", "do not have access", "not able"]
+            .contains { reply.localizedCaseInsensitiveContains($0) }
+        #expect(admits, "the reply did not say the note can't be read: \(reply.prefix(300))")
+        #expect(!reply.localizedCaseInsensitiveContains("Getting Started"),
+                "the reply named a heading it could not have read")
     }
 }
 

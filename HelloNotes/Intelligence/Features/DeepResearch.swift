@@ -56,6 +56,9 @@ struct DeepResearch {
         let models = settings.models
         let choice = settings.assistantModel
         if case .unavailable(let why) = models.availability(of: choice) { return why }
+        guard models.supportsTools(choice) else {
+            return "Research searches the web with tools, and \(models.name(of: choice)) can't use tools. Choose On-Device or one of the suggested MLX models for the Assistant in AI settings."
+        }
         guard models.knownContextSize(of: choice) >= minimumContextTokens else {
             return "Research reads whole web pages, which needs a larger model than \(models.name(of: choice)). Choose \(LanguageModels.largerModels) for the Assistant in AI settings."
         }

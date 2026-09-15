@@ -162,6 +162,127 @@ enum KeychainProbe {
     }
 }
 
+// MARK: - MLX model folders
+
+/// A model folder is found the way the app will be able to read it — above all,
+/// a Hugging Face cache's snapshot is refused by layout, because the sandbox
+/// cannot follow its links and the Debug host these tests run in can.
+struct MLXModelFolderTests {
+
+    /// `hub/models--mlx-community--tiny`: blobs, two snapshots of links, `refs/main`.
+    private func makeCache() throws -> (hub: URL, repository: URL) {
+        let manager = FileManager.default
+        let hub = manager.temporaryDirectory.appendingPathComponent("MLXFolder-\(UUID().uuidString)/hub")
+        let repository = hub.appendingPathComponent("models--mlx-community--tiny")
+        let blobs = repository.appendingPathComponent("blobs")
+        try manager.createDirectory(at: blobs, withIntermediateDirectories: true)
+        try Data(#"{"model_type":"qwen3"}"#.utf8).write(to: blobs.appendingPathComponent("abc123"))
+        for revision in ["old", "current"] {
+            let snapshot = repository.appendingPathComponent("snapshots/\(revision)")
+            try manager.createDirectory(at: snapshot, withIntermediateDirectories: true)
+            try manager.createSymbolicLink(atPath: snapshot.appendingPathComponent("config.json").path,
+                                           withDestinationPath: "../../blobs/abc123")
+        }
+        try manager.createDirectory(at: repository.appendingPathComponent("refs"), withIntermediateDirectories: true)
+        try Data("current\n".utf8).write(to: repository.appendingPathComponent("refs/main"))
+        return (hub, repository)
+    }
+
+    @Test func aCachedModelsFolderLoadsItsCurrentSnapshot() throws {
+        let (hub, repository) = try makeCache()
+        defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }
+
+        guard case .model(let directory, let name) = MLXModelFolder.resolve(repository) else {
+            Issue.record("a cache's model folder was not resolved"); return
+        }
+        #expect(directory.lastPathComponent == "current", "refs/main names the revision to load")
+        #expect(name == "tiny")
+    }
+
+    @Test func aSnapshotIsRefusedInFavourOfItsModelFolder() throws {
+        let (hub, repository) = try makeCache()
+        defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }
+
+        let snapshot = repository.appendingPathComponent("snapshots/current")
+        #expect(MLXModelFolder.resolve(snapshot) == .chooseModelFolder("models--mlx-community--tiny"))
+        let problem = MLXModelFolder.problem(with: MLXModelFolder.resolve(snapshot), folderName: "current")
+        #expect(problem?.contains("models--mlx-community--tiny") == true)
+        // The whole cache is not one model either.
+        #expect(MLXModelFolder.resolve(hub) == .chooseOneModel)
+    }
+
+    @Test func withoutRefsMainTheNewestCompleteSnapshotIsUsed() throws {
+        let (hub, repository) = try makeCache()
+        defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }
+        let manager = FileManager.default
+        try manager.removeItem(at: repository.appendingPathComponent("refs/main"))
+        // An interrupted download: the newest snapshot has no config.json.
+        try manager.createDirectory(at: repository.appendingPathComponent("snapshots/partial"),
+                                    withIntermediateDirectories: true)
+        try manager.setAttributes([.modificationDate: Date.distantPast],
+                                  ofItemAtPath: repository.appendingPathComponent("snapshots/old").path)
+
+        guard case .model(let directory, _) = MLXModelFolder.resolve(repository) else {
+            Issue.record("no snapshot was chosen"); return
+        }
+        #expect(directory.lastPathComponent == "current")
+    }
+
+    @Test func aPlainModelFolderIsUsedAsItIs() throws {
+        let manager = FileManager.default
+        let folder = manager.temporaryDirectory.appendingPathComponent("Qwen3-4B-4bit-\(UUID().uuidString)")
+        try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? manager.removeItem(at: folder) }
+        #expect(MLXModelFolder.resolve(folder) == .notAModel)
+
+        try Data("{}".utf8).write(to: folder.appendingPathComponent("config.json"))
+        guard case .model(let directory, let name) = MLXModelFolder.resolve(folder) else {
+            Issue.record("a folder with config.json was not a model"); return
+        }
+        #expect(directory.standardizedFileURL.path == folder.standardizedFileURL.path)
+        #expect(name == folder.lastPathComponent)
+        #expect(MLXModelFolder.displayName(ofRepositoryFolder: "models--mlx-community--gemma-3-27b-it-bf16")
+                == "gemma-3-27b-it-bf16")
+    }
+}
+
+/// Whether an MLX model's chat template can show it tools, read from every place
+/// a template can live.
+struct MLXChatTemplateTests {
+
+    private func folder(_ files: [String: String]) throws -> URL {
+        let manager = FileManager.default
+        let folder = manager.temporaryDirectory.appendingPathComponent("MLXTemplate-\(UUID().uuidString)")
+        try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+        for (name, contents) in files {
+            try Data(contents.utf8).write(to: folder.appendingPathComponent(name))
+        }
+        return folder
+    }
+
+    /// Gemma 3's template, in the shape its checkpoints ship it: no `tools` anywhere.
+    @Test func aTemplateThatNeverMentionsToolsCannotShowThem() throws {
+        let gemma = #"{"chat_template": "{{ bos_token }}{%- for message in messages -%}<start_of_turn>{{ message['role'] }}\n{{ message['content'] }}<end_of_turn>{%- endfor -%}"}"#
+        let dir = try folder(["chat_template.json": gemma, "tokenizer_config.json": #"{"bos_token": "<bos>"}"#])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(MLXChatTemplate.rendersTools(in: dir) == false)
+    }
+
+    @Test func toolsInAnyTemplateLocationCount() throws {
+        let qwen = #"{"chat_template": "{%- if tools %}{{- '<tools>' }}{%- for tool in tools %}{{ tool | tojson }}{%- endfor %}{%- endif %}"}"#
+        let inConfig = try folder(["tokenizer_config.json": qwen])
+        let named = try folder(["tokenizer_config.json": #"{"chat_template": [{"name": "default", "template": "plain"}, {"name": "tool_use", "template": "{% for tool in tools %}{% endfor %}"}]}"#])
+        let jinja = try folder(["chat_template.jinja": "{%- if tools %}tools{%- endif %}"])
+        let none = try folder(["config.json": "{}"])
+        defer { for dir in [inConfig, named, jinja, none] { try? FileManager.default.removeItem(at: dir) } }
+
+        #expect(MLXChatTemplate.rendersTools(in: inConfig) == true)
+        #expect(MLXChatTemplate.rendersTools(in: named) == true)
+        #expect(MLXChatTemplate.rendersTools(in: jinja) == true)
+        #expect(MLXChatTemplate.rendersTools(in: none) == nil, "no template is not evidence of no tools")
+    }
+}
+
 // MARK: - Token budgets
 
 struct TokenBudgetTests {
@@ -380,6 +501,19 @@ struct AssistantInstructionsTests {
 
         let chatOnly = AssistantInstructions.text(toolNames: [], collectionName: nil, noteCount: 0)
         #expect(!chatOnly.contains("search_notes"))
+    }
+
+    /// A conversation without tools is told it can't see the notes, and is not
+    /// told the collection's name — which is what a model without tools used to
+    /// describe from imagination.
+    @Test func withoutToolsTheNotesAreSaidToBeOutOfSight() {
+        let chatOnly = AssistantInstructions.text(toolNames: [], collectionName: "Work Notes", noteCount: 212)
+        #expect(chatOnly.contains("can't see the person's notes"))
+        #expect(!chatOnly.contains("Work Notes") && !chatOnly.contains("212"))
+
+        let withTools = AssistantInstructions.text(toolNames: ["search_notes", "read_note"],
+                                                   collectionName: "Work Notes", noteCount: 212)
+        #expect(withTools.contains("Work Notes") && !withTools.contains("can't see"))
     }
 
     @Test func tagsAreNormalised() {

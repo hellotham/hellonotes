@@ -174,9 +174,9 @@ struct IntelligenceSettingsForm: View {
                 catalogRow(entry)
             }
 
-            if case .folder(let url) = mlx.source {
+            if case .folder = mlx.source {
                 LabeledContent("Folder") {
-                    Label(url.lastPathComponent, systemImage: "checkmark")
+                    Label(mlx.modelName, systemImage: "checkmark")
                         .foregroundStyle(.tint)
                 }
             } else if case .hub(let id) = mlx.source, MLXCatalog.model(id: id) == nil {
@@ -195,6 +195,13 @@ struct IntelligenceSettingsForm: View {
 
             Button("Choose a Model Folder…") { choosingFolder = true }
 
+            if mlx.source != nil && !mlx.toolsSupported {
+                Label("\(mlx.modelName) can't use tools. With it the Assistant chats without reading or changing your notes, and Research isn't available.",
+                      systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if let error = mlx.lastError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.secondary)
@@ -203,9 +210,15 @@ struct IntelligenceSettingsForm: View {
         } header: {
             Text("MLX Models")
         } footer: {
-            Text("Open models run on this device with MLX. They download from Hugging Face into this device's caches. If Hugging Face isn't reachable where you are, get an MLX model another way and choose its folder.")
+            Text(mlxFooter)
         }
     }
+
+    #if os(macOS)
+    private let mlxFooter = "Open models run on this device with MLX. They download from Hugging Face into this device's caches. If Hugging Face isn't reachable where you are, get an MLX model another way and choose its folder. A model already in your Hugging Face cache works too: choose its folder in ~/.cache/huggingface/hub (press ⇧⌘G in the Open panel to type the path)."
+    #else
+    private let mlxFooter = "Open models run on this device with MLX. They download from Hugging Face into this device's caches. If Hugging Face isn't reachable where you are, get an MLX model another way and choose its folder."
+    #endif
 
     private func catalogRow(_ entry: MLXCatalogModel) -> some View {
         let chosen = mlx.source == .hub(entry.id)

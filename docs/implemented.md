@@ -4638,6 +4638,60 @@ Allow-all tooltip; the README's AI sections describe 1.3.3.
 
 Tests: 497 in 75 suites; the five model evaluations pass unchanged.
 
+### 51.2 MLX, end to end, on a model already on the Mac
+
+MLX had never run before this. It was verified with the model already in the
+Hugging Face cache (`mlx_lm.manage --scan`: `mlx-community/gemma-3-27b-it-bf16`,
+57.7 GB, on a 128 GB M3 Max) — nothing was downloaded. The evaluation suite
+gained `HN_EVAL_MLX_FOLDER`, which loads a model through the same folder path as
+"Choose a Model Folder…", and ran against it:
+
+| Evaluation | On-device (AFM 3 Core Advanced) | Gemma 3 27B via MLX |
+|---|---|---|
+| Tags well-formed and on topic | pass | pass (65 s, including loading 58 GB) |
+| Links only from real notes (schema) | pass | pass (14 s) |
+| Rewrites keep links | pass | pass (21 s) |
+| A 45,000-character note summarised whole | pass | pass (94 s) |
+| Assistant reads before answering | pass | not applicable — no tools (below) |
+| Chat without tools doesn't invent notes | not applicable | pass (20 s) |
+
+Guided generation is grammar-constrained in the MLX adapter, so the schema-bound
+features held on a model the app had never seen. It surfaced three defects:
+
+1. **A Hugging Face cache snapshot cannot be opened from the sandbox.** Every
+   file in `snapshots/<revision>/` is a link into `../../blobs/`, and a folder
+   grant does not cover what links point to — `sandbox-exec` with a read grant on
+   the snapshot: "Operation not permitted"; on the model's folder: readable. The
+   snapshot is the folder that visibly holds `config.json`, so it is what a
+   person would pick, and the Debug build (whole-disk read access) could never
+   have shown the failure. `MLXModelFolder` now takes the model's folder
+   (`models--org--name`), follows `refs/main` to the current snapshot (or the
+   newest complete one), refuses a snapshot or a whole cache by layout with a
+   message naming the folder to choose, and shows the model by name
+   (`gemma-3-27b-it-bf16`, not `models--…`). The Mac footer says where such
+   models live.
+2. **A model whose chat template has no tools imitated them.** The adapter hands
+   tool definitions to the template; Gemma 3's never mentions `tools`, so they
+   vanished, and the model — seeing only the tool names in the instructions —
+   answered `read_note("Welcome")` in a code block. Nothing ran; the text was the
+   reply. (Its template also rejects any turn but user and assistant.)
+   `MLXChatTemplate.rendersTools` reads `chat_template.jinja`,
+   `chat_template.json` and `tokenizer_config.json`; a model without tools gets no
+   `.toolCalling` capability, the Assistant runs chat-only with a notice, the
+   tools toggle is disabled, Research explains why it is unavailable, and the MLX
+   section of AI settings says so.
+3. **Chat without tools described notes it could not see.** Asked for the
+   Welcome note's headings, Gemma listed four the note does not have — the
+   instructions named the collection and its size, and nothing said the notes
+   were out of reach. This applied to every conversation with agent mode off, on
+   any model. Instructions without tools now say the notes can't be seen and
+   must not be guessed at, and omit the collection; the reply became "I cannot
+   access your notes, so I cannot tell you the section headings…". The chat-only
+   evaluation first passed *while* the model fabricated — it only checked for
+   imitation calls — and now also requires the admission and no heading.
+
+Tests: 505 in 78 suites.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown

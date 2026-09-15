@@ -43,4 +43,12 @@ Download a suggested model in the AI settings, or give the name of an MLX
 language model on Hugging Face. If Hugging Face isn't reachable where you are, get an MLX model
 another way and choose its folder instead.
 
+On a Mac, a model you already downloaded with other MLX tools is in your Hugging Face
+cache, `~/.cache/huggingface/hub`. Choose the model's own folder there — the one named like
+`models--mlx-community--…` — rather than a folder inside it.
+
+Not every open model can use tools. With one that can't, the AI settings say so: the
+Assistant chats without reading or changing your notes, and Research isn't available.
+The suggested models can use tools.
+
 There are no API keys and no third-party AI services.

@@ -71,6 +71,7 @@ final class AssistantModel {
         var choice: ModelChoice
         var modelName: String
         var agentMode: Bool
+        var canUseTools: Bool
         var temperature: Double
         var reasoning: ReasoningChoice
         var skills: Int
@@ -86,6 +87,11 @@ final class AssistantModel {
     var modelName: String { settings.models.name(of: modelChoice) }
     var modelTitle: String { settings.models.title(of: modelChoice) }
     var availability: IntelligenceAvailability { settings.models.availability(of: modelChoice) }
+
+    /// Whether the chosen model can call tools at all. When it can't, the
+    /// Assistant chats without them whatever agent mode says — a model given
+    /// tools its template cannot show it writes imitation calls as its answer.
+    var canUseTools: Bool { settings.models.supportsTools(modelChoice) }
 
     var canSend: Bool {
         !isResponding && availability.isAvailable
@@ -208,6 +214,7 @@ final class AssistantModel {
         let choice = modelChoice
         let signature = Signature(
             choice: choice, modelName: models.name(of: choice), agentMode: agentMode,
+            canUseTools: canUseTools,
             temperature: settings.temperature, reasoning: settings.reasoning,
             skills: toolContext?.skills?.skills.count ?? 0)
         if let session, signature == sessionSignature { return session }
@@ -216,7 +223,7 @@ final class AssistantModel {
         let model = try models.model(for: choice)
         let window = await models.contextSize(of: choice)
 
-        let tools: [any Tool] = agentMode
+        let tools: [any Tool] = agentMode && canUseTools
             ? (toolContext.map { NoteTools.tools(for: $0, contextTokens: window) } ?? [])
             : []
         let instructions = AssistantInstructions.text(

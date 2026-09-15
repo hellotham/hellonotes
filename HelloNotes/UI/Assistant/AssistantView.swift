@@ -21,6 +21,10 @@ struct AssistantView: View {
 
     private var models: LanguageModels { model.settings.models }
 
+    /// Whether this conversation can read and change notes: agent mode, on a
+    /// model that can call tools.
+    private var usesTools: Bool { model.agentMode && model.canUseTools }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -45,11 +49,14 @@ struct AssistantView: View {
             Label("Assistant", systemImage: "sparkles").font(.headline)
             Spacer()
             Toggle(isOn: $model.agentMode) {
-                Image(systemName: model.agentMode ? "wrench.and.screwdriver.fill" : "bubble.left")
+                Image(systemName: usesTools ? "wrench.and.screwdriver.fill" : "bubble.left")
             }
             .toggleStyle(.button)
-            .help(model.agentMode ? "Can read and change the collection" : "Chat only")
-            .accessibilityLabel(model.agentMode ? "Agent mode on" : "Agent mode off")
+            .disabled(!model.canUseTools)
+            .help(model.canUseTools
+                  ? (model.agentMode ? "Can read and change the collection" : "Chat only")
+                  : "\(model.modelName) can't use tools, so the Assistant chats only")
+            .accessibilityLabel(usesTools ? "Agent mode on" : "Agent mode off")
             modelMenu
             Button {
                 model.clear()
@@ -99,6 +106,13 @@ struct AssistantView: View {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     if model.settings.hasRetiredProvider {
                         retiredNotice
+                    }
+                    if model.agentMode && !model.canUseTools && model.availability.isAvailable {
+                        Label("\(model.modelName) can't use tools, so the Assistant can chat but won't read or change your notes. On-Device and the suggested MLX models can use tools.",
+                              systemImage: "info.circle")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     if model.entries.isEmpty && !model.isResponding { emptyState }
                     ForEach(AssistantRow.rows(model.entries)) { row in
@@ -196,7 +210,7 @@ struct AssistantView: View {
                 Label(models.privacySummary(of: model.modelChoice),
                       systemImage: model.modelChoice.runsOnDevice ? "lock" : "lock.icloud")
                     .foregroundStyle(.secondary)
-                Text(model.agentMode
+                Text(usesTools
                      ? "Ask about your notes, or ask for changes — you approve every change before it's saved."
                      : "Chat only: the Assistant won't read or change your notes.")
                     .foregroundStyle(.secondary)

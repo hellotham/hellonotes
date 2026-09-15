@@ -235,6 +235,16 @@ final class LanguageModels {
         }
     }
 
+    /// Whether `choice` can call the Assistant's tools. Apple's models can; an
+    /// MLX model can only if its chat template shows it the tools
+    /// (`MLXChatTemplate`).
+    func supportsTools(_ choice: ModelChoice) -> Bool {
+        switch choice {
+        case .onDevice, .privateCloud: true
+        case .mlx: mlx.toolsSupported
+        }
+    }
+
     /// Whether `choice` accepts a reasoning level. Asking a model that does not
     /// reason to think harder is an error, not a no-op.
     func supportsReasoning(_ choice: ModelChoice) -> Bool {
