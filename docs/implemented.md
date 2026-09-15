@@ -4422,6 +4422,45 @@ works offline, which is the case that matters), `LSMinimumSystemVersion` 26.5,
 and `CFBundleShortVersionString` 1.3.2 read from inside the mounted image rather
 than assumed. 40.0 MB, `0c70b7b0…`.
 
+## 50 · The website catches up with what ships (2026-09-15)
+
+1.3.2 was approved and auto-released on **7 September**, and for eight days the
+site kept describing a Mac-only app: titled "Download — HelloNotes for Mac", a
+`minOS` of `macOS 26.5 or later`, and not one `apps.apple.com` link anywhere in
+`website/src`. The change had been written on 4 September and deliberately held,
+because the deploy fires on any push under `website/**` and a store link to an
+unapproved app is a broken link on the front page. Approval opened the gate;
+merging it was the whole remaining distribution step.
+
+**The held branch was wrong about one thing, and only the live listing could
+say so.** It shipped two buttons — "iPhone & iPad" and "Mac App Store" — on the
+reasoning that one link cannot serve two stores. It can, because there are not
+two: both platforms ship from one App Store Connect record and Apple serves them
+as a single product page. `?mt=12`, the legacy Mac-store selector, is **dropped
+on redirect**, so both forms resolve to the identical URL. Two buttons to one
+destination reads as a defect rather than a choice. One link now, with the copy
+naming the devices, and the redirect behaviour recorded beside `APP_STORE` —
+because "a Mac link and an iOS link" is a reasonable thing to assume and the
+only way to learn otherwise is to follow the redirect.
+
+That is the shape worth remembering: **the branch had been built, reviewed and
+verified against everything available at the time, and still carried a wrong
+assumption that nothing local could have tested.** Verification before the
+dependency exists is necessarily partial; the re-check on the day it goes live
+is not ceremony.
+
+Also corrected, both wrong rather than merely narrow: the download page told
+first-time users to "choose Open… and pick any folder of Markdown files", which
+`DefaultCollection` has not required since it began shipping inside the binary —
+the same correction App Review had to be sent — and Support said the
+intelligence features "require a Mac with Apple Intelligence", which sends
+iPhone and iPad owners looking for a setting they already have.
+
+`APP.minOS` was deleted rather than aliased. It held the Mac floor and nine
+places read it; an alias would have compiled and left Mac-only sentences on
+pages that now also sell an iPhone app. They did not all want the same answer —
+the DMG card still says macOS 26.5, because that channel really is Mac-only.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown

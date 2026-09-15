@@ -45,31 +45,13 @@
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): privacy manifest, `.md` UTI import, optimized Release build, and the in-app acknowledgements screen.*
 
-- 🔴 **The website has no App Store presence, and must not gain one before
-  approval.** `website/` is written end to end as a Mac/DMG site — the download
-  page is titled "Download — HelloNotes for Mac", `APP.minOS` is
-  `macOS 26.5 or later`, and there is not one `apps.apple.com` link anywhere in
-  `website/src`. Once 1.3.2 (21) is approved it is live on **both** the iOS and
-  Mac App Stores (both platforms are set to release automatically), so the site
-  will be understating what ships until it is updated: App Store links, iPhone
-  and iPad in the copy and metadata, and the screenshots page. Two constraints
-  make the timing not a matter of taste: **the deploy is automatic** — any push
-  touching `website/**` publishes, per `deploy-website.yml` — and a live link to
-  an app Apple has not yet approved is a broken link on the front page. So this
-  is **written and held on the branch `website/app-store-launch`** (pushed —
-  branch pushes do not deploy, only `main` does): build clean, site audit clean,
-  no horizontal overflow at 375 or 1280. Merge it to `main` the moment App
-  Review approves and the listings go live. It also corrects two claims that
-  were already wrong rather than merely narrow — the download page told
-  first-time users to pick a folder on first launch, which `DefaultCollection`
-  has not required since it began shipping inside the binary, and Support said
-  the intelligence features need *a Mac*. Note on versioning, which is the opposite of the
-  obvious: a new DMG does **not** get 1.3.3 while the App Store is on 1.3.2.
-  `check-download-page.sh` compares the site's version against the App Store's
-  with `!=`, so once the app is public they must match *exactly* — a 1.3.3
-  download would pass every local check and fail the moment Apple approves. The
-  DMG is re-cut under the same version instead (done 3 and 4 September); see
-  implemented.md §49.
+*Resolved and moved to [implemented.md §50](implemented.md): the website's App
+Store presence — links, both OS floors, iPhone and iPad screenshots — shipped
+2026-09-15, once 1.3.2 went live on 7 September. The versioning rule that came
+with it is worth keeping in view: a new DMG does **not** get 1.3.3 while the App
+Store is on 1.3.2, because `check-download-page.sh` compares the two with `!=`
+and they must match exactly once the app is public. Re-cut under the same
+version instead — see implemented.md §49.*
 
 - 🟡 **No macOS 26 layered app icon** — the classic 16→1024 PNG ladder is complete; there is no Icon Composer `.icon` layered asset for the 26 look (needs artwork). Legacy icon still ships fine.
 
