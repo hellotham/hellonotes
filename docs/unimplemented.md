@@ -63,9 +63,13 @@
   were already wrong rather than merely narrow — the download page told
   first-time users to pick a folder on first launch, which `DefaultCollection`
   has not required since it began shipping inside the binary, and Support said
-  the intelligence features need *a Mac*. Note the channels have diverged: the direct-download DMG
-  already shipped as 1.3.2, so a *new* DMG needs 1.3.3 while the App Store side
-  is still 1.3.2 (n).
+  the intelligence features need *a Mac*. Note on versioning, which is the opposite of the
+  obvious: a new DMG does **not** get 1.3.3 while the App Store is on 1.3.2.
+  `check-download-page.sh` compares the site's version against the App Store's
+  with `!=`, so once the app is public they must match *exactly* — a 1.3.3
+  download would pass every local check and fail the moment Apple approves. The
+  DMG is re-cut under the same version instead (done 3 and 4 September); see
+  implemented.md §49.
 
 - 🟡 **No macOS 26 layered app icon** — the classic 16→1024 PNG ladder is complete; there is no Icon Composer `.icon` layered asset for the 26 look (needs artwork). Legacy icon still ships fine.
 
