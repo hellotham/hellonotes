@@ -4,10 +4,21 @@ A complete, do-this-in-order runbook to take HelloNotes from a working dev build
 to an approved App Store release. Copy‑paste values are given for every field.
 
 > **Scope:** HelloNotes ships on **both macOS and iOS**, from a single App Store
-> Connect app record (App ID `6803259848`) — both platforms are live and in
-> TestFlight. The two platforms share one app record, one bundle ID, and one
-> set of metadata (§3–§7); they differ only in the build/export step (§9) and
-> the screenshot sizes (§8). visionOS is still listed in the project's
+> Connect app record (App ID `6803259848`). **1.3.2 was approved and released on
+> 2026-09-07** and both platforms read *Ready for Distribution*; the public
+> listing is <https://apps.apple.com/app/id6803259848>.
+>
+> They share one app record and one bundle ID. **They do not share metadata.**
+> Promotional text, description, screenshots, What's New and the reviewer notes
+> are *per platform* — live proof: the macOS description opens "…for your Mac"
+> and the iOS one "…for iPhone and iPad". An earlier version of this line said
+> the two shared one set, which is the kind of error that gets a fix applied to
+> one platform and called done (§8 has a case where exactly that happened). They
+> also differ in the build/export step (§9) and the screenshot sizes (§8).
+>
+> **One store page, though.** Apple serves both platforms as a single unified
+> product page, and `?mt=12` — the legacy Mac-App-Store selector — is *dropped on
+> redirect*. There is no separate Mac URL to link to. visionOS is still listed in the project's
 > `SUPPORTED_PLATFORMS` (`xros`) purely because `SDKROOT = auto` pulls it in
 > automatically for a multiplatform target — there is no visionOS-specific
 > target, entitlement, or submission, and nothing below should be read as
@@ -18,17 +29,18 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | Thing | Value |
 |---|---|
 | App name | **HelloNotes** |
-| Platforms | **macOS + iOS**, one App Store Connect app record — both live, both in TestFlight |
+| Platforms | **macOS + iOS**, one App Store Connect app record — both **live on the App Store since 2026-09-07** |
 | App Store Connect App ID | `6803259848` |
 | Bundle ID | `com.hellotham.HelloNotes` |
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.2`, `CURRENT_PROJECT_VERSION = 8` — **verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table |
+| Version / build | `MARKETING_VERSION = 1.3.2`, `CURRENT_PROJECT_VERSION = 21` — **verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync) · App Group · iCloud KV store · Audio input — see §1b for the full current list and what each is for |
 | Min OS | **macOS 26.5 / iOS 26.5** |
-| Website | <https://hellotham.com/hellonotes/> (Privacy · Support live) |
+| Website | <https://hellotham.com/hellonotes/> — Privacy, Support, and (since 2026-09-15) the App Store links and iPhone/iPad screenshots |
 
 ---
 
@@ -45,7 +57,13 @@ to an approved App Store release. Copy‑paste values are given for every field.
    prompted (or Manage Certificates ▸ **+** ▸ *Apple Distribution*).
 4. **Agreements:** App Store Connect ▸ **Business** ▸ accept the *Paid Apps* /
    *Free Apps* agreement and complete tax & banking (even for a free app the
-   agreement must be **Active**, or your app can’t be released).
+   agreement must be **Active**, or your app can’t be released). ✅ Both
+   agreements, the bank account and all three tax forms are Active.
+   **Also check the Compliance table at the bottom of that page**, which is easy
+   to scroll past: it carries per-regulation rows (Digital Services Act, and for
+   an Australian entity the *Sharing Economy Reporting Regime*) that can sit at
+   **Missing Info** while everything above them reads Active. Nothing blocks
+   review, so the first symptom is a payout question much later.
 
 ---
 
@@ -144,15 +162,33 @@ Nothing else to do — Xcode makes the cert/profile on first archive.
 
 ### 1f. Version & build number policy
 - First submission was `1.0` (build `1`); as of this doc pass the repo carries
-  `1.3.2` (build `8`) — **do not trust that number**, read
+  `1.3.2` (build `21`) — **do not trust that number**, read
   `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` fresh from
   `HelloNotes.xcodeproj/project.pbxproj` (every target repeats the same pair;
   any one occurrence is representative), since both move on every release and
-  this line will be stale again the next time either bumps.
+  this line will be stale again the next time either bumps. It has already been
+  stale twice.
 - **Every** upload needs a **unique, higher build number** — shared across
   *both* platforms, since one app record covers macOS and iOS. Bump
   `CURRENT_PROJECT_VERSION` (`1 → 2 → …`) for re‑uploads of the same version;
   bump `MARKETING_VERSION` (`1.0 → 1.1`) for a new public version.
+
+> ### ⚠️ The direct download must not out-version the App Store
+> The DMG channel and the App Store are separate, and the obvious move when the
+> DMG falls behind — ship it as the next patch version — is wrong.
+> `scripts/check-download-page.sh` compares the website's version against the
+> App Store's with **`!=`**, so once the app is public the two must match
+> *exactly*. A 1.3.3 disk image passes every check available before approval and
+> starts failing the moment Apple approves 1.3.2 — on a page nobody thinks to
+> re-run a checker against after an approval they did not perform.
+>
+> **Re-cut the DMG under the same version instead**, replacing the release
+> asset (`gh release upload v<VERSION> … --clobber`). Done twice for 1.3.2, on
+> 3 and 4 September. The cost is that several distinct binaries ship under one
+> version string, so the release notes carry a **checksum table** — that is what
+> lets a user comparing `shasum` output tell "mine is an older 1.3.2" from "this
+> download was tampered with", which is the only question a checksum answers.
+> See [implemented.md §49](implemented.md).
 
 ### 1g. Editor dependency
 The editor is the in-repo **`Packages/NotesEditor`** package (MarkdownCore +
@@ -246,72 +282,77 @@ explicitly avoids surprises.)*
 
 ---
 
-## 4 · Version metadata (the `1.0` page → “Prepare for Submission”)
+## 4 · Version metadata — App Store Connect is the source of truth
 
-Paste these into the corresponding fields.
+> **This section used to hold the description verbatim, and that was a trap.**
+> The copy it carried still read *"(Anthropic, OpenAI-compatible, Gemini)"* long
+> after that phrase had been removed from the live listing — and removing it was
+> what resolved a **Guideline 5 (China)** rejection. Anyone pasting the block
+> back in would have re-submitted the rejection. A runbook that duplicates live
+> metadata does not stay true; it decays silently and then hands you a
+> regression with a straight face.
+>
+> **So: read the live copy out of App Store Connect, per platform, and treat
+> what follows as the *constraints* the copy must satisfy — not as the copy.**
 
-**Subtitle** (≤30 chars):
+**Metadata is per platform.** The macOS description opens "…for your Mac" and
+the iOS one "…for iPhone and iPad"; promotional text, screenshots, What's New
+and the reviewer notes diverge the same way. Editing one does not edit the
+other, and the page gives you no hint that a sibling exists.
+
+### The rules the copy must satisfy
+
+| Rule | Why, and what it cost |
+|---|---|
+| **No reference to OpenAI or ChatGPT** in name, subtitle, promotional text, description, keywords **or screenshots** | Guideline 5. China tightened its rules on generative-AI services, and a metadata mention is enough. The live text names *Anthropic, Mistral, Gemini*. Also: **China mainland is deselected** in Availability (§7), which is the resolution Apple offered. |
+| **A link to Apple's standard EULA in the Description** | Guideline 3.1.2(c) has two halves and build 14 was rejected for missing both: the disclosures in the binary (`SupportSettingsView`, guarded by `SupportContractTests`) **and** the EULA link in the description. The app can be perfect and still be rejected for the description. |
+| **The subscription's full terms in the Description** | The live copy ends with a `SUPPORTING HELLONOTES (OPTIONAL)` section naming the price (A$50/year), that it is auto-renewable, when it renews, and how to cancel (`Settings > your name > Subscriptions`). |
+| **Both policy URLs resolve** | Check with `curl`, never by reading. The privacy one takes **no trailing slash**: `…/privacy` is 200, `…/privacy/` is 404. |
+
+```bash
+# the two links the description must carry, verified rather than eyeballed
+curl -sIL -o /dev/null -w '%{http_code}\n' https://hellotham.com/hellonotes/privacy
+curl -sIL -o /dev/null -w '%{http_code}\n' https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+```
+
+**Subtitle** (≤30 chars) — stable across releases:
 ```
 Local-first Markdown notes
 ```
 
-**Promotional text** (≤170 chars, editable any time without review):
-```
-A fast, private Markdown knowledge base for Mac, iPhone and iPad. Wiki-links, backlinks, a graph, diagrams, maths and on-device AI — your notes stay plain files you own.
-```
+### Reviewer notes — what must be covered
 
-**Description** (≤4000 chars):
-```
-HelloNotes is a fast, private, local-first Markdown knowledge base for Mac, iPhone and iPad. Your notes are plain .md files in a folder you choose — no account, no lock-in, no cloud required.
+Live text lives in ASC (≈3,300 chars, per platform). It has to answer, in this
+order, every question a reviewer has actually asked:
 
-WRITE IN LIVE MARKDOWN
-• A native editor with live styling — headings, bold, lists, tables and syntax-highlighted code
-• LaTeX math ($…$ and $$…$$) and Mermaid diagrams rendered inline
-• Obsidian-style callouts, hidden comments, and a clean editor that tucks YAML front matter into an editable Properties panel
+1. **"What do I need to set up?"** — nothing. `DefaultCollection` ships *inside
+   the binary*, is copied into the app's documents on first launch and opened
+   automatically. Name it, and say where to reopen it (`File ▸ Open Default
+   Collection`, or the **+** at the top of the sidebar; on iPhone the overflow
+   menu on the Notes tab). **An earlier note pointed at a `SampleVault` in the
+   source repository, which a reviewer cannot see** — that cost a Guideline 2.1
+   "Information Needed" round trip. Both folders still exist in the repo; only
+   `DefaultCollection` is in the app.
+2. **"Where are the purchases?"** — the exact path to Settings ▸ Support ▸
+   Support HelloNotes, and what that one screen shows (title, length, price per
+   period, renewal and cancellation terms, working EULA and privacy links).
+3. **"What do they unlock?"** — every feature is included for everyone; backing
+   the app adds an in-app **support request** and nothing else. Say that
+   plainly. It must **not** claim nothing is gated — something is.
+4. **Guideline 5** — China mainland deselected; the app ships no ChatGPT
+   integration and no OpenAI credentials.
 
-CONNECT YOUR IDEAS
-• [[Wiki-links]] with autocomplete, including links straight to a heading
-• Backlinks and unlinked mentions, with one-click linking
-• #tags (nested) with autocomplete, searchable from the inspector
-• Note transclusion — embed a whole note or a single section
-• An interactive graph view of your whole vault
+`assets/iap-review/` holds the App Review screenshot and an 82-second recording
+that walks the purchase path and follows both policy links into Safari, for the
+Resolution Center if 3.1.2(c) is raised. See §8 for that screenshot's size rule,
+which is not the app-screenshot rule.
 
-FIND ANYTHING
-• Full-text search and “Open Quickly” across notes and headings
-• Bookmarks, daily notes and templates
-
-AI, ON YOUR TERMS
-• Summarise a note, suggest tags and links — powered by Apple Intelligence, entirely on-device
-• “Ask your library”: answers grounded in your own notes, with citations
-• An agentic Assistant that can search, read, and (with your approval) edit notes
-• Bring your own model: fully local (Apple, MLX, Ollama, LM Studio) or your own cloud API key (Anthropic, OpenAI-compatible, Gemini)
-On-device models send nothing off your device. Cloud providers are optional, off by default, and use your own key — note content goes only to the provider you configure.
-
-VERSION HISTORY WITH GIT
-• Built-in Git: initialise a repo, browse a note’s history and restore earlier versions
-
-EXPORT & MORE
-• Export to HTML or PDF
-• Multi-tab editing and open-in-new-window
-• Full light and dark support, keyboard-first
-
-SUPPORT THE APP
-Every feature is included for everyone. Backing HelloNotes — a one-off Champion contribution or an annual commercial licence — adds one thing: you can send a support request from inside the app. Nothing else is gated.
-
-Your files stay yours — readable in any editor, syncable with any tool. HelloNotes just makes them a joy to think in.
-
-Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
-Privacy Policy: https://hellotham.com/hellonotes/privacy
-```
-
-> **The EULA link in the Description is not optional.** Guideline 3.1.2(c) has
-> two halves and build 14 was rejected for missing both: the disclosures in the
-> binary (which `SupportSettingsView` renders and `SupportContractTests` guards)
-> **and**, when using Apple's standard EULA, a link to it in the App Description
-> itself. The app can be perfect and still be rejected for the description.
-> Both URLs above return 200 — and note the privacy one takes **no trailing
-> slash**: `…/privacy` is 200, `…/privacy/` is 404. Check with `curl`, never by
-> reading.
+- **Sign-in required:** No. The app has no account of any kind. The three
+  optional screens where a user supplies *their own* third-party credentials
+  (Git, a cloud folder, an AI provider key) are not logins to a HelloNotes
+  service — an automated scan has flagged them as such before, so the notes say
+  so explicitly.
+- **Contact:** your name, phone, email.
 
 **Keywords** (≤100 chars, comma‑separated, no spaces):
 ```
@@ -400,76 +441,87 @@ Result: **4+**.
 ## 7 · Pricing & availability
 
 - **Pricing:** **App Store Connect ▸ Pricing and Availability ▸** choose a price
-  or **Free** (price tier **AUD 0.00**).
-- **Availability:** all territories (default) unless you want to restrict.
+  or **Free** (price tier **AUD 0.00**). Free, with the two optional support
+  purchases (§4) — the listing therefore carries an *Offers In-App Purchases*
+  badge, so any page of ours claiming the app is simply "free, no purchases"
+  contradicts the store one tap later.
+- **Availability: 174 of 175 territories. China mainland is deliberately
+  deselected.** That is the resolution Apple offered for the **Guideline 5**
+  rejection: China requires a permit for generative-AI services, and the app
+  offers optional third-party AI providers. Deselecting the storefront removes
+  the question. It is reversible in a later version if that changes — **do not
+  silently re-enable it**, and do not treat the row as an oversight when the
+  availability count reads 174.
 
 ---
 
 ## 8 · Screenshots (required)
 
-Mac screenshots must be exactly one of: **1280×800, 1440×900, 2560×1600, 2880×1800**.
-Provide **at least 1** (up to 10). Retina capture is easiest:
+**Walk the whole grid and count, every time.** Screenshots are per-platform
+*and* per-display-size, and App Store Connect shows one size at a time. Build 13
+went to review twice with the iPad tab holding a **single** stale light-mode
+shot, because the check was "does the iPhone tab look right". `0 of 10` and
+`1 of 10` both read as "there is something there" at a glance; only the count
+distinguishes them.
 
-1. Run the Release app, open the bundled **SampleVault** so the window looks full.
-2. Resize the window to a clean shape, then capture just the window:
-   **⌘⇧4**, press **Space**, click the window → saves a Retina PNG to the Desktop.
-3. If the PNG isn’t one of the accepted sizes, scale/pad it to **2560×1600**:
-   ```bash
-   sips -z 1600 2560 --padColor FFFFFF shot.png --out shot-2560x1600.png
-   ```
-**✅ A ready-made set of 5 frames at 2560×1600 is committed** — but not where an
-earlier draft of this section said. They live in **`website/src/assets/screens/`**
-as `light_01…05.png` and `dark_01…05.png`: the site's marketing shots, each the
-brand gradient plus a caption plus the window, and already one of Apple's four
-accepted Mac sizes. The five scenes are the sidebar and editor, maths and
-diagrams inline, callouts and properties, the graph view, and Ask Library.
+| Platform | Tab | Size | Expect | Committed set |
+|---|---|---|---|---|
+| iOS | iPhone | 6.5" — **1284×2778** | 3–10 | `dist/Screenshots-iOS/` |
+| iOS | **iPad** | 13" — **2064×2752** | 3–10 | `dist/Screenshots-iPad/` |
+| macOS | Mac | **2560×1600** (or 1280×800 / 1440×900 / 2880×1800) | 3–10 | `dist/Screenshots-macOS/` |
 
-`dist/` is a build artefact and is **gitignored**, so `dist/screenshots/` does not
-exist until something puts it there — an earlier version of this section promised
-a folder that is never checked in. Assemble it:
+The undecorated originals are committed in **`assets/screenshots-raw/`**
+(`iPhone-6.5/`, `iPad-13/`, `macOS/`) and the branded website frames are
+one-way derivatives of them — gradient, caption, rounded corners, shadow, none
+of it reversible. That folder exists because the raw Mac captures were once shot
+into a session scratchpad and thrown away, and when the store needed
+undecorated ones there were none anywhere.
 
-```bash
-mkdir -p dist/screenshots/dark
-for i in 1 2 3 4 5; do
-  cp website/src/assets/screens/light_0$i.png dist/screenshots/screenshot_0$i.png
-  cp website/src/assets/screens/dark_0$i.png  dist/screenshots/dark/screenshot_0$i.png
-done
-```
+> **Screenshots cannot be edited while a version is *Waiting for Review*** — the
+> file input and **Delete All** are simply not in the DOM. Getting one wrong
+> therefore costs a removal from review and a resubmission, so inventory
+> **before** submitting. And never `Delete All` before the replacements are
+> staged and verified at the right pixel size: deletion is per display size and
+> immediate.
 
-Upload one appearance or the other — Apple allows up to 10, but a gallery that
-switches halfway reads as inconsistent. To refresh them against a newer build,
-capture the five scenes with the recipe above and composite with
-`scripts/make-screenshots.py` (needs Pillow: `python3 -m venv venv &&
-./venv/bin/pip install Pillow`); the raw capture is a manual step by design.
+### Shooting them
 
-**iOS screenshots are required — the app record now includes iOS, not just
-macOS.** Apple asks for one set per device *family* the app supports, and you
-only need to supply the largest display in each family; App Store Connect
-scales down to populate the rest (confirmed against Apple's published
-screenshot spec this session — sizes are revised periodically, so re-check at
-submission time):
+- **iOS / iPadOS** — simulators, headless, costs nobody their screen:
+  `xcrun simctl io <device> screenshot`. The device must match the store size
+  exactly: iPhone 13 Pro Max → 1284×2778; **iPad Pro 13-inch → 2064×2752**. The
+  11-inch `HN-iPad` used for day-to-day testing gives 1668×2420, which ASC
+  rejects for the 13-inch slot *and* whose aspect ratio differs, so it cannot be
+  rescaled into one. Set the clock with
+  `xcrun simctl status_bar <device> override --time 9:41 …`.
+- **macOS** — the app on a real screen, so it costs the user their session.
+  `screencapture -l <windowID>`; a **1280×800 pt** window captures at exactly
+  2560×1600 on a 2× display, so size the window rather than padding afterwards.
 
-- **iPhone — 6.9-inch, 1320×2868.** Required because the app's
-  `TARGETED_DEVICE_FAMILY` includes iPhone (family `1`), not just iPad — this
-  is a phone-capable app (see `docs/shell-chrome.md`'s "P5 Phone capturer"
-  persona), so skipping iPhone shots is not an option the way it might be for
-  an iPad-only app.
-- **iPad — 13-inch, 2064×2752** (the M4/M5 iPad Pro class). The repo already
-  has a device sized for this: **`HN-iPad13`** (an
-  `iPad-Pro-13-inch-M5-12GB` simulator, distinct from the `HN-iPad` 11-inch
-  one used for day-to-day testing in `CLAUDE.md`) — its native capture
-  (`xcrun simctl io HN-iPad13 screenshot out.png`) lands exactly on
-  2064×2752, no padding/scaling step needed the way the Mac shots below need
-  one. The old **`HN-iPad`** (11-inch, 1668×2420) is still right for
-  day-to-day iOS testing — just don't submit its captures to App Store
-  Connect, which rejects that size for the 13-inch requirement.
+> ### ⚠️ Shoot from `DefaultCollection`, and confirm it by *reading*
+> Capture only the collection that ships inside the binary — it is public
+> content by construction and it is what a reviewer opening the app will see.
+> `SampleVault` (the repo fixture) is permitted; **a real vault never is.**
+>
+> Verify which collection is loaded by reading the preferences, never by taking
+> a picture to look — *"screenshotting to check" is capturing*:
+> ```bash
+> /usr/libexec/PlistBuddy -c "Print :collectionPaths" \
+>   ~/Library/Containers/com.hellotham.HelloNotes/Data/Library/Preferences/com.hellotham.HelloNotes.plist
+> ```
+> Back that plist up first and restore it after — opening or closing a
+> collection changes the user's state. `.claude/hooks/guard-screencapture.py`
+> enforces this.
 
-Neither iPhone nor iPad has a marketing-shot pipeline yet (no equivalent of
-`website/src/assets/screens/` or `scripts/make-screenshots.py` for iOS) — raw,
-unbranded simulator captures satisfy App Store Connect's requirement, but
-producing branded ones like the Mac set below is still open work.
+### The In-App Purchase App Review screenshot is a different thing
 
----
+Each in-app purchase needs its own **App Review screenshot** before it can be
+submitted, and a missing one is the Guideline 2.1(b) rejection. **It does not
+accept the sizes app screenshots accept.** An iPad Pro 11-inch capture
+(1668×2420) was refused; so was the 13-inch (2064×2752). What uploaded was
+**1284×2778** — an iPhone 6.5" capture. The file is
+`assets/iap-review/support-screen-iphone.png`; shoot its replacement on an
+iPhone simulator, against the **live** store so the prices are real product data
+rather than placeholders.
 
 ## 9 · Build: archive & upload
 
@@ -551,55 +603,139 @@ archive uploads to, not a separate app.
 
 ## 10 · Attach the build & submit for review
 
-Back in App Store Connect on the **1.0** page:
-1. **Build** section → **＋** (or *Add Build*) → pick the processed build.
-2. **Export Compliance:** if you added the `ITSAppUsesNonExemptEncryption=false`
-   key (§1d) you won’t be asked; otherwise answer **“Uses standard encryption
-   only / exempt.”**
-3. **Version Release:** *Automatically release after approval* (or Manual).
-4. Confirm §4–§7 are all complete (green), then **Add for Review → Submit to App
-   Review**.
+On the version page:
 
-Review is typically **~1–3 days**. Status changes arrive by email.
+1. **Build** section → **＋** → pick the processed build. To *replace* an
+   attached build, hover its row: a red **−** appears at the right-hand end and
+   is the only way to detach one.
+2. **Export Compliance:** with `ITSAppUsesNonExemptEncryption=false` (§1d) you
+   are not asked.
+3. **Version Release:** *Automatically release after approval* is what 1.3.2
+   used — which means **approval publishes immediately, with no second chance
+   to hold it**. Everything downstream (the website, announcements) has to be
+   ready *before* approval lands, not after. 1.3.2 went live on 7 September and
+   the website did not catch up until the 15th.
+4. Confirm §4–§8 are complete, then submit — but read the next box first if
+   there are in-app purchases.
 
----
+> ### ⚠️ In-app purchases must travel in the **same submission** as the build
+> This is self-perpetuating and cost two rejection cycles on 1.3.2. App Store
+> Connect allows **one open review submission per platform**, and a version
+> belongs to exactly one of them:
+>
+> - IAPs and subscriptions can only be submitted from a **draft submission**,
+>   and a draft refuses to submit while it holds no app version — *"To submit
+>   your items for review, add an app version for the selected platform."*
+> - The version page's button reads **Update Review** whenever a submission is
+>   already in flight, and it attaches the version to **that** submission — not
+>   to the draft holding the purchases.
+>
+> So the binary goes to Apple, the products stay behind, and every resubmission
+> reproduces **Guideline 2.1(b)** — *"one or more of the In-App Purchase
+> products have not been submitted for review"* — exactly.
+>
+> **The button's label is the whole mechanism.** Only when no submission is open
+> does it become **Add for Review ⌄**, a dropdown offering the existing *Draft
+> Submission (n)* by name or *Create New Submission*. Picking the draft is what
+> puts the version and its purchases in one place.
+>
+> **The fix, in order:**
+> 1. **Reply to App Review first.** The message thread belongs to the in-flight
+>    submission and does not survive cancelling it. Put anything Apple asked to
+>    be shown into the version's **Notes** and **Attachment** fields as well —
+>    those travel with the version into the next submission; a reply does not.
+> 2. *Cancel Submission* (page footer) → *Confirm*. The old submission shows
+>    **Removed**; the version returns to Prepare for Submission. Nothing is
+>    deleted.
+> 3. Version page → **Add for Review ⌄** → the draft → **Submit for Review**.
+> 4. **Check the count before submitting.** The panel should read *Items Ready
+>    to Submit (4)*: the version, the consumable, the subscription, and its
+>    group. Three means the version never joined.
+>
+> IAPs are app-level: they rode the **iOS** submission (4 items) and the macOS
+> one needed only its version (1 item).
 
-## 11 · After submission — common rejection triggers to pre‑empt
+Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
+resubmission to the 7 September release. Status changes arrive by email.
 
-- **Incomplete metadata / missing screenshots** → the #1 delay. Fill everything.
+## 11 · After submission — what actually got rejected
+
+Generic advice first, then the four that 1.3.2 was actually rejected on — which
+is the more useful list, because every one of them was invisible from the repo.
+
+- **Incomplete metadata / missing screenshots** → the #1 delay. §8's grid.
 - **Placeholder content** (the `com.example.*` UTIs) → fixed in §1c.
-- **Broken/parked Support or Privacy URLs** → they must resolve to real pages.
-- **Crash on a clean machine** → test on a Mac without your dev tools, from a fresh
-  vault, before submitting.
-- **Feature only works with entitlements you didn’t ship** → if you advertise Git
-  remote sync, ship §1b; otherwise don’t mention it.
-- **Guideline 2.1 “what does this need?”** → the reviewer notes in §4 cover the
-  vault‑folder step and on‑device AI.
+- **Broken Support or Privacy URLs** → `curl` them; the privacy one takes no
+  trailing slash.
+- **Crash on a clean machine** → test from a fresh vault before submitting.
 
----
+### The 1.3.2 rejections, and what each really was
 
-## Appendix A · One‑command release script
+| Guideline | What Apple said | What it actually was |
+|---|---|---|
+| **2.1(b)** App Completeness | "one or more of the In-App Purchase products have not been submitted for review" | Structural, not an oversight — the version and the purchases could not reach the same submission. §10's box. |
+| **3.1.2(c)** Subscriptions | required subscription info missing | Two halves: the disclosures in the binary **and** the EULA link in the App Description. The app was already correct; the description was not. |
+| **5** Legal (China) | metadata references OpenAI | A provider name in the description. Removed, and China mainland deselected (§7). |
+| **2.1** Information Needed | "where to locate the demo SampleVault" | Our own earlier reviewer note pointed at the **source repository**, which a reviewer cannot see. The sample now ships in the binary (§4). |
 
-Save as `scripts/release.sh`, `chmod +x`, run from the repo root:
+**Three of those four were App Store Connect state, not code.** No rebuild would
+have moved them, and nothing in the repo reported them. When a rejection arrives,
+check what the *listing* says before checking what the app does.
+
+**And fix a thing on every platform it exists on.** The "SampleVault" correction
+was applied to the app and to the iOS screenshots while all ten **macOS**
+screenshots still showed a `SampleVault` sidebar — a picture of the exact folder
+the reviewer had just said they could not find. Metadata is per-platform (§4);
+so is being wrong.
+
+## Appendix A · One‑command App Store upload
+
+> **This appendix used to contradict §9 and would have signed for the wrong
+> channel.** It exported through the repo-root `ExportOptions.plist`, which is
+> `method = developer-id` — the *notarised DMG* plist — while §9 Option B warns
+> in bold that it is not the App Store one. It also told you to save the script
+> as `scripts/release.sh`, which has never existed; `scripts/` holds
+> `package-dmg.sh`, `check-download-page.sh`, `render-parity.sh`,
+> `run-tests.sh`, `relaunch-debug.sh`, `make-screenshots.py`,
+> `clean-preview-stubs.sh` and `winid.swift`. Both are fixed below.
+
+The **`/release` skill** (`.claude/skills/release/`) is the maintained path for
+the *DMG* channel and already sequences build → notarise → publish → site sync.
+For an App Store upload there is no script — it is two commands, and the export
+*is* the upload because both AppStore plists carry `destination = upload`:
+
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-SCHEME=HelloNotes
-ARCHIVE=build/HelloNotes.xcarchive
-
-rm -rf build && mkdir -p build
-echo "▸ Archiving (Release)…"
-xcodebuild -project HelloNotes.xcodeproj -scheme "$SCHEME" \
+# macOS
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
   -configuration Release -destination 'generic/platform=macOS' \
-  -archivePath "$ARCHIVE" clean archive
+  -archivePath build/HelloNotes.xcarchive archive
+xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
+  -exportOptionsPlist ExportOptions-AppStore-macOS.plist \
+  -exportPath build/export -allowProvisioningUpdates
 
-echo "▸ Exporting & uploading to App Store Connect…"
-xcodebuild -exportArchive -archivePath "$ARCHIVE" \
-  -exportOptionsPlist ExportOptions.plist -exportPath build/export \
-  -allowProvisioningUpdates
-
-echo "✓ Uploaded. Watch App Store Connect for the processed build."
+# iOS
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes \
+  -configuration Release -destination 'generic/platform=iOS' \
+  -archivePath build/HelloNotes-iOS.xcarchive archive
+xcodebuild -exportArchive -archivePath build/HelloNotes-iOS.xcarchive \
+  -exportOptionsPlist ExportOptions-AppStore-iOS.plist \
+  -exportPath build/export-ios -allowProvisioningUpdates
 ```
+
+**Four plists live in the repo root and only two of them upload.** Picking the
+wrong one fails in a way that looks like success:
+
+| Plist | `method` | `destination` | Use |
+|---|---|---|---|
+| `ExportOptions.plist` | `developer-id` | export | The notarised DMG (Appendix A2) — **never the store** |
+| `ExportOptions-AppStore-macOS.plist` | `app-store-connect` | **upload** | macOS → App Store Connect |
+| `ExportOptions-AppStore-iOS.plist` | `app-store-connect` | **upload** | iOS → App Store Connect |
+| `ExportOptions-iOS.plist` | `app-store-connect` | export | Writes a local `.ipa` and uploads **nothing** |
+
+> **Verify the build arrived; do not trust the command.** Build 18 reported
+> nothing wrong and never appeared, because a detached upload never ran. A real
+> upload prints `Progress NN%: Upload succeeded` and `** EXPORT SUCCEEDED **`,
+> and the build then shows up in TestFlight. Check there before assuming.
 
 ## Appendix A2 · Direct distribution — signed, notarized DMG
 
@@ -693,21 +829,55 @@ hdiutil detach /tmp/hn
 
 ## Appendix B · Pre‑submission checklist
 
-- [ ] Paid Developer Program active; Paid/Free Apps agreement **Active**
-- [ ] §1 hardening done (min OS decided, Git‑network decided, Info.plist cleaned,
-      encryption key added, Release signs with Apple Distribution / Hello Tham)
-- [ ] Version `1.0`, build number unique & higher than any prior upload
-- [ ] App icon complete (already shipped) and app builds clean in **Release**
-- [ ] App ID `com.hellotham.HelloNotes` registered
-- [ ] App record created; name accepted
-- [ ] Description, subtitle, promo, keywords, URLs, copyright pasted (§4)
-- [ ] App Privacy = *Data Not Collected*; Privacy Policy URL live (§5)
-- [ ] Age rating 4+ (§6); pricing set (§7)
-- [ ] ≥1 screenshot at an accepted size (§8)
-- [ ] Build archived, uploaded, processed, and attached (§9–10)
-- [ ] Reviewer notes filled; **Submitted** ✅
+**Before the build**
+- [ ] Paid **and** Free Apps agreements Active; tax & banking Active; the
+      **Compliance** rows at the bottom of Business ▸ Agreements not sitting at
+      *Missing Info* (§0)
+- [ ] §1 hardening done (min OS, entitlements, Info.plist, encryption key,
+      Release signs as Apple Distribution / Hello Tham)
+- [ ] `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` **read fresh** from
+      `project.pbxproj`; build number unique and higher than any prior upload
+- [ ] **Release** build clean on both platforms — Debug proves nothing (§1h)
+- [ ] `Config/Secrets.xcconfig` present, or the build ships empty provider keys
 
-## Appendix C · Privacy policy (host this text, then link it in §5)
+**Metadata — per platform, both of them**
+- [ ] Description carries the **EULA link** and the subscription's full terms
+- [ ] **No OpenAI/ChatGPT reference** in name, subtitle, promo, description,
+      keywords **or screenshots**
+- [ ] Privacy and EULA URLs `curl` to 200 (privacy takes no trailing slash)
+- [ ] Reviewer notes answer all four questions in §4 — and point at
+      `DefaultCollection` *in the binary*, never at the repo
+- [ ] App Privacy = *Data Not Collected*; age rating 4+; pricing set
+- [ ] Availability still excludes **China mainland** (§7)
+
+**Screenshots — walk the grid and count (§8)**
+- [ ] iPhone 6.5" 1284×2778 · **iPad 13" 2064×2752** · Mac 2560×1600, 3–10 each
+- [ ] Every shot is `DefaultCollection` — verified by *reading* the prefs plist
+- [ ] Each in-app purchase has an App Review screenshot at **1284×2778**
+
+**Submitting (§10)**
+- [ ] Build attached and processed
+- [ ] Release option chosen deliberately — *Automatic* means approval publishes
+      with no second chance to hold it, so the website and anything else
+      downstream is ready **now**
+- [ ] Draft submission reads **Items Ready to Submit (4)** — version +
+      consumable + subscription + group — before you press submit
+- [ ] Submitted ✅
+
+**After approval**
+- [ ] Listing live (`itunes.apple.com/lookup?bundleId=com.hellotham.HelloNotes`)
+- [ ] Website merged and deployed; `scripts/check-download-page.sh` passes
+      **with** the App Store comparison active
+- [ ] Release recorded in `docs/implemented.md`
+
+## Appendix C · Privacy policy — the live page is the source of truth
+
+> **Live: <https://hellotham.com/hellonotes/privacy>. Read it there.** The text
+> below is the original draft and has already drifted from what is published
+> (the live page words the cloud-provider paragraph differently). It is kept for
+> the *shape* of what the policy has to cover, not as the copy — the same
+> mistake §4 used to make with the App Store description, and the reason that
+> section now points at App Store Connect instead of duplicating it.
 
 > **HelloNotes — Privacy Policy**
 >
