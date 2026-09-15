@@ -8,9 +8,16 @@ import { href } from '../../lib/paths';
   <p>
     Every AI feature runs on Apple’s <strong>Foundation Models</strong>, on your own Mac, iPhone or
     iPad: <strong>Apple Intelligence</strong> by default, or an open model you download and run on
-    your device with <a href="#mlx">MLX</a>. Your notes are processed locally and are not sent to us
-    or to any third party. There are no third-party AI services and no API keys. The Apple
-    Intelligence features appear on hardware where it is available and turned on in Settings.
+    your device with <a href="#mlx">MLX</a>. Your notes are processed on the device and are not
+    sent to us or to any AI service. There are no third-party AI services and no API keys. The one
+    thing that leaves the device is a web search, when <a href="#assistant">the Assistant</a> or
+    Research looks something up.
+  </p>
+  <p>
+    A feature is available when the model chosen for it can run. Apple Intelligence needs a device
+    that supports it, with Apple Intelligence turned on — in System Settings on the Mac, Settings
+    on iPhone and iPad. An MLX model needs to be downloaded, or its folder chosen. Otherwise the AI
+    commands are unavailable, and the AI settings say why.
   </p>
   <p>
     Everything else in HelloNotes works without them — the AI is an addition, never a requirement.
@@ -85,9 +92,10 @@ import { href } from '../../lib/paths';
     its sources gathered at the end and a record of the question it came from.
   </p>
   <p>
-    <strong>Research needs a model with room to read web pages</strong> — at least 8,000 tokens,
-    which AFM 3 Core Advanced and MLX models have. AFM 3 Core holds 4,096, and on that hardware the
-    sheet says so rather than starting a run that cannot finish.
+    <strong>Research needs a model with room to read web pages</strong> — at least 8,000 tokens.
+    AFM 3 Core Advanced and MLX models have that. Research uses the model chosen for the Assistant,
+    and if that one can’t hold enough, the sheet says so rather than starting a run that cannot
+    finish.
   </p>
   <p>
     Either way the draft is connected to what you already have: notes you own on the topic are
@@ -102,8 +110,9 @@ import { href } from '../../lib/paths';
 
   <h2 id="ghost-text">Suggest as I type</h2>
   <p>
-    Grey text appears after the cursor when you pause at the end of a line. <kbd>⌥⇥</kbd> or{' '}
-    <kbd>→</kbd> accepts it; <kbd>Esc</kbd> dismisses it.
+    Grey text appears after the cursor when you pause at the end of a line in the{' '}
+    <strong>Edit</strong> view. On the Mac, <kbd>⌥⇥</kbd> or <kbd>→</kbd> accepts it and{' '}
+    <kbd>Esc</kbd> dismisses it; <kbd>⌥Esc</kbd> or <kbd>F5</kbd> asks for one without waiting.
   </p>
   <blockquote>
     <p>
@@ -112,10 +121,10 @@ import { href } from '../../lib/paths';
     </p>
   </blockquote>
   <p>
-    On iPhone and iPad, tap the suggestion to accept it. It runs <strong>on your device
-    only</strong>: a suggestion that has to cross the network arrives after you have already typed
-    past it. Off until you turn it on, in the <strong>Inline Completion</strong> section of the AI
-    settings.
+    On iPhone and iPad, tap the suggestion to accept it — or press <kbd>⌥⇥</kbd> with a keyboard
+    attached; <kbd>Esc</kbd> dismisses it. Suggestions come from the model chosen for the writing
+    tools, on your device. Off until you turn it on, in the <strong>Inline Completion</strong>{' '}
+    section of the AI settings.
   </p>
 
   <h2 id="ask">Ask your library</h2>
@@ -131,24 +140,35 @@ import { href } from '../../lib/paths';
 
   <h2 id="assistant">The Assistant</h2>
   <p>
-    The Assistant is a chat window with tools: it can search your collection, read notes, propose
-    edits, and search and read the web. It looks at your notes before it answers a question about
-    them, and says what it is doing while it works — searching your notes, reading a note, waiting
-    for your approval.
+    The Assistant — on the Mac, <strong>View ▸ Assistant</strong> (<kbd>⇧⌘A</kbd>) — is a chat
+    window with tools: it can search your collection, read notes, propose edits and search the web.
+    It looks at your notes before it answers a question about them, and says what it is doing while
+    it works — searching your notes, reading a note, waiting for your approval. The wrench and
+    screwdriver button at the top turns its tools off, for a conversation that neither reads nor
+    changes your notes.
   </p>
   <blockquote>
     <p>
-      <strong>Edits always require your approval.</strong> When the Assistant wants to change a
-      note, it shows you the exact change first and waits. Nothing is written to disk until you
-      approve it.
+      <strong>Changes wait for your approval.</strong> When the Assistant wants to change a note, it
+      shows you the exact change first and waits; nothing is written until you approve it. If you
+      choose <strong>Allow all this session</strong>, the rest of that conversation’s changes are
+      made without asking — except deleting a note, which always asks.
     </p>
   </blockquote>
   <p>
-    If it proposes several changes at once, they wait their turn, one card at a time.{' '}
-    <strong>Skills</strong> let you save reusable instructions for repeated jobs, and — on a model
-    with a large enough window — <strong>deep research</strong> runs a longer multi-step
-    investigation across your notes and the web. The model it is using, and where that model runs,
-    is always shown at the top of the window.
+    If it proposes several changes at once, they wait their turn, one card at a time. A change is
+    made only to the text you approved: if the note was edited while the card was waiting, the
+    Assistant is told to read it again instead. <strong>Skills</strong> hold reusable instructions
+    for repeated jobs — a note named <code>SKILL.md</code>, with a <code>name:</code> and a{' '}
+    <code>description:</code> in its front matter — and the Assistant loads the one a request
+    matches.
+  </p>
+  <p>
+    On a model with a window of at least 16,000 tokens — in this version, an MLX model on a Mac —
+    the Assistant can also read whole web pages and run <strong>deep research</strong>, a longer
+    multi-step investigation across your notes and the web. With a smaller window it searches the
+    web and works from the results. The model it is using, and where that model runs, is always
+    shown at the top of the window.
   </p>
 
   <h2 id="settings">Choosing a model</h2>
@@ -200,10 +220,10 @@ import { href } from '../../lib/paths';
 
   <h2 id="limits">How much a model can read</h2>
   <p>
-    Every model has a window — how much text it can hold at once — and HelloNotes asks the model for
-    it rather than guessing. Apple Intelligence holds 4,096 tokens on AFM 3 Core and 8,192 on AFM
-    3 Core Advanced; an MLX model is given 16,000 on a Mac and 8,000 on iPhone and iPad, because a
-    larger window costs memory. Text in Chinese, Japanese or Korean takes about a token a character, so the same
+    Every model has a window — how much text it can hold at once. HelloNotes asks Apple
+    Intelligence for its window rather than assuming one: 8,192 tokens on AFM 3 Core Advanced. An
+    MLX model is given 16,384 tokens on a Mac and 8,192 on iPhone and iPad, because a larger window
+    costs memory. Text in Chinese, Japanese or Korean takes about a token a character, so the same
     window holds fewer characters of it.
   </p>
   <ul>

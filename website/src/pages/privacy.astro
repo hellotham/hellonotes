@@ -46,17 +46,20 @@ import { APP, PUBLISHER } from '../lib/site';
 
       <h2>On-device intelligence</h2>
       <p>
-        The optional AI features — Summarise, Suggest Tags and Links, Rewrite, New Note from a
-        Prompt, “Ask your library” and the Assistant — use Apple’s Foundation Models framework on
-        your device: Apple Intelligence, or an open model you choose to download and run on your
-        device with MLX. Your note content is processed locally and is <strong>not</strong> sent to
-        us or to any third party. {APP.name} has no third-party AI services and stores no AI
-        credentials; API keys stored by earlier versions are deleted from your device.
+        The optional AI features — Summarise, Suggest Tags and Links, Rewrite, suggestions as you
+        type, New Note from a Prompt, “Ask your library” and the Assistant — use Apple’s Foundation
+        Models framework on your device: Apple Intelligence, or an open model you choose to download
+        and run on your device with MLX. Your note content is processed locally and is{' '}
+        <strong>not</strong> sent to us or to any AI service. {APP.name} has no third-party AI
+        services and stores no AI credentials; API keys stored by earlier versions are deleted from
+        your device.
       </p>
       <p>
         Downloading an MLX model contacts Hugging Face to fetch the model’s files; none of your
-        notes are sent. When you ask the Assistant to search or read the web, or run research for a
-        new note, the search terms and addresses it uses go to that search engine or website.
+        notes are sent. The Assistant can search the web — on its own, when a question needs it —
+        and so can Research in New Note from a Prompt. The search terms the model writes go to
+        DuckDuckGo, and they can include words from your question or from notes it has read; a page
+        it reads is fetched from that page’s website.
       </p>
 
       <h2>Cloud storage and version control</h2>
