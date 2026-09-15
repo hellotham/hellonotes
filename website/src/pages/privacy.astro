@@ -46,24 +46,17 @@ import { APP, PUBLISHER } from '../lib/site';
 
       <h2>On-device intelligence</h2>
       <p>
-        The optional Summarise, Suggest Tags/Links, Expand and “Ask your library” features use
-        Apple’s on-device Foundation Models framework. Your note content is processed locally on
-        your device and is <strong>not</strong> sent to us or to any third party. These features appear
-        only on hardware where Apple Intelligence is available.
-      </p>
-
-      <h2>Optional cloud AI providers</h2>
-      <p>
-        {APP.name} can optionally use a third-party AI provider (such as Anthropic, OpenAI or
-        Google) if — and only if — you choose to configure one with <em>your own</em> API key.
-        These providers are switched off until you set one up.
+        The optional AI features — Summarise, Suggest Tags and Links, Rewrite, New Note from a
+        Prompt, “Ask your library” and the Assistant — use Apple’s Foundation Models framework on
+        your device: Apple Intelligence, or an open model you choose to download and run on your
+        device with MLX. Your note content is processed locally and is <strong>not</strong> sent to
+        us or to any third party. {APP.name} has no third-party AI services and stores no AI
+        credentials; API keys stored by earlier versions are deleted from your device.
       </p>
       <p>
-        When you use such a provider, the text you submit for that action (for example the note
-        being summarised, or your question along with relevant excerpts from your notes) is sent to
-        that provider under your own account and their privacy policy. Your key is stored in the
-        Keychain and is never transmitted to us. The Assistant’s optional web search and fetch
-        tools likewise contact the internet only when you invoke them.
+        Downloading an MLX model contacts Hugging Face to fetch the model’s files; none of your
+        notes are sent. When you ask the Assistant to search or read the web, or run research for a
+        new note, the search terms and addresses it uses go to that search engine or website.
       </p>
 
       <h2>Cloud storage and version control</h2>

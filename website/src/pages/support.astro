@@ -48,16 +48,16 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
         <h3>Do I need an account or an internet connection?</h3>
         <p>
           No. {APP.name} works entirely offline and has no account. Nothing is uploaded anywhere
-          unless you deliberately configure Git syncing or a cloud AI provider.
+          unless you deliberately configure Git syncing or a cloud storage account. Downloading an
+          MLX model, and asking the Assistant to search the web, need a connection.
         </p>
 
         <h3>Why don’t I see the intelligence features?</h3>
         <p>
-          Summarise, Suggest and “Ask your library” require a device with <strong>Apple
-          Intelligence</strong> available and enabled — an Apple silicon Mac, or a recent iPhone or
-          iPad — with the feature turned on in Settings. Everything else in {APP.name} works
-          without it.
-          You can also configure your own model instead — see{' '}
+          Summarise, Suggest and “Ask your library” use <strong>Apple Intelligence</strong>, which
+          needs a device that supports it — an Apple silicon Mac, or a recent iPhone or iPad — with
+          it turned on in Settings. Everything else in {APP.name} works without it. Or download an
+          open model and run it on your device with MLX — see{' '}
           <a href={href('/manual/ai')}>AI &amp; intelligence</a>.
         </p>
 
