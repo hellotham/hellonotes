@@ -731,13 +731,41 @@ unit suite (507 in 79 suites), the iOS interface suite (12), the on-device model
 evaluations, and a **Release-configuration build of both platforms** — Debug
 proves nothing about Release, and an archive is the slowest way to find that out.
 
-Still to do before this version can be submitted, none of it possible from a
-build upload: the 1.3.3 metadata in `docs/app-store-listing.md` pasted per
-platform, **China mainland re-enabled** in Availability (§7), the reviewer notes,
-and the screenshots checked for both platforms. The website branch
-`website/1.3.3-foundation-models` stays unmerged until Apple approves — a site
-that describes a version the store has not got is the sequencing mistake
-recorded in [[ios-app-store-website-sequencing]].
+Both builds showed **Complete** in TestFlight (macOS 5:24 PM, iOS 5:29 PM), which
+is the check this runbook insists on: an upload that reports success is not a
+build that arrived.
+
+**Prepared in App Store Connect the same day**, both platforms: version 1.3.3
+created, promotional text, description, What's New and App Review notes pasted
+from `docs/app-store-listing.md` (the 1.3.2 notes carried a reply to an old
+rejection and were replaced), build 22 attached, and every field read back after
+a reload rather than trusted to the save. The live **Mac** description was read
+first and its Mac-only lines carried into the listing file — *Multi-tab editing
+and open-in-new-window*, *keyboard-first*, and "Manage or cancel it in your Apple
+Account settings", which replaces a guessed Settings path. Screenshots carry over
+from 1.3.2 and were checked against the new build: the AI ones still show what
+the app does and name no provider. Both platforms report **Add for Review**
+enabled. Release is set to automatic on approval.
+
+**Two things were deliberately not done**, because each is a decision rather than
+a step:
+
+1. **China mainland is still deselected.** Availability is a property of the
+   *app*, not of a version, and this page says changes reach the App Store
+   within 24 hours — so enabling it today would publish **1.3.2**, the version
+   whose third-party AI providers earned the Guideline 5 rejection, into the
+   storefront that rejected it, days before 1.3.3 could replace it. The order
+   that avoids that is: submit 1.3.3 → approved → released → then add China.
+   The cost of that order is that the review never sees the app as a China
+   submission; and whether mainland distribution also needs an ICP filing number
+   is unanswered, because finding out means selecting the territory, which is
+   the change itself.
+2. **Nothing has been submitted.** "Add for Review" is enabled on both
+   platforms and is one click away.
+
+The website branch `website/1.3.3-foundation-models` stays unmerged until Apple
+approves — a site that describes a version the store has not got is the
+sequencing mistake recorded in [[ios-app-store-website-sequencing]].
 
 ---
 
