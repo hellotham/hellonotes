@@ -4646,17 +4646,30 @@ Hugging Face cache (`mlx_lm.manage --scan`: `mlx-community/gemma-3-27b-it-bf16`,
 gained `HN_EVAL_MLX_FOLDER`, which loads a model through the same folder path as
 "Choose a Model Folder…", and ran against it:
 
-| Evaluation | On-device (AFM 3 Core Advanced) | Gemma 3 27B via MLX |
-|---|---|---|
-| Tags well-formed and on topic | pass | pass (65 s, including loading 58 GB) |
-| Links only from real notes (schema) | pass | pass (14 s) |
-| Rewrites keep links | pass | pass (21 s) |
-| A 45,000-character note summarised whole | pass | pass (94 s) |
-| Assistant reads before answering | pass | not applicable — no tools (below) |
-| Chat without tools doesn't invent notes | not applicable | pass (20 s) |
+| Evaluation | On-device | Gemma 3 27B bf16 | Qwen3.8 27B 4-bit | Gemma 4 26B A4B 4-bit | Gemma 4 31B 4-bit |
+|---|---|---|---|---|---|
+| Tags well-formed and on topic | pass | pass | pass | pass | pass |
+| Links only from real notes (schema) | pass | pass | pass | pass | pass |
+| Rewrites keep links | pass | pass | pass | pass | pass |
+| A 45,000-character note summarised whole | pass | pass | pass | pass | pass |
+| Assistant reads before answering (tools) | pass | n/a — no tools | pass | pass | pass |
+| An approved edit reaches the file | — | n/a | pass | pass | — |
+| Chat without tools doesn't invent notes | n/a | pass | n/a | n/a | n/a |
+
+Whole-suite times, model loading included: Gemma 3 27B bf16 (57.7 GB) 193 s;
+Qwen3.8 27B 4-bit 162 s; Gemma 4 31B 4-bit 162 s; Gemma 4 26B A4B (a mixture of
+experts, 4 B active) 45 s.
 
 Guided generation is grammar-constrained in the MLX adapter, so the schema-bound
-features held on a model the app had never seen. It surfaced three defects:
+features held on models the app had never seen. **Tool calling works**, in each
+model's own dialect — Qwen 3.5's framed JSON and Gemma 4's `<|tool_call>` — and
+through the whole change path: asked to change one line of a note, both models
+called `edit_note` with arguments they worked out themselves, the approval was
+given, and `pears` became `plums` with the rest of the note untouched
+(`AssistantEditEvaluation`; until it ran, no model had ever changed a file
+through the app's tools — the trajectory evaluation denies every approval).
+
+The first model tried, Gemma 3, surfaced three defects:
 
 1. **A Hugging Face cache snapshot cannot be opened from the sandbox.** Every
    file in `snapshots/<revision>/` is a link into `../../blobs/`, and a folder
@@ -4690,7 +4703,7 @@ features held on a model the app had never seen. It surfaced three defects:
    evaluation first passed *while* the model fabricated — it only checked for
    imitation calls — and now also requires the admission and no heading.
 
-Tests: 505 in 78 suites.
+Tests: 506 in 79 suites.
 
 ## 23. Edit and Preview render the same document
 

@@ -525,6 +525,61 @@ struct AssistantWithoutToolsEvaluation {
     }
 }
 
+/// The whole change path on the chosen model: the Assistant calls an editing
+/// tool with arguments it worked out itself, the person approves, and the note
+/// on disk changes — and nothing else in it does.
+///
+/// The trajectory evaluation denies every approval on purpose, so until this
+/// ran, no model had ever changed a file through the app's tools.
+@Suite(.serialized)
+struct AssistantEditEvaluation {
+    @Test(.enabled(if: evaluationsEnabled && evaluatedModelUsesTools, "the model can't call tools"),
+          .timeLimit(.minutes(10)))
+    @MainActor
+    func anApprovedEditReachesTheFile() async throws {
+        try await Features.prepare()
+        let manager = FileManager.default
+        let vault = manager.temporaryDirectory.appendingPathComponent("EditEval-\(UUID().uuidString)", isDirectory: true)
+        try manager.createDirectory(at: vault, withIntermediateDirectories: true)
+        defer { try? manager.removeItem(at: vault) }
+        let note = vault.appendingPathComponent("Shopping.md")
+        try FileIO.write("# Shopping\n\n- apples\n- pears\n- flour\n", to: note)
+
+        let collection = Collection(rootURL: vault)
+        collection.scan()
+        let assistant = AssistantModel(settings: Features.settings)
+        let permissions = PermissionBroker()
+        assistant.toolContext = ToolContext(collection: collection, search: collection.search,
+                                            git: GitService(), permissions: permissions)
+        assistant.sessionStore = ChatSessionStore(collectionURL: vault, baseDirectory: vault)
+
+        // A person clicking Approve. Sleeps rather than yields: every tool hops
+        // to the main actor, and a yield loop here would starve them.
+        let approver = Task { @MainActor in
+            while !Task.isCancelled {
+                if permissions.prompt != nil { permissions.respond(approved: true) }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        defer { approver.cancel() }
+
+        assistant.input = "In my Shopping note, change pears to plums. Leave everything else exactly as it is."
+        assistant.send()
+        let deadline = ContinuousClock.now + .seconds(8 * 60)
+        while assistant.isResponding && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+
+        #expect(!assistant.isResponding, "no answer within eight minutes")
+        #expect(assistant.errorText == nil, "\(assistant.errorText ?? "")")
+        let after = try FileIO.readString(at: note)
+        print("EVAL edited note:\n\(after)")
+        #expect(after.contains("plums"), "the edit never reached the file")
+        #expect(!after.contains("pears"))
+        #expect(after.contains("apples") && after.contains("flour"), "the rest of the note was not left alone")
+    }
+}
+
 // MARK: - Private Cloud Compute, as the app sees it
 
 /// What Private Cloud Compute reports inside the signed, sandboxed app — which
