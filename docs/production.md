@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.2`, `CURRENT_PROJECT_VERSION = 21` — **verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 22` — uploaded to TestFlight (both platforms) on 2026-09-16; 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -714,6 +714,32 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10a · 1.3.3 — uploaded to TestFlight, 2026-09-16
+
+Both platforms, one build number, from a clean tree at `3af6676`:
+
+| | macOS | iOS |
+|---|---|---|
+| Archive | `build/HelloNotes.xcarchive` | `build/HelloNotes-iOS.xcarchive` |
+| Export plist (the export *is* the upload) | `ExportOptions-AppStore-macOS.plist` | `ExportOptions-AppStore-iOS.plist` |
+| Reported | `Progress 100%: Upload succeeded` · `Uploaded package is processing` · `** EXPORT SUCCEEDED **` | the same |
+
+Version `1.3.3`, build `22` — read back from each archive's
+`ApplicationProperties`, not from the project file. Before archiving: the whole
+unit suite (507 in 79 suites), the iOS interface suite (12), the on-device model
+evaluations, and a **Release-configuration build of both platforms** — Debug
+proves nothing about Release, and an archive is the slowest way to find that out.
+
+Still to do before this version can be submitted, none of it possible from a
+build upload: the 1.3.3 metadata in `docs/app-store-listing.md` pasted per
+platform, **China mainland re-enabled** in Availability (§7), the reviewer notes,
+and the screenshots checked for both platforms. The website branch
+`website/1.3.3-foundation-models` stays unmerged until Apple approves — a site
+that describes a version the store has not got is the sequencing mistake
+recorded in [[ios-app-store-website-sequencing]].
+
+---
 
 ## 11 · After submission — what actually got rejected
 
