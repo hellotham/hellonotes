@@ -198,15 +198,17 @@ import { href } from '../../lib/paths';
 
   <h2 id="mlx">Open models with MLX</h2>
   <p>
-    The MLX section suggests a few models, sized for the memory your device has, each with its
-    download size. Choose one with <strong>Use</strong>, then <strong>Download</strong>; a download
-    can be cancelled, and <strong>Remove Download</strong> gives the space back. Models are stored in
-    your device’s caches, not in your notes or your backups.
+    <strong>HelloNotes suggests no models.</strong> Choosing one is the advanced end of the app: a
+    recommended list is a generation out of date within months, and whether a model is any good at
+    your work is between you and the model. Name one, or point at a folder holding one; either way it
+    is stored in your device’s caches, not in your notes or your backups. A download can be
+    cancelled, and <strong>Remove Download</strong> gives the space back.
   </p>
   <ul>
     <li>
-      <strong>Any MLX model on Hugging Face</strong> — type its name, such as{' '}
-      <code>mlx-community/Qwen3-4B-4bit</code>, and choose Use.
+      <strong>Any MLX model on Hugging Face</strong> — type its name in the form{' '}
+      <code>organisation/model</code> and choose Use. The settings link through to the{' '}
+      <code>mlx-community</code> organisation, which converts most models to MLX.
     </li>
     <li>
       <strong>A model folder</strong> — if Hugging Face isn’t reachable where you are, get an MLX
@@ -223,8 +225,8 @@ import { href } from '../../lib/paths';
   <p>
     Not every open model can use tools — Gemma 3, for one, has no way to be shown them. With such a
     model the AI settings say so, the Assistant chats without reading or changing your notes, and
-    Research isn’t available; the writing tools work as usual. The suggested models can all use
-    tools.
+    Research isn’t available; the writing tools work as usual. HelloNotes also says when a model’s
+    weights are large for the device it is on.
   </p>
   <p>
     MLX runs on the device itself, so it is not available in the iOS Simulator.
