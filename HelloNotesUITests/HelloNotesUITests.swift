@@ -265,12 +265,31 @@ final class HelloNotesUITests: XCTestCase {
         let strip = app.buttons["shell.miniStrip"].firstMatch
         if strip.waitForExistence(timeout: 15) { strip.tap() }
 
-        // The word count is the editor's own bottom bar — proof the editor is
-        // what we are looking at, not the place behind it.
-        let wordCount = app.staticTexts
-            .matching(NSPredicate(format: "label CONTAINS[c] 'word'")).firstMatch
-        XCTAssertTrue(wordCount.waitForExistence(timeout: 15),
-                      "the editor never appeared, so nothing was measured")
+        // The editor's own text view — proof the editor is what we are looking
+        // at, not the place behind it.
+        //
+        // This used to wait for the word count in the status bar, and that
+        // number was removed on 2 September (it was recomputed on every typing
+        // pause for nobody's benefit; the Outline popover reports it now). The
+        // test went on waiting for it and failed from that day until 16
+        // September, because nothing ran the iOS interface suite in between.
+        // A test that names a thing the app no longer has fails for a reason
+        // that has nothing to do with what it is testing.
+        let editor = app.textViews.firstMatch
+        if !editor.waitForExistence(timeout: 15) {
+            // Say what *was* on screen, and show it. "The editor never
+            // appeared" cannot be acted on a week later; a list of what the
+            // shell was showing instead can.
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "no editor after New Note"
+            shot.lifetime = .keepAlways
+            add(shot)
+            XCTFail("the editor never appeared, so nothing was measured. Buttons: "
+                    + app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | ")
+                    + " — texts: "
+                    + app.staticTexts.allElementsBoundByIndex.prefix(25).map(\.label).joined(separator: " | "))
+            return
+        }
 
         let screen = app.windows.element(boundBy: 0).frame
         let texts = app.staticTexts.allElementsBoundByIndex.filter { $0.exists }

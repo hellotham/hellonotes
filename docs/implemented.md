@@ -4488,8 +4488,8 @@ JSONL to a Foundation Models `Transcript`, text turns only.
 
 - `Models/` — `LanguageModels` (the one place a choice becomes a model: availability,
   name, where it runs, context size, reasoning, PCC quota), `TokenBudget`
-  (script-aware token estimates and lossless chunking), `MLXModelStore` (curated
-  catalog filtered by device memory, download with progress, removal, custom
+  (script-aware token estimates and lossless chunking), `MLXModelStore` (a model the
+  person names or points at, download with progress, removal, custom
   Hugging Face ids, and **a model folder** — Hugging Face is unreachable from
   mainland China), and `MLXBridge` (downloader and tokenizer, hand-written instead
   of the package's macros so no build needs macro validation skipped).
@@ -4704,6 +4704,42 @@ The first model tried, Gemma 3, surfaced three defects:
    imitation calls — and now also requires the admission and no heading.
 
 Tests: 506 in 79 suites.
+
+### 51.3 The app suggests no models
+
+The MLX section carried four models — Qwen3 1.7B/4B/8B and Llama 3.2 3B — with a
+size and a sentence each, read from the Hub on 15 September 2026 and filtered by
+device memory. It was deleted on the 16th, a day later, for the reasons the day
+produced:
+
+- **Stale by a generation, immediately.** Checked against the Hub: those four
+  were last updated in March and April **2025**. The models actually on the
+  machine that week were Qwen3.8 27B and Gemma 4 — 2026 models, none of them on
+  the list.
+- **Recommended but never run.** Not one of the four had been loaded by anyone
+  here; the models that *were* verified were the ones not suggested.
+- **The rule was already written.** "A model list is a thing you ask for, never
+  a thing you remember" was in this file about the provider layer, and narrowing
+  it to context windows during the rewrite is how a remembered list returned.
+
+A live list from the Hub was the alternative — `HubClient.listModels` is linked
+and could be filtered by device memory and supported architecture — and was
+rejected: it adds a network request to a settings screen, and its only honest
+ranking is popularity, which today puts a 2025 Llama and a 1-trillion-parameter
+model at the top of `mlx-community`. It also helps a beginner least, while
+implying the app vouches for what it lists.
+
+What remains is a Hugging Face model name, a folder, and a link to the
+`mlx-community` organisation, under a footer that says plainly that HelloNotes
+recommends nothing and that how well a model works is up to the model. Two
+things the catalog was carrying quietly are now read from the model itself: the
+window is the device's (`MLXModelStore.contextTokens`), and a model whose
+weights are larger than a share of this device's memory gets a caution — not a
+refusal — once it is on disk. Reasoning went with the list: it has to be
+declared before the weights load, nothing readable beforehand says truthfully
+whether a model reasons, and declaring it wrongly fails every request.
+`ShippedContentTests.noModelIsSuggested` fails if a model id reappears in app
+code (it finds the four at the previous commit).
 
 ## 23. Edit and Preview render the same document
 

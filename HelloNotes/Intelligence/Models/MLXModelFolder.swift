@@ -111,6 +111,19 @@ nonisolated enum MLXModelFolder {
         }
     }
 
+    /// What a model's weights weigh, for the caution about a model too large
+    /// for the device. Safetensors only: the tokenizer and configuration are
+    /// noise beside them, and a cache folder holds nothing else of size.
+    static func weightsBytes(in directory: URL) -> Int64 {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles])) ?? []
+        return files
+            .filter { $0.pathExtension == "safetensors" }
+            .reduce(into: Int64(0)) { total, file in
+                total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+            }
+    }
+
     private static func hasModel(_ directory: URL) -> Bool {
         FileManager.default.fileExists(atPath: directory.appending(path: "config.json").path)
     }

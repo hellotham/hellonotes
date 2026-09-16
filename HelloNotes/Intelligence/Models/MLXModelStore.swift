@@ -7,17 +7,15 @@
 //  The open models HelloNotes can run with MLX: which one is chosen, whether it
 //  is on disk, and fetching or removing it.
 //
+//  **The app suggests nothing.** It used to carry four models with their sizes
+//  and a sentence each, read from the Hub on one day in September 2026 — and
+//  within a day they were a generation behind what a person actually had on
+//  their disk (Qwen 3.8, Gemma 4), while not one of them had ever been run.
+//  A remembered model list is stale the week after it is written, and a
+//  suggestion carries a promise the app cannot keep. Choosing a model is the
+//  advanced end of the app: bring one you know you want.
+//
 //  Two ways in, because one of them does not work everywhere the app now ships:
-//
-//  * **Download** from the Hugging Face Hub, into the Hub's own cache under
-//    Library/Caches — not backed up, and reclaimable by the system, which is
-//    the right home for several gigabytes that can always be fetched again.
-//  * **A model folder** the person already has. The Hub is unreachable from
-//    mainland China, and a Mac on a plane or behind a proxy is in the same
-//    position. Any MLX-format folder works (config.json, weights, tokenizer),
-//    wherever it came from — ModelScope, a colleague, a USB stick — held by a
-//    security-scoped bookmark like a collection is.
-//
 //  A model is *loaded* lazily by `MLXLanguageModel` on its first request and
 //  cached process-wide there; this store never holds weights itself.
 //
@@ -30,73 +28,34 @@ import MLXLLM
 import MLXLMCommon
 import Observation
 
-/// A downloadable model the app suggests.
-///
-/// Sizes, licences and tool-calling support were read from each repository's
-/// Hub listing and chat template on 15 September 2026 — every one of these
-/// templates accepts tools, which is what lets the Assistant edit notes on them.
-nonisolated struct MLXCatalogModel: Identifiable, Hashable, Sendable {
-    let id: String
-    let name: String
-    let bytes: Int64
-    /// Emits a reasoning trace before answering (Qwen3's thinking mode).
-    let reasons: Bool
-    let summary: String
-}
-
-nonisolated enum MLXCatalog {
-    static let models: [MLXCatalogModel] = [
-        MLXCatalogModel(id: "mlx-community/Qwen3-1.7B-4bit", name: "Qwen3 1.7B",
-                        bytes: 980_000_000, reasons: true,
-                        summary: "Small and quick. Fine for tags, summaries and short answers."),
-        MLXCatalogModel(id: "mlx-community/Llama-3.2-3B-Instruct-4bit", name: "Llama 3.2 3B",
-                        bytes: 1_820_000_000, reasons: false,
-                        summary: "Answers directly, without a thinking step."),
-        MLXCatalogModel(id: "mlx-community/Qwen3-4B-4bit", name: "Qwen3 4B",
-                        bytes: 2_280_000_000, reasons: true,
-                        summary: "A good balance of quality and speed."),
-        MLXCatalogModel(id: "mlx-community/Qwen3-8B-4bit", name: "Qwen3 8B",
-                        bytes: 4_620_000_000, reasons: true,
-                        summary: "The strongest here, and the slowest."),
-    ]
-
-    static func model(id: String) -> MLXCatalogModel? {
-        models.first { $0.id == id }
-    }
-
-    /// Whether this device has the memory to run `model` comfortably.
-    ///
-    /// Weights are only part of it — the KV cache for a long note, the app, and
-    /// everything else the person has open all share the same memory. iOS is
-    /// stricter because the system ends a foreground app that grows too large,
-    /// and it does so without asking.
-    static func fits(_ model: MLXCatalogModel,
-                     physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Bool {
-        #if os(macOS)
-        let share = 0.40
-        #else
-        let share = 0.25
-        #endif
-        return Double(model.bytes) <= Double(physicalMemory) * share
-    }
+@MainActor
+@Observable
+final class MLXModelStore {
 
     /// How many tokens of context an MLX model is planned against.
     ///
-    /// The models themselves accept far more (Qwen3 40,960; Llama 3.2 131,072),
-    /// but the KV cache costs memory per token — about 144 KB a token for Qwen3
-    /// 4B — so the window the app *uses* is set by the device, not the model.
-    static var contextTokens: Int {
+    /// Models accept far more than this (32,768 and up is ordinary), but the
+    /// KV cache costs memory per token — and a model the person chose may
+    /// already be most of what the device has. So the window the app *uses* is
+    /// set by the device, not by the model.
+    nonisolated static var contextTokens: Int {
         #if os(macOS)
         16_384
         #else
         8_192
         #endif
     }
-}
 
-@MainActor
-@Observable
-final class MLXModelStore {
+    /// The share of this device's memory a model may reasonably occupy before
+    /// the app says so. iOS is stricter: the system ends a foreground app that
+    /// grows too large, without asking.
+    private static var memoryShare: Double {
+        #if os(macOS)
+        0.40
+        #else
+        0.25
+        #endif
+    }
 
     /// Where the chosen model comes from.
     enum Source: Equatable {
@@ -146,6 +105,11 @@ final class MLXModelStore {
     /// the Assistant's work away from models that can do it.
     private(set) var toolsSupported = true
 
+    /// Said once the model is on disk, when its weights are large for this
+    /// device. Not a refusal: the person chose this model, and only they know
+    /// what else they are running.
+    private(set) var sizeCaution: String?
+
     struct FolderModel: Equatable {
         let directory: URL
         let name: String
@@ -162,20 +126,21 @@ final class MLXModelStore {
     /// The chosen model's display name.
     var modelName: String {
         switch source {
-        case .hub(let id): MLXCatalog.model(id: id)?.name ?? Self.shortName(ofRepository: id)
+        case .hub(let id): Self.shortName(ofRepository: id)
         case .folder(let url): folderModel?.name ?? url.lastPathComponent
         case nil: "MLX"
         }
     }
 
-    /// Whether the chosen model reasons, where the app knows. A custom model
-    /// is assumed not to: declaring `.reasoning` on a model without a thinking
-    /// template makes every request fail, while not declaring it on one that
-    /// has one only hides the trace.
-    var reasons: Bool {
-        if case .hub(let id) = source { return MLXCatalog.model(id: id)?.reasons ?? false }
-        return false
-    }
+    /// Whether the chosen model is asked to reason. **It never is.**
+    ///
+    /// Reasoning has to be declared before the weights are loaded, and nothing
+    /// the app can read beforehand says truthfully whether a model reasons —
+    /// declaring it on a model that does not makes every request fail, which is
+    /// a worse trade than a model that answers without showing its thinking.
+    /// The suggested-model list used to carry this as a remembered flag per
+    /// model; it went with the list.
+    var reasons: Bool { false }
 
     func choose(repository id: String) {
         let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -312,7 +277,7 @@ final class MLXModelStore {
             }
         }
         refreshDownloaded()
-        await refreshToolSupport()
+        await refreshFromModelFiles()
         do {
             let model = try languageModel()
             switch await model.availability {
@@ -335,9 +300,10 @@ final class MLXModelStore {
         #endif
     }
 
-    /// Read the chosen model's chat template, if it is on disk, to learn
-    /// whether it can use tools.
-    private func refreshToolSupport() async {
+    /// Read what the chosen model's own files say about it, once it is on
+    /// disk: whether its chat template can show it tools, and whether its
+    /// weights are more than this device should hold.
+    private func refreshFromModelFiles() async {
         let directory: URL?
         switch source {
         case .folder: directory = folderModel?.directory
@@ -346,12 +312,23 @@ final class MLXModelStore {
         }
         guard let directory else {
             toolsSupported = true
+            sizeCaution = nil
             return
         }
         let chosen = source
-        let renders = await offMain { MLXChatTemplate.rendersTools(in: directory) }
+        let share = Self.memoryShare
+        let memory = ProcessInfo.processInfo.physicalMemory
+        let read = await offMain { () -> (tools: Bool?, caution: String?) in
+            let tools = MLXChatTemplate.rendersTools(in: directory)
+            let bytes = MLXModelFolder.weightsBytes(in: directory)
+            guard bytes > 0, Double(bytes) > Double(memory) * share else { return (tools, nil) }
+            let size = bytes.formatted(.byteCount(style: .file))
+            let total = Int64(memory).formatted(.byteCount(style: .file))
+            return (tools, "This model's weights are \(size), on a device with \(total) of memory. It may fail to load, or be stopped while it runs.")
+        }
         guard source == chosen else { return }   // chosen again meanwhile
-        toolsSupported = renders ?? true
+        toolsSupported = read.tools ?? true
+        sizeCaution = read.caution
     }
 
     /// The first file in a chosen model folder whose bytes are still in the cloud.
@@ -430,14 +407,15 @@ final class MLXModelStore {
 
     // MARK: - Helpers
 
-    /// Recompute which catalog models and the chosen one are complete on disk.
+    /// Whether the chosen Hub model is complete on disk.
     func refreshDownloaded() {
-        var ids = Set(MLXCatalog.models.map(\.id))
-        if case .hub(let id) = source { ids.insert(id) }
-        downloaded = Set(ids.filter { id in
-            FileManager.default.fileExists(
-                atPath: Self.snapshotDirectory(forRepository: id).appending(path: "config.json").path)
-        })
+        guard case .hub(let id) = source else {
+            downloaded = []
+            return
+        }
+        let complete = FileManager.default.fileExists(
+            atPath: Self.snapshotDirectory(forRepository: id).appending(path: "config.json").path)
+        downloaded = complete ? [id] : []
     }
 
     /// The directory a Hub model's files live in once downloaded — the same

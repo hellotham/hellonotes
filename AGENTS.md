@@ -32,6 +32,15 @@
 - Is it running on the device? `xcrun devicectl device info processes --device <id> | grep "HelloNotes.app/HelloNotes"` — **capital H**. A lower-cased pattern matches nothing and reads exactly like a crash-on-launch; an hour went into diagnosing a crash that never happened. Cross-check against `--domain-type systemCrashLogs`: no new `.ips` means no crash, whatever the process list appears to say.
 - Layout contract: `./scripts/run-tests.sh -only-testing:HelloNotesTests/ShellContractTests` (~2s — run it after any shell or representable change).
 - **Model evaluations** (Apple's Evaluations framework, real on-device model, ~30s, opt-in — needs Apple Intelligence, so never CI): `TEST_RUNNER_HN_EVALUATIONS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/IntelligenceEvaluationTests`. Tags, links, rewrites, long-note summaries and Assistant tool trajectories. Add `TEST_RUNNER_HN_EVAL_MLX_FOLDER=<absolute path>` to run the same suite on an MLX model — a model folder, or a model's `models--org--name` folder in `~/.cache/huggingface/hub` (list what is there with `mlx_lm.manage --scan`; never download one without asking), loaded through the app's own folder path; a `~` would expand inside the test host's container. Two more suites run under the same flags and pick themselves by the model: `AssistantEditEvaluation` (a tool call, an approval, and the note on disk changes — the trajectory suite denies every approval, so nothing else ever writes) and `AssistantWithoutToolsEvaluation` (a model whose template has no tools must answer in words, not imitation calls). Add them with their own `-only-testing:` flags. Run after touching any prompt, schema, tool, `HistoryWindow` or `TokenBudget` — the unit tests prove plumbing and could not see the two defects this suite found in its first hour (below). Read per-sample results with `xcrun xcresulttool export attachments --path <xcresult> --output-path <dir>` (`.xcevalresult` JSON). Two more opt-in probes run inside the signed app: `TEST_RUNNER_HN_RESEARCH_PROBE=1 … -only-testing:HelloNotesTests/ResearchProbe` (a real deep-research run, ~30s, searches the web) and `TEST_RUNNER_HN_PCC_PROBE=1 … -only-testing:HelloNotesTests/PrivateCloudComputeProbe` (one PCC request; does nothing unless the build is entitled).
+- **iOS interface tests** — the only check that a screen actually *draws*:
+  `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=iOS Simulator,name=HN-iPhone' -skipPackagePluginValidation -only-testing:HelloNotesUITests`
+  (~4 min, 12 cases, headless). Run it after any change to a settings screen, the
+  shell, or the editor's chrome — **and actually run it**:
+  `testTheOpenNoteIsNotClippedOffTheScreen` waited for a word count that was
+  removed from the status bar on 2 September and failed every run from that day
+  to 16 September, because nothing ran this suite in between. A test naming a
+  thing the app no longer has fails for a reason that has nothing to do with what
+  it tests, and a suite nobody runs says nothing at all.
 - App tests (macOS): `./scripts/run-tests.sh` — **never a bare `xcodebuild test`**.
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
@@ -311,6 +320,16 @@
   a Debug run can show it. `MLXModelFolder` resolves `refs/main` from the model's
   folder and refuses a snapshot by layout, with a message naming the folder to
   choose instead.
+- **The app suggests no models, and remembers no fact about one.** Four
+  suggestions with sizes and a sentence each lasted a day: checked against the
+  Hub they were last updated in 2025, while the models on the machine were 2026
+  ones, and not one of the four had ever been run. A live Hub list was rejected
+  too — a network call in a settings screen, ranked by popularity, which is not
+  advice. What a model can do is read from the model (tools from its chat
+  template, weight size from its files); the context window is the device's
+  (`MLXModelStore.contextTokens`); reasoning is never declared, because it must
+  be declared before loading and declaring it wrongly fails every request.
+  `ShippedContentTests.noModelIsSuggested` fails if an id reappears.
 - **An MLX model can only call tools its chat template shows it.** The adapter
   passes tool definitions to the template; Gemma 3's never mentions `tools`, so
   they vanish. Given the Assistant's tools, Gemma 3 27B wrote

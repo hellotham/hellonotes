@@ -170,17 +170,13 @@ struct IntelligenceSettingsForm: View {
 
     private var mlxSection: some View {
         Section {
-            ForEach(MLXCatalog.models.filter { MLXCatalog.fits($0) }) { entry in
-                catalogRow(entry)
-            }
-
             if case .folder = mlx.source {
                 LabeledContent("Folder") {
                     Label(mlx.modelName, systemImage: "checkmark")
                         .foregroundStyle(.tint)
                 }
-            } else if case .hub(let id) = mlx.source, MLXCatalog.model(id: id) == nil {
-                customRow(id)
+            } else if case .hub(let id) = mlx.source {
+                chosenModelRow(id)
             }
 
             HStack {
@@ -194,6 +190,14 @@ struct IntelligenceSettingsForm: View {
             }
 
             Button("Choose a Model Folder…") { choosingFolder = true }
+
+            Link("Browse MLX models on Hugging Face", destination: Self.mlxCommunity)
+
+            if let caution = mlx.sizeCaution {
+                Label(caution, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if mlx.source != nil && !mlx.toolsSupported {
                 Label("\(mlx.modelName) can't use tools. With it the Assistant chats without reading or changing your notes, and Research isn't available.",
@@ -214,33 +218,18 @@ struct IntelligenceSettingsForm: View {
         }
     }
 
+    private static let mlxCommunity = URL(string: "https://huggingface.co/mlx-community")!
+
+    /// **No models are suggested.** The app used to list four, and they were a
+    /// generation out of date within a day of being written. Naming a model is
+    /// a promise about it; this screen makes none.
     #if os(macOS)
-    private let mlxFooter = "Open models run on this device with MLX. They download from Hugging Face into this device's caches. If Hugging Face isn't reachable where you are, get an MLX model another way and choose its folder. A model already in your Hugging Face cache works too: choose its folder in ~/.cache/huggingface/hub (press ⇧⌘G in the Open panel to type the path)."
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one, and whether a model works, and how well, is up to the model. Type an MLX model's name on Hugging Face, or choose a folder that holds one; either downloads into this device's caches. A model already in your Hugging Face cache works too: choose its folder in ~/.cache/huggingface/hub (press ⇧⌘G in the Open panel to type the path). Where Hugging Face isn't reachable, get a model another way and choose its folder."
     #else
-    private let mlxFooter = "Open models run on this device with MLX. They download from Hugging Face into this device's caches. If Hugging Face isn't reachable where you are, get an MLX model another way and choose its folder."
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one, and whether a model works, and how well, is up to the model. Type an MLX model's name on Hugging Face, or choose a folder that holds one; either downloads into this device's caches. Where Hugging Face isn't reachable, get a model another way and choose its folder."
     #endif
 
-    private func catalogRow(_ entry: MLXCatalogModel) -> some View {
-        let chosen = mlx.source == .hub(entry.id)
-        let onDisk = mlx.downloaded.contains(entry.id)
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                if chosen {
-                    Image(systemName: "checkmark").foregroundStyle(.tint)
-                }
-                Text(entry.name)
-                Spacer()
-                Text(entry.bytes.formatted(.byteCount(style: .file)))
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
-            Text(entry.summary)
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            downloadControls(id: entry.id, name: entry.name, chosen: chosen, onDisk: onDisk)
-        }
-    }
-
-    private func customRow(_ id: String) -> some View {
+    private func chosenModelRow(_ id: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: "checkmark").foregroundStyle(.tint)

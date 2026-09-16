@@ -39,9 +39,10 @@ Assistant's edits change your notes only when you accept them.
 
 ## Open models with MLX
 
-Download a suggested model in the AI settings, or give the name of an MLX
-language model on Hugging Face. If Hugging Face isn't reachable where you are, get an MLX model
-another way and choose its folder instead.
+HelloNotes suggests no models: choosing one is the advanced end of the app. In the AI
+settings, give the name of an MLX language model on Hugging Face, or choose a folder that
+holds one. If Hugging Face isn't reachable where you are, get a model another way and
+choose its folder.
 
 On a Mac, a model you already downloaded with other MLX tools is in your Hugging Face
 cache, `~/.cache/huggingface/hub`. Choose the model's own folder there — the one named like
@@ -49,6 +50,5 @@ cache, `~/.cache/huggingface/hub`. Choose the model's own folder there — the o
 
 Not every open model can use tools. With one that can't, the AI settings say so: the
 Assistant chats without reading or changing your notes, and Research isn't available.
-The suggested models can use tools.
 
 There are no API keys and no third-party AI services.

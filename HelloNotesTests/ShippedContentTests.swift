@@ -71,6 +71,31 @@ struct ShippedContentTests {
         #expect(offenders.isEmpty, "\(Set(offenders).sorted())")
     }
 
+    /// The app suggests no model, as it names no AI service.
+    ///
+    /// Four were suggested once, with a size and a sentence each, read from the
+    /// Hub on one day. Within a day they were a generation behind what people
+    /// were running, and not one had ever been run by anyone here. Naming a
+    /// model is a promise about it. The field's placeholder — `mlx-community/…`
+    /// — and the link to that organisation's page name nothing, and are the
+    /// only mentions allowed.
+    @Test func noModelIsSuggested() throws {
+        var offenders: [String] = []
+        let named = try Regex(#"mlx-community/[A-Za-z0-9]"#)
+        let root = Self.repo.appending(path: "HelloNotes")
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL } ?? []
+        for file in files where file.pathExtension == "swift" {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for line in text.split(separator: "\n").map(Self.codeOnly) {
+                if line.contains(named) || line.contains("MLXCatalog") {
+                    offenders.append("\(file.lastPathComponent): \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        #expect(offenders.isEmpty, "\(offenders)")
+    }
+
     /// A Swift line with its comment removed. A `//` counts as a comment only
     /// outside a string literal — an even number of unescaped quotes before it —
     /// so an address like `"https://…"` is still checked.

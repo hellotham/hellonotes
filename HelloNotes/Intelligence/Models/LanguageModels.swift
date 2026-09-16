@@ -219,7 +219,7 @@ final class LanguageModels {
             privateCloudContext = size
             return size
         case .mlx:
-            return MLXCatalog.contextTokens
+            return MLXModelStore.contextTokens
         }
     }
 
@@ -231,7 +231,7 @@ final class LanguageModels {
         switch choice {
         case .onDevice: onDevice.contextSize
         case .privateCloud: privateCloudContext ?? 32_768
-        case .mlx: MLXCatalog.contextTokens
+        case .mlx: MLXModelStore.contextTokens
         }
     }
 

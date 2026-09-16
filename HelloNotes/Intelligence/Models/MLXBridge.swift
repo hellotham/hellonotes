@@ -111,7 +111,7 @@ nonisolated enum MLXModelError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidRepository(let id):
-            "“\(id)” isn't a Hugging Face model name. Use the form organisation/model, for example mlx-community/Qwen3-4B-4bit."
+            "“\(id)” isn't a Hugging Face model name. Use the form organisation/model — the organisation, a slash, then the model."
         case .notDownloaded(let name):
             "\(name) hasn't been downloaded yet. Download it in AI settings."
         case .folderUnreadable(let name):
