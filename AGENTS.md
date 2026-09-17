@@ -328,14 +328,20 @@
   the open note's menu, from the same `SidebarMenu` list. `Menu(primaryAction:)`
   *looks* like a plain button and is a hidden menu: tap was New Note, hold was
   everything else, and on every iPad that hid Settings.
-- **The iPad opens no windows.** `openWindow` on iPadOS makes a scene that
-  *replaces* the notes in full-screen apps, and closing it leaves the app — Done
-  in the Assistant showed the Home Screen. Nothing tells full-screen from
-  windowed (`UIWindowScene.isFullScreen` is Mac Catalyst only), so the rule is
-  the platform: `AuxiliaryPresentation.opensWindows` is false on iOS, Graph /
-  Assistant / Ask Library / Mind Map are sheets, and New Window and Open in New
-  Window are not offered. A view that draws its own title and Done asks
-  `\.auxiliaryIsWindowed` first — a sheet already has both, and showed two.
+- **The app opens no windows of its own — on either platform.** A window
+  happens when someone asks for one by name (New Window, Open in New Window),
+  and those two are on both platforms like every other command. Graph, Ask
+  Library, Assistant and Mind Map are sheets, and have no scene at all.
+  `openWindow` on iPadOS makes a scene that *replaces* the notes in full-screen
+  apps and in Split View, and closing it left the app — Done in the Assistant
+  showed the Home Screen. Nothing tells full-screen from windowed
+  (`UIWindowScene.isFullScreen` is Mac Catalyst only; `sizeRestrictions` is
+  non-nil in both, probed on iPadOS 27), and the answer was not to give the Mac
+  something the iPad cannot have: **parity is one rule and one shape, not a
+  platform's worth of exceptions.** `AuxiliarySheet` draws the title and the
+  Done, in a plain row rather than a navigation bar, because it is the only
+  chrome these surfaces have on either platform — each drew its own before, so a
+  sheet showed two titles and two Done buttons.
 - **Accent on accent draws nothing.** On iPad a selected row, and `.selection`,
   *are* the tint — so a tinted glyph inside one vanishes. The inspector's chosen
   tab was a blank pill and a row's `…` disappeared into its own highlight. Use

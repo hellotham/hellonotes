@@ -311,7 +311,7 @@ struct ShellActions {
             },
             rename: { beginRename($0) },
             duplicate: { duplicate($0) },
-            openInNewWindow: AuxiliaryPresentation.opensWindows ? { openNoteWindow($0) } : nil,
+            openInNewWindow: { openNoteWindow($0) },
             delete: { delete($0) },
             isOpenInEditor: { isOpenInEditor($0) },
             reviewLinks: { _ in reviewLinks() },

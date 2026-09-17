@@ -23,32 +23,14 @@ struct LibraryChatView: View {
     /// the user press Ask again would only ask them to confirm what they just did.
     var initialQuestion: String? = nil
 
-    @Environment(\.dismiss) private var dismiss
-
     @State private var question = ""
     @State private var busy = false
     @State private var answer: String?
     @State private var sources: [Note] = []
     @State private var errorText: String?
-    /// A sheet draws its own Done; a window does not.
-    @Environment(\.auxiliaryIsWindowed) private var isWindowed
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                // The sheet's own bar already says Ask Library, with the Done.
-                if isWindowed {
-                    Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
-                        .font(.headline)
-                }
-                Spacer()
-                if isWindowed {
-                    Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
-                }
-            }
-            .padding()
-            Divider()
-
             HStack(spacing: 8) {
                 TextField("Ask a question about your notes…", text: $question)
                     .textFieldStyle(.roundedBorder)

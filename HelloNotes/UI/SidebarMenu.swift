@@ -60,10 +60,7 @@ enum SidebarMenu {
         var toggleBookmark: (Note) -> Void = { _ in }
         var rename: (Note) -> Void = { _ in }
         var duplicate: (Note) -> Void = { _ in }
-        /// `nil` where the platform opens no windows (iPad) — the row's menu
-        /// then does not offer it, rather than offering a command that leaves
-        /// the app. See `AuxiliaryPresentation.opensWindows`.
-        var openInNewWindow: ((Note) -> Void)? = nil
+        var openInNewWindow: (Note) -> Void = { _ in }
         var delete: (Note) -> Void = { _ in }
         /// Whether this note is the one the editor has open. Review Links reads
         /// the live buffer and its proposals are offsets into *that* text, so
@@ -114,10 +111,8 @@ enum SidebarMenu {
                 },
                 separator(),
                 entry("Copy Wiki Link", "link") { Clipboard.copy(note.wikiLink) },
+                entry("Open in New Window", "macwindow") { actions.openInNewWindow(note) },
             ]
-            if let openInNewWindow = actions.openInNewWindow {
-                menu.append(entry("Open in New Window", "macwindow") { openInNewWindow(note) })
-            }
             // Unconditional, deliberately. `canReveal` is
             // `FileManager.fileExists(atPath:)` — a **syscall**, and this
             // function is called from `SidebarItemRow`'s body, so it ran once

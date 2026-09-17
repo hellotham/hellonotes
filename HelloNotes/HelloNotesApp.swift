@@ -117,40 +117,12 @@ struct HelloNotesApp: App {
             }
         }
 
-        // Exploration / reference surfaces open beside the notes they describe,
-        // on **both** platforms. `WindowGroup(id:)` rather than the singleton
-        // `Window`, which is macOS-only: the iPad has held a second scene since
-        // note windows shipped, and these were simply never given one. Which of
-        // window or sheet a canvas gets is `AuxiliaryPresentation`, keyed on
-        // width rather than on the OS.
-        //
-        // `for: AuxiliaryRef.self` is what keeps them singletons. A plain
-        // `WindowGroup(id:)` opens a *new* window on every `openWindow(id:)`,
-        // where `Window` refocused the existing one — so three clicks on Graph
-        // gave three Graph windows, each with its own state. A group keyed on a
-        // value dedupes on that value, and `AuxiliaryOpener` passes the scene's
-        // own id, one value per scene.
-        WindowGroup(id: AuxiliarySurface.graph.windowID, for: AuxiliaryRef.self) { _ in
-            rooted(GraphWindowView())
-        }
-        .defaultSize(AuxiliarySurface.graph.defaultSize)
-
-        WindowGroup(id: AuxiliarySurface.askLibrary.windowID, for: AuxiliaryRef.self) { _ in
-            rooted(LibraryChatWindowView())
-        }
-        .defaultSize(AuxiliarySurface.askLibrary.defaultSize)
-
-        WindowGroup(id: AuxiliarySurface.assistant.windowID, for: AuxiliaryRef.self) { _ in
-            rooted(AssistantWindowView())
-        }
-        .defaultSize(AuxiliarySurface.assistant.defaultSize)
-
-        WindowGroup(for: MindMapRef.self) { $ref in
-            if let ref {
-                rooted(MindMapWindowView(rootURL: ref.url))
-            }
-        }
-        .defaultSize(width: 720, height: 540)
+        // Graph, Ask Library, Assistant and Mind Map have **no scene**. The app
+        // opens no windows of its own on either platform — see
+        // `AuxiliarySurface`: a scene the system places cannot be relied on to
+        // sit beside the notes, and on iPadOS closing one leaves the app. They
+        // are sheets, and the only windows are the two someone asks for by
+        // name: New Window and Open in New Window, above.
 
         #if os(macOS)
         // Preferences window (⌘,): General, Appearance, and AI tabs.

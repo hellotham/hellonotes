@@ -154,8 +154,8 @@ struct GraphView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.headline)
+                // No title: the surface's own chrome says "Graph" (`AuxiliarySheet`),
+                // and the inspector's graph pane is titled by the inspector.
                 Spacer()
                 Text("\(nodes.count) notes · \(edges.count) links")
                     .font(.caption)
@@ -223,7 +223,9 @@ struct GraphView: View {
                         .help("Clear focus")
                         .accessibilityLabel("Clear focus")
                 } else {
-                    Text("Click a note to trace its links · double-click to open")
+                    Text(PointerPresence.shared.prefersTouch
+                         ? "Tap a note to trace its links · double-tap to open"
+                         : "Click a note to trace its links · double-click to open")
                         .foregroundStyle(.secondary)
                 }
             }

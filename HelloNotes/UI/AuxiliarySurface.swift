@@ -4,33 +4,28 @@
 //
 //  Created by Chris Tham on 22/8/2026.
 //
-//  Graph, Ask Library, Assistant, Mind Map — the surfaces
-//  that sit beside the notes rather than inside them.
+//  Graph, Ask Library, Assistant, Mind Map — the surfaces that sit beside the
+//  notes rather than inside them.
 //
-//  The Mac opened a `Window` for each; the iPad presented a sheet. Two lists,
-//  independently maintained, either of which could gain a surface the other
-//  never heard about — the same structural defect as the two sidebar menus, and
-//  it had already produced a behaviour difference: the Mac's mind-map window
-//  read the note's *file*, so it showed the last saved version, while the
-//  iPad's sheet was handed the live buffer and showed what you were typing.
+//  **The app opens no windows of its own.** A window happens when someone asks
+//  for one by name — New Window, Open in New Window — and those two commands
+//  are on both platforms, as every command here is. Nothing else makes a scene.
 //
-//  There is no capability reason for the split. The app already opens windows
-//  on iPad — `openWindow(value: NoteRef(…))` for a note, `openWindow(id:
-//  "main")` for New Window — so the iPad can hold a second scene; these
-//  surfaces simply were not given one. SwiftUI's singleton `Window` scene is
-//  macOS-only, but `WindowGroup(id:)` is on both, and that is what they use.
+//  It used to. The Mac opened a `Window` for each of these and the iPad a
+//  sheet; that was unified into one rule keyed on width — a canvas wide enough
+//  to hold a second surface *beside* the notes got a window. The rule assumed a
+//  second scene can sit beside the first, and on iPadOS it cannot: in
+//  full-screen apps, and in Split View, the system puts the new scene where the
+//  old one was, and closing it left the app entirely (measured on the simulator,
+//  17 Sep 2026 — Done in the Assistant showed the Home Screen with the app still
+//  running). Nothing in the SDK distinguishes iPad's windowed mode from
+//  full-screen: `UIWindowScene.isFullScreen` is Mac Catalyst only, and
+//  `sizeRestrictions` is non-nil in both (probed, iPadOS 27).
 //
-//  Window or sheet was decided by width alone — a canvas wide enough to show a
-//  second surface beside the notes got a window. That rule assumed a second
-//  scene can *sit beside* the first, and on iPadOS it cannot: in full-screen
-//  apps a new scene takes the whole screen, and closing it leaves the app
-//  rather than returning to the notes (measured on the simulator, 17 Sep 2026 —
-//  Done in the Assistant showed the Home Screen with the app still running).
-//  Nothing in the SDK distinguishes full-screen from windowed — `isFullScreen`
-//  is Mac Catalyst only — and the user's decision is plain: **on iPad the app
-//  opens no windows.** So the Mac keeps the width rule and iOS presents a
-//  sheet, which always comes back to the notes. The same reasoning retired
-//  "Open in New Window" on iOS (`ShellActions`, `AppCommands`).
+//  So the presentation is the same on both platforms — a sheet — which is what
+//  parity means here: not "the Mac may open windows the iPad cannot", but one
+//  rule, one shape, and the same way out. A sheet also *has* a way out on every
+//  canvas, which a scene the system placed does not.
 //
 
 import SwiftUI
@@ -40,16 +35,12 @@ enum AuxiliarySurface: Identifiable, Hashable {
     case graph
     case askLibrary
     case assistant
-    /// The mind map of one note. Value-carrying, so its scene is a
-    /// `WindowGroup(for:)` rather than an id — the same shape a note window has.
+    /// The mind map of one note.
     case mindMap(URL)
 
-    var id: String { windowID }
-
-    /// The scene id `openWindow(id:)` names. `mindMap` opens by value, so it
-    /// never uses this to open a window — it still needs a distinct identity as
-    /// a sheet item.
-    var windowID: String {
+    /// Identity for the sheet item — one surface at a time, and a mind map is
+    /// per note.
+    var id: String {
         switch self {
         case .graph: "graph"
         case .askLibrary: "askLibrary"
@@ -75,156 +66,153 @@ enum AuxiliarySurface: Identifiable, Hashable {
         case .mindMap: "point.topleft.down.curvedto.point.bottomright.up"
         }
     }
-
-    var defaultSize: CGSize {
-        switch self {
-        case .graph: CGSize(width: 760, height: 560)
-        case .askLibrary: CGSize(width: 560, height: 640)
-        case .assistant: CGSize(width: 560, height: 680)
-        case .mindMap: CGSize(width: 720, height: 540)
-        }
-    }
-}
-
-/// Whether a second scene can usefully sit beside the notes here.
-///
-/// Keyed on the canvas, never on the platform. On a compact width a second
-/// scene *is* the screen — iOS shows one at a time and offers no way back but
-/// the app switcher — so a sheet is both the honest presentation and the one
-/// the user can dismiss. Above that, a window.
-///
-/// The threshold is `ShellMetrics.compactMax` — the same number `AdaptiveShell`
-/// uses to choose the compact shell — so this cannot drift from the shell's own
-/// idea of when there is room for another surface.
-enum AuxiliaryPresentation {
-    /// Whether this platform opens windows of its own at all.
-    ///
-    /// The Mac does. iPad does not — "on the iPad, we should not be opening
-    /// separate windows" — so New Window and Open in New Window are not offered
-    /// there either, rather than offered and landing you outside the app.
-    static var opensWindows: Bool {
-        #if os(macOS)
-        return true
-        #else
-        return false
-        #endif
-    }
-
-    static func prefersWindow(width: CGFloat) -> Bool {
-        #if os(macOS)
-        // A Mac window opens *beside* what you were reading, and closing it
-        // gives that back. Narrow enough and there is no beside: a sheet.
-        return width > ShellMetrics.compactMax
-        #else
-        // Never on iPhone or iPad — see this file's header.
-        return false
-        #endif
-    }
-}
-
-/// Whether an auxiliary surface has a window of its own.
-///
-/// A sheet carries the title and the way out in its own chrome
-/// (`AuxiliarySheet`), so a view that draws a Done of its own asks this first —
-/// two Done buttons in one sheet is what the Assistant and Ask Library showed
-/// before anyone presented them that way on iPad.
-struct AuxiliaryWindowedKey: EnvironmentKey {
-    static let defaultValue = true
-}
-
-extension EnvironmentValues {
-    var auxiliaryIsWindowed: Bool {
-        get { self[AuxiliaryWindowedKey.self] }
-        set { self[AuxiliaryWindowedKey.self] = newValue }
-    }
 }
 
 /// Opening an auxiliary surface — one decision, both shells.
 ///
-/// The window and the sheet show the *same view*: `GraphWindowView` and the
-/// rest ask `Library.requestOpen` to open a note, which both shells honour, so
-/// the view does not need to know which presentation it is in. That is what
-/// removes the last reason for two of everything here — the iPad's sheet used
-/// to be handed an `onOpenNote` closure and the Mac's window used the request
-/// channel, which is two behaviours for "click a node".
+/// A type rather than a bare closure because every call site says
+/// `auxiliary.open(.assistant)`, and that reads as the app's own vocabulary
+/// rather than as a presentation detail. What it does is present the sheet.
 @MainActor
 struct AuxiliaryOpener {
-    let openWindow: OpenWindowAction
-    /// The shell's own width — the canvas the surface would open beside.
-    let width: CGFloat
-    /// Present as a sheet instead, when there is no room for a window.
+    /// Present this surface; `nil` dismisses.
     let present: (AuxiliarySurface?) -> Void
 
-    func open(_ surface: AuxiliarySurface) {
-        guard AuxiliaryPresentation.prefersWindow(width: width) else {
-            present(surface)
-            return
-        }
-        // The mind map's scene is keyed on the note it maps, so it opens by
-        // value — the same shape a note window has, and already a singleton per
-        // note for the same reason.
-        if case .mindMap(let url) = surface {
-            openWindow(value: MindMapRef(url))
-        } else {
-            // Everything else is one window per scene, and *stays* one: these
-            // used to be macOS-only `Window` scenes, which `openWindow(id:)`
-            // refocuses. `WindowGroup(id:)` — needed because `Window` does not
-            // exist on iOS — makes a *new* window on every call instead, so
-            // clicking Graph three times gave three Graph windows. Passing the
-            // scene's own id as the presentation value restores the singleton:
-            // SwiftUI brings the existing window forward when one is already
-            // open with the same value.
-            openWindow(id: surface.windowID, value: AuxiliaryRef(surface.windowID))
-        }
-    }
+    func open(_ surface: AuxiliarySurface) { present(surface) }
 }
 
-/// The presentation value that makes an id-named auxiliary scene a singleton.
-///
-/// One value per scene, so "already open with this value" and "this scene is
-/// already open" are the same question — which is what `Window` used to answer
-/// on the Mac and nothing answered after the merge.
-struct AuxiliaryRef: Hashable, Codable {
-    let id: String
-    init(_ id: String) { self.id = id }
-}
-
-/// The content of an auxiliary surface, wherever it is presented.
+/// The content of an auxiliary surface.
 struct AuxiliarySurfaceView: View {
     let surface: AuxiliarySurface
 
     var body: some View {
         switch surface {
-        case .graph: GraphWindowView()
-        case .askLibrary: LibraryChatWindowView()
-        case .assistant: AssistantWindowView()
-        case .mindMap(let url): MindMapWindowView(rootURL: url)
+        case .graph: GraphSurface()
+        case .askLibrary: LibraryChatSurface()
+        case .assistant: AssistantSurface()
+        case .mindMap(let url): MindMapSurface(rootURL: url)
         }
     }
 }
 
-/// An auxiliary surface presented as a sheet, where the canvas has no room for
-/// a window.
+/// An auxiliary surface, presented.
 ///
-/// The title and the way out are drawn here because a sheet has no chrome of
-/// its own — the same reason `GitSettingsView` draws them on the Mac. Shared,
-/// so a surface presented this way says the same thing on both platforms; the
-/// iPad's three sheets each spelled their own `NavigationStack` and `Done`.
+/// The title and the way out are drawn here, in a plain row rather than a
+/// navigation bar, because this is the only chrome these surfaces have on
+/// either platform — a `NavigationStack`'s bar is an iOS shape, and the Mac
+/// shows the same sheet. The surfaces themselves therefore draw neither: two
+/// titles and two Done buttons is what the phone showed while each side
+/// supplied its own.
 struct AuxiliarySheet: View {
     let surface: AuxiliarySurface
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            HStack {
+                Label(surface.title, systemImage: surface.symbol).font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal).padding(.vertical, 10)
+            Divider()
             AuxiliarySurfaceView(surface: surface)
-                .navigationTitle(surface.title)
-                .toolbarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                }
-                .environment(\.auxiliaryIsWindowed, false)
         }
     }
+}
+
+// MARK: - Graph
+
+/// The link graph. `GraphPane` is the graph itself; this supplies what a
+/// surface beside the notes needs — asking the shell to open a note, and a size
+/// on the Mac, where a sheet is not handed one.
+struct GraphSurface: View {
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        GraphPane(onOpen: { library.requestOpen($0) })
+            .panelFrame(width: 760, height: 560)
+    }
+}
+
+// MARK: - Mind map
+
+/// The mind map of one note.
+struct MindMapSurface: View {
+    let rootURL: URL
+
+    @Environment(Library.self) private var library
+    @Environment(LiveBuffer.self) private var liveBuffer
+    @State private var fileText: String?
+
+    /// What is being typed, when the editor is holding this note; what is on
+    /// disk otherwise.
+    ///
+    /// This read the file unconditionally, so the Mac's mind map showed the
+    /// note as of the last autosave while the iPad's — handed the live buffer —
+    /// showed what you were typing. One surface, one answer: the live text.
+    private var text: String? { liveBuffer.text(for: rootURL) ?? fileText }
+
+    var body: some View {
+        MindMapPane(rootURL: rootURL,
+                    text: text,
+                    onOpenNote: { library.requestOpen($0) },
+                    onShowSection: showSection)
+            .panelFrame(width: 720, height: 540)
+            .task(id: rootURL) {
+                // Only when the editor is not holding it — reading a file we
+                // already have in memory is a coordinated read for nothing.
+                guard liveBuffer.text(for: rootURL) == nil else { return }
+                fileText = await offMain { try? FileIO.readString(at: rootURL) }
+            }
+    }
+
+    /// Open the root note and scroll to `heading`.
+    private func showSection(_ heading: String?) {
+        library.requestOpen(rootURL)
+        guard let heading else { return }
+        Task { @MainActor in
+            // Give the shell a beat to switch notes before searching.
+            try? await Task.sleep(for: .milliseconds(400))
+            NotificationCenter.default.post(name: .hnEditorFindQuery, object: nil,
+                                            userInfo: ["query": heading])
+            try? await Task.sleep(for: .milliseconds(1200))
+            NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
+        }
+    }
+}
+
+// MARK: - Ask Library
+
+/// Retrieval-augmented Q&A over every open collection.
+struct LibraryChatSurface: View {
+    /// What opening a result does; by default, ask the shell to show it.
+    var onOpenNote: ((Note) -> Void)?
+
+    @Environment(Library.self) private var library
+    @Environment(IntelligenceSettings.self) private var intelligenceSettings
+
+    /// Taken once, as the surface appears. Held in `@State` rather than read
+    /// from the library in `body`, because taking it *is* a mutation — a body
+    /// that re-evaluated would find it already gone.
+    @State private var seed: String?
+
+    var body: some View {
+        LibraryChatView(intelligence: IntelligenceService(settings: intelligenceSettings),
+                        notes: library.allNotes,
+                        searches: library.collections.map(\.search),
+                        onOpenNote: { note in
+                            if let onOpenNote { onOpenNote(note) }
+                            else { library.requestOpen(note.id) }
+                        },
+                        initialQuestion: seed)
+        .task { seed = library.takePendingLibraryQuestion() }
+    }
+}
+
+// MARK: - Assistant
+
+/// The agentic assistant. Everything it owns lives in `AssistantHost`.
+struct AssistantSurface: View {
+    var body: some View { AssistantHost() }
 }

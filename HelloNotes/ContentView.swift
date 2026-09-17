@@ -353,7 +353,7 @@ struct ContentView: View {
     /// one, a sheet where there is not. The decision is `AuxiliaryPresentation`
     /// and it is keyed on width, never on the platform.
     private var auxiliary: AuxiliaryOpener {
-        AuxiliaryOpener(openWindow: openWindow, width: shellWidth) { auxiliarySheet = $0 }
+        AuxiliaryOpener { auxiliarySheet = $0 }
     }
 
     /// The editor showing the selected note, if any. `ShellActions` owns it, so
@@ -1149,8 +1149,7 @@ struct ContentView: View {
                     copyWikiLink: { Clipboard.copy(note.wikiLink) },
                     revealInFileManager: FileReveal.canReveal(note.fileURL)
                         ? { FileReveal.reveal(note.fileURL) } : nil,
-                    openInNewWindow: AuxiliaryPresentation.opensWindows
-                        ? { openWindow(value: NoteRef(note.fileURL)) } : nil,
+                    openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
                     // `actions.export`, not the active editor's buffer: read
                     // that way, exporting or printing a note that was not open
                     // in an editor did nothing at all. The shared action prefers
@@ -1187,7 +1186,7 @@ struct ContentView: View {
             // particular provider: the sheet itself says which modes can run,
             // which is more useful than a menu item that is simply absent.
             composeNote: scope == nil ? nil : closingOpenQuickly { showCompose = true },
-            newWindow: AuxiliaryPresentation.opensWindows ? { openWindow(id: "main") } : nil,
+            newWindow: { openWindow(id: "main") },
             // Find targets the note *behind* the palette, so it greys out while
             // that is up rather than toggling a find bar nobody can see.
             // `hnEditorToggleFind` is what `NoteEditorView` listens on, and

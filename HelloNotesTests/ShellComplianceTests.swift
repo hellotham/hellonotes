@@ -303,7 +303,8 @@ struct ShellComplianceTests {
         }
     }
 
-    /// An auxiliary surface is presented by the canvas, not by the platform.
+    /// An auxiliary surface is presented the same way on both platforms, and
+    /// the app opens no window of its own for one.
     ///
     /// The Mac opened a `Window` for Graph, Ask Library, Assistant, the mind
     /// map and the cloud browsers; the iPad presented a sheet for each. Two
@@ -311,25 +312,34 @@ struct ShellComplianceTests {
     /// the other never heard about — and it had already produced a behaviour
     /// difference, since the Mac's mind-map window read the note's file and
     /// showed the last saved version while the iPad's sheet was handed the live
-    /// buffer.
+    /// buffer. Unifying them on *width* replaced that with a subtler one: a
+    /// scene the system places cannot be relied on to sit beside the notes, and
+    /// on iPadOS closing one left the app.
     ///
-    /// Both shells now call one `AuxiliaryOpener`, which chooses a window or a
-    /// sheet from the shell's width. Neither may hold presentation state of its
-    /// own for these surfaces.
+    /// So both shells call one `AuxiliaryOpener` and it presents a sheet.
+    /// Neither shell holds presentation state of its own for these surfaces,
+    /// and neither opens a scene for one: the only windows the app opens are
+    /// the two someone asks for by name, New Window and Open in New Window,
+    /// which are on both platforms.
     @Test("Neither shell decides how an auxiliary surface is presented")
-    func auxiliarySurfacesArePresentedByWidth() throws {
+    func auxiliarySurfacesArePresentedTheSameWay() throws {
         let file = "ContentView.swift"
-        do {
-            let source = try Self.source(file)
-            #expect(source.contains("AuxiliaryOpener(openWindow: openWindow, width: shellWidth)"),
-                    "\(file) does not route auxiliary surfaces through the shared opener")
-            #expect(source.contains(".sheet(item: $auxiliarySheet)"),
-                    "\(file) has no narrow-canvas fallback, so its surfaces are window-only")
-            for forbidden in ["showGraph", "showMindMap", "showAssistant", "showLibraryChat",
-                             "cloudBrowser"] {
-                #expect(!source.contains(forbidden),
-                        "\(file) still owns presentation state for an auxiliary surface (\(forbidden))")
-            }
+        let source = try Self.source(file)
+        #expect(source.contains("AuxiliaryOpener { auxiliarySheet = $0 }"),
+                "\(file) does not route auxiliary surfaces through the shared opener")
+        #expect(source.contains(".sheet(item: $auxiliarySheet)"),
+                "\(file) does not present auxiliary surfaces")
+        for forbidden in ["showGraph", "showMindMap", "showAssistant", "showLibraryChat",
+                         "cloudBrowser"] {
+            #expect(!source.contains(forbidden),
+                    "\(file) still owns presentation state for an auxiliary surface (\(forbidden))")
+        }
+        // The scenes are gone with the windows. `NoteRef` and "main" stay:
+        // those are the windows someone asks for.
+        let scenes = try Self.source("HelloNotesApp.swift")
+        for gone in ["AuxiliaryRef", "MindMapRef"] {
+            #expect(!scenes.contains(gone),
+                    "HelloNotesApp still declares a scene for an auxiliary surface (\(gone))")
         }
     }
 
@@ -340,15 +350,15 @@ struct ShellComplianceTests {
     /// handed the buffer directly. Once both platforms opened a window, that
     /// read became the only source, and unifying the two presentations would
     /// have settled the difference by taking the worse of them.
-    @Test("An auxiliary window prefers the live buffer to the file")
+    @Test("An auxiliary surface prefers the live buffer to the file")
     func mindMapReadsTheLiveBuffer() throws {
         let source = try String(contentsOf: URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/UI/AuxiliaryWindows.swift"), encoding: .utf8)
+            .appending(path: "HelloNotes/UI/AuxiliarySurface.swift"), encoding: .utf8)
         #expect(source.contains("liveBuffer.text(for: rootURL) ?? fileText"),
-                "MindMapWindowView no longer prefers the editor's buffer")
+                "MindMapSurface no longer prefers the editor's buffer")
         #expect(source.contains("guard liveBuffer.text(for: rootURL) == nil else { return }"),
-                "MindMapWindowView reads the file even when the buffer has the note")
+                "MindMapSurface reads the file even when the buffer has the note")
     }
 
     /// A folder-pick request is answered with what it asked for.

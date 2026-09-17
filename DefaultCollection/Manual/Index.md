@@ -20,7 +20,7 @@ The [[Start Here|tour]] shows you the app. This is the reference.
 | | |
 |---|---|
 | ⌘N | New Note |
-| ⌥⌘N | New Window *(Mac)* |
+| ⌥⌘N | New Window |
 | ⇧⌘T | Today's Note |
 | ⌃⌘N | New Note from a Prompt… |
 | ⌘O | Open… |
