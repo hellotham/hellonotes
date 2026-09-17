@@ -174,9 +174,11 @@ private struct ContainerRow: View {
     }
 
     var body: some View {
+        // Once: a folder's list stats the disk, and two menus read it.
+        let items = SidebarMenu.items(for: node, actions: actions)
         Group {
             if subContainers.isEmpty {
-                label.tag(node.id)
+                label(items).tag(node.id)
             } else {
                 DisclosureGroup(isExpanded: expansion) {
                     ForEach(subContainers, id: \.id) { child in
@@ -193,31 +195,42 @@ private struct ContainerRow: View {
                     // handle.** A folder that can be opened is also a folder
                     // whose notes you want to see, and a `DisclosureGroup` label
                     // that is not tagged swallows the tap.
-                    label.tag(node.id)
+                    label(items).tag(node.id)
                 }
             }
         }
         .listRowInsets(EdgeInsets(top: 3, leading: 8 + CGFloat(depth) * Self.indent,
                                   bottom: 3, trailing: 8))
-        .contextMenu { SidebarMenuItems(items: SidebarMenu.items(for: node, actions: actions)) }
+        .contextMenu { SidebarMenuItems(items: items) }
         .dropDestination(for: URL.self) { urls, _ in
             node.isPlace ? false : onDropIntoFolder(node.id, urls)
         }
     }
 
+    /// The row, and its menu visible beside it — the band's rows had only the
+    /// long-press, so on a portrait iPad a collection could not be closed, and
+    /// a folder not trashed, by anyone who did not think to hold it.
     @ViewBuilder
-    private var label: some View {
+    private func label(_ items: [SidebarMenu.Item]) -> some View {
         switch node.kind {
         case .collection(let collection):
             let content = CollectionRowContent.make(collection, focusedID: focusedCollectionID)
-            Label(content.name, systemImage: content.symbol)
-                .fontWeight(content.isFocused ? .semibold : .regular)
-                .foregroundStyle(content.unavailable == nil ? .primary : .secondary)
-                .symbolRenderingMode(content.unavailable == nil ? .monochrome : .multicolor)
+            HStack(spacing: 0) {
+                Label(content.name, systemImage: content.symbol)
+                    .fontWeight(content.isFocused ? .semibold : .regular)
+                    .foregroundStyle(content.unavailable == nil ? .primary : .secondary)
+                    .symbolRenderingMode(content.unavailable == nil ? .monochrome : .multicolor)
+                Spacer(minLength: 4)
+                RowActionsMenu(name: content.name, items: items)
+            }
         case .place(let name, let symbol):
             Label(name, systemImage: symbol)
         case .folder(let name):
-            Label(name, systemImage: "folder")
+            HStack(spacing: 0) {
+                Label(name, systemImage: "folder")
+                Spacer(minLength: 4)
+                RowActionsMenu(name: name, items: items)
+            }
         case .note, .file:
             // Unreachable: `SidebarTree.containers` removed these. Stated
             // rather than defaulted so a leaf that ever does arrive here is a

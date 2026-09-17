@@ -51,8 +51,8 @@ struct IntelligenceService {
     var availability: IntelligenceAvailability { models.availability(of: choice) }
     var isAvailable: Bool { availability.isAvailable }
 
-    /// The model's own name — "AFM 3 Core Advanced", "Private Cloud Compute",
-    /// "Qwen3 4B" — so a menu can say who does the work.
+    /// The model's name — "System model", "Private Cloud Compute",
+    /// "gemma-4-31b-it-4bit" — so a menu can say who does the work.
     var modelName: String { models.name(of: choice) }
 
     var runsOnDevice: Bool { choice.runsOnDevice }

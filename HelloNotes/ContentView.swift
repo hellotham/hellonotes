@@ -876,10 +876,6 @@ struct ContentView: View {
             }
         }
 
-        .onReceive(NotificationCenter.default.publisher(for: .hnShowAISettings)) { _ in
-            showAISettings = true
-        }
-
         .onReceive(NotificationCenter.default.publisher(for: .hnShowSplash)) { note in
             splashAutoDismisses = note.userInfo?["autoDismiss"] as? Bool ?? true
             withAnimation(.easeIn(duration: 0.2)) { showSplash = true }
@@ -927,14 +923,10 @@ struct ContentView: View {
         // this is a second route to the same screen; on iOS there is no such
         // scene, so it is the only one. `AppSettingsView` is the name that
         // lets this line exist without a gate around it.
-        .sheet(isPresented: $showSettings) {
+        .sheet(isPresented: $showSettings, onDismiss: { settingsPage = nil }) {
             AppSettingsView(intelligenceSettings: intelligenceSettings, appearance: appearance,
-                            git: focused?.git, accounts: gitAccounts, store: store)
-        }
-        .sheet(isPresented: $showAISettings) {
-            NavigationStack {
-                IntelligenceSettingsView(settings: intelligenceSettings)
-            }
+                            git: focused?.git, accounts: gitAccounts, store: store,
+                            page: settingsPage)
         }
         .sheet(isPresented: $showPalette) {
             CommandPaletteView(commands: appActions.paletteCommands)
@@ -1177,6 +1169,7 @@ struct ContentView: View {
             },
             addCollection: addCollectionActions,
             acknowledgements: { showAcknowledgements = true },
+            openSettings: { showSettings = true },
             refreshCloudCollection: scope.flatMap { collection in
                 collection.isRemote ? { Task { await collection.refreshFromProvider() } } : nil
             },
@@ -2098,6 +2091,17 @@ struct ContentView: View {
         Task { if let note = await c.createNote() { selectedNoteID = note.id } }
     }
 
+    /// Settings, at its AI page — the only AI settings screen there is.
+    private func openAISettings() {
+        #if os(macOS)
+        UserDefaults.standard.set(SettingsPage.ai.rawValue, forKey: SettingsPage.storageKey)
+        openSettings()
+        #else
+        settingsPage = .ai
+        showSettings = true
+        #endif
+    }
+
     // MARK: - Daily notes & templates
 
     /// Open today's daily note in the focused collection, creating it if needed.
@@ -2131,6 +2135,14 @@ struct ContentView: View {
     private var editor: EditorModel { actions.activeEditor ?? noEditor }
 
     @State private var showSettings = false
+    /// The page the Settings sheet opens at — `nil` is the top. See `openAISettings`.
+    @State private var settingsPage: SettingsPage?
+    #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+    #else
+    // iOS has no Settings window to open: `openAISettings` presents the
+    // Settings sheet at its AI page instead.
+    #endif
 
     /// Onboarding is queued during launch but only presented once the splash
     /// has gone, so it doesn't pop up over the splash.
@@ -2162,10 +2174,6 @@ struct ContentView: View {
     /// The whole-note rewrite sheet, raised from the editor's toolbar menu.
 
     /// Ask Library, and the question it should open with (`nil` = ask fresh).
-    /// The agentic assistant, and the provider/key settings it needs. Both were
-    /// macOS-only until 1.3 — and without the second, an iPad had no way to
-    /// enter an API key at all, so every provider but Apple was unreachable.
-    @State private var showAISettings = false
 
     /// Search and a tag filter are questions about the library and override the
     /// rail's scope; otherwise the Library place owns the note-list column.
@@ -2390,26 +2398,35 @@ struct ContentView: View {
         }
     }
 
-    /// A collection row: tap to focus it (and show its notes); swipe to close.
+    /// A collection row: tap to focus it (and show its notes); `…` for its
+    /// commands, which a swipe also closes it with — the swipe was the only
+    /// way, and a swipe is as hidden as a long-press.
     private func collectionRow(_ collection: Collection) -> some View {
-        Button {
-            // Compact has no rail, but it shares the rail's scope: without
-            // this the list would keep showing whichever collection the rail
-            // was left on at iPad size.
-            select(.collection(collection.id))
-            library.focus(collection)
-        } label: {
-            HStack {
-                Label(collection.name, systemImage: "books.vertical")
-                    .fontWeight(collection.id == focused?.id ? .semibold : .regular)
-                Spacer()
-                Text("\(collection.notes.count)")
-                    .foregroundStyle(.secondary)
-                if collection.id == focused?.id {
-                    Image(systemName: "checkmark").foregroundStyle(.tint)
+        HStack(spacing: 0) {
+            Button {
+                // Compact has no rail, but it shares the rail's scope: without
+                // this the list would keep showing whichever collection the rail
+                // was left on at iPad size.
+                select(.collection(collection.id))
+                library.focus(collection)
+            } label: {
+                HStack {
+                    Label(collection.name, systemImage: "books.vertical")
+                        .fontWeight(collection.id == focused?.id ? .semibold : .regular)
+                    Spacer()
+                    Text("\(collection.notes.count)")
+                        .foregroundStyle(.secondary)
+                    if collection.id == focused?.id {
+                        Image(systemName: "checkmark").foregroundStyle(.tint)
+                    }
                 }
+                .contentShape(.rect)
             }
-            .contentShape(.rect)
+            // Plain, or a list row fires every button in it at once.
+            .buttonStyle(.plain)
+            RowActionsMenu(name: collection.name, items: SidebarMenu.items(
+                for: NoteOutlineItem(id: collection.id, kind: .collection(collection)),
+                actions: actions.sidebarMenu))
         }
         .foregroundStyle(.primary)
         .swipeActions(edge: .trailing) {
@@ -2567,7 +2584,6 @@ struct ContentView: View {
             .init(title: "Assistant", symbol: "sparkles", isEnabled: scope != nil) {
                 auxiliary.open(.assistant)
             },
-            .init(title: "AI Settings…", symbol: "brain") { showAISettings = true },
             .init(title: "Settings…", symbol: "gearshape") { showSettings = true },
         ]
     }
@@ -2622,8 +2638,7 @@ struct ContentView: View {
             reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
             compose: scope == nil ? nil : { showCompose = true },
             assistant: { auxiliary.open(.assistant) },
-            // iOS has no Preferences window, so AI settings needs a row here.
-            aiSettings: { showAISettings = true },
+            aiSettings: { openAISettings() },
             hasOpenNote: editor.note != nil)
     }
 
@@ -2760,6 +2775,7 @@ struct ContentView: View {
 
         // Leading — the commands that have to survive a collapsed sidebar.
         if showsShellCommands {
+            ToolbarItem(placement: .barLeading) { newNoteButton }
             ToolbarItem(placement: .barLeading) { shellCommandMenu }
         }
         if editor.note != nil {
@@ -2786,26 +2802,24 @@ struct ContentView: View {
     /// `AppCommands` declares no `.appSettings` group, so ⌘, does nothing
     /// either — appearance, text size and the Git accounts had no route at all.
     ///
-    /// One toolbar item rather than five, because at 744pt this band is also
-    /// carrying the tab strip and two trailing controls. Tapping it is New Note
-    /// — much the commonest of the set — and holding it is the rest, which is
-    /// how iOS spells "a button that is also a menu".
+    /// New Note, and a visible `…` menu for the rest. The two were one item —
+    /// tap for New Note, hold for everything else — to save a button's width
+    /// at 744pt, and that made Settings a thing only someone who already knew
+    /// to hold New Note could find. A button that looks like a button and
+    /// hides a menu is a hidden menu; the phone's Library already had this
+    /// shape.
+    private var newNoteButton: some View {
+        Button {
+            newNote()
+        } label: {
+            Label("New Note", systemImage: "square.and.pencil")
+        }
+        .disabled((railCollection ?? focused) == nil)
+    }
+
     private var shellCommandMenu: some View {
         let scope = railCollection ?? focused
         return Menu {
-            Button {
-                newNote()
-            } label: {
-                Label("New Note", systemImage: "square.and.pencil")
-            }
-            .disabled(scope == nil)
-            Button {
-                actions.beginNewFolder(in: scope, folderID: nil)
-            } label: {
-                Label("New Folder…", systemImage: "folder.badge.plus")
-            }
-            .disabled(scope == nil)
-            Divider()
             Button {
                 openTodaysNote()
             } label: {
@@ -2825,6 +2839,52 @@ struct ContentView: View {
             }
             .disabled(scope?.notes.isEmpty ?? true)
             Divider()
+            // What the Mac's status bar and the phone's AI place carry. On iPad
+            // they were in the menu bar and the palette only — both out of
+            // sight — so the Assistant had no button at all.
+            Button {
+                auxiliary.open(.assistant)
+            } label: {
+                Label("Assistant", systemImage: "sparkles")
+            }
+            .disabled(scope == nil)
+            Button {
+                auxiliary.open(.askLibrary)
+            } label: {
+                Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
+            }
+            .disabled(library.allNotes.isEmpty)
+            Button {
+                showCompose = true
+            } label: {
+                Label("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square")
+            }
+            .disabled(scope == nil)
+            Button {
+                auxiliary.open(.graph)
+            } label: {
+                Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            .disabled(scope?.notes.isEmpty ?? true)
+            Divider()
+            // One Settings — AI is a page of it. Above the folder and collection
+            // commands, not after them: a menu from a toolbar in the middle of
+            // a portrait iPad is capped at about 520pt, and last place put
+            // Settings below the fold, which is where this menu came in to get
+            // it out of. Those commands also have visible homes of their own,
+            // the band's `+` and each collection's `…`.
+            Button {
+                showSettings = true
+            } label: {
+                Label("Settings…", systemImage: "gearshape")
+            }
+            Divider()
+            Button {
+                actions.beginNewFolder(in: scope, folderID: nil)
+            } label: {
+                Label("New Folder…", systemImage: "folder.badge.plus")
+            }
+            .disabled(scope == nil)
             // The same items the sidebar's `+`, the File menu and the compact
             // shell offer, from the same definition.
             //
@@ -2835,23 +2895,10 @@ struct ContentView: View {
             // being edited rather than a swipe to the top of the screen. A
             // duplicate is fine; a duplicate that has drifted is not.
             addCollectionItems
-            Divider()
-            Button {
-                showAISettings = true
-            } label: {
-                Label("AI Settings…", systemImage: "brain")
-            }
-            Button {
-                showSettings = true
-            } label: {
-                Label("Settings…", systemImage: "gearshape")
-            }
         } label: {
-            Label("New Note", systemImage: "square.and.pencil")
-        } primaryAction: {
-            newNote()
+            Label("More", systemImage: "ellipsis.circle")
         }
-        .accessibilityLabel("New Note, and app commands")
+        .accessibilityLabel("More actions")
     }
 
     // MARK: - AI on the open note
@@ -2940,9 +2987,6 @@ struct ContentView: View {
             }
             if editor.note != nil {
                 Divider()
-                Button { beginLinkReview() } label: {
-                    Label("Review Links…", systemImage: "link.badge.plus")
-                }
                 // **The way in to the mind map.** It was bound into a sheet and
                 // never once
                 // set to `true` anywhere in the codebase — every write was a
@@ -2978,6 +3022,18 @@ struct ContentView: View {
                     Button { ai.suggestLinks() } label: { Label("Suggest Links", systemImage: "link") }
                     Button { ai.rewriteNote() } label: { Label("Rewrite or Expand…", systemImage: "wand.and.stars") }
                 }
+            }
+            // Everything a long-press on this note's row offers — Rename,
+            // Duplicate, Bookmark, Export, Move to Trash and the rest, Review
+            // Links among them — from the row's own list. Those were reachable
+            // on iPad only by holding the row, or from a menu bar that stays
+            // out of sight; the open note is where Mail puts a message's
+            // commands too. Last, so Move to Trash ends the menu.
+            if let note = editor.note {
+                Divider()
+                SidebarMenuItems(items: SidebarMenu.items(
+                    for: NoteOutlineItem(id: note.fileURL.path, kind: .note(note, snippet: nil)),
+                    actions: actions.sidebarMenu))
             }
         } label: {
             Image(systemName: "chevron.down.circle")

@@ -43,7 +43,8 @@ private let mlxFolder: URL? = ProcessInfo.processInfo.environment["HN_EVAL_MLX_F
 /// Whether the evaluated model can call tools: the on-device model can; an MLX
 /// model can if its chat template shows it tools — the same test the app makes.
 private let evaluatedModelUsesTools: Bool = {
-    guard let mlxFolder, case .model(let directory, _) = MLXModelFolder.resolve(mlxFolder) else { return true }
+    guard let mlxFolder else { return true }
+    let directory = MLXModelFolder.currentSnapshot(of: mlxFolder) ?? mlxFolder
     return MLXChatTemplate.rendersTools(in: directory) ?? true
 }()
 
@@ -63,7 +64,7 @@ private enum Features {
         let defaults = UserDefaults(suiteName: "HelloNotesEvaluations")!
         defaults.set(true, forKey: IntelligenceMigration.doneKey)
         defaults.removeObject(forKey: MLXModelStore.Keys.model)
-        defaults.removeObject(forKey: MLXModelStore.Keys.folderBookmark)
+        defaults.removeObject(forKey: MLXModelStore.Keys.folder)
         let settings = IntelligenceSettings(
             defaults: defaults, models: LanguageModels(mlx: MLXModelStore(defaults: defaults)))
         settings.featuresModel = choice
@@ -85,10 +86,9 @@ private enum Features {
             preparation = Task { @MainActor in
                 if let mlxFolder {
                     let store = settings.mlx
-                    store.use(folder: mlxFolder)
-                    await store.refreshAvailability()
+                    await store.use(folder: mlxFolder)
                     if let reason = store.availability.reason { throw IntelligenceError.unavailable(reason) }
-                    print("EVAL model: MLX \(store.modelName) from \(store.folderModel?.directory.path ?? mlxFolder.path)")
+                    print("EVAL model: MLX \(store.modelName) from \(store.chosen?.directory.path ?? mlxFolder.path)")
                 } else {
                     print("EVAL model: on-device \(settings.models.name(of: .onDevice))")
                 }

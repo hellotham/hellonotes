@@ -13,38 +13,18 @@
 //  each of the two roles, *which of three models*, with a sentence under each
 //  saying where the text goes. That sentence is the part the Human Interface
 //  Guidelines insist on, and it is why the choice is shown as where a model runs
-//  ("On-Device", "Private Cloud Compute", "MLX") before what it is called.
+//  ("System", "Private Cloud Compute", "MLX") before what it is called.
 //
 
 import SwiftUI
 import MLXFoundationModels
 import UniformTypeIdentifiers
 
-/// The settings sheet opened from the Assistant and from the editor's AI menu.
-/// The same form is the AI tab of Preferences on the Mac and AI in Settings on iOS.
-struct IntelligenceSettingsView: View {
-    @Bindable var settings: IntelligenceSettings
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Label("AI Settings", systemImage: "sparkles").font(.headline)
-                Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-            }
-            .padding()
-            Divider()
-
-            IntelligenceSettingsForm(settings: settings)
-        }
-        .panelFrame(width: 560, height: 680)
-    }
-}
-
-/// The form itself — already a `Form`, so never wrap it in another one. Nested
-/// forms collapse to a clipped stub; that is how the iOS AI screen shipped in
-/// build 11 having never drawn (see `ScreenRenderTests`).
+/// The AI page of Settings — the Mac's AI tab and iOS's Settings ▸ AI, and the
+/// only AI settings screen: every "AI Settings…" opens Settings here
+/// (`SettingsPage.ai`). Already a `Form`, so never wrap it in another one.
+/// Nested forms collapse to a clipped stub; that is how the iOS AI screen
+/// shipped in build 11 having never drawn (see `ScreenRenderTests`).
 struct IntelligenceSettingsForm: View {
     @Bindable var settings: IntelligenceSettings
 
@@ -54,6 +34,8 @@ struct IntelligenceSettingsForm: View {
 
     @State private var customModel = ""
     @State private var choosingFolder = false
+    /// The model waiting on "Remove", which deletes files and so asks first.
+    @State private var removing: MLXLocalModel?
 
     private var models: LanguageModels { settings.models }
     private var mlx: MLXModelStore { settings.mlx }
@@ -69,27 +51,47 @@ struct IntelligenceSettingsForm: View {
     }
 
     var body: some View {
-        Form {
+        startingInHuggingFaceCache(Form {
             modelsSection
             assistantSection
             mlxSection
             inlineCompletionSection
         }
-        .formStyle(.grouped)
+        .formStyle(.grouped))
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result { mlx.choose(folder: url) }
+            if case .success(let url) = result { mlx.chooseFolder(url) }
+        }
+        .confirmationDialog(
+            "Remove \(removing?.name ?? "this model")?",
+            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+            presenting: removing
+        ) { model in
+            Button("Remove", role: .destructive) { Task { await mlx.remove(model) } }
+        } message: { model in
+            Text("This deletes \(model.bytes.formatted(.byteCount(style: .file))) from the models folder. Other MLX tools that use the folder will need to download it again.")
         }
     }
+
+    #if os(macOS)
+    /// The folder panel opens straight where other MLX tools keep models. It
+    /// runs outside the sandbox, so it can show a folder the app cannot yet read.
+    private func startingInHuggingFaceCache(_ form: some View) -> some View {
+        form.fileDialogDefaultDirectory(Self.huggingFaceCache)
+    }
+    #else
+    /// No Hugging Face cache on iOS to start in: the picker opens where Files does.
+    private func startingInHuggingFaceCache(_ form: some View) -> some View { form }
+    #endif
 
     // MARK: - Models
 
     private var modelsSection: some View {
         Section {
-            modelPicker("Assistant", selection: $settings.assistantModel)
+            modelPicker("Assistant", forAssistant: true)
             modelCaption(for: settings.assistantModel,
                          role: "Chat, and changes to your notes that you approve.")
 
-            modelPicker("Writing tools", selection: $settings.featuresModel)
+            modelPicker("Writing tools", forAssistant: false)
             modelCaption(for: settings.featuresModel,
                          role: "Summarise, Suggest Tags and Links, Rewrite, Compose and Ask Library.")
 
@@ -109,17 +111,33 @@ struct IntelligenceSettingsForm: View {
         } header: {
             Text("Models")
         } footer: {
-            Text("AI can make mistakes. Check anything important before you rely on it.")
+            Text("System is Apple's model on this device — whichever one Apple Intelligence runs here. AI can make mistakes. Check anything important before you rely on it.")
         }
     }
 
-    private func modelPicker(_ title: String, selection: Binding<ModelChoice>) -> some View {
-        Picker(title, selection: selection) {
-            ForEach(models.offeredChoices) { choice in
-                Label(models.title(of: choice), systemImage: models.systemImage(of: choice))
-                    .tag(choice)
+    /// Apple's models, and every MLX model on this device by name. A role still
+    /// pointing at an MLX model that has gone keeps an entry saying so, rather
+    /// than a blank picker.
+    private func modelPicker(_ title: String, forAssistant: Bool) -> some View {
+        let current = settings.option(for: forAssistant ? settings.assistantModel : settings.featuresModel)
+        var options = models.options
+        if !options.contains(current) { options.append(current) }
+        return Picker(title, selection: Binding(
+            get: { current },
+            set: { settings.choose($0, forAssistant: forAssistant) }
+        )) {
+            ForEach(options) { option in
+                Label(optionTitle(option), systemImage: models.systemImage(of: option))
+                    .tag(option)
             }
         }
+    }
+
+    private func optionTitle(_ option: ModelOption) -> String {
+        if case .mlx(let id) = option, !mlx.models.contains(where: { $0.id == id }) {
+            return "MLX · no model in the models folder"
+        }
+        return models.title(of: option)
     }
 
     /// What the role covers, where its text goes, and — when the model cannot
@@ -170,27 +188,34 @@ struct IntelligenceSettingsForm: View {
 
     private var mlxSection: some View {
         Section {
-            if case .folder = mlx.source {
-                LabeledContent("Folder") {
-                    Label(mlx.modelName, systemImage: "checkmark")
-                        .foregroundStyle(.tint)
+            LabeledContent("Models folder") {
+                HStack {
+                    Text(mlx.chosenFolder?.lastPathComponent ?? (mlx.modelsFolder == nil ? "Not chosen" : "HelloNotes"))
+                        .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Button(mlx.chosenFolder == nil ? "Choose…" : "Change…") { choosingFolder = true }
                 }
-            } else if case .hub(let id) = mlx.source {
-                chosenModelRow(id)
+            }
+
+            ForEach(mlx.models) { model in modelRow(model) }
+            if mlx.modelsFolder != nil && mlx.models.isEmpty {
+                Text("No MLX models in this folder yet.").foregroundStyle(.secondary)
             }
 
             HStack {
                 LabeledField(label: "Hugging Face model", text: $customModel,
                              prompt: "mlx-community/…", isPath: true)
-                Button("Use") {
-                    mlx.choose(repository: customModel)
-                    customModel = ""
+                if mlx.isDownloading {
+                    ProgressView(value: MLXDownloadProgress.shared.isActive ? MLXDownloadProgress.shared.fractionCompleted : 0)
+                        .frame(maxWidth: 80)
+                    Button("Cancel") { mlx.cancelDownload() }
+                } else {
+                    Button("Download") {
+                        mlx.download(repository: customModel)
+                        customModel = ""
+                    }
+                    .disabled(!customModel.contains("/") || mlx.modelsFolder == nil)
                 }
-                .disabled(!customModel.contains("/"))
             }
-
-            Button("Choose a Model Folder…") { choosingFolder = true }
-
             Link("Browse MLX models on Hugging Face", destination: Self.mlxCommunity)
 
             if let caution = mlx.sizeCaution {
@@ -198,14 +223,6 @@ struct IntelligenceSettingsForm: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            if mlx.source != nil && !mlx.toolsSupported {
-                Label("\(mlx.modelName) can't use tools. With it the Assistant chats without reading or changing your notes, and Research isn't available.",
-                      systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
             if let error = mlx.lastError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.secondary)
@@ -220,48 +237,41 @@ struct IntelligenceSettingsForm: View {
 
     private static let mlxCommunity = URL(string: "https://huggingface.co/mlx-community")!
 
-    /// **No models are suggested.** The app used to list four, and they were a
-    /// generation out of date within a day of being written. Naming a model is
-    /// a promise about it; this screen makes none.
     #if os(macOS)
-    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one, and whether a model works, and how well, is up to the model. Type an MLX model's name on Hugging Face, or choose a folder that holds one; either downloads into this device's caches. A model already in your Hugging Face cache works too: choose its folder in ~/.cache/huggingface/hub (press ⇧⌘G in the Open panel to type the path). Where Hugging Face isn't reachable, get a model another way and choose its folder."
-    #else
-    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one, and whether a model works, and how well, is up to the model. Type an MLX model's name on Hugging Face, or choose a folder that holds one; either downloads into this device's caches. Where Hugging Face isn't reachable, get a model another way and choose its folder."
-    #endif
-
-    private func chosenModelRow(_ id: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Image(systemName: "checkmark").foregroundStyle(.tint)
-                Text(id).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
-            }
-            downloadControls(id: id, name: MLXModelStore.shortName(ofRepository: id),
-                             chosen: true, onDisk: mlx.downloaded.contains(id))
-        }
+    /// `~/.cache/huggingface/hub` in the person's real home — the sandbox gives
+    /// the app a different home of its own.
+    private static var huggingFaceCache: URL? {
+        guard let entry = getpwuid(getuid()), let home = entry.pointee.pw_dir else { return nil }
+        return URL(fileURLWithPath: String(cString: home)).appending(path: ".cache/huggingface/hub")
     }
 
-    @ViewBuilder
-    private func downloadControls(id: String, name: String, chosen: Bool, onDisk: Bool) -> some View {
-        let progress = MLXDownloadProgress.shared
-        HStack(spacing: 10) {
-            if mlx.downloadingID == id {
-                ProgressView(value: progress.isActive ? progress.fractionCompleted : 0)
-                    .frame(maxWidth: 160)
-                Button("Cancel") { mlx.cancelDownload() }
-            } else if chosen && !onDisk {
-                Button("Download") { mlx.downloadChosenModel() }
-                    .disabled(mlx.isDownloading)
-            } else if !chosen {
-                Button("Use") { mlx.choose(repository: id) }
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: choose your Hugging Face cache, ~/.cache/huggingface/hub, and HelloNotes lists the models already there, downloads into it, and shares each copy with other MLX tools. One MLX model runs at a time, so the Assistant and the writing tools share it."
+    #else
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: HelloNotes' own storage, or a folder you choose. One MLX model runs at a time, so the Assistant and the writing tools share it."
+    #endif
+
+    private func modelRow(_ model: MLXLocalModel) -> some View {
+        let inUse = mlx.chosenID == model.id
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                if inUse { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                Text(model.name).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Text(model.bytes.formatted(.byteCount(style: .file)))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
-            if onDisk && mlx.downloadingID != id {
-                Button("Remove Download", role: .destructive) {
-                    Task { await mlx.removeDownload(repository: id) }
-                }
+            if model.rendersTools == false {
+                Text("Can't use tools — with it the Assistant chats only, and Research isn't available.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            HStack(spacing: 10) {
+                if !inUse { Button("Use") { mlx.use(model) } }
+                Button("Remove…", role: .destructive) { removing = model }
+            }
+            .font(.caption)
+            .buttonStyle(.borderless)
         }
-        .font(.caption)
-        .buttonStyle(.borderless)
     }
 
     // MARK: - Inline completion

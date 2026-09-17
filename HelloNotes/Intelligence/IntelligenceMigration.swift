@@ -11,7 +11,12 @@
 //  `llmIntelligenceProvider` for the writing tools), a temperature, and one API
 //  key per provider in the Keychain. All sixteen providers but two are gone.
 //
-//  * Apple on-device maps to `.onDevice`, and MLX to `.mlx` with its model id.
+//  * Apple on-device maps to `.onDevice`, and MLX to `.mlx` with its model id —
+//    **only when MLX was actually chosen**. 1.3.2 stored a configuration for
+//    every provider, each with a default model, whether or not it was ever used,
+//    so every blob holds an MLX entry naming `Qwen3-4B-4bit`. Build 22 carried
+//    that default across for everyone, and the picker offered a model nobody
+//    had chosen and nobody had on disk.
 //  * Every other provider maps to `.onDevice` — the one model every eligible
 //    device has, and the only default that sends nothing anywhere the person
 //    did not already choose. *That* one was retired is remembered, so the
@@ -85,7 +90,8 @@ nonisolated enum IntelligenceMigration {
         if chat?.retired == true || features?.retired == true {
             defaults.set(true, forKey: IntelligenceSettings.Keys.retiredProvider)
         }
-        if defaults.string(forKey: MLXModelStore.Keys.model) == nil,
+        if chat?.choice == .mlx || features?.choice == .mlx,
+           defaults.string(forKey: MLXModelStore.Keys.model) == nil,
            let model = legacyMLXModel(from: defaults.data(forKey: LegacyKeys.providers)) {
             defaults.set(model, forKey: MLXModelStore.Keys.model)
         }

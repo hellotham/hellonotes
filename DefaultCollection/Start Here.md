@@ -21,7 +21,7 @@ special.
 3. [[Organising]] — folders, tags, and properties
 4. [[Rich Content]] — callouts, maths, diagrams, tables, transclusion
 5. [[Finding Things]] — search, Open Quickly, the outline
-6. [[Intelligence]] — the on-device assistant, and bringing your own key
+6. [[Intelligence]] — the Assistant and writing tools, on this device
 7. [[Syncing]] — iCloud, Git, and other people's clouds
 
 The [[Manual/Index|user manual]] goes deeper on any of these.

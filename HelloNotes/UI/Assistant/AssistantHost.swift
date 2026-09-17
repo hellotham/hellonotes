@@ -19,23 +19,27 @@ import SwiftUI
 struct AssistantHost: View {
     @Environment(Library.self) private var library
     @Environment(IntelligenceSettings.self) private var intelligenceSettings
+    #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+    #else
+    @Environment(AppearanceSettings.self) private var appearance
+    @Environment(GitAccountsStore.self) private var gitAccounts
+    @Environment(StoreService.self) private var store
+    @State private var showSettings = false
+    #endif
 
     @State private var model: AssistantModel?
     @State private var permissions = PermissionBroker()
     @State private var skills = SkillStore()
-    @State private var showSettings = false
 
     var body: some View {
-        Group {
+        presentingSettings(Group {
             if let model {
-                AssistantView(model: model) { showSettings = true }
+                AssistantView(model: model) { openAISettings() }
             } else {
                 ProgressView()
             }
-        }
-        .sheet(isPresented: $showSettings) {
-            IntelligenceSettingsView(settings: intelligenceSettings)
-        }
+        })
         .task {
             if model == nil {
                 model = AssistantModel(settings: intelligenceSettings)
@@ -47,6 +51,33 @@ struct AssistantHost: View {
             if let c = library.focused { skills.refresh(from: c.notes) }
         }
     }
+
+    /// Settings, at its AI page: the Settings window on the Mac, the Settings
+    /// sheet over the Assistant on iOS.
+    private func openAISettings() {
+        #if os(macOS)
+        UserDefaults.standard.set(SettingsPage.ai.rawValue, forKey: SettingsPage.storageKey)
+        openSettings()
+        #else
+        showSettings = true
+        #endif
+    }
+
+    #if os(macOS)
+    /// Nothing to present: the Mac opens its Settings window.
+    private func presentingSettings(_ content: some View) -> some View { content }
+    #else
+    /// Presented from here, not the shell: the Assistant is itself a sheet on
+    /// iOS, and the shell cannot present another while it is up — which is why
+    /// the old "Open AI Settings…" button here did nothing on iPad.
+    private func presentingSettings(_ content: some View) -> some View {
+        content.sheet(isPresented: $showSettings) {
+            AppSettingsView(intelligenceSettings: intelligenceSettings, appearance: appearance,
+                            git: library.focused?.git, accounts: gitAccounts, store: store,
+                            page: .ai)
+        }
+    }
+    #endif
 
     /// Point the assistant's tools and conversation at the focused collection.
     private func syncFocusedServices() {

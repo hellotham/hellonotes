@@ -314,3 +314,35 @@ struct SidebarMenuItems: View {
         }
     }
 }
+
+/// A row's long-press menu, visible: the same items behind a `…` button.
+///
+/// A context menu is hidden until someone thinks to hold a row, and Apple's
+/// rule is that everything in one is also reachable in the main interface. A
+/// row whose commands have no other home — a collection, a folder, a launcher
+/// entry — carries this beside its long-press. A note's home is the open note's
+/// own menu instead, as a message's is the message view in Mail.
+struct RowActionsMenu: View {
+    let name: String
+    let items: [SidebarMenu.Item]
+
+    var body: some View {
+        if !items.isEmpty {
+            Menu {
+                SidebarMenuItems(items: items)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .imageScale(.large)
+                    // Not the tint: a selected row in the band is drawn in the
+                    // tint, and the button vanished into its own highlight.
+                    .foregroundStyle(.secondary)
+                    // A row's height to aim at where a finger is the pointer,
+                    // and no wider than the glyph — the band's pane is 260pt,
+                    // and 44 wide wrapped "DefaultCollection" onto two lines.
+                    .frame(minHeight: PointerPresence.shared.prefersTouch ? 44 : nil)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("\(name) actions")
+        }
+    }
+}

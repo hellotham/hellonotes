@@ -11,9 +11,12 @@
 > rejected) were both invisible prose.
 >
 > Started from the live iOS description on 15 September 2026
-> (`itunes.apple.com/lookup?id=6803259848`). The Mac description in App Store
-> Connect opens "…for your Mac" and may differ elsewhere; **read the live Mac
-> copy and carry its Mac-specific lines across before pasting**.
+> (`itunes.apple.com/lookup?id=6803259848`). The live **Mac** copy was read from
+> App Store Connect on 16 September and its Mac-only lines carried across: it
+> opens "…for your Mac", keeps *Multi-tab editing and open-in-new-window* and
+> *keyboard-first* under EXPORT & MORE, and manages the subscription "in your
+> Apple Account settings" rather than by the Settings path iOS uses — which is
+> the phrasing that passed review, and replaces a guess made here.
 
 ## Fields for both platforms
 
@@ -123,14 +126,15 @@ VERSION HISTORY WITH GIT
 
 EXPORT & MORE
 • Export to HTML or PDF
-• Full light and dark support
+• Multi-tab editing and open-in-new-window
+• Full light and dark support, keyboard-first
 
 Your files stay yours — readable in any editor, syncable with any tool. HelloNotes just makes them a joy to think in.
 
 SUPPORTING HELLONOTES (OPTIONAL)
 HelloNotes is free, and every feature is included for everyone. Two entirely optional purchases live in Settings > Support. Backing HelloNotes adds one thing — the ability to send a support request from inside the app — and nothing else:
 • Champion — a one-off contribution of A$50. You can give more than once; the app remembers how many times.
-• Commercial — an annual licence for using HelloNotes at work. A$50 per year, an auto-renewable subscription charged to your Apple Account on confirmation and renewing each year unless turned off at least 24 hours before the period ends. Manage or cancel it in the App Store: your name > Account Settings > Subscriptions > Manage.
+• Commercial — an annual licence for using HelloNotes at work. A$50 per year, an auto-renewable subscription charged to your Apple Account on confirmation and renewing each year unless turned off at least 24 hours before the period ends. Manage or cancel it in your Apple Account settings.
 
 Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 Privacy Policy: https://hellotham.com/hellonotes/privacy

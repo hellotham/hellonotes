@@ -144,28 +144,30 @@ struct LauncherView: View {
     // MARK: - Recents
 
     private func recentRow(_ entry: RecentsStore.Entry, symbol: String) -> some View {
-        Button {
-            if let url = entry.url { dismiss(); onOpenURL(url) }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(entry.name).fontWeight(.medium)
-                    Text(entry.id).font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle)
+        // Shown as well as held: a long-press is not a place anyone looks.
+        let items = [SidebarMenu.Item(id: 1, title: "Remove from Recents", symbol: "xmark",
+                                      destructive: true, run: { recents.remove(entry) })]
+        return HStack(spacing: 8) {
+            Button {
+                if let url = entry.url { dismiss(); onOpenURL(url) }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(entry.name).fontWeight(.medium)
+                        Text(entry.id).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                    Text(entry.lastOpened, format: .relative(presentation: .named))
+                        .font(.caption).foregroundStyle(.tertiary)
                 }
-                Spacer(minLength: 0)
-                Text(entry.lastOpened, format: .relative(presentation: .named))
-                    .font(.caption).foregroundStyle(.tertiary)
+                .contentShape(.rect)
             }
-            .contentShape(.rect)
+            .buttonStyle(.plain)
+            RowActionsMenu(name: entry.name, items: items)
         }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button(role: .destructive) { recents.remove(entry) } label: {
-                Label("Remove from Recents", systemImage: "xmark")
-            }
-        }
+        .contextMenu { SidebarMenuItems(items: items) }
     }
 
     // MARK: - Libraries
@@ -177,26 +179,27 @@ struct LauncherView: View {
                     .font(.callout).foregroundStyle(.secondary)
             } else {
                 ForEach(libraries.libraries) { library in
-                    Button { dismiss(); onOpenLibrary(library) } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary).frame(width: 18)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(library.name).fontWeight(.medium)
-                                Text(library.collectionNames.joined(separator: ", "))
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    let items = [SidebarMenu.Item(id: 1, title: "Delete Library", symbol: "trash",
+                                                  destructive: true, run: { libraries.delete(library) })]
+                    HStack(spacing: 8) {
+                        Button { dismiss(); onOpenLibrary(library) } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary).frame(width: 18)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(library.name).fontWeight(.medium)
+                                    Text(library.collectionNames.joined(separator: ", "))
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                Text("\(library.bookmarks.count)")
+                                    .font(.caption).foregroundStyle(.tertiary)
                             }
-                            Spacer(minLength: 0)
-                            Text("\(library.bookmarks.count)")
-                                .font(.caption).foregroundStyle(.tertiary)
+                            .contentShape(.rect)
                         }
-                        .contentShape(.rect)
+                        .buttonStyle(.plain)
+                        RowActionsMenu(name: library.name, items: items)
                     }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button(role: .destructive) { libraries.delete(library) } label: {
-                            Label("Delete Library", systemImage: "trash")
-                        }
-                    }
+                    .contextMenu { SidebarMenuItems(items: items) }
                 }
             }
             Button {

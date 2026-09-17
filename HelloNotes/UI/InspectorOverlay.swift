@@ -125,8 +125,11 @@ struct InspectorOverlayHeader: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(candidate == tab ? Color.accentColor : .secondary)
+                    // A tint of the accent, not `.selection`: on iPad that is
+                    // the accent itself, and the chosen tab's icon was drawn in
+                    // its own background colour — a blank pill.
                     .background(
-                        candidate == tab ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
+                        candidate == tab ? AnyShapeStyle(Color.accentColor.opacity(0.18)) : AnyShapeStyle(.clear),
                         in: RoundedRectangle(cornerRadius: 6)
                     )
                     .accessibilityLabel(candidate.title)

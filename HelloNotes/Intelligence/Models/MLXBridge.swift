@@ -106,6 +106,7 @@ nonisolated enum MLXModelError: LocalizedError {
     case invalidRepository(String)
     case notDownloaded(String)
     case folderUnreadable(String)
+    case notOnDevice(String)
     case noModelChosen
 
     var errorDescription: String? {
@@ -116,6 +117,8 @@ nonisolated enum MLXModelError: LocalizedError {
             "\(name) hasn't been downloaded yet. Download it in AI settings."
         case .folderUnreadable(let name):
             "HelloNotes can no longer read the model folder “\(name)”. Choose it again in AI settings."
+        case .notOnDevice(let name):
+            "\(name) isn't on this device any more. Choose another MLX model in AI settings."
         case .noModelChosen:
             "Choose an MLX model in AI settings."
         }

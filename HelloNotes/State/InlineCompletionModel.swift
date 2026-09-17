@@ -62,7 +62,7 @@ final class InlineCompletionModel {
     static func unavailableReason(_ intelligence: IntelligenceService) -> String? {
         if case .unavailable(let why) = intelligence.availability { return why }
         guard !intelligence.runsOnDevice else { return nil }
-        return "\(intelligence.modelName) runs on Apple's servers. Suggestions as you type need a model on this device — choose On-Device or an MLX model for writing tools."
+        return "\(intelligence.modelName) runs on Apple's servers. Suggestions as you type need a model on this device — choose System or an MLX model for writing tools."
     }
 
     func cancel() {

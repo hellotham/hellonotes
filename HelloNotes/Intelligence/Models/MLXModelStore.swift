@@ -4,18 +4,21 @@
 //
 //  Created by Chris Tham on 15/9/2026.
 //
-//  The open models HelloNotes can run with MLX: which one is chosen, whether it
-//  is on disk, and fetching or removing it.
+//  The open models HelloNotes can run with MLX.
 //
-//  **The app suggests nothing.** It used to carry four models with their sizes
-//  and a sentence each, read from the Hub on one day in September 2026 — and
-//  within a day they were a generation behind what a person actually had on
-//  their disk (Qwen 3.8, Gemma 4), while not one of them had ever been run.
-//  A remembered model list is stale the week after it is written, and a
-//  suggestion carries a promise the app cannot keep. Choosing a model is the
-//  advanced end of the app: bring one you know you want.
+//  **There is one place for models: the models folder.** The picker lists the
+//  models in it that the loader can run, downloads go into it, and Remove
+//  deletes from it. On a Mac the person chooses it once — their Hugging Face
+//  cache, `~/.cache/huggingface/hub`, so HelloNotes and `mlx_lm` share one copy
+//  of each model; the sandbox lets the app read nothing it has not been given.
+//  On iPhone and iPad, which have no shared cache, it is HelloNotes' own storage
+//  unless the person chooses a folder in Files.
 //
-//  Two ways in, because one of them does not work everywhere the app now ships:
+//  Nothing about a model is remembered: what it is, how big it is and whether
+//  it can use tools are read from its files (`MLXModelFolder`), and whether it
+//  can run is asked of the loader. One MLX model runs at a time, so the
+//  Assistant and the writing tools share it.
+//
 //  A model is *loaded* lazily by `MLXLanguageModel` on its first request and
 //  cached process-wide there; this store never holds weights itself.
 //
@@ -57,197 +60,172 @@ final class MLXModelStore {
         #endif
     }
 
-    /// Where the chosen model comes from.
-    enum Source: Equatable {
-        case hub(String)
-        case folder(URL)
+    /// The models folder when the person has not chosen one: nothing on a Mac,
+    /// where the Hugging Face cache needs a grant, and HelloNotes' own storage on
+    /// iPhone and iPad, where there is no shared cache to prefer.
+    private static var ownStorage: URL? {
+        #if os(macOS)
+        nil
+        #else
+        HubCache.default.cacheDirectory
+        #endif
     }
 
     static let shared = MLXModelStore()
 
-    private let defaults: UserDefaults
-
     nonisolated enum Keys {
-        /// A Hub repository id, or `folder:` followed by the folder's name.
+        /// The model in use, by its directory (or, straight after a 1.3.2
+        /// upgrade, by its Hugging Face repository name).
         static let model = "aiMLXModel"
-        static let folderBookmark = "aiMLXFolderBookmark"
+        /// The models folder, as a security-scoped bookmark.
+        static let folder = "aiMLXFolderBookmark"
     }
 
-    /// The chosen model, if any.
-    private(set) var source: Source?
+    /// The folder the person chose, if they have.
+    private(set) var chosenFolder: URL?
+    /// The models in the models folder that the loader can run, by name.
+    private(set) var models: [MLXLocalModel] = []
+    private(set) var chosenID: String?
 
-    /// Whether the chosen model is ready, refreshed after anything that can
+    /// Whether the model in use is ready, refreshed after anything that can
     /// change it. `MLXLanguageModel.availability` is async, and a settings
     /// screen needs an answer it can draw synchronously.
     private(set) var availability: IntelligenceAvailability =
         .unavailable(MLXModelError.noModelChosen.localizedDescription)
 
-    /// Repository ids with a complete snapshot on disk.
-    private(set) var downloaded: Set<String> = []
-
-    /// The download in progress, if any, so it can be cancelled.
-    private var downloadTask: Task<Void, Never>?
     private(set) var downloadingID: String?
     private(set) var lastError: String?
-
-    /// The folder whose security scope is open, so it can be closed when the
-    /// person chooses something else.
-    private var scopedFolder: URL?
-
-    /// Where the chosen folder's model actually is — the folder itself, or the
-    /// current snapshot inside a Hugging Face cache's model folder — found by
-    /// `refreshAvailability()`, which reads the disk to decide.
-    private(set) var folderModel: FolderModel?
-
-    /// Whether the chosen model's chat template can show it tools — decided by
-    /// `MLXChatTemplate` once the model is on disk. Until then, and for a model
-    /// with no template to read, assumed: refusing tools on a guess would take
-    /// the Assistant's work away from models that can do it.
-    private(set) var toolsSupported = true
-
-    /// Said once the model is on disk, when its weights are large for this
-    /// device. Not a refusal: the person chose this model, and only they know
-    /// what else they are running.
-    private(set) var sizeCaution: String?
-
-    struct FolderModel: Equatable {
-        let directory: URL
-        let name: String
-    }
+    private var downloadTask: Task<Void, Never>?
+    private var folderScopeOpen = false
+    private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        restore()
-        refreshDownloaded()
-    }
-
-    // MARK: - Choosing
-
-    /// The chosen model's display name.
-    var modelName: String {
-        switch source {
-        case .hub(let id): Self.shortName(ofRepository: id)
-        case .folder(let url): folderModel?.name ?? url.lastPathComponent
-        case nil: "MLX"
+        chosenID = defaults.string(forKey: Keys.model)
+        if let data = defaults.data(forKey: Keys.folder), let resolved = Bookmark.resolveRefreshing(data) {
+            if let refreshed = resolved.refreshed { defaults.set(refreshed, forKey: Keys.folder) }
+            folderScopeOpen = resolved.url.startAccessingSecurityScopedResource()
+            chosenFolder = resolved.url
         }
+        Task { await refresh() }
     }
 
-    /// Whether the chosen model is asked to reason. **It never is.**
+    /// Where models are listed from, downloaded into and removed from.
+    var modelsFolder: URL? { chosenFolder ?? Self.ownStorage }
+
+    /// The model in use, if it is in the models folder.
+    var chosen: MLXLocalModel? { models.first { $0.id == chosenID } }
+
+    var modelName: String { chosen?.name ?? "MLX" }
+
+    /// Whether the model in use is asked to reason. **It never is.**
     ///
     /// Reasoning has to be declared before the weights are loaded, and nothing
     /// the app can read beforehand says truthfully whether a model reasons —
     /// declaring it on a model that does not makes every request fail, which is
     /// a worse trade than a model that answers without showing its thinking.
-    /// The suggested-model list used to carry this as a remembered flag per
-    /// model; it went with the list.
     var reasons: Bool { false }
 
-    func choose(repository id: String) {
-        let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
-        closeFolderScope()
-        folderModel = nil
-        source = .hub(id)
-        defaults.set(id, forKey: Keys.model)
-        defaults.removeObject(forKey: Keys.folderBookmark)
+    /// Whether the model in use can be shown tools. A model without a template
+    /// to read is given the benefit of the doubt.
+    var toolsSupported: Bool { chosen?.rendersTools ?? true }
+
+    /// Said when the model in use weighs more than a share of this device's
+    /// memory. Not a refusal: the person chose it, and only they know what else
+    /// they are running.
+    var sizeCaution: String? {
+        guard let chosen else { return nil }
+        let memory = ProcessInfo.processInfo.physicalMemory
+        guard Double(chosen.bytes) > Double(memory) * Self.memoryShare else { return nil }
+        let size = chosen.bytes.formatted(.byteCount(style: .file))
+        let total = Int64(memory).formatted(.byteCount(style: .file))
+        return "\(chosen.name)'s weights are \(size), on a device with \(total) of memory. It may fail to load, or be stopped while it runs."
+    }
+
+    var isDownloading: Bool { downloadingID != nil }
+
+    // MARK: - Choosing
+
+    /// Use `model` — for both roles that use MLX, since one runs at a time.
+    func use(_ model: MLXLocalModel) {
+        chosenID = model.id
+        defaults.set(model.id, forKey: Keys.model)
         lastError = nil
         Task { await refreshAvailability() }
     }
 
-    /// Use an MLX model folder the person picked.
-    func choose(folder url: URL) {
-        let scoped = url.startAccessingSecurityScopedResource()
+    /// Make `url` the models folder, keeping access to it across launches.
+    func chooseFolder(_ url: URL) {
+        let opened = url.startAccessingSecurityScopedResource()
         guard let bookmark = Bookmark.data(for: url) else {
-            if scoped { url.stopAccessingSecurityScopedResource() }
+            if opened { url.stopAccessingSecurityScopedResource() }
             lastError = MLXModelError.folderUnreadable(url.lastPathComponent).localizedDescription
             return
         }
-        closeFolderScope()
-        if scoped { scopedFolder = url }
-        defaults.set("folder:\(url.lastPathComponent)", forKey: Keys.model)
-        defaults.set(bookmark, forKey: Keys.folderBookmark)
-        use(folder: url)
-    }
-
-    /// Use a model folder this process can already read, without keeping a
-    /// bookmark to it. `choose(folder:)` does this after minting the bookmark;
-    /// the evaluation harness calls it directly, because the test host reads
-    /// the folder without the security scope a bookmark carries.
-    func use(folder url: URL) {
-        folderModel = nil
-        source = .folder(url)
-        // Not available until the folder has been read: until then the model
-        // would load from the chosen folder itself, which for a cache's model
-        // folder is not where the model is.
-        availability = .unavailable("Checking “\(url.lastPathComponent)”…")
+        if folderScopeOpen { chosenFolder?.stopAccessingSecurityScopedResource() }
+        chosenFolder = url
+        folderScopeOpen = opened
+        defaults.set(bookmark, forKey: Keys.folder)
         lastError = nil
-        Task { await refreshAvailability() }
+        Task { await refresh() }
     }
 
-    private func restore() {
-        guard let stored = defaults.string(forKey: Keys.model), !stored.isEmpty else { return }
-        if stored.hasPrefix("folder:") {
-            guard let data = defaults.data(forKey: Keys.folderBookmark),
-                  let resolved = Bookmark.resolveRefreshing(data) else {
-                lastError = MLXModelError.folderUnreadable(String(stored.dropFirst("folder:".count))).localizedDescription
-                return
-            }
-            if let refreshed = resolved.refreshed { defaults.set(refreshed, forKey: Keys.folderBookmark) }
-            if resolved.url.startAccessingSecurityScopedResource() { scopedFolder = resolved.url }
-            source = .folder(resolved.url)
-        } else {
-            source = .hub(stored)
+    /// Point at a folder this process can already read, without a bookmark, and
+    /// use the model in `url`. The evaluation harness's way in: the test host
+    /// reads the folder without the security scope a bookmark carries.
+    func use(folder url: URL) async {
+        chosenFolder = url.lastPathComponent.hasPrefix("models--") ? url.deletingLastPathComponent() : url
+        await refresh()
+        let wanted = url.standardizedFileURL
+        if let model = models.first(where: { $0.folder.standardizedFileURL == wanted }) ?? models.first {
+            use(model)
+            await refreshAvailability()
         }
-        Task { await refreshAvailability() }
     }
 
-    private func closeFolderScope() {
-        scopedFolder?.stopAccessingSecurityScopedResource()
-        scopedFolder = nil
+    /// Read the models folder, and keep the models the loader can run.
+    func refresh() async {
+        guard let folder = modelsFolder else {
+            models = []
+            await refreshAvailability()
+            return
+        }
+        let found = await offMain { MLXModelFolder.models(in: folder) }
+        var runnable: [String: Bool] = [:]
+        for type in Set(found.compactMap(\.modelType)) {
+            runnable[type] = await LLMTypeRegistry.shared.contains(type)
+        }
+        models = found.filter { model in model.modelType.flatMap { runnable[$0] } ?? false }
+        // Straight after a 1.3.2 upgrade the choice is a repository name.
+        if chosen == nil, let stored = chosenID, let match = models.first(where: { $0.repository == stored }) {
+            use(match)
+        }
+        await refreshAvailability()
     }
 
     // MARK: - The model
 
-    /// The chosen model as a Foundation Models `LanguageModel`.
+    /// The model in use as a Foundation Models `LanguageModel`.
     func languageModel() throws -> MLXLanguageModel {
-        guard let source else { throw MLXModelError.noModelChosen }
-        var capabilities: [LanguageModelCapabilities.Capability] = [.guidedGeneration]
-        if toolsSupported { capabilities.append(.toolCalling) }
-        if reasons { capabilities.append(.reasoning) }
-
-        switch source {
-        case .hub(let id):
-            guard Repo.ID(rawValue: id) != nil else { throw MLXModelError.invalidRepository(id) }
-            let onDisk = downloaded.contains(id)
-            return MLXLanguageModel(
-                configuration: ModelConfiguration(id: id),
-                capabilities: capabilities,
-                weightsLocation: { id in Self.snapshotDirectory(forRepository: id) },
-                load: { configuration, progress in
-                    try await loadModelContainer(
-                        from: HubModelDownloader(localFilesOnly: onDisk),
-                        using: TransformersTokenizerLoader(),
-                        configuration: configuration,
-                        progressHandler: progress)
-                })
-
-        case .folder(let url):
-            let directory = folderModel?.directory ?? url
-            return MLXLanguageModel(
-                configuration: ModelConfiguration(directory: directory),
-                capabilities: capabilities,
-                weightsLocation: { _ in directory },
-                load: { configuration, progress in
-                    try await loadModelContainer(
-                        from: HubModelDownloader(localFilesOnly: true),
-                        using: TransformersTokenizerLoader(),
-                        configuration: configuration,
-                        progressHandler: progress)
-                })
+        guard let chosen else {
+            throw chosenID == nil ? MLXModelError.noModelChosen : MLXModelError.notOnDevice(modelName)
         }
+        var capabilities: [LanguageModelCapabilities.Capability] = [.guidedGeneration]
+        if chosen.rendersTools != false { capabilities.append(.toolCalling) }
+        if reasons { capabilities.append(.reasoning) }
+        let directory = chosen.directory
+        return MLXLanguageModel(
+            configuration: ModelConfiguration(directory: directory),
+            capabilities: capabilities,
+            weightsLocation: { _ in directory },
+            load: { configuration, progress in
+                try await loadModelContainer(
+                    from: HubModelDownloader(localFilesOnly: true),
+                    using: TransformersTokenizerLoader(),
+                    configuration: configuration,
+                    progressHandler: progress)
+            })
     }
-
-    // MARK: - Availability
 
     func refreshAvailability() async {
         #if targetEnvironment(simulator)
@@ -255,29 +233,17 @@ final class MLXModelStore {
         availability = .unavailable("MLX models run on a Mac, iPhone or iPad — not in the simulator.")
         return
         #else
-        guard source != nil else {
-            availability = .unavailable(MLXModelError.noModelChosen.localizedDescription)
+        guard let chosen else {
+            availability = .unavailable(chosenID == nil
+                ? MLXModelError.noModelChosen.localizedDescription
+                : MLXModelError.notOnDevice(modelName).localizedDescription)
             return
         }
-        if case .folder(let folder) = source {
-            let resolution = await offMain { MLXModelFolder.resolve(folder) }
-            guard source == .folder(folder) else { return }   // chosen again meanwhile
-            guard case .model(let directory, let name) = resolution else {
-                let problem = MLXModelFolder.problem(with: resolution, folderName: folder.lastPathComponent)
-                    ?? MLXModelError.folderUnreadable(folder.lastPathComponent).localizedDescription
-                folderModel = nil
-                lastError = problem
-                availability = .unavailable(problem)
-                return
-            }
-            folderModel = FolderModel(directory: directory, name: name)
-            if let missing = await offMain({ MLXModelStore.firstFileNotOnDevice(in: directory) }) {
-                availability = .unavailable("“\(missing)” in \(folder.lastPathComponent) hasn't downloaded to this device yet. Download the folder, then choose the model again.")
-                return
-            }
+        let directory = chosen.directory
+        if let missing = await offMain({ MLXModelStore.firstFileNotOnDevice(in: directory) }) {
+            availability = .unavailable("“\(missing)” in \(chosen.name) hasn't downloaded to this device yet.")
+            return
         }
-        refreshDownloaded()
-        await refreshFromModelFiles()
         do {
             let model = try languageModel()
             switch await model.availability {
@@ -288,9 +254,9 @@ final class MLXModelStore {
             case .unavailable(.deviceNotCapable):
                 availability = .unavailable("This device can't run MLX models.")
             case .unavailable(.modelNotDownloaded):
-                availability = .unavailable(MLXModelError.notDownloaded(modelName).localizedDescription)
+                availability = .unavailable(MLXModelError.notOnDevice(modelName).localizedDescription)
             case .unavailable(.downloadFailed):
-                availability = .unavailable("\(modelName) didn't finish downloading. Try downloading it again in AI settings.")
+                availability = .unavailable("\(modelName) didn't finish downloading.")
             @unknown default:
                 availability = .unavailable("\(modelName) is unavailable right now.")
             }
@@ -300,44 +266,9 @@ final class MLXModelStore {
         #endif
     }
 
-    /// Read what the chosen model's own files say about it, once it is on
-    /// disk: whether its chat template can show it tools, and whether its
-    /// weights are more than this device should hold.
-    private func refreshFromModelFiles() async {
-        let directory: URL?
-        switch source {
-        case .folder: directory = folderModel?.directory
-        case .hub(let id): directory = downloaded.contains(id) ? Self.snapshotDirectory(forRepository: id) : nil
-        case nil: directory = nil
-        }
-        guard let directory else {
-            toolsSupported = true
-            sizeCaution = nil
-            return
-        }
-        let chosen = source
-        let share = Self.memoryShare
-        let memory = ProcessInfo.processInfo.physicalMemory
-        let read = await offMain { () -> (tools: Bool?, caution: String?) in
-            let tools = MLXChatTemplate.rendersTools(in: directory)
-            let bytes = MLXModelFolder.weightsBytes(in: directory)
-            guard bytes > 0, Double(bytes) > Double(memory) * share else { return (tools, nil) }
-            let size = bytes.formatted(.byteCount(style: .file))
-            let total = Int64(memory).formatted(.byteCount(style: .file))
-            return (tools, "This model's weights are \(size), on a device with \(total) of memory. It may fail to load, or be stopped while it runs.")
-        }
-        guard source == chosen else { return }   // chosen again meanwhile
-        toolsSupported = read.tools ?? true
-        sizeCaution = read.caution
-    }
-
-    /// The first file in a chosen model folder whose bytes are still in the cloud.
-    ///
-    /// A folder picked in iCloud Drive or another cloud folder can hold weights
-    /// the system keeps online-only. The model loader reads them with plain file
-    /// reads, which a dataless file can fail outright, so this says so before
-    /// the first request instead of failing inside it. Metadata only — nothing
-    /// is downloaded.
+    /// The first file in a model's folder whose bytes are still in the cloud —
+    /// a models folder in iCloud Drive can hold weights the system keeps
+    /// online-only, which the loader's plain reads can fail on. Metadata only.
     nonisolated static func firstFileNotOnDevice(in folder: URL) -> String? {
         let files = (try? FileManager.default.contentsOfDirectory(
             at: folder,
@@ -346,39 +277,53 @@ final class MLXModelStore {
         return files.first { !FileIO.isMaterialized(at: $0) }?.lastPathComponent
     }
 
-    // MARK: - Downloading
+    // MARK: - Downloading and removing
 
-    var isDownloading: Bool { downloadingID != nil }
-
-    /// Fetch the chosen Hub model. Progress is published by the adapter on
+    /// Download a Hugging Face model into the models folder and use it — or use
+    /// the copy already there. Progress is published by the adapter on
     /// `MLXDownloadProgress.shared`, which the settings screen observes.
-    func downloadChosenModel() {
-        guard case .hub(let id) = source, downloadTask == nil else { return }
+    func download(repository name: String) {
+        let id = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Repo.ID(rawValue: id) != nil else {
+            lastError = MLXModelError.invalidRepository(id).localizedDescription
+            return
+        }
+        if let existing = models.first(where: { $0.repository == id }) {
+            use(existing)
+            return
+        }
+        guard let folder = modelsFolder else {
+            lastError = "Choose a models folder first."
+            return
+        }
+        guard downloadTask == nil else { return }
         lastError = nil
         downloadingID = id
+        let cache = HubCache(cacheDirectory: folder)
         downloadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                // A fresh value, so the loader is not told the files exist.
                 let model = MLXLanguageModel(
                     configuration: ModelConfiguration(id: id),
-                    weightsLocation: { id in Self.snapshotDirectory(forRepository: id) },
+                    weightsLocation: { id in Self.snapshotDirectory(forRepository: id, in: cache) },
                     load: { configuration, progress in
                         try await loadModelContainer(
-                            from: HubModelDownloader(),
+                            from: HubModelDownloader(client: HubClient(cache: cache)),
                             using: TransformersTokenizerLoader(),
                             configuration: configuration,
                             progressHandler: progress)
                     })
                 try await model.preload()
+                await model.evict()
             } catch is CancellationError {
                 // Stopped by the person; nothing to report.
             } catch {
-                self.lastError = Self.describeDownloadError(error, modelName: self.modelName)
+                self.lastError = Self.describeDownloadError(error, modelName: Self.shortName(ofRepository: id))
             }
             self.downloadTask = nil
             self.downloadingID = nil
-            await self.refreshAvailability()
+            await self.refresh()
+            if let arrived = self.models.first(where: { $0.repository == id }) { self.use(arrived) }
         }
     }
 
@@ -386,42 +331,28 @@ final class MLXModelStore {
         downloadTask?.cancel()
     }
 
-    /// Delete a downloaded model's files and release its memory.
-    func removeDownload(repository id: String) async {
-        guard let repo = Repo.ID(rawValue: id) else { return }
-        if case .hub(let chosen) = source, chosen == id {
-            if let model = try? languageModel() { await model.evict() }
-        }
-        let directory = HubCache.default.repoDirectory(repo: repo, kind: .model)
+    /// Delete a model from the models folder, and release its memory.
+    func remove(_ model: MLXLocalModel) async {
+        if chosen?.id == model.id, let loaded = try? languageModel() { await loaded.evict() }
+        let folder = model.folder
         do {
-            // Library/Caches, not the vault: `FileIO`'s coordination rule is
-            // about note content and does not apply to a model cache.
-            try await offMain { try FileManager.default.removeItem(at: directory) }
-        } catch CocoaError.fileNoSuchFile {
-            // Already gone.
+            // A models folder, not the vault: `FileIO`'s coordination rule is
+            // about note content and does not apply here.
+            try await offMain { try FileManager.default.removeItem(at: folder) }
         } catch {
-            lastError = "Couldn't remove \(Self.shortName(ofRepository: id)): \(error.localizedDescription)"
+            lastError = "Couldn't remove \(model.name): \(error.localizedDescription)"
         }
-        await refreshAvailability()
+        if chosenID == model.id {
+            chosenID = nil
+            defaults.removeObject(forKey: Keys.model)
+        }
+        await refresh()
     }
 
     // MARK: - Helpers
 
-    /// Whether the chosen Hub model is complete on disk.
-    func refreshDownloaded() {
-        guard case .hub(let id) = source else {
-            downloaded = []
-            return
-        }
-        let complete = FileManager.default.fileExists(
-            atPath: Self.snapshotDirectory(forRepository: id).appending(path: "config.json").path)
-        downloaded = complete ? [id] : []
-    }
-
-    /// The directory a Hub model's files live in once downloaded — the same
-    /// resolution the adapter uses to decide whether a model is on disk.
-    nonisolated static func snapshotDirectory(forRepository id: String) -> URL {
-        let cache = HubCache.default
+    /// Where a repository's files are once downloaded into `cache`.
+    nonisolated static func snapshotDirectory(forRepository id: String, in cache: HubCache) -> URL {
         guard let repo = Repo.ID(rawValue: id) else { return cache.cacheDirectory }
         if let commit = cache.resolveRevision(repo: repo, kind: .model, ref: "main"),
            let snapshot = try? cache.snapshotPath(repo: repo, kind: .model, commitHash: commit) {
@@ -436,12 +367,12 @@ final class MLXModelStore {
 
     /// A download failure in words that say what to do. A person in a region
     /// where the Hub is blocked sees a timeout, and a timeout alone does not
-    /// tell them a model folder is the way round it.
+    /// tell them they can put a model in the models folder themselves.
     private static func describeDownloadError(_ error: Error, modelName: String) -> String {
         if let urlError = error as? URLError,
            [.notConnectedToInternet, .timedOut, .cannotFindHost, .cannotConnectToHost,
             .networkConnectionLost, .dnsLookupFailed].contains(urlError.code) {
-            return "Couldn't reach Hugging Face to download \(modelName). If it is blocked where you are, download the model another way and choose its folder instead."
+            return "Couldn't reach Hugging Face to download \(modelName). If it is blocked where you are, get the model another way and put its folder in the models folder."
         }
         return "Couldn't download \(modelName): \(error.localizedDescription)"
     }

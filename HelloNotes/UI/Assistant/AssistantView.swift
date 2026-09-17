@@ -78,14 +78,15 @@ struct AssistantView: View {
 
     private var modelMenu: some View {
         Menu {
-            ForEach(models.offeredChoices) { choice in
+            ForEach(models.options) { option in
                 Button {
-                    model.settings.assistantModel = choice
+                    model.settings.choose(option, forAssistant: true)
                 } label: {
-                    Label(models.title(of: choice),
-                          systemImage: choice == model.modelChoice ? "checkmark" : models.systemImage(of: choice))
+                    Label(models.title(of: option),
+                          systemImage: option == model.settings.option(for: model.modelChoice)
+                              ? "checkmark" : models.systemImage(of: option))
                 }
-                .disabled(!models.availability(of: choice).isAvailable)
+                .disabled(!models.isAvailable(option))
             }
             Divider()
             Button("AI Settings…", action: onOpenSettings)
@@ -108,7 +109,7 @@ struct AssistantView: View {
                         retiredNotice
                     }
                     if model.agentMode && !model.canUseTools && model.availability.isAvailable {
-                        Label("\(model.modelName) can't use tools, so the Assistant can chat but won't read or change your notes. On-Device and the suggested MLX models can use tools.",
+                        Label("\(model.modelName) can't use tools, so the Assistant can chat but won't read or change your notes. System can, and so can any MLX model AI settings doesn't mark \"Can't use tools\".",
                               systemImage: "info.circle")
                             .font(.callout)
                             .foregroundStyle(.secondary)
@@ -173,7 +174,7 @@ struct AssistantView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("HelloNotes now uses Apple Foundation Models", systemImage: "info.circle")
                 .font(.headline)
-            Text("The AI service you set up in an earlier version is no longer supported, and any API key HelloNotes stored for it has been removed from this device. The Assistant now uses \(model.modelTitle). You can choose \(LanguageModels.largerModels) in AI settings.")
+            Text("The AI service you set up in an earlier version is no longer supported, and any API key HelloNotes stored for it has been removed from this device. The Assistant now uses \(model.modelName). You can choose \(LanguageModels.largerModels) in AI settings.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
@@ -199,7 +200,8 @@ struct AssistantView: View {
                 Text(reason)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                AISettingsButton()
+                Button("AI Settings…", action: onOpenSettings)
+                    .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 40)

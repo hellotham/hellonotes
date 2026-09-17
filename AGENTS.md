@@ -45,7 +45,7 @@
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 506 tests in 79 suites, ~9s (1.3.3).
+  afterwards whatever the result. 507 tests in 79 suites, ~9s (1.3.3).
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **58 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
@@ -317,9 +317,42 @@
   folder grant covers the folder, not what its links point to — measured with
   `sandbox-exec`: "Operation not permitted" on the snapshot, readable from the
   model's folder. Debug builds read the whole disk, so neither the test host nor
-  a Debug run can show it. `MLXModelFolder` resolves `refs/main` from the model's
-  folder and refuses a snapshot by layout, with a message naming the folder to
-  choose instead.
+  a Debug run can show it. So the grant is on the **models folder** — the cache
+  itself, `~/.cache/huggingface/hub` — and `MLXModelFolder` lists its
+  `models--*` entries and resolves each `refs/main`. Read sizes *through* the
+  links: a link's own size listed a 17 GB model at 81 bytes.
+- **No command lives only behind a gesture.** A long-press, right-click or swipe
+  is a shortcut; everything in one needs a visible route too (HIG, Context
+  menus: always make their items available in the main interface). A row with
+  commands of its own shows them behind `RowActionsMenu` (`…`); a note's are in
+  the open note's menu, from the same `SidebarMenu` list. `Menu(primaryAction:)`
+  *looks* like a plain button and is a hidden menu: tap was New Note, hold was
+  everything else, and on every iPad that hid Settings.
+- **Accent on accent draws nothing.** On iPad a selected row, and `.selection`,
+  *are* the tint — so a tinted glyph inside one vanishes. The inspector's chosen
+  tab was a blank pill and a row's `…` disappeared into its own highlight. Use
+  `.secondary`, or the tint at low opacity behind it.
+- **One Settings, opened at a page.** AI settings are `SettingsPage.ai`, never a
+  second screen: a standalone "AI Settings" sheet beside "Settings…" read as two
+  places. The Mac's page is stored, because `openSettings` takes no argument;
+  iOS pushes it. The Assistant presents Settings itself — on iOS it is already
+  presented, and the shell cannot present over it, which is why its old
+  "Open AI Settings…" did nothing on iPad. ⌘, opens Settings on iPad too.
+- **The on-device model is "System"** — Apple's name for it (`fm --help`:
+  `system`, "System model available"). Its variant, AFM 3 Core or Core
+  Advanced, is the hardware's decision; naming it made people ask for the other.
+- **A platform gate inside a modifier chain goes in a helper.**
+  `ShellComplianceTests` requires every `#if os(…)` to have an `#else`, and a
+  postfix `#if` with an empty branch does not compile ("reference to member
+  cannot be resolved without a contextual type"). Write a function with both
+  branches (`presentingSettings`, `startingInHuggingFaceCache`).
+- **A menu from a toolbar mid-screen is capped — about 520pt on a portrait
+  iPad — and scrolls.** Settings came last in the iPad's `…` menu and fell below
+  the fold of the menu added to make it findable. Order for the fold.
+- **The simulator tool's taps arrive as a mouse.** After the first one
+  `PointerPresence` reports a pointer, the band switches to 24pt rows and stays
+  there across relaunches — so a touch-sized layout can only be looked at
+  before the first tap.
 - **The app suggests no models, and remembers no fact about one.** Four
   suggestions with sizes and a sentence each lasted a day: checked against the
   Hub they were last updated in 2025, while the models on the machine were 2026

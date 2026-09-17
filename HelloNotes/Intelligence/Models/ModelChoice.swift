@@ -19,7 +19,8 @@
 //  Apple silicon), and the SDK decides that — `SystemLanguageModel.variant` is
 //  read-only and no initializer takes one. Private Cloud Compute is one model
 //  from an app's point of view. Naming a model the app cannot select would be a
-//  setting that does nothing.
+//  setting that does nothing — so the on-device model is shown as "System", the
+//  name Apple's `fm` tool gives it.
 //
 
 import Foundation
@@ -69,6 +70,31 @@ nonisolated enum ReasoningChoice: String, Codable, CaseIterable, Identifiable, S
         case .light: "Light"
         case .moderate: "Moderate"
         case .deep: "Deep"
+        }
+    }
+}
+
+/// One entry in a model picker. Apple's models are entries by where they run;
+/// MLX models are entries by which model, because more than one can be on the
+/// device — identified by `MLXLocalModel.id`.
+nonisolated enum ModelOption: Hashable, Identifiable, Sendable {
+    case onDevice
+    case privateCloud
+    case mlx(String)
+
+    var id: String {
+        switch self {
+        case .onDevice: "onDevice"
+        case .privateCloud: "privateCloud"
+        case .mlx(let model): "mlx:" + model
+        }
+    }
+
+    var choice: ModelChoice {
+        switch self {
+        case .onDevice: .onDevice
+        case .privateCloud: .privateCloud
+        case .mlx: .mlx
         }
     }
 }

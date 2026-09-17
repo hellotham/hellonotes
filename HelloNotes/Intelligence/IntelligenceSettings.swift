@@ -88,6 +88,26 @@ final class IntelligenceSettings {
         hasRetiredProvider = defaults.bool(forKey: Keys.retiredProvider)
     }
 
+    // MARK: - Picker entries
+
+    /// The picker entry a role shows now.
+    func option(for choice: ModelChoice) -> ModelOption {
+        switch choice {
+        case .onDevice: .onDevice
+        case .privateCloud: .privateCloud
+        case .mlx: .mlx(mlx.chosenID ?? "")
+        }
+    }
+
+    /// Choose a picker entry for a role. An MLX entry also becomes *the* MLX
+    /// model: one runs at a time, so any role using MLX uses it.
+    func choose(_ option: ModelOption, forAssistant: Bool) {
+        if case .mlx(let id) = option, let model = mlx.models.first(where: { $0.id == id }) {
+            mlx.use(model)
+        }
+        if forAssistant { assistantModel = option.choice } else { featuresModel = option.choice }
+    }
+
     /// Dismiss the "your provider was retired" notice for good.
     func acknowledgeRetiredProvider() {
         hasRetiredProvider = false

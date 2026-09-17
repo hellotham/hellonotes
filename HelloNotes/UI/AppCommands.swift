@@ -287,6 +287,10 @@ struct AppActions {
     /// Open-source licences and credits. Beside About, which is what it is
     /// part of — not a preference.
     var acknowledgements: (() -> Void)?
+    /// Open Settings. iOS only needs it — the Mac's `Settings` scene puts
+    /// Settings… and ⌘, in the app menu itself — but it is supplied on both,
+    /// like every action here.
+    var openSettings: (() -> Void)? = nil
     /// Ask a direct-API collection's provider what has changed. `nil` unless the
     /// focused collection is one. A command, so it belongs in a menu rather than
     /// only in a status bar that hides whenever a note is open.
@@ -426,6 +430,20 @@ struct HelloNotesCommands: Commands {
             Button("Acknowledgements…") { actions?.acknowledgements?() }
                 .disabled(actions?.acknowledgements == nil)
         }
+
+        // MARK: Settings — ⌘, is where people with a keyboard look for them,
+        // on iPad as on the Mac (HIG, Settings: "Make settings available in
+        // ways people expect"). It did nothing on iPad: the `Settings` scene
+        // that answers it is macOS-only, and nothing stood in for it.
+        #if os(macOS)
+        // The `Settings` scene supplies Settings… and ⌘, in the app menu.
+        #else
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { actions?.openSettings?() }
+                .keyboardShortcut(",")
+                .disabled(actions?.openSettings == nil)
+        }
+        #endif
 
         // MARK: File — creation and opening. ⌘N makes a note (the app's
         // primary object, the Mail convention); New Window moves to ⌥⌘N.

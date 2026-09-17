@@ -25,9 +25,24 @@ import SwiftUI
 import UIKit
 #endif
 
+/// A page of Settings, so a route can open Settings *at* one.
+///
+/// AI settings are a page of Settings, not a screen of their own. There was a
+/// second one — a sheet titled "AI Settings" holding the same form — because
+/// neither a `Settings` window nor a settings sheet can be opened at a page, and
+/// the Assistant needed to send people to its model choice. So a menu offered
+/// "AI Settings…" beside "Settings…", two doors that read as two places. Every
+/// route to AI settings now opens Settings, at AI.
+enum SettingsPage: String {
+    case general, appearance, git, ai, support
+
+    /// The Mac's tab, stored: `openSettings` takes no argument, so a route
+    /// sets this and then opens the window.
+    static let storageKey = "settingsPage"
+}
+
 #if os(macOS)
-/// The Preferences window (⌘,): a tabbed container for all app settings. AI /
-/// LLM provider configuration also remains reachable from the Assistant window.
+/// The Preferences window (⌘,): a tabbed container for all app settings.
 struct PreferencesView: View {
     /// Shared AI settings, so the AI tab and the Assistant's sheet edit the
     /// same choices.
@@ -49,13 +64,17 @@ struct PreferencesView: View {
     /// which is the part that has to be reachable before any repository exists.
     @State private var settingsGit = GitService()
 
+    @AppStorage(SettingsPage.storageKey) private var page = SettingsPage.general
+
     var body: some View {
-        TabView {
+        TabView(selection: $page) {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsPage.general)
 
             AppearanceSettingsView(settings: appearance)
                 .tabItem { Label("Appearance", systemImage: "paintpalette") }
+                .tag(SettingsPage.appearance)
 
             // Credentials belong in Settings on both platforms. iOS has had
             // this ("Repository & Accounts"); macOS reached `GitSettingsView`
@@ -64,9 +83,11 @@ struct PreferencesView: View {
             // *clone* one were behind having cloned one.
             GitSettingsView(store: gitAccounts, git: settingsGit)
                 .tabItem { Label("Git", systemImage: "arrow.trianglehead.branch") }
+                .tag(SettingsPage.git)
 
             IntelligenceSettingsForm(settings: intelligenceSettings)
                 .tabItem { Label("AI", systemImage: "sparkles") }
+                .tag(SettingsPage.ai)
 
             // Both platforms, for the reason the file's header gives: a screen
             // that exists on one shell is a screen nobody looked at on the
@@ -74,6 +95,7 @@ struct PreferencesView: View {
             // "reachable on macOS" is a review requirement, not a nicety.
             SupportSettingsView(store: store)
                 .tabItem { Label("Support", systemImage: "heart") }
+                .tag(SettingsPage.support)
         }
         .frame(width: 560, height: 640)
     }
@@ -113,9 +135,23 @@ struct iOSSettingsView: View {
     /// The two voluntary purchases — see `PreferencesView.store`.
     var store: StoreService
     @Environment(\.dismiss) private var dismiss
+    /// Starts at the page a route asked for, already pushed, so "AI Settings…"
+    /// lands on AI with Settings behind it.
+    @State private var path: [SettingsPage]
+
+    init(settings: AppearanceSettings, intelligenceSettings: IntelligenceSettings,
+         git: GitService?, accounts: GitAccountsStore?, store: StoreService,
+         page: SettingsPage? = nil) {
+        self.settings = settings
+        self.intelligenceSettings = intelligenceSettings
+        self.git = git
+        self.accounts = accounts
+        self.store = store
+        _path = State(initialValue: page.map { [$0] } ?? [])
+    }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Form {
                 // The same four groups the Mac's Preferences tab draws, from
                 // `AppearanceSettingsSections`. They were written twice over
@@ -124,20 +160,7 @@ struct iOSSettingsView: View {
                 AppearanceSettingsSections(settings: settings, accentLayout: .grid)
 
                 Section("AI") {
-                    NavigationLink {
-                        // The very same form the Mac's AI tab shows — not a
-                        // second, smaller iOS spelling of it. Entering a key
-                        // and removing one are the same two controls here.
-                        //
-                        // **Not wrapped in a `Form`.** `IntelligenceSettingsForm` is one
-                        // already (`.formStyle(.grouped)`), and `Form { Form { … } }`
-                        // collapses: the screen rendered as a clipped stub with
-                        // a half-drawn "Defaults" label and nothing else. It
-                        // shipped that way in build 11 because the screen was
-                        // added and never looked at.
-                        IntelligenceSettingsForm(settings: intelligenceSettings)
-                            .navigationTitle("AI")
-                    } label: {
+                    NavigationLink(value: SettingsPage.ai) {
                         Label("Models", systemImage: "sparkles")
                     }
                 }
@@ -171,6 +194,21 @@ struct iOSSettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: SettingsPage.self) { page in
+                if page == .ai {
+                    // The very same form the Mac's AI tab shows — not a
+                    // second, smaller iOS spelling of it.
+                    //
+                    // **Not wrapped in a `Form`.** `IntelligenceSettingsForm` is one
+                    // already (`.formStyle(.grouped)`), and `Form { Form { … } }`
+                    // collapses: the screen rendered as a clipped stub with
+                    // a half-drawn "Defaults" label and nothing else. It
+                    // shipped that way in build 11 because the screen was
+                    // added and never looked at.
+                    IntelligenceSettingsForm(settings: intelligenceSettings)
+                        .navigationTitle("AI")
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -200,6 +238,9 @@ struct AppSettingsView: View {
     var git: GitService?
     var accounts: GitAccountsStore?
     var store: StoreService
+    /// The page to open at. The Mac's is stored instead (`SettingsPage.storageKey`),
+    /// because the window ⌘, opens takes no argument.
+    var page: SettingsPage? = nil
 
     var body: some View {
         #if os(macOS)
@@ -209,7 +250,7 @@ struct AppSettingsView: View {
                         gitAccounts: accounts ?? GitAccountsStore(), store: store)
         #else
         iOSSettingsView(settings: appearance, intelligenceSettings: intelligenceSettings,
-                        git: git, accounts: accounts, store: store)
+                        git: git, accounts: accounts, store: store, page: page)
         #endif
     }
 }

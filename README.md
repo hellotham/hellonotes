@@ -58,7 +58,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
   **the system's own bar above the keyboard** — the floating shortcuts row on iPad, an
   accessory bar on iPhone — so it costs the app no screen space, appears with a hardware
   keyboard too, and shows whenever there is a cursor rather than following the view mode.
-- **AI on Apple Foundation Models, and nothing else.** Every feature runs on the device: **On-Device** (Apple Intelligence — AFM 3 Core or Core Advanced, whichever the hardware runs) or an open **MLX** model you download, plugged into Foundation Models through its `LanguageModel` protocol. No third-party AI services and no API keys; keys stored by earlier versions are deleted on upgrade.
+- **AI on Apple Foundation Models, and nothing else.** Every feature runs on the device: **System** (Apple's on-device model, as Apple's `fm` tool names it — AFM 3 Core or Core Advanced, whichever the hardware runs) or an open **MLX** model you download, plugged into Foundation Models through its `LanguageModel` protocol. No third-party AI services and no API keys; keys stored by earlier versions are deleted on upgrade.
 - **Every feature fits the model's window.** Apple Intelligence is asked for its context size (an MLX model is given one sized to the device's memory), and each feature sizes what it sends to fit — a long note is summarised in parts rather than cut off, a rewrite too large to return whole is refused rather than truncated, and the Assistant sends the recent turns that fit while the whole conversation stays on screen.
 
 **Cloud storage — two ways, no lock-in**

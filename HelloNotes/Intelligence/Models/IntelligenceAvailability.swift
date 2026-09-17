@@ -50,7 +50,7 @@ extension IntelligenceAvailability {
         case .unavailable(.modelNotReady):
             self = .unavailable("Apple Intelligence is still getting its model ready. Try again shortly.")
         case .unavailable:
-            self = .unavailable("The on-device model is unavailable right now.")
+            self = .unavailable("The System model is unavailable right now.")
         }
     }
 

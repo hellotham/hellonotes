@@ -4472,7 +4472,7 @@ Foundation Models can reach from an app:
 
 | Choice | Model | Where the text goes |
 |---|---|---|
-| **On-Device** | `SystemLanguageModel` — AFM 3 Core, or Core Advanced on the most capable Apple silicon (the SDK decides; `variant` is read-only) | nowhere |
+| **System** | `SystemLanguageModel` — AFM 3 Core, or Core Advanced on the most capable Apple silicon (the SDK decides; `variant` is read-only). Shown as "System", Apple's own name for it (§51.4) | nowhere |
 | **Private Cloud Compute** | `PrivateCloudComputeLanguageModel` — only in a build with Apple's managed entitlement | Apple's servers |
 | **MLX** | `MLXLanguageModel` (mlx-swift-lm, pinned by revision — its adapter is in no tag yet) | nowhere |
 
@@ -4740,6 +4740,73 @@ declared before the weights load, nothing readable beforehand says truthfully
 whether a model reasons, and declaring it wrongly fails every request.
 `ShippedContentTests.noModelIsSuggested` fails if a model id reappears in app
 code (it finds the four at the previous commit).
+
+### 51.4 Nothing on iPad only behind a gesture, and one Settings (2026-09-17)
+
+Testing build 22 on an iPad: "there is not an obvious way to access settings",
+then "why are there hidden long press menus?", "why is AI settings separate from
+Settings?", and — from `fm --help` — "the on-device AFM should just be called
+system".
+
+**The split button.** The iPad's leading toolbar item was
+`Menu { … } primaryAction: { newNote() }`: tap made a note, *hold* opened New
+Folder, Today's Note, Quick Capture, Open Quickly, the collection commands, AI
+Settings and Settings. It was one item "because at 744pt this band is also
+carrying the tab strip", and it looked exactly like a New Note button. It is
+now a New Note button and a visible `…` (More) menu — the shape the phone's
+Library already had. The same audit found four commands with **no** visible
+route on a regular-width iPad — Assistant, Ask Your Library, New Note from a
+Prompt and Graph View, which the Mac keeps in its status bar and the phone in its
+AI tab — and they are in that menu now. The menu opens from mid-screen in
+portrait and is capped at about 520pt, so Settings sits above the folder and
+collection commands (which have visible homes of their own, `+` and each
+collection's `…`) rather than below the fold.
+
+**Row menus.** Every `.contextMenu` was checked for a visible twin, which the
+HIG requires. Cloud accounts (pencil and sign-out buttons), mind-map nodes (a tap
+does the same) and a collection in the sidebar (its `…`) had one. These did
+not, and now do:
+
+| Long-press only | Visible route now |
+|---|---|
+| a note's Rename, Duplicate, Bookmark, Copy Wiki Link, Open in New Window, Reveal, Download, Export ▸, Move to Trash | the open note's menu, from `SidebarMenu.items(for:)` — the row's own list, Move to Trash last |
+| a folder's New Note Here, New Folder Here…, Reveal, Move to Trash | `RowActionsMenu` on the row (sidebar and band) |
+| a collection in the tall shell's band | `RowActionsMenu`, as the sidebar already had |
+| closing a collection on iPhone (a swipe) | `RowActionsMenu` on the Library row |
+| Remove from Recents, Delete Library (launcher) | `RowActionsMenu` on each row |
+
+`RowActionsMenu` draws its `…` in `.secondary` and only as wide as the glyph:
+in the tint it vanished into a selected band row's highlight, and 44pt wide it
+wrapped "DefaultCollection" onto two lines of a 260pt pane. The inspector's
+selected tab had the same defect — an accent glyph on `.selection`, which on
+iPad is the accent — and drew as a blank pill.
+
+**One Settings.** Settings already had AI on both platforms (the Mac's AI tab,
+iOS's AI ▸ Models); "AI Settings…" opened a *second* sheet holding the same
+form, because neither a Settings window nor a settings sheet could be opened at a
+page. `SettingsPage` makes that possible — stored for the Mac's tab view
+(which also restores the last pane, as the HIG asks), pushed on iOS — and every
+AI route now opens Settings at AI. The standalone sheet, `IntelligenceSettingsView`,
+and `AISettingsButton` are gone. On iOS the Assistant presents Settings over
+itself: its old button posted to the shell, which cannot present while the
+Assistant is up, so on iPad it had done nothing. ⌘, now opens Settings on iPad
+as well (`CommandGroup(replacing: .appSettings)`, iOS branch).
+
+**System.** The picker said "On-Device · AFM 3 Core Advanced", which prompted
+"what about AFM 3 Core?" — a choice no app has (`variant` is read-only). Apple's
+`fm` tool calls the model `system` ("System model available"), so the app does
+too: "System" as an entry, "System model" in a sentence. Two strings still
+mentioned "the suggested MLX models" a day after suggestions were removed.
+
+**Found by the suite, not by looking.** `theModelsFolderListsWholeModelsOnly`
+failed on `bytes == 64`: `weightsBytes` read each snapshot file's size without
+following the link, so every cached model was listed at a few dozen bytes.
+
+**Open:** on a regular-width iPad the Assistant, Graph, Ask Library and Mind Map
+open as their own window (`AuxiliaryPresentation`). On the simulator in
+full-screen mode, **Done** in that window closed it and showed the Home Screen,
+not the notes. Whether a device does the same is unconfirmed; see
+`unimplemented.md`.
 
 ## 23. Edit and Preview render the same document
 

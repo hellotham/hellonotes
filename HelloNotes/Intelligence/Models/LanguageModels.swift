@@ -7,9 +7,7 @@
 //  The one place a `ModelChoice` becomes a model.
 //
 //  Everything a feature needs to know about a model is *asked of the model*:
-//  whether it can run (`availability`), what it is called (`variant.displayName`
-//  on-device — "AFM 3 Core" or "AFM 3 Core Advanced", decided by the hardware),
-//  how much it can read (`contextSize`: 8,192 tokens for Core Advanced on this
+//  whether it can run (`availability`), how much it can read (`contextSize`: 8,192 tokens for Core Advanced on this
 //  generation, 32,768 for Private Cloud Compute), and what it can do
 //  (`capabilities`). The provider layer this replaced kept those answers in
 //  hand-written tables that were wrong the week after they were written; the
@@ -158,29 +156,71 @@ final class LanguageModels {
 
     // MARK: - Describing
 
-    /// The model's own name: "AFM 3 Core Advanced", "Private Cloud Compute",
-    /// "Qwen3 4B".
+    /// The model's name in a sentence: "System model", "Private Cloud Compute",
+    /// "gemma-4-31b-it-4bit".
+    ///
+    /// Apple's on-device model is the **System model** — what Apple's own `fm`
+    /// tool calls it (`--model system`, "System model available"). Not its
+    /// variant, "AFM 3 Core" or "AFM 3 Core Advanced": the hardware decides
+    /// that, and naming a model nobody can choose made people ask where the
+    /// other one was.
     func name(of choice: ModelChoice) -> String {
         switch choice {
         case .onDevice:
-            // A device that cannot run Apple Intelligence has no variant to
-            // name, so it is not asked for one.
+            // A device that cannot run Apple Intelligence has no System model
+            // to speak of.
             if case .unavailable(.deviceNotEligible) = onDevice.availability {
                 "Apple Intelligence"
             } else {
-                onDevice.variant.displayName
+                "System model"
             }
         case .privateCloud: "Private Cloud Compute"
         case .mlx: mlx.modelName
         }
     }
 
-    /// The name with where it runs, for pickers and the Assistant's header.
+    /// The name as an entry, for pickers and the Assistant's header: `fm`'s own
+    /// word for Apple's model, and where an MLX model runs before its name.
     func title(of choice: ModelChoice) -> String {
         switch choice {
-        case .onDevice: "On-Device · \(name(of: choice))"
+        case .onDevice: "System"
         case .privateCloud: "Private Cloud Compute"
         case .mlx: "MLX · \(name(of: choice))"
+        }
+    }
+
+    // MARK: - Picker entries
+
+    /// What a model picker offers: Apple's on-device model, Private Cloud
+    /// Compute where this build has it, and **each MLX model on this device**
+    /// that the loader can run, by name. Never a model that isn't here.
+    ///
+    /// There is one System entry because an app cannot choose between AFM 3
+    /// Core and AFM 3 Core Advanced: `SystemLanguageModel` has no initialiser
+    /// that takes a variant, and `variant` is read-only — the system runs the
+    /// one this hardware has.
+    var options: [ModelOption] {
+        var result: [ModelOption] = [.onDevice]
+        if Self.privateCloudComputeEnabled { result.append(.privateCloud) }
+        result += mlx.models.map { .mlx($0.id) }
+        return result
+    }
+
+    func title(of option: ModelOption) -> String {
+        switch option {
+        case .onDevice, .privateCloud: title(of: option.choice)
+        case .mlx(let id): "MLX · " + (mlx.models.first { $0.id == id }?.name ?? mlx.modelName)
+        }
+    }
+
+    func systemImage(of option: ModelOption) -> String { systemImage(of: option.choice) }
+
+    /// Whether an entry can be chosen now. An MLX model listed here is on this
+    /// device and runnable; only the one in use has an availability of its own.
+    func isAvailable(_ option: ModelOption) -> Bool {
+        switch option {
+        case .onDevice, .privateCloud: availability(of: option.choice).isAvailable
+        case .mlx(let id): mlx.chosenID != id || mlx.availability.isAvailable
         }
     }
 

@@ -100,6 +100,28 @@ struct IntelligenceMigrationTests {
         #expect(KeychainProbe.count(service: control) == 1)
     }
 
+    /// 1.3.2 stored a default model for every provider, used or not, so every
+    /// blob names an MLX model. It is carried only when MLX was actually chosen —
+    /// build 22 carried it for everyone, and offered a model nobody had.
+    @Test func anMLXModelIsCarriedOnlyWhenMLXWasInUse() {
+        let blob = Data(#"[{"kind":"mlx","enabled":false,"model":"mlx-community/Qwen3-4B-4bit"}]"#.utf8)
+
+        let (unused, unusedSuite) = defaults()
+        defer { UserDefaults().removePersistentDomain(forName: unusedSuite) }
+        unused.set("gemini", forKey: "llmActiveProvider")
+        unused.set("apple", forKey: "llmIntelligenceProvider")
+        unused.set(blob, forKey: "llmProviders")
+        IntelligenceMigration.migrateIfNeeded(defaults: unused) {}
+        #expect(unused.string(forKey: MLXModelStore.Keys.model) == nil)
+
+        let (used, usedSuite) = defaults()
+        defer { UserDefaults().removePersistentDomain(forName: usedSuite) }
+        used.set("mlx", forKey: "llmActiveProvider")
+        used.set(blob, forKey: "llmProviders")
+        IntelligenceMigration.migrateIfNeeded(defaults: used) {}
+        #expect(used.string(forKey: MLXModelStore.Keys.model) == "mlx-community/Qwen3-4B-4bit")
+    }
+
     /// A choice already made in 1.3.3 is never overwritten by stale 1.3.2 keys.
     @Test func neverOverwritesANewChoice() {
         let (store, suite) = defaults()
@@ -162,87 +184,84 @@ enum KeychainProbe {
     }
 }
 
-// MARK: - MLX model folders
+// MARK: - MLX models folder
 
-/// A model folder is found the way the app will be able to read it — above all,
-/// a Hugging Face cache's snapshot is refused by layout, because the sandbox
-/// cannot follow its links and the Debug host these tests run in can.
+/// What the models folder lists: whole models only, read from their own files,
+/// in the layout a Hugging Face cache uses and as plain folders beside it.
 struct MLXModelFolderTests {
 
-    /// `hub/models--mlx-community--tiny`: blobs, two snapshots of links, `refs/main`.
-    private func makeCache() throws -> (hub: URL, repository: URL) {
+    /// A models folder: a cached model (files as links into `blobs/`, two
+    /// snapshots, `refs/main`), a download that never finished, and a plain
+    /// model folder dropped in beside them.
+    private func makeModelsFolder() throws -> URL {
         let manager = FileManager.default
-        let hub = manager.temporaryDirectory.appendingPathComponent("MLXFolder-\(UUID().uuidString)/hub")
-        let repository = hub.appendingPathComponent("models--mlx-community--tiny")
-        let blobs = repository.appendingPathComponent("blobs")
+        let hub = manager.temporaryDirectory.appendingPathComponent("MLXModels-\(UUID().uuidString)/hub")
+
+        let cached = hub.appendingPathComponent("models--mlx-community--tiny")
+        let blobs = cached.appendingPathComponent("blobs")
         try manager.createDirectory(at: blobs, withIntermediateDirectories: true)
-        try Data(#"{"model_type":"qwen3"}"#.utf8).write(to: blobs.appendingPathComponent("abc123"))
+        try Data(#"{"model_type":"qwen3"}"#.utf8).write(to: blobs.appendingPathComponent("config"))
+        try Data(repeating: 1, count: 64).write(to: blobs.appendingPathComponent("weights"))
         for revision in ["old", "current"] {
-            let snapshot = repository.appendingPathComponent("snapshots/\(revision)")
+            let snapshot = cached.appendingPathComponent("snapshots/\(revision)")
             try manager.createDirectory(at: snapshot, withIntermediateDirectories: true)
             try manager.createSymbolicLink(atPath: snapshot.appendingPathComponent("config.json").path,
-                                           withDestinationPath: "../../blobs/abc123")
+                                           withDestinationPath: "../../blobs/config")
+            try manager.createSymbolicLink(atPath: snapshot.appendingPathComponent("model.safetensors").path,
+                                           withDestinationPath: "../../blobs/weights")
         }
-        try manager.createDirectory(at: repository.appendingPathComponent("refs"), withIntermediateDirectories: true)
-        try Data("current\n".utf8).write(to: repository.appendingPathComponent("refs/main"))
-        return (hub, repository)
+        try manager.createDirectory(at: cached.appendingPathComponent("refs"), withIntermediateDirectories: true)
+        try Data("current\n".utf8).write(to: cached.appendingPathComponent("refs/main"))
+
+        // Interrupted: a configuration and no weights.
+        let partial = hub.appendingPathComponent("models--mlx-community--partial/snapshots/abc")
+        try manager.createDirectory(at: partial, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: partial.appendingPathComponent("config.json"))
+
+        let plain = hub.appendingPathComponent("Plain-Model")
+        try manager.createDirectory(at: plain, withIntermediateDirectories: true)
+        try Data(#"{"model_type":"llama"}"#.utf8).write(to: plain.appendingPathComponent("config.json"))
+        try Data(repeating: 2, count: 32).write(to: plain.appendingPathComponent("model.safetensors"))
+        return hub
     }
 
-    @Test func aCachedModelsFolderLoadsItsCurrentSnapshot() throws {
-        let (hub, repository) = try makeCache()
+    @Test func theModelsFolderListsWholeModelsOnly() throws {
+        let hub = try makeModelsFolder()
         defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }
 
-        guard case .model(let directory, let name) = MLXModelFolder.resolve(repository) else {
-            Issue.record("a cache's model folder was not resolved"); return
-        }
-        #expect(directory.lastPathComponent == "current", "refs/main names the revision to load")
-        #expect(name == "tiny")
-    }
+        let models = MLXModelFolder.models(in: hub)
+        #expect(models.map(\.name) == ["Plain-Model", "tiny"], "the unfinished download is not a model")
 
-    @Test func aSnapshotIsRefusedInFavourOfItsModelFolder() throws {
-        let (hub, repository) = try makeCache()
-        defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }
+        let cached = try #require(models.first { $0.name == "tiny" })
+        #expect(cached.directory.lastPathComponent == "current", "refs/main names the revision to load")
+        #expect(cached.folder.lastPathComponent == "models--mlx-community--tiny", "removing deletes the whole entry")
+        #expect(cached.repository == "mlx-community/tiny")
+        #expect(cached.modelType == "qwen3")
+        #expect(cached.bytes == 64, "sizes follow the cache's links")
 
-        let snapshot = repository.appendingPathComponent("snapshots/current")
-        #expect(MLXModelFolder.resolve(snapshot) == .chooseModelFolder("models--mlx-community--tiny"))
-        let problem = MLXModelFolder.problem(with: MLXModelFolder.resolve(snapshot), folderName: "current")
-        #expect(problem?.contains("models--mlx-community--tiny") == true)
-        // The whole cache is not one model either.
-        #expect(MLXModelFolder.resolve(hub) == .chooseOneModel)
+        let plain = try #require(models.first { $0.name == "Plain-Model" })
+        #expect(plain.repository == nil)
+        #expect(plain.folder == plain.directory)
     }
 
     @Test func withoutRefsMainTheNewestCompleteSnapshotIsUsed() throws {
-        let (hub, repository) = try makeCache()
+        let hub = try makeModelsFolder()
         defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }
+        let cached = hub.appendingPathComponent("models--mlx-community--tiny")
         let manager = FileManager.default
-        try manager.removeItem(at: repository.appendingPathComponent("refs/main"))
-        // An interrupted download: the newest snapshot has no config.json.
-        try manager.createDirectory(at: repository.appendingPathComponent("snapshots/partial"),
-                                    withIntermediateDirectories: true)
+        try manager.removeItem(at: cached.appendingPathComponent("refs/main"))
+        try manager.createDirectory(at: cached.appendingPathComponent("snapshots/partial"), withIntermediateDirectories: true)
         try manager.setAttributes([.modificationDate: Date.distantPast],
-                                  ofItemAtPath: repository.appendingPathComponent("snapshots/old").path)
+                                  ofItemAtPath: cached.appendingPathComponent("snapshots/old").path)
 
-        guard case .model(let directory, _) = MLXModelFolder.resolve(repository) else {
-            Issue.record("no snapshot was chosen"); return
-        }
-        #expect(directory.lastPathComponent == "current")
+        #expect(MLXModelFolder.currentSnapshot(of: cached)?.lastPathComponent == "current")
     }
 
-    @Test func aPlainModelFolderIsUsedAsItIs() throws {
-        let manager = FileManager.default
-        let folder = manager.temporaryDirectory.appendingPathComponent("Qwen3-4B-4bit-\(UUID().uuidString)")
-        try manager.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? manager.removeItem(at: folder) }
-        #expect(MLXModelFolder.resolve(folder) == .notAModel)
-
-        try Data("{}".utf8).write(to: folder.appendingPathComponent("config.json"))
-        guard case .model(let directory, let name) = MLXModelFolder.resolve(folder) else {
-            Issue.record("a folder with config.json was not a model"); return
-        }
-        #expect(directory.standardizedFileURL.path == folder.standardizedFileURL.path)
-        #expect(name == folder.lastPathComponent)
-        #expect(MLXModelFolder.displayName(ofRepositoryFolder: "models--mlx-community--gemma-3-27b-it-bf16")
-                == "gemma-3-27b-it-bf16")
+    @Test func repositoryFolderNamesReadBothWays() {
+        #expect(MLXModelFolder.repositoryID(ofRepositoryFolder: "models--mlx-community--gemma-4-31b-it-4bit")
+                == "mlx-community/gemma-4-31b-it-4bit")
+        #expect(MLXModelFolder.displayName(ofRepositoryFolder: "models--mlx-community--gemma-4-31b-it-4bit")
+                == "gemma-4-31b-it-4bit")
     }
 }
 

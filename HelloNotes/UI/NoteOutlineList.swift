@@ -913,13 +913,7 @@ struct SidebarItemRow: View {
                             .accessibilityLabel(content.gitLabel ?? "")
                     }
                     Spacer()
-                    Menu {
-                        SidebarMenuItems(items: menuItems)
-                    } label: {
-                        Image(systemName: "ellipsis.circle").imageScale(.large)
-                    }
-                    .accessibilityLabel("\(collection.name) actions")
-                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                    RowActionsMenu(name: collection.name, items: menuItems)
                 }
                 .contextMenu { SidebarMenuItems(items: menuItems) }
                 .help(CollectionRowContent.make(collection,
@@ -927,6 +921,8 @@ struct SidebarItemRow: View {
             }
 
         case .folder(let name):
+            // Once: the folder's list stats the disk, and two menus read it.
+            let items = menuItems
             DisclosureGroup(isExpanded: Binding(
                 get: { expandedFolders.contains(item.id) },
                 set: { open in
@@ -946,21 +942,24 @@ struct SidebarItemRow: View {
                 // already pointing at is a precision tax for no reason. A real
                 // Button rather than a tap gesture, so it carries the trait and
                 // answers the keyboard and VoiceOver too.
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        if expandedFolders.contains(item.id) { expandedFolders.remove(item.id) }
-                        else { expandedFolders.insert(item.id) }
+                HStack(spacing: 0) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            if expandedFolders.contains(item.id) { expandedFolders.remove(item.id) }
+                            else { expandedFolders.insert(item.id) }
+                        }
+                    } label: {
+                        Label(name, systemImage: "folder")
+                            // The whole row, not just the glyphs.
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(.rect)
                     }
-                } label: {
-                    Label(name, systemImage: "folder")
-                        // The whole row, not just the glyphs.
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(.rect)
+                    .buttonStyle(.plain)
+                    .accessibilityHint(expandedFolders.contains(item.id) ? "Collapses the folder"
+                                                                         : "Expands the folder")
+                    RowActionsMenu(name: name, items: items)
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint(expandedFolders.contains(item.id) ? "Collapses the folder"
-                                                                     : "Expands the folder")
-                .contextMenu { SidebarMenuItems(items: menuItems) }
+                .contextMenu { SidebarMenuItems(items: items) }
                 .dropDestination(for: URL.self) { urls, _ in
                     onDropIntoFolder(item.id, urls)
                 }
