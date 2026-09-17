@@ -93,7 +93,8 @@ import { href } from '../../lib/paths';
   </p>
   <p>
     <strong>Research needs a model with room to read web pages</strong> — at least 8,000 tokens.
-    AFM 3 Core Advanced and MLX models have that. Research uses the model chosen for the Assistant,
+    MLX models have that, and so does the System model where Apple Intelligence gives it 8,192
+    tokens. Research uses the model chosen for the Assistant,
     and if that one can’t hold enough, the sheet says so rather than starting a run that cannot
     finish.
   </p>
@@ -180,48 +181,52 @@ import { href } from '../../lib/paths';
   </p>
   <ul>
     <li>
-      <strong>On-Device</strong> — Apple Intelligence, named by the model your hardware runs (AFM 3
-      Core, or AFM 3 Core Advanced on the most capable Apple silicon). The default.
+      <strong>System</strong> — Apple’s model on your device, whichever one Apple Intelligence runs
+      on your hardware. The name is Apple’s own. The default.
     </li>
-    <li><strong>MLX</strong> — an open model you have downloaded, run on your device.</li>
+    <li><strong>MLX</strong> — an open model in your models folder, run on your device.</li>
   </ul>
   <p>
     Under each choice is one line saying where your text goes, and — if the model can’t run right
-    now — why not. <strong>Creativity</strong> controls how varied the Assistant’s answers are;
-    on a model that reasons, <strong>Thinking</strong> sets how long it considers a hard question.
+    now — why not. <strong>Creativity</strong> controls how varied the Assistant’s answers are.
   </p>
   <p>
     On the Mac this is the <strong>AI</strong> tab of Settings (<kbd>⌘,</kbd>); on iPhone and iPad,{' '}
-    <strong>Settings ▸ AI ▸ Models</strong>. The Assistant’s window opens the same screen from its{' '}
-    <span aria-hidden="true">⚙︎</span> button.
+    <strong>⋯ ▸ Settings… ▸ Models</strong>. It is the only AI settings screen: the Assistant’s{' '}
+    <span aria-hidden="true">⚙︎</span> button and every <strong>AI Settings…</strong> button open
+    Settings on this page.
   </p>
 
   <h2 id="mlx">Open models with MLX</h2>
   <p>
     <strong>HelloNotes suggests no models.</strong> Choosing one is the advanced end of the app: a
     recommended list is a generation out of date within months, and whether a model is any good at
-    your work is between you and the model. Name one, or point at a folder holding one; either way it
-    is stored in your device’s caches, not in your notes or your backups. A download can be
-    cancelled, and <strong>Remove Download</strong> gives the space back.
+    your work is between you and the model.
+  </p>
+  <p>
+    MLX models live in one place, the <strong>models folder</strong>. On a Mac, choose your Hugging
+    Face cache, <code>~/.cache/huggingface/hub</code> — the Open panel starts there — and the MLX
+    language models other tools have downloaded that HelloNotes can run are listed, ready to use,
+    and kept once for all of them. On iPhone
+    and iPad the models folder is HelloNotes’ own storage unless you choose another.
   </p>
   <ul>
     <li>
-      <strong>Any MLX model on Hugging Face</strong> — type its name in the form{' '}
-      <code>organisation/model</code> and choose Use. The settings link through to the{' '}
-      <code>mlx-community</code> organisation, which converts most models to MLX.
+      <strong>Use</strong> a model in the folder, or <strong>Remove…</strong> it. Removing deletes it
+      from the folder, for every tool that shares it, so HelloNotes asks first.
     </li>
     <li>
-      <strong>A model folder</strong> — if Hugging Face isn’t reachable where you are, get an MLX
-      model another way and choose <strong>Choose a Model Folder…</strong>. Once a model is on your
-      device it works offline.
+      <strong>Download</strong> an MLX language model from Hugging Face by typing its name in the form{' '}
+      <code>organisation/model</code>. It goes into the models folder, and a download can be
+      cancelled. The settings link through to the <code>mlx-community</code> organisation, which
+      converts most models to MLX.
     </li>
     <li>
-      <strong>A model you already have</strong> — on a Mac, models downloaded with other MLX tools
-      are in your Hugging Face cache, <code>~/.cache/huggingface/hub</code>. Choose the model’s own
-      folder there, named like <code>models--mlx-community--…</code>, rather than a folder inside
-      it; press <kbd>⇧⌘G</kbd> in the Open panel to type the path.
+      If Hugging Face isn’t reachable where you are, put a model into the models folder another way.
+      Once a model is on your device it works offline.
     </li>
   </ul>
+  <p>One MLX model runs at a time, so the Assistant and the writing tools share it.</p>
   <p>
     Not every open model can use tools — Gemma 3, for one, has no way to be shown them. With such a
     model the AI settings say so, the Assistant chats without reading or changing your notes, and
@@ -235,7 +240,7 @@ import { href } from '../../lib/paths';
   <h2 id="limits">How much a model can read</h2>
   <p>
     Every model has a window — how much text it can hold at once. HelloNotes asks Apple
-    Intelligence for its window rather than assuming one: 8,192 tokens on AFM 3 Core Advanced. An
+    Intelligence how large the System model’s window is rather than assuming one. An
     MLX model is given 16,384 tokens on a Mac and 8,192 on iPhone and iPad, because a larger window
     costs memory. Text in Chinese, Japanese or Korean takes about a token a character, so the same
     window holds fewer characters of it.
