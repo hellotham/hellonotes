@@ -4802,11 +4802,20 @@ mentioned "the suggested MLX models" a day after suggestions were removed.
 failed on `bytes == 64`: `weightsBytes` read each snapshot file's size without
 following the link, so every cached model was listed at a few dozen bytes.
 
-**Open:** on a regular-width iPad the Assistant, Graph, Ask Library and Mind Map
-open as their own window (`AuxiliaryPresentation`). On the simulator in
-full-screen mode, **Done** in that window closed it and showed the Home Screen,
-not the notes. Whether a device does the same is unconfirmed; see
-`unimplemented.md`.
+**The iPad opens no windows.** A regular-width iPad opened the Assistant, Graph,
+Ask Library and Mind Map as their own window scene, because the rule was width
+alone: a canvas wide enough shows a second surface *beside* the notes. On iPadOS
+it does not sit beside them — in full-screen apps a new scene takes the screen,
+and **Done** closed it and showed the Home Screen with the app still running.
+Nothing distinguishes full-screen from windowed (`UIWindowScene.isFullScreen` is
+Mac Catalyst only), and the decision was the user's: *"on the iPad, we should not
+be opening separate windows."* `AuxiliaryPresentation.prefersWindow` is now the
+width rule on macOS and `false` on iOS, and `opensWindows` retires **New Window**
+and **Open in New Window** there — absent rather than offered and disappointing
+(`AppCommands`, `SidebarMenu`, the editor's bar). A sheet was already the phone's
+presentation, and it showed *two* Done buttons and two titles, because
+`AuxiliarySheet` draws chrome and the Assistant and Ask Library draw their own:
+`\.auxiliaryIsWindowed` now tells a view which it is in.
 
 ## 23. Edit and Preview render the same document
 

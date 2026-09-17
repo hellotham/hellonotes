@@ -20,11 +20,17 @@
 //  surfaces simply were not given one. SwiftUI's singleton `Window` scene is
 //  macOS-only, but `WindowGroup(id:)` is on both, and that is what they use.
 //
-//  What decides window-or-sheet is **not the OS**. It is the same axis of
-//  abundance `AdaptiveShell` uses: a canvas wide enough to show a second
-//  surface beside the notes gets a window; one that is not gets a sheet, which
-//  is what a second scene would look like there anyway. A Mac window dragged
-//  narrow and an iPhone reach the same answer, which is the whole rule.
+//  Window or sheet was decided by width alone — a canvas wide enough to show a
+//  second surface beside the notes got a window. That rule assumed a second
+//  scene can *sit beside* the first, and on iPadOS it cannot: in full-screen
+//  apps a new scene takes the whole screen, and closing it leaves the app
+//  rather than returning to the notes (measured on the simulator, 17 Sep 2026 —
+//  Done in the Assistant showed the Home Screen with the app still running).
+//  Nothing in the SDK distinguishes full-screen from windowed — `isFullScreen`
+//  is Mac Catalyst only — and the user's decision is plain: **on iPad the app
+//  opens no windows.** So the Mac keeps the width rule and iOS presents a
+//  sheet, which always comes back to the notes. The same reasoning retired
+//  "Open in New Window" on iOS (`ShellActions`, `AppCommands`).
 //
 
 import SwiftUI
@@ -91,8 +97,45 @@ enum AuxiliarySurface: Identifiable, Hashable {
 /// uses to choose the compact shell — so this cannot drift from the shell's own
 /// idea of when there is room for another surface.
 enum AuxiliaryPresentation {
+    /// Whether this platform opens windows of its own at all.
+    ///
+    /// The Mac does. iPad does not — "on the iPad, we should not be opening
+    /// separate windows" — so New Window and Open in New Window are not offered
+    /// there either, rather than offered and landing you outside the app.
+    static var opensWindows: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     static func prefersWindow(width: CGFloat) -> Bool {
-        width > ShellMetrics.compactMax
+        #if os(macOS)
+        // A Mac window opens *beside* what you were reading, and closing it
+        // gives that back. Narrow enough and there is no beside: a sheet.
+        return width > ShellMetrics.compactMax
+        #else
+        // Never on iPhone or iPad — see this file's header.
+        return false
+        #endif
+    }
+}
+
+/// Whether an auxiliary surface has a window of its own.
+///
+/// A sheet carries the title and the way out in its own chrome
+/// (`AuxiliarySheet`), so a view that draws a Done of its own asks this first —
+/// two Done buttons in one sheet is what the Assistant and Ask Library showed
+/// before anyone presented them that way on iPad.
+struct AuxiliaryWindowedKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var auxiliaryIsWindowed: Bool {
+        get { self[AuxiliaryWindowedKey.self] }
+        set { self[AuxiliaryWindowedKey.self] = newValue }
     }
 }
 
@@ -181,6 +224,7 @@ struct AuxiliarySheet: View {
                         Button("Done") { dismiss() }
                     }
                 }
+                .environment(\.auxiliaryIsWindowed, false)
         }
     }
 }

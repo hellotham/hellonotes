@@ -17,6 +17,8 @@ struct AssistantView: View {
     var onOpenSettings: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// A sheet draws its own Done; a window does not.
+    @Environment(\.auxiliaryIsWindowed) private var isWindowed
     @FocusState private var inputFocused: Bool
 
     private var models: LanguageModels { model.settings.models }
@@ -46,7 +48,10 @@ struct AssistantView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Label("Assistant", systemImage: "sparkles").font(.headline)
+            // The sheet's own bar already says Assistant, and carries the Done.
+            if isWindowed {
+                Label("Assistant", systemImage: "sparkles").font(.headline)
+            }
             Spacer()
             Toggle(isOn: $model.agentMode) {
                 Image(systemName: usesTools ? "wrench.and.screwdriver.fill" : "bubble.left")
@@ -71,7 +76,9 @@ struct AssistantView: View {
                 .buttonStyle(.borderless)
                 .help("AI settings")
                 .accessibilityLabel("AI settings")
-            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            if isWindowed {
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
         }
         .padding(.horizontal).padding(.vertical, 10)
     }

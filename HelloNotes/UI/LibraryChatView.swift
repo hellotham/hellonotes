@@ -30,14 +30,21 @@ struct LibraryChatView: View {
     @State private var answer: String?
     @State private var sources: [Note] = []
     @State private var errorText: String?
+    /// A sheet draws its own Done; a window does not.
+    @Environment(\.auxiliaryIsWindowed) private var isWindowed
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
-                    .font(.headline)
+                // The sheet's own bar already says Ask Library, with the Done.
+                if isWindowed {
+                    Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
+                        .font(.headline)
+                }
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                if isWindowed {
+                    Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                }
             }
             .padding()
             Divider()

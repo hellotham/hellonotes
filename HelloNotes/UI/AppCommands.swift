@@ -451,13 +451,14 @@ struct HelloNotesCommands: Commands {
             Button("New Note") { actions?.newNote() }
                 .keyboardShortcut("n")
                 .disabled(!(actions?.canNewNote ?? false))
-            // There is a second window on iPad: `WindowGroup(id: "main")` is
-            // cross-platform and iPadOS makes another scene from it. The gate
-            // here said "no second window to open on iPad" and was the only
-            // thing making that true.
-            Button("New Window") { actions?.newWindow?() }
-                .keyboardShortcut("n", modifiers: [.command, .option])
-                .disabled(actions?.newWindow == nil)
+            // Only where the app opens windows — the Mac. iPad had this, and a
+            // second scene there replaces the notes and leaves the app when it
+            // closes (`AuxiliaryPresentation`), so it is not offered rather
+            // than offered and disappointing.
+            if actions?.newWindow != nil {
+                Button("New Window") { actions?.newWindow?() }
+                    .keyboardShortcut("n", modifiers: [.command, .option])
+            }
             Button("Today's Note") { actions?.todaysNote() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(!(actions?.canNewNote ?? false))
@@ -621,8 +622,9 @@ struct HelloNotesCommands: Commands {
             // from the same `openWindow(value:)` call, and `iOSNoteWindowView`
             // now fills it. Disabled on the optional rather than gated on the
             // platform, so the item follows the capability instead of the OS.
-            Button("Open in New Window") { actions?.note?.openInNewWindow?() }
-                .disabled(actions?.note?.openInNewWindow == nil)
+            if actions?.note?.openInNewWindow != nil {
+                Button("Open in New Window") { actions?.note?.openInNewWindow?() }
+            }
             // One command on both platforms. It was gated to macOS on the
             // grounds that iOS has no Finder — true, and not the point: iOS has
             // Files, it opens at a path, and "show me this file where it lives"

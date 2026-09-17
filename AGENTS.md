@@ -328,6 +328,14 @@
   the open note's menu, from the same `SidebarMenu` list. `Menu(primaryAction:)`
   *looks* like a plain button and is a hidden menu: tap was New Note, hold was
   everything else, and on every iPad that hid Settings.
+- **The iPad opens no windows.** `openWindow` on iPadOS makes a scene that
+  *replaces* the notes in full-screen apps, and closing it leaves the app — Done
+  in the Assistant showed the Home Screen. Nothing tells full-screen from
+  windowed (`UIWindowScene.isFullScreen` is Mac Catalyst only), so the rule is
+  the platform: `AuxiliaryPresentation.opensWindows` is false on iOS, Graph /
+  Assistant / Ask Library / Mind Map are sheets, and New Window and Open in New
+  Window are not offered. A view that draws its own title and Done asks
+  `\.auxiliaryIsWindowed` first — a sheet already has both, and showed two.
 - **Accent on accent draws nothing.** On iPad a selected row, and `.selection`,
   *are* the tint — so a tinted glyph inside one vanishes. The inspector's chosen
   tab was a blank pill and a row's `…` disappeared into its own highlight. Use

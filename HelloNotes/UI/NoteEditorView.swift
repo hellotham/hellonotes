@@ -792,8 +792,11 @@ struct NoteEditorView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .help("Export")
-            barButton("Open this note in a new window", "macwindow.badge.plus") {
-                if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
+            // Only where the app opens windows — see `AuxiliaryPresentation`.
+            if AuxiliaryPresentation.opensWindows {
+                barButton("Open this note in a new window", "macwindow.badge.plus") {
+                    if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
+                }
             }
         }
     }
