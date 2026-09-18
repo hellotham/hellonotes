@@ -441,5 +441,5 @@
   them, and the 3.1.2(c) guard failed on every run for a week, unread. The copy for
   the version in preparation now lives in `docs/app-store-listing.md`. When you
   restructure a file, grep the tests for its name first.
-- Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts).
+- Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts). **Read its reverse column too: a doc fact-check is also a source check.** Checking the AI page after the two model roles collapsed found three *strings in the app* still telling people to choose a model "for writing tools" and "for the Assistant" — a picker that no longer existed — and two file headers describing the design the file below them had replaced.
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.

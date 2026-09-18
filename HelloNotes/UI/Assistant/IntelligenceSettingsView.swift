@@ -89,7 +89,7 @@ struct IntelligenceSettingsForm: View {
         Section {
             modelPicker
             modelCaption(for: settings.model,
-                         role: "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Library and Research.")
+                         role: "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Library, Research and the suggestions as you type.")
 
             if settings.model == .privateCloud, let quota = models.privateCloudQuotaNote {
                 VStack(alignment: .leading, spacing: 6) {
