@@ -83,14 +83,18 @@ enum SidePanel: String, CaseIterable, Identifiable {
     static var aboutTheCollection: [SidePanel] { allCases.filter { !$0.isAboutTheNote } }
 }
 
-/// The panel's own header: what it is showing, a way to change it, and a way
-/// to close it.
+/// The panel's own header: every panel it can show, the one it is showing, and
+/// a way to close it.
 ///
-/// Inside the panel on both platforms. The band used to carry five icon
-/// toggles as the strip (`shell-chrome.md` D6) and that was right for five; it
-/// is not right for nine, and the band has no room for them — so the strip
-/// comes inside, where it is also the same on the Mac and the iPad instead of
-/// one each.
+/// A **strip of icons**, because a list of what you can see should be visible
+/// rather than behind a tap — the same reason the app has no long-press-only
+/// commands. The Mac carried five of these in the band while the panel held
+/// five things (`shell-chrome.md` D6); nine do not fit a band that also carries
+/// search, and they do fit here, where both platforms draw the same strip.
+///
+/// Squeezed narrower than the strip needs — the panel's floor is 220pt — it
+/// falls back to a pull-down naming the current panel. `ViewThatFits` chooses,
+/// so the fallback is the layout's own answer rather than a width written twice.
 struct SidePanelHeader: View {
     @Binding var panel: SidePanel
     /// Whether a note is open; the note's panels need one.
@@ -99,29 +103,11 @@ struct SidePanelHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Menu {
-                Section("This note") {
-                    ForEach(SidePanel.aboutTheNote) { choice in
-                        button(for: choice).disabled(!hasNote)
-                    }
-                }
-                Section("This collection") {
-                    ForEach(SidePanel.aboutTheCollection) { choice in
-                        button(for: choice)
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Label(panel.title, systemImage: panel.systemImage).font(.headline)
-                    Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
-                }
+            ViewThatFits(in: .horizontal) {
+                strip
+                pullDown
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityLabel("Showing \(panel.title). Choose what this panel shows")
-
             Spacer(minLength: 0)
-
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
             }
@@ -130,7 +116,63 @@ struct SidePanelHeader: View {
             .accessibilityLabel("Close panel")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
+    }
+
+    /// Nine icons, the note's six and the collection's three, with a rule
+    /// between the groups.
+    private var strip: some View {
+        HStack(spacing: 2) {
+            ForEach(SidePanel.aboutTheNote) { icon(for: $0) }
+            Divider().frame(height: 16).padding(.horizontal, 4)
+            ForEach(SidePanel.aboutTheCollection) { icon(for: $0) }
+        }
+        .fixedSize()
+    }
+
+    private func icon(for choice: SidePanel) -> some View {
+        Button {
+            panel = choice
+        } label: {
+            Image(systemName: choice.systemImage)
+                .frame(width: 30, height: 26)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        // Not the tint on the tint: a selected row and `.selection` are the
+        // accent itself on iPad, and an accent glyph inside one is a blank pill.
+        .foregroundStyle(choice == panel ? Color.accentColor : .secondary)
+        .background(choice == panel ? AnyShapeStyle(Color.accentColor.opacity(0.18))
+                                    : AnyShapeStyle(.clear),
+                    in: RoundedRectangle(cornerRadius: 6))
+        .disabled(choice.needsNote && !hasNote)
+        .help(choice.title)
+        .accessibilityLabel(choice.title)
+        .accessibilityAddTraits(choice == panel ? [.isSelected] : [])
+    }
+
+    /// The fallback where the strip cannot fit: the same nine, named.
+    private var pullDown: some View {
+        Menu {
+            Section("This note") {
+                ForEach(SidePanel.aboutTheNote) { choice in
+                    button(for: choice).disabled(!hasNote)
+                }
+            }
+            Section("This collection") {
+                ForEach(SidePanel.aboutTheCollection) { choice in
+                    button(for: choice)
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Label(panel.title, systemImage: panel.systemImage).font(.headline)
+                Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityLabel("Showing \(panel.title). Choose what this panel shows")
     }
 
     private func button(for choice: SidePanel) -> some View {

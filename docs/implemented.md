@@ -4834,9 +4834,16 @@ icon toggles in the band for one set, a title row inside the panel for the
 other), two widths, and on iOS a third strip of its own. All of it collapses
 into `SidePanel`: nine cases — Outline, Tags, References, Properties, History,
 Mind Map, Graph, Ask Library, Assistant — one stored choice, one width (360,
-floor 220, cap 560), and one header inside the panel that names what is showing,
-groups the nine by what they are about, and closes it. The band keeps a single
-toggle; five icon toggles were right for five things and do not survive nine.
+floor 220, cap 560), and one header inside the panel holding all nine as a
+**strip of icons**, grouped note-then-collection, with the current one drawn in
+a tint of the accent. The band keeps a single toggle: five icon toggles were
+right for five things and do not survive nine.
+
+The strip is icons rather than a menu because what you can switch to should be
+visible — the same rule that took the commands out of long-press menus. It
+fits: nine at 30pt inside a 360pt panel. Below the width it needs, the header
+falls back to a pull-down, chosen by `ViewThatFits` rather than by a second
+threshold.
 
 The panel had a second defect of its own: it was a column only at
 `.wideInspector` (1400pt) or a tall shell ≥900pt, so a 1100pt Mac window and an

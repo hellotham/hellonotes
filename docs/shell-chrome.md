@@ -202,12 +202,19 @@ Assistant are about the collection; all nine are the same kind of thing —
 ancillary to what you are writing — and they share one panel, one piece of state
 and one width (`SidePanel`).
 
-The band carries **one** toggle, which shows and hides the panel. Five icon
-toggles were the panel's strip while the panel held five things, and that was
-right for five: nine do not fit a band that also carries search, and a menu in
-the panel's own header names what is showing, groups the nine and reads the same
-on both platforms — which the old arrangement did not, the Mac having the
-toggles and iOS a strip of its own inside the panel.
+The band carries **one** toggle, which shows and hides the panel; the panel's
+own header carries the **strip of nine**, grouped note-then-collection with a
+rule between, the current one drawn in a tint of the accent. Five icon toggles
+in the band were the strip while the panel held five things, and that was right
+for five: nine do not fit a band that also carries search, and they do fit the
+panel, where both platforms draw the same thing — which the old arrangement did
+not, the Mac having the toggles and iOS a strip of its own.
+
+What a person can switch to is **visible**, not behind a tap, for the same
+reason nothing in this app is long-press-only. Squeezed below the width nine
+icons need — the panel's floor is 220pt — the header falls back to a pull-down
+naming the current panel; `ViewThatFits` chooses, so the fallback is the
+layout's own answer rather than a width written down twice.
 
 **D6a. The panel is a column wherever one fits, and never a modal.** A panel
 drawn *over* the editor is a note you cannot type in, and **an editor never
