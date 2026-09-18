@@ -172,7 +172,9 @@ final class HelloNotesUITests: XCTestCase {
         reveal(models, in: app)
         models.tap()
 
-        XCTAssertTrue(app.staticTexts["Writing tools"].waitForExistence(timeout: 5),
+        // One model for everything, so one picker: "Writing tools" was the
+        // second role, and there is no second role.
+        XCTAssertTrue(app.staticTexts["Model"].waitForExistence(timeout: 5),
                       "AI settings opened but drew no content — the form collapsed")
         // Kept with the result: a screen that draws *something* can still draw
         // it badly, and only a picture shows that.

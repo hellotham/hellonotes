@@ -22,10 +22,18 @@ under **General**.
 
 ## AI
 
-Choose the model for the Assistant and the model for the writing tools — System
-or an MLX model — each with a line saying where your text goes. Choose the models
-folder, use or remove the MLX models in it, or download one by its Hugging Face
-name. Set the Assistant's creativity. Turn suggestions as you type on or off.
+Choose the model — System or MLX — with a line saying where your text goes. One
+choice for everything the app does with AI; *which* MLX model is one choice
+below, in the models list, because only one runs at a time.
+
+The models folder is your Hugging Face cache on a Mac and HelloNotes' own
+storage on iPhone and iPad; **Change…** points it elsewhere. Use or remove the
+models in it, or download one by its Hugging Face name.
+
+Under **Assistant** are the model's own settings, as the Foundation Models
+framework has them: creativity, sampling (with a seed), a maximum reply length,
+and — on a model that reasons — how hard it thinks. Turn suggestions as you type
+on or off.
 
 Everything that says **AI Settings…** — in the Assistant, or the AI place on
 iPhone — opens this page.

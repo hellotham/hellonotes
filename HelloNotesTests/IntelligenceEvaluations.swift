@@ -67,8 +67,7 @@ private enum Features {
         defaults.removeObject(forKey: MLXModelStore.Keys.folder)
         let settings = IntelligenceSettings(
             defaults: defaults, models: LanguageModels(mlx: MLXModelStore(defaults: defaults)))
-        settings.featuresModel = choice
-        settings.assistantModel = choice
+        settings.model = choice
         return settings
     }()
 
@@ -400,7 +399,7 @@ private enum AssistantHarness {
             instructions: AssistantInstructions.text(toolNames: Set(tools.map(\.name)),
                                                      collectionName: "SampleVault",
                                                      noteCount: collection.notes.count),
-            tools: tools, temperature: 0.2, reasoning: nil,
+            tools: tools, temperature: 0.2, sampling: nil, maximumReplyTokens: nil, reasoning: nil,
             historyTokens: window / 2, toolBudget: ToolCallBudget(limit: 16))
         let session = LanguageModelSession(profile: profile)
         let response = try await session.respond(to: prompt)
@@ -620,7 +619,7 @@ struct AssistantEditEvaluation {
         let defaults = UserDefaults(suiteName: "HelloNotesResearchProbe")!
         defaults.set(true, forKey: IntelligenceMigration.doneKey)
         let settings = IntelligenceSettings(defaults: defaults)
-        settings.assistantModel = .onDevice
+        settings.model = .onDevice
         #expect(DeepResearch.unavailableReason(settings: settings) == nil,
                 "research should be offered on an 8K on-device model")
 

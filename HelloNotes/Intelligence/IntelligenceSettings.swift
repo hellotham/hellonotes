@@ -18,27 +18,62 @@
 //
 
 import Foundation
+import FoundationModels
 import Observation
 
 @MainActor
 @Observable
 final class IntelligenceSettings {
 
-    /// The model behind the Assistant window.
-    var assistantModel: ModelChoice {
-        didSet { defaults.set(assistantModel.rawValue, forKey: Keys.assistant) }
+    /// The model, for everything: the Assistant, Summarise, Suggest, Rewrite,
+    /// Compose, Ask Library and Research.
+    ///
+    /// One choice, not one per role. Two were offered — the Assistant's and the
+    /// writing tools' — and with MLX they could not even be different, since
+    /// one MLX model is loaded at a time. Either the app is using Apple's
+    /// model, or it is using yours.
+    var model: ModelChoice {
+        didSet { defaults.set(model.rawValue, forKey: Keys.model) }
     }
 
-    /// The model behind Summarise, Suggest, Rewrite, Compose and Ask Library.
-    var featuresModel: ModelChoice {
-        didSet { defaults.set(featuresModel.rawValue, forKey: Keys.features) }
-    }
-
-    /// The Assistant's creativity, 0–1. The writing tools set their own
-    /// temperature per task — rewriting wants determinism whatever the person
-    /// chose for conversation.
+    /// The Assistant's creativity, 0–2 as `GenerationOptions.temperature` is.
+    /// The writing tools set their own temperature per task — rewriting wants
+    /// determinism whatever the person chose for conversation.
     var temperature: Double {
         didSet { defaults.set(temperature, forKey: Keys.temperature) }
+    }
+
+    /// How the model picks each next word — `GenerationOptions.SamplingMode`.
+    var sampling: SamplingChoice {
+        didSet { defaults.set(sampling.rawValue, forKey: Keys.sampling) }
+    }
+
+    /// How many words top-k samples from.
+    var samplingTopK: Int {
+        didSet { defaults.set(samplingTopK, forKey: Keys.samplingTopK) }
+    }
+
+    /// The probability mass top-p samples from.
+    var samplingThreshold: Double {
+        didSet { defaults.set(samplingThreshold, forKey: Keys.samplingThreshold) }
+    }
+
+    /// Fixes the sampler, so a run can be repeated. `nil` — the ordinary case —
+    /// leaves it to the framework.
+    var samplingSeed: UInt64? {
+        didSet {
+            if let samplingSeed { defaults.set(String(samplingSeed), forKey: Keys.samplingSeed) }
+            else { defaults.removeObject(forKey: Keys.samplingSeed) }
+        }
+    }
+
+    /// `GenerationOptions.maximumResponseTokens`. `nil` is the framework's own
+    /// limit, which is the right answer unless someone wants a shorter one.
+    var maximumReplyTokens: Int? {
+        didSet {
+            if let maximumReplyTokens { defaults.set(maximumReplyTokens, forKey: Keys.maximumReply) }
+            else { defaults.removeObject(forKey: Keys.maximumReply) }
+        }
     }
 
     /// How hard a reasoning model thinks, where the model reasons at all.
@@ -60,9 +95,16 @@ final class IntelligenceSettings {
     /// `nonisolated` so the migration, which runs before any actor exists to
     /// run it on, can name the keys it writes.
     nonisolated enum Keys {
-        static let assistant = "aiAssistantModel"
-        static let features = "aiFeaturesModel"
+        static let model = "aiModel"
+        /// 1.3.3 offered a model per role for a few days. Read once, on upgrade.
+        static let legacyAssistant = "aiAssistantModel"
+        static let legacyFeatures = "aiFeaturesModel"
         static let temperature = "aiTemperature"
+        static let sampling = "aiSampling"
+        static let samplingTopK = "aiSamplingTopK"
+        static let samplingThreshold = "aiSamplingThreshold"
+        static let samplingSeed = "aiSamplingSeed"
+        static let maximumReply = "aiMaximumReplyTokens"
         static let reasoning = "aiReasoning"
         static let retiredProvider = "aiRetiredProvider"
     }
@@ -79,18 +121,38 @@ final class IntelligenceSettings {
         // build that had the entitlement — reads as the default rather than as
         // a setting nothing in the interface can show or change.
         let offered = LanguageModels.offeredChoices
-        let assistant = ModelChoice(stored: defaults.string(forKey: Keys.assistant), fallback: .onDevice)
-        let features = ModelChoice(stored: defaults.string(forKey: Keys.features), fallback: .onDevice)
-        assistantModel = offered.contains(assistant) ? assistant : .onDevice
-        featuresModel = offered.contains(features) ? features : .onDevice
-        temperature = min(max(defaults.object(forKey: Keys.temperature) as? Double ?? 0.7, 0), 1)
+        // The two roles this replaced: whichever of them was set, preferring the
+        // Assistant's, so an upgrade keeps the model the person chose rather
+        // than resetting to the default.
+        let stored = defaults.string(forKey: Keys.model)
+            ?? defaults.string(forKey: Keys.legacyAssistant)
+            ?? defaults.string(forKey: Keys.legacyFeatures)
+        let choice = ModelChoice(stored: stored, fallback: .onDevice)
+        model = offered.contains(choice) ? choice : .onDevice
+        temperature = min(max(defaults.object(forKey: Keys.temperature) as? Double ?? 0.7, 0), 2)
+        sampling = SamplingChoice(rawValue: defaults.string(forKey: Keys.sampling) ?? "") ?? .automatic
+        samplingTopK = min(max(defaults.object(forKey: Keys.samplingTopK) as? Int ?? 50, 1), 100)
+        samplingThreshold = min(max(defaults.object(forKey: Keys.samplingThreshold) as? Double ?? 0.9, 0.05), 1)
+        samplingSeed = defaults.string(forKey: Keys.samplingSeed).flatMap(UInt64.init)
+        maximumReplyTokens = (defaults.object(forKey: Keys.maximumReply) as? Int).map { max(1, $0) }
         reasoning = ReasoningChoice(rawValue: defaults.string(forKey: Keys.reasoning) ?? "") ?? .automatic
         hasRetiredProvider = defaults.bool(forKey: Keys.retiredProvider)
     }
 
     // MARK: - Picker entries
 
-    /// The picker entry a role shows now.
+    /// The chosen sampler as `GenerationOptions` wants it. `nil` is Automatic:
+    /// the framework's own, which is not the same as any setting here.
+    var samplingMode: GenerationOptions.SamplingMode? {
+        switch sampling {
+        case .automatic: nil
+        case .greedy: .greedy
+        case .topK: .random(top: samplingTopK, seed: samplingSeed)
+        case .topP: .random(probabilityThreshold: samplingThreshold, seed: samplingSeed)
+        }
+    }
+
+    /// The picker entry the model shows now.
     func option(for choice: ModelChoice) -> ModelOption {
         switch choice {
         case .onDevice: .onDevice
@@ -99,11 +161,9 @@ final class IntelligenceSettings {
         }
     }
 
-    /// Choose a picker entry for a role. Which MLX model MLX means is chosen in
-    /// the MLX section — one runs at a time, so both roles share it.
-    func choose(_ option: ModelOption, forAssistant: Bool) {
-        if forAssistant { assistantModel = option.choice } else { featuresModel = option.choice }
-    }
+    /// Choose a picker entry. Which MLX model MLX means is chosen in the MLX
+    /// section, where the models are.
+    func choose(_ option: ModelOption) { model = option.choice }
 
     /// Dismiss the "your provider was retired" notice for good.
     func acknowledgeRetiredProvider() {

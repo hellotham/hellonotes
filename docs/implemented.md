@@ -4811,103 +4811,75 @@ and showed the Home Screen with the app still running. Nothing distinguishes
 iPad's windowed mode from full-screen (`UIWindowScene.isFullScreen` is Mac
 Catalyst only; `sizeRestrictions` is non-nil in both, probed on iPadOS 27).
 
-The first fix took the windows off iPad alone, and that broke the rule this app
-is built on: *"parity between macOS and iPadOS was a hard and unbreakable
-rule."* It is — and it decided this: *"parity means macOS should not have
-windows either (except when the user says New Window)."* So **no window is
-opened by the app on either platform.** Graph, Ask Library, Assistant and Mind
-Map have no scene at all (`HelloNotesApp`); they come from one
-`AuxiliaryOpener` that no longer takes an `openWindow` or a width.
+Taking the windows off iPad alone broke the rule this app is built on —
+*"parity between macOS and iPadOS was a hard and unbreakable rule"* — and the
+answer was not to give the Mac something the iPad cannot have:
+*"parity means macOS should not have windows either (except when the user says
+New Window)."* So **no window is opened by the app on either platform**. A
+window is what someone asks for by name, and **New Window** and **Open in New
+Window** are on both.
 
-A sheet was the first answer to that, and it was wrong for a second reason:
-*"they should be panes rather than modals. That's the app design. An editor
-should never block editing."* A modal over the note is a note you cannot type
-in, and these are surfaces you keep open **while** you write.
+**Then the question behind the question.** A sheet was the next answer, and it
+was wrong for a different reason: *"they should be panes rather than modals.
+That's the app design. An editor should never block editing."* And then: *"why
+are you distinguishing between the inspector panels and graph, ask library,
+etc.? Aren't these just all panels on the right sidebar?"* They are. **The shell
+is collections on the left, the editor in the middle, anything else on the
+right**, and the app had been carrying two of everything for a distinction that
+does not exist: two enums (`InspectorTab`, `AuxiliarySurface`), two pieces of
+state, two chromes — five icon toggles in the Mac's band for one set, a title row
+inside the panel for the other, and a third strip on iOS — and two widths.
 
-Then the question behind the question: *"why are you distinguishing between the
-inspector panels and graph, ask library, etc.? Aren't these just all panels on
-the right sidebar?"* They are. **The shell is collections on the left, the
-editor in the middle, anything else on the right** — and the app had been
-carrying two of everything for a distinction that does not exist: two enums
-(`InspectorTab`, `AuxiliarySurface`), two pieces of state, two chromes (five
-icon toggles in the band for one set, a title row inside the panel for the
-other), two widths, and on iOS a third strip of its own. All of it collapses
-into `SidePanel`: nine cases — Outline, Tags, References, Properties, History,
-Mind Map, Graph, Ask Library, Assistant — one stored choice, one width (360,
-floor 220, cap 560), and one header inside the panel holding all nine as a
-**strip of icons**, grouped note-then-collection, with the current one drawn in
-a tint of the accent. The band keeps a single toggle: five icon toggles were
-right for five things and do not survive nine.
+`SidePanel` is the whole of it: nine cases (Outline, Tags, References,
+Properties, History, Mind Map, Graph, Ask Library, Assistant), one stored
+choice, one width (360, floor 220, cap 560), and one header inside the panel
+carrying all nine as a **strip of icons**, grouped note-then-collection, the
+current one tinted. What you can switch to is visible, not behind a tap — the
+rule that took the commands out of long-press menus — and below the width nine
+icons need, `ViewThatFits` falls back to a pull-down rather than a second
+threshold. The band keeps a single toggle.
 
-The strip is icons rather than a menu because what you can switch to should be
-visible — the same rule that took the commands out of long-press menus. It
-fits: nine at 30pt inside a 360pt panel. Below the width it needs, the header
-falls back to a pull-down, chosen by `ViewThatFits` rather than by a second
-threshold.
+The panel had its own defect: it was a column only at `.wideInspector` (1400pt)
+or a tall shell ≥900pt, so a 1100pt Mac window and an 834pt iPad both fell to a
+*modal overlay with the note dimmed behind it*. The arithmetic never required
+that — at the 860pt window minimum a 280pt sidebar, the 320pt editor floor and
+the 220pt panel floor come to 820. `ShellMetrics.hasPanelColumn` answers it once,
+for the shells and for the overlay, and only a canvas with no room for a column
+carries the panel over the note. The views that came from windows kept window
+habits: the graph and the mind map each demanded `minWidth: 560` and drew past
+the edge of the first panel they were put in.
 
-The panel had a second defect of its own: it was a column only at
-`.wideInspector` (1400pt) or a tall shell ≥900pt, so a 1100pt Mac window and an
-834pt iPad both fell to a *modal overlay with the note dimmed behind it*. The
-arithmetic never required that — at the 860pt window minimum a 280pt sidebar,
-the 320pt editor floor and the 220pt panel floor come to 820.
-`ShellMetrics.hasPanelColumn` now answers it once, for the shells and for the
-overlay, and the overlay is what remains for a canvas with no room for a column.
-The three views that came from windows kept window habits: the graph and the
-mind map each demanded `minWidth: 560` and drew past the edge of the first panel
-they were put in.
+**Every panel drags.** `shell-chrome.md` D7 promised a draggable splitter from
+the day the inspector was designed and no code ever drew one, so every panel was
+whatever number the shell had written down. `ResizableDivider` stores the width
+and clamps it at use, so a narrower window borrows it back rather than
+forgetting it; 10pt grab area, a pointer that changes over it, an adjustable
+action for VoiceOver, and the band's two panes drag the same way.
 
-**Found by the suite, not by looking.** `theModelsFolderListsWholeModelsOnly`
-failed on `bytes == 64`: `weightsBytes` read each snapshot file's size without
-following the link, so every cached model was listed at a few dozen bytes.
+**The models on this Mac are simply there.** The models folder was "Not chosen"
+until someone pointed a file panel at their Hugging Face cache — a sandboxed app
+cannot read `~/.cache/huggingface` — which stood between a person and 23 models
+their machine already had. *"You seem to be giving excuses rather than delivering
+a seamless user experience."* The app now asks for that folder by name
+(`com.apple.security.temporary-exception.files.home-relative-path.read-write`,
+still honoured by macOS 27's sandbox profile), so the cache **is** the models
+folder: what is there is listed, and a download goes into it rather than a second
+multi-gigabyte copy inside the container. Verified against a **Release** build,
+because Xcode gives Debug builds the whole disk; the justification for App Review
+is in `docs/app-store-listing.md`.
 
-**The app opens no windows of its own.** A regular-width iPad opened the
-Assistant, Graph, Ask Library and Mind Map as their own window scene, because the
-rule was width alone: a canvas wide enough shows a second surface *beside* the
-notes. On iPadOS it does not sit beside them — in full-screen apps, and in Split
-View, the system puts the new scene where the old one was, and **Done** closed it
-and showed the Home Screen with the app still running. Nothing distinguishes
-iPad's windowed mode from full-screen (`UIWindowScene.isFullScreen` is Mac
-Catalyst only; `sizeRestrictions` is non-nil in both, probed on iPadOS 27).
-
-The first fix took the windows off iPad alone, and that broke the rule this app
-is built on: *"parity between macOS and iPadOS was a hard and unbreakable
-rule."* It is — and it decided this: *"parity means macOS should not have
-windows either (except when the user says New Window)."* So **no window is
-opened by the app on either platform.** Graph, Ask Library, Assistant and Mind
-Map have no scene at all (`HelloNotesApp`); they come from one
-`AuxiliaryOpener` that no longer takes an `openWindow` or a width.
-
-A sheet was the first answer to that, and it was wrong for a second reason:
-*"they should be panes rather than modals. That's the app design. An editor
-should never block editing."* A modal over the note is a note you cannot type
-in, and these are surfaces you keep open **while** you write. They are now
-content of the **trailing panel** (`AuxiliaryPane`), beside the editor — and
-that panel had a defect of its own: it was a column only at `.wideInspector`
-(1400pt) or a tall shell ≥900pt, so a 1100pt Mac window and an 834pt iPad both
-fell to a *modal overlay with the note dimmed behind it*. The arithmetic never
-required that: at the 860pt window minimum a 280pt sidebar, the 320pt editor
-floor and the 220pt panel floor come to 820. `ShellMetrics.hasInspectorColumn`
-now answers it once, for the shells and for the overlay, and the overlay is what
-remains for canvases too small for a column. The band's five toggles stay the
-inspector's tab strip (there is no room for nine); a surface draws its own title
-and Done inside the panel, and pressing any tab puts the inspector back.
-
-A surface asks for 420pt rather than the inspector's 280 — a conversation and a
-canvas both read badly in a strip — capped at 560 and clamped so the editor keeps
-its floor. `GraphView` and `MindMapView` each carried `minWidth: 560` from the
-window they used to live in, so the first pane they were put in drew its header
-and its nodes past its own edge.
-`AuxiliaryWindows.swift` is gone, its four views merged into
-`AuxiliarySurface.swift` and named for what they are. **New Window** and **Open
-in New Window** stay on both platforms — a window someone asks for by name is
-the only kind there is.
-
-`AuxiliarySheet` draws the title and the way out in a plain row rather than a
-navigation bar: it is the only chrome these surfaces have now, on either
-platform, and each of them drew its own before — which is why the phone showed
-two titles and two Done buttons. `ShellComplianceTests` follows the new
-contract: the shells hold no presentation state, and `HelloNotesApp` declares no
-scene for an auxiliary surface.
+**One model, and the knobs the framework has.** Settings offered a model for the
+Assistant and another for the writing tools. With MLX the two could not differ —
+one MLX model is loaded at a time — so choosing a different one for either role
+silently moved the other, which is the shape of a setting that lies. It is one
+choice now (`IntelligenceSettings.model`, carrying whichever role was set on
+upgrade): *"we are either using System, or our own model."* What is tunable is
+what the framework exposes and nothing invented — temperature (0–2, as
+`GenerationOptions.temperature` is; the app had clamped it to 1), `samplingMode`
+(Automatic, Greedy, Top-k, Top-p, each with an optional seed for a repeatable
+run), `maximumResponseTokens`, and `reasoningLevel` where the model reasons.
+They are the Assistant's; the writing tools ask for what each task needs, because
+rewriting wants determinism whatever was chosen for conversation.
 
 ## 23. Edit and Preview render the same document
 

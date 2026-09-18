@@ -59,12 +59,13 @@ struct IntelligenceMigrationTests {
         var deletions = 0
         IntelligenceMigration.migrateIfNeeded(defaults: store) { deletions += 1 }
 
-        #expect(store.string(forKey: IntelligenceSettings.Keys.assistant) == "onDevice")
-        #expect(store.string(forKey: IntelligenceSettings.Keys.features) == "mlx")
+        // One model now, carried from the chat provider — the app is either on
+        // Apple's model or on yours, not one each for two roles.
+        #expect(store.string(forKey: IntelligenceSettings.Keys.model) == "onDevice")
         #expect(store.bool(forKey: IntelligenceSettings.Keys.retiredProvider))
         #expect(store.string(forKey: MLXModelStore.Keys.model) == "mlx-community/Qwen3-1.7B-4bit")
-        // Clamped: the old slider allowed 2.0 for some providers; the new one is 0–1.
-        #expect(store.double(forKey: IntelligenceSettings.Keys.temperature) == 1.0)
+        // Clamped to what the framework takes: 0–2.
+        #expect(store.double(forKey: IntelligenceSettings.Keys.temperature) == 1.4)
         for key in ["llmActiveProvider", "llmIntelligenceProvider", "llmProviders", "llmTemperature"] {
             #expect(store.object(forKey: key) == nil, "\(key) should be gone")
         }
@@ -126,17 +127,17 @@ struct IntelligenceMigrationTests {
     @Test func neverOverwritesANewChoice() {
         let (store, suite) = defaults()
         defer { UserDefaults().removePersistentDomain(forName: suite) }
-        store.set("privateCloud", forKey: IntelligenceSettings.Keys.assistant)
+        store.set("privateCloud", forKey: IntelligenceSettings.Keys.model)
         store.set("apple", forKey: "llmActiveProvider")
         IntelligenceMigration.migrateIfNeeded(defaults: store) {}
-        #expect(store.string(forKey: IntelligenceSettings.Keys.assistant) == "privateCloud")
+        #expect(store.string(forKey: IntelligenceSettings.Keys.model) == "privateCloud")
     }
 
     @Test func aFreshInstallMigratesToDefaultsWithNoNotice() {
         let (store, suite) = defaults()
         defer { UserDefaults().removePersistentDomain(forName: suite) }
         IntelligenceMigration.migrateIfNeeded(defaults: store) {}
-        #expect(store.string(forKey: IntelligenceSettings.Keys.assistant) == nil)
+        #expect(store.string(forKey: IntelligenceSettings.Keys.model) == nil)
         #expect(store.object(forKey: IntelligenceSettings.Keys.retiredProvider) == nil)
         #expect(store.bool(forKey: IntelligenceMigration.doneKey))
     }

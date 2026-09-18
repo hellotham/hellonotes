@@ -37,6 +37,10 @@ nonisolated struct AssistantProfile: LanguageModelSession.DynamicProfile {
     let instructions: String
     let tools: [any Tool]
     let temperature: Double
+    /// `nil` leaves the framework its own sampler, which is what Automatic is.
+    let sampling: GenerationOptions.SamplingMode?
+    /// `nil` leaves the framework its own limit.
+    let maximumReplyTokens: Int?
     let reasoning: ContextOptions.ReasoningLevel?
     /// Tokens of conversation history the model is shown per request.
     let historyTokens: Int
@@ -49,6 +53,8 @@ nonisolated struct AssistantProfile: LanguageModelSession.DynamicProfile {
         }
         .model(model)
         .temperature(temperature)
+        .samplingMode(sampling)
+        .maximumResponseTokens(maximumReplyTokens)
         .reasoningLevel(reasoning)
         .toolCallingMode(toolBudget.isExhausted ? .disallowed : nil)
         // A view of the history, not an edit to it: the whole conversation stays

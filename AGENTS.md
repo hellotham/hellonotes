@@ -397,6 +397,16 @@
   `PointerPresence` reports a pointer, the band switches to 24pt rows and stays
   there across relaunches — so a touch-sized layout can only be looked at
   before the first tap.
+- **One model, and the framework's knobs — no roles, no inventions.** There was
+  a model for the Assistant and another for the writing tools; with MLX they
+  could not even differ, since one MLX model is loaded at a time, so picking one
+  silently moved the other. `IntelligenceSettings.model` is the single choice:
+  the app is either on Apple's model or on yours. What is tunable is exactly
+  what `GenerationOptions` and `ContextOptions` expose — temperature (0–2),
+  `samplingMode` (greedy, top-k, top-p, each with a seed), `maximumResponseTokens`
+  and `reasoningLevel` — applied to the Assistant's profile. A control the model
+  never sees is worse than no control, and a knob the framework has and the app
+  hides is a question someone has to ask.
 - **The app suggests no models, and remembers no fact about one.** Four
   suggestions with sizes and a sentence each lasted a day: checked against the
   Hub they were last updated in 2025, while the models on the machine were 2026

@@ -16,11 +16,27 @@ Every AI feature runs on Apple's **Foundation Models**, on one of two models:
 | **System** (the default) | nowhere — Apple's model on this Mac, iPhone or iPad |
 | **MLX** | nowhere — an open model you download runs on this device |
 
-Pick one for the **Assistant** and one for the **writing tools** in **Settings**, under
-**AI**. The Assistant, Rewrite and the editor's AI menu name the model doing the work.
+Pick one in **Settings**, under **AI**. It is one choice for everything — the Assistant,
+the writing tools and Research — because the app is either using Apple's model or using
+yours. The Assistant, Rewrite and the editor's AI menu name the model doing the work.
 The Assistant can also look things up on the web — on its own, when a question
 needs it — and so can Research in New Note from a Prompt. What they search for
 goes to DuckDuckGo, and a page they read is fetched from its website.
+
+## The model's own settings
+
+Under **Assistant** are the four settings the Foundation Models framework has, and no
+invented ones:
+
+| Setting | What it does |
+|---|---|
+| **Creativity** | how varied the answers are (0–2) |
+| **Sampling** | Automatic, Greedy, Top-k or Top-p — how the next word is picked, with a seed for repeatable runs |
+| **Maximum reply** | a shorter limit than the framework's own, if you want one |
+| **Thinking** | how hard a reasoning model thinks, where the model reasons |
+
+They apply to the **Assistant**. The writing tools ask for what each task needs —
+rewriting wants determinism whatever you chose for conversation.
 
 ## What it does
 

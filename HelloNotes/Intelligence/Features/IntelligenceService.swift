@@ -44,7 +44,7 @@ struct IntelligenceService {
     let settings: IntelligenceSettings
 
     private var models: LanguageModels { settings.models }
-    private var choice: ModelChoice { settings.featuresModel }
+    private var choice: ModelChoice { settings.model }
 
     // MARK: - What the chosen model is
 

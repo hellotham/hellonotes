@@ -77,7 +77,7 @@ struct AssistantView: View {
         Menu {
             ForEach(models.options) { option in
                 Button {
-                    model.settings.choose(option, forAssistant: true)
+                    model.settings.choose(option)
                 } label: {
                     Label(models.title(of: option),
                           systemImage: option == model.settings.option(for: model.modelChoice)

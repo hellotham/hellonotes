@@ -87,16 +87,11 @@ struct IntelligenceSettingsForm: View {
 
     private var modelsSection: some View {
         Section {
-            modelPicker("Assistant", forAssistant: true)
-            modelCaption(for: settings.assistantModel,
-                         role: "Chat, and changes to your notes that you approve.")
+            modelPicker
+            modelCaption(for: settings.model,
+                         role: "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Library and Research.")
 
-            modelPicker("Writing tools", forAssistant: false)
-            modelCaption(for: settings.featuresModel,
-                         role: "Summarise, Suggest Tags and Links, Rewrite, Compose and Ask Library.")
-
-            if settings.assistantModel == .privateCloud || settings.featuresModel == .privateCloud,
-               let quota = models.privateCloudQuotaNote {
+            if settings.model == .privateCloud, let quota = models.privateCloudQuotaNote {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(quota, systemImage: "gauge.with.dots.needle.67percent")
                         .font(.caption)
@@ -115,18 +110,16 @@ struct IntelligenceSettingsForm: View {
         }
     }
 
-    /// Apple's models, and every MLX model on this device by name. A role still
-    /// pointing at an MLX model that has gone keeps an entry saying so, rather
-    /// than a blank picker.
-    private func modelPicker(_ title: String, forAssistant: Bool) -> some View {
-        let current = settings.option(for: forAssistant ? settings.assistantModel : settings.featuresModel)
+    /// Apple's model, and MLX where there is a model to run. A setting still on
+    /// MLX with nothing in the models folder keeps its entry, saying so, rather
+    /// than silently reading as System.
+    private var modelPicker: some View {
+        let current = settings.option(for: settings.model)
         var options = models.options
-        // A role still set to MLX with no model in the folder keeps its entry,
-        // saying so, rather than silently reading as System.
         if !options.contains(current) { options.append(current) }
-        return Picker(title, selection: Binding(
+        return Picker("Model", selection: Binding(
             get: { current },
-            set: { settings.choose($0, forAssistant: forAssistant) }
+            set: { settings.choose($0) }
         )) {
             ForEach(options) { option in
                 Label(optionTitle(option), systemImage: models.systemImage(of: option))
@@ -165,25 +158,70 @@ struct IntelligenceSettingsForm: View {
 
     // MARK: - Assistant
 
+    /// The Assistant's generation options — **the framework's knobs, and no
+    /// others**. `GenerationOptions` has four: temperature, sampling mode,
+    /// maximum response tokens and (through `ContextOptions`) reasoning level.
+    /// Anything else here would be a control the model never sees.
     private var assistantSection: some View {
-        Section("Assistant") {
+        Section {
             HStack {
                 Text("Creativity")
-                Slider(value: $settings.temperature, in: 0...1)
+                Slider(value: $settings.temperature, in: 0...2)
                 Text(settings.temperature, format: .number.precision(.fractionLength(1)))
                     .monospacedDigit().foregroundStyle(.secondary)
             }
-            if models.supportsReasoning(settings.assistantModel) {
+
+            Picker("Sampling", selection: $settings.sampling) {
+                ForEach(SamplingChoice.allCases) { Text($0.title).tag($0) }
+            }
+            switch settings.sampling {
+            case .topK:
+                Stepper(value: $settings.samplingTopK, in: 1...100) {
+                    LabeledContent("Words to sample from", value: "\(settings.samplingTopK)")
+                }
+            case .topP:
+                HStack {
+                    Text("Probability")
+                    Slider(value: $settings.samplingThreshold, in: 0.05...1)
+                    Text(settings.samplingThreshold, format: .number.precision(.fractionLength(2)))
+                        .monospacedDigit().foregroundStyle(.secondary)
+                }
+            case .automatic, .greedy:
+                EmptyView()
+            }
+            if settings.sampling == .topK || settings.sampling == .topP {
+                LabeledField(label: "Seed", text: seedText, prompt: "Random", isPath: true)
+            }
+            Text(settings.sampling.caption).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            LabeledField(label: "Maximum reply", text: maximumReplyText, prompt: "No limit", isPath: true)
+
+            if models.supportsReasoning(settings.model) {
                 Picker("Thinking", selection: $settings.reasoning) {
                     ForEach(ReasoningChoice.allCases) { Text($0.title).tag($0) }
                 }
             }
-            Text(models.supportsReasoning(settings.assistantModel)
+            Text(models.supportsReasoning(settings.model)
                  ? "Lower creativity is more focused and predictable. More thinking gives better answers to hard questions, and takes longer."
-                 : "Lower is more focused and predictable; higher is more varied.")
+                 : "Lower creativity is more focused and predictable; higher is more varied. These are the model's own settings, and they apply to the Assistant — the writing tools ask for what each task needs.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        } header: {
+            Text("Assistant")
         }
+    }
+
+    /// The seed as text, because "no seed" is empty rather than a number.
+    private var seedText: Binding<String> {
+        Binding(get: { settings.samplingSeed.map(String.init) ?? "" },
+                set: { settings.samplingSeed = UInt64($0.filter(\.isNumber)) })
+    }
+
+    /// Maximum response tokens, likewise: empty means the framework's own limit.
+    private var maximumReplyText: Binding<String> {
+        Binding(get: { settings.maximumReplyTokens.map(String.init) ?? "" },
+                set: { settings.maximumReplyTokens = Int($0.filter(\.isNumber)).map { max(1, $0) } })
     }
 
     // MARK: - MLX

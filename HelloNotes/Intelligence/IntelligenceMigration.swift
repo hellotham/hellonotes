@@ -81,11 +81,10 @@ nonisolated enum IntelligenceMigration {
         let chat = map(provider: defaults.string(forKey: LegacyKeys.active))
         let features = map(provider: defaults.string(forKey: LegacyKeys.intelligence))
 
-        if defaults.string(forKey: IntelligenceSettings.Keys.assistant) == nil, let chat {
-            defaults.set(chat.choice.rawValue, forKey: IntelligenceSettings.Keys.assistant)
-        }
-        if defaults.string(forKey: IntelligenceSettings.Keys.features) == nil, let features {
-            defaults.set(features.choice.rawValue, forKey: IntelligenceSettings.Keys.features)
+        // One model now, so one choice carried across: the chat provider's if
+        // there was one, otherwise the writing tools'.
+        if defaults.string(forKey: IntelligenceSettings.Keys.model) == nil, let carried = chat ?? features {
+            defaults.set(carried.choice.rawValue, forKey: IntelligenceSettings.Keys.model)
         }
         if chat?.retired == true || features?.retired == true {
             defaults.set(true, forKey: IntelligenceSettings.Keys.retiredProvider)
@@ -97,7 +96,8 @@ nonisolated enum IntelligenceMigration {
         }
         if defaults.object(forKey: IntelligenceSettings.Keys.temperature) == nil,
            let temperature = defaults.object(forKey: LegacyKeys.temperature) as? Double {
-            defaults.set(min(max(temperature, 0), 1), forKey: IntelligenceSettings.Keys.temperature)
+            // 0–2, the range `GenerationOptions.temperature` takes.
+            defaults.set(min(max(temperature, 0), 2), forKey: IntelligenceSettings.Keys.temperature)
         }
 
         for key in [LegacyKeys.providers, LegacyKeys.active, LegacyKeys.intelligence, LegacyKeys.temperature] {

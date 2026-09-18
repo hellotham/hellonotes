@@ -74,6 +74,38 @@ nonisolated enum ReasoningChoice: String, Codable, CaseIterable, Identifiable, S
     }
 }
 
+/// How the model picks the next token — `GenerationOptions.SamplingMode`, as
+/// the framework offers it and no further.
+///
+/// Automatic is the framework's own default (`nil`): it decides. Greedy always
+/// takes the likeliest token, which is the same answer every time. Top-k and
+/// top-p narrow the pool the model samples from, by count or by probability
+/// mass, each with an optional seed that makes a run repeatable.
+nonisolated enum SamplingChoice: String, Codable, CaseIterable, Identifiable, Sendable {
+    case automatic, greedy, topK, topP
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .greedy: "Greedy"
+        case .topK: "Top-k"
+        case .topP: "Top-p"
+        }
+    }
+
+    /// What it means, in the one line a settings row can carry.
+    var caption: String {
+        switch self {
+        case .automatic: "The model decides how to sample."
+        case .greedy: "Always the likeliest next word — the same answer every time."
+        case .topK: "Sample from the k likeliest words."
+        case .topP: "Sample from the likeliest words that add up to this probability."
+        }
+    }
+}
+
 /// One entry in a model picker. Apple's models are entries by where they run;
 /// MLX models are entries by which model, because more than one can be on the
 /// device — identified by `MLXLocalModel.id`.

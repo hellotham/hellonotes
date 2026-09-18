@@ -49,12 +49,12 @@ struct DeepResearch {
     var onProgress: (String) -> Void = { _ in }
 
     private var models: LanguageModels { settings.models }
-    private var choice: ModelChoice { settings.assistantModel }
+    private var choice: ModelChoice { settings.model }
 
     /// Why research can't run on the Assistant's model, or `nil` when it can.
     static func unavailableReason(settings: IntelligenceSettings) -> String? {
         let models = settings.models
-        let choice = settings.assistantModel
+        let choice = settings.model
         if case .unavailable(let why) = models.availability(of: choice) { return why }
         guard models.supportsTools(choice) else {
             return "Research searches the web with tools, and \(models.name(of: choice)) can't use tools. Choose System, or an MLX model AI settings doesn't mark \"Can't use tools\", for the Assistant."

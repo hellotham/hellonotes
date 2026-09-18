@@ -73,6 +73,11 @@ final class AssistantModel {
         var agentMode: Bool
         var canUseTools: Bool
         var temperature: Double
+        var sampling: SamplingChoice
+        var samplingTopK: Int
+        var samplingThreshold: Double
+        var samplingSeed: UInt64?
+        var maximumReplyTokens: Int?
         var reasoning: ReasoningChoice
         var skills: Int
     }
@@ -83,7 +88,7 @@ final class AssistantModel {
 
     // MARK: - State
 
-    var modelChoice: ModelChoice { settings.assistantModel }
+    var modelChoice: ModelChoice { settings.model }
     var modelName: String { settings.models.name(of: modelChoice) }
     var modelTitle: String { settings.models.title(of: modelChoice) }
     var availability: IntelligenceAvailability { settings.models.availability(of: modelChoice) }
@@ -215,7 +220,11 @@ final class AssistantModel {
         let signature = Signature(
             choice: choice, modelName: models.name(of: choice), agentMode: agentMode,
             canUseTools: canUseTools,
-            temperature: settings.temperature, reasoning: settings.reasoning,
+            temperature: settings.temperature,
+            sampling: settings.sampling, samplingTopK: settings.samplingTopK,
+            samplingThreshold: settings.samplingThreshold, samplingSeed: settings.samplingSeed,
+            maximumReplyTokens: settings.maximumReplyTokens,
+            reasoning: settings.reasoning,
             skills: toolContext?.skills?.skills.count ?? 0)
         if let session, signature == sessionSignature { return session }
 
@@ -249,6 +258,8 @@ final class AssistantModel {
             instructions: instructions,
             tools: tools,
             temperature: settings.temperature,
+            sampling: settings.samplingMode,
+            maximumReplyTokens: settings.maximumReplyTokens,
             reasoning: models.reasoningLevel(settings.reasoning, for: choice),
             historyTokens: historyTokens,
             toolBudget: budget)
