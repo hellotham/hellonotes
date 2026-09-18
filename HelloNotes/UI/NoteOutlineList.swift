@@ -961,7 +961,9 @@ struct SidebarItemRow: View {
                 }
                 .contextMenu { SidebarMenuItems(items: items) }
                 .dropDestination(for: URL.self) { urls, _ in
-                    onDropIntoFolder(item.id, urls)
+                    // Void action from macOS 27 on; the drop's own result is
+                    // the move it performs. See `BandTwoPane`.
+                    _ = onDropIntoFolder(item.id, urls)
                 }
             }
         }

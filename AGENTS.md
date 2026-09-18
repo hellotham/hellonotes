@@ -390,6 +390,15 @@
   postfix `#if` with an empty branch does not compile ("reference to member
   cannot be resolved without a contextual type"). Write a function with both
   branches (`presentingSettings`, `startingInHuggingFaceCache`).
+- **An unused value is how you find out an API moved under you.**
+  `@_disfavoredOverload` does not remove the old function, it demotes it, so a
+  call that still type-checks binds to the *new* one: `dropDestination(for:)`
+  took `(items, location) -> Bool` and now takes `(items, session) -> Void`, same
+  arity. Both sidebars kept compiling and the `false` that refused a drop onto
+  Recents was discarded — the whole signal was one `expression of type 'Bool' is
+  unused`. Read the warnings an OS bump adds, and read the `.swiftinterface`
+  (`xcrun --sdk macosx --show-sdk-path`) rather than guessing which overload won.
+  Refuse a drop with `isEnabled:`, which declines before the row lights up.
 - **A menu from a toolbar mid-screen is capped — about 520pt on a portrait
   iPad — and scrolls.** Settings came last in the iPad's `…` menu and fell below
   the fold of the menu added to make it findable. Order for the fold.

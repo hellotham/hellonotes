@@ -218,8 +218,14 @@ private struct ContainerRow: View {
         .listRowInsets(EdgeInsets(top: 3, leading: 8 + CGFloat(depth) * Self.indent,
                                   bottom: 3, trailing: 8))
         .contextMenu { SidebarMenuItems(items: items) }
-        .dropDestination(for: URL.self) { urls, _ in
-            node.isPlace ? false : onDropIntoFolder(node.id, urls)
+        // Recents and Bookmarks hold no files, so they refuse a drop — as
+        // `isEnabled`, not as a `false` returned from the action. macOS 27's
+        // `dropDestination` action returns `Void` and the `Bool` one it replaced
+        // is `@_disfavoredOverload`, so the refusal was being *discarded*
+        // (`expression of type 'Bool' is unused`) and the row still lit up as a
+        // target for a drop it would then ignore.
+        .dropDestination(for: URL.self, isEnabled: !node.isPlace) { urls, _ in
+            _ = onDropIntoFolder(node.id, urls)
         }
     }
 
