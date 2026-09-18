@@ -343,17 +343,81 @@ struct ContentView: View {
     /// The scene's width, for `AuxiliaryPresentation`. Measured here rather
     /// than read from `\.shell`, because this view *supplies* the shell's slots
     /// and so sits outside the context the shell publishes.
-    @State private var shellWidth: CGFloat = 0
+    @State private var shellSize: CGSize = .zero
 
-    /// An auxiliary surface presented as a sheet, when the canvas is too narrow
-    /// for a window. `nil` is the ordinary case on any full-size window.
-    @State private var auxiliarySheet: AuxiliarySurface?
+    /// Graph, Ask Library, Assistant or the mind map, showing in the trailing
+    /// panel. `nil` is the ordinary case, where the panel holds the inspector.
+    @State private var auxiliarySurface: AuxiliarySurface?
 
-    /// Open Graph / Ask Library / Assistant — a window where there is room for
-    /// one, a sheet where there is not. The decision is `AuxiliaryPresentation`
-    /// and it is keyed on width, never on the platform.
+    /// Whether this canvas has no column for the panel and must present it over
+    /// the note — a phone, or a Mac window dragged below the compact threshold.
+    /// The rule is the canvas, not the OS.
+    private var panelMustCover: Bool {
+        !ShellMetrics.hasInspectorColumn(
+            kind: shellKind(width: shellSize.width, height: shellSize.height),
+            width: shellSize.width)
+    }
+
+    /// Open Graph / Ask Library / Assistant / Mind Map — in the panel beside the
+    /// editor, which is where they live. Opening one opens the panel; an editor
+    /// never blocks editing, so nothing here covers the note that has a column
+    /// to sit in.
     private var auxiliary: AuxiliaryOpener {
-        AuxiliaryOpener { auxiliarySheet = $0 }
+        AuxiliaryOpener { surface in
+            withAnimation(.easeInOut(duration: 0.18)) {
+                auxiliarySurface = surface
+                if surface != nil { inspectorPresented = true }
+            }
+        }
+    }
+
+    /// The panel where the canvas has no column for it — the same content,
+    /// carried over the note, with the header the column does not need.
+    @ViewBuilder
+    private var panelOverlay: some View {
+        if let surface = auxiliarySurface {
+            AuxiliaryPane(surface: surface) { closePanel() }
+        } else {
+            VStack(spacing: 0) {
+                InspectorOverlayHeader(tabRaw: $inspectorTabRaw) {
+                    inspectorPresented = false
+                }
+                Divider()
+                inspector
+            }
+        }
+    }
+
+    /// What the trailing panel holds: a surface when one is open, the note's
+    /// inspector otherwise.
+    @ViewBuilder
+    private var trailingPanel: some View {
+        if let surface = auxiliarySurface {
+            AuxiliaryPane(surface: surface) { closePanel() }
+        } else {
+            inspector
+        }
+    }
+
+    /// Show or hide the *inspector* in the panel. With a surface showing there,
+    /// this swaps it for the inspector rather than closing a panel the person
+    /// asked to see.
+    private func toggleInspector() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if auxiliarySurface != nil {
+                auxiliarySurface = nil
+                inspectorPresented = true
+            } else {
+                inspectorPresented.toggle()
+            }
+        }
+    }
+
+    private func closePanel() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            auxiliarySurface = nil
+            inspectorPresented = false
+        }
     }
 
     /// The editor showing the selected note, if any. `ShellActions` owns it, so
@@ -448,6 +512,7 @@ struct ContentView: View {
     /// Open the inspector on the tab that answers `kind`.
     private func askInspector(_ kind: InspectorRequest.Kind) {
         let request = InspectorRequest(kind: kind, token: (inspectorRequest?.token ?? 0) + 1)
+        auxiliarySurface = nil
         inspectorTabRaw = request.tab.rawValue
         inspectorPresented = true
         inspectorRequest = request
@@ -513,7 +578,10 @@ struct ContentView: View {
                     Task { await c.deleteFolder(at: folder) }
                 }
             })
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shellWidth = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { shellSize = $0 }
+            // The iOS panel's own tab strip writes the stored tab directly, so
+            // choosing a tab there puts the inspector back in the panel too.
+            .onChange(of: inspectorTabRaw) { auxiliarySurface = nil }
             // `Library` asks for a picker rather than presenting one; the shell
             // owns the picker, so the shell answers — **with what was asked
             // for**. The request carries where to start and what to say, and
@@ -569,12 +637,14 @@ struct ContentView: View {
                 }
             }
             #endif
-            // An auxiliary surface where the canvas is too narrow for a window.
-            // A Mac window dragged below the shell's compact threshold has no
-            // more room for a second window than an iPhone does; the rule is
-            // the canvas, not the OS.
-            .sheet(item: $auxiliarySheet) { surface in
-                AuxiliarySheet(surface: surface)
+            // Where the canvas has no column for the panel, the same pane is
+            // presented over the note — a phone, or a Mac window dragged below
+            // the compact threshold. There is no editor beside it to protect at
+            // that width: the editor *is* the width.
+            .sheet(item: Binding(get: { panelMustCover ? auxiliarySurface : nil },
+                                 set: { if $0 == nil { auxiliarySurface = nil } })) { surface in
+                AuxiliaryPane(surface: surface) { auxiliarySurface = nil }
+                    .panelFrame(width: 560, height: 640)
             }
     }
 
@@ -601,7 +671,8 @@ struct ContentView: View {
                 detail(showsShellCommands: true)
                 #endif
             },
-            inspector: { inspector },
+            inspector: { trailingPanel },
+            panelHoldsSurface: auxiliarySurface != nil,
             compact: { compactShell }
         )
         // The declared window minimum (decision 9). A floor under the layout so
@@ -1704,15 +1775,7 @@ struct ContentView: View {
             // The inspector, where the shell has no column for it. Shared —
             // the Mac had no overlay at all, so its own default 1100pt window
             // showed no inspector however many times you pressed the toggles.
-            .inspectorOverlay(presented: $inspectorPresented) {
-                VStack(spacing: 0) {
-                    InspectorOverlayHeader(tabRaw: $inspectorTabRaw) {
-                        inspectorPresented = false
-                    }
-                    Divider()
-                    inspector
-                }
-            }
+            .inspectorOverlay(presented: $inspectorPresented) { panelOverlay }
             // The toolbar belongs to the editor, Mail-style. Declared on the
             // note list it rendered over the *inspector* — the rightmost column
             // wins the trailing edge — leaving nothing above the text.
@@ -1792,10 +1855,13 @@ struct ContentView: View {
                 Button {
                     withAnimation(.easeInOut(duration: 0.18)) {
                         // Pressing the tab you are already on closes the panel,
-                        // which is what Pages' Format button does.
-                        if inspectorPresented && inspectorTab == tab {
+                        // which is what Pages' Format button does. A tab always
+                        // puts the *inspector* in the panel, whatever surface
+                        // was showing there.
+                        if inspectorPresented && inspectorTab == tab && auxiliarySurface == nil {
                             inspectorPresented = false
                         } else {
+                            auxiliarySurface = nil
                             inspectorTab = tab
                             inspectorPresented = true
                         }
@@ -1805,7 +1871,7 @@ struct ContentView: View {
                 }
                 .help(tab.title)
                 .background(
-                    inspectorPresented && inspectorTab == tab
+                    inspectorPresented && inspectorTab == tab && auxiliarySurface == nil
                         ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
                     in: RoundedRectangle(cornerRadius: 5)
                 )
@@ -2736,15 +2802,7 @@ struct ContentView: View {
             // The inspector, where the shell has no column for it. Shared —
             // the Mac had no overlay at all, so its own default 1100pt window
             // showed no inspector however many times you pressed the toggles.
-            .inspectorOverlay(presented: $inspectorPresented) {
-                VStack(spacing: 0) {
-                    InspectorOverlayHeader(tabRaw: $inspectorTabRaw) {
-                        inspectorPresented = false
-                    }
-                    Divider()
-                    inspector
-                }
-            }
+            .inspectorOverlay(presented: $inspectorPresented) { panelOverlay }
             .toolbarTitleDisplayMode(.inline)
         } else {
             ContentUnavailableView(
@@ -2920,7 +2978,7 @@ struct ContentView: View {
     /// inside the panel where there is room for it.
     private var inspectorToggle: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.18)) { inspectorPresented.toggle() }
+            toggleInspector()
         } label: {
             Label("Inspector", systemImage: inspectorPresented
                   ? "sidebar.trailing" : "sidebar.right")
@@ -2980,7 +3038,7 @@ struct ContentView: View {
             .pickerStyle(.inline)
             Divider()
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) { inspectorPresented.toggle() }
+                toggleInspector()
             } label: {
                 Label(inspectorPresented ? "Hide Inspector" : "Show Inspector",
                       systemImage: "sidebar.right")

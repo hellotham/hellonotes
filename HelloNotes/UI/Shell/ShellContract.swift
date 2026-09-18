@@ -121,6 +121,47 @@ enum ShellMetrics {
     static let windowMinWidth: CGFloat = 860
     static let windowMinHeight: CGFloat = 480
 
+    /// What the trailing panel asks for when it holds a *surface* — the
+    /// Assistant, Ask Library, the graph, a mind map — rather than the
+    /// inspector. A conversation and a canvas both read badly at 280pt, and
+    /// they are the thing being worked in rather than a strip of facts about
+    /// the note.
+    static let surfacePanelIdeal: CGFloat = 420
+    static let surfacePanelCap: CGFloat = 560
+
+    /// The panel's width here: its ideal, but never so wide that the editor
+    /// drops below its floor. A pane that squeezes the note out is the modal
+    /// this replaced, wearing a divider.
+    static func panelWidth(holdsSurface: Bool, available: CGFloat) -> CGFloat {
+        let ideal = holdsSurface ? surfacePanelIdeal : inspectorIdeal
+        return max(inspectorFloor, min(ideal, available - editorFloor))
+    }
+
+    /// Whether the trailing panel can be a **column** here rather than an
+    /// overlay over the editor.
+    ///
+    /// A panel drawn over the editor stops you typing, and an editor never
+    /// blocks editing — so the panel is a column wherever the arithmetic allows
+    /// one: the editor keeps its floor (320pt) and the panel takes its own
+    /// (220pt). At the declared window minimum of 860pt a 280pt sidebar still
+    /// leaves 360pt of editor, so the answer is yes almost everywhere.
+    ///
+    /// `inspectorMin` (1400pt) remains what it always described — the width at
+    /// which the shell *starts* with three columns and the panel takes its
+    /// ideal width. It was also, wrongly, the only width at which the panel
+    /// could exist at all: a 1100pt Mac window and an 834pt iPad both fell to a
+    /// modal overlay with the note dimmed behind it.
+    static func hasInspectorColumn(kind: ShellKind, width: CGFloat) -> Bool {
+        switch kind {
+        // The editor *is* the screen; there is nothing to put a column beside.
+        case .compact: false
+        // The band is above the editor, so only the panel claims the width.
+        case .tall: width >= editorFloor + inspectorFloor
+        case .two, .wide, .wideInspector:
+            width >= sidebarIdeal + editorFloor + inspectorFloor
+        }
+    }
+
     /// A pane may split manually up to this many ways: `min(4, pane / 320)`.
     static func maxPanes(detailWidth: CGFloat) -> Int {
         max(1, min(4, Int(detailWidth / editorFloor)))

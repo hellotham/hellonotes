@@ -22,10 +22,13 @@
 //  full-screen: `UIWindowScene.isFullScreen` is Mac Catalyst only, and
 //  `sizeRestrictions` is non-nil in both (probed, iPadOS 27).
 //
-//  So the presentation is the same on both platforms — a sheet — which is what
-//  parity means here: not "the Mac may open windows the iPad cannot", but one
-//  rule, one shape, and the same way out. A sheet also *has* a way out on every
-//  canvas, which a scene the system placed does not.
+//  A sheet was the first answer, and it was the wrong shape for a different
+//  reason: **an editor never blocks editing.** A modal over the note is a note
+//  you cannot type in, and these are surfaces you keep open *while* you write.
+//  So they are **panes** — the trailing panel, beside the editor, which is a
+//  column wherever one fits (`ShellMetrics.hasInspectorColumn`). One rule, one
+//  shape, both platforms; only a phone, which has no room for a column, falls
+//  back to presenting the pane as a sheet.
 //
 
 import SwiftUI
@@ -38,8 +41,7 @@ enum AuxiliarySurface: Identifiable, Hashable {
     /// The mind map of one note.
     case mindMap(URL)
 
-    /// Identity for the sheet item — one surface at a time, and a mind map is
-    /// per note.
+    /// Identity — one surface at a time, and a mind map is per note.
     var id: String {
         switch self {
         case .graph: "graph"
@@ -72,10 +74,11 @@ enum AuxiliarySurface: Identifiable, Hashable {
 ///
 /// A type rather than a bare closure because every call site says
 /// `auxiliary.open(.assistant)`, and that reads as the app's own vocabulary
-/// rather than as a presentation detail. What it does is present the sheet.
+/// rather than as a presentation detail. What it does is show the surface in
+/// the trailing panel.
 @MainActor
 struct AuxiliaryOpener {
-    /// Present this surface; `nil` dismisses.
+    /// Show this surface in the panel; `nil` closes it.
     let present: (AuxiliarySurface?) -> Void
 
     func open(_ surface: AuxiliarySurface) { present(surface) }
@@ -95,24 +98,30 @@ struct AuxiliarySurfaceView: View {
     }
 }
 
-/// An auxiliary surface, presented.
+/// An auxiliary surface in the trailing panel — a **pane**, beside the editor.
+///
+/// Not a sheet and not a window: *an editor never blocks editing*. A sheet over
+/// the note stops you typing in it, which is the objection to the modal these
+/// used to be, and a window is a scene the system places where it likes. The
+/// panel is a column wherever one fits (`ShellMetrics.hasInspectorColumn`), so
+/// the note stays live beside the Assistant, the graph or the mind map. Only a
+/// canvas with no room for a column — a phone — presents this as a sheet.
 ///
 /// The title and the way out are drawn here, in a plain row rather than a
 /// navigation bar, because this is the only chrome these surfaces have on
-/// either platform — a `NavigationStack`'s bar is an iOS shape, and the Mac
-/// shows the same sheet. The surfaces themselves therefore draw neither: two
-/// titles and two Done buttons is what the phone showed while each side
-/// supplied its own.
-struct AuxiliarySheet: View {
+/// either platform. The surfaces themselves draw neither: two titles and two
+/// Done buttons is what the phone showed while each side supplied its own.
+struct AuxiliaryPane: View {
     let surface: AuxiliarySurface
-    @Environment(\.dismiss) private var dismiss
+    /// Close the panel. The shell owns that state, so this is not `dismiss`.
+    var onClose: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Label(surface.title, systemImage: surface.symbol).font(.headline)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Done", action: onClose).keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal).padding(.vertical, 10)
             Divider()
@@ -124,14 +133,12 @@ struct AuxiliarySheet: View {
 // MARK: - Graph
 
 /// The link graph. `GraphPane` is the graph itself; this supplies what a
-/// surface beside the notes needs — asking the shell to open a note, and a size
-/// on the Mac, where a sheet is not handed one.
+/// surface beside the notes needs — asking the shell to open a note.
 struct GraphSurface: View {
     @Environment(Library.self) private var library
 
     var body: some View {
         GraphPane(onOpen: { library.requestOpen($0) })
-            .panelFrame(width: 760, height: 560)
     }
 }
 
@@ -158,7 +165,6 @@ struct MindMapSurface: View {
                     text: text,
                     onOpenNote: { library.requestOpen($0) },
                     onShowSection: showSection)
-            .panelFrame(width: 720, height: 540)
             .task(id: rootURL) {
                 // Only when the editor is not holding it — reading a file we
                 // already have in memory is a coordinated read for nothing.

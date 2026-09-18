@@ -179,7 +179,7 @@ decisions are not:
 - ✅ **Open a note in a new window** — shipped on iPad. `AppActions.note.openInNewWindow` was an optional closure left nil on iOS, so the menu item and the palette row both drew, enabled, and did nothing. `iOSNoteWindowView` fills the second scene; the pane it hosts is shared with the main window so the two cannot drift.
 - ✅ **The launcher** — `LauncherView` is cross-platform. Recents, Obsidian vaults and saved libraries are reachable on iPad; `library.onOpened` records opens there now, which it never did.
 - 🟡 **iPad multitasking / Stage Manager** for the split layout is unverified on a device. The contract test covers a 320pt slice and a 250pt tile headlessly.
-- ✅ **Done in an auxiliary window left the app** — fixed by the app opening no windows of its own, on either platform (implemented.md §51.4). The Assistant, Graph, Ask Library and Mind Map are sheets everywhere and have no scene; New Window and Open in New Window remain on both, because a window someone asks for by name is the only kind the app opens.
+- ✅ **Done in an auxiliary window left the app** — fixed by the app opening no windows of its own, on either platform, and by making these surfaces **panes** rather than modals (implemented.md §51.4). The Assistant, Graph, Ask Library and Mind Map are content of the trailing panel beside the editor, which is now a column wherever one fits; New Window and Open in New Window remain on both platforms, because a window someone asks for by name is the only kind the app opens.
 
 ---
 

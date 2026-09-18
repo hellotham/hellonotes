@@ -328,10 +328,16 @@
   the open note's menu, from the same `SidebarMenu` list. `Menu(primaryAction:)`
   *looks* like a plain button and is a hidden menu: tap was New Note, hold was
   everything else, and on every iPad that hid Settings.
-- **The app opens no windows of its own — on either platform.** A window
-  happens when someone asks for one by name (New Window, Open in New Window),
-  and those two are on both platforms like every other command. Graph, Ask
-  Library, Assistant and Mind Map are sheets, and have no scene at all.
+- **The app opens no windows of its own — on either platform — and these are
+  panes, not modals.** A window happens when someone asks for one by name (New
+  Window, Open in New Window), and those two are on both platforms like every
+  other command. Graph, Ask Library, Assistant and Mind Map have no scene at
+  all: they are content of the **trailing panel**, beside the editor, because
+  *an editor never blocks editing* — a sheet over the note is a note you cannot
+  type in, and these are surfaces you keep open while you write. The panel is a
+  column wherever the editor keeps its floor beside it
+  (`ShellMetrics.hasInspectorColumn`), which is nearly everywhere; only a canvas
+  with no room for one — a phone — presents the same pane over the note.
   `openWindow` on iPadOS makes a scene that *replaces* the notes in full-screen
   apps and in Split View, and closing it left the app — Done in the Assistant
   showed the Home Screen. Nothing tells full-screen from windowed

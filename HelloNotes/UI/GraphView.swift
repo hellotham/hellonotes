@@ -170,7 +170,9 @@ struct GraphView: View {
             Divider()
             scrollingCanvas
         }
-        .frame(minWidth: 560, minHeight: 420)
+        // No minimum: this is a pane now, and a canvas that demands 560pt
+        // inside a 420pt pane draws past its own edge — which is what it did.
+        // The canvas scrolls and zooms, so it fits whatever it is given.
     }
 
     // MARK: - Canvas

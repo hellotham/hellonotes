@@ -58,7 +58,8 @@ struct MindMapView: View {
             Divider()
             scrollingMap
         }
-        .frame(minWidth: 560, minHeight: 460)
+        // No minimum — a pane gives it the width it has; the map scrolls and
+        // zooms inside it (see `GraphView`).
     }
 
     private var header: some View {

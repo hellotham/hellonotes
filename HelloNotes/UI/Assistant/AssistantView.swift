@@ -32,7 +32,6 @@ struct AssistantView: View {
             Divider()
             composer
         }
-        .panelFrame(width: 620, height: 680)
         .onAppear { inputFocused = true }
         .overlay {
             if let broker = model.permissions, let prompt = broker.prompt {

@@ -43,21 +43,16 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
 
     @Environment(\.shell) private var shell
 
-    /// Whether the shell is already drawing an inspector *column*, in which
-    /// case there is nothing for this overlay to do.
+    /// Whether the shell is already drawing the panel as a *column*, in which
+    /// case there is nothing for this overlay to do — and it must not draw, or
+    /// the panel appears twice with the note dimmed behind the second copy.
     ///
-    /// Two shells draw one: `.wideInspector` always, and `.tall` once it is
-    /// also wide enough for its right rail (`AdaptiveShell.tallShell`). This
-    /// asked only about `.wideInspector`, so on anything tall and ≥900pt — an
-    /// iPad Pro 13" in portrait, a 1000×1200 Mac window — this presented the
-    /// modal panel *over* the column that was already there: the inspector
-    /// twice, the second copy behind a scrim, with the note dimmed underneath.
+    /// One question, asked in one place: `ShellMetrics.hasInspectorColumn`.
+    /// It answers yes almost everywhere now, so this overlay is what a canvas
+    /// too small for a column falls back to — where the editor has no room to
+    /// be typed in beside a panel anyway.
     private var hasColumn: Bool {
-        switch shell.kind {
-        case .wideInspector: return true
-        case .tall: return shell.size.width >= ShellMetrics.tallRailMin
-        default: return false
-        }
+        ShellMetrics.hasInspectorColumn(kind: shell.kind, width: shell.size.width)
     }
 
     func body(content: Content) -> some View {

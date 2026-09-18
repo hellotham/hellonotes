@@ -4816,8 +4816,29 @@ is built on: *"parity between macOS and iPadOS was a hard and unbreakable
 rule."* It is — and it decided this: *"parity means macOS should not have
 windows either (except when the user says New Window)."* So **no window is
 opened by the app on either platform.** Graph, Ask Library, Assistant and Mind
-Map have no scene at all (`HelloNotesApp`); they are sheets, from one
+Map have no scene at all (`HelloNotesApp`); they come from one
 `AuxiliaryOpener` that no longer takes an `openWindow` or a width.
+
+A sheet was the first answer to that, and it was wrong for a second reason:
+*"they should be panes rather than modals. That's the app design. An editor
+should never block editing."* A modal over the note is a note you cannot type
+in, and these are surfaces you keep open **while** you write. They are now
+content of the **trailing panel** (`AuxiliaryPane`), beside the editor — and
+that panel had a defect of its own: it was a column only at `.wideInspector`
+(1400pt) or a tall shell ≥900pt, so a 1100pt Mac window and an 834pt iPad both
+fell to a *modal overlay with the note dimmed behind it*. The arithmetic never
+required that: at the 860pt window minimum a 280pt sidebar, the 320pt editor
+floor and the 220pt panel floor come to 820. `ShellMetrics.hasInspectorColumn`
+now answers it once, for the shells and for the overlay, and the overlay is what
+remains for canvases too small for a column. The band's five toggles stay the
+inspector's tab strip (there is no room for nine); a surface draws its own title
+and Done inside the panel, and pressing any tab puts the inspector back.
+
+A surface asks for 420pt rather than the inspector's 280 — a conversation and a
+canvas both read badly in a strip — capped at 560 and clamped so the editor keeps
+its floor. `GraphView` and `MindMapView` each carried `minWidth: 560` from the
+window they used to live in, so the first pane they were put in drew its header
+and its nodes past its own edge.
 `AuxiliaryWindows.swift` is gone, its four views merged into
 `AuxiliarySurface.swift` and named for what they are. **New Window** and **Open
 in New Window** stay on both platforms — a window someone asks for by name is

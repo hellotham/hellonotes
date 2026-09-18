@@ -316,7 +316,10 @@ struct ShellComplianceTests {
     /// scene the system places cannot be relied on to sit beside the notes, and
     /// on iPadOS closing one left the app.
     ///
-    /// So both shells call one `AuxiliaryOpener` and it presents a sheet.
+    /// So both shells call one `AuxiliaryOpener` and it shows the surface in
+    /// the trailing panel — a pane beside the editor, because an editor never
+    /// blocks editing. Only a canvas with no column for the panel presents it
+    /// over the note.
     /// Neither shell holds presentation state of its own for these surfaces,
     /// and neither opens a scene for one: the only windows the app opens are
     /// the two someone asks for by name, New Window and Open in New Window,
@@ -325,10 +328,12 @@ struct ShellComplianceTests {
     func auxiliarySurfacesArePresentedTheSameWay() throws {
         let file = "ContentView.swift"
         let source = try Self.source(file)
-        #expect(source.contains("AuxiliaryOpener { auxiliarySheet = $0 }"),
+        #expect(source.contains("AuxiliaryOpener { surface in"),
                 "\(file) does not route auxiliary surfaces through the shared opener")
-        #expect(source.contains(".sheet(item: $auxiliarySheet)"),
-                "\(file) does not present auxiliary surfaces")
+        #expect(source.contains("inspector: { trailingPanel }"),
+                "\(file) does not put auxiliary surfaces in the panel beside the editor")
+        #expect(source.contains("AuxiliaryPane(surface: surface)"),
+                "\(file) does not draw an auxiliary surface as a pane")
         for forbidden in ["showGraph", "showMindMap", "showAssistant", "showLibraryChat",
                          "cloudBrowser"] {
             #expect(!source.contains(forbidden),

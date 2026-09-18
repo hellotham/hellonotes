@@ -41,6 +41,9 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
     @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var pane: () -> Pane
     @ViewBuilder var inspector: () -> Inspector
+    /// Whether the trailing panel is holding a surface rather than the
+    /// inspector, which asks for more width — see `ShellMetrics.panelWidth`.
+    var panelHoldsSurface: Bool = false
     /// The whole compact presentation, supplied by the caller.
     ///
     /// Compact is not the wide shell with different furniture — it is a
@@ -75,13 +78,13 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
         case .tall:
             tallShell(width: context.size.width)
         case .two, .wide, .wideInspector:
-            columnShell(kind)
+            columnShell(kind, width: context.size.width)
         }
     }
 
     // MARK: - Wide / two: the native three-column shell plus an inspector
 
-    private func columnShell(_ kind: ShellKind) -> some View {
+    private func columnShell(_ kind: ShellKind, width: CGFloat) -> some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar()
                 .navigationSplitViewColumnWidth(min: ShellMetrics.sidebarFloor,
@@ -99,12 +102,15 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
             // and in `scratchpad/ChromeLab --design 10`.
             HStack(spacing: 0) {
                 EditorPaneContainer { pane() }
-                if kind == .wideInspector && inspectorPresented {
+                if inspectorPresented, ShellMetrics.hasInspectorColumn(kind: kind, width: width) {
                     Divider()
                     inspector()
                         .frame(minWidth: ShellMetrics.inspectorFloor,
-                               idealWidth: ShellMetrics.inspectorIdeal,
-                               maxWidth: ShellMetrics.inspectorCap)
+                               idealWidth: ShellMetrics.panelWidth(
+                                holdsSurface: panelHoldsSurface,
+                                available: width - ShellMetrics.sidebarIdeal),
+                               maxWidth: panelHoldsSurface ? ShellMetrics.surfacePanelCap
+                                                           : ShellMetrics.inspectorCap)
                 }
             }
         }
@@ -132,11 +138,12 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
 
             HStack(spacing: 0) {
                 EditorPaneContainer { NavigationStack { pane() } }
-                // A tall window that is also wide keeps its right rail.
-                if width >= ShellMetrics.tallRailMin && inspectorPresented {
+                // The rail is a column wherever the editor keeps its floor.
+                if inspectorPresented, ShellMetrics.hasInspectorColumn(kind: .tall, width: width) {
                     Divider()
                     inspector()
-                        .frame(width: ShellMetrics.inspectorIdeal)
+                        .frame(width: ShellMetrics.panelWidth(holdsSurface: panelHoldsSurface,
+                                                             available: width))
                 }
             }
         }

@@ -83,7 +83,6 @@ struct LibraryChatView: View {
                 .padding()
             }
         }
-        .panelFrame(width: 520, height: 560)
         // `.task(id:)` rather than `.onAppear`: the window takes its pending
         // question from the library *after* the first render, so an appear-only
         // hook would run while there was still nothing to ask.
