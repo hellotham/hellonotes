@@ -1015,7 +1015,9 @@ final class ParityScheme: NSObject, WKURLSchemeHandler {
     /// the filesystem root, and `appendingPathComponent` would keep the slash
     /// and build `…/Fixtures//url`. Both miss the file; only one of them looks
     /// like it worked.
-    static func resolve(_ target: String, under root: URL) -> URL {
+    /// `nonisolated`: string and path arithmetic, reached from the same
+    /// `nonisolated` renderer. The class is `@MainActor` for the scheme handler.
+    nonisolated static func resolve(_ target: String, under root: URL) -> URL {
         var path = target.removingPercentEncoding ?? target
         while path.hasPrefix("/") { path.removeFirst() }
         return path.split(separator: "/").reduce(root) { $0.appendingPathComponent(String($1)) }
@@ -1044,8 +1046,6 @@ final class ParityScheme: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {}
 }
 
-/// The height the editor lays `markdown` out in, in container coordinates.
-@MainActor
 /// Renders asked for, renders returned.
 ///
 /// The settle wait used to stop when the laid-out height had *moved and then
@@ -1064,7 +1064,12 @@ final class ParityScheme: NSObject, WKURLSchemeHandler {
 /// Sendable` with a lock because `render` is `nonisolated`: the counters are
 /// touched from whatever executor the embed's `Task` lands on, and the reader
 /// is the main thread.
-final class RenderTally: @unchecked Sendable {
+// `nonisolated`, and it has to be: this is called from `BlockRenderer.render`,
+// a `nonisolated` protocol witness. The lock and `@unchecked Sendable` below
+// already say the counter is safe from any thread — but `main.swift` is
+// top-level code, which Swift 6 isolates to the main actor, and that sweeps up
+// the types declared beside it.
+nonisolated final class RenderTally: @unchecked Sendable {
     private let lock = NSLock()
     private var started = 0
     private var ended = 0
