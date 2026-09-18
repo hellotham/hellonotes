@@ -231,9 +231,13 @@ map each demanded a 560pt minimum, and drew past the edge of the first panel
 they were put in.
 
 **D7. `.inspector()` is not used.** It forces an unsuppressable `»` chevron,
-violating D6. The inspector is an `HStack` sibling of the editor inside the
-detail column, with a draggable splitter — proven in finvestlens
-(`Views.swift:1293`).
+violating D6. The panel is an `HStack` sibling of the editor inside the detail
+column, with a draggable splitter — proven in finvestlens (`Views.swift:1293`).
+The splitter is `ResizableDivider`, and it took until 18 September 2026 to
+exist: this decision described one for months while every panel was a fixed
+number. It stores the width and clamps it at use, so the editor keeps its floor
+without the panel forgetting how wide you wanted it. The band's two panes
+(D2a) drag the same way.
 
 **D8. Commands live in the band, not the sidebar** (the P2 corollary). In the
 band: **New Note**, **Open Quickly**, **Search**. At the sidebar's trailing edge

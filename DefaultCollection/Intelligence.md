@@ -42,14 +42,19 @@ you accept them.
 
 HelloNotes suggests no models: choosing one is the advanced end of the app.
 
-MLX models live in one place, the **models folder**. On a Mac, choose your Hugging Face
-cache, `~/.cache/huggingface/hub` — where other MLX tools keep their models — and the MLX
-language models there that HelloNotes can run are listed, ready to use. On iPhone and iPad the models folder is
-HelloNotes' own storage unless you choose another.
+MLX models live in one place, the **models folder**. On a Mac that is your Hugging Face
+cache, `~/.cache/huggingface/hub`, where `mlx_lm` and the other MLX tools keep theirs:
+whatever is already there and HelloNotes can run is listed, ready to use, and a download
+goes into the same place rather than a second copy. On iPhone and iPad the models folder
+is HelloNotes' own storage. Either way, **Change…** points it somewhere else.
 
 To add a model, give the name of an MLX language model on Hugging Face, like
 `mlx-community/…`, and download it into the models folder. If Hugging Face isn't reachable
-where you are, put a model into the folder another way. One MLX model runs at a time.
+where you are, put a model into the folder another way.
+
+**One MLX model runs at a time**, so MLX means that model everywhere: the Assistant and
+the writing tools share it, and which one it is you choose in the models list — once, not
+once per role.
 
 Not every open model can use tools. With one that can't, the AI settings say so: the
 Assistant chats without reading or changing your notes, and Research isn't available.

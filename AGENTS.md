@@ -312,6 +312,22 @@
   Anything shown per line of a note — the approval diff — is computed once off
   the main actor and laid out in a `LazyVStack` (a plain `VStack` of 10,000 lines
   took 898 ms).
+- **The models folder is the Hugging Face cache, and the app asks for it by
+  name.** A sandboxed Mac app cannot read `~/.cache/huggingface` — where
+  `mlx_lm` and every other MLX tool keeps its models — and making someone point
+  a file panel at it before the app can see models the machine already has is a
+  chore, not a design.
+  `com.apple.security.temporary-exception.files.home-relative-path.read-write`
+  with `/.cache/huggingface/` is honoured by macOS 27's sandbox profile
+  (`/System/Library/Sandbox/Profiles/application.sb` still handles
+  `temporary-exception.files.home-relative-path.*`), so the folder is simply the
+  default and downloads land where the other tools look. It is a *temporary
+  exception*: App Review may ask, and `docs/app-store-listing.md` carries the
+  justification. Verify it in **Release** (`HN_CONFIG=Release
+  ./scripts/relaunch-debug.sh`): Xcode gives Debug builds the whole disk, so a
+  Debug run cannot tell you whether the entitlement works.
+  Inside the sandbox `NSHomeDirectory()` is the container, so the path comes
+  from `getpwuid(getuid())`.
 - **A Hugging Face cache snapshot cannot be opened from the sandbox.** Every file
   in `models--org--name/snapshots/<rev>/` is a symlink into `../../blobs/`, and a
   folder grant covers the folder, not what its links point to — measured with
@@ -328,6 +344,14 @@
   the open note's menu, from the same `SidebarMenu` list. `Menu(primaryAction:)`
   *looks* like a plain button and is a hidden menu: tap was New Note, hold was
   everything else, and on every iPad that hid Settings.
+- **Every panel drags to resize, and the width is the person's.**
+  `shell-chrome.md` D7 promised a draggable splitter from the day the inspector
+  was designed and the code never had one, so every panel was whatever number
+  the shell had written down — 280pt of inspector beside a graph that wanted
+  760. `ResizableDivider` stores the width and **clamps it at use**: drag it
+  wide, narrow the window, and the width is borrowed back rather than
+  forgotten. A 1pt line is not a target; the grab area is 10pt and the pointer
+  changes over it.
 - **Collections on the left, the editor in the middle, anything else on the
   right — one panel, one state, one width.** Outline, Tags, References,
   Properties, History, Mind Map, Graph, Ask Library and the Assistant are not

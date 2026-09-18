@@ -61,12 +61,28 @@ struct BandTwoPane: View {
     var row: (Note, String?) -> AnyView
     var onDropIntoFolder: (String, [URL]) -> Bool
 
+    /// How wide the band's left pane is, as dragged. Stored like the right
+    /// panel's width, and clamped at use (`ResizableDivider`).
+    @AppStorage("bandContainerPaneWidth") private var containerPaneWidth
+        = Double(ShellMetrics.bandContainerPane)
+
     /// The band is short, so a row is the unit that matters. A finger needs
     /// 44pt; a pointer does not, and on a Mac that difference is nearly half
     /// the rows the band can show.
     private var rowHeight: CGFloat {
         shell.prefersTouch ? ShellMetrics.noteRowTouchMinimum
                            : ShellMetrics.noteRowPointerMinimum
+    }
+
+    /// What the left pane may be: enough for a folder name, and never so wide
+    /// that the notes beside it have less than a list's worth of room.
+    private var paneRange: ClosedRange<CGFloat> {
+        let upper = max(180, shell.size.width - 260)
+        return 180...upper
+    }
+
+    private var paneWidth: CGFloat {
+        min(max(CGFloat(containerPaneWidth), paneRange.lowerBound), paneRange.upperBound)
     }
 
     private var containers: [NoteOutlineItem] { SidebarTree.containers(roots) }
@@ -86,9 +102,9 @@ struct BandTwoPane: View {
                 actions: actions,
                 onCloseCollection: onCloseCollection,
                 onDropIntoFolder: onDropIntoFolder)
-                .frame(width: ShellMetrics.bandContainerPane)
+                .frame(width: paneWidth)
 
-            Divider()
+            ResizableDivider(width: $containerPaneWidth, range: paneRange, edge: .leading)
 
             ContentsPane(
                 container: selectedContainer,

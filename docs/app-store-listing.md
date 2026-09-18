@@ -18,6 +18,24 @@
 > Apple Account settings" rather than by the Settings path iOS uses — which is
 > the phrasing that passed review, and replaces a guess made here.
 
+## Note for App Review (macOS)
+
+The Mac app carries one temporary-exception entitlement:
+`com.apple.security.temporary-exception.files.home-relative-path.read-write`
+for `/.cache/huggingface/`.
+
+Why: HelloNotes can run an open language model locally with MLX. Those models
+are large — several gigabytes each — and every tool in that ecosystem
+(`mlx_lm`, `huggingface_hub`, LM tooling) stores them in the shared Hugging
+Face cache at `~/.cache/huggingface`. Without this entitlement the app either
+asks the person to point a file panel at that folder before it can see models
+their machine already has, or it downloads a **second** copy of a multi-gigabyte
+model into its container. The entitlement is scoped to that one cache folder,
+is read-write only so a download can be shared with those tools rather than
+duplicated, and the app reads nothing else outside its container. Everything
+else — the person's notes — is reached through user-selected folders and
+security-scoped bookmarks.
+
 ## Fields for both platforms
 
 **Subtitle** (≤30 chars):

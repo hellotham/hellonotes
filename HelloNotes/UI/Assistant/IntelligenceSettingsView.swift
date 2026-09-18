@@ -121,6 +121,8 @@ struct IntelligenceSettingsForm: View {
     private func modelPicker(_ title: String, forAssistant: Bool) -> some View {
         let current = settings.option(for: forAssistant ? settings.assistantModel : settings.featuresModel)
         var options = models.options
+        // A role still set to MLX with no model in the folder keeps its entry,
+        // saying so, rather than silently reading as System.
         if !options.contains(current) { options.append(current) }
         return Picker(title, selection: Binding(
             get: { current },
@@ -134,7 +136,7 @@ struct IntelligenceSettingsForm: View {
     }
 
     private func optionTitle(_ option: ModelOption) -> String {
-        if case .mlx(let id) = option, !mlx.models.contains(where: { $0.id == id }) {
+        if option == .mlx, mlx.models.isEmpty {
             return "MLX · no model in the models folder"
         }
         return models.title(of: option)
@@ -190,14 +192,14 @@ struct IntelligenceSettingsForm: View {
         Section {
             LabeledContent("Models folder") {
                 HStack {
-                    Text(mlx.chosenFolder?.lastPathComponent ?? (mlx.modelsFolder == nil ? "Not chosen" : "HelloNotes"))
+                    Text(mlx.folderName)
                         .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    Button(mlx.chosenFolder == nil ? "Choose…" : "Change…") { choosingFolder = true }
+                    Button("Change…") { choosingFolder = true }
                 }
             }
 
             ForEach(mlx.models) { model in modelRow(model) }
-            if mlx.modelsFolder != nil && mlx.models.isEmpty {
+            if mlx.models.isEmpty {
                 Text("No MLX models in this folder yet.").foregroundStyle(.secondary)
             }
 
@@ -245,7 +247,7 @@ struct IntelligenceSettingsForm: View {
         return URL(fileURLWithPath: String(cString: home)).appending(path: ".cache/huggingface/hub")
     }
 
-    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: choose your Hugging Face cache, ~/.cache/huggingface/hub, and HelloNotes lists the models already there, downloads into it, and shares each copy with other MLX tools. One MLX model runs at a time, so the Assistant and the writing tools share it."
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: your Hugging Face cache, ~/.cache/huggingface/hub, where mlx_lm and every other MLX tool keeps them. Models already there are listed, downloads go into it, and each copy is shared. One MLX model runs at a time, so the Assistant and the writing tools share it."
     #else
     private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: HelloNotes' own storage, or a folder you choose. One MLX model runs at a time, so the Assistant and the writing tools share it."
     #endif

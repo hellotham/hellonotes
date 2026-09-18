@@ -60,14 +60,28 @@ final class MLXModelStore {
         #endif
     }
 
-    /// The models folder when the person has not chosen one: nothing on a Mac,
-    /// where the Hugging Face cache needs a grant, and HelloNotes' own storage on
-    /// iPhone and iPad, where there is no shared cache to prefer.
+    /// The models folder when the person has not chosen one.
+    ///
+    /// On a Mac that is the **Hugging Face cache**, `~/.cache/huggingface/hub`,
+    /// where `mlx_lm` and every other MLX tool keeps its models — so a model
+    /// already on the machine is simply there, and one downloaded here is the
+    /// same copy those tools use. The app is sandboxed, so this is reachable
+    /// only because the app asks for it by name
+    /// (`com.apple.security.temporary-exception.files.home-relative-path.read-write`);
+    /// a Debug build reads the whole disk and proves nothing about it.
+    ///
+    /// On iPhone and iPad there is no shared cache, so it is HelloNotes' own
+    /// storage. Either way the folder is *already set*: nothing to choose
+    /// before a model can be downloaded, and Change… for somewhere else.
     private static var ownStorage: URL? {
         #if os(macOS)
-        nil
+        // The person's real home. Inside the sandbox `NSHomeDirectory()` is the
+        // container, which is not where any other tool puts models.
+        guard let entry = getpwuid(getuid()), let home = entry.pointee.pw_dir else { return nil }
+        return URL(fileURLWithPath: String(cString: home))
+            .appending(path: ".cache/huggingface/hub", directoryHint: .isDirectory)
         #else
-        HubCache.default.cacheDirectory
+        return HubCache.default.cacheDirectory
         #endif
     }
 
@@ -112,6 +126,18 @@ final class MLXModelStore {
 
     /// Where models are listed from, downloaded into and removed from.
     var modelsFolder: URL? { chosenFolder ?? Self.ownStorage }
+
+    /// What to call the models folder in settings: the Hugging Face cache by
+    /// name where that is what it is, the folder's own name where someone has
+    /// chosen one, and HelloNotes' own storage on iPhone and iPad.
+    var folderName: String {
+        if let chosenFolder { return chosenFolder.lastPathComponent }
+        #if os(macOS)
+        return "Hugging Face cache"
+        #else
+        return "HelloNotes"
+        #endif
+    }
 
     /// The model in use, if it is in the models folder.
     var chosen: MLXLocalModel? { models.first { $0.id == chosenID } }

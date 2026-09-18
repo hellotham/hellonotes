@@ -41,6 +41,11 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
     @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var pane: () -> Pane
     @ViewBuilder var inspector: () -> Inspector
+
+    /// The panel's width, as dragged. Stored, because it is the person's
+    /// choice; clamped at use, so a narrower window borrows the width back
+    /// rather than forgetting it (`ResizableDivider`).
+    @AppStorage("sidePanelWidth") private var panelWidth = Double(ShellMetrics.panelIdeal)
     /// The whole compact presentation, supplied by the caller.
     ///
     /// Compact is not the wide shell with different furniture — it is a
@@ -100,12 +105,10 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
             HStack(spacing: 0) {
                 EditorPaneContainer { pane() }
                 if inspectorPresented, ShellMetrics.hasPanelColumn(kind: kind, width: width) {
-                    Divider()
+                    let available = width - ShellMetrics.sidebarIdeal
+                    ResizableDivider(width: $panelWidth, range: panelRange(available: available))
                     inspector()
-                        .frame(minWidth: ShellMetrics.panelFloor,
-                               idealWidth: ShellMetrics.panelWidth(
-                                available: width - ShellMetrics.sidebarIdeal),
-                               maxWidth: ShellMetrics.panelCap)
+                        .frame(width: panelWidth(in: available))
                 }
             }
         }
@@ -135,12 +138,27 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
                 EditorPaneContainer { NavigationStack { pane() } }
                 // The rail is a column wherever the editor keeps its floor.
                 if inspectorPresented, ShellMetrics.hasPanelColumn(kind: .tall, width: width) {
-                    Divider()
+                    ResizableDivider(width: $panelWidth, range: panelRange(available: width))
                     inspector()
-                        .frame(width: ShellMetrics.panelWidth(available: width))
+                        .frame(width: panelWidth(in: width))
                 }
             }
         }
+    }
+
+    // MARK: - Panel width
+
+    /// What the panel may be, here: never below its floor, never so wide that
+    /// the editor drops below its own.
+    private func panelRange(available: CGFloat) -> ClosedRange<CGFloat> {
+        let upper = max(ShellMetrics.panelFloor, available - ShellMetrics.editorFloor)
+        return ShellMetrics.panelFloor...upper
+    }
+
+    /// The stored width, clamped to what this canvas can give it.
+    private func panelWidth(in available: CGFloat) -> CGFloat {
+        let range = panelRange(available: available)
+        return min(max(CGFloat(panelWidth), range.lowerBound), range.upperBound)
     }
 
     // MARK: - Pane width

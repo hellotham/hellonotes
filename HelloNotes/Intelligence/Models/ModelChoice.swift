@@ -77,18 +77,17 @@ nonisolated enum ReasoningChoice: String, Codable, CaseIterable, Identifiable, S
 /// One entry in a model picker. Apple's models are entries by where they run;
 /// MLX models are entries by which model, because more than one can be on the
 /// device — identified by `MLXLocalModel.id`.
-nonisolated enum ModelOption: Hashable, Identifiable, Sendable {
+nonisolated enum ModelOption: String, Hashable, Identifiable, CaseIterable, Sendable {
     case onDevice
     case privateCloud
-    case mlx(String)
+    /// The MLX model in use. **One**, not one per role: only one MLX model is
+    /// loaded at a time, so a role picker offering a different MLX model for
+    /// the Assistant and the writing tools would be offering something the app
+    /// cannot do — pick one and the other silently followed. Which model that
+    /// is belongs to the MLX section, where the models are.
+    case mlx
 
-    var id: String {
-        switch self {
-        case .onDevice: "onDevice"
-        case .privateCloud: "privateCloud"
-        case .mlx(let model): "mlx:" + model
-        }
-    }
+    var id: String { rawValue }
 
     var choice: ModelChoice {
         switch self {

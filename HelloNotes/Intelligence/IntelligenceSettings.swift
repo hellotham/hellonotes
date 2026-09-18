@@ -95,16 +95,13 @@ final class IntelligenceSettings {
         switch choice {
         case .onDevice: .onDevice
         case .privateCloud: .privateCloud
-        case .mlx: .mlx(mlx.chosenID ?? "")
+        case .mlx: .mlx
         }
     }
 
-    /// Choose a picker entry for a role. An MLX entry also becomes *the* MLX
-    /// model: one runs at a time, so any role using MLX uses it.
+    /// Choose a picker entry for a role. Which MLX model MLX means is chosen in
+    /// the MLX section — one runs at a time, so both roles share it.
     func choose(_ option: ModelOption, forAssistant: Bool) {
-        if case .mlx(let id) = option, let model = mlx.models.first(where: { $0.id == id }) {
-            mlx.use(model)
-        }
         if forAssistant { assistantModel = option.choice } else { featuresModel = option.choice }
     }
 

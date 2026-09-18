@@ -126,13 +126,6 @@ enum ShellMetrics {
     static let windowMinWidth: CGFloat = 860
     static let windowMinHeight: CGFloat = 480
 
-    /// The panel's width here: its ideal, but never so wide that the editor
-    /// drops below its floor. A panel that squeezes the note out is the modal
-    /// this replaced, wearing a divider.
-    static func panelWidth(available: CGFloat) -> CGFloat {
-        max(panelFloor, min(panelIdeal, available - editorFloor))
-    }
-
     /// Whether the right panel can be a **column** here rather than an
     /// overlay over the editor.
     ///

@@ -202,27 +202,18 @@ final class LanguageModels {
     var options: [ModelOption] {
         var result: [ModelOption] = [.onDevice]
         if Self.privateCloudComputeEnabled { result.append(.privateCloud) }
-        result += mlx.models.map { .mlx($0.id) }
+        // One MLX entry, named after the model in use, and only where there is
+        // one to use — the models folder decides that, not this list.
+        if !mlx.models.isEmpty { result.append(.mlx) }
         return result
     }
 
-    func title(of option: ModelOption) -> String {
-        switch option {
-        case .onDevice, .privateCloud: title(of: option.choice)
-        case .mlx(let id): "MLX · " + (mlx.models.first { $0.id == id }?.name ?? mlx.modelName)
-        }
-    }
+    func title(of option: ModelOption) -> String { title(of: option.choice) }
 
     func systemImage(of option: ModelOption) -> String { systemImage(of: option.choice) }
 
-    /// Whether an entry can be chosen now. An MLX model listed here is on this
-    /// device and runnable; only the one in use has an availability of its own.
-    func isAvailable(_ option: ModelOption) -> Bool {
-        switch option {
-        case .onDevice, .privateCloud: availability(of: option.choice).isAvailable
-        case .mlx(let id): mlx.chosenID != id || mlx.availability.isAvailable
-        }
-    }
+    /// Whether an entry can be chosen now.
+    func isAvailable(_ option: ModelOption) -> Bool { availability(of: option.choice).isAvailable }
 
     /// Where the text goes, in one sentence. The HIG is explicit that people
     /// must be able to tell whether a feature sends their data to a server.
