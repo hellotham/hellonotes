@@ -35,7 +35,10 @@ import UIKit
         }
     }
 
-    private static func blankImage(_ size: CGSize) -> PlatformImage {
+    /// `nonisolated`, because `BlockRenderer` is: the witness above cannot be
+    /// `@MainActor`, so nothing it calls may be either. The suite is
+    /// `@MainActor` and this is the one member reached from outside it.
+    private nonisolated static func blankImage(_ size: CGSize) -> PlatformImage {
         #if canImport(AppKit)
         return NSImage(size: size)
         #else
