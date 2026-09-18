@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 22` — uploaded to TestFlight (both platforms) on 2026-09-16; 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 23` — uploaded to TestFlight (both platforms) on 2026-09-18; build 22 went up on 2026-09-16, and 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -714,6 +714,27 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10b · 1.3.3 build 23 — uploaded to TestFlight, 2026-09-18
+
+Both platforms, one build number, from a clean tree at `8821301`. Same two
+commands per platform as Appendix A; both reported `Progress 100%: Upload
+succeeded` and `** EXPORT SUCCEEDED **`, macOS at 17:18 and iOS at 17:23.
+
+What 23 carries over 22: one model choice instead of two roles, with the
+Foundation Models knobs exposed (temperature 0–2, sampling, reply cap,
+reasoning); **every MLX model in the models folder is its own entry in the
+picker**, and choosing one switches to it; the Hugging Face cache is the models
+folder by entitlement; the right panel holds all nine ancillary views and drags
+to resize; the app opens no window of its own on either platform.
+
+Three gates that had stopped working were repaired before this build, all of
+them silent: `dropDestination` had rebound to a new macOS 27 overload that
+discards the refusal a drop returns; both editor test suites (795 tests) had
+stopped compiling under Xcode 27; and `render-parity.sh` was reporting build
+failure as layout drift. Full run before upload — 508 app tests, 12 interface
+tests, 408 + 387 editor tests, 5 on-device evaluations, 7 MLX evaluations on a
+real model, and Edit ≡ Preview green at every size and width.
 
 ## 10a · 1.3.3 — uploaded to TestFlight, 2026-09-16
 
