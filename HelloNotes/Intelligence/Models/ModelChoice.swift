@@ -107,19 +107,37 @@ nonisolated enum SamplingChoice: String, Codable, CaseIterable, Identifiable, Se
 }
 
 /// One entry in a model picker. Apple's models are entries by where they run;
-/// MLX models are entries by which model, because more than one can be on the
-/// device — identified by `MLXLocalModel.id`.
-nonisolated enum ModelOption: String, Hashable, Identifiable, CaseIterable, Sendable {
+/// MLX models are entries by *which model*, one each, identified by
+/// `MLXLocalModel.id`.
+///
+/// There was a single `.mlx` entry for a while, on the reasoning that only one
+/// MLX model is loaded at a time. True, and beside the point: that is a fact
+/// about loading, not about choosing. It made "which model" a second decision
+/// taken in another section behind a **Use** button, while the control actually
+/// labelled *Model* could not express it — and **Use** pressed while the picker
+/// said System changed which model would run and left the app on System.
+///
+/// One decision, one control: the picker lists everything you could be running,
+/// and choosing an MLX model is choosing MLX.
+nonisolated enum ModelOption: Hashable, Identifiable, Sendable {
     case onDevice
     case privateCloud
-    /// The MLX model in use. **One**, not one per role: only one MLX model is
-    /// loaded at a time, so a role picker offering a different MLX model for
-    /// the Assistant and the writing tools would be offering something the app
-    /// cannot do — pick one and the other silently followed. Which model that
-    /// is belongs to the MLX section, where the models are.
-    case mlx
+    /// A model in the models folder, by `MLXLocalModel.id`.
+    case mlx(String)
 
-    var id: String { rawValue }
+    var id: String {
+        switch self {
+        case .onDevice: "onDevice"
+        case .privateCloud: "privateCloud"
+        case .mlx(let model): "mlx:\(model)"
+        }
+    }
+
+    /// The MLX model this entry names, if it names one.
+    var mlxModelID: String? {
+        if case .mlx(let model) = self { return model }
+        return nil
+    }
 
     var choice: ModelChoice {
         switch self {

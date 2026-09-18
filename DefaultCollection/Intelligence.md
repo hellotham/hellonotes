@@ -68,9 +68,9 @@ To add a model, give the name of an MLX language model on Hugging Face, like
 `mlx-community/…`, and download it into the models folder. If Hugging Face isn't reachable
 where you are, put a model into the folder another way.
 
-**One MLX model runs at a time**, so MLX means that model everywhere: the Assistant and
-the writing tools share it, and which one it is you choose in the models list — once, not
-once per role.
+Each model in the folder is an entry in the **Model** picker, so you pick a model the
+same way you pick System. **One MLX model runs at a time**, so the one you pick is the
+one everything uses — the Assistant, the writing tools, all of it.
 
 Not every open model can use tools. With one that can't, the AI settings say so: the
 Assistant chats without reading or changing your notes, and Research isn't available.

@@ -110,9 +110,9 @@ struct IntelligenceSettingsForm: View {
         }
     }
 
-    /// Apple's model, and MLX where there is a model to run. A setting still on
-    /// MLX with nothing in the models folder keeps its entry, saying so, rather
-    /// than silently reading as System.
+    /// Apple's model, and **every MLX model in the models folder** — the whole
+    /// choice in one control. A setting still on a model the folder no longer
+    /// holds keeps its entry, saying so, rather than silently reading as System.
     private var modelPicker: some View {
         let current = settings.option(for: settings.model)
         var options = models.options
@@ -122,17 +122,10 @@ struct IntelligenceSettingsForm: View {
             set: { settings.choose($0) }
         )) {
             ForEach(options) { option in
-                Label(optionTitle(option), systemImage: models.systemImage(of: option))
+                Label(models.title(of: option), systemImage: models.systemImage(of: option))
                     .tag(option)
             }
         }
-    }
-
-    private func optionTitle(_ option: ModelOption) -> String {
-        if option == .mlx, mlx.models.isEmpty {
-            return "MLX · no model in the models folder"
-        }
-        return models.title(of: option)
     }
 
     /// What the role covers, where its text goes, and — when the model cannot
@@ -290,8 +283,12 @@ struct IntelligenceSettingsForm: View {
     private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: HelloNotes' own storage, or a folder you choose. One MLX model runs at a time, and everything the app does with AI uses it."
     #endif
 
+    /// A model in the folder: what it is, what it costs, and the two things you
+    /// can do to it. **In use** means the app is running it — not merely that it
+    /// is the MLX model it would run if MLX were chosen, which is what the tick
+    /// used to claim while the app answered on System.
     private func modelRow(_ model: MLXLocalModel) -> some View {
-        let inUse = mlx.chosenID == model.id
+        let inUse = settings.model == .mlx && mlx.chosenID == model.id
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 if inUse { Image(systemName: "checkmark").foregroundStyle(.tint) }
@@ -306,7 +303,7 @@ struct IntelligenceSettingsForm: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
-                if !inUse { Button("Use") { mlx.use(model) } }
+                if !inUse { Button("Use") { settings.choose(.mlx(model.id)) } }
                 Button("Remove…", role: .destructive) { removing = model }
             }
             .font(.caption)

@@ -22,9 +22,10 @@ under **General**.
 
 ## AI
 
-Choose the model — System or MLX — with a line saying where your text goes. One
-choice for everything the app does with AI; *which* MLX model is one choice
-below, in the models list, because only one runs at a time.
+Choose the model — System, or any MLX model in your models folder — with a line
+saying where your text goes. Every model the app can run is in that one picker,
+so choosing a model is choosing it: one choice for everything the app does with
+AI.
 
 The models folder is your Hugging Face cache on a Mac and HelloNotes' own
 storage on iPhone and iPad; **Change…** points it elsewhere. Use or remove the

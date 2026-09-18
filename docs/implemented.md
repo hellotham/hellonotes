@@ -4881,6 +4881,28 @@ run), `maximumResponseTokens`, and `reasoningLevel` where the model reasons.
 They are the Assistant's; the writing tools ask for what each task needs, because
 rewriting wants determinism whatever was chosen for conversation.
 
+**And the picker has to be the whole choice.** *"Doesn't allow choosing between
+system and loaded mlx models."* It didn't: Apple's model was one entry and MLX
+was **one** entry, on the reasoning that only one MLX model loads at a time —
+which is a fact about loading, borrowed to settle a question about choosing.
+*Which* model lived in the MLX section behind a **Use** button, so the control
+labelled *Model* could not express the choice it was named for. On this machine
+it was worse than a detour: the remembered model, `mlx-community/Qwen3-4B-4bit`,
+had left the Hugging Face cache, so `chosen` resolved to nothing and the entry
+rendered **"MLX · MLX"** while four runnable models sat in the folder
+unreachable — the cache holds 23 entries, of which those four are language
+models the loader registers (`qwen3_5`, `gemma4`, `qwen2`) and the rest are OCR,
+layout and embedding models it never could have run.
+
+`ModelOption.mlx(id)` is one entry per model in the folder, `choose` sets the
+model *and* the switch to it, and **Use** in the MLX list goes through the same
+call — pressed while the picker said System it used to change which model would
+run and leave the app answering on System. Two traps came with it, both live
+before they were closed: `isAvailable` asked the store, whose availability
+describes the model *in use*, so "no model chosen" disabled every entry and
+nothing could ever be picked; and the list's tick meant "this is the MLX model
+that would run", which it drew while the app was on System.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown

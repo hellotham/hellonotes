@@ -157,18 +157,25 @@ final class IntelligenceSettings {
         }
     }
 
-    /// The picker entry the model shows now.
+    /// The picker entry the app is on now — for MLX, the model itself, so the
+    /// picker shows which one rather than the kind.
     func option(for choice: ModelChoice) -> ModelOption {
         switch choice {
         case .onDevice: .onDevice
         case .privateCloud: .privateCloud
-        case .mlx: .mlx
+        case .mlx: .mlx(mlx.chosenID ?? "")
         }
     }
 
-    /// Choose a picker entry. Which MLX model MLX means is chosen in the MLX
-    /// section, where the models are.
-    func choose(_ option: ModelOption) { model = option.choice }
+    /// Choose a picker entry. An MLX entry is a model **and** the switch to it:
+    /// selecting a model that leaves the app running something else is the
+    /// defect this replaced.
+    func choose(_ option: ModelOption) {
+        if let id = option.mlxModelID, let local = mlx.models.first(where: { $0.id == id }) {
+            mlx.use(local)
+        }
+        model = option.choice
+    }
 
     /// Dismiss the "your provider was retired" notice for good.
     func acknowledgeRetiredProvider() {

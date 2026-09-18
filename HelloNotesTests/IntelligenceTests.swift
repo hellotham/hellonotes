@@ -245,6 +245,40 @@ struct MLXModelFolderTests {
         #expect(plain.folder == plain.directory)
     }
 
+    /// The picker is the whole choice: Apple's model, and **each** model in the
+    /// folder. It offered a single "MLX" entry once, which made *which model* a
+    /// second decision behind a **Use** button — and that button, pressed while
+    /// the picker said System, changed which model would run and left the app
+    /// answering on System.
+    @MainActor
+    @Test func thePickerOffersEveryModelInTheFolderAndChoosingOneUsesIt() async throws {
+        let hub = try makeModelsFolder()
+        defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }
+
+        let defaults = UserDefaults(suiteName: "MLXPickerTests-\(UUID().uuidString)")!
+        let store = MLXModelStore(defaults: defaults)
+        await store.use(folder: hub)
+        let models = LanguageModels(mlx: store)
+        let settings = IntelligenceSettings(defaults: defaults, models: models)
+
+        try #require(store.models.count == 2, "the fixture's two whole models are both runnable")
+        #expect(models.options.compactMap(\.mlxModelID) == store.models.map(\.id),
+                "one entry per model, not one entry for MLX")
+        #expect(models.options.contains(.onDevice))
+
+        // Choosing a model is choosing MLX.
+        settings.model = .onDevice
+        let wanted = try #require(store.models.last)
+        settings.choose(.mlx(wanted.id))
+        #expect(settings.model == .mlx)
+        #expect(store.chosenID == wanted.id)
+        #expect(models.title(of: settings.option(for: settings.model)) == "MLX · \(wanted.name)")
+
+        // Every model in the folder can be chosen, whatever the state of the one
+        // in use — asking the store about the others disabled all of them.
+        #expect(models.options.allSatisfy { models.isAvailable($0) || $0 == .privateCloud })
+    }
+
     @Test func withoutRefsMainTheNewestCompleteSnapshotIsUsed() throws {
         let hub = try makeModelsFolder()
         defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }

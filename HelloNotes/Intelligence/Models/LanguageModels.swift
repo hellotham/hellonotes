@@ -202,18 +202,38 @@ final class LanguageModels {
     var options: [ModelOption] {
         var result: [ModelOption] = [.onDevice]
         if Self.privateCloudComputeEnabled { result.append(.privateCloud) }
-        // One MLX entry, named after the model in use, and only where there is
-        // one to use — the models folder decides that, not this list.
-        if !mlx.models.isEmpty { result.append(.mlx) }
+        // Every model the folder holds and the loader can run — the folder
+        // decides what is here, not this list, and the app names no model it
+        // cannot see.
+        result.append(contentsOf: mlx.models.map { ModelOption.mlx($0.id) })
         return result
     }
 
-    func title(of option: ModelOption) -> String { title(of: option.choice) }
+    /// What an entry is called. MLX entries carry the model's own name, and the
+    /// two ways an entry can name a model that isn't in the folder — an empty
+    /// folder, or a choice whose model has been removed — say so rather than
+    /// reading as a bare "MLX" that looks the same as a working one.
+    func title(of option: ModelOption) -> String {
+        guard let id = option.mlxModelID else { return title(of: option.choice) }
+        if let model = mlx.models.first(where: { $0.id == id }) { return "MLX · \(model.name)" }
+        if mlx.models.isEmpty { return "MLX · no model in the models folder" }
+        return id.isEmpty ? "MLX · no model chosen" : "MLX · model not in this folder"
+    }
 
     func systemImage(of option: ModelOption) -> String { systemImage(of: option.choice) }
 
     /// Whether an entry can be chosen now.
-    func isAvailable(_ option: ModelOption) -> Bool { availability(of: option.choice).isAvailable }
+    ///
+    /// An MLX entry is about *that* model. The store's live availability
+    /// describes the model **in use** — "no model chosen", "is downloading" —
+    /// so asking it about the others would disable every model in the folder
+    /// whenever the one in use wasn't ready, including before anything has been
+    /// chosen at all. A model that is here and runnable can always be chosen.
+    func isAvailable(_ option: ModelOption) -> Bool {
+        guard let id = option.mlxModelID else { return availability(of: option.choice).isAvailable }
+        if id == mlx.chosenID { return availability(of: .mlx).isAvailable }
+        return mlx.models.contains { $0.id == id }
+    }
 
     /// Where the text goes, in one sentence. The HIG is explicit that people
     /// must be able to tell whether a feature sends their data to a server.

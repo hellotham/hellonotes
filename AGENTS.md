@@ -416,6 +416,18 @@
   and `reasoningLevel` — applied to the Assistant's profile. A control the model
   never sees is worse than no control, and a knob the framework has and the app
   hides is a question someone has to ask.
+- **The control named *Model* lists every model you could be running.** The
+  picker offered Apple's model and one entry for MLX, because only one MLX model
+  loads at a time — a fact about *loading* used to justify a fact about
+  *choosing*. So "which of my models" became a second decision, in another
+  section, behind a **Use** button; with the remembered model no longer in the
+  cache the entry even read "MLX · MLX", and a folder of four ran none of them.
+  `ModelOption.mlx(id)` is one entry per model in the folder, and `choose` sets
+  the model *and* the switch to it. Two traps this opens, both hit on the way:
+  `isAvailable` must ask about **that** model, or the store's "no model chosen"
+  disables every entry and nothing can ever be picked; and a tick meaning "in
+  use" must read `model == .mlx && chosenID == id`, or it claims a model is in
+  use while the app answers on System.
 - **The app suggests no models, and remembers no fact about one.** Four
   suggestions with sizes and a sentence each lasted a day: checked against the
   Hub they were last updated in 2025, while the models on the machine were 2026
