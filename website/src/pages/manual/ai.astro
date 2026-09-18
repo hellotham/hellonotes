@@ -204,11 +204,12 @@ import { href } from '../../lib/paths';
     your work is between you and the model.
   </p>
   <p>
-    MLX models live in one place, the <strong>models folder</strong>. On a Mac, choose your Hugging
-    Face cache, <code>~/.cache/huggingface/hub</code> — the Open panel starts there — and the MLX
-    language models other tools have downloaded that HelloNotes can run are listed, ready to use,
-    and kept once for all of them. On iPhone
-    and iPad the models folder is HelloNotes’ own storage unless you choose another.
+    MLX models live in one place, the <strong>models folder</strong>. On a Mac that is your Hugging
+    Face cache, <code>~/.cache/huggingface/hub</code>, where <code>mlx_lm</code> and the other MLX
+    tools keep theirs: whatever is already there and HelloNotes can run is listed, ready to use, and
+    a download goes into the same place rather than a second copy of a multi-gigabyte model. On
+    iPhone and iPad the models folder is HelloNotes’ own storage. Either way, <strong>Change…</strong>
+    points it somewhere else.
   </p>
   <ul>
     <li>
@@ -226,7 +227,11 @@ import { href } from '../../lib/paths';
       Once a model is on your device it works offline.
     </li>
   </ul>
-  <p>One MLX model runs at a time, so the Assistant and the writing tools share it.</p>
+  <p>
+    One MLX model runs at a time, so MLX means that model everywhere: the Assistant and the writing
+    tools share it, and which one it is you choose in the models list rather than twice, once per
+    role.
+  </p>
   <p>
     Not every open model can use tools — Gemma 3, for one, has no way to be shown them. With such a
     model the AI settings say so, the Assistant chats without reading or changing your notes, and
