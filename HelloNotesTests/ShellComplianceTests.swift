@@ -628,4 +628,49 @@ struct ShellComplianceTests {
         #expect(!overlay.contains("openedByHand"),
                 "the overlay has a second condition again, which the toolbar toggle cannot see")
     }
+
+    /// A control in a bar carries a **title**, not just a picture.
+    ///
+    /// When the bar runs out of room the system folds its items into an
+    /// overflow menu and titles each row from the item's *label*. An
+    /// image-only label has no title, so the row draws as a bare glyph with a
+    /// disclosure arrow and no name — which is what an iPad mini in portrait,
+    /// with the collections band and the right panel both open, did to the
+    /// note menu: an unnamed chevron sitting next to a row that read "Panel".
+    /// `accessibilityLabel` does not rescue it; VoiceOver reads it and nobody
+    /// sees it.
+    ///
+    /// An **allow-list**, and it is meant to stay one entry: the search
+    /// field's clear button, which lives *inside* a text field, never folds
+    /// into a bar, and would be wrong with a title beside it.
+    @Test("Every control that can fold into a toolbar's overflow has a name")
+    func barControlsAreLabelledNotJustDrawn() throws {
+        let source = try Self.source("ContentView.swift")
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        /// The one image-only label that is not a bar control.
+        let allowed = ["xmark.circle.fill"]
+
+        var offenders: [String] = []
+        for (index, line) in lines.enumerated() where line.trimmingCharacters(in: .whitespaces) == "} label: {" {
+            // The first thing the closure draws, skipping blanks and comments.
+            var next = index + 1
+            while next < lines.count {
+                let text = lines[next].trimmingCharacters(in: .whitespaces)
+                if text.isEmpty || text.hasPrefix("//") { next += 1; continue }
+                break
+            }
+            guard next < lines.count else { continue }
+            let body = lines[next].trimmingCharacters(in: .whitespaces)
+            let closes = next + 1 < lines.count
+                && lines[next + 1].trimmingCharacters(in: .whitespaces) == "}"
+            guard body.hasPrefix("Image("), closes else { continue }
+            guard !allowed.contains(where: body.contains) else { continue }
+            offenders.append("ContentView.swift:\(next + 1)  \(body)")
+        }
+        #expect(offenders.isEmpty,
+                """
+                image-only label(s) — give each a `Label(title, systemImage:)` so the \
+                toolbar overflow has a name to draw: \(offenders.joined(separator: ", "))
+                """)
+    }
 }

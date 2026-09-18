@@ -2404,7 +2404,10 @@ struct ContentView: View {
                         Label("Settings…", systemImage: "gearshape")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    // Titled, like every other toolbar item — the bar's
+                    // overflow names each row from the label, and an image has
+                    // no name to give it.
+                    Label("More", systemImage: "ellipsis.circle")
                 }
                 .accessibilityLabel("More actions")
             }
@@ -3037,9 +3040,17 @@ struct ContentView: View {
                     actions: actions.sidebarMenu))
             }
         } label: {
-            Image(systemName: "chevron.down.circle")
+            // **A `Label`, not an `Image`.** When the bar runs out of room —
+            // an iPad mini in portrait with the collections band and the right
+            // panel both open is the worst case — the system folds its items
+            // into an overflow menu, and it titles each row from the item's
+            // *label*. An image-only label has no title, so this menu drew as a
+            // bare chevron with a submenu arrow and no name, next to "Panel",
+            // which has one. `accessibilityLabel` does not help: it is not
+            // drawn. Every other item in this bar already supplies a `Label`,
+            // which is why they survive the fold and this one did not.
+            Label("Note Actions", systemImage: "chevron.down.circle")
         }
-        .accessibilityLabel("Note Actions")
     }
 
     /// The non-note file the selection points at, if any.

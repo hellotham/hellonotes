@@ -399,6 +399,16 @@
   unused`. Read the warnings an OS bump adds, and read the `.swiftinterface`
   (`xcrun --sdk macosx --show-sdk-path`) rather than guessing which overload won.
   Refuse a drop with `isEnabled:`, which declines before the row lights up.
+- **A control in a bar carries a title, not just a picture.** When the bar runs
+  out of room the system folds its items into an overflow menu and titles each
+  row from the item's **label**, so `Image(systemName:)` as a label leaves a bare
+  glyph with a disclosure arrow and no name. On an iPad mini in portrait with the
+  band and the right panel both open — the worst case the shell has — the note
+  menu drew exactly that, next to a row that read "Panel" because it uses a
+  `Label`. `.accessibilityLabel` does not rescue it: VoiceOver reads it and
+  nobody sees it. `ShellComplianceTests.barControlsAreLabelledNotJustDrawn`
+  allows one image-only label, the search field's clear button, and is meant to
+  stay one.
 - **A menu from a toolbar mid-screen is capped — about 520pt on a portrait
   iPad — and scrolls.** Settings came last in the iPad's `…` menu and fell below
   the fold of the menu added to make it findable. Order for the fold.
