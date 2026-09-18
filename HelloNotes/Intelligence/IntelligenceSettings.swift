@@ -4,14 +4,19 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  Which model does what, and how the Assistant behaves.
+//  Which model the app uses, and how the Assistant behaves.
 //
-//  Two roles, as there always were: the **Assistant** (chat, editing the
-//  collection through tools, research) and the **writing tools** (Summarise,
-//  Suggest Tags and Links, Rewrite, Compose, Ask Library, ghost text). They stay
-//  separate because the right answer genuinely differs — a person may want
-//  research on Private Cloud Compute's larger window while their note text is
-//  only ever summarised on-device.
+//  **One model, for everything** — the Assistant, research, Summarise, Suggest
+//  Tags and Links, Rewrite, Compose, Ask Library and ghost text. There were two
+//  roles for a while, the Assistant's and the writing tools', on the theory that
+//  a person might want research on a larger window while their note text stayed
+//  on-device. With MLX the two could not even differ — one MLX model is loaded
+//  at a time — so choosing for one role silently moved the other, and a setting
+//  that lies is worse than a setting that isn't offered.
+//
+//  What is tunable is what `GenerationOptions` and `ContextOptions` expose and
+//  nothing more: temperature, sampling, a reply cap, reasoning. They are the
+//  Assistant's; each writing tool asks for what its own task needs.
 //
 //  Everything is plain `UserDefaults`, read once and written on change. No
 //  Keychain: with no third-party services there are no credentials to keep.

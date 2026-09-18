@@ -4,16 +4,16 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  Which model does what: the Assistant's model, the writing tools' model, the
-//  MLX models on this device, and ghost text.
+//  The model the app uses, the knobs the framework gives it, the MLX models on
+//  this device, and ghost text.
 //
 //  This screen used to configure sixteen providers — enable toggles, API keys,
 //  base URLs, model discovery, temperature ceilings, context budgets. None of
-//  that exists any more. What a person decides now is small and legible: for
-//  each of the two roles, *which of three models*, with a sentence under each
-//  saying where the text goes. That sentence is the part the Human Interface
-//  Guidelines insist on, and it is why the choice is shown as where a model runs
-//  ("System", "Private Cloud Compute", "MLX") before what it is called.
+//  that exists any more. What a person decides now is small and legible: *which
+//  model*, with a sentence under it saying where the text goes. That sentence is
+//  the part the Human Interface Guidelines insist on, and it is why the choice
+//  is shown as where a model runs ("System", "Private Cloud Compute", "MLX")
+//  before what it is called.
 //
 
 import SwiftUI
@@ -285,9 +285,9 @@ struct IntelligenceSettingsForm: View {
         return URL(fileURLWithPath: String(cString: home)).appending(path: ".cache/huggingface/hub")
     }
 
-    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: your Hugging Face cache, ~/.cache/huggingface/hub, where mlx_lm and every other MLX tool keeps them. Models already there are listed, downloads go into it, and each copy is shared. One MLX model runs at a time, so the Assistant and the writing tools share it."
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: your Hugging Face cache, ~/.cache/huggingface/hub, where mlx_lm and every other MLX tool keeps them. Models already there are listed, downloads go into it, and each copy is shared. One MLX model runs at a time, and everything the app does with AI uses it."
     #else
-    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: HelloNotes' own storage, or a folder you choose. One MLX model runs at a time, so the Assistant and the writing tools share it."
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: HelloNotes' own storage, or a folder you choose. One MLX model runs at a time, and everything the app does with AI uses it."
     #endif
 
     private func modelRow(_ model: MLXLocalModel) -> some View {

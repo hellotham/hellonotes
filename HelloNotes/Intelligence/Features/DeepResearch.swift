@@ -51,16 +51,16 @@ struct DeepResearch {
     private var models: LanguageModels { settings.models }
     private var choice: ModelChoice { settings.model }
 
-    /// Why research can't run on the Assistant's model, or `nil` when it can.
+    /// Why research can't run on the chosen model, or `nil` when it can.
     static func unavailableReason(settings: IntelligenceSettings) -> String? {
         let models = settings.models
         let choice = settings.model
         if case .unavailable(let why) = models.availability(of: choice) { return why }
         guard models.supportsTools(choice) else {
-            return "Research searches the web with tools, and \(models.name(of: choice)) can't use tools. Choose System, or an MLX model AI settings doesn't mark \"Can't use tools\", for the Assistant."
+            return "Research searches the web with tools, and \(models.name(of: choice)) can't use tools. Choose System in AI settings, or an MLX model it doesn't mark \"Can't use tools\"."
         }
         guard models.knownContextSize(of: choice) >= minimumContextTokens else {
-            return "Research reads whole web pages, which needs a larger model than \(models.name(of: choice)). Choose \(LanguageModels.largerModels) for the Assistant in AI settings."
+            return "Research reads whole web pages, which needs a larger model than \(models.name(of: choice)). Choose \(LanguageModels.largerModels) in AI settings."
         }
         return nil
     }

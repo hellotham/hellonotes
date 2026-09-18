@@ -98,7 +98,7 @@ struct NoteEditorView: View {
     private var mode: EditorMode { EditorMode.mode(storedMode) }
     private var modeBinding: Binding<EditorMode> { EditorMode.binding($storedMode) }
 
-    /// The writing tools, on the model the person chose for them.
+    /// The writing tools, on the one model the person chose.
     private var intelligence: IntelligenceService { IntelligenceService(settings: intelligenceSettings) }
 
     @State private var showMermaid = false

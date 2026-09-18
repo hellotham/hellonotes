@@ -12,8 +12,8 @@ struct HelloNotesApp: App {
     @State private var library: Library
     /// Deep-link / App-Intents / Services navigation entry point.
     @State private var router: NavigationRouter
-    /// Which model does what (Assistant, writing tools, MLX), so every window —
-    /// including standalone note windows — sees the same settings.
+    /// The model the app uses and how it is tuned, so every window — including
+    /// standalone note windows — sees the same settings.
     @State private var intelligenceSettings = IntelligenceSettings()
     /// App-wide theming (appearance, accent, text size), applied at every root.
     @State private var appearance = AppearanceSettings()
