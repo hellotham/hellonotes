@@ -94,9 +94,8 @@ import { href } from '../../lib/paths';
   <p>
     <strong>Research needs a model with room to read web pages</strong> — at least 8,000 tokens.
     MLX models have that, and so does the System model where Apple Intelligence gives it 8,192
-    tokens. Research uses the model chosen for the Assistant,
-    and if that one can’t hold enough, the sheet says so rather than starting a run that cannot
-    finish.
+    tokens. Research uses the model chosen in <strong>Settings ▸ AI</strong>, and if that one
+    can’t hold enough, the sheet says so rather than starting a run that cannot finish.
   </p>
   <p>
     Either way the draft is connected to what you already have: notes you own on the topic are
@@ -123,8 +122,8 @@ import { href } from '../../lib/paths';
   </blockquote>
   <p>
     On iPhone and iPad, tap the suggestion to accept it — or press <kbd>⌥⇥</kbd> with a keyboard
-    attached; <kbd>Esc</kbd> dismisses it. Suggestions come from the model chosen for the writing
-    tools, on your device. Off until you turn it on, in the <strong>Inline Completion</strong>{' '}
+    attached; <kbd>Esc</kbd> dismisses it. Suggestions come from the model chosen in{' '}
+    <strong>Settings ▸ AI</strong>, and only when that model runs on your device. Off until you turn it on, in the <strong>Inline Completion</strong>{' '}
     section of the AI settings.
   </p>
 
@@ -136,13 +135,17 @@ import { href } from '../../lib/paths';
   </p>
   <p>
     It is most useful for questions you know you have written about but cannot place — “what did I
-    decide about the pricing model?” rather than general knowledge.
+    decide about the pricing model?” rather than general knowledge. On the Mac it is{' '}
+    <strong>View ▸ Ask Library</strong> (<kbd>⇧⌘J</kbd>); on iPhone and iPad it is a panel like any
+    other.
   </p>
 
   <h2 id="assistant">The Assistant</h2>
   <p>
-    The Assistant — on the Mac, <strong>View ▸ Assistant</strong> (<kbd>⇧⌘A</kbd>) — is a chat
-    window with tools: it can search your collection, read notes, propose edits and search the web.
+    The Assistant — on the Mac, <strong>View ▸ Assistant</strong> (<kbd>⇧⌘A</kbd>) — is a panel
+    beside your note, with tools: it can search your collection, read notes, propose edits and
+    search the web. It opens in the right-hand panel rather than a window, so you can keep typing
+    while it works.
     It looks at your notes before it answers a question about them, and says what it is doing while
     it works — searching your notes, reading a note, waiting for your approval. The wrench and
     screwdriver button at the top turns its tools off, for a conversation that neither reads nor
@@ -169,26 +172,39 @@ import { href } from '../../lib/paths';
     the Assistant can also read whole web pages and run <strong>deep research</strong>, a longer
     multi-step investigation across your notes and the web. With a smaller window it searches the
     web and works from the results. The model it is using, and where that model runs, is always
-    shown at the top of the window.
+    shown at the top of the panel.
   </p>
 
   <h2 id="settings">Choosing a model</h2>
   <p>
-    <strong>Settings ▸ AI</strong> has two separate choices: the model for the{' '}
-    <strong>Assistant</strong> (and the research behind New Note from a Prompt), and the model for
-    the <strong>writing tools</strong> — Summarise, Suggest Tags and Links, Rewrite, Compose and
-    Ask Library. Each can be:
+    <strong>Settings ▸ AI</strong> has one choice, for everything the app does with AI — the
+    Assistant, the research behind New Note from a Prompt, Summarise, Suggest Tags and Links,
+    Rewrite, Compose, Ask Library and the suggestions as you type. It can be:
   </p>
   <ul>
     <li>
       <strong>System</strong> — Apple’s model on your device, whichever one Apple Intelligence runs
       on your hardware. The name is Apple’s own. The default.
     </li>
-    <li><strong>MLX</strong> — an open model in your models folder, run on your device.</li>
+    <li>
+      <strong>MLX · <em>model name</em></strong> — an open model from your models folder, run on
+      your device. This entry appears once the folder holds a model; until then the picker offers
+      System alone.
+    </li>
   </ul>
   <p>
-    Under each choice is one line saying where your text goes, and — if the model can’t run right
-    now — why not. <strong>Creativity</strong> controls how varied the Assistant’s answers are.
+    Under the picker is what the model is used for, one line saying where your text goes, and — if
+    it can’t run right now — why not.
+  </p>
+  <p>
+    Under <strong>Assistant</strong> are the model’s own settings, as the Foundation Models
+    framework has them and no further: <strong>Creativity</strong> (0–2) and{' '}
+    <strong>Sampling</strong> — Automatic, Greedy, <strong>Top-k</strong> (which adds{' '}
+    <strong>Words to sample from</strong>) or <strong>Top-p</strong> (which adds{' '}
+    <strong>Probability</strong>), the last two also offering a <strong>Seed</strong> so a run can
+    be repeated — plus a <strong>Maximum reply</strong> length and, on a model that reasons,{' '}
+    <strong>Thinking</strong>. They apply to the Assistant; each writing tool asks for what its own
+    task needs.
   </p>
   <p>
     On the Mac this is the <strong>AI</strong> tab of Settings (<kbd>⌘,</kbd>); on iPhone and iPad,{' '}
