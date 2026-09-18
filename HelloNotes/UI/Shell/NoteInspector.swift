@@ -17,35 +17,6 @@
 import SwiftUI
 import TipKit
 
-/// The inspector's tabs, in the order they appear. Persisted so the rail
-/// reopens where the user left it (decision 10) — least surprise for a tool
-/// used in a rhythm.
-enum InspectorTab: String, CaseIterable, Identifiable {
-    case outline, tags, references, properties, history
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .outline: "Outline"
-        case .tags: "Tags"
-        case .references: "References"
-        case .properties: "Properties"
-        case .history: "History"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .outline: "list.bullet.indent"
-        case .tags: "number"
-        case .references: "link"
-        case .properties: "tag"
-        case .history: "clock.arrow.circlepath"
-        }
-    }
-}
-
 /// A menu command asking the rail to run one of its model-backed suggestions.
 ///
 /// The command lives in the menu bar and the palette, where it can be found;
@@ -61,7 +32,7 @@ struct InspectorRequest: Equatable {
     var token: Int
 
     /// The tab that shows this request's answer, so the host can reveal it.
-    var tab: InspectorTab {
+    var tab: SidePanel {
         switch kind {
         case .summarize: .outline
         case .suggestTags: .tags
@@ -116,12 +87,10 @@ struct NoteInspector: View {
     let git: GitService
     var onRestoreRevision: (String) -> Void
 
-    /// Which tab is showing. Owned by the shell, because the *toolbar* is this
-    /// panel's tab strip (`shell-chrome.md` D6): the five icon toggles in the
-    /// band select the tab and, pressing the active one, close the panel —
-    /// Pages' `Format`/`Document` behaviour. The panel therefore draws no strip
-    /// of its own, which is what removed the spurious row inside it.
-    let tab: InspectorTab
+    /// Which of the note's panels is showing. Owned by the shell, which owns
+    /// the right panel: this draws the five that are facts about the note, and
+    /// `SidePanel`'s other cases are other views in the same panel.
+    let tab: SidePanel
 
     /// A pending menu-command request. See `InspectorRequest`.
     var request: InspectorRequest? = nil
@@ -207,6 +176,11 @@ struct NoteInspector: View {
             propertiesTab
         case .history:
             historyTab
+        default:
+            // The panel's other views are not this one's business — the shell
+            // draws `SidePanel`'s graph, Ask Library, Assistant and mind map
+            // itself, and never hands them here.
+            EmptyView()
         }
     }
 

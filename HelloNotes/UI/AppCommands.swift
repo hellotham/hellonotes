@@ -454,7 +454,7 @@ struct HelloNotesCommands: Commands {
             // There is a second window on iPad: `WindowGroup(id: "main")` is
             // cross-platform and iPadOS makes another scene from it. A window
             // someone asks for by name is the only kind the app opens at all —
-            // see `AuxiliarySurface`.
+            // see `SidePanel`.
             Button("New Window") { actions?.newWindow?() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
                 .disabled(actions?.newWindow == nil)

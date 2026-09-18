@@ -194,34 +194,34 @@ navigating between areas of an app"; Recents is a filter over the same area, not
 an area. A strip would also re-introduce chrome inside the collapsible panel —
 the defect being removed from the inspector.
 
-**D6. The inspector's five tabs are five icon-only toggles in the band**, at the
-trailing edge, over the inspector — Pages' `Format`/`Document`, scaled to five.
-The active tab is drawn pressed; pressing the active one closes the inspector.
-**The band toggles _are_ the tab strip, so the panel contains no strip of its
-own** — which removes the spurious inspector row at its root.
+**D6. The right panel holds anything ancillary, and its own header says
+which.** The window is three regions: collections on the left, the editor in the
+middle, anything else on the right. Outline, Tags, References, Properties,
+History and the Mind Map are about the note; Graph, Ask Library and the
+Assistant are about the collection; all nine are the same kind of thing —
+ancillary to what you are writing — and they share one panel, one piece of state
+and one width (`SidePanel`).
 
-**D6a. The trailing panel is a column wherever one fits, and it holds more
-than the inspector.** A panel drawn *over* the editor is a note you cannot type
-in, and an editor never blocks editing — so the panel is a column whenever the
-editor keeps its 320pt floor beside the panel's 220pt one
-(`ShellMetrics.hasInspectorColumn`). That is nearly everywhere: a 1100pt Mac
-window and an 834pt iPad both used to fall to a modal overlay with the note
-dimmed behind it, and both now have a column. `inspectorMin` (1400pt) still
-names the width at which the shell *starts* with three columns.
+The band carries **one** toggle, which shows and hides the panel. Five icon
+toggles were the panel's strip while the panel held five things, and that was
+right for five: nine do not fit a band that also carries search, and a menu in
+the panel's own header names what is showing, groups the nine and reads the same
+on both platforms — which the old arrangement did not, the Mac having the
+toggles and iOS a strip of its own inside the panel.
 
-The same panel holds **Graph, Ask Library, the Assistant and the mind map**
-(`AuxiliaryPane`), which were windows on the Mac and sheets on iPad and are now
-neither: the app opens no window of its own, and a sheet over the note would
-block the editing these surfaces exist to accompany. They are not in the band's
-five toggles — those are the *inspector's* tab strip (D6) and the band has no
-room for nine — so a surface draws its own title and Done inside the panel, and
-pressing any inspector tab puts the inspector back.
+**D6a. The panel is a column wherever one fits, and never a modal.** A panel
+drawn *over* the editor is a note you cannot type in, and **an editor never
+blocks editing** — so the panel is a column whenever the editor keeps its 320pt
+floor beside the panel's 220pt one (`ShellMetrics.hasPanelColumn`). That is
+nearly everywhere: a 1100pt Mac window and an 834pt iPad both used to fall to a
+modal overlay with the note dimmed behind it. `inspectorMin` (1400pt) still
+names the width at which the shell *starts* with three columns; only a canvas
+with no room for a column — a phone — carries the panel over the note.
 
-A surface asks for more width than the inspector's 280pt strip of facts: 420pt,
-capped at 560 (`ShellMetrics.panelWidth`), never so wide that the editor drops
-below its floor. Both canvases carried a 560pt *minimum* from their window days,
-which drew them past the edge of a 420pt pane — a pane takes the width it is
-given, and a canvas that scrolls and zooms has no business demanding more.
+The panel is 360pt (floor 220, cap 560), one number for everything it holds. The
+three views that came from windows keep no window habits: the graph and the mind
+map each demanded a 560pt minimum, and drew past the edge of the first panel
+they were put in.
 
 **D7. `.inspector()` is not used.** It forces an unsuppressable `»` chevron,
 violating D6. The inspector is an `HStack` sibling of the editor inside the
@@ -288,8 +288,8 @@ of the panel.
   New Collection/Folder, then the search field — all at the leading end, against
   the panel they act on (D3, D8, D9). No window title in the band (D10).
 - `✎` New Note and `⇥` Open Quickly — over the editor, so P2 keeps them (D8).
-- `▤ # 🔗 ⌂ ↻` — the inspector's five tabs, over the inspector (D6). Nothing
-  else is ever drawn there.
+- `◨` — one toggle for the right panel, over the panel (D6). Nothing else is
+  ever drawn there; what the panel shows is chosen in its own header.
 - The note list is **not** a separate column: selecting a folder fills the
   editor column's list. (See `layout-architecture.md` for when the list splits
   out at ≥1100pt.)

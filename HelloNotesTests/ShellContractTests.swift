@@ -189,7 +189,7 @@ struct ShellContractTests {
         let inspector = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView>
             .estimatedPaneWidth(kind: .wideInspector, width: 1470)
         #expect(inspector == 1470 - ShellMetrics.sidebarIdeal
-                                  - ShellMetrics.inspectorIdeal - 2)
+                                  - ShellMetrics.panelIdeal - 2)
 
         // Only compact has no sidebar column at all; everywhere else the user
         // decides, so nothing may lock the toggle.

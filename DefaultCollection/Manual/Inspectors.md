@@ -1,18 +1,35 @@
 ---
-title: Inspectors
+title: The right panel
 tags: [manual]
 ---
 
-# Inspectors
+# The right panel
 
-Five panels, from the buttons at the top right.
+The window is three regions: **collections on the left, the note in the middle,
+anything else on the right.**
+
+One button at the top right shows or hides the panel; the panel's own header
+says what it is showing and changes it. One thing at a time, and the note beside
+it stays live — you can keep typing while the Assistant or the graph is open.
+
+## About this note
 
 | Panel | Shows |
 |---|---|
 | **Outline** | headings, word count, reading time, and the AI summary |
 | **Tags** | this note's tags, and the collection's |
-| **Links** | backlinks, outgoing links, unlinked mentions |
+| **References** | backlinks, outgoing links, unlinked mentions |
 | **Properties** | front matter as typed, editable fields |
 | **History** | Git versions of this note, if it is in a repository |
+| **Mind Map** | this note's headings and links as a map |
 
-Each is a toggle: press it again to close.
+## About this collection
+
+| Panel | Shows |
+|---|---|
+| **Graph** | every note and link in the collection |
+| **Ask Library** | answers drawn from your notes, with citations |
+| **Assistant** | a conversation that can read and change notes, with your approval |
+
+A command that produces an answer — Summarise, Suggest Tags, Suggest Links —
+opens the panel at the place its answer lands.

@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 22/8/2026.
 //
-//  The inspector, where the shell has no column to put it in.
+//  The right panel, where the shell has no column to put it in.
 //
 //  `AdaptiveShell` gives the inspector a column at `.wideInspector` (1400pt) or
 //  in a tall shell at 900pt, and nothing below that — on both platforms. The
@@ -28,12 +28,12 @@
 import SwiftUI
 
 extension View {
-    /// Show `inspector` over this view when the shell has no inspector column.
-    func inspectorOverlay<Inspector: View>(
+    /// Show `panel` over this view when the shell has no column for it.
+    func sidePanelOverlay<Panel: View>(
         presented: Binding<Bool>,
-        @ViewBuilder inspector: @escaping () -> Inspector
+        @ViewBuilder panel: @escaping () -> Panel
     ) -> some View {
-        modifier(InspectorOverlay(presented: presented, inspector: inspector))
+        modifier(InspectorOverlay(presented: presented, inspector: panel))
     }
 }
 
@@ -47,12 +47,12 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
     /// case there is nothing for this overlay to do — and it must not draw, or
     /// the panel appears twice with the note dimmed behind the second copy.
     ///
-    /// One question, asked in one place: `ShellMetrics.hasInspectorColumn`.
+    /// One question, asked in one place: `ShellMetrics.hasPanelColumn`.
     /// It answers yes almost everywhere now, so this overlay is what a canvas
     /// too small for a column falls back to — where the editor has no room to
     /// be typed in beside a panel anyway.
     private var hasColumn: Bool {
-        ShellMetrics.hasInspectorColumn(kind: shell.kind, width: shell.size.width)
+        ShellMetrics.hasPanelColumn(kind: shell.kind, width: shell.size.width)
     }
 
     func body(content: Content) -> some View {
@@ -67,7 +67,7 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
                             .ignoresSafeArea()
                             .onTapGesture { close() }
                         inspector()
-                            .frame(width: 360)
+                            .frame(width: ShellMetrics.panelIdeal)
                             .background(.regularMaterial)
                             .overlay(alignment: .leading) { Divider() }
                             .transition(.move(edge: .trailing))
@@ -83,66 +83,3 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
 
 /// The inspector's own title bar: which tab, and a way to close it.
 ///
-/// Drawn by the overlay's content on both platforms — a column gets its header
-/// from the shell's chrome, an overlay has none of its own.
-struct InspectorOverlayHeader: View {
-    @Binding var tabRaw: String
-    let onClose: () -> Void
-
-    private var tab: InspectorTab { InspectorTab(rawValue: tabRaw) ?? .outline }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(tab.title).font(.headline)
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close Inspector")
-            }
-            // iOS only. The Mac carries these five as toolbar items (the
-            // documented home for commands — see docs/shell-chrome.md), so
-            // drawing them here as well gave the Mac two tab strips for one
-            // inspector, disagreeing about nothing but taking up the room twice.
-            // iOS has no toolbar space for five, which is why the overlay keeps
-            // them there and only there.
-            #if os(iOS)
-            HStack(spacing: 0) {
-                ForEach(InspectorTab.allCases) { candidate in
-                    Button {
-                        tabRaw = candidate.rawValue
-                    } label: {
-                        Image(systemName: candidate.systemImage)
-                            .frame(maxWidth: .infinity, minHeight: 30)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(candidate == tab ? Color.accentColor : .secondary)
-                    // A tint of the accent, not `.selection`: on iPad that is
-                    // the accent itself, and the chosen tab's icon was drawn in
-                    // its own background colour — a blank pill.
-                    .background(
-                        candidate == tab ? AnyShapeStyle(Color.accentColor.opacity(0.18)) : AnyShapeStyle(.clear),
-                        in: RoundedRectangle(cornerRadius: 6)
-                    )
-                    .accessibilityLabel(candidate.title)
-                    .accessibilityAddTraits(candidate == tab ? [.isSelected] : [])
-                }
-            }
-            #else
-            // Deliberately nothing: the Mac already carries these five as
-            // toolbar items, per the comment above. Spelled as an `#else`
-            // rather than a bare `#endif` because the shell contract forbids a
-            // one-sided platform gate — the point of that rule is that "this
-            // platform gets nothing" should be a decision on the page, not the
-            // absence of one.
-            EmptyView()
-            #endif
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-    }
-}

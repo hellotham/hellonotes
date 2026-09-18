@@ -117,12 +117,14 @@ struct HelloNotesApp: App {
             }
         }
 
-        // Graph, Ask Library, Assistant and Mind Map have **no scene**. The app
-        // opens no windows of its own on either platform — see
-        // `AuxiliarySurface`: a scene the system places cannot be relied on to
-        // sit beside the notes, and on iPadOS closing one leaves the app. They
-        // are sheets, and the only windows are the two someone asks for by
-        // name: New Window and Open in New Window, above.
+        // Graph, Ask Library, Assistant and Mind Map have **no scene**. They
+        // are views of the right panel (`SidePanel`), beside the editor, like
+        // the note's own outline and tags: the shell is collections on the
+        // left, the editor in the middle, anything else on the right. The app
+        // opens no window of its own on either platform — a scene the system
+        // places cannot be relied on to sit beside the notes, and on iPadOS
+        // closing one leaves the app — so the only windows are the two someone
+        // asks for by name, New Window and Open in New Window, above.
 
         #if os(macOS)
         // Preferences window (⌘,): General, Appearance, and AI tabs.

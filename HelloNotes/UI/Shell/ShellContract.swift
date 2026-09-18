@@ -51,9 +51,14 @@ enum ShellMetrics {
     static let sidebarIdeal: CGFloat = 280
     static let sidebarCap: CGFloat = 340
 
-    static let inspectorFloor: CGFloat = 220
-    static let inspectorIdeal: CGFloat = 280
-    static let inspectorCap: CGFloat = 360
+    /// The right panel: collections on the left, the editor in the middle,
+    /// anything else here. One width, whatever it is showing — the outline of
+    /// the note or a conversation with the Assistant.
+    static let panelFloor: CGFloat = 220
+    /// Wider than the 280 the five note tabs were drawn for: the same panel
+    /// holds a conversation and a graph, and both read badly in a strip.
+    static let panelIdeal: CGFloat = 360
+    static let panelCap: CGFloat = 560
 
     /// The pane below which the editor is degraded but must still render
     /// (decision 9) — a design target enforced by the declared *window*
@@ -121,23 +126,14 @@ enum ShellMetrics {
     static let windowMinWidth: CGFloat = 860
     static let windowMinHeight: CGFloat = 480
 
-    /// What the trailing panel asks for when it holds a *surface* — the
-    /// Assistant, Ask Library, the graph, a mind map — rather than the
-    /// inspector. A conversation and a canvas both read badly at 280pt, and
-    /// they are the thing being worked in rather than a strip of facts about
-    /// the note.
-    static let surfacePanelIdeal: CGFloat = 420
-    static let surfacePanelCap: CGFloat = 560
-
     /// The panel's width here: its ideal, but never so wide that the editor
-    /// drops below its floor. A pane that squeezes the note out is the modal
+    /// drops below its floor. A panel that squeezes the note out is the modal
     /// this replaced, wearing a divider.
-    static func panelWidth(holdsSurface: Bool, available: CGFloat) -> CGFloat {
-        let ideal = holdsSurface ? surfacePanelIdeal : inspectorIdeal
-        return max(inspectorFloor, min(ideal, available - editorFloor))
+    static func panelWidth(available: CGFloat) -> CGFloat {
+        max(panelFloor, min(panelIdeal, available - editorFloor))
     }
 
-    /// Whether the trailing panel can be a **column** here rather than an
+    /// Whether the right panel can be a **column** here rather than an
     /// overlay over the editor.
     ///
     /// A panel drawn over the editor stops you typing, and an editor never
@@ -151,14 +147,14 @@ enum ShellMetrics {
     /// ideal width. It was also, wrongly, the only width at which the panel
     /// could exist at all: a 1100pt Mac window and an 834pt iPad both fell to a
     /// modal overlay with the note dimmed behind it.
-    static func hasInspectorColumn(kind: ShellKind, width: CGFloat) -> Bool {
+    static func hasPanelColumn(kind: ShellKind, width: CGFloat) -> Bool {
         switch kind {
         // The editor *is* the screen; there is nothing to put a column beside.
         case .compact: false
         // The band is above the editor, so only the panel claims the width.
-        case .tall: width >= editorFloor + inspectorFloor
+        case .tall: width >= editorFloor + panelFloor
         case .two, .wide, .wideInspector:
-            width >= sidebarIdeal + editorFloor + inspectorFloor
+            width >= sidebarIdeal + editorFloor + panelFloor
         }
     }
 

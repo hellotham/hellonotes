@@ -4822,6 +4822,57 @@ Map have no scene at all (`HelloNotesApp`); they come from one
 A sheet was the first answer to that, and it was wrong for a second reason:
 *"they should be panes rather than modals. That's the app design. An editor
 should never block editing."* A modal over the note is a note you cannot type
+in, and these are surfaces you keep open **while** you write.
+
+Then the question behind the question: *"why are you distinguishing between the
+inspector panels and graph, ask library, etc.? Aren't these just all panels on
+the right sidebar?"* They are. **The shell is collections on the left, the
+editor in the middle, anything else on the right** — and the app had been
+carrying two of everything for a distinction that does not exist: two enums
+(`InspectorTab`, `AuxiliarySurface`), two pieces of state, two chromes (five
+icon toggles in the band for one set, a title row inside the panel for the
+other), two widths, and on iOS a third strip of its own. All of it collapses
+into `SidePanel`: nine cases — Outline, Tags, References, Properties, History,
+Mind Map, Graph, Ask Library, Assistant — one stored choice, one width (360,
+floor 220, cap 560), and one header inside the panel that names what is showing,
+groups the nine by what they are about, and closes it. The band keeps a single
+toggle; five icon toggles were right for five things and do not survive nine.
+
+The panel had a second defect of its own: it was a column only at
+`.wideInspector` (1400pt) or a tall shell ≥900pt, so a 1100pt Mac window and an
+834pt iPad both fell to a *modal overlay with the note dimmed behind it*. The
+arithmetic never required that — at the 860pt window minimum a 280pt sidebar,
+the 320pt editor floor and the 220pt panel floor come to 820.
+`ShellMetrics.hasPanelColumn` now answers it once, for the shells and for the
+overlay, and the overlay is what remains for a canvas with no room for a column.
+The three views that came from windows kept window habits: the graph and the
+mind map each demanded `minWidth: 560` and drew past the edge of the first panel
+they were put in.
+
+**Found by the suite, not by looking.** `theModelsFolderListsWholeModelsOnly`
+failed on `bytes == 64`: `weightsBytes` read each snapshot file's size without
+following the link, so every cached model was listed at a few dozen bytes.
+
+**The app opens no windows of its own.** A regular-width iPad opened the
+Assistant, Graph, Ask Library and Mind Map as their own window scene, because the
+rule was width alone: a canvas wide enough shows a second surface *beside* the
+notes. On iPadOS it does not sit beside them — in full-screen apps, and in Split
+View, the system puts the new scene where the old one was, and **Done** closed it
+and showed the Home Screen with the app still running. Nothing distinguishes
+iPad's windowed mode from full-screen (`UIWindowScene.isFullScreen` is Mac
+Catalyst only; `sizeRestrictions` is non-nil in both, probed on iPadOS 27).
+
+The first fix took the windows off iPad alone, and that broke the rule this app
+is built on: *"parity between macOS and iPadOS was a hard and unbreakable
+rule."* It is — and it decided this: *"parity means macOS should not have
+windows either (except when the user says New Window)."* So **no window is
+opened by the app on either platform.** Graph, Ask Library, Assistant and Mind
+Map have no scene at all (`HelloNotesApp`); they come from one
+`AuxiliaryOpener` that no longer takes an `openWindow` or a width.
+
+A sheet was the first answer to that, and it was wrong for a second reason:
+*"they should be panes rather than modals. That's the app design. An editor
+should never block editing."* A modal over the note is a note you cannot type
 in, and these are surfaces you keep open **while** you write. They are now
 content of the **trailing panel** (`AuxiliaryPane`), beside the editor — and
 that panel had a defect of its own: it was a column only at `.wideInspector`

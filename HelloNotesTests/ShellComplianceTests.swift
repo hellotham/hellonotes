@@ -316,10 +316,12 @@ struct ShellComplianceTests {
     /// scene the system places cannot be relied on to sit beside the notes, and
     /// on iPadOS closing one left the app.
     ///
-    /// So both shells call one `AuxiliaryOpener` and it shows the surface in
-    /// the trailing panel — a pane beside the editor, because an editor never
-    /// blocks editing. Only a canvas with no column for the panel presents it
-    /// over the note.
+    /// So there is one panel and one enum of what it can show (`SidePanel`),
+    /// one piece of state for which of them it is showing, and one header
+    /// inside the panel to choose and to close. The shell is collections on the
+    /// left, the editor in the middle, anything else on the right — and an
+    /// editor never blocks editing, so the panel is a column wherever one fits
+    /// and only a canvas with no room for one carries it over the note.
     /// Neither shell holds presentation state of its own for these surfaces,
     /// and neither opens a scene for one: the only windows the app opens are
     /// the two someone asks for by name, New Window and Open in New Window,
@@ -328,12 +330,15 @@ struct ShellComplianceTests {
     func auxiliarySurfacesArePresentedTheSameWay() throws {
         let file = "ContentView.swift"
         let source = try Self.source(file)
-        #expect(source.contains("AuxiliaryOpener { surface in"),
-                "\(file) does not route auxiliary surfaces through the shared opener")
+        #expect(source.contains("private func showPanel(_ choice: SidePanel)"),
+                "\(file) does not route ancillary views through one panel")
         #expect(source.contains("inspector: { trailingPanel }"),
-                "\(file) does not put auxiliary surfaces in the panel beside the editor")
-        #expect(source.contains("AuxiliaryPane(surface: surface)"),
-                "\(file) does not draw an auxiliary surface as a pane")
+                "\(file) does not give the shell's trailing slot the panel")
+        #expect(source.contains("SidePanelHeader("),
+                "\(file) draws no header for the panel — nothing picks what it shows")
+        // One state, not one per kind of thing the panel can hold.
+        #expect(!source.contains("auxiliarySurface"),
+                "\(file) keeps a second piece of panel state")
         for forbidden in ["showGraph", "showMindMap", "showAssistant", "showLibraryChat",
                          "cloudBrowser"] {
             #expect(!source.contains(forbidden),
@@ -359,11 +364,11 @@ struct ShellComplianceTests {
     func mindMapReadsTheLiveBuffer() throws {
         let source = try String(contentsOf: URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/UI/AuxiliarySurface.swift"), encoding: .utf8)
+            .appending(path: "HelloNotes/UI/SidePanel.swift"), encoding: .utf8)
         #expect(source.contains("liveBuffer.text(for: rootURL) ?? fileText"),
-                "MindMapSurface no longer prefers the editor's buffer")
+                "MindMapPanel no longer prefers the editor's buffer")
         #expect(source.contains("guard liveBuffer.text(for: rootURL) == nil else { return }"),
-                "MindMapSurface reads the file even when the buffer has the note")
+                "MindMapPanel reads the file even when the buffer has the note")
     }
 
     /// A folder-pick request is answered with what it asked for.

@@ -294,11 +294,13 @@ struct ContentView: View {
     /// Which inspector tab the band's five toggles select (D6). `@AppStorage`
     /// rather than `@State`: reopening the inspector to a different tab than
     /// you left it on is a small betrayal, and it used to live inside the panel.
-    @AppStorage("inspectorTab") private var inspectorTabRaw = InspectorTab.outline.rawValue
+    @AppStorage("sidePanel") private var panelRaw = SidePanel.outline.rawValue
 
-    private var inspectorTab: InspectorTab {
-        get { InspectorTab(rawValue: inspectorTabRaw) ?? .outline }
-        nonmutating set { inspectorTabRaw = newValue.rawValue }
+    /// What the right panel is showing — the outline of this note, or the
+    /// Assistant, or any of the others. One panel, one thing in it.
+    private var panel: SidePanel {
+        get { SidePanel(rawValue: panelRaw) ?? .outline }
+        nonmutating set { panelRaw = newValue.rawValue }
     }
 
     /// The last AI request sent to the inspector from a menu command or the
@@ -345,78 +347,55 @@ struct ContentView: View {
     /// and so sits outside the context the shell publishes.
     @State private var shellSize: CGSize = .zero
 
-    /// Graph, Ask Library, Assistant or the mind map, showing in the trailing
-    /// panel. `nil` is the ordinary case, where the panel holds the inspector.
-    @State private var auxiliarySurface: AuxiliarySurface?
-
-    /// Whether this canvas has no column for the panel and must present it over
-    /// the note — a phone, or a Mac window dragged below the compact threshold.
-    /// The rule is the canvas, not the OS.
-    private var panelMustCover: Bool {
-        !ShellMetrics.hasInspectorColumn(
-            kind: shellKind(width: shellSize.width, height: shellSize.height),
-            width: shellSize.width)
-    }
-
-    /// Open Graph / Ask Library / Assistant / Mind Map — in the panel beside the
-    /// editor, which is where they live. Opening one opens the panel; an editor
-    /// never blocks editing, so nothing here covers the note that has a column
-    /// to sit in.
-    private var auxiliary: AuxiliaryOpener {
-        AuxiliaryOpener { surface in
-            withAnimation(.easeInOut(duration: 0.18)) {
-                auxiliarySurface = surface
-                if surface != nil { inspectorPresented = true }
-            }
+    /// Show something in the right panel. Every command that produces
+    /// something ancillary — the graph, a conversation, the note's own facts —
+    /// ends here, because that is the one place ancillary things go.
+    private func showPanel(_ choice: SidePanel) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            panel = choice
+            inspectorPresented = true
         }
     }
 
-    /// The panel where the canvas has no column for it — the same content,
-    /// carried over the note, with the header the column does not need.
-    @ViewBuilder
-    private var panelOverlay: some View {
-        if let surface = auxiliarySurface {
-            AuxiliaryPane(surface: surface) { closePanel() }
-        } else {
-            VStack(spacing: 0) {
-                InspectorOverlayHeader(tabRaw: $inspectorTabRaw) {
-                    inspectorPresented = false
-                }
-                Divider()
-                inspector
-            }
-        }
+    private func togglePanel() {
+        withAnimation(.easeInOut(duration: 0.18)) { inspectorPresented.toggle() }
     }
 
-    /// What the trailing panel holds: a surface when one is open, the note's
-    /// inspector otherwise.
-    @ViewBuilder
+    /// The right panel: its own header — what it is showing, a way to change
+    /// it, a way to close it — over whichever view that is.
     private var trailingPanel: some View {
-        if let surface = auxiliarySurface {
-            AuxiliaryPane(surface: surface) { closePanel() }
-        } else {
-            inspector
+        VStack(spacing: 0) {
+            SidePanelHeader(
+                panel: Binding(get: { panel },
+                               set: { choice in
+                                   withAnimation(.easeInOut(duration: 0.18)) { panel = choice }
+                               }),
+                hasNote: activeEditor?.note != nil,
+                onClose: { togglePanel() })
+            Divider()
+            panelContent
         }
     }
 
-    /// Show or hide the *inspector* in the panel. With a surface showing there,
-    /// this swaps it for the inspector rather than closing a panel the person
-    /// asked to see.
-    private func toggleInspector() {
-        withAnimation(.easeInOut(duration: 0.18)) {
-            if auxiliarySurface != nil {
-                auxiliarySurface = nil
-                inspectorPresented = true
+    @ViewBuilder
+    private var panelContent: some View {
+        switch panel {
+        case .graph:
+            GraphPanel()
+        case .askLibrary:
+            LibraryChatPanel()
+        case .assistant:
+            AssistantPanel()
+        case .mindMap:
+            if let url = activeEditor?.note?.fileURL {
+                MindMapPanel(rootURL: url)
             } else {
-                inspectorPresented.toggle()
+                ContentUnavailableView("No Note", systemImage: "doc.text",
+                                       description: Text("Open a note to map it."))
             }
-        }
-    }
-
-    private func closePanel() {
-        withAnimation(.easeInOut(duration: 0.18)) {
-            auxiliarySurface = nil
-            inspectorPresented = false
+        default:
+            // The five that are facts about the open note.
+            inspector
         }
     }
 
@@ -512,8 +491,7 @@ struct ContentView: View {
     /// Open the inspector on the tab that answers `kind`.
     private func askInspector(_ kind: InspectorRequest.Kind) {
         let request = InspectorRequest(kind: kind, token: (inspectorRequest?.token ?? 0) + 1)
-        auxiliarySurface = nil
-        inspectorTabRaw = request.tab.rawValue
+        panel = request.tab
         inspectorPresented = true
         inspectorRequest = request
     }
@@ -579,9 +557,6 @@ struct ContentView: View {
                 }
             })
             .onGeometryChange(for: CGSize.self) { $0.size } action: { shellSize = $0 }
-            // The iOS panel's own tab strip writes the stored tab directly, so
-            // choosing a tab there puts the inspector back in the panel too.
-            .onChange(of: inspectorTabRaw) { auxiliarySurface = nil }
             // `Library` asks for a picker rather than presenting one; the shell
             // owns the picker, so the shell answers — **with what was asked
             // for**. The request carries where to start and what to say, and
@@ -637,15 +612,6 @@ struct ContentView: View {
                 }
             }
             #endif
-            // Where the canvas has no column for the panel, the same pane is
-            // presented over the note — a phone, or a Mac window dragged below
-            // the compact threshold. There is no editor beside it to protect at
-            // that width: the editor *is* the width.
-            .sheet(item: Binding(get: { panelMustCover ? auxiliarySurface : nil },
-                                 set: { if $0 == nil { auxiliarySurface = nil } })) { surface in
-                AuxiliaryPane(surface: surface) { auxiliarySurface = nil }
-                    .panelFrame(width: 560, height: 640)
-            }
     }
 
 
@@ -672,7 +638,6 @@ struct ContentView: View {
                 #endif
             },
             inspector: { trailingPanel },
-            panelHoldsSurface: auxiliarySurface != nil,
             compact: { compactShell }
         )
         // The declared window minimum (decision 9). A floor under the layout so
@@ -1191,12 +1156,12 @@ struct ContentView: View {
             canOpenQuickly: !(scope?.notes.isEmpty ?? true),
             openQuickly: { showOpenQuickly = true },
             canGraph: !(scope?.notes.isEmpty ?? true),
-            graphView: closingOpenQuickly { auxiliary.open(.graph) },
+            graphView: closingOpenQuickly { showPanel(.graph) },
             // Asking the library needs notes to ask *about*, not a collection
             // to stand in.
             canAsk: !library.allNotes.isEmpty,
-            askLibrary: closingOpenQuickly { auxiliary.open(.askLibrary) },
-            assistant: closingOpenQuickly { auxiliary.open(.assistant) },
+            askLibrary: closingOpenQuickly { showPanel(.askLibrary) },
+            assistant: closingOpenQuickly { showPanel(.assistant) },
             canCloseTab: tabs.openNotes.count > 1 && activeEditor != nil,
             closeTab: closingOpenQuickly { if let id = selectedNoteID { closeTab(id) } },
             // Format and Note commands target the note *behind* the palette
@@ -1351,7 +1316,7 @@ struct ContentView: View {
             },
             explain: { phrase in
                 library.askAboutSelection(phrase)
-                auxiliary.open(.askLibrary)
+                showPanel(.askLibrary)
             }
         )
     }
@@ -1688,7 +1653,7 @@ struct ContentView: View {
                 fileURL: selectedNote?.fileURL,
                 git: collection.git,
                 onRestoreRevision: { restored in activeEditor?.text = restored },
-                tab: inspectorTab,
+                tab: panel,
                 request: inspectorRequest
             )
         } else {
@@ -1775,7 +1740,7 @@ struct ContentView: View {
             // The inspector, where the shell has no column for it. Shared —
             // the Mac had no overlay at all, so its own default 1100pt window
             // showed no inspector however many times you pressed the toggles.
-            .inspectorOverlay(presented: $inspectorPresented) { panelOverlay }
+            .sidePanelOverlay(presented: $inspectorPresented) { trailingPanel }
             // The toolbar belongs to the editor, Mail-style. Declared on the
             // note list it rendered over the *inspector* — the rightmost column
             // wins the trailing edge — leaving nothing above the text.
@@ -1846,36 +1811,18 @@ struct ContentView: View {
 
         // Trailing — the inspector's five tabs, over the inspector, Pages'
         // `Format`/`Document` scaled up. These are the tab strip *on the Mac*:
-        // `InspectorOverlayHeader` draws its own row only under `#if os(iOS)`,
-        // where there is no toolbar room for five. That gate is what stops the
-        // Mac showing two strips for one inspector — it drew both until now, and
-        // this comment claimed otherwise.
-        ToolbarItemGroup {
-            ForEach(InspectorTab.allCases) { tab in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        // Pressing the tab you are already on closes the panel,
-                        // which is what Pages' Format button does. A tab always
-                        // puts the *inspector* in the panel, whatever surface
-                        // was showing there.
-                        if inspectorPresented && inspectorTab == tab && auxiliarySurface == nil {
-                            inspectorPresented = false
-                        } else {
-                            auxiliarySurface = nil
-                            inspectorTab = tab
-                            inspectorPresented = true
-                        }
-                    }
-                } label: {
-                    Label(tab.title, systemImage: tab.systemImage)
-                }
-                .help(tab.title)
-                .background(
-                    inspectorPresented && inspectorTab == tab && auxiliarySurface == nil
-                        ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: 5)
-                )
+        // One toggle for one panel. Five icon toggles were the panel's tab
+        // strip while the panel held five things (`shell-chrome.md` D6); it
+        // holds nine, the band has no room for nine, and the panel's own
+        // header picks what it shows — the same header on both platforms.
+        ToolbarItem {
+            Button { togglePanel() } label: {
+                Label(inspectorPresented ? "Hide Panel" : "Show Panel",
+                      systemImage: inspectorPresented ? "sidebar.trailing" : "sidebar.right")
             }
+            .help(inspectorPresented ? "Hide the panel" : "Show \(panel.title)")
+            .background(inspectorPresented ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
+                        in: RoundedRectangle(cornerRadius: 5))
         }
     }
 
@@ -1913,7 +1860,7 @@ struct ContentView: View {
                     onLinkMention: linkMention,
                     onRenameNote: { title in selectedNote.map { actions.rename($0, to: title) } },
                     onShowMindMap: {
-                        if let url = selectedNote?.fileURL { auxiliary.open(.mindMap(url)) }
+                        if let url = selectedNote?.fileURL { showPanel(.mindMap) }
                     },
                     ai: aiActions,
                     selectionActions: selectionActions(in: c)
@@ -2028,14 +1975,14 @@ struct ContentView: View {
             gitStatusButton
             statusBarButton("New note", "square.and.pencil") { newNote() }
             statusBarButton("Today's note", "calendar") { openTodaysNote() }
-            statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { auxiliary.open(.graph) }
+            statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { showPanel(.graph) }
                 .disabled(focused?.notes.isEmpty ?? true)
                 // The tip used to hang off the sidebar's Graph button; the
                 // status bar is where that command still lives on screen.
                 .popoverTip(GraphTip())
-            statusBarButton("Ask your library", "sparkles.rectangle.stack") { auxiliary.open(.askLibrary) }
+            statusBarButton("Ask your library", "sparkles.rectangle.stack") { showPanel(.askLibrary) }
                 .disabled(library.allNotes.isEmpty)
-            statusBarButton("Assistant", "sparkles") { auxiliary.open(.assistant) }
+            statusBarButton("Assistant", "sparkles") { showPanel(.assistant) }
         }
         .font(.callout)
         .padding(.horizontal, 10)
@@ -2645,10 +2592,10 @@ struct ContentView: View {
             // question you want to ask your notes usually isn't already in one.
             .init(title: "Ask Your Library", symbol: "sparkles.rectangle.stack",
                   isEnabled: !library.allNotes.isEmpty) {
-                auxiliary.open(.askLibrary)
+                showPanel(.askLibrary)
             },
             .init(title: "Assistant", symbol: "sparkles", isEnabled: scope != nil) {
-                auxiliary.open(.assistant)
+                showPanel(.assistant)
             },
             .init(title: "Settings…", symbol: "gearshape") { showSettings = true },
         ]
@@ -2700,10 +2647,10 @@ struct ContentView: View {
         return AIPlaceList(
             ai: aiActions,
             canAsk: !library.allNotes.isEmpty,
-            askLibrary: { auxiliary.open(.askLibrary) },
+            askLibrary: { showPanel(.askLibrary) },
             reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
             compose: scope == nil ? nil : { showCompose = true },
-            assistant: { auxiliary.open(.assistant) },
+            assistant: { showPanel(.assistant) },
             aiSettings: { openAISettings() },
             hasOpenNote: editor.note != nil)
     }
@@ -2790,7 +2737,7 @@ struct ContentView: View {
                 },
                 onShowMindMap: {
                     guard let current = editor.note else { return }
-                    auxiliary.open(.mindMap(current.fileURL))
+                    showPanel(.mindMap)
                 },
                 ai: aiActions,
                 selectionActions: selectionActions(in: c)
@@ -2802,7 +2749,7 @@ struct ContentView: View {
             // The inspector, where the shell has no column for it. Shared —
             // the Mac had no overlay at all, so its own default 1100pt window
             // showed no inspector however many times you pressed the toggles.
-            .inspectorOverlay(presented: $inspectorPresented) { panelOverlay }
+            .sidePanelOverlay(presented: $inspectorPresented) { trailingPanel }
             .toolbarTitleDisplayMode(.inline)
         } else {
             ContentUnavailableView(
@@ -2901,13 +2848,13 @@ struct ContentView: View {
             // they were in the menu bar and the palette only — both out of
             // sight — so the Assistant had no button at all.
             Button {
-                auxiliary.open(.assistant)
+                showPanel(.assistant)
             } label: {
                 Label("Assistant", systemImage: "sparkles")
             }
             .disabled(scope == nil)
             Button {
-                auxiliary.open(.askLibrary)
+                showPanel(.askLibrary)
             } label: {
                 Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
             }
@@ -2919,7 +2866,7 @@ struct ContentView: View {
             }
             .disabled(scope == nil)
             Button {
-                auxiliary.open(.graph)
+                showPanel(.graph)
             } label: {
                 Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
             }
@@ -2969,21 +2916,17 @@ struct ContentView: View {
     // tabs — the answer belongs with the thing it is about on both platforms,
     // and only the route to it differs.
 
-    /// One button that discloses the inspector, and nothing more.
-    ///
-    /// The Mac puts the five tabs in the band and lets them *be* the tab strip.
-    /// An iPad toolbar already carries Review Links, the AI menu and the mode
-    /// picker, and five more icons squeezed the mode picker to the point of
-    /// unusability. So: one disclosure control here, and the tab strip moves
-    /// inside the panel where there is room for it.
+    /// One button that shows or hides the right panel — the same one the Mac's
+    /// band carries. What the panel *shows* is chosen in its own header, which
+    /// is where nine choices fit and a toolbar's worth of icons does not.
     private var inspectorToggle: some View {
         Button {
-            toggleInspector()
+            togglePanel()
         } label: {
-            Label("Inspector", systemImage: inspectorPresented
+            Label("Panel", systemImage: inspectorPresented
                   ? "sidebar.trailing" : "sidebar.right")
         }
-        .accessibilityLabel(inspectorPresented ? "Hide Inspector" : "Show Inspector")
+        .accessibilityLabel(inspectorPresented ? "Hide panel" : "Show \(panel.title) panel")
     }
 
     /// The same wiring the Mac gives its tabs: a save reindexes its collection
@@ -3038,9 +2981,9 @@ struct ContentView: View {
             .pickerStyle(.inline)
             Divider()
             Button {
-                toggleInspector()
+                togglePanel()
             } label: {
-                Label(inspectorPresented ? "Hide Inspector" : "Show Inspector",
+                Label(inspectorPresented ? "Hide Panel" : "Show Panel",
                       systemImage: "sidebar.right")
             }
             if editor.note != nil {
@@ -3051,7 +2994,7 @@ struct ContentView: View {
                 // dismissal — so the whole surface was dead code on iOS. The Mac
                 // reaches it from the editor's bottom bar; the bar's iPad
                 // equivalent is this menu.
-                Button { if let url = editor.note?.fileURL { auxiliary.open(.mindMap(url)) } } label: {
+                Button { showPanel(.mindMap) } label: {
                     Label("Mind Map", systemImage: "brain")
                 }
                 // Read from the memoized, off-main scan rather than computed

@@ -328,26 +328,26 @@
   the open note's menu, from the same `SidebarMenu` list. `Menu(primaryAction:)`
   *looks* like a plain button and is a hidden menu: tap was New Note, hold was
   everything else, and on every iPad that hid Settings.
-- **The app opens no windows of its own — on either platform — and these are
-  panes, not modals.** A window happens when someone asks for one by name (New
-  Window, Open in New Window), and those two are on both platforms like every
-  other command. Graph, Ask Library, Assistant and Mind Map have no scene at
-  all: they are content of the **trailing panel**, beside the editor, because
-  *an editor never blocks editing* — a sheet over the note is a note you cannot
-  type in, and these are surfaces you keep open while you write. The panel is a
-  column wherever the editor keeps its floor beside it
-  (`ShellMetrics.hasInspectorColumn`), which is nearly everywhere; only a canvas
-  with no room for one — a phone — presents the same pane over the note.
-  `openWindow` on iPadOS makes a scene that *replaces* the notes in full-screen
-  apps and in Split View, and closing it left the app — Done in the Assistant
-  showed the Home Screen. Nothing tells full-screen from windowed
+- **Collections on the left, the editor in the middle, anything else on the
+  right — one panel, one state, one width.** Outline, Tags, References,
+  Properties, History, Mind Map, Graph, Ask Library and the Assistant are not
+  two kinds of thing; they are nine views of the right panel (`SidePanel`), and
+  treating them as two cost two enums, two chromes and two widths. The band has
+  one toggle; the panel's own header picks what it shows, the same way on both
+  platforms. The panel is a **column** wherever the editor keeps its floor
+  beside it (`ShellMetrics.hasPanelColumn`) — *an editor never blocks editing*,
+  so it is never a modal over the note — and only a phone, with no room for a
+  column, carries it over the note.
+- **The app opens no window of its own, on either platform.** `openWindow` on
+  iPadOS makes a scene that *replaces* the notes in full-screen apps and in
+  Split View, and closing it left the app — Done in the Assistant showed the
+  Home Screen. Nothing tells full-screen from windowed
   (`UIWindowScene.isFullScreen` is Mac Catalyst only; `sizeRestrictions` is
   non-nil in both, probed on iPadOS 27), and the answer was not to give the Mac
   something the iPad cannot have: **parity is one rule and one shape, not a
-  platform's worth of exceptions.** `AuxiliarySheet` draws the title and the
-  Done, in a plain row rather than a navigation bar, because it is the only
-  chrome these surfaces have on either platform — each drew its own before, so a
-  sheet showed two titles and two Done buttons.
+  platform's worth of exceptions.** A window happens when someone asks for one
+  by name — New Window, Open in New Window — and those two are on both
+  platforms like every other command.
 - **Accent on accent draws nothing.** On iPad a selected row, and `.selection`,
   *are* the tint — so a tinted glyph inside one vanishes. The inspector's chosen
   tab was a blank pill and a row's `…` disappeared into its own highlight. Use

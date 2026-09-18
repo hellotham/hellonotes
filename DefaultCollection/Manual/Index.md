@@ -10,7 +10,7 @@ The [[Start Here|tour]] shows you the app. This is the reference.
 
 - [[Manual/Collections]] — opening, closing, and what a collection is
 - [[Manual/Markdown]] — every syntax HelloNotes understands
-- [[Manual/Inspectors]] — the five panels on the right
+- [[Manual/Inspectors]] — the right panel, and everything it shows
 - [[Manual/Settings]] — appearance, editor, AI, Git
 
 ## Keyboard shortcuts
