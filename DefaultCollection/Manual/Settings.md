@@ -27,8 +27,9 @@ saying where your text goes. Every model the app can run is in that one picker,
 so choosing a model is choosing it: one choice for everything the app does with
 AI.
 
-The models folder is your Hugging Face cache on a Mac and HelloNotes' own
-storage on iPhone and iPad; **Change…** points it elsewhere. Use or remove the
+The models folder is HelloNotes' own storage until you point it elsewhere. On
+a Mac, **Access MLX Models…** opens your Hugging Face cache — one click on
+**Open** allows it, and the models already there are listed. Use or remove the
 models in it, or download one by its Hugging Face name.
 
 Under **Assistant** are the model's own settings, as the Foundation Models

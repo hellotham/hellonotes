@@ -14,16 +14,6 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- The Hugging Face cache, where `mlx_lm` and every other MLX tool keeps
-	     its models. Without this the app cannot see a model already on the
-	     Mac until someone points a file panel at the folder, which is a
-	     chore for something the machine already has. Read-write so a model
-	     downloaded here is the same copy those tools use, rather than a
-	     second one inside the container. -->
-	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
-	<array>
-		<string>/.cache/huggingface/</string>
-	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.device.audio-input</key>

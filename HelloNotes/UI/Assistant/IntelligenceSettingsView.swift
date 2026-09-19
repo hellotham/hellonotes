@@ -225,13 +225,18 @@ struct IntelligenceSettingsForm: View {
                 HStack {
                     Text(mlx.folderName)
                         .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    Button("Change…") { choosingFolder = true }
+                    Button(folderButtonTitle) { choosingFolder = true }
                 }
             }
 
             ForEach(mlx.models) { model in modelRow(model) }
             if mlx.models.isEmpty {
                 Text("No MLX models in this folder yet.").foregroundStyle(.secondary)
+            }
+            if mlx.usesOwnStorage {
+                Text(accessHelp)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -268,6 +273,31 @@ struct IntelligenceSettingsForm: View {
         }
     }
 
+    /// What the folder button offers.
+    ///
+    /// On a Mac the models are almost certainly already here, in the Hugging
+    /// Face cache `mlx_lm` and the other MLX tools share — so the first ask is
+    /// for *those*, by name, rather than a folder chooser that means nothing
+    /// until you know which folder. It says **Change…** once a folder is set,
+    /// because by then it is a change rather than an introduction.
+    private var folderButtonTitle: String {
+        #if os(macOS)
+        return mlx.usesOwnStorage ? "Access MLX Models…" : "Change…"
+        #else
+        return mlx.usesOwnStorage ? "Choose Folder…" : "Change…"
+        #endif
+    }
+
+    #if os(macOS)
+    /// Why the button exists. App Review refused the entitlement that would
+    /// have made this automatic (2.4.5(i)), so the sandbox's own route — the
+    /// person granting the folder once — is the whole of it. The panel opens
+    /// *in* the cache, so granting it is one click on Open.
+    private let accessHelp = "Your MLX models are probably already on this Mac, in the Hugging Face cache that mlx_lm and other MLX tools share. macOS won't let HelloNotes read that folder until you allow it: Access MLX Models opens it — click Open to allow. They are listed here from then on, and downloads go into the same place rather than a second copy."
+    #else
+    private let accessHelp = "Models download into HelloNotes' own storage. Choose Folder points at somewhere else — a folder in Files, or on an external drive — if you keep them there."
+    #endif
+
     private static let mlxCommunity = URL(string: "https://huggingface.co/mlx-community")!
 
     #if os(macOS)
@@ -278,7 +308,7 @@ struct IntelligenceSettingsForm: View {
         return URL(fileURLWithPath: String(cString: home)).appending(path: ".cache/huggingface/hub")
     }
 
-    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: your Hugging Face cache, ~/.cache/huggingface/hub, where mlx_lm and every other MLX tool keeps them. Models already there are listed, downloads go into it, and each copy is shared. One MLX model runs at a time, and everything the app does with AI uses it."
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. Allow access to your Hugging Face cache, ~/.cache/huggingface/hub, and the models already there are listed and downloads join them, shared with mlx_lm and every other MLX tool. Until then models live in HelloNotes' own storage. One MLX model runs at a time, and everything the app does with AI uses it."
     #else
     private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: HelloNotes' own storage, or a folder you choose. One MLX model runs at a time, and everything the app does with AI uses it."
     #endif

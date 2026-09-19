@@ -74,15 +74,17 @@ final class MLXModelStore {
     /// storage. Either way the folder is *already set*: nothing to choose
     /// before a model can be downloaded, and Change… for somewhere else.
     private static var ownStorage: URL? {
-        #if os(macOS)
-        // The person's real home. Inside the sandbox `NSHomeDirectory()` is the
-        // container, which is not where any other tool puts models.
-        guard let entry = getpwuid(getuid()), let home = entry.pointee.pw_dir else { return nil }
-        return URL(fileURLWithPath: String(cString: home))
-            .appending(path: ".cache/huggingface/hub", directoryHint: .isDirectory)
-        #else
+        // The library's own answer, which is already sandbox-aware: inside a
+        // container it is `Caches/huggingface/hub` there, and outside one it is
+        // the real `~/.cache/huggingface/hub`.
+        //
+        // It used to reach the person's real home on macOS through `getpwuid`,
+        // paired with a temporary-exception entitlement for `/.cache/huggingface/`
+        // so the sandbox would allow it. **App Review refused that entitlement**
+        // — guideline 2.4.5(i), builds 23 and 24, "not appropriate and will not
+        // be granted" — so the cache is reached the only way the sandbox
+        // offers: the person points at it once, and the bookmark is kept.
         return HubCache.default.cacheDirectory
-        #endif
     }
 
     static let shared = MLXModelStore()
@@ -127,17 +129,15 @@ final class MLXModelStore {
     /// Where models are listed from, downloaded into and removed from.
     var modelsFolder: URL? { chosenFolder ?? Self.ownStorage }
 
-    /// What to call the models folder in settings: the Hugging Face cache by
-    /// name where that is what it is, the folder's own name where someone has
-    /// chosen one, and HelloNotes' own storage on iPhone and iPad.
+    /// What to call the models folder in settings: the folder's own name once
+    /// someone has chosen one, and HelloNotes' own storage until they do.
     var folderName: String {
-        if let chosenFolder { return chosenFolder.lastPathComponent }
-        #if os(macOS)
-        return "Hugging Face cache"
-        #else
-        return "HelloNotes"
-        #endif
+        chosenFolder?.lastPathComponent ?? "HelloNotes"
     }
+
+    /// Whether the models folder is still the app's own storage — the state the
+    /// "Access MLX models" button exists to change.
+    var usesOwnStorage: Bool { chosenFolder == nil }
 
     /// The model in use, if it is in the models folder.
     var chosen: MLXLocalModel? { models.first { $0.id == chosenID } }

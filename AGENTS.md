@@ -312,22 +312,23 @@
   Anything shown per line of a note — the approval diff — is computed once off
   the main actor and laid out in a `LazyVStack` (a plain `VStack` of 10,000 lines
   took 898 ms).
-- **The models folder is the Hugging Face cache, and the app asks for it by
-  name.** A sandboxed Mac app cannot read `~/.cache/huggingface` — where
-  `mlx_lm` and every other MLX tool keeps its models — and making someone point
-  a file panel at it before the app can see models the machine already has is a
-  chore, not a design.
+- **The Hugging Face cache is reached by *asking the person*, never by
+  entitlement — App Review refused that in writing.** A sandboxed Mac app
+  cannot read `~/.cache/huggingface`, where `mlx_lm` and every other MLX tool
+  keeps its models, so 1.3.3 shipped
   `com.apple.security.temporary-exception.files.home-relative-path.read-write`
-  with `/.cache/huggingface/` is honoured by macOS 27's sandbox profile
-  (`/System/Library/Sandbox/Profiles/application.sb` still handles
-  `temporary-exception.files.home-relative-path.*`), so the folder is simply the
-  default and downloads land where the other tools look. It is a *temporary
-  exception*: App Review may ask, and `docs/app-store-listing.md` carries the
-  justification. Verify it in **Release** (`HN_CONFIG=Release
-  ./scripts/relaunch-debug.sh`): Xcode gives Debug builds the whole disk, so a
-  Debug run cannot tell you whether the entitlement works.
-  Inside the sandbox `NSHomeDirectory()` is the container, so the path comes
-  from `getpwuid(getuid())`.
+  for `/.cache/huggingface/` to make the models on the machine simply appear.
+  **TestFlight rejected builds 23 and 24 for it** — guideline 2.4.5(i), *"not
+  appropriate and will not be granted"* — which is a refusal, not a request for
+  justification, so reviewer notes cannot rescue it and a read-only variant is
+  the same kind of request. Do not re-add it in any form. What replaces it is
+  the sandbox's own route, made short: **Access MLX Models…** opens a folder
+  panel already pointed at `~/.cache/huggingface/hub`
+  (`fileDialogDefaultDirectory`, which runs outside the sandbox and so can show
+  a folder the app cannot yet read), one click on Open grants it, and the
+  security-scoped bookmark keeps it. Until then `MLXModelStore.ownStorage` is
+  `HubCache.default.cacheDirectory`, which is already container-aware, and
+  `usesOwnStorage` is what the button reads.
 - **A Hugging Face cache snapshot cannot be opened from the sandbox.** Every file
   in `models--org--name/snapshots/<rev>/` is a symlink into `../../blobs/`, and a
   folder grant covers the folder, not what its links point to — measured with

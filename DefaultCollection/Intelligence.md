@@ -58,11 +58,15 @@ you accept them.
 
 HelloNotes suggests no models: choosing one is the advanced end of the app.
 
-MLX models live in one place, the **models folder**. On a Mac that is your Hugging Face
-cache, `~/.cache/huggingface/hub`, where `mlx_lm` and the other MLX tools keep theirs:
-whatever is already there and HelloNotes can run is listed, ready to use, and a download
-goes into the same place rather than a second copy. On iPhone and iPad the models folder
-is HelloNotes' own storage. Either way, **Change…** points it somewhere else.
+MLX models live in one place, the **models folder**. Until you say otherwise that is
+HelloNotes' own storage.
+
+On a Mac your models are probably already here, in the Hugging Face cache
+`~/.cache/huggingface/hub` that `mlx_lm` and the other MLX tools share — but macOS keeps
+HelloNotes out of it until you allow it. **Access MLX Models…** opens that folder; one
+click on **Open** and everything in it that HelloNotes can run is listed, downloads join
+it rather than making a second copy, and it stays allowed. **Change…** points the folder
+somewhere else afterwards.
 
 To add a model, give the name of an MLX language model on Hugging Face, like
 `mlx-community/…`, and download it into the models folder. If Hugging Face isn't reachable

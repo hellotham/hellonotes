@@ -18,23 +18,24 @@
 > Apple Account settings" rather than by the Settings path iOS uses — which is
 > the phrasing that passed review, and replaces a guess made here.
 
-## Note for App Review (macOS)
+## Note for App Review (macOS) — settled, 2026-09-19
 
-The Mac app carries one temporary-exception entitlement:
+The Mac app carries **no temporary-exception entitlement**. It asked for one,
 `com.apple.security.temporary-exception.files.home-relative-path.read-write`
-for `/.cache/huggingface/`.
+for `/.cache/huggingface/`, so it could list the MLX models a Mac already has
+without making the person find the folder. App Review refused it on builds 23
+and 24 under **guideline 2.4.5(i)**: *"not appropriate and will not be
+granted … we encourage you to investigate other ways of implementing the
+desired functionality."*
 
-Why: HelloNotes can run an open language model locally with MLX. Those models
-are large — several gigabytes each — and every tool in that ecosystem
-(`mlx_lm`, `huggingface_hub`, LM tooling) stores them in the shared Hugging
-Face cache at `~/.cache/huggingface`. Without this entitlement the app either
-asks the person to point a file panel at that folder before it can see models
-their machine already has, or it downloads a **second** copy of a multi-gigabyte
-model into its container. The entitlement is scoped to that one cache folder,
-is read-write only so a download can be shared with those tools rather than
-duplicated, and the app reads nothing else outside its container. Everything
-else — the person's notes — is reached through user-selected folders and
-security-scoped bookmarks.
+The other way is the sandbox's own: **Access MLX Models…** in Settings ▸ AI
+opens a folder panel already pointed at `~/.cache/huggingface/hub`, one click
+on Open grants it, and a security-scoped bookmark keeps it. Until then models
+live in the app's own container. Nothing outside the container is reached
+except through user-selected folders and their bookmarks — the same way the
+app reaches notes.
+
+**Do not re-add the entitlement.** It is refused in writing, on two builds.
 
 ## Fields for both platforms
 
