@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 23` — uploaded to TestFlight (both platforms) on 2026-09-18; build 22 went up on 2026-09-16, and 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 24` — uploaded to TestFlight (both platforms) on 2026-09-19; 23 went up on 2026-09-18, 22 on 2026-09-16, and 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -714,6 +714,20 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10c · 1.3.3 build 24 — uploaded to TestFlight, 2026-09-19
+
+From `97dd99d`; `Progress 100%: Upload succeeded` and `** EXPORT SUCCEEDED **`
+on both, macOS at 08:33 and iOS at 08:38, archives reading 1.3.3 (24).
+
+**One fix over 23, found on the narrowest shell there is.** An iPad mini in
+portrait with the collections band and the right panel both open folds the bar
+into the system overflow, and the overflow titles each row from the item's
+*label*. The note menu's label was an `Image`, so its row drew as a bare chevron
+with a disclosure arrow and no name — with the view modes behind it — beside a
+row that read "Panel". The Library sidebar's ellipsis menu had the same shape.
+Both carry titles now, and `ShellComplianceTests` allows exactly one image-only
+label (the search field's clear button, which never folds).
 
 ## 10b · 1.3.3 build 23 — uploaded to TestFlight, 2026-09-18
 
