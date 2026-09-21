@@ -4903,6 +4903,22 @@ describes the model *in use*, so "no model chosen" disabled every entry and
 nothing could ever be picked; and the list's tick meant "this is the MLX model
 that would run", which it drew while the app was on System.
 
+**The panel that opened in the wrong place.** Build 25 cleared review with the
+entitlement gone, and **Access MLX Models…** opened the person's Obsidian vault.
+`fileDialogDefaultDirectory` was on the `Form`, and the `fileImporter` was
+attached outside it — where it could not see a value that flows inward — so the
+panel fell back to wherever the app's last panel had been, and the last folder
+this Mac had opened was the vault. Nothing caught it: review passed, the suite
+passed, and the code reads naturally either way, because Apple's documentation
+says only that the modifier "configures the fileImporter". A probe settled it
+rather than an argument — the same importer presented both ways in an
+off-screen window, with the `NSOpenPanel`'s own `directoryURL` read in-process:
+inside gave `~/Documents`, outside gave `~/.cache/huggingface/hub` (hidden
+parent and all). The helper now wraps the importer, the panel carries a line
+saying what the folder is for, and `ShellComplianceTests` measures the helper's
+argument by balanced parentheses and fails — naming the reason — if the importer
+ever leaves it.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown

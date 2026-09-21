@@ -400,6 +400,17 @@
   unused`. Read the warnings an OS bump adds, and read the `.swiftinterface`
   (`xcrun --sdk macosx --show-sdk-path`) rather than guessing which overload won.
   Refuse a drop with `isEnabled:`, which declines before the row lights up.
+- **A modifier that configures a presenter wraps it — it never sits inside.**
+  `fileDialogDefaultDirectory`, `fileDialogMessage` and their siblings set
+  values the `fileImporter` reads from *its own* environment, and an
+  environment flows inward. Build 25 put the directory on the `Form` and
+  attached the importer outside it, so **Access MLX Models…** opened wherever
+  the app's last panel had been — an Obsidian vault — and the build passed
+  review, every test, and a read of the code. Apple's docs say the modifier
+  "configures the fileImporter" and nothing about which side. Settled by a
+  probe (`NSOpenPanel.directoryURL`, read in-process, both orderings,
+  off-screen): inside → `~/Documents`, outside → `~/.cache/huggingface/hub`.
+  `ShellComplianceTests.folderPanelConfigurationWrapsTheImporter` guards it.
 - **A control in a bar carries a title, not just a picture.** When the bar runs
   out of room the system folds its items into an overflow menu and titles each
   row from the item's **label**, so `Image(systemName:)` as a label leaves a bare

@@ -57,10 +57,10 @@ struct IntelligenceSettingsForm: View {
             mlxSection
             inlineCompletionSection
         }
-        .formStyle(.grouped))
+        .formStyle(.grouped)
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { mlx.chooseFolder(url) }
-        }
+        })
         .confirmationDialog(
             "Remove \(removing?.name ?? "this model")?",
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
@@ -75,12 +75,23 @@ struct IntelligenceSettingsForm: View {
     #if os(macOS)
     /// The folder panel opens straight where other MLX tools keep models. It
     /// runs outside the sandbox, so it can show a folder the app cannot yet read.
-    private func startingInHuggingFaceCache(_ form: some View) -> some View {
-        form.fileDialogDefaultDirectory(Self.huggingFaceCache)
+    ///
+    /// **This wraps the `fileImporter`; it must not sit inside it.** These
+    /// modifiers set values the importer reads from *its own* environment, and
+    /// an environment flows inward. They were applied to the `Form` with the
+    /// importer attached outside it, where it could not see them — so the panel
+    /// opened wherever the app's last panel had, which on a Mac that had just
+    /// opened an Obsidian vault as a collection was that vault, not the
+    /// Hugging Face cache. Apple's documentation says only that the modifier
+    /// "configures the fileImporter", not which side of it to put it on.
+    private func startingInHuggingFaceCache(_ presenter: some View) -> some View {
+        presenter
+            .fileDialogDefaultDirectory(Self.huggingFaceCache)
+            .fileDialogMessage("Your MLX models are in this folder. Click Open to let HelloNotes use them.")
     }
     #else
     /// No Hugging Face cache on iOS to start in: the picker opens where Files does.
-    private func startingInHuggingFaceCache(_ form: some View) -> some View { form }
+    private func startingInHuggingFaceCache(_ presenter: some View) -> some View { presenter }
     #endif
 
     // MARK: - Models

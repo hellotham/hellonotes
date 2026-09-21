@@ -629,6 +629,36 @@ struct ShellComplianceTests {
                 "the overlay has a second condition again, which the toolbar toggle cannot see")
     }
 
+    /// The folder panel's configuration **wraps** the importer it configures.
+    ///
+    /// `fileDialogDefaultDirectory` sets a value the `fileImporter` reads from
+    /// its own environment, and an environment flows inward — so a modifier
+    /// applied *inside* the importer is invisible to it. Build 25 had exactly
+    /// that: the directory on the `Form`, the importer attached outside, and
+    /// **Access MLX Models…** opened wherever the app's last panel had been —
+    /// on the Mac that found it, an Obsidian vault. A probe presenting both
+    /// orderings off-screen read the panel's own `directoryURL`: inside gave
+    /// `~/Documents`, outside gave `~/.cache/huggingface/hub`.
+    @Test("The models folder panel's configuration wraps its importer")
+    func folderPanelConfigurationWrapsTheImporter() throws {
+        let source = try Self.source("UI/Assistant/IntelligenceSettingsView.swift")
+        // Everything the helper is handed: from its opening parenthesis to the
+        // one that balances it.
+        let opening = try #require(source.range(of: "startingInHuggingFaceCache(Form"),
+                                   "the settings form no longer passes itself to the panel helper")
+        var depth = 1
+        var end = opening.upperBound
+        while end < source.endIndex, depth > 0 {
+            if source[end] == "(" { depth += 1 } else if source[end] == ")" { depth -= 1 }
+            end = source.index(after: end)
+        }
+        let argument = source[opening.upperBound..<end]
+        #expect(argument.contains(".fileImporter("),
+                "the fileImporter is outside the helper again — the default directory cannot reach it")
+        // And the helper really is where the directory is set.
+        #expect(source.contains(".fileDialogDefaultDirectory(Self.huggingFaceCache)"))
+    }
+
     /// A control in a bar carries a **title**, not just a picture.
     ///
     /// When the bar runs out of room the system folds its items into an
