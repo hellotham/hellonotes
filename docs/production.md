@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 25` — uploaded to TestFlight (both platforms) on 2026-09-20. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 is the first without it. 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 26` — uploaded to TestFlight (both platforms) on 2026-09-22. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, and 26 makes its Access MLX Models panel open in the right folder. 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -714,6 +714,19 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10e · 1.3.3 build 26 — uploaded to TestFlight, 2026-09-22
+
+From `1b17834`; `Progress 100%: Upload succeeded` and `** EXPORT SUCCEEDED **`
+on both, macOS at 16:24 and iOS at 16:29, archives reading 1.3.3 (26), and the
+archived Mac app carrying zero temporary exceptions.
+
+**Build 25 passed Beta App Review**, and its **Access MLX Models…** panel opened
+the last folder the app had used — an Obsidian vault — instead of the Hugging
+Face cache: `fileDialogDefaultDirectory` sat inside the `fileImporter` it was
+meant to configure, where the importer could not see it. 26 moves it outside,
+proved by a probe that read the panel's own `directoryURL` both ways
+(implemented.md, the MLX section).
 
 ## 10d · 1.3.3 build 25 — the entitlement App Review refused, 2026-09-20
 
