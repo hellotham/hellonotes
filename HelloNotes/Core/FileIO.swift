@@ -176,6 +176,52 @@ nonisolated enum FileIO {
         if let writeError { throw writeError }
     }
 
+    /// Coordinated **move** — a rename, or a move into another folder.
+    ///
+    /// Renaming was the one vault mutation that called `FileManager.moveItem`
+    /// directly, outside coordination. Inside the app's own container that
+    /// works, which is why every test and every simulator run passed; on a
+    /// **File Provider** folder — iCloud Drive, or a vault another app syncs —
+    /// an uncoordinated move races the provider, and a provider that has not
+    /// been told can put the old name back. A rename a sync service quietly
+    /// reverts is indistinguishable, from the person's side, from one the app
+    /// never made.
+    ///
+    /// `item(at:willMoveTo:)` and `didMoveTo:` are the part that matters: they
+    /// tell every other presenter to *follow* the file instead of losing it.
+    static func move(from source: URL, to destination: URL) throws {
+        var coordinatorError: NSError?
+        var moveError: Error?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: source, options: .forMoving,
+                               writingItemAt: destination, options: .forReplacing,
+                               error: &coordinatorError) { from, to in
+            coordinator.item(at: from, willMoveTo: to)
+            do { try FileManager.default.moveItem(at: from, to: to) }
+            catch { moveError = error }
+            coordinator.item(at: from, didMoveTo: to)
+        }
+        if let coordinatorError { throw coordinatorError }
+        if let moveError { throw moveError }
+    }
+
+    /// Coordinated **copy** — duplicating a note. Same reasoning as `move`:
+    /// the source may be a cloud file that has to be read through the
+    /// coordinator, and the destination is a write another presenter must see.
+    static func copy(from source: URL, to destination: URL) throws {
+        var coordinatorError: NSError?
+        var copyError: Error?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(readingItemAt: source, options: [],
+                               writingItemAt: destination, options: .forReplacing,
+                               error: &coordinatorError) { from, to in
+            do { try FileManager.default.copyItem(at: from, to: to) }
+            catch { copyError = error }
+        }
+        if let coordinatorError { throw coordinatorError }
+        if let copyError { throw copyError }
+    }
+
     // MARK: - Download / eviction (cloud items)
 
     /// Ask the system to download an online-only file in the background

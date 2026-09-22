@@ -629,6 +629,30 @@ struct ShellComplianceTests {
                 "the overlay has a second condition again, which the toolbar toggle cannot see")
     }
 
+    /// New Note goes into the folder the shell is showing.
+    ///
+    /// `newNote()` called `createNote()` with no folder, so on the tall shell —
+    /// where the band's left pane is a folder picker and its right pane lists
+    /// that folder — a note made with a folder selected landed at the
+    /// collection root, outside the only list on screen. Reproduced on an iPad
+    /// simulator: Examples selected, New Note, and the file appeared in the
+    /// collection root while the list showed nothing new.
+    @Test("New Note is created in the container the band is showing")
+    func newNoteGoesIntoTheSelectedContainer() throws {
+        let source = try Self.source("ContentView.swift")
+        let start = try #require(source.range(of: "private func newNote() {"),
+                                 "newNote() is gone or renamed")
+        var depth = 1
+        var end = start.upperBound
+        while end < source.endIndex, depth > 0 {
+            if source[end] == "{" { depth += 1 } else if source[end] == "}" { depth -= 1 }
+            end = source.index(after: end)
+        }
+        let body = source[start.upperBound..<end]
+        #expect(body.contains("bandContainerID"),
+                "New Note ignores the band's container again — notes land at the collection root")
+    }
+
     /// The folder panel's configuration **wraps** the importer it configures.
     ///
     /// `fileDialogDefaultDirectory` sets a value the `fileImporter` reads from

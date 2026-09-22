@@ -2056,7 +2056,10 @@ final class Collection: Identifiable {
             return nil
         }
         do {
-            try FileManager.default.moveItem(at: note.fileURL, to: destination)
+            // Coordinated, and off the main actor: on a File Provider folder a
+            // move waits for the provider, and an *uncoordinated* one can be
+            // undone by it — which is what "the rename didn't stick" looks like.
+            try await offMain { try FileIO.move(from: note.fileURL, to: destination) }
         } catch {
             report("Couldn't rename the note: \(error.localizedDescription)")
             return nil
@@ -2148,7 +2151,7 @@ final class Collection: Identifiable {
             counter += 1
         }
         do {
-            try FileManager.default.copyItem(at: note.fileURL, to: candidate)
+            try await offMain { try FileIO.copy(from: note.fileURL, to: candidate) }
         } catch {
             report("Couldn't duplicate the note: \(error.localizedDescription)")
             return nil
@@ -2336,7 +2339,7 @@ final class Collection: Identifiable {
             return nil
         }
         do {
-            try FileManager.default.moveItem(at: itemURL, to: destination)
+            try await offMain { try FileIO.move(from: itemURL, to: destination) }
         } catch {
             report("Couldn't move “\(itemURL.lastPathComponent)”: \(error.localizedDescription)")
             return nil

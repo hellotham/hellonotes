@@ -400,6 +400,21 @@
   unused`. Read the warnings an OS bump adds, and read the `.swiftinterface`
   (`xcrun --sdk macosx --show-sdk-path`) rather than guessing which overload won.
   Refuse a drop with `isEnabled:`, which declines before the row lights up.
+- **New Note goes where you are looking, and every vault mutation is
+  coordinated.** Two defects from one iPad report. `newNote()` called
+  `createNote()` with no folder, so on the tall shell — whose left pane *is* a
+  folder picker and whose right pane lists that folder — a note made with a
+  folder selected landed at the collection root, outside the only list on
+  screen; it reads as "nothing happened", and the name you then type is a
+  rename of a file you cannot see. It passes `bandContainerID` now, the same
+  identifier the folder row's own **New Note Here** uses, expanding the folder
+  first (`ShellActions.expand`) so the note is not created into a closed one.
+  Separately, **rename, duplicate and move called `FileManager` directly** —
+  the one place vault I/O escaped `FileIO`. In the app's container that works,
+  which is why the simulator could not reproduce a failing rename; on a File
+  Provider folder an uncoordinated move races the provider, which can put the
+  old name back. `FileIO.move`/`FileIO.copy` coordinate and announce the move
+  (`item(at:willMoveTo:)`), and all three run through `offMain`.
 - **A modifier that configures a presenter wraps it — it never sits inside.**
   `fileDialogDefaultDirectory`, `fileDialogMessage` and their siblings set
   values the `fileImporter` reads from *its own* environment, and an

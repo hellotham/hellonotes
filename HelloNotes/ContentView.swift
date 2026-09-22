@@ -2099,9 +2099,24 @@ struct ContentView: View {
         }
     }
 
+    /// New Note, **into the folder you are looking at**.
+    ///
+    /// This created at the collection root whatever was selected. On the tall
+    /// shell that is wrong in a way that reads as "nothing happened": the
+    /// band's left pane *is* a folder picker and its right pane lists that
+    /// folder, so a note created at the root lands outside the only list on
+    /// screen. You then name it — renaming a file you cannot see — and look for
+    /// it where you made it, and it is not there.
+    ///
+    /// `bandContainerID` is the container that pane is showing, and it is the
+    /// same identifier the folder row's own **New Note Here** passes; the
+    /// column shells set none, so `nil` keeps their behaviour. The folder is
+    /// expanded first for the reason `ShellActions.expand` gives — a note
+    /// created into a closed folder is a selection you cannot see.
     private func newNote() {
-        guard let c = railCollection ?? focused else { return }
-        Task { if let note = await c.createNote() { selectedNoteID = note.id } }
+        let folderID = bandContainerID
+        if let folderID { actions.expand(folderID) }
+        actions.createNote(in: railCollection ?? focused, folderID: folderID)
     }
 
     /// Settings, at its AI page — the only AI settings screen there is.
