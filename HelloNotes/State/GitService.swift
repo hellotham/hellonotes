@@ -45,6 +45,8 @@ final class GitService {
 
     private(set) var status = RepoStatus()
     private(set) var isBusy = false
+    /// A push is running, so the pane offers to cancel it (`cancelPush`).
+    private(set) var isPushing = false
     private(set) var lastError: String?
     private(set) var lastMessage: String?
 
@@ -128,12 +130,53 @@ final class GitService {
     }
 
     /// Push the current branch to its remote (user-initiated only).
+    ///
+    /// Through `GitPush`, which stops at libgit2's next callback once
+    /// cancelled (`cancelPush`), on a runner of its own for the handle — the
+    /// shared one has none to cancel. SwiftGitX's push gave libgit2 no
+    /// callback, so Push spun on `isBusy` until the network gave up.
     func push() async {
         guard let url = repositoryRoot else { return }
-        await run(success: "Pushed to remote") {
-            let repo = try Repository.open(at: url)
-            try await repo.push()
+        let previous = lastQueued
+        let handle = Task { @MainActor [self] in
+            await previous?.value
+            isBusy = true
+            isPushing = true
+            lastError = nil
+            defer { isBusy = false; isPushing = false }
+
+            // Detached, because libgit2 blocks its thread; cancellation is
+            // forwarded, because a detached task does not inherit it.
+            let inner = Task.detached(priority: .userInitiated) { () -> Result<Void, Error> in
+                do { try GitPush.push(repositoryAt: url); return .success(()) }
+                catch { return .failure(error) }
+            }
+            let result = await withTaskCancellationHandler {
+                await inner.value
+            } onCancel: {
+                inner.cancel()
+            }
+            switch result {
+            case .success:
+                // Finished before a cancel reached it: the push happened, and
+                // saying otherwise would be a lie about the remote.
+                lastMessage = "Pushed to remote"
+            case .failure(GitPush.Failure.cancelled):
+                lastMessage = GitPush.Failure.cancelled.localizedDescription
+            case .failure(let error):
+                lastError = Self.scrubCredentials(error.localizedDescription)
+                lastMessage = nil
+            }
+            await refreshStatusInQueue()
         }
+        pushHandle = handle
+        lastQueued = Task { _ = await handle.value }
+        await handle.value
+    }
+
+    /// Stop an in-flight push at libgit2's next callback (`GitPush`).
+    func cancelPush() {
+        pushHandle?.cancel()
     }
 
     /// Fetch remote refs (SwiftGitX has no merge yet, so this doesn't pull).
@@ -299,6 +342,7 @@ final class GitService {
     /// callback checks `Task.isCancelled` and aborts the transfer).
     private var cloneHandle: Task<URL?, Never>?
     private var createHandle: Task<URL?, Never>?
+    private var pushHandle: Task<Void, Never>?
 
     private func run(success: String, _ operation: @escaping @Sendable () async throws -> Void) async {
         let previous = lastQueued
@@ -548,7 +592,10 @@ final class GitService {
                         // was already cancelled.
                         try Task.checkCancellation()
                         try repo.remote.add(named: "origin", at: pushURL)
-                        try await repo.push()
+                        // `GitPush`, not SwiftGitX's push, which gives libgit2
+                        // no callback to stop at: Stop used to wait for the
+                        // network like everything else.
+                        try GitPush.push(repositoryAt: directory)
                     }
                     return .success(())
                 } catch {
@@ -685,7 +732,7 @@ final class GitService {
 
     /// Cancel an in-flight create. The local steps are near-instant; the one
     /// that can hang is the push to the new remote, which stops at libgit2's
-    /// next progress tick. Either way the half-made repository is removed.
+    /// next callback (`GitPush`). Either way the half-made repository is removed.
     func cancelCreate() {
         createHandle?.cancel()
     }
@@ -721,15 +768,23 @@ extension GitService {
         let hasEmail = storedEmail != nil || ((try? repo.config.string(forKey: "user.email")) ?? nil) != nil
         guard !hasName || !hasEmail else { return }
 
-        let globalName = (try? Repository.config.string(forKey: "user.name")) ?? nil
-        let globalEmail = (try? Repository.config.string(forKey: "user.email")) ?? nil
+        let globalName = ((try? Repository.config.string(forKey: "user.name")) ?? nil)?.nonEmpty
+        let globalEmail = ((try? Repository.config.string(forKey: "user.email")) ?? nil)?.nonEmpty
 
-        // Fall back to the macOS account identity when git has no configured one.
-        let fallbackName = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
-        let fallbackEmail = "\(NSUserName())@localhost"
+        // Fall back to the account's identity when git has no configured one.
+        let fallback = fallbackIdentity(fullName: NSFullUserName(), userName: NSUserName())
 
-        if !hasName { try? repo.config.set("user.name", to: globalName ?? fallbackName) }
-        if !hasEmail { try? repo.config.set("user.email", to: globalEmail ?? fallbackEmail) }
+        if !hasName { try? repo.config.set("user.name", to: globalName ?? fallback.name) }
+        if !hasEmail { try? repo.config.set("user.email", to: globalEmail ?? fallback.email) }
+    }
+
+    /// The account's name and a local address — never empty, because libgit2
+    /// refuses a commit signed with an empty name ("Signature cannot have an
+    /// empty name or email"). The iOS simulator's account has neither name,
+    /// and every commit there failed.
+    nonisolated static func fallbackIdentity(fullName: String, userName: String) -> (name: String, email: String) {
+        let name = fullName.nonEmpty ?? userName.nonEmpty ?? "HelloNotes"
+        return (name, "\(userName.nonEmpty ?? "hellonotes")@localhost")
     }
 }
 

@@ -51,6 +51,20 @@ import Testing
         #expect(GFMTableLayout.cells("| a \\* b |") == ["a \\* b"])
     }
 
+    /// **A backslash directly before a pipe escapes it, whatever comes before
+    /// it** — cmark-gfm's reading of a row, and so Preview's. The scanner read
+    /// an even run as escaped backslashes and the pipe after them as a
+    /// divider, so `| a \\| b |` was two cells in Edit, `a \` and `b`, and one
+    /// on the page, `a | b` (implemented.md §51.36). The cell loses the pipe's
+    /// backslash and keeps every other, so the inline styler still reads `\\`
+    /// and `\|` as the escapes they are, and prints what the page prints.
+    @Test func aBackslashBeforeAPipeEscapesItWhateverPrecedesIt() {
+        #expect(GFMTableLayout.cells(#"| a \| b |"#) == [#"a | b"#])
+        #expect(GFMTableLayout.cells(#"| a \\| b |"#) == [#"a \| b"#])
+        #expect(GFMTableLayout.cells(#"| a \\\| b |"#) == [#"a \\| b"#])
+        #expect(GFMTableLayout.cells(#"| a \\\\| b |"#) == [#"a \\\| b"#])
+    }
+
     /// The outer pipes bound the row; they do not open cells of their own.
     @Test func theOuterPipesOnlyBound() {
         #expect(GFMTableLayout.cells("| a | b |") == ["a", "b"])
@@ -78,13 +92,23 @@ import Testing
         #expect(bare?.rowCount == 2)
     }
 
+    /// A plain `---` declares no alignment, and only the header can tell: the
+    /// page centres a `th` with none and starts a `td` at the left, so a column
+    /// of `---` is centred in its header and left-aligned below it. The layout
+    /// keeps what was declared beside what every body row uses.
+    @Test func aPlainDelimiterDeclaresNoAlignment() {
+        let t = GFMTableLayout(source: "| a | b | c | d |\n| :-- | :-: | --: | --- |\n| 1 | 2 | 3 | 4 |")
+        #expect(t?.declaredAlignments == [.left, .center, .right, nil])
+        #expect(t?.alignments == [.left, .center, .right, .left])
+    }
+
     /// The block parser counts cells off a UTF-16 line buffer and the renderer
     /// splits them out of a `String`. One scanner, so the count that decides
     /// whether this *is* a table cannot disagree with the split that decides
     /// what is in it.
     @Test func theCountAndTheSplitAreTheSameWalk() {
         for line in ["| a | b |", "a | b", "| f\\|oo |", "| a || b |", "|x|", "  | a | b |  ",
-                     ":-: | -----------:", "| --- |"] {
+                     ":-: | -----------:", "| --- |", #"| a \\| b |"#, #"| a \\\\| b |"#] {
             let units = Array(line.utf16)
             #expect(GFMTableLayout.cellCount(units, from: 0, count: units.count)
                     == GFMTableLayout.cells(line).count, "\(line)")

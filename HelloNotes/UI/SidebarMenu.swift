@@ -26,8 +26,7 @@
 //  people writing the same list twice.
 //
 //  So the list moves here as data — title, symbol, destructiveness, action —
-//  and each widget renders it in its own idiom. An `NSMenu` and a SwiftUI
-//  `Menu` are genuinely different objects; *which items are in them* is not.
+//  and one SwiftUI menu renders it on both platforms (`SidebarMenuItems`).
 //
 
 import Foundation
@@ -115,7 +114,7 @@ enum SidebarMenu {
             ]
             // Unconditional, deliberately. `canReveal` is
             // `FileManager.fileExists(atPath:)` — a **syscall**, and this
-            // function is called from `SidebarItemRow`'s body, so it ran once
+            // function is called from a row's body, so it ran once
             // per visible row every time the sidebar rebuilt. While typing,
             // that is a stat storm behind the editor. The note came from a
             // scan, so it existed a moment ago; and `FileReveal.reveal` checks
@@ -261,8 +260,8 @@ enum SidebarMenu {
     /// `resourceValues(forKeys:)` is a syscall — and on a File Provider URL it
     /// can be a round trip to the provider — and `SidebarMenu.items(for:)` runs
     /// once per visible row every time the sidebar rebuilds. Measured on an
-    /// iPad, it appeared on the main thread *while typing*, inside
-    /// `SidebarItemRow.content`.
+    /// iPad, it appeared on the main thread *while typing*, inside a row's
+    /// content.
     ///
     /// Cloud-ness is a property of the folder, not the file: every note in a
     /// cloud folder is cloud-backed and no note in a local one is. So the cache
@@ -283,8 +282,8 @@ enum SidebarMenu {
     }
 }
 
-/// One `SidebarMenu.Item` list, as SwiftUI buttons. The Mac walks the same
-/// array into an `NSMenu`; this is the only other renderer.
+/// One `SidebarMenu.Item` list, as SwiftUI buttons — the one renderer, on both
+/// platforms.
 ///
 /// It lived inside `NoteOutlineList.swift`'s `#else` half, which made it
 /// iOS-only for no reason of its own — there is nothing platform-shaped in it.
@@ -297,6 +296,7 @@ struct SidebarMenuItems: View {
     var body: some View {
         ForEach(items) { item in
             if item.isSeparator {
+                // A menu's own separator — this renders into menus only.
                 Divider()
             } else if let children = item.children {
                 Menu {
@@ -331,17 +331,27 @@ struct RowActionsMenu: View {
             Menu {
                 SidebarMenuItems(items: items)
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .imageScale(.large)
-                    // Not the tint: a selected row in the band is drawn in the
-                    // tint, and the button vanished into its own highlight.
-                    .foregroundStyle(.secondary)
-                    // A row's height to aim at where a finger is the pointer,
-                    // and no wider than the glyph — the band's pane is 260pt,
-                    // and 44 wide wrapped "DefaultCollection" onto two lines.
-                    .frame(minHeight: PointerPresence.shared.prefersTouch ? 44 : nil)
-                    .contentShape(.rect)
+                // A `Label`, drawn as the glyph: 12pt, the rows' own size, in
+                // the secondary label colour — never the tint, which a
+                // selected row is drawn in. It was `.imageScale(.large)` with
+                // a 44pt height on touch, so the same row drew a different
+                // button on each device. The finger's target grows instead,
+                // invisibly.
+                Label {
+                    Text("\(name) actions")
+                } icon: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(Chrome.Typeface.rowIcon)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
+                        .frame(width: 18, height: 18)
+                        .contentShape(.rect.inset(by: -13))
+                }
+                .labelStyle(.iconOnly)
             }
+            .menuStyle(.button)
+            .buttonStyle(ChromePlainStyle())
+            .menuIndicator(.hidden)
+            .fixedSize()
             .accessibilityLabel("\(name) actions")
         }
     }

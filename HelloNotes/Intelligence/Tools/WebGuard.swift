@@ -6,8 +6,10 @@
 //  injected content (fetched pages, note bodies), so `web_fetch` / `web_search`
 //  must never be usable to reach internal services or cloud metadata endpoints.
 //  This rejects non-http(s) URLs and any host that resolves to a loopback,
-//  private, link-local, or unique-local address — and re-validates every HTTP
-//  redirect so an allowed host can't bounce to an internal one.
+//  private, link-local, or unique-local address — re-validates every HTTP
+//  redirect so an allowed host can't bounce to an internal one — and refuses
+//  what a private address served, whatever the host resolved to when it was
+//  checked (`load`, against DNS rebinding).
 //
 //  `nonisolated`, and it matters: this target defaults to the main actor, and
 //  `validate` resolves the host with a synchronous `getaddrinfo`. Isolated, every
@@ -47,7 +49,101 @@ nonisolated enum WebGuard {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = timeout
         config.httpCookieStorage = nil
+        // Every load is a network load, so every connection reports its address.
+        config.urlCache = nil
         return URLSession(configuration: config, delegate: RedirectGuard(), delegateQueue: nil)
+    }
+
+    /// `request`'s response and its body, read up to `byteCap` — refused if
+    /// any connection that served it was to a private address.
+    ///
+    /// `validate` resolves the host itself, and URLSession resolves it again
+    /// to connect: a short-lived DNS answer can be public for the first and
+    /// `169.254.169.254` — a cloud metadata endpoint — for the second (DNS
+    /// rebinding). URLSession cannot be pinned to the address `validate` saw,
+    /// but it reports the address each connection was made to, and the body is
+    /// read whole here before any of it can reach the model: a rebound request
+    /// is made, and what it returns is never read (implemented.md §51.36).
+    static func load(_ request: URLRequest, timeout: TimeInterval,
+                     byteCap: Int) async throws -> (data: Data, response: URLResponse) {
+        let session = Self.session(timeout: timeout)
+        defer { session.finishTasksAndInvalidate() }
+        let connections = Connections()
+        let (bytes, response) = try await session.bytes(for: request, delegate: connections)
+        var data = Data()
+        if let http = response as? HTTPURLResponse, http.expectedContentLength > 0 {
+            data.reserveCapacity(min(byteCap, Int(clamping: http.expectedContentLength)))
+        }
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count >= byteCap { break }
+        }
+        bytes.task.cancel()
+        try verify(await connections.collected())
+        return (data, response)
+    }
+
+    /// One connection a load was served over: the address it was made to, if
+    /// one was reported, and whether it went through a proxy.
+    nonisolated struct Connection: Sendable {
+        let address: String?
+        let viaProxy: Bool
+    }
+
+    /// Throw if any of `connections` was made to a private address.
+    ///
+    /// A proxy's connection is the proxy's — often a private address on a
+    /// company network — and says nothing about where the page came from, so
+    /// it is not asked; nor is one with no address reported.
+    static func verify(_ connections: [Connection]) throws {
+        for connection in connections where !connection.viaProxy {
+            guard let address = connection.address, let parsed = sockaddrData(address) else { continue }
+            if isPrivate(parsed) {
+                throw Blocked(reason: "Refusing what a private, loopback, or link-local address served (\(address)).")
+            }
+        }
+    }
+
+    /// `address`, written as IPv4 or IPv6, as the `sockaddr` `isPrivate` reads.
+    private static func sockaddrData(_ address: String) -> Data? {
+        let bare = address.split(separator: "%").first.map(String.init) ?? address
+        var v4 = sockaddr_in()
+        v4.sin_family = sa_family_t(AF_INET)
+        if inet_pton(AF_INET, bare, &v4.sin_addr) == 1 {
+            return Data(bytes: &v4, count: MemoryLayout<sockaddr_in>.size)
+        }
+        var v6 = sockaddr_in6()
+        v6.sin6_family = sa_family_t(AF_INET6)
+        if inet_pton(AF_INET6, bare, &v6.sin6_addr) == 1 {
+            return Data(bytes: &v6, count: MemoryLayout<sockaddr_in6>.size)
+        }
+        return nil
+    }
+
+    /// Hears the connections a load was served over, as URLSession reports
+    /// them when the task finishes.
+    private nonisolated final class Connections: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        private let lock = NSLock()
+        private var reported: [Connection]?
+
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        didFinishCollecting metrics: URLSessionTaskMetrics) {
+            let connections = metrics.transactionMetrics
+                .filter { $0.resourceFetchType == .networkLoad }
+                .map { Connection(address: $0.remoteAddress, viaProxy: $0.isProxyConnection) }
+            lock.withLock { reported = connections }
+        }
+
+        /// What was reported, once it has been — a task's metrics arrive just
+        /// after its last byte. Waits a few seconds at most; if they never
+        /// come, there is nothing to ask.
+        func collected() async -> [Connection] {
+            for _ in 0..<200 {
+                if let reported = lock.withLock({ reported }) { return reported }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            return []
+        }
     }
 
     // MARK: - DNS + address classification

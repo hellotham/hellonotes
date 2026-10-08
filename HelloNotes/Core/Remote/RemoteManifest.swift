@@ -16,7 +16,10 @@
 import Foundation
 
 /// The cache's index, staleness record and resume point, in one file.
-struct RemoteManifest: Codable, Sendable {
+///
+/// `nonisolated`: a value, encoded and written away from the main actor
+/// (`ManifestWriter`).
+nonisolated struct RemoteManifest: Codable, Sendable {
 
     struct Entry: Codable, Sendable, Equatable {
         /// Provider-absolute path.
@@ -32,6 +35,13 @@ struct RemoteManifest: Codable, Sendable {
         /// Whether the local file holds the real bytes, or is a placeholder
         /// standing in for them.
         var hydrated: Bool = false
+        /// The local file holds a change the provider has not received — a
+        /// save waiting its turn, one whose upload failed, mine kept here
+        /// after a conflict. Nothing may replace it: not trimming the cache,
+        /// not a walk that sees the provider's copy change (the upload's own
+        /// conflict check keeps both), not a download. Optional, so a record
+        /// written before it decodes — as not unsent.
+        var unsent: Bool?
     }
 
     var provider: String
@@ -44,6 +54,14 @@ struct RemoteManifest: Codable, Sendable {
     /// The provider's delta cursor, when it has one.
     var deltaCursor: String?
     var lastRefresh: Date?
+    /// When a walk last listed the whole folder. Until one has, a file here the
+    /// manifest has no record of may be one the provider has and the walk has
+    /// not reached — so nothing is sent up as made here before it.
+    ///
+    /// Optional, like every field added after the first release: a manifest
+    /// written without it still decodes, where a new non-optional field would
+    /// make `load` fail and the cache forget every download.
+    var lastCompleteSync: Date?
     /// Keyed by cache-relative path (`"Notes/Idea.md"`).
     var entries: [String: Entry] = [:]
 
@@ -78,7 +96,9 @@ struct RemoteManifest: Codable, Sendable {
         root.appendingPathComponent(filename)
     }
 
+    /// The manifest on disk — after any write still on its way there.
     static func load(fromCacheRoot root: URL) -> RemoteManifest? {
+        ManifestWriter.for(root).flush()
         guard let data = try? Data(contentsOf: url(inCacheRoot: root)) else { return nil }
         return try? JSONDecoder().decode(RemoteManifest.self, from: data)
     }
@@ -87,5 +107,61 @@ struct RemoteManifest: Codable, Sendable {
         guard let data = try? JSONEncoder().encode(self) else { return }
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try? data.write(to: Self.url(inCacheRoot: root), options: .atomic)
+    }
+}
+
+/// Writes one cache's manifest, away from the main actor.
+///
+/// Every change a cloud collection makes — an upload, a move, a new folder, a
+/// delete — records itself in the manifest, and the whole manifest was encoded
+/// and written on the main actor each time: 22 ms at 10,000 entries, 127 ms at
+/// 50,000, measured by the concurrency review of implemented.md §51.21. Here
+/// each record replaces any not yet written, so a burst of changes costs one
+/// write, on a queue of the cache's own; a load waits for what is still on its
+/// way (`RemoteManifest.load`).
+nonisolated final class ManifestWriter: @unchecked Sendable {
+    private let root: URL
+    private let queue: DispatchQueue
+    private let lock = NSLock()
+    private var waiting: RemoteManifest?
+
+    private init(root: URL) {
+        self.root = root
+        queue = DispatchQueue(label: "com.hellotham.HelloNotes.manifest", qos: .utility)
+    }
+
+    private static let registryLock = NSLock()
+    nonisolated(unsafe) private static var writers: [String: ManifestWriter] = [:]
+
+    /// The writer for the cache at `root` — one per cache, so two writes of
+    /// one manifest are never in flight at once.
+    static func `for`(_ root: URL) -> ManifestWriter {
+        let key = root.standardizedFileURL.path
+        registryLock.lock(); defer { registryLock.unlock() }
+        if let writer = writers[key] { return writer }
+        let writer = ManifestWriter(root: root)
+        writers[key] = writer
+        return writer
+    }
+
+    /// Write `manifest`, replacing any not yet written.
+    func save(_ manifest: RemoteManifest) {
+        lock.lock()
+        let scheduled = waiting != nil
+        waiting = manifest
+        lock.unlock()
+        guard !scheduled else { return }        // the write already scheduled takes this one
+        queue.async { [self] in
+            lock.lock()
+            let next = waiting
+            waiting = nil
+            lock.unlock()
+            next?.save(toCacheRoot: root)
+        }
+    }
+
+    /// Wait until every manifest handed over so far is written.
+    func flush() {
+        queue.sync {}
     }
 }

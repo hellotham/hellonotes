@@ -7,14 +7,15 @@
 //  Rails and a list column mean nothing at this width, so this is not the wide
 //  shell rearranged — it is the Apple Music model (decision 6). A bottom tab
 //  bar carries the app's *places*; the note being edited persists above it as a
-//  mini strip, one tap from full screen. Both retract as you scroll or type
-//  (decision 11) so writing gets the whole display without losing the way back.
+//  mini strip, one tap from full screen, where it covers both (decision 11) so
+//  writing gets the whole display without losing the way back.
 //
-//  Ungated. It uses no UIKit *types*, but it did use three iOS-only SwiftUI
-//  modifiers — `fullScreenCover`, `.topBarLeading` and
-//  `navigationBarTitleDisplayMode` — each of which now has a macOS equivalent at
-//  the bottom of this file. (Grepping for `UI…` type names said the file was
-//  portable; it was the wrong question, and the compiler asked the right one.)
+//  Ungated, and drawn by the app: the tab bar, each place's bar and the
+//  expanded note's bar are the app's own, so a Mac window squeezed to this
+//  width and an iPhone draw the same picture. It once used three iOS-only
+//  modifiers — `fullScreenCover`, `.topBarLeading`,
+//  `navigationBarTitleDisplayMode` — with a macOS stand-in for each; there is
+//  nothing left to stand in for.
 //
 //  The gate was doing something the contract forbids:
 //  `ShellKind` resolves `.compact` at 250pt on *either* platform (it is in the
@@ -23,9 +24,8 @@
 //  A Mac window squeezed into a Stage Manager tile therefore had no way to
 //  reach another note at all.
 //
-//  The Mac does not yet *pass* this — its shell has no `tagList` or `aiPlace`
-//  to fill the places with, and inventing them is designing rather than
-//  unifying. What is fixed here is that nothing stops it.
+//  Both platforms pass this now, `tagList` and `aiPlace` included: one
+//  `ContentView` fills the places on both.
 //
 //  Worst case that must not break: with the keyboard up, roughly 350pt of
 //  editor height remains. Chrome must *retract, not compress*, which is why the
@@ -86,29 +86,37 @@ struct CompactShell<Places: View, Editor: View>: View {
     /// The editor for the open note.
     @ViewBuilder var editor: () -> Editor
 
-    /// Set by the editor's scroll position and the keyboard. Chrome retracts
-    /// when either says the user is reading or writing rather than navigating.
-    @State private var chromeRetracted = false
+    /// Places already opened. Each stays built once visited, as a `TabView`'s
+    /// tabs do, so coming back to one keeps its scroll position and search.
+    @State private var visited: Set<CompactPlace> = []
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            TabView(selection: $place) {
-                ForEach(CompactPlace.allCases) { place in
-                    places(place)
-                        .tabItem { Label(place.title, systemImage: place.systemImage) }
-                        .tag(place)
+        VStack(spacing: 0) {
+            ZStack {
+                ForEach(CompactPlace.allCases) { candidate in
+                    if candidate == place || visited.contains(candidate) {
+                        places(candidate)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .opacity(candidate == place ? 1 : 0)
+                            .allowsHitTesting(candidate == place)
+                            .accessibilityHidden(candidate != place)
+                    }
                 }
             }
-
-            if let openNoteTitle, !chromeRetracted {
+            if let openNoteTitle {
+                // Directly above the tab bar, like the now-playing bar.
                 miniStrip(title: openNoteTitle)
-                    // Sits directly above the tab bar, like the now-playing bar.
-                    .padding(.bottom, ShellMetrics.bottomTabBar)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            CompactTabBar(selection: $place)
+        }
+        .overlay {
+            if noteIsExpanded {
+                expandedNote
+                    .transition(.move(edge: .bottom))
             }
         }
-        .animation(.snappy(duration: 0.22), value: chromeRetracted)
-        .expandedNoteCover(isPresented: $noteIsExpanded) { expandedNote }
+        .animation(.snappy(duration: 0.22), value: noteIsExpanded)
+        .onChange(of: place, initial: true) { _, now in visited.insert(now) }
     }
 
     // MARK: - The mini strip
@@ -119,22 +127,21 @@ struct CompactShell<Places: View, Editor: View>: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "doc.text")
-                    .foregroundStyle(.secondary)
-                Text(title)
-                    .lineLimit(1)
-                    .font(.callout.weight(.medium))
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                ChromeLine(title, size: 12, weight: .medium)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.up")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.footnote.weight(.semibold))
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             .padding(.horizontal, 14)
             .frame(height: ShellMetrics.miniStrip)
             .frame(maxWidth: .infinity)
-            .background(.bar)
-            .overlay(alignment: .top) { Divider() }
+            .background(Chrome.Colour.chrome)
+            .overlay(alignment: .top) { ChromeDivider() }
+            .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePlainStyle())
         .accessibilityIdentifier("shell.miniStrip")
         .accessibilityLabel("Open \(title)")
         .accessibilityHint("Shows the note you are editing full screen")
@@ -144,65 +151,107 @@ struct CompactShell<Places: View, Editor: View>: View {
 
     /// Expanded, the note *is* the screen — there is no room to spend on
     /// anything else, and text outranks everything under pressure.
+    ///
+    /// Drawn over the shell rather than presented: a `fullScreenCover` on iOS
+    /// and a sheet on the Mac (which has no full-screen cover) were two
+    /// presentations with two navigation bars. This is one view with the app's
+    /// own bar on both, and the tab bar and strip beneath it are simply
+    /// covered — retracted, not compressed (decision 11).
     private var expandedNote: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            ZStack {
+                ChromeLine(openNoteTitle ?? "", size: 13, weight: .semibold)
+                    .padding(.horizontal, 90)
+                HStack {
+                    Button {
+                        noteIsExpanded = false
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                            Text("Back")
+                        }
+                        .contentShape(.rect.inset(by: -8))
+                    }
+                    .buttonStyle(ChromeLinkStyle())
+                    .accessibilityLabel("Back to \(place.title)")
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, Chrome.Metric.barPadding)
+            .frame(height: Chrome.Metric.barHeight)
+            .background(Chrome.Colour.chrome)
+            .overlay(alignment: .bottom) { ChromeDivider() }
             editor()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .toolbar {
-                    ToolbarItem(placement: .leadingBar) {
-                        Button {
-                            noteIsExpanded = false
-                        } label: {
-                            Label("Back", systemImage: "chevron.down")
-                        }
-                        .accessibilityLabel("Back to \(place.title)")
-                    }
-                }
-                .inlineNavigationTitle()
         }
-        // Retract chrome while the keyboard is up: 44pt of tab bar is 44pt the
-        // caret doesn't have (decision 11).
-        .onAppear { chromeRetracted = true }
-        .onDisappear { chromeRetracted = false }
+        .background(Chrome.Colour.content)
     }
 }
 
-// MARK: - The three modifiers this shell needs that iOS spells differently
+/// The compact shell's tab bar, drawn: four places, a glyph over its name, the
+/// chosen one in the accent. `TabView`'s bar is a different height, font and
+/// material on each platform — and on the Mac a `TabView` is a segmented
+/// control at the *top* of the window, not a bar at the bottom at all.
+struct CompactTabBar: View {
+    @Binding var selection: CompactPlace
 
-private extension View {
-    /// The open note, filling the screen.
-    ///
-    /// `fullScreenCover` does not exist on macOS — there is no "full screen" for
-    /// a view inside a window — so a sheet is the equivalent presentation. Same
-    /// modal, same dismissal, the size the platform gives it.
-    @ViewBuilder
-    func expandedNoteCover<Cover: View>(isPresented: Binding<Bool>,
-                                        @ViewBuilder content: @escaping () -> Cover) -> some View {
-        #if os(iOS)
-        self.fullScreenCover(isPresented: isPresented, content: content)
-        #else
-        self.sheet(isPresented: isPresented, content: content)
-        #endif
-    }
-
-    /// A compact title bar, where the platform has the concept.
-    @ViewBuilder
-    func inlineNavigationTitle() -> some View {
-        #if os(iOS)
-        self.navigationBarTitleDisplayMode(.inline)
-        #else
-        self
-        #endif
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(CompactPlace.allCases) { place in
+                let isOn = place == selection
+                Button { selection = place } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: place.systemImage)
+                            .font(.system(size: 17))
+                            .frame(height: 21)
+                        ChromeLine(place.title, size: 10, weight: .medium,
+                                   colour: isOn ? Chrome.Colour.label : Chrome.Colour.secondaryLabel)
+                    }
+                    .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(Chrome.Colour.secondaryLabel))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(ChromePlainStyle())
+                .accessibilityLabel(place.title)
+                .accessibilityAddTraits(isOn ? [.isSelected, .isButton] : .isButton)
+            }
+        }
+        .frame(height: ShellMetrics.bottomTabBar)
+        .background(Chrome.Colour.chrome.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { ChromeDivider() }
     }
 }
 
-private extension ToolbarItemPlacement {
-    /// The leading end of the bar, under each platform's name for it.
-    static var leadingBar: ToolbarItemPlacement {
-        #if os(iOS)
-        .topBarLeading
-        #else
-        .navigation
-        #endif
+/// A compact place's own bar: its title centred, its commands at the trailing
+/// end — what each place's `NavigationStack` title bar was, drawn by the app.
+struct CompactPlaceBar<Trailing: View>: View {
+    let title: String
+    @ViewBuilder var trailing: () -> Trailing
+
+    init(_ title: String, @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.title = title
+        self.trailing = trailing
+    }
+
+    var body: some View {
+        ZStack {
+            ChromeLine(title, size: 13, weight: .semibold)
+                .padding(.horizontal, 90)
+                .accessibilityAddTraits(.isHeader)
+            HStack(spacing: Chrome.Metric.barSpacing) {
+                Spacer()
+                trailing()
+            }
+        }
+        .padding(.horizontal, Chrome.Metric.barPadding)
+        .frame(height: Chrome.Metric.barHeight)
+        .background(Chrome.Colour.chrome)
+        .overlay(alignment: .bottom) { ChromeDivider() }
+    }
+}
+
+extension CompactPlaceBar where Trailing == EmptyView {
+    init(_ title: String) {
+        self.init(title) { EmptyView() }
     }
 }

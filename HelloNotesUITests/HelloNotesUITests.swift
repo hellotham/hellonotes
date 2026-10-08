@@ -47,8 +47,8 @@ final class HelloNotesUITests: XCTestCase {
     //  command wired on both shells, is the `#if` two-sided. None of them can
     //  see a screen that compiles, type-checks, is reachable from the menu, and
     //  renders as an empty box — which is what iOS Settings ▸ AI did for the
-    //  whole of build 11, because `iOSSettingsView` wrapped an already-`Form`
-    //  view in a second `Form`.
+    //  whole of build 11, because the iOS settings sheet wrapped an already-
+    //  `Form` view in a second `Form`.
     //
     //  Offscreen rendering cannot catch it either: `sizeThatFits` answers 0 for
     //  a healthy `Form` (it is a viewport, so it reports the size it is
@@ -141,20 +141,27 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
-    /// The Settings sheet's own sections. `Form { Form { … } }` collapses the
-    /// inner one, and the outer sheet keeps drawing — so the failure is local to
-    /// one section and invisible from anywhere else.
+    /// Every page of Settings, and the sections on each. Settings is a strip
+    /// of five tabs over a page, the same on both platforms — so a page that
+    /// fails to draw is local to its tab and invisible from every other one,
+    /// which is exactly how build 11's collapsed form went unseen.
     @MainActor
     func testSettingsSheetDrawsEverySection() throws {
         #if os(iOS)
         let app = launchPastSplash()
         try openSettings(app)
 
-        XCTAssertTrue(app.staticTexts["Appearance"].waitForExistence(timeout: 10),
-                      "Settings opened but drew nothing")
-        for section in ["Accent color", "Text size", "AI", "Git", "Attachments",
-                        "Daily notes", "Templates"] {
-            reveal(app.staticTexts[section], in: app)
+        // By identifier: the compact shell's own tab bar has an "AI" too.
+        for (tab, sections) in [("general", ["Attachments", "Daily notes", "Templates"]),
+                                ("appearance", ["Accent color", "Text size"]),
+                                ("git", ["Commit identity", "Accounts"]),
+                                ("ai", ["Model"])] {
+            let button = app.buttons["settings.tab.\(tab)"]
+            XCTAssertTrue(button.waitForExistence(timeout: 10), "Settings has no \(tab) tab")
+            button.tap()
+            for section in sections {
+                reveal(app.staticTexts[section], in: app)
+            }
         }
         #else
         throw XCTSkip("iOS navigation test.")
@@ -168,9 +175,9 @@ final class HelloNotesUITests: XCTestCase {
         let app = launchPastSplash()
         try openSettings(app)
 
-        let models = app.buttons["Models"]
-        reveal(models, in: app)
-        models.tap()
+        let ai = app.buttons["settings.tab.ai"]
+        XCTAssertTrue(ai.waitForExistence(timeout: 10), "Settings has no AI tab")
+        ai.tap()
 
         // One model for everything, so one picker: "Writing tools" was the
         // second role, and there is no second role.
@@ -195,28 +202,73 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
-    /// Git settings reaches iOS by the same `NavigationLink` shape as AI, so it
-    /// is one edit away from the same collapse.
+    /// Git is a tab of Settings like AI, reached the same way — so it is one
+    /// edit away from the same collapse. Its accounts need no repository, so
+    /// the page always has content.
     @MainActor
     func testGitSettingsScreenIsNotEmpty() throws {
         #if os(iOS)
         let app = launchPastSplash()
         try openSettings(app)
 
-        let git = app.buttons["Repository & Accounts"]
-        guard git.exists || {
-            var n = 0
-            while !git.exists && n < 12 { app.swipeUp(); n += 1 }
-            return git.exists
-        }() else {
-            throw XCTSkip("Git settings appear only for a collection in a repository.")
-        }
+        let git = app.buttons["settings.tab.git"]
+        XCTAssertTrue(git.waitForExistence(timeout: 10), "Settings has no Git tab")
         git.tap()
         XCTAssertTrue(app.staticTexts["Commit identity"].waitForExistence(timeout: 5),
                       "Git settings opened but drew no content")
         #else
         throw XCTSkip("iOS navigation test.")
         #endif
+    }
+
+    /// **The iPad half of the whole-window parity check** (`scripts/window-parity.sh`).
+    ///
+    /// Opt-in (`TEST_RUNNER_HN_WINDOW_PARITY=1`): it rotates the simulator to
+    /// landscape, launches with the same settings the Mac half passes — so the
+    /// two windows differ in nothing but the platform — and keeps a picture of
+    /// the empty window and of one note open, for the script to compare with
+    /// the Mac's at the same size. The launch arguments are the argument domain,
+    /// so they override without writing anything.
+    @MainActor
+    func testWindowParityCapture() throws {
+        #if os(iOS)
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["HN_WINDOW_PARITY"] == "1",
+                          "Opt-in: run by scripts/window-parity.sh")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments += Self.windowParityArguments
+        app.launch()
+        let splash = app.staticTexts["Where every idea says hello."]
+        if splash.waitForExistence(timeout: 5) {
+            XCTAssertTrue(splash.waitForNonExistence(timeout: 20), "splash never dismissed")
+        }
+        sleep(2)
+        keep(XCUIScreen.main.screenshot(), named: "window-empty")
+
+        let note = app.staticTexts["Linking"].firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 10), "no Linking row in the sidebar")
+        note.tap()
+        sleep(3)
+        keep(XCUIScreen.main.screenshot(), named: "window-note")
+        #else
+        throw XCTSkip("iOS capture; the Mac half is scripts/window-parity.sh.")
+        #endif
+    }
+
+    /// The settings both halves launch with — each one's default, stated, so
+    /// neither device's history can make the two pictures differ.
+    static let windowParityArguments = [
+        "-hasSeenWelcome", "YES", "-appearanceMode", "light", "-accentChoice", "lavender",
+        "-increaseContrast", "NO", "-textScale", "1", "-editorViewMode", "edit",
+        "-sidePanel", "outline", "-sidebarWidth", "280", "-sidePanelWidth", "360",
+        "-bandContainerPaneWidth", "260", "-HNHideTips",
+    ]
+
+    private func keep(_ screenshot: XCUIScreenshot, named name: String) {
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     /// The open note itself — the axis nothing measured, and where build 12's

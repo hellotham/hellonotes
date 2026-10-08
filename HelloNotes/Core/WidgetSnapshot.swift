@@ -51,7 +51,7 @@ extension Library {
     func writeWidgetSnapshot() {
         let items = collections
             .flatMap { coll in coll.notes.map { (coll, $0) } }
-            .sorted { $0.1.lastModified > $1.1.lastModified }
+            .sorted { Note.newestFirst($0.1, $1.1) }
             .prefix(8)
             .map { WidgetSnapshot.Item(title: $0.1.title,
                                        collectionName: $0.0.rootURL.lastPathComponent,

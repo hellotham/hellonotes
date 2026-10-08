@@ -47,8 +47,11 @@ nonisolated enum MentionScanner {
 
     /// Compiled word-boundary matchers, cached by name — building an
     /// `NSRegularExpression` is costly and the same names are scanned against
-    /// thousands of notes. `NSCache` is thread-safe, matching `nonisolated`.
-    private static let regexCache = NSCache<NSString, NSRegularExpression>()
+    /// thousands of notes. `NSCache` is thread-safe, matching `nonisolated` —
+    /// Foundation documents it so, and it locks internally — which the compiler
+    /// cannot see in a type that is not `Sendable`: hence `nonisolated(unsafe)`,
+    /// rather than a second lock around a lock.
+    nonisolated(unsafe) private static let regexCache = NSCache<NSString, NSRegularExpression>()
 
     /// A case-insensitive, word-boundaried matcher for a literal name (cached).
     private static func wordRegex(for name: String) -> NSRegularExpression? {

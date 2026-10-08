@@ -11,11 +11,18 @@ import SwiftUI
 
 /// Manage the Git commit identity, connected hosting accounts (GitHub, GitLab,
 /// …), and this collection's remote.
+///
+/// **A page, with no bar of its own.** Settings names it in its tab strip and
+/// owns the way out; the sheet a collection's Git pane opens puts a bar above
+/// it (`ContentView`). It used to draw a header on the Mac and borrow a
+/// navigation bar on iOS — two ways of saying one thing, which is how one
+/// screen came to be called "Git Settings" on one platform and "Git" on the
+/// other.
 struct GitSettingsView: View {
     @Bindable var store: GitAccountsStore
     @Bindable var git: GitService
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     // Add-account form state
     @State private var newService: GitHostService = .github
@@ -27,79 +34,32 @@ struct GitSettingsView: View {
     @State private var remoteURL = ""
     @State private var remoteAccountHost = ""
 
-    /// One name for one screen. It was "Git Settings" in the Mac's sheet header
-    /// and "Git" in the title its iOS caller happened to set.
-    static let title = "Git Settings"
-
     var body: some View {
-        VStack(spacing: 0) {
-            // Both branches supply the same two things: what this screen is
-            // called, and the way out of it. The Mac opens it as a sheet, which
-            // has no chrome of its own, so both are drawn here; iOS pushes it,
-            // where the navigation bar draws them and a second row would stack
-            // a title and a dismiss under the first.
-            //
-            // The `#else` is not decoration. Stated as a one-sided gate this
-            // read as "the Mac has a title and iOS does not", and the fact that
-            // iOS got one from its caller was true by luck of where it happened
-            // to be pushed from — including the name, which was "Git" there and
-            // "Git Settings" here for one screen.
-            #if os(macOS)
-            HStack {
-                Label(Self.title, systemImage: "arrow.triangle.branch").font(.headline)
-                Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-            }
-            .padding()
-            Divider()
-            #else
-            // Nothing here: the navigation bar draws both, from the same
-            // constant — see `.navigationTitle(Self.title)` below. Stated
-            // rather than left absent, because "no header on this platform"
-            // and "this platform's header comes from its host" are different
-            // claims and only one of them is true.
-            EmptyView()
-            #endif
-
-            Form {
-                identitySection
-                accountsSection
-                if git.status.isRepository { remoteSection }
-            }
-            .formStyle(.grouped)
+        ChromeForm {
+            identitySection
+            accountsSection
+            if git.status.isRepository { remoteSection }
         }
-        // Fixed on the Mac, device-sized on iOS — a hard 540pt is 147pt wider
-        // than an iPhone's screen, which clips the form rather than scrolling it.
-        .panelFrame(width: 540, height: 620)
-        #if os(macOS)
-        // The Mac drew both in the header above, because a sheet has no chrome
-        // of its own. Setting the title here as well would name the window.
-        .navigationTitle("")
-        #else
-        // The other branch of the header above: iOS gets its title and its way
-        // back from the navigation bar, named by the same constant.
-        .navigationTitle(Self.title)
-        #endif
     }
 
     // MARK: - Identity
 
     private var identitySection: some View {
-        Section("Commit identity") {
+        ChromeSection("Commit identity") {
             LabeledField(label: "Name", text: $store.identityName, prompt: "Ada Lovelace")
             LabeledField(label: "Email", text: $store.identityEmail, prompt: "ada@example.com")
             Text("Used as the author of commits this app makes. Overrides your global git config for this collection.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
         }
     }
 
     // MARK: - Accounts
 
     private var accountsSection: some View {
-        Section("Accounts") {
+        ChromeSection("Accounts") {
             if store.accounts.isEmpty {
                 Text("No accounts yet. Add one to push and pull over HTTPS.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             ForEach(store.accounts) { account in
                 HStack {
@@ -107,55 +67,78 @@ struct GitSettingsView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(account.host).fontWeight(.medium)
                         Text("\(account.service.displayName) · \(account.username.isEmpty ? "token" : account.username)")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     }
                     Spacer()
                     Button(role: .destructive) { store.remove(account) } label: {
                         Image(systemName: "trash")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(ChromeBorderlessStyle())
                 }
             }
 
             DisclosureGroup("Add an account") {
-                Picker("Service", selection: $newService) {
-                    ForEach(GitHostService.allCases) { Text($0.displayName).tag($0) }
-                }
-                .onChange(of: newService) { _, s in if !s.defaultHost.isEmpty { newHost = s.defaultHost } }
+                // Spaced as rows: the group's own stack sets its content 4pt
+                // apart.
+                VStack(alignment: .leading, spacing: 10) {
+                    ChromePopUp("Service", selection: $newService,
+                                options: GitHostService.allCases.map { ChromeOption(value: $0, title: $0.displayName) })
+                        .onChange(of: newService) { _, s in if !s.defaultHost.isEmpty { newHost = s.defaultHost } }
 
-                LabeledField(label: "Host", text: $newHost, prompt: "github.com", isPath: true)
-                LabeledField(label: "Username", text: $newUsername, prompt: "your-username", isPath: true)
-                SecureField("Personal access token", text: $newToken)
+                    LabeledField(label: "Host", text: $newHost, prompt: "github.com", isPath: true)
+                    LabeledField(label: "Username", text: $newUsername, prompt: "your-username", isPath: true)
+                    tokenField
 
-                HStack(spacing: 10) {
-                    if let url = newService.tokenPageURL {
-                        Link(destination: url) { Label("Create a token", systemImage: "arrow.up.right.square") }
-                            .font(.caption)
+                    HStack(spacing: 10) {
+                        if let url = newService.tokenPageURL {
+                            Button { openURL(url) } label: {
+                                Label("Create a token", systemImage: "arrow.up.right.square")
+                            }
+                            .buttonStyle(ChromeLinkStyle())
+                            .accessibilityAddTraits(.isLink)
+                            .font(Chrome.Style.caption)
+                        }
+                        Text(newService.scopeHint).font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     }
-                    Text(newService.scopeHint).font(.caption).foregroundStyle(.secondary)
-                }
 
-                Button("Save Account") {
-                    store.save(service: newService, host: newHost, username: newUsername, token: newToken)
-                    newUsername = ""; newToken = ""
+                    Button("Save Account") {
+                        store.save(service: newService, host: newHost, username: newUsername, token: newToken)
+                        newUsername = ""; newToken = ""
+                    }
+                    .disabled(newHost.trimmingCharacters(in: .whitespaces).isEmpty
+                        || newToken.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                .disabled(newHost.trimmingCharacters(in: .whitespaces).isEmpty
-                    || newToken.trimmingCharacters(in: .whitespaces).isEmpty)
+                .padding(.top, 6)
             }
+        }
+    }
+
+    /// The token, in the same row as every other field here — its name on the
+    /// left, the typing on the right, the placeholder drawn by the app — but
+    /// secure, which `LabeledField` is not.
+    private var tokenField: some View {
+        LabeledContent("Personal access token") {
+            SecureField("", text: $newToken)
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
+                .foregroundStyle(Chrome.Colour.label)
+                .focusEffectDisabled()
+                .chromePlaceholder("Required", showing: newToken.isEmpty, alignment: .trailing)
+                .accessibilityLabel("Personal access token")
         }
     }
 
     // MARK: - Remote
 
     private var remoteSection: some View {
-        Section("This collection's remote") {
+        ChromeSection("This collection's remote") {
             ForEach(git.status.remotes) { remote in
                 HStack {
                     Image(systemName: remote.hasEmbeddedCredentials ? "lock.fill" : "link")
-                        .foregroundStyle(remote.hasEmbeddedCredentials ? Color.green : Color.secondary)
+                        .foregroundStyle(remote.hasEmbeddedCredentials ? Chrome.Colour.green : Chrome.Colour.secondaryLabel)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(remote.name).fontWeight(.medium)
-                        Text(remote.displayURL).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        Text(remote.displayURL).font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel).lineLimit(1).truncationMode(.middle)
                     }
                     Spacer()
                     if !remote.hasEmbeddedCredentials, let host = remote.host,
@@ -164,24 +147,21 @@ struct GitSettingsView: View {
                         Button("Authenticate") {
                             Task { await git.authenticateRemote(remote.name, account: account, token: token) }
                         }
-                        .font(.caption)
+                        .controlSize(.small)
                     }
                     Button(role: .destructive) { Task { await git.removeRemote(remote.name) } } label: {
                         Image(systemName: "trash")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(ChromeBorderlessStyle())
                 }
             }
 
             if git.status.remotes.isEmpty {
                 Text("No remote yet. Add one to sync this collection to a hosting service.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                 LabeledField(label: "Remote URL", text: $remoteURL, prompt: "https://github.com/you/notes.git", isPath: true)
                 if !store.accounts.isEmpty {
-                    Picker("Authenticate with", selection: $remoteAccountHost) {
-                        Text("None (public / SSH)").tag("")
-                        ForEach(store.accounts) { Text($0.host).tag($0.host) }
-                    }
+                    ChromePopUp("Authenticate with", selection: $remoteAccountHost, options: remoteAccountOptions)
                 }
                 Button("Add Remote") {
                     let account = store.account(forHost: remoteAccountHost)
@@ -191,5 +171,12 @@ struct GitSettingsView: View {
                 .disabled(remoteURL.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
+    }
+
+    /// No account, or one of the saved ones — by host, which is what an
+    /// account is looked up by (`GitAccountsStore.account(forHost:)`).
+    private var remoteAccountOptions: [ChromeOption<String>] {
+        [ChromeOption(value: "", title: "None (public / SSH)")]
+            + store.accounts.map { ChromeOption(value: $0.host, title: $0.host) }
     }
 }

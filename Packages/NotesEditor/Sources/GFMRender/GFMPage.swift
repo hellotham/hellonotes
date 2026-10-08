@@ -48,6 +48,52 @@ public extension GFMRenderer {
         """
     }
 
+    /// A rendered diagram's enlarge button — the page's copy of the one the
+    /// editor draws (`DiagramZoomButton`), to the same `DiagramZoomMetrics` and
+    /// in the same inks: the page's own colour at `fillOpacity`, the rule
+    /// colour, the muted text colour.
+    ///
+    /// The box that holds the picture and the button is `line-height: 0`, so
+    /// wrapping the picture in it changes nothing about the line the picture
+    /// sits on: the box is exactly the image, with the image's baseline.
+    ///
+    /// The glyph is a mask over the muted ink rather than an SF Symbol — a web
+    /// view has no symbol font — drawn as the same two arrows to opposite
+    /// corners.
+    private static var diagramZoomCSS: String {
+        let m = DiagramZoomMetrics.self
+        func px(_ v: CGFloat) -> String { "\(Int(v.rounded()))px" }
+        func fill(_ palette: GFMPalette) -> String {
+            var ink = palette.canvas
+            ink.alpha = Double(m.fillOpacity)
+            return ink.css
+        }
+        let glyph = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E"
+            + "%3Cpath d='M2.5 7V2.5H7M2.5 2.5L6.75 6.75M13.5 9V13.5H9M13.5 13.5L9.25 9.25' "
+            + "fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' "
+            + "stroke-linejoin='round'/%3E%3C/svg%3E"
+        return """
+        .hn-diagram-box { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+        .hn-zoom {
+          position: absolute; top: \(px(m.inset)); right: \(px(m.inset));
+          width: \(px(m.side)); height: \(px(m.side));
+          margin: 0; padding: 0; box-sizing: border-box;
+          border: 1px solid var(--borderColor-default, \(GFMPalette.light.border.css));
+          border-radius: \(px(m.cornerRadius));
+          background: \(fill(.light));
+          cursor: pointer; -webkit-appearance: none; appearance: none;
+        }
+        @media (prefers-color-scheme: dark) { .hn-zoom { background: \(fill(.dark)); } }
+        .hn-zoom::before {
+          content: ""; position: absolute; inset: 0; margin: auto;
+          width: \(px(m.glyph)); height: \(px(m.glyph));
+          background: var(--fgColor-muted, \(GFMPalette.light.muted.css));
+          -webkit-mask: url("\(glyph)") center / contain no-repeat;
+          mask: url("\(glyph)") center / contain no-repeat;
+        }
+        """
+    }
+
     private static func resource(_ name: String, _ ext: String) -> String {
         guard let url = Bundle.module.url(forResource: name, withExtension: ext),
               let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
@@ -232,6 +278,7 @@ public extension GFMRenderer {
         img.hn-math-inline { vertical-align: -0.25em; margin: 0 1px; }
         img.hn-math-block, img.hn-diagram, img.hn-embed { max-width: 100%; height: auto; }
         p.hn-math-wrap, p.hn-diagram-wrap { margin: 16px 0; }
+        \(diagramZoomCSS)
 
         /* highlight.js paints spans; keep GitHub's code-block box from the md css. */
         .markdown-body pre code.hljs { padding: 0; background: transparent; }

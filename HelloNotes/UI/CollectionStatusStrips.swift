@@ -33,8 +33,8 @@ struct ConditionStrip<Trailing: View>: View {
             HStack(spacing: 6) {
                 Image(systemName: symbol).foregroundStyle(tint)
                 Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
                 trailing()
                 Spacer(minLength: 0)
@@ -42,8 +42,8 @@ struct ConditionStrip<Trailing: View>: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.4))
-            Divider()
+            .background(Chrome.Colour.quaternaryLabel.opacity(0.4))
+            ChromeDivider()
         }
     }
 }
@@ -76,7 +76,7 @@ struct CollectionConditionBar: View {
                 ScanProgressStrip(collection: collection, scan: scan)
             } else if let summary = collection.lastScanSummary {
                 ConditionStrip(symbol: summary.wasCancelled ? "stop.circle" : "checkmark.circle",
-                               tint: .secondary,
+                               tint: Chrome.Colour.secondaryLabel,
                                message: summary.wasCancelled
                                    ? "Stopped scanning \(collection.name) — \(summary.notes.formatted()) notes found so far."
                                    : "Scanned \(collection.name) — \(summary.notes.formatted()) notes in \(summary.folders.formatted()) folders.") {
@@ -86,14 +86,14 @@ struct CollectionConditionBar: View {
         }
         if let collection, hasSelection {
             if case .unavailable(let reason) = collection.state {
-                ConditionStrip(symbol: "exclamationmark.triangle.fill", tint: .orange,
+                ConditionStrip(symbol: "exclamationmark.triangle.fill", tint: Chrome.Colour.orange,
                                message: "\(collection.name) is unavailable — \(reason.explanation)") {
                     Button("Try Again") { onRetry(collection) }
-                        .font(.caption)
-                        .buttonStyle(.borderless)
+                        .font(Chrome.Style.caption)
+                        .buttonStyle(ChromeBorderlessStyle())
                     Button("Locate…") { onLocate(collection) }
-                        .font(.caption)
-                        .buttonStyle(.borderless)
+                        .font(Chrome.Style.caption)
+                        .buttonStyle(ChromeBorderlessStyle())
                 }
             } else if let reason = collection.staleReason, !collection.showsScanProgress {
                 // The wording is the reason's, not this view's. Three surfaces
@@ -101,12 +101,12 @@ struct CollectionConditionBar: View {
                 // was running — which for an unreadable folder is simply untrue,
                 // and left a banner nothing could clear.
                 ConditionStrip(symbol: reason.symbol,
-                               tint: reason.isPermanent ? .orange : .secondary,
+                               tint: reason.isPermanent ? Chrome.Colour.orange : Chrome.Colour.secondaryLabel,
                                message: "\(collection.name): \(reason.explanation)") {
                     if reason.isPermanent {
                         Button("Rescan") { collection.rescan() }
-                            .font(.caption)
-                            .buttonStyle(.borderless)
+                            .font(Chrome.Style.caption)
+                            .buttonStyle(ChromeBorderlessStyle())
                     } else {
                         EmptyView()
                     }
@@ -141,7 +141,7 @@ struct SearchCompletenessNotice: View {
             if !partial.isEmpty {
                 let names = partial.map(\.name).joined(separator: ", ")
                 ConditionStrip(
-                    symbol: "exclamationmark.circle.fill", tint: .orange,
+                    symbol: "exclamationmark.circle.fill", tint: Chrome.Colour.orange,
                     message: "These results may be incomplete — \(names) "
                            + "\(partial.count == 1 ? "is" : "are") not fully indexed."
                 ) { EmptyView() }
@@ -154,7 +154,7 @@ struct SearchCompletenessNotice: View {
             if !unreadable.isEmpty {
                 let total = unreadable.reduce(0) { $0 + $1.notLocalCount }
                 ConditionStrip(
-                    symbol: "icloud.and.arrow.down", tint: .secondary,
+                    symbol: "icloud.and.arrow.down", tint: Chrome.Colour.secondaryLabel,
                     message: "\(total) item\(total == 1 ? " isn't" : "s aren't") downloaded, "
                            + "so their contents aren't searched."
                 ) {
@@ -162,8 +162,8 @@ struct SearchCompletenessNotice: View {
                         let targets = unreadable
                         Task { for collection in targets { await collection.downloadAllForSearch() } }
                     }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
+                    .font(Chrome.Style.caption)
+                    .buttonStyle(ChromeBorderlessStyle())
                 }
             }
         }
@@ -212,36 +212,37 @@ struct ScanProgressStrip: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text("Scanning \(collection.name)")
-                        .font(.caption.weight(.medium))
+                        .font(Chrome.Style.caption.weight(.medium))
                     Text(counts)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                         .monospacedDigit()
                 }
                 if let fraction = scan.fraction {
                     ProgressView(value: min(max(fraction, 0), 1))
-                        .progressViewStyle(.linear)
+                        .progressViewStyle(ChromeProgressStyle(kind: .linear))
                 } else {
                     ProgressView()
-                        .progressViewStyle(.linear)
+                        .progressViewStyle(ChromeProgressStyle(kind: .linear))
                 }
                 if let where_ {
                     Text(where_)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(Chrome.Style.caption2)
+                        .foregroundStyle(Chrome.Colour.tertiaryLabel)
                         .lineLimit(1)
                         .truncationMode(.head)
                 }
             }
             Button("Stop") { collection.cancelScan() }
-                .font(.caption)
-                .buttonStyle(.borderless)
+                .font(Chrome.Style.caption)
+                .buttonStyle(ChromeBorderlessStyle())
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        // The bar's colour, not `.bar`, which is each platform's own material.
+        .background(Chrome.Colour.chrome)
+        .overlay(alignment: .bottom) { ChromeDivider() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Scanning \(collection.name). \(counts).")
     }

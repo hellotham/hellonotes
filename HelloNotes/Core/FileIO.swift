@@ -29,6 +29,7 @@
 //
 
 import Foundation
+import Synchronization
 
 /// `nonisolated` deliberately. The target builds with
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise put every
@@ -86,6 +87,7 @@ nonisolated enum FileIO {
     /// entire cloud vault local on first open. Reading resource values is cheap
     /// metadata access and does not itself materialize the file.
     static func isMaterialized(at url: URL) -> Bool {
+        if let probe = materialisedProbes.withLock({ $0[url.path] }) { probe(Thread.isMainThread) }
         guard let values = try? url.resourceValues(forKeys: [
             .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
         ]),
@@ -94,6 +96,13 @@ nonisolated enum FileIO {
         else { return true }   // not a cloud item, or status unknown → treat as available
         return status != .notDownloaded
     }
+
+    /// Told, for a file's path, whether a look at its download state ran on
+    /// the main thread — a test's way to see where it is asked, which no
+    /// timing can show for a local file and a File Provider's can block on.
+    /// Keyed by path, so tests running at once hear only their own files;
+    /// empty outside tests.
+    nonisolated static let materialisedProbes = Mutex<[String: @Sendable (_ onMainThread: Bool) -> Void]>([:])
 
     /// Whether a note's *content* is available to read right now.
     ///
@@ -161,6 +170,95 @@ nonisolated enum FileIO {
         return try outcome.get()
     }
 
+    /// Coordinated *replace, unless the file has changed*: write `data` only if
+    /// the file's bytes are still `expected` — the ones last loaded or written —
+    /// or there is no file at all. Returns `false`, having written nothing,
+    /// when they are not.
+    ///
+    /// **The editor's save.** It replaced the file blindly, so a change made
+    /// elsewhere after the last look at the file — by another device, a sync
+    /// client, another app — was written over the moment a save came, and a
+    /// save already past its checks when the change was noticed wrote mine
+    /// over theirs with the banner up. Compared inside the write claim, no
+    /// other coordinated writer can land between the check and the replace.
+    /// Bytes, not `String ==`: a change of normalisation is a change to a file.
+    static func replace(_ data: Data, at url: URL, ifBytesAre expected: Data) throws -> Bool {
+        var coordinatorError: NSError?
+        var outcome: Result<Bool, Error> = .success(false)
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+            outcome = Result {
+                // Inside the write claim, so this read is already coordinated.
+                if let current = try? Data(contentsOf: actualURL) {
+                    guard current == expected else { return false }
+                } else if FileManager.default.fileExists(atPath: actualURL.path) {
+                    // There, and unreadable: not a file to replace blind.
+                    return false
+                }
+                try data.write(to: actualURL, options: .atomic)
+                return true
+            }
+        }
+        if let coordinatorError { throw coordinatorError }
+        return try outcome.get()
+    }
+
+    /// A new file beside `url` holding `data`, named as a conflicted copy is
+    /// named throughout the app — "Title (conflicted copy 2026-09-25).md", then
+    /// "… 2026-09-25 2).md" and on — and **never over a file already there**:
+    /// each name is tried with `create`, which refuses one. The editor keeps
+    /// mine this way when a buffer holding a conflict is let go, and the cloud
+    /// mirror keeps theirs when an upload finds the provider moved on; both
+    /// used to write a same-day name blind, so one could replace the other.
+    /// The date is the device's, Gregorian whatever the calendar in use.
+    static func createConflictedCopy(beside url: URL, holding data: Data) throws -> URL {
+        let folder = url.deletingLastPathComponent()
+        let base = url.deletingPathExtension().lastPathComponent
+        let stamp = Date().formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())
+        for attempt in 1...100 {
+            var candidate = folder.appendingPathComponent(
+                attempt == 1 ? "\(base) (conflicted copy \(stamp))" : "\(base) (conflicted copy \(stamp) \(attempt))")
+            if !url.pathExtension.isEmpty { candidate.appendPathExtension(url.pathExtension) }
+            // Metadata only, so a name already taken is passed without
+            // downloading anything; the exclusive rename is still what refuses
+            // one.
+            if FileManager.default.fileExists(atPath: candidate.path) { continue }
+            do {
+                try createAtomically(data, at: candidate)
+                return candidate
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                continue
+            }
+        }
+        throw CocoaError(.fileWriteFileExists)
+    }
+
+    /// `create`, and atomic: the bytes go to a hidden file beside `url` and are
+    /// renamed into place only if nothing is there (`RENAME_EXCL`). A quit
+    /// that ends the process mid-write — the drain has a deadline — leaves no
+    /// half of a copy under the copy's name; `create` writes in place.
+    private static func createAtomically(_ data: Data, at url: URL) throws {
+        var coordinatorError: NSError?
+        var writeError: Error?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+            let staging = actualURL.deletingLastPathComponent()
+                .appendingPathComponent(".\(UUID().uuidString).hellonotes-staging")
+            do {
+                try data.write(to: staging)
+                defer { try? FileManager.default.removeItem(at: staging) }
+                if renamex_np(staging.path, actualURL.path, UInt32(RENAME_EXCL)) != 0 {
+                    let code = errno
+                    throw code == EEXIST
+                        ? CocoaError(.fileWriteFileExists)
+                        : CocoaError(.fileWriteUnknown, userInfo: [NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)])
+                }
+            } catch { writeError = error }
+        }
+        if let coordinatorError { throw coordinatorError }
+        if let writeError { throw writeError }
+    }
+
     /// Coordinated *create* of a new file that must not already exist (daily
     /// notes, new-note creation). Fails if a file is already there, preserving
     /// the `.withoutOverwriting` guarantee callers relied on.
@@ -203,6 +301,33 @@ nonisolated enum FileIO {
         }
         if let coordinatorError { throw coordinatorError }
         if let moveError { throw moveError }
+    }
+
+    /// `data` written to a file of its own beside where it will go — the
+    /// system's replacement directory for that volume, which nothing walks —
+    /// for `putInPlace` to put there later. Off the main actor: the write is
+    /// the size of the file.
+    static func stage(_ data: Data, for destination: URL) throws -> URL {
+        let folder = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                                 appropriateFor: destination, create: true)
+        let staged = folder.appendingPathComponent(UUID().uuidString)
+        try data.write(to: staged)
+        return staged
+    }
+
+    /// Coordinated: the file at `destination` replaced by the `staged` one, in
+    /// one rename — a download, put in place after its checks.
+    static func putInPlace(_ staged: URL, at destination: URL) throws {
+        var coordinatorError: NSError?
+        var replaceError: Error?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: destination, options: .forReplacing,
+                               error: &coordinatorError) { to in
+            do { _ = try FileManager.default.replaceItemAt(to, withItemAt: staged) }
+            catch { replaceError = error }
+        }
+        if let coordinatorError { throw coordinatorError }
+        if let replaceError { throw replaceError }
     }
 
     /// Coordinated **copy** — duplicating a note. Same reasoning as `move`:

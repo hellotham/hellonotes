@@ -53,33 +53,33 @@ struct RewriteSelectionView: View {
             HStack {
                 Label(subject == .wholeNote ? "Rewrite Note" : "Rewrite Selection",
                       systemImage: "sparkles")
-                    .font(.headline)
+                    .font(Chrome.Style.headline)
                 Spacer()
                 Text(intelligence.modelName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 Button("Close") { cancelAndDismiss() }   // Replace/Insert are the commits; this just dismisses
                     .keyboardShortcut(.cancelAction)
             }
             .padding()
 
-            Divider()
+            ChromeDivider()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if case .unavailable(let reason) = intelligence.availability {
                         Label(reason, systemImage: "sparkles.slash")
-                            .foregroundStyle(.secondary).font(.callout)
+                            .foregroundStyle(Chrome.Colour.secondaryLabel).font(Chrome.Style.callout)
                     }
 
                     // The selection being rewritten.
                     Text(original)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.callout)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                         .lineLimit(6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
-                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                        .background(Chrome.Colour.quaternaryLabel.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
 
                     // Canned tasks. Expand leads for a whole note, because
                     // "turn this outline into prose" is the thing people
@@ -95,9 +95,13 @@ struct RewriteSelectionView: View {
 
                     // Free-form instruction.
                     HStack(spacing: 8) {
-                        TextField("Or describe the rewrite…", text: $instruction)
-                            .textFieldStyle(.roundedBorder)
+                        TextField("", text: $instruction)
+                            .textFieldStyle(.plain)
+                            .focusEffectDisabled()
                             .onSubmit { runCustom() }
+                            .chromePlaceholder("Or describe the rewrite…", showing: instruction.isEmpty)
+                            .accessibilityLabel("Rewrite instruction")
+                            .chromeFieldBox()
                         Button("Rewrite", action: runCustom)
                             .keyboardShortcut(.defaultAction)
                             .disabled(busy || !intelligence.isAvailable
@@ -107,27 +111,27 @@ struct RewriteSelectionView: View {
                     if busy {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("Rewriting…").foregroundStyle(.secondary)
+                            Text("Rewriting…").foregroundStyle(Chrome.Colour.secondaryLabel)
                         }
                     }
                     if let errorText {
-                        ErrorText(message: errorText, font: .callout,
-                                  systemImage: "exclamationmark.triangle", tint: .orange)
+                        ErrorText(message: errorText, font: Chrome.Style.callout,
+                                  systemImage: "exclamationmark.triangle", tint: Chrome.Colour.orange)
                     }
                     if let result {
-                        Divider()
+                        ChromeDivider()
                         Text(result)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(10)
-                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                            .background(Chrome.Colour.quaternaryLabel.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
 
                         HStack {
                             Button(subject == .wholeNote ? "Replace Note" : "Replace Selection") {
                                 onReplace(result)
                                 dismiss()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(ChromePushStyle(prominent: true))
                             Button("Insert Below") {
                                 onInsertBelow(result)
                                 dismiss()
@@ -215,7 +219,7 @@ private struct FlowLayoutish: View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
             ForEach(items, id: \.self) { label in
                 Button(label) { action(label) }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ChromePushStyle())
                     .controlSize(.small)
                     .frame(maxWidth: .infinity)
             }

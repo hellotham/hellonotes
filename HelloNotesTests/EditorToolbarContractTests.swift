@@ -73,14 +73,15 @@ struct EditorToolbarContractTests {
     /// The Mac's Format menu still reaches every editable mode.
     ///
     /// The shortcuts-bar buttons act on the text view directly, but a menu item
-    /// is addressed to the *note*, so the bus is the other half — and the
+    /// is addressed to the *editor* — never the note, which a second window
+    /// can be showing too (`EditorBus`) — so the bus is the other half, and the
     /// raw-source editor had no subscription to it at all until the toolbar
     /// work forced the question.
     @Test func theSourceEditorAnswersTheCommandBus() throws {
         let source = try Self.source("UI/SourceEditor.swift")
-        #expect(source.contains(".hnFormat("),
+        #expect(source.contains("EditorBus.format("),
                 "the raw-source editor must subscribe to the formatting bus")
-        for command in ["hnEditorUndo", "hnEditorRedo", "hnEditorEndEditing"] {
+        for command in ["EditorBus.undo(editor:", "EditorBus.redo(editor:", "EditorBus.endEditing(editor:"] {
             #expect(source.contains(command), "the source editor ignores \(command)")
         }
     }

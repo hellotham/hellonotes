@@ -6,9 +6,9 @@
 //
 //  The right panel, where the shell has no column to put it in.
 //
-//  `AdaptiveShell` gives the inspector a column at `.wideInspector` (1400pt) or
-//  in a tall shell at 900pt, and nothing below that — on both platforms. The
-//  iPad shell added an overlay for the rest; the Mac's did not.
+//  `AdaptiveShell` gave the inspector a column only at `.wideInspector`
+//  (1400pt) or in a tall shell at 900pt, and nothing below that — on both
+//  platforms. The iPad shell added an overlay for the rest; the Mac's did not.
 //
 //  **So the Mac's own default window had no inspector at all.** It opens at
 //  1100×720, which `shellKind` calls `.wide`: no column. The five toolbar
@@ -17,12 +17,16 @@
 //  size the app itself chooses to open at, on the platform where they were
 //  written — while an iPad the same size showed them.
 //
-//  The overlay does not appear on its own. `inspectorPresented` is a stored
-//  scene preference and defaults to shown, which is right for a *column*; as an
-//  overlay it is modal over the note, and a window that opens with its content
-//  covered is a window that opens broken. So the overlay additionally requires
-//  that the inspector was opened while there was no column — an intent from
-//  this session, not a preference from the last one.
+//  A column fits almost everywhere now (`ShellMetrics.hasPanelColumn`), so
+//  this is what a canvas too small for one falls back to — the phone above
+//  all. It follows `presented` and nothing else. A session-scoped "opened by
+//  hand" gate once kept a stored `true` from covering a window at launch, and
+//  made the toggle say on with nothing shown; the default is `false` instead
+//  (`ShellComplianceTests.inspectorDefaultIsOffAndTheOverlayHasNoHiddenGate`).
+//  Following `presented` asks one thing of the shell: something to draw on in
+//  every state. `ContentView` puts one over the whole detail, and one over the
+//  compact shell's places for when no note is up — without that, the phone's
+//  Graph View and AI buttons set the panel showing and nothing drew it.
 //
 
 import SwiftUI
@@ -68,8 +72,12 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
                             .onTapGesture { close() }
                         inspector()
                             .frame(width: ShellMetrics.panelIdeal)
-                            .background(.regularMaterial)
-                            .overlay(alignment: .leading) { Divider() }
+                            // The panel's own colour, as its column draws it —
+                            // not a material, which is the platform's blur.
+                            .background(Chrome.Colour.chrome)
+                            // Said: a rule outside a stack has no axis to
+                            // infer, and a horizontal one crossed the panel.
+                            .overlay(alignment: .leading) { ChromeDivider(.vertical) }
                             .transition(.move(edge: .trailing))
                     }
                 }
@@ -80,6 +88,3 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
         withAnimation(.easeInOut(duration: 0.2)) { presented = false }
     }
 }
-
-/// The inspector's own title bar: which tab, and a way to close it.
-///

@@ -7,6 +7,7 @@
 
 import Foundation
 import Markdown
+import MarkdownCore
 
 /// A heading discovered in a note, used for outline / "Open Quickly" features.
 /// `Codable` so parsed headings can persist in the collection index cache.
@@ -55,11 +56,11 @@ nonisolated enum MarkdownParsing {
         }
     }
 
-    /// Matches `[[Target]]` and `[[Target|Alias]]`, capturing the target in
-    /// group 1. Mirrors the wiki-link storage pattern
-    /// (an unescaped `!` prefix — an image — is excluded).
+    /// Matches `[[Target]]` and `[[Target|Alias]]`, capturing the target as
+    /// written in group 1 and the alias in group 2. Mirrors the wiki-link
+    /// storage pattern (an unescaped `!` prefix — an image — is excluded).
     private static let wikiLinkRegex = try! NSRegularExpression(
-        pattern: #"(?<!!)\[\[([^\|\]\r\n]*)(?:\|[^\]\r\n]+)?\]\]"#
+        pattern: #"(?<!!)\[\[([^\|\]\r\n]*)(\|[^\]\r\n]+)?\]\]"#
     )
 
     /// Matches `#tag` (letters, digits, `_`, `-`, `/`).
@@ -82,8 +83,19 @@ nonisolated enum MarkdownParsing {
     /// The distinct wiki-link targets referenced by `text`, normalised: any
     /// `#heading` suffix removed and surrounding whitespace trimmed. Empty
     /// targets (e.g. a bare `[[]]`) are dropped. Order-preserving, de-duplicated.
+    ///
+    /// The target is read by the rule every reader of a link shares
+    /// (`WikiLinkSyntax`): a table's aliased link, `[[Note\|alias]]`, names
+    /// `Note`. Read up to the pipe, it named `Note\`, and was missing from
+    /// backlinks and the graph (implemented.md §51.36).
     static func wikiLinkTargets(in text: String) -> [String] {
-        matches(of: wikiLinkRegex, in: text, group: 1)
+        let range = NSRange(text.startIndex..., in: text)
+        return wikiLinkRegex.matches(in: text, range: range)
+            .compactMap { match -> String? in
+                guard let written = Range(match.range(at: 1), in: text) else { return nil }
+                let aliased = match.range(at: 2).location != NSNotFound
+                return String(WikiLinkSyntax.target(written: text[written], aliased: aliased))
+            }
             .map { target in
                 // `omittingEmptySubsequences: false` so an intra-document link
                 // like `[[#Overview]]` splits to ["", "Overview"] and yields an
@@ -219,15 +231,25 @@ nonisolated enum MarkdownParsing {
         return s.trimmingCharacters(in: .whitespaces)
     }
 
-    /// Matches fenced ```mermaid blocks, capturing the diagram source (group 1).
-    private static let mermaidRegex = try! NSRegularExpression(
-        pattern: "```mermaid[ \\t]*\\n(.*?)\\n```",
-        options: [.dotMatchesLineSeparators]
-    )
+    /// The note's Mermaid diagrams, in order, each with where its fence is.
+    ///
+    /// Asked of the editor's own parser (`ParseResult.mermaidDiagrams`), so a
+    /// fence the editor draws as a picture is exactly a fence listed here. This
+    /// was a regular expression that knew one spelling — a lowercase backtick
+    /// fence whose info string was the one word — so `~~~mermaid`,
+    /// ```` ```Mermaid ```` and ```` ```mermaid theme ```` were pictures in the
+    /// note the app could not find: no Mermaid command in the menu, and a zoom
+    /// that could not list the diagram just clicked. A whole-document parse,
+    /// as the expression was a whole-document scan; the callers that only ask
+    /// whether there is one already ask off the main actor.
+    static func mermaidDiagrams(in text: String) -> [MermaidDiagram] {
+        let ns = text as NSString
+        return BlockParser.fullParse(ns).mermaidDiagrams(in: ns)
+    }
 
-    /// The Mermaid diagram sources found in fenced ```mermaid blocks.
+    /// The note's Mermaid diagram sources, in order (`mermaidDiagrams`).
     static func mermaidBlocks(in text: String) -> [String] {
-        matches(of: mermaidRegex, in: text, group: 1)
+        mermaidDiagrams(in: text).map(\.source)
     }
 
     /// Parse leading YAML front matter (a `---`-delimited block at the very top)
@@ -317,15 +339,6 @@ nonisolated enum MarkdownParsing {
     }
 
     // MARK: - Private
-
-    private static func matches(of regex: NSRegularExpression, in text: String, group: Int) -> [String] {
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.matches(in: text, range: range).compactMap { match in
-            guard match.numberOfRanges > group,
-                  let r = Range(match.range(at: group), in: text) else { return nil }
-            return String(text[r])
-        }
-    }
 
     private struct HeadingCollector: MarkupWalker {
         var headings: [DocumentHeading] = []

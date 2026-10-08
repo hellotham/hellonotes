@@ -4,23 +4,23 @@
 //
 //  Created by Chris Tham on 16/8/2026.
 //
-//  One rule for the AI panels that now ship on both platforms.
+//  One size for a panel presented as a sheet, on both platforms.
 //
-//  A Mac panel is sized by its content — nothing else decides how big a sheet
-//  is. An iOS sheet is sized by the *device*, and a hard 520pt width is 130pt
-//  wider than an iPhone 15's screen, so carrying the Mac's number across is not
-//  a cosmetic difference: it clips the Replace button off the edge.
+//  It was a fixed size on the Mac and "whatever the device gives a sheet" on
+//  iOS — so the iPad's form sheet drew the same panel at its own width and
+//  height, and the two were different layouts of one screen. Now both take the
+//  panel's size (`chromeSheetFrame`): the Mac's sheet is that size, the iPad's
+//  sheet fits itself to it, and a phone — narrower than the panel — still gets
+//  a sheet that fits the screen. A hard 520pt width would be 130pt wider than
+//  an iPhone 15 and clip the Replace button off the edge, which is why the
+//  width is a maximum there rather than a demand.
 //
 
 import SwiftUI
 
 extension View {
-    /// A fixed panel size on the Mac; device-sized on iOS.
+    /// The panel's size, as a sheet, on both platforms.
     func panelFrame(width: CGFloat, height: CGFloat) -> some View {
-        #if os(macOS)
-        return frame(width: width, height: height)
-        #else
-        return frame(maxWidth: .infinity, maxHeight: .infinity)
-        #endif
+        chromeSheetFrame(width: width, height: height)
     }
 }

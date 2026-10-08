@@ -30,12 +30,14 @@ struct SlidesView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            ChromeDivider()
             deck
-            Divider()
+            ChromeDivider()
             controls
         }
-        .frame(width: 900, height: 640)
+        // The Mac's sheet size, on both: the iPad's sheet fits itself to it
+        // rather than handing the deck the device's form-sheet size.
+        .chromeSheetFrame(width: 900, height: 640)
         .onChange(of: slides.count) { _, count in
             if index >= count { index = max(0, count - 1) }
         }
@@ -43,7 +45,7 @@ struct SlidesView: View {
 
     private var header: some View {
         HStack {
-            Label("Slides — \(title)", systemImage: "rectangle.on.rectangle").font(.headline)
+            Label("Slides — \(title)", systemImage: "rectangle.on.rectangle").font(Chrome.Style.headline)
             Spacer()
             Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
         }
@@ -53,15 +55,15 @@ struct SlidesView: View {
     @ViewBuilder
     private var deck: some View {
         if slides.isEmpty {
-            ContentUnavailableView("No slides", systemImage: "rectangle.on.rectangle",
-                                   description: Text("Separate slides with a line containing only `---`."))
+            ChromeEmptyState("No slides", systemImage: "rectangle.on.rectangle",
+                             description: Text("Separate slides with a line containing only `---`."))
         } else {
             let current = min(index, slides.count - 1)
             SlideWebView(html: MarpSlides.slideHTML(slides[current], dark: colorScheme == .dark), baseURL: baseURL)
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
                 .background(Color.black.opacity(0.04))
                 .padding(16)
-                .background(.background)
+                .background(Chrome.Colour.content)
         }
     }
 
@@ -71,12 +73,11 @@ struct SlidesView: View {
                 .keyboardShortcut(.leftArrow, modifiers: [])
                 .disabled(index <= 0)
                 .accessibilityLabel("Previous slide")
-            Menu("\(min(index, max(0, slides.count - 1)) + 1) / \(max(slides.count, 1))") {
+            ChromePullDown("\(min(index, max(0, slides.count - 1)) + 1) / \(max(slides.count, 1))") {
                 ForEach(Array(slides.enumerated()), id: \.offset) { i, slide in
                     Button("\(i + 1). \(slideTitle(slide))") { index = i }
                 }
             }
-            .fixedSize()
             .accessibilityLabel("Slide \(min(index, max(0, slides.count - 1)) + 1) of \(max(slides.count, 1))")
             Button { step(1) } label: { Image(systemName: "chevron.right") }
                 .keyboardShortcut(.rightArrow, modifiers: [])
@@ -84,9 +85,9 @@ struct SlidesView: View {
                 .accessibilityLabel("Next slide")
             Spacer()
         }
-        .font(.callout)
+        .font(Chrome.Style.callout)
         .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(.bar)
+        .background(Chrome.Colour.chrome)
     }
 
     private func step(_ delta: Int) {

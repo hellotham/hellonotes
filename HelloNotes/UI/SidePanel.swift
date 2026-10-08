@@ -26,6 +26,7 @@
 //
 
 import SwiftUI
+import MarkdownEditor
 
 /// What the right panel is showing. Persisted, so the panel reopens where it
 /// was left (`shell-chrome.md` decision 10).
@@ -99,55 +100,62 @@ struct SidePanelHeader: View {
     @Binding var panel: SidePanel
     /// Whether a note is open; the note's panels need one.
     var hasNote: Bool
+    var accent: Color = .accentColor
     let onClose: () -> Void
 
+    @Environment(\.shell) private var shell
+
+    /// Whether Escape closes the panel: only where it is carried over the
+    /// note (a phone), never where it is a column beside it. As a column it
+    /// took Escape from the find bar's Done and the Assistant's approval card,
+    /// whose Deny it is — Escape during an approval could close the panel
+    /// instead of denying the edit (secondary.md §9, item 8; implemented.md
+    /// §51.36).
+    private var escapeCloses: Bool {
+        !ShellMetrics.hasPanelColumn(kind: shell.kind, width: shell.size.width)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        // The bar's height and chrome, so the panel's header and the editor's
+        // bar are one continuous row. It was 8pt of padding around 26pt icons
+        // in `.headline`, which is 13pt on the Mac and 17pt on iOS.
+        HStack(spacing: Chrome.Metric.barSpacing) {
             ViewThatFits(in: .horizontal) {
                 strip
                 pullDown
             }
             Spacer(minLength: 0)
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
-            .accessibilityLabel("Close panel")
+            ChromeButton(title: "Close panel", systemImage: "xmark.circle.fill", accent: accent,
+                         action: onClose)
+                .keyboardShortcut(escapeCloses ? .cancelAction : nil)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Chrome.Metric.barPadding)
+        .frame(height: Chrome.Metric.barHeight)
+        .background(Chrome.Colour.chrome)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
+        }
     }
 
-    /// Nine icons, the note's six and the collection's three, with a rule
-    /// between the groups.
+    /// Nine buttons, the note's six and the collection's three, with a rule
+    /// between the groups — the bar's own buttons, so the chosen one is drawn
+    /// exactly as the bar draws a button that is on.
     private var strip: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Chrome.Metric.barSpacing) {
             ForEach(SidePanel.aboutTheNote) { icon(for: $0) }
-            Divider().frame(height: 16).padding(.horizontal, 4)
+            Rectangle().fill(Chrome.Colour.separator).frame(width: 1, height: 16)
+                .padding(.horizontal, 2)
             ForEach(SidePanel.aboutTheCollection) { icon(for: $0) }
         }
         .fixedSize()
     }
 
     private func icon(for choice: SidePanel) -> some View {
-        Button {
+        ChromeButton(title: choice.title, systemImage: choice.systemImage,
+                     isOn: choice == panel, accent: accent) {
             panel = choice
-        } label: {
-            Image(systemName: choice.systemImage)
-                .frame(width: 30, height: 26)
-                .contentShape(.rect)
         }
-        .buttonStyle(.plain)
-        // Not the tint on the tint: a selected row and `.selection` are the
-        // accent itself on iPad, and an accent glyph inside one is a blank pill.
-        .foregroundStyle(choice == panel ? Color.accentColor : .secondary)
-        .background(choice == panel ? AnyShapeStyle(Color.accentColor.opacity(0.18))
-                                    : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: 6))
         .disabled(choice.needsNote && !hasNote)
-        .help(choice.title)
-        .accessibilityLabel(choice.title)
         .accessibilityAddTraits(choice == panel ? [.isSelected] : [])
     }
 
@@ -166,11 +174,22 @@ struct SidePanelHeader: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Label(panel.title, systemImage: panel.systemImage).font(.headline)
-                Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
+                Image(systemName: panel.systemImage)
+                    .font(Chrome.Typeface.rowIcon)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                Text(panel.title)
+                    .font(Chrome.Typeface.title)
+                    .foregroundStyle(Chrome.Colour.label)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Chrome.Colour.tertiaryLabel)
             }
+            .frame(height: Chrome.Metric.control)
+            .contentShape(.rect)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(ChromePlainStyle())
+        .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel("Showing \(panel.title). Choose what this panel shows")
     }
@@ -201,6 +220,11 @@ struct GraphPanel: View {
 /// The mind map of the open note.
 struct MindMapPanel: View {
     let rootURL: URL
+    /// The editor showing `rootURL` in this window — the one a section tap
+    /// scrolls (`EditorBus`). The find it posts was addressed to no one, so a
+    /// section tapped here selected that heading's text in every editor in
+    /// every window that had it.
+    let editorID: String
 
     @Environment(Library.self) private var library
     @Environment(LiveBuffer.self) private var liveBuffer
@@ -234,10 +258,10 @@ struct MindMapPanel: View {
         Task { @MainActor in
             // Give the shell a beat to switch notes before searching.
             try? await Task.sleep(for: .milliseconds(400))
-            NotificationCenter.default.post(name: .hnEditorFindQuery, object: nil,
+            NotificationCenter.default.post(name: EditorBus.findQuery(editor: editorID), object: nil,
                                             userInfo: ["query": heading])
             try? await Task.sleep(for: .milliseconds(1200))
-            NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
+            NotificationCenter.default.post(name: EditorBus.clearHighlights(editor: editorID), object: nil)
         }
     }
 }

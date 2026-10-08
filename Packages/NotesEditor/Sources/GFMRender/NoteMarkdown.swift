@@ -27,10 +27,32 @@ public enum NoteMarkdown {
     /// Prepare `text` (a full note) for GitHub-identical rendering: drop the
     /// front matter, rewrite the wiki constructs, leave everything else — it
     /// is already GFM — exactly as it was.
+    ///
+    /// What is front matter, and what is a table, are asked of ``BlockParser``
+    /// rather than re-derived, because the editor answers both from it: it
+    /// *folds* whatever the parser calls front matter and Preview *strips* it,
+    /// and it lays out what the parser calls a table, unescaping the cells'
+    /// pipes as it goes. Two rules would be two answers, and the note where
+    /// they differed would show a block of YAML on one surface and nothing on
+    /// the other, or link one note on one surface and another on the other.
+    /// (Two dashes are not front matter on their own — the block has to carry
+    /// a `key:` — or a note opening with a horizontal rule would have
+    /// everything down to its next rule deleted from Preview.)
     public static func prepare(_ text: String) -> String {
+        let ns = text as NSString
+        let blocks = ns.length > 0 ? BlockParser.fullParse(ns).blocks : []
+        var start = 0
+        if let first = blocks.first, case .frontMatter = first.kind { start = NSMaxRange(first.range) }
+        let tables = blocks.compactMap { block -> NSRange? in
+            if case .table = block.kind { return block.range } else { return nil }
+        }
+
         var out: [String] = []
         var fence: String? = nil          // the open ``` / ~~~ run, if any
-        for line in body(of: text).components(separatedBy: "\n") {
+        var next = start                  // where the next line starts in `text`
+        for line in ns.substring(from: start).components(separatedBy: "\n") {
+            let lineStart = next
+            next += (line as NSString).length + 1
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if let f = fence {
                 out.append(line)
@@ -42,33 +64,17 @@ public enum NoteMarkdown {
                 out.append(line)
                 continue
             }
-            out.append(rewriteWikiConstructs(line))
+            let inTable = tables.contains { NSLocationInRange(lineStart, $0) }
+            out.append(rewriteWikiConstructs(line, inTable: inTable))
         }
         return out.joined(separator: "\n")
-    }
-
-    /// The note without its leading front matter.
-    ///
-    /// Asked of ``BlockParser`` rather than re-derived, because the editor
-    /// *folds* whatever the parser calls front matter and Preview *strips* it:
-    /// two rules would be two answers, and the note where they differed would
-    /// show a block of YAML on one surface and nothing on the other. (Two
-    /// dashes are not front matter on their own — the block has to carry a
-    /// `key:` — or a note opening with a horizontal rule would have everything
-    /// down to its next rule deleted from Preview.)
-    private static func body(of text: String) -> String {
-        let ns = text as NSString
-        guard ns.length > 0 else { return text }
-        let parse = BlockParser.fullParse(ns)
-        guard let first = parse.blocks.first, case .frontMatter = first.kind else { return text }
-        return ns.substring(from: first.range.location + first.range.length)
     }
 
     /// Rewrite wiki constructs on a line, but leave inline code spans (`` `…` ``)
     /// verbatim — documentation of the wiki syntax like `` `[[Note]]` `` must
     /// render literally (as it does on GitHub), not as a link.
-    private static func rewriteWikiConstructs(_ line: String) -> String {
-        guard line.contains("`") else { return rewriteWikiLinks(line) }
+    private static func rewriteWikiConstructs(_ line: String, inTable: Bool) -> String {
+        guard line.contains("`") else { return rewriteWikiLinks(line, inTable: inTable) }
         var out = ""
         var idx = line.startIndex
         while idx < line.endIndex {
@@ -86,7 +92,7 @@ public enum NoteMarkdown {
             } else {
                 let segStart = idx
                 while idx < line.endIndex, line[idx] != "`" { idx = line.index(after: idx) }
-                out += rewriteWikiLinks(String(line[segStart..<idx]))
+                out += rewriteWikiLinks(String(line[segStart..<idx]), inTable: inTable)
             }
         }
         return out
@@ -99,22 +105,41 @@ public enum NoteMarkdown {
     /// concurrency error rather than a cache. The `contains("[[")` guard is
     /// what keeps that from mattering — a note's lines overwhelmingly do not
     /// hold a wiki link, and those never build a pattern at all.
-    private static func rewriteWikiLinks(_ line: String) -> String {
+    private static func rewriteWikiLinks(_ line: String, inTable: Bool) -> String {
         guard line.contains("[[") else { return line }
         // ![[ target (| alias)? ]]  — the alias is display-only, drop it for images.
-        let embedRegex = /!\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/
+        let embedRegex = /!\[\[([^\]|]+)(\|[^\]]+)?\]\]/
         // [[ target (| alias)? ]]
         let wikiRegex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/
         var s = line
         s = s.replacing(embedRegex) { match in
-            "![](" + encode(String(match.1)) + ")"
+            "![](" + encode(target(String(match.1), aliased: match.2 != nil, inTable: inTable)) + ")"
         }
+        // A link's destination is a `hellonotes-wiki:` address, as Edit's is,
+        // so a click on it is told from any other link's and followed to the
+        // note (`GFMPreview.onLinkTap`). Given as a path, relative to the
+        // note's folder, it was indistinguishable from `[report](report.pdf)`,
+        // and following one creates the note it names.
         s = s.replacing(wikiRegex) { match in
-            let target = String(match.1)
-            let alias = match.2.map(String.init) ?? target
-            return "[\(alias)](" + encode(target) + ")"
+            let alias = match.2.map(String.init)
+            let name = target(String(match.1), aliased: alias != nil, inTable: inTable)
+            return "[\(alias ?? name)](\(WikiLinkSyntax.urlScheme):" + encode(name) + ")"
         }
         return s
+    }
+
+    /// The target as written before the alias's pipe, read as the editor
+    /// reads it. In a table the row is read first: a backslash directly
+    /// before a pipe is the row's escape, and the cell holds the pipe without
+    /// it (`GFMTableLayout.cells`, as cmark-gfm reads a row) — a table needs
+    /// it, `[[Note\|alias]]`, or the pipe divides the cell. Then the link's
+    /// own rule (`WikiLinkSyntax`): an escape left on the alias's pipe is not
+    /// the target's, in a table or out of one. Left on, Preview linked
+    /// `Note%5C` (implemented.md §51.33, §51.36).
+    private static func target(_ written: String, aliased: Bool, inTable: Bool) -> String {
+        var written = Substring(written)
+        if inTable, aliased, written.last == "\\" { written = written.dropLast() }
+        return String(WikiLinkSyntax.target(written: written, aliased: aliased))
     }
 
     private static func encode(_ s: String) -> String {

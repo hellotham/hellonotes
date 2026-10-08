@@ -37,10 +37,18 @@ struct LabeledField: View {
         }
     }
 
+    /// The Mac's form row: the name on the left, the value typed at the right
+    /// with no box — and the placeholder drawn by the app, the same grey on
+    /// both platforms, where a system prompt is a different grey on each.
     @ViewBuilder
     private var field: some View {
-        let base = TextField("", text: $text, prompt: Text(prompt))
+        let base = TextField("", text: $text)
+            .textFieldStyle(.plain)
             .multilineTextAlignment(.trailing)
+            .foregroundStyle(Chrome.Colour.label)
+            .focusEffectDisabled()
+            .chromePlaceholder(prompt, showing: text.isEmpty, alignment: .trailing)
+            .accessibilityLabel(label)
         if isPath {
             base.pathStyled()
         } else {

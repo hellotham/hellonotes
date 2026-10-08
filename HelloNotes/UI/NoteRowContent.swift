@@ -6,10 +6,10 @@
 //
 //  What a note row in the sidebar *says* — decided once, for both platforms.
 //
-//  The two sidebars cannot share a view: macOS draws `NSTableCellView`s inside
-//  an `NSOutlineView` (`NoteOutlineList`), iOS draws SwiftUI rows in a `List`.
-//  That much is a genuine platform difference. What is not is the *content* —
-//  and with nothing shared, the two drifted all the way apart: the Mac's row is
+//  The two sidebars drew different views once — `NSTableCellView`s in an
+//  `NSOutlineView` on the Mac, SwiftUI rows in a `List` on iOS — and are one
+//  drawn list now (`NoteOutlineList`). Before that, not even the *content* was
+//  shared, and the two drifted all the way apart: the Mac's row was
 //  a semibold title, a cloud badge when the note is online-only, and a second
 //  line carrying the search snippet or the last-modified date. The iPad's was
 //  `Text(note.title)`. Same tree, same data, half the information.

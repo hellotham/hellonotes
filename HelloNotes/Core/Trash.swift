@@ -26,7 +26,9 @@
 
 import Foundation
 
-enum Trash {
+/// `nonisolated`: a delete runs away from the main actor (`Collection.deleteNote`,
+/// `RemoteMirror.sendDelete(of:removing:failed:)`).
+nonisolated enum Trash {
 
     /// What became of the item.
     enum Outcome: Equatable {

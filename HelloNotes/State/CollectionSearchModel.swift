@@ -16,8 +16,15 @@ struct SearchHit: Identifiable, Hashable {
 }
 
 /// An "Open Quickly" candidate — a note, or a heading within a note.
-struct QuickOpenItem: Identifiable, Hashable {
-    enum Kind: Hashable { case note, heading }
+///
+/// `nonisolated`, as the index's other types are: the aggregate fold builds
+/// these off the main actor (`buildItems`), and in this target an unannotated
+/// type is `@MainActor` — clean only while the fold touched nothing but stored
+/// properties. One computed member more and the fold would have been reading
+/// main-actor state off the main actor: not a hop — a synchronous body cannot
+/// hop — but an unchecked race the compiler could only warn about.
+nonisolated struct QuickOpenItem: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable { case note, heading }
     let id: String
     let note: Note
     let kind: Kind
@@ -35,7 +42,9 @@ struct QuickOpenItem: Identifiable, Hashable {
 @MainActor
 @Observable
 final class CollectionSearchModel {
-    private struct Entry: Sendable {
+    /// `nonisolated`, like `Derived` and `QuickOpenItem`: the folds below build
+    /// and read these off the main actor.
+    private nonisolated struct Entry: Sendable {
         let note: Note
         let headings: [DocumentHeading]
         let tags: [String]
@@ -49,12 +58,16 @@ final class CollectionSearchModel {
     // is the four `cached*` aggregates below.
     @ObservationIgnored private var entries: [Entry] = []
     @ObservationIgnored private var entryByURL: [URL: Entry] = [:]
+    /// Where each note's entry is in `entries`, so a save finds its own
+    /// without a pass over the collection: a burst — a rename's rewrite saves
+    /// one note per backlink — was a pass per save, quadratic in the burst.
+    @ObservationIgnored private var positionByURL: [URL: Int] = [:]
 
     // Derived aggregates — the only observable state. Each is written only when
     // it actually changed (see `apply`), so a rebuild whose result is identical
     // never invalidates the sidebar's tag tree or anything else.
     private var cachedTags: [String] = []
-    private var cachedTagTree: [TagNode] = []
+    private var cachedTagCounts: [String: Int] = [:]
     private var cachedLinkTargets: [String] = []
     private var cachedItems: [QuickOpenItem] = []
 
@@ -94,7 +107,9 @@ final class CollectionSearchModel {
     /// cache) — no file reads. The fold into aggregates runs off the main
     /// actor; the main actor only receives the finished, signature-gated result.
     func load(pairs: [(note: Note, record: NoteIndexRecord)]) async {
-        let derived = await Task.detached(priority: .utility) { () -> Derived in
+        // `offMain`, as `refresh(from:)` has: `Task.detached` promises nothing
+        // about isolation in this target.
+        let derived = await offMain { () -> Derived in
             let entries = pairs.map { pair in
                 Entry(note: pair.note,
                       headings: pair.record.headings,
@@ -102,17 +117,22 @@ final class CollectionSearchModel {
                       aliases: pair.record.aliases)
             }
             return CollectionSearchModel.computeDerived(from: entries)
-        }.value
+        }
+        // A rebuild replaced by a newer one while this was computed must not
+        // land after it: the two computations finish in either order.
+        guard !Task.isCancelled else { return }
         apply(derived, replacingEntries: true)
     }
 
     /// The off-main product of an index rebuild — everything the model serves,
     /// computed away from the main actor so it never competes with typing.
-    private struct Derived: Sendable {
+    private nonisolated struct Derived: Sendable {
         var entries: [Entry]
         var entryByURL: [URL: Entry]
+        var position: [URL: Int]
         var tags: [String]
-        var tagTree: [TagNode]
+        /// How many notes carry each tag, lowercased, or a tag under it.
+        var tagCounts: [String: Int]
         var linkTargets: [String]
         var items: [QuickOpenItem]
         var signature: Int
@@ -120,13 +140,29 @@ final class CollectionSearchModel {
 
     /// Pure and `nonisolated`, so it runs on a background executor: data in,
     /// data out, no actor state and no I/O. This is the O(collection) work —
-    /// tag set, tag tree, link targets, quick-open items — kept off the editor
+    /// tag set, tag counts, link targets, quick-open items — kept off the editor
     /// thread.
     private nonisolated static func computeDerived(from entries: [Entry]) -> Derived {
         let entryByURL = Dictionary(entries.map { ($0.note.fileURL, $0) }, uniquingKeysWith: { first, _ in first })
+        let position = Dictionary(entries.indices.map { (entries[$0].note.fileURL, $0) },
+                                  uniquingKeysWith: { first, _ in first })
         let tags = Set(entries.flatMap(\.tags))
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        let tagTree = TagTree.build(from: tags)
+        // Each note counted once for each tag it carries and every tag above
+        // one — `a/b/c` is carried by `a`, `a/b` and `a/b/c` — as `carries`
+        // reads it, so a count is a lookup.
+        var tagCounts: [String: Int] = [:]
+        for entry in entries {
+            var carried = Set<String>()
+            for tag in entry.tags {
+                var above = ""
+                for part in tag.lowercased().split(separator: "/", omittingEmptySubsequences: false) {
+                    above = above.isEmpty ? String(part) : above + "/" + part
+                    carried.insert(above)
+                }
+            }
+            for tag in carried { tagCounts[tag, default: 0] += 1 }
+        }
         var seen = Set<String>()
         let linkTargets = entries
             .flatMap { [$0.note.title] + $0.aliases }
@@ -141,8 +177,8 @@ final class CollectionSearchModel {
             hasher.combine(entry.aliases)
             hasher.combine(entry.headings)
         }
-        return Derived(entries: entries, entryByURL: entryByURL, tags: tags,
-                       tagTree: tagTree, linkTargets: linkTargets, items: items,
+        return Derived(entries: entries, entryByURL: entryByURL, position: position, tags: tags,
+                       tagCounts: tagCounts, linkTargets: linkTargets, items: items,
                        signature: hasher.finalize())
     }
 
@@ -156,22 +192,24 @@ final class CollectionSearchModel {
         if replacingEntries {
             entries = derived.entries
             entryByURL = derived.entryByURL
+            positionByURL = derived.position
+            // A fold still waiting was of the entries just replaced: landing
+            // after this, it would put their tags, link targets and Open
+            // Quickly items back over these. A patch made while this was
+            // built is the caller's to make again (`Collection.refreshDerived`).
+            aggregateRebuildTask?.cancel()
+            aggregateRebuildTask = nil
         }
         guard derived.signature != aggregateSignature else { return }
         aggregateSignature = derived.signature
-        if derived.tags != cachedTags {
-            cachedTags = derived.tags
-            cachedTagTree = derived.tagTree
-        }
+        if derived.tags != cachedTags { cachedTags = derived.tags }
+        if derived.tagCounts != cachedTagCounts { cachedTagCounts = derived.tagCounts }
         if derived.linkTargets != cachedLinkTargets { cachedLinkTargets = derived.linkTargets }
         if derived.items != cachedItems { cachedItems = derived.items }
     }
 
     /// All distinct hashtags across the collection, sorted case-insensitively.
     func allTags() -> [String] { cachedTags }
-
-    /// The collection's hashtags as a hierarchical tree (`a/b` nests `b` under `a`).
-    func tagTree() -> [TagNode] { cachedTagTree }
 
     /// All note titles plus their aliases — the candidate targets a
     /// `[[wiki-link]]` can point at.
@@ -183,13 +221,16 @@ final class CollectionSearchModel {
         entries.filter(carries(tag)).map(\.note)
     }
 
-    /// How many notes `notesTagged` would return, without building the array.
+    /// How many notes `notesTagged` would return — a lookup in the counts the
+    /// index folds off the main actor.
     ///
-    /// The tag rail asks this for every matching tag, inside a sort comparator,
-    /// while the reader types — so the `[Note]` it used to allocate was walked
-    /// once for its `count` and thrown away, per tag, per comparison.
+    /// The Tags view asks this for every matching tag in its body, at each
+    /// pause in typing, and it walked every note per tag: 4 ms for 223 tags
+    /// over 2,027 notes, 40 ms at five tags a note (implemented.md §51.36).
+    /// The fold follows a save a quarter of a second behind, as the tag list
+    /// itself does.
     func noteCountTagged(_ tag: String) -> Int {
-        entries.count(where: carries(tag))
+        cachedTagCounts[tag.lowercased()] ?? 0
     }
 
     /// One definition of "carries this tag", so the list and the count can
@@ -210,44 +251,58 @@ final class CollectionSearchModel {
         entryByURL[url]?.aliases ?? []
     }
 
-    /// Replace (or insert) the indexed entry for `note` from its in-memory text —
-    /// no disk read. Used to keep the index fresh after a save without
-    /// re-reading the whole collection.
-    func updateNote(_ note: Note, text: String) {
-        let parsed = CollectionIndexCache.parse(text)
-        let entry = Entry(note: note,
-                          headings: parsed.headings,
-                          tags: parsed.tags,
-                          aliases: parsed.aliases)
-        if let i = entries.firstIndex(where: { $0.note.fileURL == note.fileURL }) {
-            entries[i] = entry
-        } else {
-            entries.append(entry)
-        }
-        // Patch the O(1) lookup immediately (it backs `aliases(of:)` and the
+    /// Replace (or insert) the indexed entry for `note` from what its text was
+    /// parsed to — by a save, off the main actor (`Collection.indexSaved`) —
+    /// with no disk read and no parse, to keep the index fresh after a save
+    /// without re-reading the whole collection.
+    func updateNote(_ note: Note, headings: [DocumentHeading], tags: [String], aliases: [String]) {
+        patch(Entry(note: note, headings: headings, tags: tags, aliases: aliases))
+        // Patch the O(1) lookups immediately (they back `aliases(of:)` and the
         // save path), but debounce the O(collection) aggregate rebuild (tags,
         // tag tree, link targets, quick-open items) so a burst of edits across
         // notes coalesces into one rebuild instead of one per autosave.
-        entryByURL[note.fileURL] = entry
         scheduleAggregateRebuild()
+    }
+
+    /// `updateNote` for several notes at once, folded once.
+    func updateNotes(_ updates: [(note: Note, headings: [DocumentHeading], tags: [String], aliases: [String])]) {
+        guard !updates.isEmpty else { return }
+        for update in updates {
+            patch(Entry(note: update.note, headings: update.headings, tags: update.tags, aliases: update.aliases))
+        }
+        scheduleAggregateRebuild()
+    }
+
+    /// Replace the note's entry, or add it.
+    private func patch(_ entry: Entry) {
+        let url = entry.note.fileURL
+        if let i = positionByURL[url] {
+            entries[i] = entry
+        } else {
+            positionByURL[url] = entries.count
+            entries.append(entry)
+        }
+        entryByURL[url] = entry
     }
 
     @ObservationIgnored private var aggregateRebuildTask: Task<Void, Never>?
 
     private func scheduleAggregateRebuild() {
         aggregateRebuildTask?.cancel()
-        // Snapshot the live entries (O(1) COW). `updateNote` already patched
-        // them and the O(1) lookup synchronously, so queries are correct
-        // immediately; only the O(collection) aggregate fold is deferred —
-        // and it runs off the main actor, so the editor thread is never
-        // blocked by it.
-        let snapshot = entries
         aggregateRebuildTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
-            let derived = await Task.detached(priority: .utility) {
+            // Snapshot the live entries (O(1) COW) once the edits have
+            // paused. `updateNote` already patched them and the O(1) lookup
+            // synchronously, so queries are correct immediately; only the
+            // O(collection) aggregate fold is deferred — and it runs off the
+            // main actor, so the editor thread is never blocked by it. Taken
+            // when the fold was scheduled instead, the snapshot shared the
+            // array through the wait, and every patch in a burst — a rename's
+            // rewrite saves one note per backlink — copied all of it.
+            guard !Task.isCancelled, let snapshot = self?.entries else { return }
+            let derived = await offMain {
                 CollectionSearchModel.computeDerived(from: snapshot)
-            }.value
+            }
             guard !Task.isCancelled, let self else { return }
             // Entries are maintained live by `updateNote`; only fold in the
             // aggregates (signature-gated, so unchanged metadata is a no-op).
@@ -294,6 +349,8 @@ final class CollectionSearchModel {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
 
+        // Built once and handed to the reads as it is: the same dictionary
+        // was built a second time, on the main actor, for every query.
         let noteByURL = Dictionary(entries.map { ($0.note.fileURL, $0.note) },
                                    uniquingKeysWith: { first, _ in first })
         let urls: [URL]
@@ -305,23 +362,21 @@ final class CollectionSearchModel {
         }
         guard !urls.isEmpty else { return [] }
 
-        let notesByURL = Dictionary(entries.map { ($0.note.fileURL, $0.note) },
-                                    uniquingKeysWith: { first, _ in first })
-        let found = await Task.detached(priority: .userInitiated) { () -> [(URL, String)] in
+        let found = await offMain { () -> [(URL, String)] in
             var hits: [(URL, String)] = []
             for url in urls {
                 // Full-text search reads bodies; skip files whose content isn't
                 // local so a query never silently downloads the vault, nor
                 // matches nothing against a placeholder. Title/tag/alias search
                 // (metadata) still covers them.
-                guard let note = notesByURL[url], FileIO.hasContentAvailable(note),
+                guard let note = noteByURL[url], FileIO.hasContentAvailable(note),
                       let text = try? FileIO.readString(at: url),
                       let snippet = Self.snippet(of: text, matching: q) else { continue }
                 hits.append((url, snippet))
                 if hits.count >= limit { break }
             }
             return hits
-        }.value
+        }
 
         return found.compactMap { url, snippet in
             noteByURL[url].map { SearchHit(note: $0, snippet: snippet) }
@@ -337,9 +392,25 @@ final class CollectionSearchModel {
         return content + titleResults(query: query).filter { !contentURLs.contains($0.id) }
     }
 
-    /// Fuzzy matches over note titles and their headings, best first.
+    /// Fuzzy matches over note titles and their headings, best first — scored
+    /// on the caller's actor, for a caller not waiting on a keystroke (an
+    /// intent). The palette uses `quickOpenResultsOffMain`.
     func quickOpenResults(query: String, limit: Int = 40) -> [QuickOpenItem] {
+        Self.rank(cachedItems, query: query, limit: limit)
+    }
+
+    /// The same, scored **off the main actor**. Every note, alias and heading
+    /// is scored per query — about 20,000 items in a large vault — at each
+    /// pause in typing in Open Quickly, and it was scored on the main actor
+    /// (implemented.md §51.36).
+    func quickOpenResultsOffMain(query: String, limit: Int = 40) async -> [QuickOpenItem] {
         let items = cachedItems
+        return await offMain { Self.rank(items, query: query, limit: limit) }
+    }
+
+    /// `items` that match `query`, best first, at most `limit` — or, with no
+    /// query, the first `limit` notes once each.
+    nonisolated static func rank(_ items: [QuickOpenItem], query: String, limit: Int) -> [QuickOpenItem] {
         let q = query.trimmingCharacters(in: .whitespaces)
 
         guard !q.isEmpty else {

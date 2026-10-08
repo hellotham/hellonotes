@@ -2,16 +2,19 @@
 status: DECIDED (2026-08-11). Supersedes the DRAFT of the same date, whose D2/D3
 were wrong: they kept a non-collapsible rail as column 1, which is what denied
 the app a correctly-placed sidebar toggle for a whole day.
-Companion to layout-architecture.md, which decided the *arrangement* (columns,
-widths, breakpoints) and said nothing about *chrome*.
+Companion to layout-architecture.md (now incorporated into ui.md), which decided
+the *arrangement* (columns, widths, breakpoints) and said nothing about *chrome*.
+This file is the **decision record** for the chrome. How each part of the window
+works today is in ui.md, primary.md, secondary.md, toolbars.md, tabs.md and
+menu.md (2026-09-24).
 ---
 
 # Shell chrome — what lives in the titlebar band, and what each panel owns
 
 ## Why this document exists
 
-`layout-architecture.md` answers "how many columns, how wide, at what size". It
-never answers:
+`layout-architecture.md` (now `ui.md`) answers "how many columns, how wide, at
+what size". It never answers:
 
 - what may be drawn in the band the titlebar and toolbar occupy;
 - which panels get a show/hide control, and where that control sits;
@@ -25,7 +28,7 @@ running app, over about twenty attempts. This document ends that.
 
 ## Part 1 — Who this is for, and what chrome they need
 
-Personas are inherited from `layout-architecture.md` Part 1. What is new is the
+Personas are inherited from `layout-architecture.md` Part 1 (now `ui.md` §3). What is new is the
 *chrome* column: what each persona needs from the window frame, as opposed to
 from the arrangement of columns.
 
@@ -178,10 +181,13 @@ pane redundant. Implemented in `BandTwoPane`, chosen by `SidebarLayout`, which
 must be its own view because `@Environment(\.shell)` read in `ContentView`
 resolves *above* `AdaptiveShell` and is always `.wide` there.
 
-**D3. The sidebar is column one and carries the platform's toggle**, at its own
-trailing edge, obtained for free from `NavigationSplitView`. No hand placement.
-(In the tall shell there is no column one and no toggle: the band is always
-visible, which is what makes D2a's split affordable.)
+**D3. The sidebar is column one, and its toggle is the bar's own button** —
+the second item of the bar over the editor, after search, on every shell.
+*Superseded 2026-09-23:* this said the toggle came "for free from
+`NavigationSplitView`", and it did — at a different place, size and drawing on
+each platform, which D12 does not allow. The column is an `HStack` sibling with
+a `ResizableDivider`, like the panel (D7); the one toggle hides whichever left
+region the shell has, the sidebar column or the tall shell's band.
 
 **D4. Recents and Bookmarks are pinned collapsible sections above the
 collections** — Notes' `Quick Notes` / `Shared`, VS Code's `OUTLINE`. Not tabs:
@@ -244,9 +250,9 @@ band: **New Note**, **Open Quickly**, **Search**. At the sidebar's trailing edge
 beside the toggle, because their subject *is* the sidebar: **New Collection /
 New Folder**.
 
-**D9. Search is a plain `TextField` in a toolbar item at the _leading_ end**,
-immediately after the sidebar's own controls — not `.searchable`. Two measured
-reasons, both from `ChromeLab`:
+**D9. Search is a plain `TextField` at the _leading_ end of the bar** — the
+bar's first item (it was a leading toolbar item until the bar became the app's
+own, D12) — not `.searchable`. Two measured reasons, both from `ChromeLab`:
 
 - **`.searchable` collapses to a magnifier glyph at 860pt** — P2's laptop, and
   the exact UI-4 defect. It is a framework behaviour, not something the app was
@@ -262,18 +268,49 @@ scopes; both are cheap to restore, and neither is worth a control that vanishes
 at the width it is most needed.
 
 **D10. The band draws no window title.** The window keeps one (Window menu,
-Mission Control) via `.navigationTitle`; `.toolbar(removing: .title)` keeps it
-out of the band. Apple Notes shows no title there either, and at 860pt the title
+Mission Control) via `.navigationTitle`; the Mac's title bar is hidden
+(`.windowStyle(.hiddenTitleBar)`) and the bar is drawn by the app, so nothing
+draws it. Apple Notes shows no title there either, and at 860pt the title
 is the difference between everything fitting and a `»` overflow — measured:
 with it, search *and* all five tabs collapsed into the chevron.
 
-**D11. Traffic lights sit over the sidebar**, which now begins with a section
-header rather than an icon — Notes' arrangement, where the lights read as part
-of the panel.
+**D11. Traffic lights sit over the sidebar**, whose 40pt header row (the same
+height as the bar, so the three columns share one top edge) holds only Add
+Collection at its trailing end — Notes' arrangement, where the lights read as
+part of the panel. With the sidebar hidden the bar is the window's top-left
+corner, and it leaves the lights 78pt (`WindowControls.leadingInset`): the one
+number in the chrome that differs by platform, because what it makes room for
+is the OS's.
+
+**D12. The chrome is the app's drawing, and the Mac and the iPad are the same
+pixels** (2026-09-23). Every bar, row, control, form, sheet bar and empty state
+is drawn by the app from `Chrome` tokens at the Mac's metrics — never a system
+toolbar, `List`, `Form`, `TabView`, `NavigationStack` bar, text style, system
+colour or material, each of which is a different drawing on each platform. The
+layout is the iPad's (the bar below), the scale the Mac's (13pt, 28pt controls,
+AppKit's colours), with 44pt touch targets that draw nothing. Verified by
+`scripts/chrome-parity.sh`, which renders the chrome on both platforms and
+compares the pixels; `implemented.md` §51.5 has the three differences fixed
+numbers alone did not remove. The OS keeps its window controls and anything it
+presents once open — a menu, a popover, an alert.
 
 ---
 
 ## Part 5 — Wireframe (wide, 1470pt)
+
+*As built (D12), on both platforms:*
+
+```
+┌────────────────┬────────────────────────────────────────────────────────────┐
+│ ●●●          + │ 🔍 Search   ⊟  ✎  ⋯  │ Note A │ Note B │          ⌄  ◨   │ ← ONE bar, 40pt
+├────────────────┼────────────────────────────────────────────────────────────┤
+```
+
+Search · Sidebar · New Note · More ⋯ | the open notes' tabs | Note Actions ⌄ ·
+Panel. The tabs take whatever the buttons leave and scroll inside it, so the
+buttons never move and never fold away.
+
+*The original wireframe, for the reasoning:*
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -302,8 +339,8 @@ of the panel.
 - `◨` — one toggle for the right panel, over the panel (D6). Nothing else is
   ever drawn there; what the panel shows is chosen in its own header.
 - The note list is **not** a separate column: selecting a folder fills the
-  editor column's list. (See `layout-architecture.md` for when the list splits
-  out at ≥1100pt.)
+  editor column's list. (`layout-architecture.md` planned for the list to split
+  out at ≥1100pt; it never did. See `ui.md` §4.)
 
 ### Collapsed (P2, sidebar hidden)
 
@@ -315,11 +352,16 @@ of the panel.
 ```
 
 The toggle moves beside the traffic lights — Mail's and Notes' behaviour — because
-the edge it was pinned to no longer exists. The platform does this; we do not.
+the edge it was pinned to no longer exists. *(As built, the bar is the app's, so
+the app does this: it pads its leading end by `WindowControls.leadingInset`.)*
 
 ---
 
 ## Part 6 — Can it be built? (checked before approval, not after)
+
+*Superseded by D12 for every row that names a system mechanism — the bar is an
+`HStack` the app draws, the sidebar a `LazyVStack` of `ChromeRowFrame` rows —
+and kept for the measurements that chose the positions.*
 
 | Element | Mechanism | Verified |
 |---|---|---|
@@ -347,16 +389,27 @@ swiftc -O scripts/winid.swift -o /tmp/winid && /tmp/winid
 screencapture -l<id> -o -x /tmp/hn.png
 ```
 
+**And the same picture on both platforms:** `./scripts/chrome-parity.sh`
+renders the chrome on macOS and on the `HN-iPad` simulator and fails if the two
+differ by more than antialiasing (D12). `./scripts/window-parity.sh` does the
+same for the whole window — the iPad in landscape against a Mac window of
+exactly its safe area, same settings, same sample collection — and is what
+found the strip a hidden Mac title bar still reserves and the notes that sorted
+differently on each; it needs the Mac's screen unlocked.
+
 Checklist, run **in full** after every change — not just the item last reported:
 
 1. One row of chrome; nothing stacked in any panel.
-2. Exactly one sidebar toggle, at the sidebar's trailing edge, and it works.
-3. Above the inspector: its five tab toggles and nothing else. No `»`.
-4. No tab strip inside the inspector panel.
-5. Search is an expanded field.
+2. Exactly one sidebar toggle, the bar's second button, and it works. *(It was
+   "at the sidebar's trailing edge" until D3 was amended.)*
+3. The panel's own header carries its nine views and Close, and nothing else is
+   drawn above the panel. No `»`. *(It was "five tab toggles" until D6 moved
+   the views into the panel.)*
+4. The panel's views are chosen in its header, not in a second strip inside it.
+5. Search is an expanded field, the bar's first item.
 6. Recents and Bookmarks are collapsible sections above the collections.
 7. Window title is the collection.
-8. Collapsing the sidebar moves the toggle beside the traffic lights.
+8. Hiding the sidebar pads the bar clear of the traffic lights.
 
 **Never judge any of this from `cacheDisplay`/`bitmapImageRepForCachingDisplay`.**
 It cannot render materials and paints them flat white, which cost an entire

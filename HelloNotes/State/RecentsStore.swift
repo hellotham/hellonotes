@@ -73,6 +73,7 @@ final class RecentsStore {
     }
 
     private func persist() {
+        guard !CaptureSession.isActive else { return }
         guard let data = try? JSONEncoder().encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: Self.key)
     }

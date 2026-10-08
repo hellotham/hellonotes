@@ -42,13 +42,26 @@ struct InspectorRequest: Equatable {
 }
 
 struct NoteInspector: View {
+    /// The editor holding the open note, read here rather than by the shell.
+    ///
+    /// The shell handed over the note (`NoteText`), which it had to read to
+    /// hand over — so every change to the buffer redrew the shell: in Markdown
+    /// and Split mode, the whole window on every keystroke. Read here, and as
+    /// of the last pause in typing (`EditorModel.settledText`), it redraws this
+    /// panel when the note settles and nothing else.
+    let editor: EditorModel?
+    /// The open note, compared by its version: handed over as a `String`, it
+    /// was compared with itself at every redraw of the shell (`NoteText`).
+    private var openNote: NoteText { editor?.settledText ?? .none }
+    private var noteText: String { openNote.text }
+
     // Outline
-    let noteText: String
     var onSelectHeading: (Int, DocumentHeading) -> Void
     /// Summarise the note. `nil` hides the affordance — no provider, nothing to
     /// offer, and an always-visible button that always fails is worse than none.
     var summarize: ((String) async throws -> String)? = nil
-    /// Write the summary into the note as a callout. `nil` leaves it read-only.
+    /// Write the summary into the note's front matter (`summary:`). `nil`
+    /// leaves it read-only.
     var onInsertSummary: ((String) -> Void)? = nil
 
     // Tags — selecting one filters the note list in the *other* rail.
@@ -79,8 +92,9 @@ struct NoteInspector: View {
     var onInsertLink: ((String) -> Void)? = nil
 
     // Properties (front matter)
-    @Binding var properties: [Property]
-    var onPropertiesChanged: () -> Void
+    /// Write edited properties into the note they were taken from — which a
+    /// tab switch may have left since (`PropertyDraft`).
+    var onPropertiesChanged: (_ properties: [Property], _ note: EditorModel.TextVersion) -> Void
 
     // History
     let fileURL: URL?
@@ -94,6 +108,9 @@ struct NoteInspector: View {
 
     /// A pending menu-command request. See `InspectorRequest`.
     var request: InspectorRequest? = nil
+    /// Told when a request has run, so the host can clear it — or this view,
+    /// appearing again holding it, would run it again.
+    var onRequestHandled: (InspectorRequest) -> Void = { _ in }
 
     @Environment(AppearanceSettings.self) private var appearance
     /// The tag search. Not persisted — reopening the rail to a mysteriously
@@ -123,6 +140,21 @@ struct NoteInspector: View {
     }
     @State private var summary: SummaryState = .idle
 
+    /// The Properties tab's rows: a draft, written on commit.
+    @State private var propertyDraft = PropertyDraft()
+
+    /// The open note's tags, collected off the main actor for the version they
+    /// were collected from. `MarkdownParsing.tags` read the whole note in the
+    /// Tags tab's body, at every redraw.
+    @State private var noteTags: (version: EditorModel.TextVersion?, tags: [String])?
+
+    /// The open note's tags, as collected for this version of it — `nil` until
+    /// they are, and for another note's.
+    private var collectedTags: [String]? {
+        guard let noteTags, noteTags.version == openNote.version else { return nil }
+        return noteTags.tags
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             content
@@ -143,14 +175,15 @@ struct NoteInspector: View {
         // *already holding* the new value never fires `onChange` for it. A menu
         // command that switches the tab and asks for a suggestion in the same
         // update would therefore be silently dropped by a per-tab observer.
-        .onChange(of: request) { _, new in
-            guard let new else { return }
-            switch new.kind {
-            case .summarize: runSummarize()
-            case .suggestTags: runSuggestTags(existing: MarkdownParsing.tags(in: noteText))
-            case .suggestLinks: runSuggestLinks()
-            }
-        }
+        .onChange(of: request) { _, new in run(new) }
+        // **And when it appears holding one.** The command sets the view,
+        // shows the panel and sets the request in one update: a closed panel
+        // is not in the window, and Graph, Ask Library, the Assistant and the
+        // Mind Map are not this view, so it was made already holding the
+        // request — and a request that never changes is never run. The
+        // commands did nothing unless one of the note's views was already
+        // showing (secondary.md §9, item 1; implemented.md §51.36).
+        .onAppear { run(request) }
         // Suggestions belong to the note they were derived from. Keyed on the
         // file rather than on how much the text changed: the old heuristic
         // ("the length moved by more than 40 characters") could not tell a
@@ -163,17 +196,39 @@ struct NoteInspector: View {
         }
     }
 
+    /// Run `request`, and tell the host it has, so it clears it.
+    private func run(_ request: InspectorRequest?) {
+        guard let request else { return }
+        switch request.kind {
+        case .summarize: runSummarize()
+        case .suggestTags: runSuggestTags()
+        case .suggestLinks: runSuggestLinks()
+        }
+        onRequestHandled(request)
+    }
+
     @ViewBuilder
     private var content: some View {
+        // A view of the note says so when no note is open, as History and the
+        // Mind Map do: Outline, References and Properties drew an empty note
+        // (secondary.md §9, item 2; implemented.md §51.36). Tags lists the
+        // collection's tags too, so it stays.
+        let hasNote = editor?.note != nil
         switch tab {
         case .outline:
-            outlineTab
+            if hasNote { outlineTab } else {
+                emptyState("No Note", "list.bullet.indent", "Select a note to see its outline.")
+            }
         case .tags:
             tagsTab
         case .references:
-            referencesTab
+            if hasNote { referencesTab } else {
+                emptyState("No Note", "link", "Select a note to see what links to it.")
+            }
         case .properties:
-            propertiesTab
+            if hasNote { propertiesTab } else {
+                emptyState("No Note", "list.bullet.rectangle", "Select a note to see its properties.")
+            }
         case .history:
             historyTab
         default:
@@ -195,9 +250,9 @@ struct NoteInspector: View {
         VStack(spacing: 0) {
             if summarize != nil {
                 summarySection
-                Divider()
+                ChromeDivider()
             }
-            OutlineView(text: noteText, onSelectHeading: onSelectHeading)
+            OutlineView(content: openNote, onSelectHeading: onSelectHeading, headingsHeight: nil)
         }
     }
 
@@ -209,18 +264,18 @@ struct NoteInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
                 Text("SUMMARY")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption2.weight(.semibold))
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 Spacer(minLength: 4)
                 Button(action: runSummarize) {
                     if summary == .loading {
                         ProgressView().controlSize(.small)
                     } else {
                         Label(summaryIsReady ? "Again" : "Summarise", systemImage: "sparkles")
-                            .font(.caption2)
+                            .font(Chrome.Style.caption2)
                     }
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(ChromeBorderlessStyle())
                 .disabled(summary == .loading || noteText.isEmpty)
                 .help("Summarise this note")
             }
@@ -228,8 +283,8 @@ struct NoteInspector: View {
             switch summary {
             case .idle:
                 Text("Summarise this note to see what it says, not just how it is shaped.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             case .loading:
                 EmptyView()
@@ -237,12 +292,12 @@ struct NoteInspector: View {
                 ErrorText(message: message)
             case .ready(let text):
                 Text(text)
-                    .font(.caption)
+                    .font(Chrome.Style.caption)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+                    .background(Chrome.Colour.quaternaryLabel.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
                 if onInsertSummary != nil {
                     Button {
                         onInsertSummary?(text)
@@ -251,9 +306,9 @@ struct NoteInspector: View {
                         summary = .idle
                     } label: {
                         Label("Save to Properties", systemImage: "square.and.arrow.down")
-                            .font(.caption2)
+                            .font(Chrome.Style.caption2)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(ChromeBorderlessStyle())
                     .help("Save the summary in the note's summary: property")
                 }
             }
@@ -305,26 +360,21 @@ struct NoteInspector: View {
     private var tagsTab: some View {
         VStack(alignment: .leading, spacing: 0) {
             thisNotesTags
-
-            Divider()
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField("Find a tag", text: $tagQuery)
-                    .textFieldStyle(.plain)
-                    .font(.callout)
-                if !tagQuery.isEmpty {
-                    Button { tagQuery = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear")
+                .task(id: openNote.version) {
+                    let text = openNote.text
+                    let version = openNote.version
+                    let tags = await offMain { MarkdownParsing.tags(in: text) }
+                    guard !Task.isCancelled else { return }
+                    noteTags = (version, tags)
                 }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+
+            ChromeDivider()
+
+            // The app's search field — glyph, prompt and clear button — where
+            // this was a hand-made copy of one whose prompt was the system
+            // placeholder, a different grey on each platform.
+            ChromeSearchField(text: $tagQuery, prompt: "Find a tag")
+                .padding(10)
 
             // **Always shown.** This used to disclose only once you had typed,
             // on the reasoning that 223 tags is too many to dump into a rail.
@@ -338,7 +388,7 @@ struct NoteInspector: View {
             // The volume objection is answered where it arises: the list is
             // sorted by how many notes carry each tag, capped at forty, and the
             // field above filters it.
-            Divider()
+            ChromeDivider()
             searchResults
 
             Spacer(minLength: 0)
@@ -350,19 +400,22 @@ struct NoteInspector: View {
     /// to see what else shares it.
     @ViewBuilder
     private var thisNotesTags: some View {
-        let mine = MarkdownParsing.tags(in: noteText)
+        // While typing, the tags as of the last collection — a pause behind, as
+        // the outline keeps its last analysis. Another tab's, never: a switch
+        // shows none until this note's are collected, a note's worth of time.
+        let mine = noteTags.flatMap { $0.version?.editor == openNote.version?.editor ? $0.tags : nil } ?? []
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
                 Text("THIS NOTE")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption2.weight(.semibold))
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 Spacer(minLength: 4)
-                if suggestTags != nil { suggestButton(existing: mine) }
+                if suggestTags != nil { suggestButton }
             }
             if mine.isEmpty {
                 Text("No tags. Write #tag in the note, or add one below — added tags are saved as a `tags:` property.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 WrapLayout(spacing: 6) {
@@ -382,29 +435,43 @@ struct NoteInspector: View {
     /// Deliberately a button, not something that runs on open. Suggesting costs
     /// a model call per note, and a rail you glance at should not be spending
     /// tokens (or, on a local model, seconds) every time the selection changes.
-    private func suggestButton(existing: [String]) -> some View {
+    private var suggestButton: some View {
         Button {
-            runSuggestTags(existing: existing)
+            runSuggestTags()
         } label: {
             if case .loading = suggestion {
                 ProgressView().controlSize(.small)
             } else {
-                Label("Suggest", systemImage: "sparkles").font(.caption2)
+                Label("Suggest", systemImage: "sparkles").font(Chrome.Style.caption2)
             }
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(ChromeBorderlessStyle())
         .disabled(suggestion == .loading || noteText.isEmpty)
         .help("Suggest tags from this note's content")
     }
 
     /// Shared by the button and by the **Note ▸ Suggest Tags** command, so the
     /// two routes cannot drift into behaving differently.
-    private func runSuggestTags(existing: [String]) {
+    ///
+    /// The tags the note already carries are the ones collected for this
+    /// version, or collected here, off the main actor. The button handed over
+    /// whatever the Tags tab showed — after a tab switch, the last note's —
+    /// and the menu command, which switches to the tab in the same update, so
+    /// nothing is collected yet, parsed the note on the main actor.
+    private func runSuggestTags() {
         guard let suggestTags, !noteText.isEmpty else { return }
+        let text = noteText
+        let collected = collectedTags
         suggestion = .loading
         Task {
             do {
-                let tags = try await suggestTags(noteText, existing)
+                let existing: [String]
+                if let collected {
+                    existing = collected
+                } else {
+                    existing = await offMain { MarkdownParsing.tags(in: text) }
+                }
+                let tags = try await suggestTags(text, existing)
                 // Anything the note already carries is not a suggestion.
                 let fresh = tags.filter { tag in
                     !existing.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
@@ -423,15 +490,15 @@ struct NoteInspector: View {
             EmptyView()
         case .none:
             Text("No new tags suggested.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption2)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
         case .failed(let message):
             ErrorText(message: message)
         case .ready(let tags):
             VStack(alignment: .leading, spacing: 4) {
                 Text("SUGGESTED")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption2.weight(.semibold))
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 WrapLayout(spacing: 6) {
                     ForEach(tags, id: \.self) { tag in
                         Button {
@@ -444,12 +511,12 @@ struct NoteInspector: View {
                             }
                         } label: {
                             Label("#\(tag)", systemImage: "plus")
-                                .font(.caption)
+                                .font(Chrome.Style.caption)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
-                                .background(Capsule().fill(.quaternary))
+                                .background(Capsule().fill(Chrome.Colour.quaternaryLabel))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ChromePlainStyle())
                         .disabled(onInsertTag == nil)
                         .help("Add #\(tag) to this note's tags property")
                     }
@@ -482,8 +549,8 @@ struct NoteInspector: View {
                 Text(query.isEmpty
                      ? "No tags in this collection yet."
                      : "No tag matches “\(query)”")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .padding(10)
             } else {
                 ScrollView {
@@ -493,8 +560,8 @@ struct NoteInspector: View {
                         Text(query.isEmpty
                              ? "ALL TAGS · \(matches.count)"
                              : "MATCHES · \(matches.count)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .font(Chrome.Style.caption2.weight(.semibold))
+                            .foregroundStyle(Chrome.Colour.secondaryLabel)
                             .padding(.bottom, 2)
                         ForEach(matches.prefix(40), id: \.tag) { match in
                             Button { selectedTag = match.tag } label: {
@@ -502,7 +569,7 @@ struct NoteInspector: View {
                                     Text("#\(match.tag)")
                                         .lineLimit(1)
                                         .foregroundStyle(selectedTag == match.tag
-                                                         ? appearance.accentTextColor : .primary)
+                                                         ? appearance.accentTextColor : Chrome.Colour.label)
                                     Spacer(minLength: 6)
                                     // The count carried down from the sort. Reading
                                     // `noteCount(tag)` here instead walked the whole
@@ -510,18 +577,18 @@ struct NoteInspector: View {
                                     // more whole-collection passes per keystroke than
                                     // the sort had already paid for.
                                     Text("\(match.count)")
-                                        .font(.caption)
+                                        .font(Chrome.Style.caption)
                                         .monospacedDigit()
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                                 }
                                 .contentShape(.rect)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(ChromePlainStyle())
                         }
                         if matches.count > 40 {
                             Text("+\(matches.count - 40) more — type to filter")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .font(Chrome.Style.caption2)
+                                .foregroundStyle(Chrome.Colour.secondaryLabel)
                                 .padding(.top, 4)
                         }
                     }
@@ -538,16 +605,16 @@ struct NoteInspector: View {
     private func tagChip(_ tag: String, isSelected: Bool) -> some View {
         Button { selectedTag = isSelected ? nil : tag } label: {
             Text("#\(tag)")
-                .font(.caption)
+                .font(Chrome.Style.caption)
                 .lineLimit(1)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(isSelected ? appearance.accentTextColor.opacity(0.22)
-                                       : Color.secondary.opacity(0.12),
+                                       : Chrome.Colour.secondaryLabel.opacity(0.12),
                             in: Capsule())
-                .foregroundStyle(isSelected ? appearance.accentTextColor : .primary)
+                .foregroundStyle(isSelected ? appearance.accentTextColor : Chrome.Colour.label)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePlainStyle())
         .help(isSelected ? "Stop filtering by #\(tag)" : "Show every note tagged #\(tag)")
     }
 
@@ -578,8 +645,8 @@ struct NoteInspector: View {
                 }
                 if !hasReferences {
                     Text("Nothing links to this note yet, and it links nowhere.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -600,17 +667,17 @@ struct NoteInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
                 Text("SUGGESTED")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption2.weight(.semibold))
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 Spacer(minLength: 4)
                 Button(action: runSuggestLinks) {
                     if linkSuggestion == .loading {
                         ProgressView().controlSize(.small)
                     } else {
-                        Label("Suggest", systemImage: "sparkles").font(.caption2)
+                        Label("Suggest", systemImage: "sparkles").font(Chrome.Style.caption2)
                     }
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(ChromeBorderlessStyle())
                 .disabled(linkSuggestion == .loading || noteText.isEmpty || linkCandidates.isEmpty)
                 .help("Find notes in this collection worth linking to")
                 // Only once there is somewhere to link to — a tip about
@@ -626,8 +693,8 @@ struct NoteInspector: View {
                 EmptyView()
             case .none:
                 Text("No links suggested.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption2)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
             case .failed(let message):
                 ErrorText(message: message)
             case .ready(let titles):
@@ -646,7 +713,7 @@ struct NoteInspector: View {
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ChromePlainStyle())
                         .disabled(onInsertLink == nil)
                         .help("Add “\(title)” to this note's related property")
                     }
@@ -680,15 +747,15 @@ struct NoteInspector: View {
     private func section(_ title: String, systemImage: String, notes: [Note]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("\(title.uppercased()) · \(notes.count)")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption2.weight(.semibold))
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
             ForEach(notes) { note in
                 Button { onOpenNote(note) } label: {
                     Label(note.title, systemImage: systemImage)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ChromePlainStyle())
                 .padding(.vertical, 1)
             }
         }
@@ -697,8 +764,8 @@ struct NoteInspector: View {
     private var unlinkedSection: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("UNLINKED MENTIONS · \(unlinkedMentions.count)")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption2.weight(.semibold))
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
             ForEach(unlinkedMentions) { note in
                 HStack {
                     Button { onOpenNote(note) } label: {
@@ -706,10 +773,10 @@ struct NoteInspector: View {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ChromePlainStyle())
                     Button("Link") { onLinkMention(note) }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
+                        .buttonStyle(ChromeBorderlessStyle())
+                        .font(Chrome.Style.caption)
                         .help("Turn this mention into a [[link]] in that note")
                 }
                 .padding(.vertical, 1)
@@ -721,10 +788,43 @@ struct NoteInspector: View {
 
     private var propertiesTab: some View {
         ScrollView {
-            PropertiesEditor(properties: $properties, onChange: onPropertiesChanged)
+            PropertiesEditor(properties: draftRows, onChange: commitProperties)
+                // One note's fields, gone with it: a field still being typed in
+                // when the note changes is dropped with its note, not re-bound
+                // to the next one's rows.
+                .id(openNote.version?.editor)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // The rows follow the note by its version, and read its front matter —
+        // a few lines — only when the text has moved.
+        .onChange(of: openNote.version, initial: true) { _, version in
+            let properties = FrontMatter.properties(in: openNote.text)
+            if let pending = propertyDraft.follow(version, properties: properties) {
+                onPropertiesChanged(pending.rows, pending.note)
+            }
+        }
+    }
+
+    /// The rows, for the fields of the note they belong to now. A field hands
+    /// its text back as it stops being edited, and a field of the note just
+    /// left does that after the rows have moved to the next one — where a row
+    /// of the same name would take the other note's value. What it wrote was
+    /// already handed back for its own note (`PropertyDraft.follow`).
+    private var draftRows: Binding<[Property]> {
+        let owner = propertyDraft.source?.editor
+        return Binding(
+            get: { propertyDraft.rows },
+            set: { rows in
+                guard propertyDraft.source?.editor == owner else { return }
+                propertyDraft.rows = rows
+            }
+        )
+    }
+
+    private func commitProperties() {
+        guard propertyDraft.isEdited, let commit = propertyDraft.commit else { return }
+        onPropertiesChanged(commit.rows, commit.note)
     }
 
     // MARK: - History (decision 8)
@@ -749,12 +849,12 @@ struct NoteInspector: View {
     private func emptyState(_ title: String, _ symbol: String, _ message: String) -> some View {
         VStack(spacing: 6) {
             Image(systemName: symbol)
-                .font(.title2)
-                .foregroundStyle(.tertiary)
-            Text(title).font(.headline)
+                .font(Chrome.Style.title2)
+                .foregroundStyle(Chrome.Colour.tertiaryLabel)
+            Text(title).font(Chrome.Style.headline)
             Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 16)

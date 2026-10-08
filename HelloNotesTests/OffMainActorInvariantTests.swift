@@ -33,6 +33,15 @@ struct OffMainActorInvariantTests {
     /// Compile-time invariant. The body is `@concurrent` and `nonisolated`, so
     /// every call it makes must be too. A regression is a build failure, which
     /// is the only kind of check that cannot be forgotten, skipped or flaked.
+    /// Bookmarks are resolved and minted off the main actor — at launch, by
+    /// Try Again and by Relocate (implemented.md §51.36). If `Bookmark` regains
+    /// main-actor isolation, this stops building.
+    @concurrent
+    private func bookmarksFromANonisolatedContext(_ url: URL) async -> URL? {
+        guard let data = Bookmark.data(for: url) else { return nil }
+        return Bookmark.resolveRefreshing(data, mounting: false)?.url
+    }
+
     @concurrent
     private func walkFromANonisolatedContext(root: URL) async -> WalkResult {
         let source = LocalTreeSource(root: root)
@@ -56,6 +65,45 @@ struct OffMainActorInvariantTests {
         #expect(result.isComplete)
         #expect(sawMainThread.get() == false,
                 "a folder walk ran on the main thread; on a cloud vault each listing is a blocking XPC call")
+    }
+
+    /// Called from the main actor, the walk still walks off it.
+    ///
+    /// `run` was a plain `nonisolated async` function, and under approachable
+    /// concurrency such a function runs wherever its caller is: the cloud walk
+    /// awaited it from the mirror's main-actor turn and so listed every folder
+    /// on the main thread, until §51.34 moved the caller. The test above calls
+    /// from a nonisolated context, the one place that could not show it.
+    /// `@concurrent` makes the walk's executor the global one whoever calls it,
+    /// so the next caller written from main-actor code cannot bring it back.
+    ///
+    /// Probed in the *listing*, which is the walk's own work. The batches are
+    /// handed to a closure the caller wrote, and one written on the main actor
+    /// is the main actor's — that is where a caller wants its batches.
+    @MainActor @Test func aWalkCalledFromTheMainActorWalksOffIt() async throws {
+        let root = try makeSmallVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = ListingProbe(base: LocalTreeSource(root: root))
+        let result = await ResumableTreeWalk.run(source: source) { _ in }
+        #expect(result.isComplete)
+        #expect(source.listings.get() > 0)
+        #expect(source.sawMainThread.get() == false, "a walk called from the main actor listed folders on it")
+    }
+
+    /// A source that remembers whether any listing ran on the main thread.
+    private struct ListingProbe: TreeSource {
+        let base: LocalTreeSource
+        let sawMainThread = Mutex(false)
+        let listings = Mutex(0)
+
+        func unavailability() -> CollectionState.UnavailableReason? { base.unavailability() }
+
+        func children(of directory: String) async throws -> DirectoryListing {
+            if Thread.isMainThread { sawMainThread.set(true) }
+            listings.set(listings.get() + 1)
+            return try await base.children(of: directory)
+        }
     }
 
     /// The editor's write must not be on the main thread either — it ends in a

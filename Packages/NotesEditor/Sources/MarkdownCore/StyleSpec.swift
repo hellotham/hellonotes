@@ -393,6 +393,20 @@ public enum StyleSpec {
     // MARK: - Inline runs
 
     private static func appendInlineRuns(for span: NSRange, text: NSString, into runs: inout [StyleRun]) {
+        runs.append(contentsOf: inlineRuns(in: span, text: text))
+    }
+
+    /// The inline runs for one content span — a paragraph's text, a heading's
+    /// title, a table cell's: a content role for each construct in it and a
+    /// marker run for its syntax, concealed or not.
+    ///
+    /// Public because the editor's *picture* of a table sets each cell from
+    /// these same runs (`GFMTableGeometry.cellText`). It drew the cell's source
+    /// instead, asterisks and backticks included, beside a Preview showing bold
+    /// and code — and a reading of its own would be a second answer to "what
+    /// does this cell say".
+    public static func inlineRuns(in span: NSRange, text: NSString) -> [StyleRun] {
+        var runs: [StyleRun] = []
         for node in InlineParser.parse(text, in: span) {
             let contentRole: TextRole?
             var markerConcealment: Concealment = .whenInactive
@@ -445,6 +459,7 @@ public enum StyleSpec {
                 runs.append(StyleRun(range: marker, role: .marker, concealment: markerConcealment))
             }
         }
+        return runs
     }
 
     /// The block's range without its final trailing newline.

@@ -49,6 +49,35 @@ enum PlatformDraw {
         #endif
     }
 
+    /// A new image of `size` points, drawn by `draw` into a y-down context with
+    /// the platform's graphics context current — so `NSAttributedString.draw`
+    /// renders upright on both platforms — and with `isDark`'s appearance
+    /// current, so the dynamic colours a styled string carries resolve for the
+    /// picture's appearance rather than the process's. Nil for a degenerate size.
+    static func image(size: CGSize, isDark: Bool, _ draw: (CGContext) -> Void) -> PlatformImage? {
+        guard size.width >= 1, size.height >= 1 else { return nil }
+        #if canImport(AppKit)
+        var result: NSImage?
+        let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua) ?? NSAppearance.currentDrawing()
+        appearance.performAsCurrentDrawingAppearance {
+            let image = NSImage(size: size)
+            image.lockFocusFlipped(true)   // top-left origin, upright text
+            if let context = NSGraphicsContext.current?.cgContext { draw(context) }
+            image.unlockFocus()
+            result = image
+        }
+        return result
+        #else
+        var result: UIImage?
+        UITraitCollection(userInterfaceStyle: isDark ? .dark : .light).performAsCurrent {
+            let format = UIGraphicsImageRendererFormat.preferred()
+            format.opaque = false
+            result = UIGraphicsImageRenderer(size: size, format: format).image { draw($0.cgContext) }
+        }
+        return result
+        #endif
+    }
+
     /// Draw a `CGImage` upright inside a y-down (text-layout) CGContext.
     nonisolated static func image(_ cgImage: CGImage, in rect: CGRect, context: CGContext) {
         context.saveGState()

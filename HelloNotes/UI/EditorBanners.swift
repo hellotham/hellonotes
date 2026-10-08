@@ -33,18 +33,23 @@ struct ConflictBanner: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(Chrome.Colour.orange)
             Text("This note changed on disk while you were editing.")
-                .font(.callout)
+                .font(Chrome.Style.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            Button("Reload") { editor.resolveConflictReloading() }
-            Button("Keep Mine") { Task { await editor.resolveConflictKeepingMine() } }
+            // One choice at a time: made, it is kept until done — a second,
+            // made while the first waited on a write, could land first.
+            Group {
+                Button("Reload") { Task { await editor.resolveConflictReloading() } }
+                Button("Keep Mine") { Task { await editor.resolveConflictKeepingMine() } }
+            }
+            .disabled(editor.isResolvingConflict)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(ChromePushStyle())
         .controlSize(.small)
         .padding(10)
-        .background(.orange.opacity(0.15))
+        .background(Chrome.Colour.orange.opacity(0.15))
     }
 }
 
@@ -62,14 +67,14 @@ struct SaveErrorBanner: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(Chrome.Colour.red)
             VStack(alignment: .leading, spacing: 2) {
                 Text("This note couldn’t be saved.")
-                    .font(.callout.weight(.medium))
+                    .font(Chrome.Style.callout.weight(.medium))
                 if let error = editor.saveError {
                     Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -77,10 +82,10 @@ struct SaveErrorBanner: View {
             Spacer(minLength: 8)
             Button("Retry") { Task { await editor.save() } }
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(ChromePushStyle())
         .controlSize(.small)
         .padding(10)
-        .background(.red.opacity(0.15))
+        .background(Chrome.Colour.red.opacity(0.15))
     }
 }
 
@@ -98,11 +103,11 @@ struct DownloadingBanner: View {
             // arriving, and the reason it is blank is that this is it.
             Text(editor.note.map { "Downloading “\($0.title)” from the cloud…" }
                  ?? "Downloading from the cloud…")
-                .font(.callout)
+                .font(Chrome.Style.callout)
             Spacer()
         }
         .padding(8)
-        .background(.blue.opacity(0.12))
+        .background(Chrome.Colour.blue.opacity(0.12))
     }
 }
 
@@ -118,15 +123,15 @@ struct UnloadedBanner: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "icloud.slash")
-            Text(message).font(.callout)
+            Text(message).font(Chrome.Style.callout)
             Spacer()
             if let retry {
                 Button("Try Again", action: retry)
-                    .font(.callout)
-                    .buttonStyle(.borderless)
+                    .font(Chrome.Style.callout)
+                    .buttonStyle(ChromeBorderlessStyle())
             }
         }
         .padding(8)
-        .background(.orange.opacity(0.15))
+        .background(Chrome.Colour.orange.opacity(0.15))
     }
 }

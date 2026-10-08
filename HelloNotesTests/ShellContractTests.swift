@@ -124,43 +124,7 @@ struct ShellContractTests {
         #expect(resolved.width <= available, "the column must never exceed its pane")
     }
 
-    // MARK: - Decision 3 / switching / affordances
-
-    @Test("The format bar needs a pointer and room; switching is never removed")
-    func chromeRules() {
-        for scene in Self.scenes {
-            let kind = shellKind(width: scene.width, height: scene.height)
-            let paneWidth = AdaptiveShell<EmptyView, EmptyView, EmptyView, EmptyView>
-                .estimatedPaneWidth(kind: kind, width: scene.width)
-            let touch = ShellContext(kind: kind, size: CGSize(width: scene.width, height: scene.height),
-                                     paneWidth: paneWidth, prefersTouch: true)
-            let pointer = ShellContext(kind: kind, size: CGSize(width: scene.width, height: scene.height),
-                                       paneWidth: paneWidth, prefersTouch: false)
-
-            // **The format-bar assertions are gone with the format bar.**
-            // `showsFormatBar` outlived every view that read it: formatting is
-            // the system's shortcuts bar on touch and the Format menu on the
-            // Mac, and `shell-chrome.md` D1 ("one row of chrome, ever") is why
-            // there is no pane-level bar to gate. A predicate with a test and
-            // no implementation is worse than neither — it reads as coverage.
-            // What formatting actually does is `EditorToolbarContractTests`.
-            #expect(touch.tabBarHeight >= 44, "\(scene.name): HIG touch target")
-            // Decision 12 — below 960pt there must be a way back to the library.
-            #expect(pointer.needsLibraryAffordance == (kind == .compact),
-                    "\(scene.name)")
-        }
-    }
-
-    @Test("Surplus width buys another note, never a wider line")
-    func paneCeilingGrowsWithWidth() {
-        #expect(ShellMetrics.maxPanes(detailWidth: 600) == 1)
-        #expect(ShellMetrics.maxPanes(detailWidth: 700) == 2)
-        #expect(ShellMetrics.maxPanes(detailWidth: 1400) == 4)
-        // Never more than four, however wide the display.
-        #expect(ShellMetrics.maxPanes(detailWidth: 8000) == 4)
-        // Below the floor, still one pane — degrade, never zero (decision 9).
-        #expect(ShellMetrics.maxPanes(detailWidth: 250) == 1)
-    }
+    // MARK: - The sidebar
 
     @Test("One sidebar, draggable between a floor and a cap, and the pane pays for it")
     func sidebarIsTheOnlyCollapsibleColumn() {
@@ -190,14 +154,6 @@ struct ShellContractTests {
             .estimatedPaneWidth(kind: .wideInspector, width: 1470)
         #expect(inspector == 1470 - ShellMetrics.sidebarIdeal
                                   - ShellMetrics.panelIdeal - 2)
-
-        // Only compact has no sidebar column at all; everywhere else the user
-        // decides, so nothing may lock the toggle.
-        for kind in [ShellKind.two, .wide, .wideInspector, .tall] {
-            #expect(kind.hasSidebar, "\(kind.rawValue) must carry the sidebar")
-            #expect(!kind.sidebarIsOverlay, "\(kind.rawValue) must not force it shut")
-        }
-        #expect(!ShellKind.compact.hasSidebar)
     }
 
     @Test("The Library place shows the most recent notes without sorting the vault")

@@ -1123,19 +1123,22 @@ struct SweepHTMLRenderer: BlockRenderer {
                 return scaled
             }
         }
-        // A table is drawn by the app (`TableImageRenderer`), which this tool
-        // cannot link — but a height sweep does not need the picture, only its
-        // size, and the size is `GFMTableGeometry`'s to give. Without this the
-        // sweep laid out the *source*: four lines of pipes measured against a
-        // three-row grid, scored as a spacing bug, for the whole life of the
-        // two table sections of the specification.
+        // A table is the editor's own picture (`GFMTableImage`), drawn from
+        // the grid `GFMTableGeometry` measures — the call the app makes. Before
+        // that picture lived in the package, this returned a blank image of the
+        // grid's size: right for a height sweep, and nothing to look at in a
+        // `--png` dump, which showed an empty box beside Preview's `<table>`
+        // for as long as cells were drawn as their source. And before the size
+        // was the geometry's, the sweep laid out the *source*: four lines of
+        // pipes measured against a three-row grid, scored as a spacing bug, for
+        // the whole life of the two table sections of the specification.
         if case .table(let source) = kind {
-            let size = await MainActor.run {
-                GFMTableGeometry.fittedSize(source: source, theme: EditorTheme(fontSize: base),
-                                            maxWidth: maxWidth)
+            let image = await MainActor.run {
+                GFMTableImage.image(source: source, maxWidth: maxWidth,
+                                    theme: EditorTheme(fontSize: base), isDark: darkMode)
             }
-            guard let size, size.height >= 1 else { return nil }
-            return NSImage(size: size)
+            guard let image, image.size.height >= 1 else { return nil }
+            return image
         }
         guard case .html(let source, let keepsTrailingMargin) = kind else { return nil }
         // The same folder the page's own `<img>` resolves against — the app
@@ -1422,8 +1425,14 @@ func editorHeight(_ markdown: String, base: CGFloat, width: CGFloat,
         // picture. The number beside it said the space was reserved and the
         // picture said nothing was drawn there, which reads as a clipping bug
         // and is a crop.
+        // Whole points. A fractional height — the concealed source lines of a
+        // collapsed block are 0.01 each — rounds the bitmap up a pixel, and the
+        // flipped capture anchors on the rounded height, so everything in the
+        // editor's picture came out up to half a point low against the page's:
+        // a table's grid a pixel down, read as a placement bug, when the
+        // editor had drawn it exactly where the page does.
         let h = min(measurePNGHeight, max(40, laidOutHeight(tlm)
-                                 + 2 * EditorMetrics.textContainerInset.height + 10))
+                                 + 2 * EditorMetrics.textContainerInset.height + 10)).rounded(.up)
         let bounds = CGRect(x: 0, y: 0, width: width, height: h)
         if let rep = view.bitmapImageRepForCachingDisplay(in: bounds) {
             view.cacheDisplay(in: bounds, to: rep)
@@ -1761,9 +1770,10 @@ nonisolated(unsafe) var sweep: SpecSweep?
 /// wraps, and nothing in 672 one-construct examples wraps at any width the
 /// sweep uses.
 ///
-/// **What is deliberately not here, and why.** Three shapes are measured,
-/// written down and left, because none of them is a box-model difference and a
-/// gate that fails on them every run is a gate people learn to ignore:
+/// **What is deliberately not here, and why.** Two shapes are measured,
+/// written down and left, because neither is a box-model difference and a
+/// gate that fails on them every run is a gate people learn to ignore — and a
+/// third was, until it was closed:
 ///
 ///  * **Display maths.** `$$ … $$` measures edit 132.00 / preview 152.00,
 ///    −20.00pt, and the two surfaces are showing *different content*: the
@@ -1774,11 +1784,11 @@ nonisolated(unsafe) var sweep: SpecSweep?
 ///    renders the block through `GFMRenderer.page` so the picture it draws *is*
 ///    the fragment Preview would have drawn. That needs a LaTeX renderer inside
 ///    the page, which is a dependency decision rather than a parity fix.
-///  * **A table wider than the pane.** Below about 520pt the wider fixtures stop
-///    fitting, and Preview wraps the cell text while the editor scales the whole
-///    grid down (`GFMTableGeometry.fit`; `TableImageRenderer`'s own comment
-///    explains that scaling the columns without the font would clip the text).
-///    Closing it means a wrapping table layout on both sides.
+///  * **A table wider than the pane** — closed. Below about 520pt the wider
+///    fixtures stop fitting, and Preview wraps the cell text where the editor
+///    used to scale the whole grid down. `GFMTableGeometry.fitted` now shrinks
+///    the columns and wraps the cells as the page does, and `GFMTableImage`
+///    draws exactly those lines.
 ///  * **A line break after `/`.** TextKit takes a break opportunity after a
 ///    solidus and WebKit does not, so a URL longer than the column wraps one
 ///    line earlier in Edit. Discriminating case: a code line `AB ` + 82 `a`s +
@@ -2037,6 +2047,7 @@ final class OneShot: NSObject, WKNavigationDelegate {
         let config = WKSnapshotConfiguration()
         let h = height.isFinite
             ? min(measurePNGHeight, max(40, height + 2 * EditorMetrics.textContainerInset.height + 10))
+                .rounded(.up)
             : pngHeight
         config.rect = CGRect(x: 0, y: 0, width: width, height: h)
         web.takeSnapshot(with: config) { image, _ in

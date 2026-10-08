@@ -26,7 +26,9 @@ import CryptoKit
 import AuthenticationServices
 #endif
 
-final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
+/// `nonisolated`, as every store is (`RemoteStore`); sign-in alone is the
+/// main actor's.
+nonisolated final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "OneDrive"
     /// The Keychain keys for *this* account's tokens.
     ///
@@ -47,8 +49,6 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     }
     private let redirectURI = "hellonotes://onedrive-auth"
     private let session: URLSession
-    /// Single-flights token refreshes (Microsoft rotates refresh tokens).
-    private let refreshCoordinator = RefreshCoordinator()
 
     init(session: URLSession = .shared, accountID: String) {
         self.accountID = accountID
@@ -57,11 +57,10 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
 
     var isAuthenticated: Bool { RemoteTokenStore.token(for: tokenAccount) != nil }
 
+    /// Signed out, or a Keychain that could not be read — two errors, so only
+    /// the first asks to sign in again (`RemoteTokenStore.requireToken`).
     private func requireToken() throws -> String {
-        guard let token = RemoteTokenStore.token(for: tokenAccount) else {
-            throw RemoteStoreError.notAuthenticated
-        }
-        return token
+        try RemoteTokenStore.requireToken(for: tokenAccount)
     }
 
     func signOut() {
@@ -77,11 +76,13 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     func list(path: String) async throws -> [RemoteEntry] {
         let parentPath = Self.normalizedPath(path)
         var data = try await sendAuthed { Self.listRequest(path: path, token: $0) }
-        var page = try Self.parseChildrenPage(data, parentPath: parentPath)
+        // Each page parsed away from whichever actor asked — `[data]`, the
+        // page as it is, not the variable the loop goes on to reassign.
+        var page = try await offMain { [data] in try Self.parseChildrenPage(data, parentPath: parentPath) }
         var all = page.entries
         while let next = page.nextLink {
             data = try await sendAuthed { Self.pageRequest(url: next, token: $0) }
-            page = try Self.parseChildrenPage(data, parentPath: parentPath)
+            page = try await offMain { [data] in try Self.parseChildrenPage(data, parentPath: parentPath) }
             all += page.entries
         }
         return all
@@ -106,7 +107,7 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                 // worth returning: fall back to walking, which is correct.
                 return nil
             }
-            let page = Self.parseDeltaPage(data)
+            let page = await offMain { Self.parseDeltaPage(data) }
             entries += page.changed
             next = page.next.flatMap(URL.init(string:))
         }
@@ -128,7 +129,7 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                 // resyncRequired — the delta token aged out.
                 return RemoteChangeSet(requiresFullResync: true)
             }
-            let page = Self.parseDeltaPage(data)
+            let page = await offMain { Self.parseDeltaPage(data) }
             result.changed += page.changed
             result.deleted += page.deleted
             if let delta = page.delta { result.cursor = delta }
@@ -220,6 +221,23 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         _ = try await sendAuthed { Self.deleteRequest(path: path, token: $0) }
     }
 
+    /// Graph moves and renames an item in one update — its name, and a parent
+    /// named by id: an item reference's path is read-only, so the destination
+    /// folder's id is asked for first.
+    func move(from source: String, to destination: String) async throws {
+        let to = Self.normalizedPath(destination)
+        let name = String(to.split(separator: "/").last ?? "")
+        let parent = try await sendAuthed { Self.itemIDRequest(path: Self.parentPath(of: to), token: $0) }
+        guard let parentID = Self.parseItemID(parent) else {
+            throw RemoteStoreError.decoding("destination folder id")
+        }
+        _ = try await sendAuthed { Self.moveRequest(path: source, name: name, parentID: parentID, token: $0) }
+    }
+
+    func createFolder(path: String) async throws {
+        _ = try await sendAuthed { Self.createFolderRequest(path: path, token: $0) }
+    }
+
     // MARK: - Authed transport
 
     private func sendAuthed(_ make: (String) -> URLRequest) async throws -> Data {
@@ -232,16 +250,13 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         }
     }
 
-    /// Single-flighted: Microsoft rotates refresh tokens, so concurrent 401s
-    /// must not each spend the stored one (the loser would get `invalid_grant`).
+    /// Through `TokenRefresh`, as Box's is: Microsoft rotates refresh tokens
+    /// too — see `BoxStore.refreshAccessToken`.
     private func refreshAccessToken() async throws -> String {
         let id = clientID
         let session = self.session
-        return try await refreshCoordinator.refresh {
-            guard let refresh = RemoteTokenStore.token(for: self.refreshAccount) else {
-                throw RemoteStoreError.notAuthenticated
-            }
-            let request = Self.refreshRequest(refreshToken: refresh, clientID: id)
+        return try await TokenRefresh.refresh(account: tokenAccount, refreshAccount: refreshAccount) { refreshToken in
+            let request = Self.refreshRequest(refreshToken: refreshToken, clientID: id)
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw RemoteStoreError.decoding("no HTTP response")
@@ -253,12 +268,8 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                   let access = json["access_token"] as? String else {
                 throw RemoteStoreError.decoding("token refresh")
             }
-            RemoteTokenStore.setToken(access, for: self.tokenAccount)
-            // Microsoft rotates refresh tokens — persist the new one when present.
-            if let rotated = json["refresh_token"] as? String {
-                RemoteTokenStore.setToken(rotated, for: self.refreshAccount)
-            }
-            return access
+            // Microsoft rotates refresh tokens — kept when one comes back.
+            return (access, json["refresh_token"] as? String)
         }
     }
 
@@ -305,7 +316,10 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     static func listRequest(path: String, token: String) -> URLRequest {
         let url = itemURL(path: path, suffix: "/children")
         var c = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-        c.queryItems = [.init(name: "$select", value: "name,size,folder,file,lastModifiedDateTime"),
+        // `eTag`, the item's revision, which the parser reads and `$select` left
+        // out — so no save could tell the note changed on another device since
+        // it was downloaded (implemented.md §51.36).
+        c.queryItems = [.init(name: "$select", value: "name,size,folder,file,lastModifiedDateTime,eTag"),
                         .init(name: "$top", value: "1000")]
         var r = URLRequest(url: c.url!)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -332,7 +346,6 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
               let items = root["value"] as? [[String: Any]] else {
             return ([], [], nil, nil)
         }
-        let formatter = ISO8601DateFormatter()
         var changed: [RemoteEntry] = []
         var deleted: [String] = []
 
@@ -352,7 +365,7 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                 name: name,
                 isDirectory: item["folder"] != nil,
                 size: item["size"] as? Int ?? 0,
-                modified: (item["lastModifiedDateTime"] as? String).flatMap { formatter.date(from: $0) },
+                modified: (item["lastModifiedDateTime"] as? String).flatMap(RemoteDate.parse),
                 rev: (item["eTag"] as? String) ?? (item["cTag"] as? String)))
         }
         return (changed, deleted,
@@ -390,6 +403,58 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return r
     }
 
+    /// An item's id, and nothing else about it.
+    static func itemIDRequest(path: String, token: String) -> URLRequest {
+        var c = URLComponents(url: itemURL(path: path, suffix: ""), resolvingAgainstBaseURL: false)!
+        c.queryItems = [.init(name: "$select", value: "id")]
+        var r = URLRequest(url: c.url!)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+
+    /// Move and rename in one `PATCH` of the item: its new name and its new
+    /// parent's id. Graph refuses a name already taken there (`409
+    /// nameAlreadyExists`), which is the answer wanted.
+    static func moveRequest(path: String, name: String, parentID: String, token: String) -> URLRequest {
+        var r = URLRequest(url: itemURL(path: path, suffix: ""))
+        r.httpMethod = "PATCH"
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "name": name,
+            "parentReference": ["id": parentID],
+        ])
+        return r
+    }
+
+    /// A child of the parent folder with a `folder` facet — and never a
+    /// renamed one: `fail`, not Graph's default of choosing another name.
+    static func createFolderRequest(path: String, token: String) -> URLRequest {
+        let p = normalizedPath(path)
+        let name = String(p.split(separator: "/").last ?? "")
+        var r = URLRequest(url: itemURL(path: parentPath(of: p), suffix: "/children"))
+        r.httpMethod = "POST"
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "name": name,
+            "folder": [String: String](),
+            "@microsoft.graph.conflictBehavior": "fail",
+        ] as [String: Any])
+        return r
+    }
+
+    static func parseItemID(_ data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return root["id"] as? String
+    }
+
+    static func parentPath(of path: String) -> String {
+        let p = normalizedPath(path)
+        guard let idx = p.lastIndex(of: "/") else { return "" }
+        return String(p[p.startIndex..<idx])
+    }
+
     // MARK: - Pure response parsing (unit-tested)
 
     /// A Graph driveItem is a folder if it has a `folder` facet, a file if it has
@@ -406,14 +471,11 @@ final class OneDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             throw RemoteStoreError.decoding("drive children")
         }
         let nextLink = (root["@odata.nextLink"] as? String).flatMap(URL.init(string:))
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
         let entries: [RemoteEntry] = value.compactMap { item in
             guard let name = item["name"] as? String else { return nil }
             let isFolder = item["folder"] != nil
             let modified = (item["lastModifiedDateTime"] as? String).flatMap {
-                formatter.date(from: $0) ?? plain.date(from: $0)
+                RemoteDate.parse($0)
             }
             return RemoteEntry(
                 path: parentPath + "/" + name,

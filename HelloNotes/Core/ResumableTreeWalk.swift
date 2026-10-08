@@ -190,6 +190,12 @@ nonisolated enum ResumableTreeWalk {
     ///   - checkpointEvery: directories between checkpoint callbacks.
     ///   - onCheckpoint: called on the walk's executor; persist it somewhere cheap.
     ///   - onBatch: called per directory, in order.
+    ///
+    /// `@concurrent`, so the walk runs on the global executor whoever calls it.
+    /// A plain `nonisolated async` function runs wherever its caller is, and the
+    /// cloud walk awaited this one from a main-actor turn, listing every folder
+    /// on the main thread, until its caller moved (implemented.md §51.34).
+    @concurrent
     static func run(
         source: some TreeSource,
         resuming checkpoint: WalkCheckpoint? = nil,
@@ -288,7 +294,14 @@ nonisolated enum ResumableTreeWalk {
         /// nothing else; where there is no latency to hide, there is nothing to
         /// win and a measurable amount to lose.
         func outcome(for directory: String) async -> ListingOutcome {
-            if width > 1 { return await inFlight.removeFirst().value }
+            // Awaited under a handler that cancels it: awaiting a task's value
+            // does not pass the waiter's cancellation on, so a cancelled walk
+            // waited for its head listing — for three providers, the whole
+            // account's recursive prefetch (implemented.md §51.36).
+            if width > 1 {
+                let listing = inFlight.removeFirst()
+                return await withTaskCancellationHandler { await listing.value } onCancel: { listing.cancel() }
+            }
             do { return .listed(try await source.children(of: directory)) }
             catch {
                 return .failed((error as? LocalizedError)?.errorDescription
@@ -314,7 +327,16 @@ nonisolated enum ResumableTreeWalk {
             head += 1
 
             let listing: DirectoryListing
-            switch await outcome(for: directory) {
+            let outcome = await outcome(for: directory)
+            if Task.isCancelled {
+                // Cut short by the cancel, so neither listed nor failed: back
+                // on the frontier, which the snapshot resumes from — recorded
+                // as a failure, a resumed walk skipped it.
+                head -= 1
+                return WalkResult(isComplete: false, issues: issues,
+                                  progress: progress(""), checkpoint: snapshot())
+            }
+            switch outcome {
             case .listed(let found):
                 listing = found
             case .failed(let message):
@@ -416,7 +438,7 @@ nonisolated struct LocalTreeSource: TreeSource {
     /// per file.
     static let resourceKeys: [URLResourceKey] = [
         .contentModificationDateKey, .isRegularFileKey,
-        .isDirectoryKey, .fileSizeKey,
+        .isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey,
         .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
     ]
 
@@ -467,11 +489,21 @@ nonisolated struct LocalTreeSource: TreeSource {
                 continue
             }
             // A symlink reports `isDirectory == false` *and*
-            // `isRegularFile == false`, so a symlinked **sub**folder is skipped
-            // here rather than walked. That is deliberate for now: following one
-            // needs cycle detection that survives the walk's checkpoint, and a
-            // loop would be an unbounded walk of someone's vault. The root is
-            // the case that occurs in practice and it is handled above.
+            // `isRegularFile == false`, so a symlinked **sub**folder was skipped
+            // rather than walked, and its notes never entered the index. One
+            // is walked now where it is linked, if it may be (`follows`), and
+            // the links in it are asked the same in turn (implemented.md
+            // §51.36).
+            if values.isSymbolicLink == true {
+                let target = entry.resolvingSymlinksInPath()
+                var isFolder: ObjCBool = false
+                if FileManager.default.fileExists(atPath: target.path, isDirectory: &isFolder), isFolder.boolValue,
+                   follows(target, from: directory) {
+                    let isPackage = (try? target.resourceValues(forKeys: Self.directoryKeys))?.isPackage == true
+                    listing.children.append(TreeChild(url: child, isDirectory: true, isPackage: isPackage))
+                }
+                continue
+            }
             guard values.isRegularFile == true else { continue }
             let isMarkdown = Collection.isMarkdown(child, contentType: nil)
             guard isMarkdown || includesNonNoteFiles else {
@@ -488,6 +520,33 @@ nonisolated struct LocalTreeSource: TreeSource {
                     && values.ubiquitousItemDownloadingStatus == .notDownloaded))
         }
         return listing
+    }
+
+    /// Whether to walk into a symlinked folder of `directory` whose target is
+    /// `target`.
+    ///
+    /// Never into the vault — its notes are walked where they are, and twice
+    /// is two notes for one file; never into a folder above the vault, which
+    /// holds it; and never into a folder the walk is already inside, which is
+    /// a loop — an unbounded walk of someone's disk. The folders it is inside
+    /// are named by `directory` itself, link by link, so a walk resumed from a
+    /// checkpoint refuses the same loops without having remembered anything.
+    /// And only into a folder it can list: a sandboxed app's grant covers the
+    /// vault and not what its links point to, so a link out of it is skipped
+    /// as it always was, rather than reported as a folder that could not be
+    /// read. Asked only of a symlink, so a vault without one pays nothing.
+    private func follows(_ target: URL, from directory: String) -> Bool {
+        func path(_ url: URL) -> String { url.resolvingSymlinksInPath().standardizedFileURL.path }
+        func contains(_ outer: String, _ inner: String) -> Bool { inner == outer || inner.hasPrefix(outer + "/") }
+        let linked = path(target)
+        let vault = path(root)
+        guard !contains(vault, linked), !contains(linked, vault) else { return false }
+        var inside = ""
+        for component in directory.split(separator: "/") {
+            inside = inside.isEmpty ? String(component) : inside + "/" + component
+            if contains(linked, path(root.appending(path: inside))) { return false }
+        }
+        return (try? FileManager.default.contentsOfDirectory(atPath: linked)) != nil
     }
 }
 
@@ -543,7 +602,10 @@ private extension String {
     /// A stable hash across launches. `Hashable` is deliberately *not* stable —
     /// Swift seeds it per process — so using it for a filename would orphan every
     /// checkpoint on relaunch, which is precisely when they are needed.
-    var stableHash: Int {
+    ///
+    /// `nonisolated`: `WalkCheckpointStore` names the file from the walk, off
+    /// the main actor, and an unannotated extension member here is `@MainActor`.
+    nonisolated var stableHash: Int {
         var hash: UInt64 = 0xcbf29ce484222325            // FNV-1a
         for byte in utf8 {
             hash ^= UInt64(byte)

@@ -28,7 +28,14 @@ public enum EditorProbe {
         #endif
     }()
 
+    /// Every line the probe would write, handed over in-process too — for a
+    /// test asking what a screenshot cannot answer, which has no file to read
+    /// back (`MainActorBudgetTests` counts the pages Preview is handed). `nil`
+    /// unless someone is listening, and then the only cost is the formatting.
+    public static var listener: ((String) -> Void)?
+
     public static func log(_ message: @autoclosure () -> String) {
+        if let listener { listener(message()) }
         guard isEnabled, let url = logURL else { return }
         let line = "\(Date().formatted(date: .omitted, time: .standard)) \(message())\n"
         guard let data = line.data(using: .utf8) else { return }

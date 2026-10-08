@@ -161,6 +161,90 @@ struct ResumableTreeWalkTests {
         #expect(notes == directories * 2, "every note found exactly once across both passes")
     }
 
+    // MARK: Symlinked folders
+
+    /// A vault holding a link to a folder outside it, and every kind of link
+    /// that must not be followed: back to the vault, into it (its notes would
+    /// be two notes for one file), above it, and a loop made of two links.
+    private static func makeLinkedFolders() throws -> (vault: URL, base: URL) {
+        let base = temporaryRoot()
+        let fm = FileManager.default
+        let vault = base.appending(path: "vault", directoryHint: .isDirectory)
+        let ext = base.appending(path: "ext", directoryHint: .isDirectory)
+        let ext2 = base.appending(path: "ext2", directoryHint: .isDirectory)
+        for folder in [vault.appending(path: "sub"), ext.appending(path: "deeper"), ext2] {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        for (url, text) in [(vault.appending(path: "Top.md"), "# Top"), (vault.appending(path: "sub/In.md"), "# In"),
+                            (ext.appending(path: "Ext.md"), "# Ext"), (ext.appending(path: "deeper/Deep.md"), "# Deep"),
+                            (ext2.appending(path: "E2.md"), "# E2")] {
+            try Data(text.utf8).write(to: url)
+        }
+        try fm.createSymbolicLink(at: vault.appending(path: "Shared"), withDestinationURL: ext)
+        try fm.createSymbolicLink(at: vault.appending(path: "Loop"), withDestinationURL: vault)
+        try fm.createSymbolicLink(at: vault.appending(path: "Dup"), withDestinationURL: vault.appending(path: "sub"))
+        try fm.createSymbolicLink(at: ext.appending(path: "up"), withDestinationURL: base)
+        try fm.createSymbolicLink(at: ext.appending(path: "l1"), withDestinationURL: ext2)
+        try fm.createSymbolicLink(at: ext2.appending(path: "l2"), withDestinationURL: ext)
+        return (vault, base)
+    }
+
+    private static let expectedLinkedNotes: Set<String> = [
+        "Top.md", "sub/In.md", "Shared/Ext.md", "Shared/deeper/Deep.md", "Shared/l1/E2.md",
+    ]
+
+    private static func relativeNotes(_ children: [TreeChild], in vault: URL) -> [String] {
+        let prefix = vault.standardizedFileURL.path + "/"
+        return children.filter(\.isMarkdown).map { String($0.url.standardizedFileURL.path.dropFirst(prefix.count)) }
+    }
+
+    /// **A symlinked subfolder is walked** — once, where it is linked — and
+    /// a link that would loop, or walk the vault twice, is not followed. It
+    /// reported neither `isDirectory` nor `isRegularFile` and was skipped, so
+    /// its notes never entered the index (implemented.md §51.36).
+    @Test func aSymlinkedSubfolderIsWalkedAndALoopIsNot() async throws {
+        let (vault, base) = try Self.makeLinkedFolders()
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let walk = Task { await Self.collect(LocalTreeSource(root: vault)) }
+        let guardrail = Task { try await Task.sleep(for: .seconds(20)); walk.cancel() }
+        let (result, children) = await walk.value
+        guardrail.cancel()
+
+        let notes = Self.relativeNotes(children, in: vault)
+        #expect(result.isComplete, "the walk did not finish — a link looped")
+        #expect(Set(notes) == Self.expectedLinkedNotes, "\(notes.sorted())")
+        #expect(notes.count == Set(notes).count, "a note was walked twice: \(notes.sorted())")
+    }
+
+    /// The folders a walk is inside are named by the path it is listing, link
+    /// by link, so a resumed walk refuses the same loops without remembering
+    /// anything.
+    @Test func aResumedWalkStillRefusesALoop() async throws {
+        let (vault, base) = try Self.makeLinkedFolders()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let source = LocalTreeSource(root: vault)
+
+        let collector = Collector()
+        let first = await Task {
+            await ResumableTreeWalk.run(source: source) { batch in
+                collector.add(batch.children)
+                if collector.batches == 2 { withUnsafeCurrentTask { $0?.cancel() } }
+            }
+        }.value
+        let checkpoint = try #require(first.checkpoint)
+        let walk = Task {
+            await ResumableTreeWalk.run(source: source, resuming: checkpoint) { batch in collector.add(batch.children) }
+        }
+        let guardrail = Task { try await Task.sleep(for: .seconds(20)); walk.cancel() }
+        let second = await walk.value
+        guardrail.cancel()
+
+        let notes = Self.relativeNotes(collector.children, in: vault)
+        #expect(second.isComplete)
+        #expect(Set(notes) == Self.expectedLinkedNotes, "\(notes.sorted())")
+    }
+
     // MARK: Failure isolation
 
     @Test func anUnreadableDirectoryCostsItsSubtreeNotTheWalk() async throws {
@@ -307,21 +391,19 @@ struct TreeWalkBenchmark {
         }
         try build(root, 3)
 
-        var start = Date()
+        // Both timed where the app runs them — off the main actor, on the
+        // shared pool — so the two are measured under the same conditions. The
+        // enumerator was timed on this suite's main actor and the walk on the
+        // pool, and in a full parallel run the pool is busy: 3.05 s against
+        // 0.27 s, a comparison of two places rather than two walks.
         // `enumerate` returns nil only when its task was cancelled — not the
         // case here, and a benchmark comparing against nothing would silently
         // pass.
-        let old = try #require(Collection.enumerate(root))
-        let enumeratorSeconds = Date().timeIntervalSince(start)
-
-        var notesFound = 0
-        var directoriesFound = 0
-        start = Date()
-        let result = await ResumableTreeWalk.run(source: LocalTreeSource(root: root)) { batch in
-            notesFound += batch.children.filter(\.isMarkdown).count
-            directoriesFound += batch.children.filter(\.isDirectory).count
-        }
-        let walkSeconds = Date().timeIntervalSince(start)
+        let (enumerated, enumeratorSeconds) = await Self.enumerate(root)
+        let old = try #require(enumerated)
+        let (result, children, walkSeconds) = await Self.walk(root)
+        let notesFound = children.filter(\.isMarkdown).count
+        let directoriesFound = children.filter(\.isDirectory).count
 
         print("BENCH dirs=\(directories) notes=\(old.notes.count) "
               + "enumerator=\(String(format: "%.3f", enumeratorSeconds))s "
@@ -338,6 +420,32 @@ struct TreeWalkBenchmark {
         // a small multiple means something has gone quadratic.
         #expect(walkSeconds < max(enumeratorSeconds * 4, 0.5),
                 "walk \(walkSeconds)s vs enumerator \(enumeratorSeconds)s")
+    }
+
+    /// The walk as the app runs it: from no actor, its batches gathered under
+    /// a lock — the scan, the mirror and the size estimate all call it so.
+    /// Gathered by a closure written on this suite's main actor, every
+    /// directory's batch hopped to the main actor and back once `run` became
+    /// `@concurrent`, a cost no caller pays; alone it was 15% of the time
+    /// measured, and in a full parallel run, queued behind every other
+    /// main-actor test, it was most of eight seconds.
+    @concurrent
+    private nonisolated static func walk(_ root: URL) async -> (WalkResult, [TreeChild], TimeInterval) {
+        let gathered = Collector()
+        let start = Date()
+        let result = await ResumableTreeWalk.run(source: LocalTreeSource(root: root)) { batch in
+            gathered.add(batch.children)
+        }
+        return (result, gathered.children, Date().timeIntervalSince(start))
+    }
+
+    /// The enumerator the walk replaced, timed in the same place.
+    @concurrent
+    private nonisolated static func enumerate(_ root: URL) async
+        -> ((notes: [Note], attachments: [CollectionFile], folders: [URL])?, TimeInterval) {
+        let start = Date()
+        let result = Collection.enumerate(root)
+        return (result, Date().timeIntervalSince(start))
     }
 }
 

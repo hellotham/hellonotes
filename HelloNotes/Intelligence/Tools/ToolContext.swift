@@ -37,6 +37,13 @@
 //     the file still holds the text the diff was made from, checked inside the
 //     coordinated write (`FileIO.replace`). Otherwise typing the person saved
 //     while deciding would be overwritten by a diff that never showed it.
+//  5. **A note open in an editor is read and changed there** (`openEditor`):
+//     what is on screen, typing not yet saved included, is what the diff is
+//     made from and what the change is made to — through the editor's own
+//     write (`EditorModel.applyEdit`), and only if the screen still says
+//     what was read. Read from the file and written to it, the change met
+//     the typing in the editor as a change made elsewhere, and the person
+//     had to choose between the two (implemented.md §51.36).
 //
 //  Failures the model can recover from — a note that isn't there, an edit that
 //  doesn't match — are thrown as `ToolError` and turned into a sentence for the
@@ -121,6 +128,11 @@ final class ToolContext {
     /// nothing — and `read_note` told the model the note was empty.
     func readContents(of note: Note) async throws -> String {
         let url = note.fileURL
+        // Open in an editor: what is on screen.
+        if let editor = openEditor(for: url) {
+            editor.carryLiveEdits()
+            return editor.text
+        }
         // A direct cloud collection keeps a zero-byte placeholder until asked.
         await collection.hydrateIfNeeded(url)
         if (notes.first { $0.fileURL == url } ?? note).isOnlineOnly {
@@ -136,6 +148,15 @@ final class ToolContext {
         } catch {
             throw ToolError.failed("Couldn't read “\(note.title)”: \(error.localizedDescription)")
         }
+    }
+
+    /// The editor holding the note at `url` with the note in it and nothing
+    /// to choose — loaded, and no conflict open — which the Assistant reads
+    /// and changes the note through. With a conflict open the file is read:
+    /// which side is the note is the person's to say, and a change made to the
+    /// file is theirs moving on, under the same banner.
+    private func openEditor(for url: URL) -> EditorModel? {
+        EditorModel.editors(holding: url).first { $0.isLoaded && !$0.hasConflict }
     }
 
     private func notOnDevice(_ note: Note) -> String {
@@ -172,7 +193,22 @@ final class ToolContext {
     }
 
     func searchNotes(_ query: String, limit: Int) async -> String {
-        let hits = await Array(search.fullTextResults(query: query).prefix(max(1, limit)))
+        var found = await search.fullTextResults(query: query)
+        // Titles from the collection's own list as well. The index holds only
+        // the notes it has read — none until the rebuild that opening a
+        // collection starts has landed, and never one that hasn't downloaded —
+        // so a note `list_notes` shows was "not matched" by its own name, and
+        // the model told the person it did not exist.
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !q.isEmpty {
+            let seen = Set(found.map(\.id))
+            let all = notes
+            let byTitle = await offMain {
+                all.filter { !seen.contains($0.fileURL) && $0.title.localizedStandardContains(q) }
+            }
+            found += byTitle.map { SearchHit(note: $0, snippet: "") }
+        }
+        let hits = found.prefix(max(1, limit))
         guard !hits.isEmpty else { return "No notes matched “\(query)”." }
         return hits.map { hit in
             let snippet = hit.snippet.replacingOccurrences(of: "\n", with: " ")
@@ -308,9 +344,9 @@ final class ToolContext {
         if occurrences > 1 && !replaceAll {
             throw ToolError.failed("`old_string` appears \(occurrences) times in “\(note.title)”. Include more surrounding text so it is unique, or set replace_all.")
         }
-        let after = replaceAll
-            ? before.replacingOccurrences(of: oldString, with: newString)
-            : before.replacingFirst(oldString, with: newString)
+        let after = occurrences == 1
+            ? EditReplacement.once(oldString, with: newString, in: before)
+            : before.replacingOccurrences(of: oldString, with: newString)
         let rel = relativePath(note)
 
         guard await permissions.confirm(
@@ -365,6 +401,9 @@ final class ToolContext {
     /// Replace the text the person approved a change to — and only that text.
     private func save(_ text: String, to note: Note, replacing before: String) async throws {
         let url = note.fileURL
+        if let editor = openEditor(for: url) {
+            return try await save(text, in: editor, of: note, replacing: before)
+        }
         let replaced: Bool
         do {
             replaced = try await offMain { try FileIO.replace(text, at: url, ifContentsEqual: before) }
@@ -376,6 +415,28 @@ final class ToolContext {
         }
         collection.noteDidSave(url, text: text)
         collection.noteChangedOutsideEditor()
+    }
+
+    /// The change made in the editor showing the note — to what is on screen,
+    /// if it still says what the change was made from — and written by it,
+    /// so its rules hold: a save it cannot make (a folder gone) keeps the
+    /// change on screen and says why. Any other editor on the note is told,
+    /// as of a change made outside it.
+    private func save(_ text: String, in editor: EditorModel, of note: Note,
+                      replacing before: String) async throws {
+        editor.carryLiveEdits()
+        let shown = editor.text
+        let generation = editor.textGeneration
+        let unchanged = await offMain { EditorModel.sameBytes(shown, before) }
+        guard unchanged, editor.textGeneration == generation, openEditor(for: note.fileURL) === editor else {
+            throw ToolError.failed("“\(note.title)” changed after it was read — probably edited while the change was waiting for approval — so the change wasn't made. Read the note again before changing it.")
+        }
+        editor.applyEdit { _ in text }
+        await editor.save()
+        collection.noteChangedOutsideEditor()
+        if editor.isDirty, let reason = editor.saveError {
+            throw ToolError.failed("The change was made to “\(note.title)”, which is open, but it couldn't be saved yet: \(reason)")
+        }
     }
 
     /// Commit the change if the collection is a Git repository — every
@@ -409,10 +470,51 @@ nonisolated enum ToolError: LocalizedError {
     }
 }
 
-private extension String {
-    /// Replace the first occurrence of `target` with `replacement`.
-    func replacingFirst(_ target: String, with replacement: String) -> String {
-        guard let range = range(of: target) else { return self }
-        return replacingCharacters(in: range, with: replacement)
+/// What `edit_note` writes for a match that occurs once: `oldText` replaced
+/// by `newText` — except that whole lines `newText` restates on *both* sides
+/// of the match are context, not text to add.
+///
+/// Asked to change one line of a list, Apple's on-device model sent that line
+/// alone to replace and the lines around it, restated, as its replacement
+/// (`- pears` → `- apples\n- plums\n- flour`) in four requests out of five;
+/// taken as written, the note gained a second "- apples" and a second
+/// "- flour". Restatement on one side only is left as written, because that is
+/// also how an insertion looks — a line added before the match — and only
+/// whole lines count, so a match inside a line is replaced where it stands.
+/// Either way the person approves the change that results, shown as a diff.
+nonisolated enum EditReplacement {
+    static func once(_ oldText: String, with newText: String, in text: String) -> String {
+        guard let match = text.range(of: oldText) else { return text }
+        let region = restated(around: match, in: text, by: newText) ?? match
+        return text.replacingCharacters(in: region, with: newText)
+    }
+
+    /// The match widened over the whole lines `newText` restates on each side
+    /// of it — nil unless it restates at least one on both.
+    private static func restated(around match: Range<String.Index>, in text: String,
+                                 by newText: String) -> Range<String.Index>? {
+        let lead = text[..<match.lowerBound]
+        let trail = text[match.upperBound...]
+        // Whole lines: the match begins one and ends one.
+        guard lead.isEmpty || lead.last == "\n", trail.isEmpty || trail.first == "\n" else { return nil }
+
+        // The most lines that both end the lead and begin `newText`.
+        var start: String.Index?
+        for i in newText.indices where newText[i] == "\n" {
+            let lines = newText[...i]
+            guard lead.hasSuffix(lines) else { continue }
+            let from = lead.index(lead.endIndex, offsetBy: -lines.count)
+            if from == lead.startIndex || lead[lead.index(before: from)] == "\n" { start = from }
+        }
+        // The most lines that both begin the trail and end `newText`.
+        var end: String.Index?
+        for i in newText.indices where newText[i] == "\n" {
+            let lines = newText[i...]
+            guard trail.hasPrefix(lines) else { continue }
+            let to = trail.index(trail.startIndex, offsetBy: lines.count)
+            if to == trail.endIndex || trail[to] == "\n" { end = to; break }
+        }
+        guard let start, let end else { return nil }
+        return start..<end
     }
 }

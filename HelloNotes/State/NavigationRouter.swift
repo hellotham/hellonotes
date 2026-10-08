@@ -156,8 +156,9 @@ final class NavigationRouter {
     /// can retract the ones that disappeared.
     private static let donatedIDsKey = "spotlightDonatedIDs"
 
-    /// Donate the open notes to system Spotlight (findable in ⌘Space with a deep
-    /// link back). Re-donated when the note set changes.
+    /// Donate the open notes to system Spotlight — findable in ⌘Space, and
+    /// opened by `OpenNoteFromSearchIntent`. Re-donated when the note set
+    /// changes.
     ///
     /// `indexAppEntities` is add-or-update **by id**, and `NoteEntity.id`
     /// encodes the relative path — so a rename or delete strands the old id in

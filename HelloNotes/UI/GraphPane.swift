@@ -16,23 +16,33 @@
 //  * **Depth.** One to three links. iPad had no control and took the default.
 //  * **The cap.** A force-directed layout of every note is O(N²), so past
 //    `GraphData.maxNodes` the whole-collection view keeps the most-connected
-//    notes — and the Mac says so in an overlay. iPad silently showed a subset
+//    notes — and the Mac said so in an overlay. iPad silently showed a subset
 //    of a large collection's graph with nothing to indicate it.
 //
-//  The controls live in a toolbar on the Mac and have to go somewhere on iPad;
-//  that is the one thing the two shells still supply for themselves.
+//  The scope and the distance were `.toolbar` items — the platform's bar,
+//  which the shell no longer has on either platform (`AdaptiveShell` draws its
+//  own), so on iPad nothing drew them and the scope could not be changed at
+//  all. They are a strip at the top of the pane now, drawn by the app: the
+//  same controls in the same place on both.
 //
 
 import SwiftUI
 
-/// The focused collection's link graph, in its own window. A toolbar scope
-/// switches between the whole collection and the neighbourhood of the focused
-/// note (the click-to-focus selection), with a configurable link distance.
+/// The focused collection's link graph, in the right panel. A strip at the top
+/// of the pane switches between the whole collection and the neighbourhood of
+/// the focused note (the click-to-focus selection), with a configurable link
+/// distance.
 struct GraphPane: View {
-    /// What tapping a node does. The Mac routes it through
-    /// `Library.requestOpen` (the graph is a separate window and has to ask the
-    /// main one); a sheet can simply select. Supplied rather than assumed, so
-    /// neither shell has to be the other.
+    /// What opening a node does: a double-click or double-tap, or activating
+    /// it with VoiceOver. A single click only focuses the node; the graph is a
+    /// panel beside the editor, so it stays up while you trace links.
+    ///
+    /// Supplied rather than decided here, because this is the graph itself and
+    /// where a note opens is its host's business — `GraphPanel` is what a
+    /// panel beside the notes adds. It passes `Library.requestOpen`, as the
+    /// mind map and Ask Library do, so the shell selects the note as it
+    /// selects anything asked for that way: Open Quickly closed, the tag
+    /// filter and the search cleared.
     var onOpen: (URL) -> Void
 
     @Environment(Library.self) private var library
@@ -46,20 +56,21 @@ struct GraphPane: View {
     @State private var depth = 2
 
     /// Cached graph data, recomputed only when scope/focus/depth/index change
-    /// (see `graphKey`) rather than in the window body — the degree sort is
+    /// (see `graphKey`) rather than in `body` — the degree sort is
     /// O(N log N) over the whole collection.
     @State private var data: (nodes: [GraphNode], edges: [GraphEdge], dropped: Int) = ([], [], 0)
 
-    /// A force-directed layout of every note is O(N²); past this many nodes the
-    /// whole-collection view keeps only the most-connected notes (and says so),
-    /// so the graph stays legible and fast instead of an unreadable hairball.
-
+    /// What `data` depends on — the scope, the focus, the distance, and the
+    /// focused collection with its `derivedRevision` — so the `.task` in `body`
+    /// rebuilds the graph when any of it changes, and not on every render.
     private var graphKey: String {
         "\(scope)|\(focusedURL?.path ?? "")|\(depth)|\(library.focused?.id ?? "")|\(library.focused?.derivedRevision ?? 0)"
     }
 
-    /// Nodes and edges for the current scope. The rules live in `GraphData`
-    /// so the iPad's graph cannot drift from this one.
+    /// Nodes and edges for the current scope. The rules live in `GraphData`,
+    /// apart from any view: they moved there so the Mac's window and the
+    /// iPad's sheet could not drift apart, and this pane has been their only
+    /// caller since both went.
     private func computeGraphData() -> (nodes: [GraphNode], edges: [GraphEdge], dropped: Int) {
         GraphData.build(for: library.focused, scope: scope, focusedURL: focusedURL, depth: depth)
     }
@@ -71,57 +82,79 @@ struct GraphPane: View {
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            // Above both branches, so a scope that finds nothing can still be
+            // changed back.
+            controls
             if data.nodes.isEmpty {
-                ContentUnavailableView("No Notes to Graph", systemImage: "point.3.connected.trianglepath.dotted",
+                ChromeEmptyState("No Notes to Graph", systemImage: "point.3.connected.trianglepath.dotted",
                                        description: Text("Open a collection with notes to see its link graph."))
             } else {
                 GraphView(nodes: data.nodes, edges: data.edges,
                           onSelect: onOpen,
                           accent: appearance.resolvedAccent,
-                          // `isWindowed` is about having room for the graph's
-                          // own chrome, which a full-screen sheet has as much
-                          // as a window does.
-                          isWindowed: true,
                           focusedURL: focusedURL,
                           onFocusChange: { url in
                               focusedURL = url
                               if url == nil && scope == .aroundFocus { scope = .collection }
                           })
-                    .overlay(alignment: .top) {
-                        if data.dropped > 0 {
-                            Text("Showing the \(GraphData.maxNodes) most-connected notes · \(data.dropped) more hidden")
-                                .font(.caption)
-                                .padding(.horizontal, 10).padding(.vertical, 5)
-                                .background(.thinMaterial, in: Capsule())
-                                .padding(.top, 8)
-                        }
-                    }
             }
         }
-        .toolbar {
-            ToolbarItemGroup {
-                Picker("Scope", selection: $scope) {
-                    Text("Whole Collection").tag(GraphScope.collection)
-                    Text(focusedTitle.map { "Around “\($0)”" } ?? "Around Focused Note")
-                        .tag(GraphScope.aroundFocus)
-                }
-                .pickerStyle(.menu)
-                .disabled(focusedURL == nil && scope == .collection)
-                .help("Show the whole collection, or just the notes near the focused one")
-
-                if scope == .aroundFocus {
-                    Picker("Link distance", selection: $depth) {
-                        ForEach(1...3, id: \.self) { d in
-                            Text("\(d) link\(d == 1 ? "" : "s")").tag(d)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .help("How many links away from the focused note to include")
-                }
-            }
-        }
-        .navigationTitle(library.focused.map { "Graph — \($0.name)" } ?? "Graph")
         .task(id: graphKey) { data = computeGraphData() }
+    }
+
+    // MARK: - Controls
+
+    /// What the graph shows and how far it reaches, and — when the cap has
+    /// dropped notes — that it has. The cap's notice was a capsule floating
+    /// over the top of the graph, across its own row of counts and zoom; it is
+    /// a line of this strip instead, under the scope it qualifies.
+    ///
+    /// The panel can be 220pt wide, and a focused note's title can be any
+    /// length, so the pop-ups fall back — the title named, then not, then one
+    /// above the other. `ViewThatFits` chooses, as the panel's own header does.
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { scopePicker(naming: focusedTitle); depthPicker }
+                HStack(spacing: 8) { scopePicker(naming: nil); depthPicker }
+                VStack(alignment: .leading, spacing: 4) { scopePicker(naming: nil); depthPicker }
+            }
+            if data.dropped > 0 {
+                Text("Showing the \(GraphData.maxNodes) most-connected notes · \(data.dropped) more hidden")
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Chrome.Metric.barPadding)
+        .padding(.vertical, 6)
+        .frame(minHeight: 36)
+        .background(Chrome.Colour.chrome)
+        .overlay(alignment: .bottom) { ChromeDivider() }
+    }
+
+    private func scopePicker(naming title: String?) -> some View {
+        ChromePopUp("Scope", selection: $scope, options: [
+            ChromeOption(value: GraphScope.collection, title: "Whole Collection"),
+            ChromeOption(value: GraphScope.aroundFocus,
+                         title: title.map { "Around “\($0)”" } ?? "Around Focused Note"),
+        ])
+        .labelsHidden()
+        .disabled(focusedURL == nil && scope == .collection)
+        .help("Show the whole collection, or just the notes near the focused one")
+    }
+
+    @ViewBuilder
+    private var depthPicker: some View {
+        if scope == .aroundFocus {
+            ChromePopUp("Link distance", selection: $depth,
+                        options: (1...3).map { d in
+                            ChromeOption(value: d, title: "\(d) link\(d == 1 ? "" : "s")")
+                        })
+                .labelsHidden()
+                .help("How many links away from the focused note to include")
+        }
     }
 }

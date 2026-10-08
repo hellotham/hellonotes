@@ -32,7 +32,9 @@ import CryptoKit
 import AuthenticationServices
 #endif
 
-final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
+/// `nonisolated`, as every store is (`RemoteStore`); sign-in alone is the
+/// main actor's.
+nonisolated final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "Google Drive"
     /// The Keychain keys for *this* account's tokens.
     ///
@@ -56,16 +58,23 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
     private var folderIDs: [String: String] = ["": "root"]
     private var fileIDs: [String: String] = [:]
 
-    /// The path we know a Drive id by, if we have listed it.
+    /// The path we know each Drive id by, for the ids we have listed.
     ///
     /// Drive's change feed reports ids and no paths, so this reverse lookup is
     /// what places a change in the tree. An id we have never seen is something
     /// in a folder we have not walked — a full sync finds it, and guessing would
-    /// be worse than waiting.
-    fileprivate func knownPath(forFileID id: String) -> String? {
-        cacheLock.lock(); defer { cacheLock.unlock() }
-        if let hit = fileIDs.first(where: { $0.value == id })?.key { return hit }
-        return folderIDs.first(where: { $0.value == id })?.key
+    /// be worse than waiting. A file's path wins over a folder's.
+    ///
+    /// Built once per refresh, away from the main actor. Each change used to
+    /// search both caches for its id — changes × ids, in whatever actor asked,
+    /// which is the main actor's turn: 181 ms for 2,000 changes against 20,000
+    /// ids (measured by the review of implemented.md §51.34).
+    static func pathsByID(files: [String: String], folders: [String: String]) -> [String: String] {
+        var byID: [String: String] = [:]
+        byID.reserveCapacity(files.count + folders.count)
+        for (path, id) in folders { byID[id] = path }
+        for (path, id) in files { byID[id] = path }
+        return byID
     }
 
     init(session: URLSession = .shared, accountID: String) {
@@ -75,20 +84,19 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
 
     var isAuthenticated: Bool { RemoteTokenStore.token(for: tokenAccount) != nil }
 
+    /// Signed out, or a Keychain that could not be read — two errors, so only
+    /// the first asks to sign in again (`RemoteTokenStore.requireToken`).
     private func requireToken() throws -> String {
-        guard let token = RemoteTokenStore.token(for: tokenAccount) else {
-            throw RemoteStoreError.notAuthenticated
-        }
-        return token
+        try RemoteTokenStore.requireToken(for: tokenAccount)
     }
 
     func signOut() {
         RemoteTokenStore.setToken(nil, for: tokenAccount)
         RemoteTokenStore.setToken(nil, for: refreshAccount)
-        cacheLock.lock()
-        folderIDs = ["": "root"]
-        fileIDs = [:]
-        cacheLock.unlock()
+        cacheLock.withLock {
+            folderIDs = ["": "root"]
+            fileIDs = [:]
+        }
     }
 
     // MARK: - CRUD (path-based over Drive's ID-based API)
@@ -106,13 +114,14 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             let data = try await sendAuthed {
                 Self.listRequest(folderID: folderID, token: $0, pageToken: token)
             }
-            let page = try Self.parseFileListPage(data, parentPath: parentPath)
-            cacheLock.lock()
-            for item in page.items {
-                if item.entry.isDirectory { folderIDs[item.entry.path] = item.id }
-                else { fileIDs[item.entry.path] = item.id }
+            // A page parsed away from whichever actor asked.
+            let page = try await offMain { try Self.parseFileListPage(data, parentPath: parentPath) }
+            cacheLock.withLock {
+                for item in page.items {
+                    if item.entry.isDirectory { folderIDs[item.entry.path] = item.id }
+                    else { fileIDs[item.entry.path] = item.id }
+                }
             }
-            cacheLock.unlock()
             all += page.items.map(\.entry)
             pageToken = page.nextPageToken
         } while pageToken != nil
@@ -148,7 +157,7 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         repeat {
             let token = pageToken
             let data = try await sendAuthed { Self.allFoldersRequest(token: $0, pageToken: token) }
-            guard let page = try? Self.parseFolderTreePage(data) else { return nil }
+            guard let page = try? await offMain({ try Self.parseFolderTreePage(data) }) else { return nil }
             for folder in page.folders {
                 folderName[folder.id] = folder.name
                 if let parent = folder.parent { folderParent[folder.id] = parent }
@@ -188,12 +197,12 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                 let data = try await sendAuthed {
                     Self.filesInParentsRequest(parents: chunk, token: $0, pageToken: pageToken)
                 }
-                guard let page = try? Self.parseFilesInParentsPage(data) else { return nil }
+                guard let page = try? await offMain({ try Self.parseFilesInParentsPage(data) }) else { return nil }
                 for item in page.items where !item.isFolder {
                     guard let parent = item.parent, let base = pathByID[parent] else { continue }
                     let full = base + "/" + item.name
                     files.append(RemoteEntry(path: full, name: item.name, isDirectory: false,
-                                             size: item.size, modified: item.modified))
+                                             size: item.size, modified: item.modified, rev: item.rev))
                     idsByPath[full] = item.id
                 }
                 token = page.nextPageToken
@@ -202,10 +211,10 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
 
         // Seed the id caches, so reading a file afterwards costs no extra
         // resolution — the walk used to populate these as a side effect.
-        cacheLock.lock()
-        for (id, p) in pathByID where !p.isEmpty { folderIDs[p] = id }
-        for (p, id) in idsByPath { fileIDs[p] = id }
-        cacheLock.unlock()
+        cacheLock.withLock {
+            for (id, p) in pathByID where !p.isEmpty { folderIDs[p] = id }
+            for (p, id) in idsByPath { fileIDs[p] = id }
+        }
 
         return folders + files
     }
@@ -218,21 +227,26 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         }
 
         var result = RemoteChangeSet()
+        let (files, folders) = cacheLock.withLock { (fileIDs, folderIDs) }
+        let known = await offMain { Self.pathsByID(files: files, folders: folders) }
         var next: String? = cursor
         while let token = next {
             let data = try await sendAuthed { Self.changesRequest(pageToken: token, token: $0) }
-            let page = Self.parseChangesPage(data)
             // Drive hands back ids, not paths. Only files we already know the
             // path of can be placed; anything else is new somewhere we have not
             // walked, and a full sync will find it.
-            for change in page.changed {
-                if let known = knownPath(forFileID: change.id) {
+            let page = await offMain { () -> (changed: [RemoteEntry], deleted: [String], next: String?, newStart: String?) in
+                let page = Self.parseChangesPage(data)
+                let changed = page.changed.compactMap { change -> RemoteEntry? in
+                    guard let path = known[change.id] else { return nil }
                     var entry = change.entry
-                    entry.path = known
-                    result.changed.append(entry)
+                    entry.path = path
+                    return entry
                 }
+                return (changed, page.removed.compactMap { known[$0] }, page.next, page.newStart)
             }
-            result.deleted += page.removed.compactMap { knownPath(forFileID: $0) }
+            result.changed += page.changed
+            result.deleted += page.deleted
             if let newStart = page.newStart { result.cursor = newStart }
             next = page.next
         }
@@ -261,7 +275,7 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                                    token: $0, boundary: Self.makeBoundary())
             }
             if let id = Self.parseFileID(response) {
-                cacheLock.lock(); fileIDs[p] = id; cacheLock.unlock()
+                cacheLock.withLock { fileIDs[p] = id }
             }
         }
     }
@@ -270,24 +284,73 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         let p = Self.normalizedPath(path)
         if let id = try? await resolveFileID(path: p) {
             _ = try await sendAuthed { Self.deleteRequest(fileID: id, token: $0) }
-            cacheLock.lock(); fileIDs[p] = nil; cacheLock.unlock()
+            cacheLock.withLock { fileIDs[p] = nil }
         } else {
             let id = try await resolveFolderID(path: p)
             _ = try await sendAuthed { Self.deleteRequest(fileID: id, token: $0) }
-            cacheLock.lock(); folderIDs[p] = nil; cacheLock.unlock()
+            cacheLock.withLock { folderIDs[p] = nil }
         }
+    }
+
+    /// A Drive file (a folder is one too) is renamed by its metadata and moved
+    /// by trading parents — `addParents` and `removeParents` on the same
+    /// update. It keeps its id, so the cached ids only change key.
+    func move(from source: String, to destination: String) async throws {
+        let from = Self.normalizedPath(source)
+        let to = Self.normalizedPath(destination)
+        let name = String(to.split(separator: "/").last ?? "")
+        let oldParent = try await resolveFolderID(path: Self.parentPath(of: from))
+        let newParent = try await resolveFolderID(path: Self.parentPath(of: to))
+        let moved: (id: String, isFolder: Bool)
+        if let id = try? await resolveFileID(path: from) {
+            moved = (id, false)
+        } else {
+            moved = (try await resolveFolderID(path: from), true)
+        }
+        let reparenting = oldParent != newParent
+        _ = try await sendAuthed {
+            Self.moveRequest(fileID: moved.id, name: name,
+                             addParent: reparenting ? newParent : nil,
+                             removeParent: reparenting ? oldParent : nil, token: $0)
+        }
+        cacheLock.withLock {
+            if moved.isFolder {
+                folderIDs = Self.moving(folderIDs, from: from, to: to)
+                fileIDs = Self.moving(fileIDs, from: from, to: to)
+            } else {
+                fileIDs[from] = nil
+                fileIDs[to] = moved.id
+            }
+        }
+    }
+
+    func createFolder(path: String) async throws {
+        let p = Self.normalizedPath(path)
+        let name = String(p.split(separator: "/").last ?? "")
+        let parentID = try await resolveFolderID(path: Self.parentPath(of: p))
+        let response = try await sendAuthed {
+            Self.createFolderRequest(name: name, parentID: parentID, token: $0)
+        }
+        if let id = Self.parseFileID(response) {
+            cacheLock.withLock { folderIDs[p] = id }
+        }
+    }
+
+    /// `ids` with every path at or under `from` moved to `to`.
+    static func moving(_ ids: [String: String], from: String, to: String) -> [String: String] {
+        Dictionary(ids.map { path, id in
+            (path == from || path.hasPrefix(from + "/") ? to + path.dropFirst(from.count) : path, id)
+        }, uniquingKeysWith: { _, moved in moved })
     }
 
     // MARK: - Path → ID resolution (same walk-down bridging as BoxStore)
 
     private func cachedFolderID(_ path: String) -> String? {
-        cacheLock.lock(); defer { cacheLock.unlock() }
-        return folderIDs[path]
+        cacheLock.withLock { folderIDs[path] }
     }
 
     private func cachedFileID(_ path: String) -> String? {
-        cacheLock.lock(); defer { cacheLock.unlock() }
-        return fileIDs[path]
+        cacheLock.withLock { fileIDs[path] }
     }
 
     private func resolveFolderID(path: String) async throws -> String {
@@ -332,17 +395,18 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         }
     }
 
+    /// Through `TokenRefresh`, as Dropbox's is — see
+    /// `DropboxStore.refreshAccessToken`.
     private func refreshAccessToken() async throws -> String {
-        guard let refresh = RemoteTokenStore.token(for: refreshAccount) else {
-            throw RemoteStoreError.notAuthenticated
+        let id = clientID
+        return try await TokenRefresh.refresh(account: tokenAccount, refreshAccount: refreshAccount) { [self] refreshToken in
+            let data = try await send(Self.refreshRequest(refreshToken: refreshToken, clientID: id))
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let access = json["access_token"] as? String else {
+                throw RemoteStoreError.decoding("token refresh")
+            }
+            return (access, nil)
         }
-        let data = try await send(Self.refreshRequest(refreshToken: refresh, clientID: clientID))
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let access = json["access_token"] as? String else {
-            throw RemoteStoreError.decoding("token refresh")
-        }
-        RemoteTokenStore.setToken(access, for: tokenAccount)
-        return access
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
@@ -402,7 +466,7 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             URLQueryItem(name: "pageToken", value: pageToken),
             URLQueryItem(name: "pageSize", value: "1000"),
             URLQueryItem(name: "fields",
-                         value: "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,modifiedTime,version,parents,trashed))"),
+                         value: "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,modifiedTime,headRevisionId,parents,trashed))"),
         ]
         var r = URLRequest(url: c.url!)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -424,7 +488,6 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             next: String?, newStart: String?) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let changes = root["changes"] as? [[String: Any]] else { return ([], [], nil, nil) }
-        let formatter = ISO8601DateFormatter()
         var changed: [(id: String, entry: RemoteEntry)] = []
         var removed: [String] = []
 
@@ -442,8 +505,8 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                 name: name,
                 isDirectory: mime == folderMIME,
                 size: Int(file["size"] as? String ?? "") ?? 0,
-                modified: (file["modifiedTime"] as? String).flatMap { formatter.date(from: $0) },
-                rev: (file["version"] as? String) ?? (file["version"] as? NSNumber)?.stringValue)))
+                modified: (file["modifiedTime"] as? String).flatMap(RemoteDate.parse),
+                rev: file["headRevisionId"] as? String)))
         }
         return (changed, removed,
                 root["nextPageToken"] as? String,
@@ -476,7 +539,7 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         c.queryItems = [
             .init(name: "q", value: "(\(clause)) and trashed=false"),
             .init(name: "fields",
-                  value: "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents)"),
+                  value: "nextPageToken,files(id,name,mimeType,size,modifiedTime,headRevisionId,parents)"),
             .init(name: "pageSize", value: "1000"),
         ]
         if let pageToken { c.queryItems?.append(.init(name: "pageToken", value: pageToken)) }
@@ -500,15 +563,12 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
 
     static func parseFilesInParentsPage(_ data: Data) throws
         -> (items: [(id: String, name: String, isFolder: Bool, size: Int,
-                     modified: Date?, parent: String?)], nextPageToken: String?) {
+                     modified: Date?, rev: String?, parent: String?)], nextPageToken: String?) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let files = root["files"] as? [[String: Any]] else {
             throw RemoteStoreError.decoding("drive files in parents")
         }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        let items = files.compactMap { f -> (String, String, Bool, Int, Date?, String?)? in
+        let items = files.compactMap { f -> (String, String, Bool, Int, Date?, String?, String?)? in
             guard let id = f["id"] as? String,
                   let name = f["name"] as? String,
                   let mime = f["mimeType"] as? String else { return nil }
@@ -517,11 +577,11 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             // have no bytes to download, so they are not notes.
             if !isFolder && mime.hasPrefix("application/vnd.google-apps") { return nil }
             let modified = (f["modifiedTime"] as? String).flatMap {
-                formatter.date(from: $0) ?? plain.date(from: $0)
+                RemoteDate.parse($0)
             }
             return (id, name, isFolder,
                     (f["size"] as? String).flatMap(Int.init) ?? 0,
-                    modified, (f["parents"] as? [String])?.first)
+                    modified, f["headRevisionId"] as? String, (f["parents"] as? [String])?.first)
         }
         return (items, root["nextPageToken"] as? String)
     }
@@ -532,7 +592,10 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             .init(name: "q", value: "'\(folderID)' in parents and trashed=false"),
             // `nextPageToken` must be requested explicitly — it isn't returned
             // when `fields` names only `files(...)`.
-            .init(name: "fields", value: "nextPageToken,files(id,name,mimeType,size,modifiedTime)"),
+            // `headRevisionId`, the content's revision — not `version`, which
+            // every change of metadata moves — so a save can tell the note
+            // changed elsewhere since it was downloaded (implemented.md §51.36).
+            .init(name: "fields", value: "nextPageToken,files(id,name,mimeType,size,modifiedTime,headRevisionId)"),
             .init(name: "pageSize", value: "1000"),
         ]
         if let pageToken { c.queryItems?.append(.init(name: "pageToken", value: pageToken)) }
@@ -576,6 +639,36 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
         return r
     }
 
+    /// Rename and, when `addParent` is given, move: a metadata `PATCH`, with
+    /// the parents traded in its query. Drive keeps two items of one name side
+    /// by side without a word, so the caller checks the name is free first.
+    static func moveRequest(fileID: String, name: String, addParent: String?, removeParent: String?,
+                            token: String) -> URLRequest {
+        var c = URLComponents(string: "https://www.googleapis.com/drive/v3/files/\(fileID)")!
+        var query: [URLQueryItem] = [.init(name: "fields", value: "id")]
+        if let addParent { query.append(.init(name: "addParents", value: addParent)) }
+        if let removeParent { query.append(.init(name: "removeParents", value: removeParent)) }
+        c.queryItems = query
+        var r = URLRequest(url: c.url!)
+        r.httpMethod = "PATCH"
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        r.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        r.httpBody = Data("{\"name\":\(jsonString(name))}".utf8)
+        return r
+    }
+
+    /// A folder is a file with Drive's folder type and no content.
+    static func createFolderRequest(name: String, parentID: String, token: String) -> URLRequest {
+        var r = URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/files?fields=id")!)
+        r.httpMethod = "POST"
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        r.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        r.httpBody = Data(("{\"name\":\(jsonString(name)),"
+            + "\"mimeType\":\"application/vnd.google-apps.folder\","
+            + "\"parents\":[\(jsonString(parentID))]}").utf8)
+        return r
+    }
+
     /// Update an existing file's content in place (simple media upload).
     static func updateRequest(fileID: String, data: Data, token: String) -> URLRequest {
         var r = URLRequest(url: URL(string: "https://www.googleapis.com/upload/drive/v3/files/\(fileID)?uploadType=media")!)
@@ -608,9 +701,6 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             throw RemoteStoreError.decoding("drive file list")
         }
         let nextPageToken = root["nextPageToken"] as? String
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
         let items: [(entry: RemoteEntry, id: String)] = files.compactMap { f in
             guard let id = f["id"] as? String,
                   let name = f["name"] as? String,
@@ -620,7 +710,7 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
             let isFolder = mime == folderMIME
             if !isFolder && mime.hasPrefix("application/vnd.google-apps") { return nil }
             let modified = (f["modifiedTime"] as? String).flatMap {
-                formatter.date(from: $0) ?? plain.date(from: $0)
+                RemoteDate.parse($0)
             }
             let entry = RemoteEntry(
                 path: parentPath + "/" + name,
@@ -628,7 +718,7 @@ final class GoogleDriveStore: NSObject, RemoteStore, @unchecked Sendable {
                 isDirectory: isFolder,
                 size: (f["size"] as? String).flatMap(Int.init) ?? 0,   // Drive returns size as a string
                 modified: modified,
-                rev: nil
+                rev: f["headRevisionId"] as? String
             )
             return (entry, id)
         }

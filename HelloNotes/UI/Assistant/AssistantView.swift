@@ -27,9 +27,9 @@ struct AssistantView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            ChromeDivider()
             transcript
-            Divider()
+            ChromeDivider()
             composer
         }
         .onAppear { inputFocused = true }
@@ -43,13 +43,14 @@ struct AssistantView: View {
     // MARK: - Header
 
     private var header: some View {
-        // No title and no Done: `AuxiliarySheet` draws both, on both platforms.
+        // No title and no Done: the right panel's header (`SidePanelHeader`)
+        // names the panel and closes it, on both platforms.
         HStack(spacing: 10) {
             Spacer()
             Toggle(isOn: $model.agentMode) {
                 Image(systemName: usesTools ? "wrench.and.screwdriver.fill" : "bubble.left")
             }
-            .toggleStyle(.button)
+            .toggleStyle(ChromeToggleButtonStyle())
             .disabled(!model.canUseTools)
             .help(model.canUseTools
                   ? (model.agentMode ? "Can read and change the collection" : "Chat only")
@@ -59,14 +60,14 @@ struct AssistantView: View {
             Button {
                 model.clear()
             } label: { Image(systemName: "square.and.pencil") }
-                .buttonStyle(.borderless)
+                .buttonStyle(ChromeBorderlessStyle())
                 .help("New conversation")
                 .accessibilityLabel("New conversation")
                 .disabled(model.entries.isEmpty && !model.isResponding)
             Button {
                 onOpenSettings()
             } label: { Image(systemName: "gearshape") }
-                .buttonStyle(.borderless)
+                .buttonStyle(ChromeBorderlessStyle())
                 .help("AI settings")
                 .accessibilityLabel("AI settings")
         }
@@ -74,7 +75,7 @@ struct AssistantView: View {
     }
 
     private var modelMenu: some View {
-        Menu {
+        ChromePullDown(model.modelTitle, systemImage: models.systemImage(of: model.modelChoice)) {
             ForEach(models.options) { option in
                 Button {
                     model.settings.choose(option)
@@ -87,12 +88,7 @@ struct AssistantView: View {
             }
             Divider()
             Button("AI Settings…", action: onOpenSettings)
-        } label: {
-            Label(model.modelTitle, systemImage: models.systemImage(of: model.modelChoice))
-                .font(.callout)
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
         .disabled(model.isResponding)
     }
 
@@ -108,8 +104,8 @@ struct AssistantView: View {
                     if model.agentMode && !model.canUseTools && model.availability.isAvailable {
                         Label("\(model.modelName) can't use tools, so the Assistant can chat but won't read or change your notes. System can, and so can any MLX model AI settings doesn't mark \"Can't use tools\".",
                               systemImage: "info.circle")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                            .font(Chrome.Style.callout)
+                            .foregroundStyle(Chrome.Colour.secondaryLabel)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if model.entries.isEmpty && !model.isResponding { emptyState }
@@ -119,13 +115,13 @@ struct AssistantView: View {
                     if model.isResponding, let status = progressText {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text(status).foregroundStyle(.secondary)
+                            Text(status).foregroundStyle(Chrome.Colour.secondaryLabel)
                         }
-                        .font(.callout)
+                        .font(Chrome.Style.callout)
                     }
                     if let error = model.errorText {
-                        ErrorText(message: error, font: .callout,
-                                  systemImage: "exclamationmark.triangle", tint: .orange)
+                        ErrorText(message: error, font: Chrome.Style.callout,
+                                  systemImage: "exclamationmark.triangle", tint: Chrome.Colour.orange)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     Color.clear.frame(height: 1).id(bottomID)
@@ -170,19 +166,19 @@ struct AssistantView: View {
     private var retiredNotice: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("HelloNotes now uses Apple Foundation Models", systemImage: "info.circle")
-                .font(.headline)
+                .font(Chrome.Style.headline)
             Text("The AI service you set up in an earlier version is no longer supported, and any API key HelloNotes stored for it has been removed from this device. The Assistant now uses \(model.modelName). You can choose \(LanguageModels.largerModels) in AI settings.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("AI Settings…", action: onOpenSettings)
                 Button("OK") { model.settings.acknowledgeRetiredProvider() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ChromePushStyle(prominent: true))
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .background(Chrome.Colour.quaternaryLabel.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -190,29 +186,29 @@ struct AssistantView: View {
         if let reason = model.availability.reason {
             VStack(spacing: 10) {
                 Image(systemName: "sparkles")
-                    .font(.largeTitle)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.largeTitle)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 Text("\(model.modelName) isn't available")
-                    .font(.title3.bold())
+                    .font(Chrome.Style.title3.bold())
                 Text(reason)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .multilineTextAlignment(.center)
                 Button("AI Settings…", action: onOpenSettings)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ChromePushStyle(prominent: true))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 40)
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Chat with \(model.modelName)")
-                    .font(.title3.bold())
+                    .font(Chrome.Style.title3.bold())
                 Label(models.privacySummary(of: model.modelChoice),
                       systemImage: model.modelChoice.runsOnDevice ? "lock" : "lock.icloud")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 Text(usesTools
                      ? "Ask about your notes, or ask for changes — you approve every change before it's saved."
                      : "Chat only: the Assistant won't read or change your notes.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 40)
@@ -223,26 +219,30 @@ struct AssistantView: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message…", text: $model.input, axis: .vertical)
+            // In its own well, so no field box — only the app's placeholder.
+            TextField("", text: $model.input, axis: .vertical)
                 .textFieldStyle(.plain)
+                .focusEffectDisabled()
                 .lineLimit(1...6)
                 .focused($inputFocused)
                 .onSubmit { if model.canSend { model.send() } }
+                .chromePlaceholder("Message…", showing: model.input.isEmpty, alignment: .topLeading)
+                .accessibilityLabel("Message")
                 .padding(8)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                .background(Chrome.Colour.quaternaryLabel.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
 
             if model.isResponding {
                 Button { model.stop() } label: {
-                    Image(systemName: "stop.circle.fill").font(.title2)
+                    Image(systemName: "stop.circle.fill").font(Chrome.Style.title2)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(ChromeBorderlessStyle())
                 .help("Stop")
                 .accessibilityLabel("Stop")
             } else {
                 Button { model.send() } label: {
-                    Image(systemName: "arrow.up.circle.fill").font(.title2)
+                    Image(systemName: "arrow.up.circle.fill").font(Chrome.Style.title2)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(ChromeBorderlessStyle())
                 .disabled(!model.canSend)
                 .keyboardShortcut(.return, modifiers: [])
                 .accessibilityLabel("Send")
@@ -314,14 +314,14 @@ private struct RowView: View {
         switch row {
         case .prompt(_, let text):
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "person.circle.fill").foregroundStyle(Color.accentColor).frame(width: 20)
+                Image(systemName: "person.circle.fill").foregroundStyle(.tint).frame(width: 20)
                 Text(text)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .response(_, let text):
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkles").foregroundStyle(.purple).frame(width: 20)
+                Image(systemName: "sparkles").foregroundStyle(Chrome.Colour.purple).frame(width: 20)
                 // `AnswerMarkdown`, not `Text(LocalizedStringKey(text))`, which
                 // renders inline Markdown only and drops every line break.
                 Text(answer.attributed(text))
@@ -330,20 +330,20 @@ private struct RowView: View {
             }
         case .reasoning(_, let text):
             DisclosureGroup {
-                Text(text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(text).font(Chrome.Style.callout).foregroundStyle(Chrome.Colour.secondaryLabel).textSelection(.enabled)
             } label: {
-                Label("Thinking", systemImage: "brain").font(.caption).foregroundStyle(.secondary)
+                Label("Thinking", systemImage: "brain").font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             .padding(.leading, 30)
         case .toolCall(_, let name, let arguments):
             Label("\(name) \(arguments)", systemImage: "wrench.and.screwdriver")
-                .font(.caption.monospaced()).foregroundStyle(.secondary)
+                .font(Chrome.Style.caption.monospaced()).foregroundStyle(Chrome.Colour.secondaryLabel)
                 .lineLimit(3)
                 .padding(.leading, 30)
         case .toolOutput(_, _, let text):
             Label(text, systemImage: "arrow.turn.down.right")
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption.monospaced())
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
                 .lineLimit(4)
                 .padding(.leading, 30)
         }

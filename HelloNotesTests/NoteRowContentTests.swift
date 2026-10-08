@@ -98,7 +98,5 @@ struct NoteRowContentTests {
     @Test func sidebarStaysBelowTheTwoColumnThreshold() {
         #expect(ShellMetrics.sidebarCap < ShellMetrics.noteRowTwoColumn,
                 "a Mac sidebar can now be wide enough for two columns, but NoteOutlineList.noteCell still stacks unconditionally")
-        #expect(ShellMetrics.noteRowTouchMinimum >= 44,
-                "a note row must stay a 44pt touch target however dense it gets")
     }
 }

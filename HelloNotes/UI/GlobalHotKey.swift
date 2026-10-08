@@ -3,8 +3,8 @@
 //  HelloNotes
 //
 //  A system-wide hotkey (Carbon RegisterEventHotKey — no special entitlement is
-//  needed for a hotkey that activates our own app). Default ⌥⌘N summons quick
-//  capture: brings HelloNotes forward and starts a fresh note ready to type.
+//  needed for a hotkey that activates our own app). ⌃⌥⌘N brings HelloNotes
+//  forward and starts a fresh note ready to type (`newNote`).
 //
 
 #if os(macOS)

@@ -29,6 +29,53 @@ import AppKit
 import UIKit
 #endif
 
+/// The flushes the app must wait for before it goes: one hook per window,
+/// called when the app quits or leaves the foreground — and the let-go flush
+/// of each window closing, until it lands. Shared by both platforms' guards.
+///
+/// **A window closing is waited for too.** It came off the registry in
+/// `onDisappear` and then started its let-go flush in a task nothing awaited,
+/// so ⌘W and then ⌘Q during a slow coordinated write ended the process with
+/// that save unfinished (implemented.md §51.36). `letGo` takes the hook off and
+/// runs the flush as a task of its own, which a drain waits for until it
+/// lands; it is keyed by a token, not by the window, so a window that comes
+/// back meanwhile keeps the hook it registers again.
+@MainActor
+final class FlushRegistry {
+    private var hooks: [ObjectIdentifier: (_ lettingGo: Bool) async -> Void] = [:]
+    private var lettingGo: [UUID: Task<Void, Never>] = [:]
+
+    var hasWork: Bool { !hooks.isEmpty || !lettingGo.isEmpty }
+
+    func register(_ owner: AnyObject, flush: @escaping (_ lettingGo: Bool) async -> Void) {
+        hooks[ObjectIdentifier(owner)] = flush
+    }
+
+    func unregister(_ owner: AnyObject) {
+        hooks.removeValue(forKey: ObjectIdentifier(owner))
+    }
+
+    /// `owner` is going: its hook comes off, and `flush` runs now — waited for
+    /// by any drain that begins before it lands.
+    func letGo(_ owner: AnyObject, flush: @escaping () async -> Void) {
+        unregister(owner)
+        let token = UUID()
+        lettingGo[token] = Task { [weak self] in
+            await flush()
+            self?.lettingGo.removeValue(forKey: token)
+        }
+    }
+
+    /// Every registered hook, told whether the buffers are being let go, and
+    /// every let-go flush still under way.
+    func drain(lettingGo letting: Bool) async {
+        let hooks = Array(self.hooks.values)
+        let pending = Array(lettingGo.values)
+        for hook in hooks { await hook(letting) }
+        for flush in pending { await flush.value }
+    }
+}
+
 #if canImport(AppKit)
 @MainActor
 final class TerminationGuard: NSObject, NSApplicationDelegate {
@@ -36,12 +83,14 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
     /// `@NSApplicationDelegateAdaptor` retains), so views can register hooks.
     static weak var current: TerminationGuard?
 
-    /// Flush closures keyed by their owning object (e.g. each window's tabs).
-    private var flushHooks: [ObjectIdentifier: () async -> Void] = [:]
+    /// Flush closures keyed by their owning object (e.g. each window's tabs),
+    /// told whether the buffers are being let go — see
+    /// `EditorModel.flush(lettingGo:)` — and the let-go flushes under way.
+    let flushes = FlushRegistry()
 
     /// Backs the "New Note from Selection" Services-menu item.
     private let servicesProvider = ServicesProvider()
-    /// ⌥⌘N global quick-capture hotkey (retained for the app's lifetime).
+    /// The ⌃⌥⌘N global new-note hotkey (retained for the app's lifetime).
     private var globalHotKey: GlobalHotKey?
 
     override init() {
@@ -57,12 +106,14 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
 
     /// Register (or replace) a flush hook for `owner`. Call from a window shell
     /// with its editor tabs' `flushAll`.
-    func register(_ owner: AnyObject, flush: @escaping () async -> Void) {
-        flushHooks[ObjectIdentifier(owner)] = flush
+    func register(_ owner: AnyObject, flush: @escaping (_ lettingGo: Bool) async -> Void) {
+        flushes.register(owner, flush: flush)
     }
 
-    func unregister(_ owner: AnyObject) {
-        flushHooks.removeValue(forKey: ObjectIdentifier(owner))
+    /// A window going: its hook off, and its let-go flush run now and waited
+    /// for by a quit that comes before it lands (`FlushRegistry.letGo`).
+    func letGo(_ owner: AnyObject, flush: @escaping () async -> Void) {
+        flushes.letGo(owner, flush: flush)
     }
 
     /// How long the quit handshake will wait for pending writes.
@@ -82,15 +133,17 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
     ///
     /// The Mac's assurance is that leaving the foreground is not suspension —
     /// nothing is about to reclaim the process — so this is the bounded drain
-    /// and nothing more. iOS has to take a background-task assertion for the
-    /// same guarantee. One name, so the shell's `scenePhase` handler does not
-    /// have to know which it is talking to.
+    /// and nothing more, and the buffers are not let go: a conflict still open
+    /// stays in its editor, to be chosen when the person comes back. iOS has
+    /// to take a background-task assertion for the same guarantee. One name,
+    /// so the shell's `scenePhase` handler does not have to know which it is
+    /// talking to.
     func flushUnderAssertion() async {
-        guard !flushHooks.isEmpty else { return }
-        let hooks = Array(flushHooks.values)
+        guard flushes.hasWork else { return }
+        let flushes = self.flushes
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor in
-                for hook in hooks { await hook() }
+                await flushes.drain(lettingGo: false)
             }
             group.addTask { try? await Task.sleep(for: Self.flushDeadline) }
             await group.next()
@@ -99,23 +152,35 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !flushHooks.isEmpty else { return .terminateNow }
-        let hooks = Array(flushHooks.values)
+        guard flushes.hasWork else { return .terminateNow }
+        let flushes = self.flushes
+        // Whichever finishes first replies: the drain, or the deadline. A task
+        // group cannot do this — it returns only once every child has, and a
+        // flush inside a coordinated write does not stop for cancellation — so
+        // a wedged provider still held ⌘Q open for as long as it liked, the
+        // deadline notwithstanding. Quitting lets every buffer go.
+        let reply = QuitReply()
         Task { @MainActor in
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in
-                    for hook in hooks { await hook() }
-                }
-                group.addTask {
-                    try? await Task.sleep(for: Self.flushDeadline)
-                }
-                // Whichever finishes first decides; the loser is cancelled.
-                await group.next()
-                group.cancelAll()
-            }
-            NSApp.reply(toApplicationShouldTerminate: true)
+            await flushes.drain(lettingGo: true)
+            reply.send()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: Self.flushDeadline)
+            reply.send()
         }
         return .terminateLater
+    }
+}
+
+/// Answers `applicationShouldTerminate` once, whoever asks first.
+@MainActor
+private final class QuitReply {
+    private var sent = false
+
+    func send() {
+        guard !sent else { return }
+        sent = true
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 }
 #else
@@ -129,7 +194,7 @@ final class TerminationGuard: NSObject, NSApplicationDelegate {
 final class TerminationGuard: NSObject {
     static weak var current: TerminationGuard?
 
-    private var flushHooks: [ObjectIdentifier: () async -> Void] = [:]
+    let flushes = FlushRegistry()
     private var observer: (any NSObjectProtocol)?
 
     override init() {
@@ -147,12 +212,13 @@ final class TerminationGuard: NSObject {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
-    func register(_ owner: AnyObject, flush: @escaping () async -> Void) {
-        flushHooks[ObjectIdentifier(owner)] = flush
+    func register(_ owner: AnyObject, flush: @escaping (_ lettingGo: Bool) async -> Void) {
+        flushes.register(owner, flush: flush)
     }
 
-    func unregister(_ owner: AnyObject) {
-        flushHooks.removeValue(forKey: ObjectIdentifier(owner))
+    /// A window going — see the Mac's `letGo`.
+    func letGo(_ owner: AnyObject, flush: @escaping () async -> Void) {
+        flushes.letGo(owner, flush: flush)
     }
 
     /// The same bounded drain the Mac runs, for the same reason: a provider that
@@ -174,7 +240,7 @@ final class TerminationGuard: NSObject {
     /// case, which the assertion avoids by keeping the app awake until the
     /// coordinator has let go.
     func flushUnderAssertion() async {
-        guard !flushHooks.isEmpty else { return }
+        guard flushes.hasWork else { return }
         var assertion = UIBackgroundTaskIdentifier.invalid
         assertion = UIApplication.shared.beginBackgroundTask(withName: "HelloNotes.flush") {
             // Expired: the system wants the time back. Ending it here is what
@@ -192,11 +258,14 @@ final class TerminationGuard: NSObject {
     }
 
     private func flushAll() async {
-        let hooks = Array(flushHooks.values)
-        guard !hooks.isEmpty else { return }
+        guard flushes.hasWork else { return }
+        let flushes = self.flushes
         await withTaskGroup(of: Void.self) { group in
+            // Letting go: nothing tells an app it is about to be killed after
+            // this, so a buffer holding a conflict keeps mine beside the note
+            // now, or not at all.
             group.addTask { @MainActor in
-                for hook in hooks { await hook() }
+                await flushes.drain(lettingGo: true)
             }
             group.addTask {
                 try? await Task.sleep(for: Self.flushDeadline)

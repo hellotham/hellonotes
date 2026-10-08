@@ -56,7 +56,7 @@ enum AnswerMarkdown {
         }
         if inFence {
             var line = AttributedString(raw)
-            line.font = .system(.body, design: .monospaced)
+            line.font = Chrome.Style.sized(13, design: .monospaced)
             out += line
             return
         }
@@ -106,21 +106,23 @@ enum AnswerMarkdown {
             let text = String(trimmed.dropFirst(hashes)).trimmingCharacters(in: .whitespaces)
             var line = inline(text)
             // One step of emphasis for every heading level would give a chat
-            // bubble six type sizes; two is enough to read as a heading.
-            line.font = hashes <= 2 ? .title3.bold() : .headline
+            // bubble six type sizes; two is enough to read as a heading. The
+            // Mac's `.title3` and `.headline` — 15pt and 13pt, bold — as sizes,
+            // because on iOS the same two styles are 20pt and 17pt.
+            line.font = hashes <= 2 ? Chrome.Style.title3.bold() : Chrome.Style.headline
             return line
         }
         // Blockquote.
         if trimmed.hasPrefix("> ") {
             var line = inline(String(trimmed.dropFirst(2)))
-            line.foregroundColor = .secondary
+            line.foregroundColor = Chrome.Colour.secondaryLabel
             return line
         }
         // List item — bullet or ordered. The indent is kept as written so a
         // nested list still reads as nested.
         if let (indent, marker, rest) = listItem(raw) {
             var line = AttributedString(indent + marker + " ")
-            line.foregroundColor = .secondary
+            line.foregroundColor = Chrome.Colour.secondaryLabel
             return line + inline(rest)
         }
         return inline(raw)

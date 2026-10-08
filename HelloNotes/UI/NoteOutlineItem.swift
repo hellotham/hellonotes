@@ -11,16 +11,14 @@
 //  not be collapsed, search results with no snippets and no attachment hits, a
 //  tag filter that kept a redundant header, and inert Recents/Bookmarks.
 //
-//  Nothing here is platform-shaped: a node is an id, a kind and its children.
-//  The rendering is — an `NSOutlineView` on one side and a SwiftUI `List` on the
-//  other — and that is the same split `FileViewerView` makes for PDFs, where
-//  the decision is shared and only the representable differs.
+//  Nothing here is platform-shaped: a node is an id, a kind and its children,
+//  and one drawn list renders it on both platforms (`NoteOutlineList`).
 //
 
 import Foundation
 
-/// A node in the outline. A reference type so NSOutlineView can track it; a
-/// stable `id` (path) survives rebuilds so expansion/selection can be restored.
+/// A node in the outline. A reference type, with a stable `id` (path) that
+/// survives rebuilds so expansion and selection can be restored.
 final class NoteOutlineItem {
     enum Kind {
         case collection(Collection)
@@ -65,6 +63,14 @@ final class NoteOutlineItem {
     /// A place owns no folder on disk, so nothing may be dropped into it and it
     /// never answers "which collection is this node in?".
     var isPlace: Bool { if case .place = kind { return true }; return false }
+    /// Whether this holds other rows — a collection, place or folder — as
+    /// opposed to being a note or file.
+    var isContainer: Bool {
+        switch kind {
+        case .collection, .place, .folder: return true
+        case .note, .file: return false
+        }
+    }
     var isSelectable: Bool { url != nil }
     var isExpandable: Bool { !children.isEmpty }
 }

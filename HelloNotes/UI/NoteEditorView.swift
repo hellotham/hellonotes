@@ -66,13 +66,17 @@ struct NoteEditorView: View {
     /// renaming is a *collection* operation — it moves the file and rewrites
     /// every `[[wiki-link]]` pointing at it.
     var onRenameNote: (String) -> Void = { _ in }
-    var onShowMindMap: () -> Void = { }
+    /// Show the note's mind map — `nil` where nothing can (a note window has
+    /// no panel), which hides the button: it was there, and did nothing
+    /// (toolbars.md §14, item 5).
+    var onShowMindMap: (() -> Void)? = nil
 
     /// The window's AI commands, so the bottom bar can offer them where a
     /// writer's eyes already are. `nil` when there is no working model.
     var ai: AIActions? = nil
 
-    /// What the collection can do with a selected phrase — the floating bar.
+    /// What the collection can do with a selected phrase — items in the
+    /// editor's selection menu (`SelectionActions`).
     var selectionActions: SelectionActions? = nil
 
     @Environment(\.openWindow) private var openWindow
@@ -101,7 +105,8 @@ struct NoteEditorView: View {
     /// The writing tools, on the one model the person chose.
     private var intelligence: IntelligenceService { IntelligenceService(settings: intelligenceSettings) }
 
-    @State private var showMermaid = false
+    /// The diagram zoom, while it is open — see `openDiagramZoom`.
+    @State private var diagramZoom: DiagramZoomRequest?
     @State private var showSlides = false
     @State private var showOutline = false
     @State private var showHistory = false
@@ -143,7 +148,7 @@ struct NoteEditorView: View {
     /// because a note does not become a Marp deck halfway through a sentence —
     /// so keying them on the open note rather than on its text costs one scan
     /// per note instead of one per pause.
-    private struct NoteKind: Equatable {
+    private nonisolated struct NoteKind: Equatable, Sendable {
         var hasMermaid = false
         var isMarp = false
     }
@@ -157,15 +162,32 @@ struct NoteEditorView: View {
                  isMarp: MarpSlides.isMarp(text))
     }
 
-    /// Splice the edited properties back into the note's front matter.
+    /// Splice the edited properties back into the note's front matter, and
+    /// write it — the popover's commit, as the inspector's is
+    /// (`EditorModel.setProperties`).
     private func applyProperties() {
-        editor.text = FrontMatter.applying(properties, to: editor.text)
+        editor.setProperties(properties)
     }
 
-    /// On-demand Mermaid extraction for the preview sheet (evaluated only when
-    /// the sheet is presented, never during ordinary body evaluation).
-    private var mermaidSources: [String] {
-        MarkdownParsing.mermaidBlocks(in: editor.text)
+    /// Open the diagram zoom: on `zoom`'s diagram when a diagram's enlarge
+    /// button asked, and on the one nearest the caret when the bar or the menu
+    /// did (the first, in a mode with no live editor).
+    ///
+    /// In Edit, from the live document — its own parse, its own caret, and the
+    /// coordinates a button's press was made in — never the buffer, which
+    /// trails the screen until editing settles, so the diagram just clicked may
+    /// not be in it yet. Elsewhere the buffer is what is on screen (the Markdown
+    /// pane writes through; Preview shows it), and finding its diagrams is a
+    /// whole-document parse, so it runs off the main actor.
+    private func openDiagramZoom(_ zoom: DiagramZoom? = nil) {
+        if let live = editor.liveDiagrams?() {
+            diagramZoom = DiagramZoomRequest.make(diagrams: live.diagrams, zoom: zoom, caret: live.caret)
+            return
+        }
+        let text = editor.text
+        Task {
+            diagramZoom = await offMain { DiagramZoomRequest.make(text: text, zoom: zoom, caret: nil) }
+        }
     }
 
     /// The collection's side of `[[link]]` / `#tag` autocomplete. The ranking
@@ -186,11 +208,8 @@ struct NoteEditorView: View {
                 noteBody(note)
 
             } else {
-                ContentUnavailableView(
-                    "No Note Selected",
-                    systemImage: "doc.text",
-                    description: Text("Select a note from the list, or create a new one.")
-                )
+                ChromeEmptyState("No Note Selected", systemImage: "doc.text",
+                                 description: Text("Select a note from the list, or create a new one."))
             }
         }
     }
@@ -237,7 +256,8 @@ struct NoteEditorView: View {
                         onRename: onRenameNote,
                         linkTargets: linkCandidates,
                         embedProvider: embedProvider,
-                        completionSource: completionSource)
+                        completionSource: completionSource,
+                        onDiagramZoom: { openDiagramZoom($0) })
 
                 }
                 // **A safe-area inset, not the last row of the VStack.**
@@ -260,8 +280,9 @@ struct NoteEditorView: View {
                 // whatever is there, and the pane above it shrinks by exactly
                 // the bar's height instead of being overlapped.
                 .safeAreaInset(edge: .bottom, spacing: 0) {
+                    // The bar draws its own rule on top; a divider above it as
+                    // well made a 2pt one (toolbars.md §14, item 7).
                     VStack(spacing: 0) {
-                        Divider()
                         bottomBar
                     }
                     // Clear of iPad's floating shortcuts pill, which SwiftUI
@@ -294,43 +315,74 @@ struct NoteEditorView: View {
                 // had. What was left was a `@State` written on every ↑ off the
                 // first line and read by nothing, invalidating the whole editor
                 // column for no effect.
-                .navigationTitle(editor.note?.title ?? "")
+                //
+                // No `navigationTitle` either: nothing above this column draws
+                // one. The main window is named by the shell (the collection)
+                // and a note window by `NoteWindowView`, and both draw their
+                // own bars.
                 .task(id: editor.note?.fileURL) {
                     properties = FrontMatter.properties(in: editor.text)
                     showProperties = false
                 }
-                // The buffer another scene reads. `LiveBuffer` coalesces, so
-                // this is not a write per keystroke.
-                .onChange(of: editor.text, initial: true) { _, text in
+                // The buffer another scene reads, as of the last pause in
+                // typing (`EditorModel.settledText`).
+                //
+                // Keyed on the text's version, not the text: `onChange` compares
+                // the old value with the new, and for a note that was the whole
+                // note on the main actor, every time the buffer changed — per
+                // keystroke in Markdown and Split mode. And on the *settled*
+                // version, not the buffer's: reading the buffer's here made this
+                // whole column — and the pane inside it, whose closures SwiftUI
+                // cannot compare — redraw on every keystroke there.
+                .onChange(of: editor.settledText.version, initial: true) { _, _ in
                     // Another scene's mirror of this buffer. Nothing is looking
                     // at it mid-keystroke, and publishing hands a whole-document
                     // string across, so it waits for the burst to end like
                     // everything else.
-                    liveBuffer.publish(url: editor.note?.fileURL, text: text)
+                    liveBuffer.publish(url: editor.note?.fileURL, text: editor.settledText.text)
                 }
-                // Keyed on the *note*, not its text: opening a note asks what
-                // kind it is, once. Typing never re-asks.
-                .task(id: editor.note?.fileURL) {
+                // Keyed on the note, its load and its saves — never its text,
+                // so typing does not re-ask, and the answer follows the note
+                // within an autosave: the same key as the note menu's
+                // `docFeaturesKey`, so the bar and the menu agree about a
+                // diagram typed into an open note. (Keyed on the load alone,
+                // the menu offered one after the next save while the bar
+                // waited for the note to be reopened.)
+                //
+                // Keyed on the note alone it asked too early. A new tab
+                // appears before its text does (`EditorTabs.editor(for:)`
+                // shows it, then reads), so this ran on the empty placeholder
+                // and never again: Rich Content, whose diagram the tour is
+                // about, opened with no Mermaid button in the bar, and a Marp
+                // deck with no Present button.
+                //
+                // `offMain`, not `Task.detached`: in this target a detached
+                // task still runs on the main actor, and finding a note's
+                // diagrams is a whole-document parse.
+                .task(id: "\(editor.note?.fileURL.path ?? "")|\(editor.loadRevision)|\(editor.savedRevision)") {
                     let text = editor.text
-                    noteKind = await Task.detached { Self.kind(of: text) }.value
+                    noteKind = await offMain { Self.kind(of: text) }
                 }
                 // Leaving an editable mode is the text settling: the view that
                 // was holding it is about to be torn down, and a teardown does
-                // not reliably resign first responder first.
+                // not reliably resign first responder first. Not letting go:
+                // the buffer stays, in the next mode.
                 .onChange(of: mode) { _, _ in
-                    Task { await editor.flush() }
+                    Task { await editor.flush(lettingGo: false) }
                 }
                 .onChange(of: editor.note?.fileURL) { _, _ in
                     if showFindBar { closeFindBar() }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .hnEditorToggleFind)) { _ in
+                .onReceive(NotificationCenter.default.publisher(for: .hnEditorToggleFind(editor: editor.editorID))) { _ in
                     // Edit ▸ Find (⌘F): Find works in the live editor, so switch
                     // to Edit mode first if needed, then toggle the bar.
                     guard editor.note != nil else { return }
                     if mode != .edit { storedMode = EditorMode.edit.rawValue }
                     toggleFindBar()
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .hnEditorFindResults)) { note in
+                // This editor's count only: one editor's matches are not another
+                // window's find bar's.
+                .onReceive(NotificationCenter.default.publisher(for: EditorBus.findResults(editor: editor.editorID))) { note in
                     let count = note.userInfo?["count"] as? Int ?? 0
                     findMatchCount = count
                     if count == 0 {
@@ -342,12 +394,12 @@ struct NoteEditorView: View {
                 .modifier(NoteEditorSheets(
                     editor: editor,
                     git: git,
-                    showMermaid: $showMermaid,
+                    diagramZoom: $diagramZoom,
                     showSlides: $showSlides,
                     showRewriteNote: $showRewriteNote,
                     showHistory: $showHistory,
-                    mermaidSources: mermaidSources,
                     intelligence: intelligence,
+                    openDiagramZoom: { openDiagramZoom() },
                     onReplaceBody: replaceBody))
     }
 
@@ -360,22 +412,6 @@ struct NoteEditorView: View {
     // MARK: - Editor modes
 
 
-    /// Read-only rendering: the same editor with no caret, so the note reads as
-    /// it will look, with `[[wiki-links]]` still clickable.
-    @ViewBuilder
-
-
-    // MARK: - Smart paste
-
-
-
-    /// Replace the first occurrence of `target` in the note body — used to
-    /// upgrade a just-pasted placeholder (image alt text, URL title).
-    private func replaceFirst(_ target: String, with replacement: String) {
-        guard target != replacement, let range = editor.text.range(of: target) else { return }
-        editor.text.replaceSubrange(range, with: replacement)
-    }
-
     // MARK: - Intelligence apply handlers
     //
     // Only the whole-note replace lives here now. Summaries, tags and links are
@@ -385,17 +421,19 @@ struct NoteEditorView: View {
 
     /// Replace the note body (keeping front matter) with a rewritten version.
     private func replaceBody(_ text: String) {
-        let full = editor.text
-        let body = FrontMatter.body(of: full)
-        if body.count < full.count {
-            let frontMatter = String(full.dropLast(body.count))
-            editor.text = frontMatter + text
-        } else {
-            editor.text = text
+        editor.applyEdit { full in
+            let body = FrontMatter.body(of: full)
+            guard body.count < full.count else { return text }
+            return String(full.dropLast(body.count)) + text
         }
     }
 
     // MARK: - Find & replace
+    //
+    // Everything below is posted to *this* editor (`EditorModel.editorID`).
+    // It was posted to no one, and every editor in every window answered: a
+    // find here moved the selection in another window, and Replace All here
+    // rewrote the note open there (`EditorBus`).
 
     private func toggleFindBar() {
         if showFindBar {
@@ -410,7 +448,7 @@ struct NoteEditorView: View {
         showFindBar = false
         findMatchCount = 0
         findCurrentIndex = 0
-        NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
+        NotificationCenter.default.post(name: EditorBus.clearHighlights(editor: editor.editorID), object: nil)
     }
 
     /// Re-run the search from the top whenever the query changes.
@@ -418,11 +456,11 @@ struct NoteEditorView: View {
         findCurrentIndex = 0
         guard !findText.isEmpty else {
             findMatchCount = 0
-            NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
+            NotificationCenter.default.post(name: EditorBus.clearHighlights(editor: editor.editorID), object: nil)
             return
         }
         NotificationCenter.default.post(
-            name: .hnEditorFindQuery,
+            name: EditorBus.findQuery(editor: editor.editorID),
             object: nil,
             userInfo: ["query": findText, "currentIndex": 0]
         )
@@ -433,7 +471,7 @@ struct NoteEditorView: View {
         guard findMatchCount > 0 else { return }
         findCurrentIndex = ((findCurrentIndex + delta) % findMatchCount + findMatchCount) % findMatchCount
         NotificationCenter.default.post(
-            name: .hnEditorFindQuery,
+            name: EditorBus.findQuery(editor: editor.editorID),
             object: nil,
             userInfo: ["query": findText, "currentIndex": findCurrentIndex]
         )
@@ -442,7 +480,7 @@ struct NoteEditorView: View {
     private func replaceCurrentMatch() {
         guard findMatchCount > 0 else { return }
         NotificationCenter.default.post(
-            name: .hnEditorReplaceCurrent,
+            name: EditorBus.replaceCurrent(editor: editor.editorID),
             object: nil,
             userInfo: ["query": findText, "replacement": replaceText, "currentIndex": findCurrentIndex]
         )
@@ -451,7 +489,7 @@ struct NoteEditorView: View {
     private func replaceAllMatches() {
         guard findMatchCount > 0 else { return }
         NotificationCenter.default.post(
-            name: .hnEditorReplaceAll,
+            name: EditorBus.replaceAll(editor: editor.editorID),
             object: nil,
             userInfo: ["query": findText, "replacement": replaceText]
         )
@@ -463,7 +501,7 @@ struct NoteEditorView: View {
     /// the displayed text, then clear the transient highlight shortly after.
     private func jumpToHeading(_ ordinal: Int, _ heading: DocumentHeading) {
         showOutline = false
-        hnJumpToHeading(ordinal: ordinal, title: heading.title)
+        hnJumpToHeading(ordinal: ordinal, title: heading.title, editor: editor.editorID)
     }
 
     // MARK: - Conflict banner
@@ -481,9 +519,9 @@ struct NoteEditorView: View {
         !outgoingLinks.isEmpty || !backlinks.isEmpty || !unlinkedMentions.isEmpty
     }
 
-    /// The same content the inspector's References tab shows, for the shells
-    /// and windows that have no inspector rail (below 1400pt, and the
-    /// standalone note window). A route, not a second home.
+    /// The same content the panel's References view shows, from the status
+    /// bar — the note window has no panel, and a column window may have it
+    /// shut. A route, not a second home.
     private var referencesPopover: some View {
         Group {
             if hasReferences {
@@ -507,7 +545,7 @@ struct NoteEditorView: View {
                 // links is a state worth showing, not a reason to hide the
                 // control. The button used to vanish entirely, which reads as a
                 // missing feature rather than an empty one.
-                ContentUnavailableView("No References", systemImage: "link",
+                ChromeEmptyState("No References", systemImage: "link",
                                        description: Text("Nothing links to this note yet, and it links nowhere."))
             }
         }
@@ -518,8 +556,8 @@ struct NoteEditorView: View {
     private func referenceSection(_ title: String, systemImage: String, notes: [Note]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(title.uppercased()) · \(notes.count)")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption2.weight(.semibold))
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
             ForEach(notes) { note in
                 Button {
                     onOpenNote(note)
@@ -527,7 +565,7 @@ struct NoteEditorView: View {
                     Label(note.title, systemImage: systemImage)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ChromePlainStyle())
                 .padding(.vertical, 1)
             }
         }
@@ -536,8 +574,8 @@ struct NoteEditorView: View {
     private var unlinkedSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("UNLINKED MENTIONS · \(unlinkedMentions.count)")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption2.weight(.semibold))
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
             ForEach(unlinkedMentions) { note in
                 HStack {
                     Button {
@@ -546,10 +584,10 @@ struct NoteEditorView: View {
                         Label(note.title, systemImage: "text.magnifyingglass")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ChromePlainStyle())
                     Button("Link") { onLinkMention(note) }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
+                        .buttonStyle(ChromeBorderlessStyle())
+                        .font(Chrome.Style.caption)
                 }
                 .padding(.vertical, 1)
             }
@@ -598,7 +636,7 @@ struct NoteEditorView: View {
     private var liveSaveStatus: some View {
         if let error = editor.saveError {
             Label("Save failed", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(Chrome.Colour.red)
                 .help(error)
         }
     }
@@ -664,10 +702,17 @@ struct NoteEditorView: View {
             .frame(width: geo.size.width, alignment: .leading)
         }
         .frame(height: barHeight)
-        .font(.callout)
+        // `Chrome`: 12pt, the secondary label colour, the chrome grey and a
+        // rule on top. It was `.callout` (12pt on the Mac, 16pt on iOS) over
+        // the `.bar` material, which each OS draws its own way.
+        .font(Chrome.Typeface.status)
+        .foregroundStyle(Chrome.Colour.secondaryLabel)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(.bar)
+        .background(Chrome.Colour.chrome)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
+        }
     }
 
     /// The bar's own height. A `GeometryReader` fills whatever it is offered and
@@ -693,16 +738,16 @@ struct NoteEditorView: View {
             // worse than not naming it. The Mac has a second route from its
             // status bar; this is the one both platforms share.
             if git.status.isRepository {
-                Divider().frame(height: 11)
+                ChromeStatusSeparator()
                 Button {
                     showGitPane = true
                 } label: {
                     Label(git.status.isClean ? "Clean" : "\(git.status.changeCount) changed",
                           systemImage: "pencil.and.list.clipboard")
-                        .foregroundStyle(git.status.isClean ? Color.secondary : Color.orange)
+                        .foregroundStyle(git.status.isClean ? Chrome.Colour.secondaryLabel : Chrome.Colour.orange)
                         .lineLimit(1)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(ChromePlainStyle())
                 .accessibilityLabel("Git — branch, status, commit and sync")
                 .popover(isPresented: $showGitPane) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -718,7 +763,7 @@ struct NoteEditorView: View {
 
             modePicker
 
-            Divider().frame(height: 11)
+            ChromeStatusSeparator()
 
             // Actions (right) — dynamic per context
             barButton("Find & replace (⌘F)", "magnifyingglass", action: toggleFindBar)
@@ -742,22 +787,25 @@ struct NoteEditorView: View {
                 }
             barButton("Outline & statistics", "list.bullet.indent") { showOutline = true }
                 .popover(isPresented: $showOutline, arrowEdge: .bottom) {
-                    OutlineView(text: editor.text, onSelectHeading: jumpToHeading)
+                    OutlineView(content: editor.settledText, onSelectHeading: jumpToHeading)
                         .presentationCompactAdaptation(.popover)
                 }
-            barButton("Mind map of this note's ideas", "brain") { onShowMindMap() }
+            if let onShowMindMap {
+                barButton("Mind map of this note's ideas", "brain", action: onShowMindMap)
+            }
             if noteKind.isMarp {
                 barButton("Present as slides (Marp)", "rectangle.on.rectangle") { showSlides = true }
             }
             if noteKind.hasMermaid {
-                barButton("Preview Mermaid diagrams", "chart.xyaxis.line") { showMermaid = true }
+                barButton("View diagram", "chart.xyaxis.line") { openDiagramZoom() }
             }
             // The AI actions, as a menu rather than a panel. Every item names
             // where its answer will appear, so pressing one teaches the rail
             // instead of replacing it — which is what the old Intelligence
             // sheet did, and why nobody found their way back to it.
             if let ai {
-                Menu {
+                ChromeStatusMenu(help: "Summarise, suggest and rewrite with \(ai.modelName)",
+                                 systemImage: "sparkles") {
                     Button("Summarise Note", systemImage: "text.append", action: ai.summarize)
                     Button("Suggest Tags", systemImage: "number", action: ai.suggestTags)
                     Button("Suggest Links", systemImage: "link.badge.plus", action: ai.suggestLinks)
@@ -765,17 +813,12 @@ struct NoteEditorView: View {
                     Button("Rewrite or Expand Note…", systemImage: "wand.and.stars", action: ai.rewriteNote)
                     Divider()
                     Text("via \(ai.modelName)")
-                } label: {
-                    Image(systemName: "sparkles")
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Summarise, suggest and rewrite with \(ai.modelName)")
             }
             if git.status.isRepository {
                 barButton("Version history (Git)", "clock.arrow.circlepath") { showHistory = true }
             }
-            Menu {
+            ChromeStatusMenu(help: "Export", systemImage: "square.and.arrow.up") {
                 Button("Export as HTML…") {
                     if let note = editor.note {
                         EditorExport.exportHTML(markdown: editor.text, title: note.title)
@@ -786,12 +829,7 @@ struct NoteEditorView: View {
                         EditorExport.exportPDF(markdown: editor.text, title: note.title)
                     }
                 }
-            } label: {
-                Image(systemName: "square.and.arrow.up")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Export")
             barButton("Open this note in a new window", "macwindow.badge.plus") {
                 if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
             }
@@ -800,27 +838,20 @@ struct NoteEditorView: View {
 
     /// Segmented Edit / Preview / Markdown / Split switcher.
     private var modePicker: some View {
-        Picker("View mode", selection: modeBinding) {
-            ForEach(EditorMode.platformCases) { m in
-                Image(systemName: m.symbol)
-                    .help(m.label)
-                    .accessibilityLabel(m.label)
-                    .tag(m)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        // `ChromeSegmented`, not `.pickerStyle(.segmented)`: the system control
+        // is an `NSSegmentedControl` on the Mac and a `UISegmentedControl` on
+        // iOS, which are different heights, radii and selections.
+        ChromeSegmented(selection: modeBinding,
+                        options: EditorMode.platformCases.map {
+                            .init(value: $0, systemImage: $0.symbol, label: $0.label)
+                        })
         .fixedSize()
+        .accessibilityLabel("View mode")
         .help("View mode: Edit, Preview, Markdown source, or Split")
     }
 
     private func barButton(_ help: String, _ systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage).frame(width: 22, height: 18)
-        }
-        .buttonStyle(.borderless)
-        .help(help)
-        .accessibilityLabel(help)
+        ChromeStatusButton(help: help, systemImage: systemImage, action: action)
     }
 }
 
@@ -833,20 +864,21 @@ struct NoteEditorView: View {
 private struct NoteEditorSheets: ViewModifier {
     @Bindable var editor: EditorModel
     var git: GitService
-    @Binding var showMermaid: Bool
+    @Binding var diagramZoom: DiagramZoomRequest?
     @Binding var showSlides: Bool
     @Binding var showRewriteNote: Bool
     @Binding var showHistory: Bool
-    var mermaidSources: [String]
     var intelligence: IntelligenceService
+    /// The zoom on the diagram nearest the caret — what the menu command asks for.
+    var openDiagramZoom: () -> Void
     /// Replace the note's body, keeping its front matter — the rewrite sheet's
     /// only way back into the document.
     var onReplaceBody: (String) -> Void
 
     func body(content: Content) -> some View {
         content
-        .sheet(isPresented: $showMermaid) {
-            MermaidPreviewView(sources: mermaidSources)
+        .sheet(item: $diagramZoom) { request in
+            DiagramZoomView(request: request)
         }
         .sheet(isPresented: $showSlides) {
             SlidesView(
@@ -855,13 +887,18 @@ private struct NoteEditorSheets: ViewModifier {
                 baseURL: editor.note?.fileURL.deletingLastPathComponent()
             )
         }
-        .onReceive(NotificationCenter.default.publisher(for: .hnShowSlides)) { _ in
+        // Each addressed to this editor, as ⌘F is: posted to none, a command
+        // in one window opened its sheet in every window at once.
+        .onReceive(NotificationCenter.default.publisher(for: .hnShowSlides(editor: editor.editorID))) { _ in
             showSlides = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .hnShowMermaid)) { _ in
-            showMermaid = true
+        .onReceive(NotificationCenter.default.publisher(for: .hnShowMermaid(editor: editor.editorID))) { _ in
+            openDiagramZoom()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .hnRewriteNote)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .hnRewriteNote(editor: editor.editorID))) { _ in
+            // The sheet rewrites the buffer's body: it has to be what is on
+            // screen, or the rewrite replaces what was typed since.
+            editor.carryLiveEdits()
             showRewriteNote = true
         }
         .sheet(isPresented: $showRewriteNote) {
@@ -871,14 +908,16 @@ private struct NoteEditorSheets: ViewModifier {
                 // hand the model its own front matter to reword.
                 original: FrontMatter.body(of: editor.text),
                 onReplace: onReplaceBody,
-                onInsertBelow: { editor.text = editor.text.trimmingTrailingNewlines() + "\n\n\($0)\n" },
+                onInsertBelow: { rewritten in
+                    editor.applyEdit { $0.trimmingTrailingNewlines() + "\n\n\(rewritten)\n" }
+                },
                 subject: .wholeNote
             )
         }
         .sheet(isPresented: $showHistory) {
             if let url = editor.note?.fileURL {
                 NoteHistoryView(fileURL: url, git: git) { restored in
-                    editor.text = restored
+                    editor.applyEdit { _ in restored }
                 }
             }
         }

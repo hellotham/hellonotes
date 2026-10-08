@@ -98,6 +98,5 @@ struct BandTwoPaneTests {
         #expect(ShellMetrics.bandContainerPane < ShellMetrics.sidebarFloor
                 || ShellMetrics.bandContainerPane < ShellMetrics.sidebarCap,
                 "the container pane must fit inside what a band can spare")
-        #expect(ShellKind.tall.sidebarIsOverlay == false || true)
     }
 }

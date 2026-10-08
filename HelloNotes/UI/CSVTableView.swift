@@ -34,31 +34,36 @@ struct CSVTableView: View {
     var body: some View {
         Group {
             if let error {
-                ContentUnavailableView("Couldn't read this file", systemImage: "exclamationmark.triangle", description: Text(error))
+                ChromeEmptyState("Couldn't read this file", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if rows.isEmpty {
-                ContentUnavailableView("Empty", systemImage: "tablecells")
+                ChromeEmptyState("Empty", systemImage: "tablecells")
             } else {
                 ScrollView([.horizontal, .vertical]) {
+                  // An explicit stack: the scroll view's own is SwiftUI's
+                  // default spacing, which each platform computes from its own
+                  // rounding of the font's metrics.
+                  VStack(alignment: .leading, spacing: 0) {
                     Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                         ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                             GridRow {
                                 ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
                                     Text(cell)
-                                        .font(index == 0 ? .callout.bold() : .callout)
+                                        .font(index == 0 ? Chrome.Style.callout.bold() : Chrome.Style.callout)
                                         .lineLimit(1)
                                         .padding(.horizontal, 8).padding(.vertical, 4)
                                         .frame(minWidth: 60, maxWidth: 320, alignment: .leading)
                                 }
                             }
-                            .background(index == 0 ? Color.secondary.opacity(0.18)
-                                        : (index.isMultiple(of: 2) ? Color.clear : Color.secondary.opacity(0.06)))
-                            Divider()
+                            .background(index == 0 ? Chrome.Colour.secondaryLabel.opacity(0.18)
+                                        : (index.isMultiple(of: 2) ? Color.clear : Chrome.Colour.secondaryLabel.opacity(0.06)))
+                            ChromeDivider()
                         }
                     }
                     if truncated {
                         Text("… showing the first \(rowCap) rows")
-                            .font(.caption).foregroundStyle(.secondary).padding(8)
+                            .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel).padding(8)
                     }
+                  }
                 }
             }
         }

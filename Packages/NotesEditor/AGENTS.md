@@ -18,12 +18,12 @@ GitHub-identical Preview + parity tests).
 All three are run **from the repository root**, not from this directory.
 
 ```bash
-swift test --package-path Packages/NotesEditor                 # 402 tests, 31 suites
+swift test --package-path Packages/NotesEditor                 # 506 tests, 51 suites
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'           # 383 tests — run these too
-# ^ prints THREE bundle summaries (169/12, 18/4, 194/13). The total is their sum;
-#   reading only the last one says "194 in 13" and looks exactly like two thirds
-#   of the suite having silently stopped running.
+  -destination 'platform=iOS Simulator,name=HN-iPad'           # 487 tests — run these too
+# ^ prints THREE bundle summaries (270/29, 191/16, 26/4 on 2026-10-09). The total
+#   is their sum; reading only the last one says "26 in 4" and looks exactly like
+#   nearly all of the suite having silently stopped running.
 ./scripts/render-parity.sh                                     # Edit ≡ Preview: the gate
                                                                # for anything visual
 ```
@@ -54,6 +54,12 @@ tagged blocks go unread for years.
 - UITextView does not call custom fragment `draw` — iOS chrome goes through
   `ChromeOverlayView`. Subclasses built via `init(usingTextLayoutManager:)`
   skip stored-property init: make such properties `lazy`.
+- Install the fragment delegate on the layout manager **before**
+  `UITextView(frame:textContainer:)` (`MarkdownUITextView.make`). UIKit lays the
+  text out inside `init`, and TextKit keeps a fragment per paragraph until that
+  paragraph changes, so a delegate set afterwards left a note that was already
+  styled — every note the document store hands back — in plain fragments,
+  which `ChromeOverlayView` does not draw: no chrome at all. `LiveFragmentTests`.
 - GFM fidelity questions → extend the GFMRender spec/parity tests, not the
   hand-written StyleSpec.
 
@@ -112,17 +118,22 @@ They apply to this package's sources and to `Tools/RenderParity`, which grades i
 - **TextKit drops the trailing `paragraphSpacing` of the document's *last* paragraph; space
   that must survive that goes in `NSTextLayoutFragment.bottomMargin`.** The drop is right
   for a margin — GitHub zeroes `.markdown-body > *:last-child`'s margin-bottom too — and
-  wrong for anything else parked there, and three things were parked there.
+  wrong for anything else parked there, and three things were parked there (two still are).
   **(1) An h1/h2's rule** is `padding-bottom: .3em` plus a border. Padding is *inside* the
   box and the fragment *is* the box, so `bottomMargin` is padding-bottom and
   `paragraphSpacing` is margin-bottom — which is precisely why one must survive at EOF and
   the other must not. `RenderedBlockFragment.bottomMargin` reserves it off
   `headingRuleAttribute`; `StyleApplier` only marks the line. A note ending in an h1 used to
   stand ~11pt short and clip its own rule off the bottom.
-  **(2) An `<hr>`'s bottom margin** really is a margin, but `hr::before`/`hr::after` are
-  `display: table` — a clearfix — so it never collapses out to the `:last-child` that gets
-  zeroed. A rule ending a *list item* keeps its 24pt, a top-level one does not:
-  `StyleApplier.keepARulesBottomMargin`.
+  **(2) An `<hr>`'s bottom margin** was kept at EOF too, on the reading that
+  `hr::before`/`hr::after` (`display: table`, a clearfix) seal the rule's margins inside its
+  box. They cannot — they sit *inside* the `<hr>` — and on macOS 27's WebKit the margin
+  collapses out of a `<li>` like any last child's, so the page's ink ends at the rule. The
+  kept 24pt made spec #31 (`- Foo` / `- * * *`) 24pt taller in Edit, bare and in context;
+  it is gone, and an item-closing rule leaves its margin to `BlockBoxes.gapBetween`, which
+  exports it from the item's edge. **A margin rule written from how one engine behaved is
+  a measurement, not a law: re-run both sweeps after an OS bump** — the docs said 672/672
+  for weeks while #31 had moved under them.
   **(3) A note ending in a table/diagram/formula/HTML block** reserved no band for its
   image — fixed earlier by making the band the line box at EOF.
   `bottomMargin` is counted once per **fragment**, i.e. per paragraph, however many visual
@@ -141,7 +152,7 @@ They apply to this package's sources and to `Tools/RenderParity`, which grades i
   list item, so the info string was drawn *inside* the code box. Both were
   invisible to 672 examples and to every height measurement. That shape is in the
   sample `render-parity.sh` gates, and the general answer is the **document
-  gate** above: 58 real notes at three widths, which found nineteen more the
+  gate** above: 60 real notes at three widths, which found nineteen more the
   first time it was run and two more the first time it was run *wider*.
 
 - **A reason beside a divergence must name something about the *comparison*.**

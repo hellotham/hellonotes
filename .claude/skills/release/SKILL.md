@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Release HelloNotes
 
-Ship a signed, notarized, universal DMG as a GitHub Release, and keep the
+Ship a signed, notarized DMG (arm64 from 1.3.3 — see docs/production.md A2) as a GitHub Release, and keep the
 download page's printed metadata true.
 
 The authoritative reference is [docs/production.md](../../../docs/production.md)
@@ -35,7 +35,8 @@ held at build time**. Building without it ships empty cloud-provider keys.
 ## The pipeline
 
 ```bash
-# 1 · Archive (universal: arm64 + x86_64)
+# 1 · Archive (arm64 — 1.3.3's macOS 27 floor runs only on Apple silicon, and Xcode 27's
+#     ARCHS_STANDARD is arm64 there; 1.3.2 and earlier were universal)
 xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'generic/platform=macOS' -skipPackagePluginValidation \
   -archivePath build/HelloNotes.xcarchive -allowProvisioningUpdates
@@ -63,7 +64,7 @@ Never trust the script's own output alone. Mount it:
 spctl --assess -t open --context context:primary-signature -v dist/HelloNotes.dmg
 #   → accepted / source=Notarized Developer ID
 hdiutil attach dist/HelloNotes.dmg -nobrowse -mountpoint /tmp/hn
-lipo -archs /tmp/hn/HelloNotes.app/Contents/MacOS/HelloNotes    # → x86_64 arm64
+lipo -archs /tmp/hn/HelloNotes.app/Contents/MacOS/HelloNotes    # → arm64 (1.3.3+)
 spctl --assess --type execute -v /tmp/hn/HelloNotes.app
 xcrun stapler validate /tmp/hn/HelloNotes.app                   # works offline
 defaults read /tmp/hn/HelloNotes.app/Contents/Info CFBundleShortVersionString

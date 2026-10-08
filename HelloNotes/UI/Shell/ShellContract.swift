@@ -21,10 +21,35 @@ import MarkdownEditor   // PlatformFont
 ///
 /// `railPlaceUnset` was a `static let` on *each* shell, with the same value —
 /// two constants that must agree is the shape this project keeps removing.
-enum RailPlaceStorage {
+///
+/// `nonisolated`: constants and pure functions, read from anywhere.
+nonisolated enum RailPlaceStorage {
     static let key = "railPlace"
     /// No choice made yet, as distinct from "the Library place".
     static let unset = "?"
+    /// The Library place, chosen.
+    static let library = ""
+
+    /// Where the rail stands once the focus has moved to `focused`: with it —
+    /// unless the person chose the Library place, which they went to on
+    /// purpose.
+    ///
+    /// A rail naming a collection that has closed is not on the Library place
+    /// by choice, though it reads as it: it stayed there, and no focus change
+    /// moved it off again — the window's title went empty and the compact
+    /// Search place showed Library (primary.md §12, item 15; implemented.md
+    /// §51.36).
+    static func following(_ stored: String, focus focused: String?) -> String {
+        guard stored != library, let focused else { return stored }
+        return focused
+    }
+
+    /// Where the rail stands once the open collections are `open`: where it
+    /// was, unless the collection it named has closed — then with the focus.
+    static func keeping(_ stored: String, open: [String], focused: String?) -> String {
+        guard stored != library, stored != unset, !open.contains(stored) else { return stored }
+        return focused ?? library
+    }
 }
 
 enum ShellMetrics {
@@ -58,7 +83,9 @@ enum ShellMetrics {
     /// Wider than the 280 the five note tabs were drawn for: the same panel
     /// holds a conversation and a graph, and both read badly in a strip.
     static let panelIdeal: CGFloat = 360
-    static let panelCap: CGFloat = 560
+    // No cap of its own: the panel may be dragged to whatever leaves the editor
+    // its floor (`AdaptiveShell.panelRange`). A `panelCap` was declared and read
+    // by nothing (secondary.md §9, item 6; ui.md §12, item 1).
 
     /// The pane below which the editor is degraded but must still render
     /// (decision 9) — a design target enforced by the declared *window*
@@ -87,26 +114,10 @@ enum ShellMetrics {
     /// past this, which would otherwise silently leave the Mac stacked forever.
     static let noteRowTwoColumn: CGFloat = 420
 
-    /// Minimum height of a note row where a finger is the pointer. Below the
-    /// 44pt target a denser row stops being usable, which is the floor the
-    /// single-line layout is designed against.
-    static let noteRowTouchMinimum: CGFloat = 44
-
-    /// …and where a mouse is. A pointer hits a 24pt row as reliably as a 44pt
-    /// one, so paying the touch target on a Mac buys nothing and costs most of
-    /// a row per row. `ShellContext.prefersTouch` chooses, which means a tall
-    /// *Mac* window's band is dense and an iPad's is not — by input, not by
-    /// platform.
-    static let noteRowPointerMinimum: CGFloat = 24
-
     /// Horizontal padding inside a pane, per side.
     static let insets: CGFloat = 16
 
     // Chrome — definite heights (S3)
-    static let statusBar: CGFloat = 28
-    static let tabBarPointer: CGFloat = 32
-    static let tabBarTouch: CGFloat = 44
-    static let keyboardAccessoryBar: CGFloat = 44
     static let bottomTabBar: CGFloat = 49
     static let miniStrip: CGFloat = 56
 
@@ -150,11 +161,6 @@ enum ShellMetrics {
             width >= sidebarIdeal + editorFloor + panelFloor
         }
     }
-
-    /// A pane may split manually up to this many ways: `min(4, pane / 320)`.
-    static func maxPanes(detailWidth: CGFloat) -> Int {
-        max(1, min(4, Int(detailWidth / editorFloor)))
-    }
 }
 
 // MARK: - Part 4: the shell
@@ -173,22 +179,6 @@ enum ShellKind: String, Equatable, Sendable {
     case wide
     /// Sidebar + pane + right inspector.
     case wideInspector
-
-    /// Every non-compact shell carries the sidebar; the user collapses it.
-    var hasSidebar: Bool { self != .compact }
-
-    /// Only compact has no sidebar column at all — its navigation is the bottom
-    /// tab bar, so there is something to reach for rather than nothing.
-    ///
-    /// Decision 12 used to retract the library below 960pt because *three*
-    /// columns did not fit there. Two do: a 280pt sidebar plus the 320pt editor
-    /// floor is 600pt, so at the 860pt window minimum both fit with room over.
-    /// Forcing it shut would leave P2 — who works at exactly that width — with
-    /// a locked toggle and no way to reach a collection.
-    var sidebarIsOverlay: Bool { self == .compact }
-
-    /// Compact is the only shell that gives the editor the whole screen.
-    var editorIsScreen: Bool { self == .compact }
 }
 
 /// The one rule that reads both platforms.
@@ -346,24 +336,6 @@ extension View {
     }
 }
 
-/// Applies the user's measure when there is one, and nothing at all when there
-/// is not.
-///
-/// `ViewModifier` rather than an `if` in the body: a conditional branch around
-/// a `UIViewRepresentable` changes the view's identity, which tears the text
-/// view down and rebuilds it — dropping the caret every time the setting is
-/// touched.
-struct OptionalMeasure: ViewModifier {
-    let fontSize: CGFloat
-    let width: (reading: ReadingWidth, editing: EditorWidth)?
-
-    func body(content: Content) -> some View {
-        content.measuredText(fontSize: fontSize,
-                             reading: width?.reading ?? .full,
-                             editing: width?.editing ?? .full)
-    }
-}
-
 // MARK: - Context published to everything inside the shell
 
 /// What a view inside the shell needs to know about the shell it is inside.
@@ -374,16 +346,10 @@ struct ShellContext: Equatable, Sendable {
     var size: CGSize = CGSize(width: 1470, height: 923)
     /// Width available to a single editor pane, after rails and dividers.
     var paneWidth: CGFloat = 1470
-    /// Touch sizing: bigger hit targets, no hover-only affordances.
-    var prefersTouch: Bool = false
-
-    /// Tab bars are never removed; they only change height (HIG: 44pt touch).
-    var tabBarHeight: CGFloat { prefersTouch ? ShellMetrics.tabBarTouch : ShellMetrics.tabBarPointer }
-
-    /// Decision 12 — below 960pt the library needs a ☰ affordance somewhere.
-    var needsLibraryAffordance: Bool { kind.sidebarIsOverlay }
-
-    var maxPanes: Int { ShellMetrics.maxPanes(detailWidth: paneWidth) }
+    // Nothing else. A tab bar's height, a library affordance, a pane count and
+    // a touch flag were published here and read by no view; a value with a
+    // rule and no reader reads as coverage (ui.md §12, item 1; implemented.md
+    // §51.36).
 }
 
 // MARK: - The declared window minimum (decision 9)
@@ -432,9 +398,10 @@ extension EnvironmentValues {
     }
 }
 
-/// Heights of the Mac sidebar's outline rows, in points before `fontScale`.
+/// Heights of the sidebar's drawn rows, on both platforms, in points before
+/// `fontScale`.
 ///
-/// Named rather than written into `heightOfRowByItem` because they are chosen
+/// Named rather than written into a row because they are chosen
 /// from a *measurement* — `NSLayoutManager.defaultLineHeight` at each cell's own
 /// fonts — and `SidebarRowHeightTests` re-does that measurement and checks these
 /// still clear it. A row height and the fonts inside it are one decision made in
@@ -443,10 +410,8 @@ extension EnvironmentValues {
 enum SidebarRowHeights {
     /// 13pt semibold title + 1pt + 11pt subtitle = 30pt of content.
     static let note: CGFloat = 32
-    /// A 11pt name beside a 12pt symbol, a 12pt spinner and a close button.
+    /// A 11pt name beside a 12pt symbol and a 12pt spinner.
     static let collection: CGFloat = 24
     /// One 12pt label and one 12pt symbol.
     static let leaf: CGFloat = 22
-    /// Anything the outline hands us that is not a node at all.
-    static let fallback: CGFloat = 22
 }

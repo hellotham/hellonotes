@@ -19,11 +19,6 @@ import Security
 @MainActor
 struct IntelligenceMigrationTests {
 
-    private func defaults() -> (UserDefaults, String) {
-        let suite = "IntelligenceMigrationTests-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suite)!, suite)
-    }
-
     @Test func mapsTheTwoSurvivingProvidersAndRetiresTheRest() {
         #expect(IntelligenceMigration.map(provider: "apple")?.choice == .onDevice)
         #expect(IntelligenceMigration.map(provider: "apple")?.retired == false)
@@ -48,9 +43,8 @@ struct IntelligenceMigrationTests {
         #expect(IntelligenceMigration.legacyMLXModel(from: nil) == nil)
     }
 
-    @Test func migratesOnceRemovesOldKeysAndDeletesCredentials() {
-        let (store, suite) = defaults()
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+    @Test(.scratchDefaults) func migratesOnceRemovesOldKeysAndDeletesCredentials() {
+        let store = ScratchDefaults.suite()
         store.set("openai", forKey: "llmActiveProvider")
         store.set("mlx", forKey: "llmIntelligenceProvider")
         store.set(Data(#"[{"kind":"mlx","model":"mlx-community/Qwen3-1.7B-4bit"}]"#.utf8), forKey: "llmProviders")
@@ -104,19 +98,17 @@ struct IntelligenceMigrationTests {
     /// 1.3.2 stored a default model for every provider, used or not, so every
     /// blob names an MLX model. It is carried only when MLX was actually chosen —
     /// build 22 carried it for everyone, and offered a model nobody had.
-    @Test func anMLXModelIsCarriedOnlyWhenMLXWasInUse() {
+    @Test(.scratchDefaults) func anMLXModelIsCarriedOnlyWhenMLXWasInUse() {
         let blob = Data(#"[{"kind":"mlx","enabled":false,"model":"mlx-community/Qwen3-4B-4bit"}]"#.utf8)
 
-        let (unused, unusedSuite) = defaults()
-        defer { UserDefaults().removePersistentDomain(forName: unusedSuite) }
+        let unused = ScratchDefaults.suite("unused")
         unused.set("gemini", forKey: "llmActiveProvider")
         unused.set("apple", forKey: "llmIntelligenceProvider")
         unused.set(blob, forKey: "llmProviders")
         IntelligenceMigration.migrateIfNeeded(defaults: unused) {}
         #expect(unused.string(forKey: MLXModelStore.Keys.model) == nil)
 
-        let (used, usedSuite) = defaults()
-        defer { UserDefaults().removePersistentDomain(forName: usedSuite) }
+        let used = ScratchDefaults.suite("used")
         used.set("mlx", forKey: "llmActiveProvider")
         used.set(blob, forKey: "llmProviders")
         IntelligenceMigration.migrateIfNeeded(defaults: used) {}
@@ -124,18 +116,16 @@ struct IntelligenceMigrationTests {
     }
 
     /// A choice already made in 1.3.3 is never overwritten by stale 1.3.2 keys.
-    @Test func neverOverwritesANewChoice() {
-        let (store, suite) = defaults()
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+    @Test(.scratchDefaults) func neverOverwritesANewChoice() {
+        let store = ScratchDefaults.suite()
         store.set("privateCloud", forKey: IntelligenceSettings.Keys.model)
         store.set("apple", forKey: "llmActiveProvider")
         IntelligenceMigration.migrateIfNeeded(defaults: store) {}
         #expect(store.string(forKey: IntelligenceSettings.Keys.model) == "privateCloud")
     }
 
-    @Test func aFreshInstallMigratesToDefaultsWithNoNotice() {
-        let (store, suite) = defaults()
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+    @Test(.scratchDefaults) func aFreshInstallMigratesToDefaultsWithNoNotice() {
+        let store = ScratchDefaults.suite()
         IntelligenceMigration.migrateIfNeeded(defaults: store) {}
         #expect(store.string(forKey: IntelligenceSettings.Keys.model) == nil)
         #expect(store.object(forKey: IntelligenceSettings.Keys.retiredProvider) == nil)
@@ -251,11 +241,11 @@ struct MLXModelFolderTests {
     /// the picker said System, changed which model would run and left the app
     /// answering on System.
     @MainActor
-    @Test func thePickerOffersEveryModelInTheFolderAndChoosingOneUsesIt() async throws {
+    @Test(.scratchDefaults) func thePickerOffersEveryModelInTheFolderAndChoosingOneUsesIt() async throws {
         let hub = try makeModelsFolder()
         defer { try? FileManager.default.removeItem(at: hub.deletingLastPathComponent()) }
 
-        let defaults = UserDefaults(suiteName: "MLXPickerTests-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults.suite()
         let store = MLXModelStore(defaults: defaults)
         await store.use(folder: hub)
         let models = LanguageModels(mlx: store)
@@ -274,9 +264,13 @@ struct MLXModelFolderTests {
         #expect(store.chosenID == wanted.id)
         #expect(models.title(of: settings.option(for: settings.model)) == "MLX · \(wanted.name)")
 
-        // Every model in the folder can be chosen, whatever the state of the one
-        // in use — asking the store about the others disabled all of them.
-        #expect(models.options.allSatisfy { models.isAvailable($0) || $0 == .privateCloud })
+        // Every *other* model in the folder can be chosen, whatever the state of
+        // the one in use — asking the store about the others disabled all of
+        // them. The one in use answers for itself, and what it answers is the
+        // device's business: MLX cannot run in the simulator at all.
+        let others = models.options.filter { $0.mlxModelID != nil && $0.mlxModelID != store.chosenID }
+        #expect(!others.isEmpty)
+        #expect(others.allSatisfy { models.isAvailable($0) })
     }
 
     @Test func withoutRefsMainTheNewestCompleteSnapshotIsUsed() throws {

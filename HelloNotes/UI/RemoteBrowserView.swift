@@ -4,11 +4,16 @@
 //
 //  Created by Chris Tham on 21/7/2026.
 //
-//  The direct-API (Phase 4) surface: sign in to a RemoteStore provider, browse
-//  its folders, and open / edit / save a note straight over the provider's REST
-//  API — no File Provider mount, no local sync. Works against any RemoteStore
-//  (DropboxStore in production; MockRemoteStore for the demo entry point and
-//  RemoteBrowserModel's tests).
+//  The direct-API (Phase 4) browsing model: sign in to a RemoteStore provider,
+//  browse its folders, and add one as a collection — no File Provider mount.
+//  Works against any RemoteStore (MockRemoteStore in RemoteBrowserModel's
+//  tests). What draws it is `RemoteFolderPicker`, reached from the cloud
+//  collections sheet.
+//
+//  It had a view of its own here, `RemoteBrowserView`, a browser window that
+//  also opened and edited notes over the API. Nothing had shown it since
+//  August, when browsing became the folder picker; it was deleted rather than
+//  kept compiling for no one.
 //
 
 import SwiftUI
@@ -81,7 +86,27 @@ final class RemoteBrowserModel {
     init(store: RemoteStore, onAdd: AddRemoteCollection? = nil) {
         self.store = store
         self.onAdd = onAdd
-        self.isAuthenticated = store.isAuthenticated
+        // Not asked here: the answer is a Keychain read, the account's first
+        // of the launch, and this runs on the main actor as the sheet opens.
+        // Loading until `start` has asked it off the main actor
+        // (implemented.md §51.36).
+        self.isAuthenticated = false
+        self.isLoading = true
+    }
+
+    /// What the sheet does as it opens: ask whether the account is signed in,
+    /// off the main actor, then list the root — or sign in, which is part of
+    /// opening rather than a screen to find.
+    func start() async {
+        let store = self.store
+        let authenticated = await offMain { store.isAuthenticated }
+        isAuthenticated = authenticated
+        isLoading = false
+        if authenticated {
+            await loadRootIfNeeded()
+        } else {
+            await connect()
+        }
     }
 
     var providerName: String { store.providerName }
@@ -297,298 +322,4 @@ final class RemoteBrowserModel {
         guard let slash = path.lastIndex(of: "/") else { return "" }
         return String(path[path.startIndex..<slash])
     }
-}
-
-struct RemoteBrowserView: View {
-    @State private var model: RemoteBrowserModel
-
-    /// Closes this browser — its own window on macOS, the settings sheet on iOS.
-    @Environment(\.dismiss) private var dismiss
-
-    /// `onAddAsCollection` — when set, the browser offers "Add as Collection",
-    /// handing the current folder to the host so it can mirror it into a
-    /// first-class sidebar collection, and reporting back what happened. It goes
-    /// straight into the model rather than being stored here; see the typealias.
-    init(store: RemoteStore, onAddAsCollection: AddRemoteCollection? = nil) {
-        _model = State(initialValue: RemoteBrowserModel(store: store, onAdd: onAddAsCollection))
-    }
-
-    var body: some View {
-        Group {
-            if model.isAuthenticated {
-                browser
-            } else {
-                connect
-            }
-        }
-        .frame(minWidth: 380, minHeight: 420)
-        // A window opened with a token already in the Keychain never runs
-        // `connect()`, so this is the only thing that lists the root for it.
-        .task { await model.loadRootIfNeeded() }
-        .sheet(item: Binding(get: { model.openPath.map { OpenNote(path: $0) } },
-                             set: { if $0 == nil { model.closeNote() } })) { _ in
-            noteEditor
-        }
-    }
-
-    // MARK: Connect
-
-    private var connect: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "cloud")
-                .font(.system(size: 44))
-                .foregroundStyle(.tint)
-            Text("Connect \(model.providerName)")
-                .font(.title2.bold())
-            Text("Sign in to browse and edit notes directly over the provider's API — no sync folder needed.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
-            Button("Connect \(model.providerName)") {
-                Task { await model.connect() }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            if let error = model.error {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: 340)
-            }
-        }
-        .padding(32)
-    }
-
-    // MARK: Browser
-
-    private var browser: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button { Task { await model.goUp() } } label: {
-                    Image(systemName: "chevron.up")
-                }
-                .disabled(!model.canGoUp)
-                .help("Parent folder")
-                Text(model.displayPath)
-                    .font(.callout.monospaced())
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                Spacer()
-                if model.isLoading { ProgressView().controlSize(.small) }
-                if model.canAddAsCollection {
-                    Button("Add as Collection") { model.addAsCollection() }
-                    .font(.caption)
-                    .disabled(model.isAdding)
-                    .help("Add “\(model.collectionName)” to the sidebar; edits sync back to \(model.providerName).")
-                }
-                Button("Sign Out") { model.signOut() }
-                    .font(.caption)
-                    .disabled(model.isAdding)
-            }
-            .padding(10)
-            Divider()
-
-            addStatus
-
-            List(model.entries, id: \.path) { entry in
-                Button {
-                    Task { await model.open(entry) }
-                } label: {
-                    HStack {
-                        Image(systemName: entry.isDirectory ? "folder" : "doc.text")
-                            .foregroundStyle(entry.isDirectory ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                        Text(entry.name)
-                        Spacer()
-                        if entry.isDirectory {
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
-                        }
-                    }
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-            }
-            .overlay {
-                // Only claim the folder is empty when we actually listed it.
-                // A failed listing showing "Empty folder" is the same lie as an
-                // unreachable vault showing no notes.
-                if model.entries.isEmpty && !model.isLoading && model.error == nil {
-                    ContentUnavailableView("Empty folder", systemImage: "folder")
-                }
-            }
-
-            if let error = model.error {
-                Divider()
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .textSelection(.enabled)
-                        if model.needsReauthentication {
-                            Text("The saved sign-in for \(model.providerName) is no longer valid.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    if model.needsReauthentication {
-                        Button("Sign In Again") { Task { await model.reconnect() } }
-                            .font(.caption)
-                    }
-                }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    // MARK: Add-as-collection status
-
-    /// Says what the add action is doing and what it achieved. Silent when
-    /// idle, so the browser looks exactly as it did before you pressed anything.
-    @ViewBuilder
-    private var addStatus: some View {
-        switch model.addState {
-        case .idle:
-            EmptyView()
-
-        case .adding(let progress):
-            statusStrip {
-                ProgressView().controlSize(.small)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Adding “\(model.collectionName)”…")
-                        .font(.caption.weight(.medium))
-                    Text(Self.line(for: progress))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer()
-                Button("Stop") { model.cancelAdd() }
-                    .font(.caption)
-                    .help("Stop syncing. Notes already downloaded stay in the collection.")
-            }
-
-        case .added(let name, let outcome):
-            statusStrip {
-                Image(systemName: outcome.isComplete ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .foregroundStyle(outcome.isComplete ? Color.green : Color.orange)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Added “\(name)” to the sidebar")
-                        .font(.caption.weight(.medium))
-                    Text(Self.summary(for: outcome))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                Spacer()
-                // The job is done: the collection is in the sidebar and already
-                // scrolled into view. Leaving the browser sitting in front of it
-                // makes the user close a window to see what they just added, so
-                // OK finishes the whole errand rather than only the message.
-                Button("OK") {
-                    model.dismissAddResult()
-                    dismiss()
-                }
-                .font(.caption)
-                .keyboardShortcut(.defaultAction)
-            }
-
-        case .failed(let message):
-            statusStrip {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Couldn't add “\(model.collectionName)”")
-                        .font(.caption.weight(.medium))
-                    Text(message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                Spacer()
-                // Deliberately *not* closing the window: nothing was added, the
-                // message is the only record of why, and the next thing you want
-                // is probably to try again from here.
-                Button("Dismiss") { model.dismissAddResult() }
-                    .font(.caption)
-            }
-        }
-    }
-
-    private func statusStrip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8, content: content)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Divider()
-        }
-        .background(.quaternary.opacity(0.4))
-    }
-
-    private static func line(for progress: RemoteSyncProgress) -> String {
-        var parts = ["\(progress.foldersListed) folder\(progress.foldersListed == 1 ? "" : "s")"]
-        if progress.filesMirrored > 0 { parts.append("\(progress.filesMirrored) files") }
-        if !progress.currentPath.isEmpty { parts.append(progress.currentPath) }
-        return parts.joined(separator: " · ")
-    }
-
-    /// Deliberately states what was *not* done as well as what was. A sync that
-    /// stopped early or skipped folders has not seen the whole remote folder,
-    /// and saying so is the difference between a trustworthy collection and one
-    /// that quietly omits notes.
-    private static func summary(for outcome: RemoteSyncOutcome) -> String {
-        let files = outcome.progress.filesMirrored
-        let folders = outcome.progress.foldersListed
-        var text = "\(files) file\(files == 1 ? "" : "s") in \(folders) folder\(folders == 1 ? "" : "s")."
-        if files > 0 {
-            // Say what has and hasn't been fetched. The collection is usable
-            // now; the bytes arrive per file, on demand.
-            text += " Their contents download as you open them."
-        }
-
-        if !outcome.isComplete {
-            if outcome.failures.isEmpty {
-                text += " Stopped before the whole folder was checked — use Add as Collection again to finish."
-            } else {
-                let failed = outcome.failures.count
-                text += " \(failed) item\(failed == 1 ? "" : "s") couldn't be read (\(outcome.failures[0].message))"
-                if failed > 1 { text += " and \(failed - 1) more." } else { text += "." }
-            }
-        }
-        return text
-    }
-
-    // MARK: Note editor
-
-    private var noteEditor: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(model.openPath.map { RemoteBrowserModel.parent(of: $0).isEmpty ? $0 : $0 } ?? "")
-                    .font(.headline).lineLimit(1).truncationMode(.middle)
-                Spacer()
-                if model.didSave {
-                    Label("Saved", systemImage: "checkmark.circle").foregroundStyle(.green).font(.caption)
-                }
-                if model.isSaving { ProgressView().controlSize(.small) }
-                Button("Save") { Task { await model.save() } }
-                    .keyboardShortcut("s", modifiers: .command)
-                    .disabled(model.isSaving)
-                Button("Close") { model.closeNote() }
-                    .keyboardShortcut(.cancelAction)
-            }
-            .padding(10)
-            Divider()
-            TextEditor(text: $model.openText)
-                .font(.body.monospaced())
-                .padding(6)
-        }
-        .frame(minWidth: 460, minHeight: 420)
-    }
-
-    private struct OpenNote: Identifiable { let path: String; var id: String { path } }
 }

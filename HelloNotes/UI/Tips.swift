@@ -56,5 +56,11 @@ enum HelloNotesTips {
             .displayFrequency(.immediate),
             .datastoreLocation(.applicationDefault),
         ])
+        // The whole-window parity capture (`scripts/window-parity.sh`) compares
+        // two pictures; a tip one device has dismissed and the other has not is
+        // a difference in history, not in drawing.
+        if ProcessInfo.processInfo.arguments.contains("-HNHideTips") {
+            Tips.hideAllTipsForTesting()
+        }
     }
 }

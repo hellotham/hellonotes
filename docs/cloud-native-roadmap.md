@@ -228,6 +228,9 @@ Now a working feature, not just a library.
 - ✅ **`RemoteBrowserView` / `RemoteBrowserModel`** — sign in, browse folders, open/edit/save a
   note over the API. Reachable from macOS **File ▸ Connect Dropbox…** (window) and iOS
   **Settings ▸ Cloud (direct API)** (sheet). Works against any `RemoteStore`.
+  *(Since superseded: browsing became `RemoteFolderPicker` in August 2026, reached from the
+  cloud collections sheet on both platforms, and the unreachable view was removed on
+  2026-09-23. `RemoteBrowserModel` remains, and is what the picker draws.)*
 - ✅ **`MockRemoteStore`** drives the same UI for a DEBUG "Cloud Demo" entry + tests.
 - ✅ **Tested** (12 tests): request/parse/PKCE/refresh + the full connect → navigate → open →
   edit → save-persists round-trip. **Live-verified** (macOS, mock store): the whole loop, incl.

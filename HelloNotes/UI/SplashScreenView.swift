@@ -250,138 +250,17 @@ private struct ConstellationView: View {
 
 // MARK: - Presentation
 
-/// Show the splash, from either platform.
+/// **One presentation, on both platforms:** an overlay over the window it was
+/// asked for in (`ContentView.presentSplash`) — at launch it fades after a
+/// beat; from About it waits to be dismissed.
 ///
-/// The splash view itself was already shared; only its *presentation* was not,
-/// and because the presentation was macOS-only so was the command that uses it:
-/// About HelloNotes lived inside `#if os(macOS)` in `HelloNotesCommands`, the
-/// one menu both platforms build. iPadOS builds a menu bar from the same
-/// `.commands`, so that gate did not describe a platform without an About box —
-/// it removed one that would otherwise have been there.
-///
-/// A borderless floating window on the Mac and a full-screen overlay on iPad
-/// are genuinely different presentations, which is what the branch is for. The
-/// command above it is one command.
-@MainActor
-enum SplashPresenter {
-    static func show(autoDismiss: Bool) {
-        SplashWindow.show(autoDismiss: autoDismiss)
-    }
-}
-
+/// It was two. The Mac put the splash in a borderless floating window, 720×440,
+/// centred on the screen and lingering 700ms; iOS drew it over the whole window
+/// for 500ms. Same view, two sizes, two places and two timings — and the About
+/// box inherited the split. About is an `AppActions` action now, so it appears
+/// in the window you are looking at rather than being broadcast to every one.
 extension Notification.Name {
-    /// Ask the iOS shell to raise the splash overlay. It owns the overlay
-    /// because the overlay is part of its scene.
-    static let hnShowSplash = Notification.Name("hn.splash.show")
-
-    /// The launch splash has gone. Posted by *both* presentations, because the
-    /// shell has work that waits on it — first-run onboarding opens over the
-    /// splash otherwise.
-    ///
-    /// This channel exists because the shell used to infer it from its own
-    /// `showSplash` overlay flag, which only one platform ever sets: on the Mac
-    /// the splash is a separate `NSWindow`, the flag stayed `false` for the
-    /// process lifetime, and the Welcome sheet it gated was unreachable — a
-    /// fresh install got an empty shell, and because `hasSeenWelcome` is only
-    /// written when that sheet is dismissed, it got one on every launch after.
+    /// The launch splash has gone. The shell has work that waits on it —
+    /// first-run onboarding would otherwise open over the splash.
     static let hnSplashDidFinish = Notification.Name("hn.splash.didFinish")
 }
-
-// MARK: - macOS presentation
-
-#if os(macOS)
-/// Presents the splash in a borderless floating window: at launch it fades in,
-/// lingers, and fades away; from the About menu it stays until clicked.
-///
-/// The other branch of this gate is the shell's overlay, raised by the
-/// `hnShowSplash` notification `SplashPresenter` posts — see the `#else` at the
-/// end of this file. Two presentations of one view, and one command above them.
-@MainActor
-enum SplashWindow {
-    private static var window: NSWindow?
-    private static var dismissTask: Task<Void, Never>?
-
-    static func show(autoDismiss: Bool) {
-        if let window {
-            // Reusing the window (e.g. About opened during the launch splash's
-            // 3.5s linger): a non-auto-dismiss caller must cancel the pending
-            // launch dismissal, or About would close itself after the timer.
-            if !autoDismiss { dismissTask?.cancel(); dismissTask = nil }
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-
-        let hosting = NSHostingView(rootView: SplashScreenView { close() })
-        hosting.frame = NSRect(x: 0, y: 0, width: 720, height: 440)
-
-        let panel = SplashPanel(contentRect: hosting.frame, styleMask: [.borderless],
-                                backing: .buffered, defer: false)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.level = .floating
-        panel.isReleasedWhenClosed = false
-        panel.isMovableByWindowBackground = true
-        panel.contentView = hosting
-        panel.center()
-        panel.alphaValue = 0
-        panel.makeKeyAndOrderFront(nil)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.35
-            panel.animator().alphaValue = 1
-        }
-        window = panel
-
-        if autoDismiss {
-            dismissTask = Task {
-                // See the iOS twin: a splash is worth showing while there is
-                // nothing to show, and this was 3.5 seconds of an app that was
-                // ready long before.
-                try? await Task.sleep(for: .milliseconds(700))
-                guard !Task.isCancelled else { return }
-                close()
-            }
-        }
-    }
-
-    static func close() {
-        dismissTask?.cancel()
-        dismissTask = nil
-        guard let panel = window else {
-            // Nothing on screen: the shell may still be waiting on the signal
-            // (About was never opened, or the splash was suppressed), and a
-            // handoff that never arrives is the bug this channel exists for.
-            NotificationCenter.default.post(name: .hnSplashDidFinish, object: nil)
-            return
-        }
-        window = nil
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.45
-            panel.animator().alphaValue = 0
-        }, completionHandler: {
-            panel.orderOut(nil)
-            NotificationCenter.default.post(name: .hnSplashDidFinish, object: nil)
-        })
-    }
-}
-
-/// Borderless windows refuse key status by default; the splash accepts it so
-/// Escape can dismiss it.
-private final class SplashPanel: NSWindow {
-    override var canBecomeKey: Bool { true }
-}
-#else
-
-/// The other branch: iOS has no borderless floating window to put a splash in,
-/// so the shell owns an overlay and `SplashPresenter` posts to it.
-/// `ContentView` draws it; this exists so the gate states both answers rather
-/// than leaving one silent.
-@MainActor
-enum SplashWindow {
-    static func show(autoDismiss: Bool) {
-        NotificationCenter.default.post(
-            name: .hnShowSplash, object: nil, userInfo: ["autoDismiss": autoDismiss])
-    }
-}
-
-#endif

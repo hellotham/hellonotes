@@ -20,8 +20,9 @@
 import Foundation
 import GFMRender
 
-enum GitHubMarkdown {
+nonisolated enum GitHubMarkdown {
 
-    /// Prepare `text` (a full note) for GitHub-identical rendering.
+    /// Prepare `text` (a full note) for GitHub-identical rendering. A pass
+    /// over the whole note — made off the main actor (`NotePreview`).
     static func prepare(_ text: String) -> String { NoteMarkdown.prepare(text) }
 }

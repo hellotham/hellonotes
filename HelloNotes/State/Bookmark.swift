@@ -11,7 +11,11 @@
 
 import Foundation
 
-enum Bookmark {
+/// `nonisolated`: resolving a bookmark can mount a volume and minting one asks
+/// the sandbox, so neither belongs on the main actor — launch resolves the
+/// whole list off it, and Try Again and Relocate do theirs there too
+/// (implemented.md §51.36). Unannotated, this target made them main-actor.
+nonisolated enum Bookmark {
     /// Bookmark data for `url`, security-scoped on macOS.
     static func data(for url: URL) -> Data? {
         #if os(macOS)
@@ -31,20 +35,25 @@ enum Bookmark {
     /// failed to resolve at all, at which point the collection simply vanished
     /// from the sidebar at launch with nothing said. `cloud-native-roadmap.md`
     /// §5 called for re-minting on stale; this is what makes that possible.
-    static func resolve(_ data: Data) -> Resolved? {
+    ///
+    /// `mounting: false` resolves without mounting a volume that is not there
+    /// — a network share gone away — which Try Again asks for: mount it in the
+    /// Finder and try again.
+    static func resolve(_ data: Data, mounting: Bool = true) -> Resolved? {
         var isStale = false
         #if os(macOS)
-        let options: URL.BookmarkResolutionOptions = [.withSecurityScope]
+        var options: URL.BookmarkResolutionOptions = [.withSecurityScope]
         #else
-        let options: URL.BookmarkResolutionOptions = []
+        var options: URL.BookmarkResolutionOptions = []
         #endif
+        if !mounting { options.insert(.withoutMounting) }
         guard let url = try? URL(resolvingBookmarkData: data, options: options,
                                  relativeTo: nil, bookmarkDataIsStale: &isStale)
         else { return nil }
         return Resolved(url: url, isStale: isStale)
     }
 
-    struct Resolved {
+    struct Resolved: Sendable {
         let url: URL
         /// True when the bookmark resolved but should be replaced — re-mint from
         /// `url` and persist, or it will eventually stop resolving.
@@ -54,8 +63,8 @@ enum Bookmark {
     /// Resolve, and re-mint when stale. Returns the URL and, when a fresh
     /// bookmark was minted, the data the caller should persist in place of the
     /// old blob.
-    static func resolveRefreshing(_ data: Data) -> (url: URL, refreshed: Data?)? {
-        guard let resolved = resolve(data) else { return nil }
+    static func resolveRefreshing(_ data: Data, mounting: Bool = true) -> (url: URL, refreshed: Data?)? {
+        guard let resolved = resolve(data, mounting: mounting) else { return nil }
         guard resolved.isStale else { return (resolved.url, nil) }
         // Minting needs the security scope open on macOS, or the new bookmark is
         // made without the access it is meant to carry.

@@ -360,9 +360,6 @@
     "Couldn't read this file" : {
 
     },
-    "Couldn't render this diagram" : {
-
-    },
     "Create" : {
 
     },
@@ -397,9 +394,6 @@
 
     },
     "Deny" : {
-
-    },
-    "Diagram %lld" : {
 
     },
     "Done" : {
@@ -556,9 +550,6 @@
 
     },
     "Made with SwiftUI, MarkdownEngine & SwiftGitX" : {
-
-    },
-    "Mermaid Diagrams" : {
 
     },
     "Message…" : {
@@ -970,6 +961,9 @@
 
     },
     "via %@" : {
+
+    },
+    "View Diagram" : {
 
     },
     "View mode" : {

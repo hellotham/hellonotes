@@ -1295,3 +1295,31 @@ import UIKit
         }
     }
 }
+
+/// `EditorDocument.make` parses the note off the main actor and builds the
+/// document from that parse — the same document `init` builds in place
+/// (implemented.md §51.36).
+@MainActor
+struct EditorDocumentMakeTests {
+    @Test func aMadeDocumentIsTheDocumentInitBuilds() async {
+        let text = "---\ntitle: T\n---\n# Heading\n\nA paragraph with **bold** and [[a link]].\n\n- one\n- two\n\n```swift\nlet x = 1\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n"
+        let made = await EditorDocument.make(text: text)
+        let built = EditorDocument(text: text)
+        #expect(made.text == built.text)
+        #expect(made.parse.blocks.map(\.range) == built.parse.blocks.map(\.range))
+        #expect(made.parse.blocks.map(\.kind) == built.parse.blocks.map(\.kind))
+    }
+
+    /// The parse is made where `@concurrent` puts it: on the pool, not on the
+    /// main thread the caller is on.
+    @Test func theParseIsMadeOffTheMainThread() async {
+        #expect(pthread_main_np() != 0)
+        let onMain = await Self.probe()
+        #expect(!onMain, "the whole-document parse ran on the main thread")
+    }
+
+    @concurrent nonisolated private static func probe() async -> Bool {
+        _ = await EditorDocument.parsed("# A note\n")
+        return pthread_main_np() != 0
+    }
+}

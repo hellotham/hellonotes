@@ -30,7 +30,21 @@ import Foundation
 final class LiveBuffer {
     /// The note whose text this is, and the text.
     private(set) var url: URL?
-    private(set) var text = ""
+
+    /// Observed by hand, as `EditorModel.text` is: the macro's setter compares
+    /// the old value with the new, and here that is the whole note compared on
+    /// the main actor every time the buffer is published — once per save.
+    private(set) var text: String {
+        get {
+            access(keyPath: \.text)
+            return published
+        }
+        set {
+            withMutation(keyPath: \.text) { published = newValue }
+        }
+    }
+
+    @ObservationIgnored private var published = ""
 
     @ObservationIgnored private var pending: Task<Void, Never>?
 

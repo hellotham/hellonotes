@@ -11,7 +11,7 @@
 //  Cross-platform. It was `#if os(macOS)` end to end, and nothing inside it
 //  ever needed to be: `RecentsStore`, `LibrariesStore` and `Bookmark` are all
 //  ungated, and the body is a `ScrollView` of buttons. Only the fixed 560×560
-//  frame was Mac-shaped — a panel declares its own size, a sheet is given one.
+//  frame was Mac-shaped, and that is now the size on both.
 //
 //  What that gate cost the iPad was not the window but the *contents*: iOS
 //  wired `openLauncher` straight to the file importer, so a vault you had
@@ -44,12 +44,14 @@ struct LauncherView: View {
         VStack(spacing: 0) {
             HStack {
                 Label("Open", systemImage: "books.vertical")
-                    .font(.headline)
+                    .font(Chrome.Style.headline)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
-            .padding()
-            Divider()
+            // 16 is the Mac's `.padding()`, said rather than asked for: the
+            // default amount is platform-specific.
+            .padding(16)
+            ChromeDivider()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -75,20 +77,19 @@ struct LauncherView: View {
 
                     if recents.entries.isEmpty && libraries.libraries.isEmpty {
                         Text("Nothing opened yet. Use the actions above to open a collection, an Obsidian vault, or clone a repository.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                            .font(Chrome.Style.callout)
+                            .foregroundStyle(Chrome.Colour.secondaryLabel)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 24)
                     }
                 }
-                .padding()
+                .padding(16)
             }
         }
-        // Fixed on the Mac, device-sized on iOS — the same expression every
-        // other panel in the app uses. Written out as a one-sided gate it read
-        // as a size the iPad does not get; it is one presentation rule with two
-        // spellings, which is what `panelFrame` is.
-        .panelFrame(width: 560, height: 560)
+        // The Mac's size, on both: `chromeSheetFrame` fits the iPad's sheet to
+        // it. It was fixed on the Mac and device-sized on iOS (`panelFrame`),
+        // so the launcher was a different shape on each.
+        .chromeSheetFrame(width: 560, height: 560)
         .alert("Save Library", isPresented: $showSavePrompt) {
             TextField("Library name", text: $newLibraryName)
             Button("Cancel", role: .cancel) {}
@@ -124,21 +125,21 @@ struct LauncherView: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: symbol)
-                    .font(.title3)
+                    .font(Chrome.Style.title3)
                     .frame(width: 26)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).fontWeight(.medium)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    Text(subtitle).font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                 }
                 Spacer(minLength: 0)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            .background(Chrome.Colour.quaternaryLabel.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePlainStyle())
     }
 
     // MARK: - Recents
@@ -152,19 +153,19 @@ struct LauncherView: View {
                 if let url = entry.url { dismiss(); onOpenURL(url) }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
+                    Image(systemName: symbol).foregroundStyle(Chrome.Colour.secondaryLabel).frame(width: 18)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(entry.name).fontWeight(.medium)
-                        Text(entry.id).font(.caption).foregroundStyle(.secondary)
+                        Text(entry.id).font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                             .lineLimit(1).truncationMode(.middle)
                     }
                     Spacer(minLength: 0)
                     Text(entry.lastOpened, format: .relative(presentation: .named))
-                        .font(.caption).foregroundStyle(.tertiary)
+                        .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.tertiaryLabel)
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ChromePlainStyle())
             RowActionsMenu(name: entry.name, items: items)
         }
         .contextMenu { SidebarMenuItems(items: items) }
@@ -176,7 +177,7 @@ struct LauncherView: View {
         section("Libraries", systemImage: "square.stack.3d.up") {
             if libraries.libraries.isEmpty {
                 Text("No saved libraries yet.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(Chrome.Style.callout).foregroundStyle(Chrome.Colour.secondaryLabel)
             } else {
                 ForEach(libraries.libraries) { library in
                     let items = [SidebarMenu.Item(id: 1, title: "Delete Library", symbol: "trash",
@@ -184,19 +185,19 @@ struct LauncherView: View {
                     HStack(spacing: 8) {
                         Button { dismiss(); onOpenLibrary(library) } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary).frame(width: 18)
+                                Image(systemName: "square.stack.3d.up").foregroundStyle(Chrome.Colour.secondaryLabel).frame(width: 18)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(library.name).fontWeight(.medium)
                                     Text(library.collectionNames.joined(separator: ", "))
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel).lineLimit(1)
                                 }
                                 Spacer(minLength: 0)
                                 Text("\(library.bookmarks.count)")
-                                    .font(.caption).foregroundStyle(.tertiary)
+                                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.tertiaryLabel)
                             }
                             .contentShape(.rect)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ChromePlainStyle())
                         RowActionsMenu(name: library.name, items: items)
                     }
                     .contextMenu { SidebarMenuItems(items: items) }
@@ -208,7 +209,7 @@ struct LauncherView: View {
             } label: {
                 Label("Save Current Library…", systemImage: "square.and.arrow.down")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(ChromeBorderlessStyle())
             .disabled(openCollectionURLs.isEmpty)
             .padding(.top, 2)
         }
@@ -220,8 +221,8 @@ struct LauncherView: View {
     private func section<Content: View>(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: systemImage)
-                .font(.subheadline.bold())
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.subheadline.bold())
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
             content()
         }
     }

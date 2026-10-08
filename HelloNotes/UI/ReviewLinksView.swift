@@ -50,31 +50,35 @@ struct ReviewLinksView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider()
+            ChromeDivider()
             if let current {
                 review(current)
             } else {
                 summary
             }
         }
-        .panelFrame(width: 520, height: 460)
+        // The Mac's size, on both: `chromeSheetFrame` fits the iPad's sheet
+        // to it, where `panelFrame` left the iPad's to the device.
+        .chromeSheetFrame(width: 520, height: 460)
     }
 
     private var header: some View {
         HStack {
             Label("Review Links", systemImage: "link.badge.plus")
-                .font(.headline)
+                .font(Chrome.Style.headline)
             Spacer()
             if !proposals.isEmpty {
                 Text("\(min(position + 1, proposals.count)) of \(proposals.count)")
-                    .font(.caption)
+                    .font(Chrome.Style.caption)
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             Button("Close") { finish() }
                 .keyboardShortcut(.cancelAction)
         }
-        .padding()
+        // 16 is the Mac's `.padding()`, said rather than asked for: the
+        // default amount is platform-specific.
+        .padding(16)
     }
 
     // MARK: - One proposal
@@ -83,24 +87,24 @@ struct ReviewLinksView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("IN THIS NOTE")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption2.weight(.semibold))
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 sentence(around: proposal)
-                    .font(.callout)
+                    .font(Chrome.Style.callout)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+                    .background(Chrome.Colour.quaternaryLabel.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("WOULD LINK TO")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(proposal.targetTitle).font(.headline)
+                    .font(Chrome.Style.caption2.weight(.semibold))
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                Text(proposal.targetTitle).font(Chrome.Style.headline)
                 Text(previews[proposal.targetURL] ?? "Loading…")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.callout)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .task(id: proposal.targetURL) {
@@ -114,7 +118,7 @@ struct ReviewLinksView: View {
             HStack {
                 Button("Link") { accept(proposal) }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ChromePushStyle(prominent: true))
                 Button("Skip") { advance() }
                 // Destructive-ish, and the only decision here that persists past
                 // this sheet, so it is last and unemphasised.
@@ -125,7 +129,7 @@ struct ReviewLinksView: View {
                 Spacer()
             }
         }
-        .padding()
+        .padding(16)
     }
 
     /// The phrase in its sentence, with the phrase itself emphasised — the
@@ -141,9 +145,8 @@ struct ReviewLinksView: View {
         let before = ns.substring(with: NSRange(location: start, length: proposal.range.location - start))
         let after = ns.substring(with: NSRange(location: NSMaxRange(proposal.range),
                                                length: end - NSMaxRange(proposal.range)))
-        return Text(start > 0 ? "…\(before)" : before)
-            + Text(proposal.phrase).bold().foregroundColor(.accentColor)
-            + Text(end < ns.length ? "\(after)…" : after)
+        let phrase = Text(proposal.phrase).bold().foregroundStyle(.tint)
+        return Text("\(start > 0 ? "…" : "")\(before)\(phrase)\(after)\(end < ns.length ? "…" : "")")
     }
 
     // MARK: - Finished
@@ -151,19 +154,19 @@ struct ReviewLinksView: View {
     private var summary: some View {
         VStack(spacing: 8) {
             Image(systemName: accepted.isEmpty ? "checkmark.circle" : "link.badge.plus")
-                .font(.largeTitle)
-                .foregroundStyle(.tertiary)
+                .font(Chrome.Style.largeTitle)
+                .foregroundStyle(Chrome.Colour.tertiaryLabel)
             Text(proposals.isEmpty ? "No Links to Review" : "Review Complete")
-                .font(.headline)
+                .font(Chrome.Style.headline)
             Text(summaryDetail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.callout)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
                 .multilineTextAlignment(.center)
             Button(accepted.isEmpty ? "Done" : "Add \(accepted.count) Link\(accepted.count == 1 ? "" : "s")") {
                 finish()
             }
             .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(ChromePushStyle(prominent: true))
             .padding(.top, 4)
         }
         .padding(30)

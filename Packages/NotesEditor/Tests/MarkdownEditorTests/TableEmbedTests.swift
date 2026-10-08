@@ -48,15 +48,16 @@ import UIKit
 
     /// Collapse the document's table and return the paragraph style the band
     /// landed on.
-    private func bandStyle(for text: String, imageHeight: CGFloat) async throws
+    private func bandStyle(for text: String, imageHeight: CGFloat, caret: Int? = nil) async throws
         -> (document: EditorDocument, style: NSParagraphStyle)
     {
         let document = EditorDocument(
             text: text,
             services: EditorServices(
                 blockRenderer: FixedSizeRenderer(size: CGSize(width: 120, height: imageHeight))))
-        // Caret at the very end, so the table itself is never revealed.
-        document.selectionDidChange(NSRange(location: (text as NSString).length, length: 0))
+        // Caret at the very end unless told otherwise, so the table itself is
+        // never revealed.
+        document.selectionDidChange(NSRange(location: caret ?? (text as NSString).length, length: 0))
 
         let table = try #require(document.blocks.first {
             if case .table = $0.kind { return true }
@@ -102,6 +103,74 @@ import UIKit
         let (document, style) = try await bandStyle(
             for: "| a | b |\n| - | - |\n| 1 | 2 |\n> quoted", imageHeight: imageHeight)
         #expect(style.paragraphSpacing == imageHeight + document.theme.metrics.blockGap)
+    }
+
+    /// Two identical tables are two pictures. They share one render — one cache
+    /// key — and the second used to be turned away while the first was drawing
+    /// and then never collapsed, because only the block that started a render
+    /// was refreshed when it landed: a table (or a diagram) written twice kept
+    /// its second copy as pipes and dashes.
+    @Test func identicalTablesAreBothDrawn() async throws {
+        let table = "| a | b |\n| - | - |\n| 1 | 2 |"
+        let text = "\(table)\n\nBetween\n\n\(table)\n\nAfter"
+        let document = EditorDocument(
+            text: text,
+            services: EditorServices(
+                blockRenderer: FixedSizeRenderer(size: CGSize(width: 120, height: 50))))
+        document.selectionDidChange(NSRange(location: (text as NSString).length, length: 0))
+        document.styleEverythingNow()
+        var pictures = 0
+        for _ in 0..<60 {
+            try await Task.sleep(for: .milliseconds(20))
+            pictures = 0
+            document.storage.enumerateAttribute(
+                blockImageAttribute, in: NSRange(location: 0, length: document.storage.length),
+                options: []) { v, _, _ in if v != nil { pictures += 1 } }
+            if pictures == 2 { break }
+        }
+        #expect(pictures == 2, "the second of two identical tables was never drawn")
+    }
+
+    /// The picture starts where the block starts, as the page's `<table>` does
+    /// — mid-note, opening the note, and ending it, where the band is made of
+    /// the line box instead (`blockImageTopAttribute`). The concealed source
+    /// lines above it are pinned to 0.01 each and may come first; nothing else
+    /// may.
+    @Test(arguments: ["Above\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nBelow",
+                      "| a | b |\n| - | - |\n| 1 | 2 |\n\nBelow",
+                      "Above\n\n| a | b |\n| - | - |\n| 1 | 2 |"])
+    func thePictureStartsWhereTheBlockDoes(text: String) async throws {
+        // The caret somewhere the table is not: before it, or after it.
+        let (document, _) = try await bandStyle(for: text, imageHeight: 50,
+                                                caret: text.hasPrefix("Above") ? 0 : nil)
+        let contentStorage = NSTextContentStorage()
+        let layoutManager = NSTextLayoutManager()
+        let fragments = RenderedBlockLayoutDelegate()
+        layoutManager.delegate = fragments
+        let container = NSTextContainer(size: CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = EditorMetrics.lineFragmentPadding
+        layoutManager.textContainer = container
+        contentStorage.addTextLayoutManager(layoutManager)
+        contentStorage.textStorage?.setAttributedString(document.storage)
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+
+        let tableStart = (text as NSString).range(of: "| a |").location
+        var blockTop: CGFloat?
+        var picture: CGRect?
+        layoutManager.enumerateTextLayoutFragments(from: layoutManager.documentRange.location,
+                                                   options: [.ensuresLayout]) { fragment in
+            let offset = contentStorage.offset(from: contentStorage.documentRange.location,
+                                               to: fragment.rangeInElement.location)
+            if offset == tableStart { blockTop = fragment.layoutFragmentFrame.minY }
+            if let frame = (fragment as? RenderedBlockFragment)?.pictureFrame() { picture = frame }
+            return true
+        }
+        let top = try #require(blockTop)
+        let drawn = try #require(picture, "no fragment draws the table's picture")
+        // The concealed source lines are 0.01 each; the picture may start
+        // below them, and nowhere lower.
+        #expect(abs(drawn.minY - top) <= 0.05, "picture at \(drawn.minY), block at \(top)")
+        #expect(drawn.height == 50)
     }
 
     /// A table that is not one — GFM refuses a delimiter row whose cell count

@@ -49,8 +49,11 @@ final class DictationController {
         let vc = VoiceCapture()
         capture = vc
         do {
+            // The task takes its own weak reference: `[weak self]` makes the
+            // handler's `self` a variable, and a task reading another closure's
+            // variable is concurrently running code sharing it.
             try await vc.start { [weak self] text in
-                Task { @MainActor in self?.transcript = text }
+                Task { @MainActor [weak self] in self?.transcript = text }
             }
             isRecording = true
         } catch {

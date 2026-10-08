@@ -100,8 +100,9 @@ struct CommandPaletteTests {
         #expect(!titles.contains { $0.localizedCaseInsensitiveContains("command palette") })
     }
 
-    /// The list is a `List(selection:)`, so a duplicate id silently breaks
-    /// keyboard selection for both rows that share it.
+    /// The rows are identified by id for selection and the arrow keys, so a
+    /// duplicate id silently breaks keyboard selection for both rows that
+    /// share it.
     @Test func idsAreUnique() {
         let ids = fullActions().paletteCommands.map(\.id)
         #expect(ids.count == Set(ids).count)

@@ -36,3 +36,20 @@ nonisolated struct Note: Identifiable, Hashable {
         self.isOnlineOnly = isOnlineOnly
     }
 }
+
+extension Note {
+    /// Newest first — and, among notes saved in the same second, by title and
+    /// then path, so the order is the same on every run and every device.
+    ///
+    /// Anything written, copied or checked out in one batch shares a date, and
+    /// a date alone left those notes in whatever order the sort was handed —
+    /// a dictionary's, which changes with the process's hash seed. The Mac and
+    /// the iPad listed the same sample collection in two different orders
+    /// (`scripts/window-parity.sh`), and so could one Mac on two launches.
+    nonisolated static func newestFirst(_ a: Note, _ b: Note) -> Bool {
+        if a.lastModified != b.lastModified { return a.lastModified > b.lastModified }
+        let byTitle = a.title.localizedStandardCompare(b.title)
+        if byTitle != .orderedSame { return byTitle == .orderedAscending }
+        return a.fileURL.path < b.fileURL.path
+    }
+}

@@ -78,7 +78,7 @@ public struct LineIndex: Sendable, Equatable {
         // Line entries strictly inside the edited region disappear; find the
         // splice window [firstRemoved, firstKept) in the starts array.
         let editLine = lineNumber(at: edit.range.location)
-        var firstRemoved = editLine + 1
+        let firstRemoved = editLine + 1
         // (entries ≤ edit start stay; entries in (start, oldEnd] go)
         var firstKept = firstRemoved
         while firstKept < starts.count && starts[firstKept] <= oldEditEnd {

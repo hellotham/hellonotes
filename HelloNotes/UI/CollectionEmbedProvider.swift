@@ -16,14 +16,31 @@ import MarkdownEditor   // PlatformImage
 /// content (keyed on a cheap mtime `stat` + appearance) so repeat renders are
 /// free. Cross-platform.
 ///
-/// `@unchecked Sendable`: every stored property (`notesByName`, `cache`) is
-/// guarded by `lock`; both `update(notes:)` and `image(forName:isDark:)` may be
-/// called from any thread. The lock makes the shared state safe to touch across
-/// those isolation domains.
-final class CollectionEmbedProvider: @unchecked Sendable {
+/// **`nonisolated`, and `@unchecked Sendable` because of `lock`**, which
+/// guards `notesByName` and `cache`: `update(notes:)` is called on the main
+/// actor and `image(forName:isDark:)` from wherever a card is wanted — Edit's
+/// renderer on the main actor, Preview's page on the pool. Unannotated, the
+/// class was main-actor in this target, so the lock guarded nothing and
+/// Preview's every card hopped to the main actor (implemented.md §51.36).
+nonisolated final class CollectionEmbedProvider: @unchecked Sendable {
     private let lock = NSLock()
     private var notesByName: [String: URL] = [:]   // lowercased title → file URL
-    private var cache: [String: PlatformImage] = [:]
+    private var cache = BoundedCache<String, PlatformImage>(limit: 64)
+
+    /// The collection whose notes this draws — set by the collection. A
+    /// provider of a view's own has none.
+    @MainActor weak var owner: Collection?
+
+    /// Moves when what a card shows may have: a note saved, a rebuild landed,
+    /// the note set changed — the owner's `derivedRevision`, read through, so
+    /// a view that reads this in its body is redrawn when that moves.
+    ///
+    /// Preview was handed the revision beside the provider, as
+    /// `collection?.derivedRevision ?? 0`, by a pane the main window gives no
+    /// collection — so it was always 0 there, and a card redrew only when the
+    /// open note itself changed (implemented.md §51.36). Coming with the
+    /// cards, it goes wherever they go.
+    @MainActor var revision: Int { owner?.derivedRevision ?? 0 }
 
     /// Refresh the name→URL map. Cached cards are keyed by the target's path +
     /// mtime + appearance, so an edited transclusion re-renders on its own once
@@ -94,37 +111,38 @@ final class CollectionEmbedProvider: @unchecked Sendable {
     func image(forName name: String, isDark: Bool) async -> PlatformImage? {
         let (base, heading) = splitHeading(name)
 
-        lock.lock()
-        let url = notesByName[base.lowercased()]
-        lock.unlock()
+        // `withLock`, not `lock()` and `unlock()`: this is an `async` function,
+        // where a suspension between the two would hold the lock across it —
+        // Swift 6 refuses the pair here, and this target could only warn.
+        let url = lock.withLock { notesByName[base.lowercased()] }
         guard let url else { return nil }   // not a note → no transclusion
 
-        // `stat` and read together, in one hop off the main actor.
-        let loaded = await offMain { () -> (key: String, markdown: String)? in
+        // **The note's date first, and its text only for a card not drawn.**
+        // A card already drawn at this date is the card; the note was read
+        // whole on every call, hit or miss — at each pause in typing in Edit
+        // and each page in Preview.
+        let key = await offMain { () -> String in
             let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
-            let key = "\(isDark ? "d" : "l")\u{1}\(url.path)\u{1}\(heading ?? "")\u{1}\(mtime)"
-            guard let markdown = try? FileIO.readString(at: url) else { return nil }
-            return (key, markdown)
+            return "\(isDark ? "d" : "l")\u{1}\(url.path)\u{1}\(heading ?? "")\u{1}\(mtime)"
         }
-        guard let loaded else { return nil }
+        if let cached = lock.withLock({ cache[key] }) { return cached }
 
-        lock.lock()
-        if let cached = cache[loaded.key] { lock.unlock(); return cached }
-        lock.unlock()
-
-        let sectioned = NoteTranscluder.section(heading, from: loaded.markdown)
+        // Read and sectioned off the main actor; only the drawing needs it.
+        let sectioned = await offMain { () -> String? in
+            guard let markdown = try? FileIO.readString(at: url) else { return nil }
+            return NoteTranscluder.section(heading, from: markdown)
+        }
+        guard let sectioned else { return nil }
         let title = heading.map { "\(base) › \($0)" } ?? base
         guard let image = await MainActor.run(body: {
             NoteTranscluder.image(markdown: sectioned, title: title, isDark: isDark)
         }) else { return nil }
 
-        lock.lock()
-        // Keys are mtime-versioned, so an edited note's old cards would otherwise
-        // accumulate forever. Bound the cache (like the editor's own image caches).
-        if cache.count > 64 { cache.removeAll(keepingCapacity: true) }
-        cache[loaded.key] = image
-        lock.unlock()
+        // Keys are date-versioned, so an edited note's old cards would pile
+        // up: the cache keeps 64, letting go of the one used longest ago. It
+        // was emptied outright past 64, and the next page drew every card again.
+        lock.withLock { cache[key] = image }
         return image
     }
 

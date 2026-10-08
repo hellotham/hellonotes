@@ -96,6 +96,39 @@ struct ConcurrentTreeWalkTests {
         return (result, log)
     }
 
+    // MARK: Cancelling a listing in flight
+
+    /// A root whose listing takes a minute — a provider's recursive prefetch
+    /// of a whole account — unless it is cancelled.
+    private struct SlowRoot: TreeSource {
+        var listingConcurrency: Int { 4 }
+        func unavailability() -> CollectionState.UnavailableReason? { nil }
+        func children(of directory: String) async throws -> DirectoryListing {
+            try await Task.sleep(for: .seconds(60))
+            return DirectoryListing()
+        }
+    }
+
+    /// **A cancelled walk stops waiting for the listing in flight.** It
+    /// awaited the head listing's task, which does not pass the waiter's
+    /// cancellation on, so Cancel during a first add waited for the provider's
+    /// whole prefetch (implemented.md §51.36). And the directory whose listing
+    /// was cut short is still in the checkpoint: walked again on resuming, not
+    /// skipped as one that failed.
+    @Test func aCancelledWalkStopsWaitingForItsListing() async throws {
+        let walk = Task { await ResumableTreeWalk.run(source: SlowRoot()) { _ in } }
+        try await Task.sleep(for: .milliseconds(200))
+        let started = ContinuousClock.now
+        walk.cancel()
+        let result = await walk.value
+
+        #expect(ContinuousClock.now - started < .seconds(5), "the cancelled walk waited for its listing")
+        #expect(!result.isComplete)
+        #expect(result.issues.isEmpty, "a listing cut short by the cancel was taken for a failure: \(result.issues)")
+        let checkpoint = try #require(result.checkpoint)
+        #expect(checkpoint.frontier.contains(""), "the root was left out of the checkpoint, so resuming skips it")
+    }
+
     // MARK: Equivalence
 
     /// The only thing that must not change: the answer.

@@ -853,7 +853,7 @@ The scroll offset was always correct. **The view was larger than the window it
 lived in**, so its top 251pt sat above the window frame — rendered nowhere,
 reachable by nothing.
 
-Full design and rationale: [layout-architecture.md](layout-architecture.md);
+Full design and rationale: [ui.md](ui.md), which incorporated `layout-architecture.md` on 2026-09-24;
 wireframes for every device: [wireframes.html](wireframes.html).
 
 ### The bug class
@@ -4653,7 +4653,7 @@ gained `HN_EVAL_MLX_FOLDER`, which loads a model through the same folder path as
 | Rewrites keep links | pass | pass | pass | pass | pass |
 | A 45,000-character note summarised whole | pass | pass | pass | pass | pass |
 | Assistant reads before answering (tools) | pass | n/a — no tools | pass | pass | pass |
-| An approved edit reaches the file | — | n/a | pass | pass | — |
+| An approved edit reaches the file | pass (§51.36) | n/a | pass | pass | — |
 | Chat without tools doesn't invent notes | n/a | pass | n/a | n/a | n/a |
 
 Whole-suite times, model loading included: Gemma 3 27B bf16 (57.7 GB) 193 s;
@@ -4918,6 +4918,3503 @@ parent and all). The helper now wraps the importer, the panel carries a line
 saying what the folder is for, and `ShellComplianceTests` measures the helper's
 argument by balanced parentheses and fails — naming the reason — if the importer
 ever leaves it.
+
+### 51.5 The Mac and the iPad draw the same pixels (2026-09-23)
+
+The requirement, in the words it arrived in: *the exact same button layout and
+location between macOS and iOS, no deviations; the same font size and layout to
+the nearest pixel; pixel, colour and size identical — not similar designs.* The
+layout chosen was the iPad's (Search · Sidebar · New Note · More ⋯ | tabs |
+Note Actions ⌄ · Panel); the scale and look, the Mac's (13pt text, 28pt
+controls and rows, AppKit's colours, with 44pt touch targets drawn nowhere).
+
+**Why the two had never matched.** Almost nothing on screen was the app's own
+drawing. The bar was an `NSToolbar` on one platform and a `UINavigationBar` on
+the other, built by two different builders; the sidebar was an
+`NSOutlineView` on the Mac and a SwiftUI `List` on iOS; settings were a
+`TabView` window and a `NavigationStack` sheet; and every text style, system
+colour and control resolved to each platform's own numbers under one name —
+`.body` 13pt and 17pt, `Toggle` 36×16 and 51×31, a grouped `Form` row 36pt and
+44pt, `.secondary` two different greys, `Color.orange` two oranges,
+`.borderless` grey on the Mac and accent-tinted on iOS. Two builds of the same
+view were two pictures, and no amount of adjusting either could make them one.
+
+**What replaced it.** `UI/Shell/Chrome.swift`, `ChromeRows.swift` and
+`ChromeControls.swift`: fixed tokens (the Mac's text-style sizes, read from
+`NSFont.preferredFont`; AppKit's colours in both appearances, read from AppKit),
+and controls drawn by the app at the Mac's metrics (read from
+`NSControl.fittingSize` per control size, and from a `.grouped` `Form` rendered
+and scanned pixel by pixel): push/borderless/link button styles, switch and
+checkbox, a pop-up, a segmented control, slider, stepper, text fields with
+app-drawn placeholders, a grouped form and its sections, a sheet bar, an empty
+state, rows with the outline's selection. `chromeDefaults()` makes them the
+defaults at every window root, so a control that names no style is already the
+app's. The bar, the sidebar tree, the band's two panes, the tab strip, the
+status bar, the panel header, Settings (one tab strip over one page, 560×640,
+in the Mac's Settings window and the iPad's sheet alike), the compact shell's
+tab bar and place bars, every sheet's bar, and every list and form in the app
+were rebuilt on them.
+
+**Three differences that fixed numbers did not remove**, each found by
+rendering the same scenes on both platforms and comparing the pixels
+(`ChromeParityTests` + `scripts/chrome-parity.sh`):
+
+1. *Ink.* With identical sizes, colours and positions, the Mac's text carried
+   12.6–19% more ink — macOS font smoothing, which thickens stems and which iOS
+   has never done. `Chrome.matchTextRendering()` registers
+   `AppleFontSmoothing = 0` in the app's registration domain: in memory, last in
+   the search order, so nothing is written and a system-wide choice still wins.
+2. *Line boxes.* macOS rounds a line to whole points and iOS to half points —
+   11pt is 14.0 and 13.5, 12pt 15.0 and 14.5, 17pt 20.0 and 20.5, 26pt 30.0 and
+   31.5 — so a paragraph drifted half a point per line. SwiftUI 26's
+   `.lineHeight` fixes it only with a rule whose result needs no rounding. The
+   first attempt, `.multiple(factor: 16/13)` (a multiple of the point size),
+   passed the first render because the scenes happened to use 11 and 13pt,
+   where 16/13 lands on whole points; a matrix over 10–26pt then showed 10pt at
+   13.0 against 12.5 and 15pt at 19.0 against 18.5. `.leading(increase: 3)` —
+   size plus 3 — is whole for every whole size, measured exact on both, and is
+   the Mac's own line at 10–13pt and 17pt, so the Mac barely moved.
+3. *Baselines.* At 13pt the natural totals agree (16.0) and the text still sat exactly
+   one pixel lower on the Mac — identical ink, centroid +1.000px — because
+   macOS rounds the ascent and descent separately. `ChromeLine` centres a line
+   on its capitals (baseline minus half the cap height, which is the font's
+   own outline) inside a box whose height the app chooses.
+
+A fourth came from the same place as the second: **default stack spacing**.
+A `VStack` that names no spacing gets a gap SwiftUI computes from each
+platform's rounding of the font — text over a control at 10–17pt is 7, 8, 8, 9,
+10, 12 on the Mac and 6.5, 7, 7.5, 8.5, 9.5, 11 on iOS, and no rounding of one
+gives the other. The codebase's own convention had every one of 151 vertical
+stacks naming its spacing already; the one implicit stack (a scroll view with
+two children, in the CSV viewer) now has one, and
+`everyVerticalStackNamesItsSpacing` keeps it that way. Horizontal defaults agree
+(8pt for every pair measured).
+
+After those, every scene in both appearances agrees within one level in one
+channel — rounding — except the anti-aliased tip of one SF Symbol at Δ6. A
+negative control (the same render shifted down a pixel) fails the comparison
+with 4–7% of pixels at Δ255.
+
+**The whole window, not just its parts.** `scripts/window-parity.sh` puts the
+iPad app (simulator, landscape) and the Mac app (a window exactly the iPad's
+1210×790pt safe area) side by side with the same settings and the same sample
+collection, and compares every pixel with only the traffic lights, the
+window's corners and iPadOS's resize grabber masked. Its first run found two
+things no scene render could: the Mac's content started 28pt down — a hidden
+title bar still reserves its height as a top safe area, so the bar sat under an
+empty strip (`contentUnderTitleBar`) — and the sample notes, saved in the same
+second, were listed in a different order on each platform, because a date-only
+sort leaves ties to a dictionary's hash order (`Note.newestFirst` breaks them by
+title, then path, at all ten sort sites).
+
+The same run caught the launch splash as a floating 720×440 window of its own
+on the Mac — centred on the screen, lingering 700ms — where the iPad drew it
+over the window for 500ms. It is the overlay on both now, and About (which
+shows the same splash) is an `AppActions` action, so with several windows open
+it appears in the one you are looking at instead of being broadcast to all of
+them.
+
+It also cost something, which is recorded so it is not repeated: the first run
+launched the Mac app with its open collections overridden to the sample, the
+app saved that list, and the backup the script then imported lost the race
+with the preferences daemon — the open collections came back as the sample
+alone. The files were never touched; the list entry was. A capture session now
+saves no collection list at all (`CaptureSession`), and the script only reads
+the preferences back to check them.
+
+**What stays the OS's**, deliberately: its window controls (the traffic
+lights, for which the bar leaves 78pt when it is the window's top-left corner —
+`WindowControls.leadingInset`, the one number that is not the same), and menus,
+popovers and alerts once *open*. The buttons that open them are the app's.
+
+**Traps met on the way**, now rules in CLAUDE.md:
+- An unstyled `Button` inside a `List` or `Form` drew as a plain row; the same
+  button in a drawn list inherits the root's push-button style. Every row,
+  card and glyph button says `ChromePlainStyle`.
+- Inside menu content `Divider()` is the menu's separator. A mechanical pass
+  that turned every `Divider()` into `ChromeDivider()` put views into 25 menus,
+  including the whole menu bar.
+- Text styles scaled with Dynamic Type; fixed sizes do not. `ChromeTextScale`
+  applies one factor from Apple's body-size table to every size, driven by the
+  app's Text Size on **both** platforms — the iPad had ignored it, though it
+  syncs between devices — with iOS's own Larger Text on top: exactly 1.0 at the
+  defaults, where the pixels are compared.
+- Four views had no route to the screen: `TagTreeRow` (its tree replaced on
+  11 August), `RemoteBrowserView` (browsing became the folder picker in late
+  August), an unused `OptionalMeasure`, and a `ChromeBackButton` written this
+  morning for sheets that turned out not to need it. The sweep converted one of
+  them line by line without being able to tell it was invisible. All four are
+  deleted, and the rule is to delete a view in the change that stops showing it.
+
+### 51.6 "Start Here" was blank because the editor saved a copy it made before the note loaded (2026-09-24)
+
+The sample collection's `Start Here.md` was 0 bytes. The file said how: it was
+**born** at 07:57:39 on 19 September — created, modified and accessed in the
+same second, a new inode, never written since — and its quarantine attribute
+named HelloNotes and encoded the same second. So it was not truncated; the app
+wrote an empty file over it, atomically (temp file and rename, which is what
+`FileIO.write` does). No Claude session ran anything between 21:40 and 22:01
+UTC, and the unified log placed it: TestFlight launched build 22 at 07:57:32,
+seven seconds before. Seeding was ruled out (it never overwrites, and a copy
+keeps the source's date and bytes).
+
+The path: the editor host builds its document from the model's text, and a
+tab appears — and its editor with it — *before* the note has loaded, so the
+document can be built from nothing. The host pushed the document back into the
+model at three moments (the flush hook, the end of editing, the host going
+away) on the rule "if they differ, the editor's is newer". If the load lands
+without the document being refreshed — the host rebuilt in the same update, say
+— that rule turns an empty placeholder into the note's contents, and the next
+flush (the window losing focus is enough) saves it. `loadFailure` could not
+stop it, because by then the load had succeeded. The editor model, the tabs
+and the document store were byte-for-byte unchanged from build 22, so the path
+was still open.
+
+`EditorModel.adopt(_:fromLoad:)` now takes the editor's text only if it was
+made from the load the model holds now; the host records which load its
+document reflects and routes all three pushes through it. `UnloadedNoteTests`
+asserts it at the file, with a negative control showing the old push still
+wipes the note.
+
+### 51.7 The editor's command bus reached every window (2026-09-24)
+
+Two main windows on the same note — the sample's Organising — and a section
+tapped in one window's mind map selected that heading in **both** editors. The
+find bar's four messages (`findQuery`, `replaceCurrent`, `replaceAll`,
+`clearHighlights`), the heading jump, the match count that answers a find, and
+⌘F's toggle were all posted with no address, and every editor in every window
+answered them: the only guard was `textView.window != nil`, which every open
+editor passes. A stray selection was the visible half. Read from the code,
+Replace replaced whatever the *other* editor had selected, and Replace All
+rewrote every match in the note open there — saved like any edit, with nothing
+on screen in the window that did it. `EditorBusTests` reproduced exactly that
+before the fix: one unaddressed Replace All rewrote two editors' notes.
+
+The Format bus did have an address, and it was the defect in another form: the
+note's path. Two editors can show one note — two windows, or Open in New
+Window, each with a buffer of its own (`NoteWindowView` says so) — so a Bold
+meant for one bolded the other's selection too.
+
+So the bus is addressed to the **editor**. `EditorModel.editorID` is a UUID per
+model; everything that joins the bus — the live editor, the Markdown pane,
+Preview — joins as its editor (`commandBus(editorID:)`), and every poster names
+one: the find bar, ⌘F, the Format menu, both outlines, `[[Note#Heading]]`
+(addressed to the destination's own editor, as `tabs.editor(for:)` returns it)
+and the mind map's section jump. The names are spelled once, in the package
+(`EditorBus`). The seven unaddressed names are gone from the app, and so are
+`hnFormat(_:documentId:)` and `hnFind(documentId:)`, which nothing posted.
+
+`EditorBusTests` runs on both coordinators — AppKit under `swift test`, UIKit
+on the iPad simulator: two editors on the bus, one addressed, the other checked
+untouched, for find, the match count, Replace, Replace All, clear and a heading
+jump — and each also checks that the addressed editor *did* answer, so none can
+pass because nothing works. Its control posts the old way, with no address, and
+nothing may answer; before the fix it failed four times, once per editor per
+message. `ShellComplianceTests.theEditorBusIsAddressed` holds the app side,
+which that test cannot see: no source spells a bus name without its editor, and
+the three views join as their editor. Its negative control was run as well — a
+probe file with one unaddressed name made it fail, naming the file.
+
+Checked live, two windows on Organising, `DefaultCollection` only: a find typed
+in one window's bar selected there and nowhere else; the other window's own
+find selected only there; closing one bar cleared only its editor; the
+mind-map section selected in its own window while the other kept its selection
+through the jump and the clear after it; and ⌘F toggled only the key window's
+bar, in both directions. Replace and Replace All were left to the tests — run
+live, they write the note.
+
+The note's sheet commands had the same shape, and are addressed now too:
+Rewrite or Expand Note (`hnRewriteNote`), Present as Slides and Mermaid
+Diagrams (`hnShowSlides`, `hnShowMermaid`) were posted with no address and heard
+by every `NoteEditorView`, which set its sheet showing without a question.
+Reproduced first, with two windows on Rich Content and Organising: Mermaid
+Diagrams chosen in one opened the sheet in both — an empty one over the note
+with no diagrams — and one Rewrite opened a rewrite sheet in both, each over its
+own note and wired to replace it. After the fix each opened in its own window
+only, Rewrite in both directions. Slides could not be tried live — the sample
+has no Marp deck, and the menu row appears only for one — but its listener is
+the same one line. `theEditorBusIsAddressed` forbids the three unaddressed names
+as well, and its negative control failed three times, once per name.
+
+### 51.8 A diagram opens in a real zoom (2026-09-24)
+
+The Mermaid Diagrams command opened a sheet that was not a zoom.
+`MermaidPreviewView` was written at noon on 11 July, when the editor could not
+yet draw a diagram in a note — by five that afternoon it could — and from
+then on it re-rendered every diagram in the note as a bitmap in a fixed
+680×560 list, each scaled down to fit: the note's own pictures, smaller. Its
+header still said the editor had no way to draw one.
+
+It is gone. Every diagram in a note carries an **enlarge button** in its
+top-right corner, in Edit and in Preview, and the button opens
+`DiagramZoomView` on that diagram. (A diagram inside a `![[Note]]` card has
+none: the card is one picture of another note.) Clicking the diagram itself
+still edits it in Edit — reveals its source — as a table or a formula does; in
+Preview a click on the picture does nothing. The bar's button and Note
+Actions ▸ View Diagram open the same view: in Edit on the diagram the caret is
+in, else the nearest, and in Markdown, Split and Preview on the first — only
+the live editor tells the zoom where its caret is, which is why the source in
+Markdown and Split carries a View diagram button on every diagram's opening
+fence (§51.10). The routes to one view carry
+one name — **View diagram** on the bar and as Preview's corner button's tooltip
+and accessibility label, **View Diagram** in the menu, title case as every
+command there is — where they had three: Enlarge diagram, Enlarge Mermaid
+diagrams and Mermaid Diagrams. (The corner button in Edit is drawn by the text
+and has no label of its own.) The
+zoom draws **vectors**, by the renderer the note's
+pictures come from (`DiagramDrawing` over BeautifulMermaid's layout), into a
+canvas the size of the viewport behind a scroll view that pans an empty frame
+of the zoomed size — so 800% is as sharp as 100%, without a layer eight times
+the diagram's size in each direction. It opens fitted to the sheet, never above
+300% (a small diagram fitted to a sheet would be blown up rather than
+enlarged). Pinch and a double-click or double-tap go closer where they point —
+the double-click between the true fit (not the opening cap, so a small diagram
+does not come back to the size it opened at) and 2.5 times it — and the
+controls (10–800%, in steps of 1.25) zoom about the middle of the view; ‹ ›
+and the arrow keys page through the note's other diagrams. It
+opens by **place** first — two identical diagrams are two diagrams, and the
+second's button opens the second — then by source, because Preview has a page
+and no offsets; a diagram the note no longer holds (it changed under the press)
+opens on its own rather than as some other one.
+
+The button is one drawing with two renderers, like the rest of Edit ≡ Preview:
+its size, inset and corner are `DiagramZoomMetrics` in MarkdownCore, which the
+editor draws in points and `GFMPage` writes as CSS. In the editor the diagram's
+layout fragment draws it, and `NSTextLayoutManager.diagramZoom(at:in:slop:)`
+finds it by a `DiagramZoomMark` laid over the collapsed source — an object, not
+a string, so two identical neighbours are two attribute runs rather than one.
+The platforms take the press differently, each for a measured reason. On the
+Mac, `mouseDown` looks before `super`, so a press on the button never moves the
+caret. On iPad the link-tap recogniser, which recognises alongside UIKit's by
+design, was probed first and acted too late: UIKit's caret tap had already
+moved the selection into the diagram, which revealed its source and took the
+button away. Refusing UIKit's taps in `gestureRecognizerShouldBegin` did
+nothing — the probe showed UIKit never asks. What works is a press recogniser
+of no duration whose delegate takes a touch in `shouldReceive` only if it
+starts on a button (with 10pt of slop for a fingertip), decided at touch-down
+while the button is still drawn, and which recognises alongside nothing, so for
+that one touch it excludes the caret tap, the loupe and drags. In Preview the
+button is markup `PreviewSuperset` writes beside the picture, carrying the
+diagram's source in an attribute; a user script posts a click on it to a
+message handler. The attribute is written **on one line** (`&#10;` for each
+break): the markup reaches cmark-gfm as a raw HTML block, which ends at a blank
+line, and a diagram spaced with blank lines would otherwise cut its own tag in
+half and pour its source onto the page.
+
+**Which fences are diagrams is decided once.** The editor drew a fence as a
+diagram by its parse; the app listed a note's diagrams — to offer the command
+at all, and to page through them — with a regular expression that knew one
+spelling; Preview kept a third copy that wanted the info string to be the one
+word; and a `![[Note]]` card kept a fourth, which knew backtick fences only. A
+`~~~mermaid`, a `` ```Mermaid `` or a `` ```mermaid theme=dark `` was a
+picture in the note that had no command and that the zoom could not list, the
+last was code in Preview, and the first and last were code in every card that
+embedded the note. All four ask `MermaidDiagram.isDiagram(info:)` now — the
+first word, in any case, ended by any whitespace, which is where cmark-gfm ends
+the language it writes out — and the app lists through
+`ParseResult.mermaidDiagrams(in:)`.
+
+Four more defects surfaced on the way, none of them about zooming:
+
+- **A second identical diagram or table was never drawn.** A block render is
+  cached by content, and a render in flight turned away a second request for
+  the same key; when it landed, only the block that had started it was
+  refreshed, and the second — already marked styled — never heard back.
+  `blockRendersInFlight` now maps each key to every block waiting on it and
+  refreshes them all. `TableEmbedTests.identicalTablesAreBothDrawn` and the
+  diagram twin in `DiagramZoomTests` both failed against the old turn-away.
+  Three more caches had the same shape — syntax colours, inline maths and
+  inline pictures, so a code block written twice kept its second copy
+  uncoloured and a formula or a picture repeated in a later paragraph stayed as
+  source there — and take the same fix: each maps a key to the blocks waiting
+  on it, and the completion refreshes each block once (`waitingBlocks(at:)`).
+  `IdenticalRendersTests` failed for all three before the fix (under
+  `swift test`) and passes on macOS and on the iPad simulator. Which copy was
+  turned away depended on the styling order — the block beside the caret is
+  styled first, so for code it was the *first* copy that stayed grey — so each
+  test asks for both copies, and first that at least one was drawn. And a
+  waiting block was remembered by where it started, which an edit above it
+  moved: two paragraphs typed above a table, a listing, a formula or a picture
+  while its render was out left the old place inside another block, and the
+  render went to nobody. `remapRendersInFlight` moves the waiting places with
+  every edit, by the rule folded callouts already used; four more cases in
+  `IdenticalRendersTests`, one per cache, each failed first.
+- **On iPad, a note the document store handed back drew no chrome at all** — no
+  tables, formulas, diagrams, code or callout boxes, bullets or heading rules.
+  UIKit lays the text out inside `UITextView(frame:textContainer:)`, and
+  TextKit keeps a fragment per paragraph until that paragraph changes, so a
+  fragment delegate installed afterwards left an already-styled note in plain
+  fragments, which the chrome overlay does not draw. It is installed before the
+  view is made. `LiveFragmentTests` failed with the old order in place, listing
+  every paragraph laid out in a plain fragment; the trap is in the package's
+  AGENTS.md.
+- **On iPad, every code block in Edit was an empty grey box.** UIKit does not
+  call a fragment's `draw`, so iPad chrome is painted by a view laid over the
+  text — and the code band, an opaque fill, was painted there too, over the
+  code. Chrome is split into what goes behind the text (code bands, callout
+  bands, inline-code pills) and what goes over it (checkboxes, bullets, rules,
+  pictures), and the first half is painted by a second view kept at the back.
+  The Mac draws the same two halves either side of `super.draw`, which is the
+  order it always had. `ChromeUnderTextTests` renders a live editor and looks
+  for the code's ink inside its band; it failed "ink 0, band 24000" before the
+  split.
+- **The Mermaid and Marp bar buttons never appeared on a freshly opened note.**
+  Which buttons a note gets was worked out by a task keyed on the note alone,
+  which ran once — on the empty placeholder text a tab holds before its note
+  loads. It is keyed on the note, its load and its saves — the note menu's own
+  key, so the bar and the menu agree about a diagram typed into an open note —
+  and runs through `offMain`: finding diagrams is a whole-document parse now,
+  and a detached task in this target stays on the main actor.
+
+A concurrency review of all this found nothing on the wrong actor, and three
+places where the zoom made the main actor do work in proportion to the note:
+
+- **The button's hit test ran on every click and touch in the editor** and
+  asked for the longest run of an attribute that is absent almost everywhere,
+  which walks every attribute run in the note — 1–3ms a click at 1MB. It checks
+  the point first now; on a diagram the walk stays inside that diagram.
+- **The iPad's chrome walk.** Each of the two views over the text's whole
+  height walked the layout fragments from the top of the note to the dirty
+  rect — a third of a microsecond a fragment, on every keystroke and scroll
+  frame. The walk from the top is older; splitting the chrome into a view under
+  the text and one over it made it two walks, 7ms a frame near the end of a 1MB
+  note. It starts one block above the viewport now, read from the viewport
+  controller rather than hit-tested (asking for the fragment at a point can lay
+  text out, and laying out during a draw is a known crash).
+  `ChromeWalkTests` draws both views near the end of a 4,000-block note: 4,005
+  fragments each before, a screenful after, and the code box at the end painted
+  both times.
+- **Opening the zoom** took the editor's text into the model — a comparison of
+  a bridged string, 31–57ms a MB — and parsed it again, 8ms a MB, both on the
+  main actor. In Edit it reads the diagrams from the parse the document already
+  keeps (`EditorDocument.mermaidDiagrams`, O(blocks)), with the caret from the
+  same document, through one hook (`EditorModel.liveDiagrams`, which replaced
+  `caretLocation` and `catchUpWithEditor`); elsewhere it parses the buffer
+  through `offMain`. `theDocumentListsItsDiagramsFromItsOwnParse` holds the
+  incremental parse to a fresh one across an edit.
+
+Tests: `DiagramZoomTests` on both platforms — the button drawn (a pixel test
+whose control is an editor no host listens to, which must draw none), hit,
+missed, at the end of a note and beside an identical diagram; a click on the Mac
+that zooms and leaves the caret where it was; an iPad press taken at
+touch-down. `MermaidDiagramsTests` holds the rule across six spellings, the
+fences that are not diagrams, order and identical neighbours; its control, the
+space-only split the parse first used, fails the two tab-separated spellings.
+`DiagramZoomViewTests` in the app: opening by place, by source and alone; the
+diagram nearest the caret; every spelling listed (control: the old expression
+finds none of them), drawn by Preview (control: Preview's old copy refuses
+them) and drawn in a transclusion card (control: the card's old rule refuses
+them); Preview's button through cmark whole (control: the same markup with its
+line breaks left in is cut); and the zoom's vector drawing matching the note's
+picture through a SwiftUI canvas (control: the picture upside down).
+`render-parity.sh` never lays out a diagram — its documents hold none, and it
+does not go through `PreviewSuperset` — so the box the button needs was
+measured on its own: the old markup and the new on the real Preview page in
+WebKit, at three picture sizes, one of them scaled down to a 560pt pane. The
+paragraph, the picture and the paragraph after it land at the same points to a
+hundredth; an inline-block with no line height of its own is exactly as tall as
+the picture it holds. The button sits 24pt square, 6pt in from the top and the
+right.
+
+Checked live. On the Mac by the accessibility API, not by screen captures:
+Preview's button opened the zoom at 237%, zoom in went to 296% and 370%, Fit
+came back to 237% and Done closed it, leaving the diagram drawn in the note;
+Note Actions ▸ Mermaid Diagrams (View Diagram now) and the bar button opened
+it too (the bar button only after the note-kind fix). The button in Edit could not be pressed
+there — a synthetic click at a coordinate never reaches an `NSTextView` — so it
+is `DiagramZoomTests`' job. On the iPad simulator in landscape, with a finger
+(a touch path, not the simulator tool's tap, which arrives as a pointer):
+Preview's button opened the zoom; the button in Edit opened it two presses out
+of two on the shipping build, and three of three on a probe build (two with a
+finger, one with the pointer) that logged the touch taken at touch-down with
+the selection untouched; a pinch reached
+800%, the cap, anchored on the diagram and still sharp; Fit returned to 237%; a
+tap on the diagram itself revealed its source; and code blocks showed their
+code. Two earlier presses on the shipping build had missed, aimed from
+screenshots of a page that was still moving — it was seen to move 17pt between
+two screenshots with nothing touching it — and landed once aimed at a page that
+had stopped. A double-tap could not be tried: each simulated touch is a
+separate call, further apart than a double-tap allows. Rechecked there after
+the review's fixes: the bar button in Preview (the parse off the main actor)
+and in Edit (the live document's own list), and the diagram's own button, each
+opened the zoom at 237%; and the chrome — callout bands, inline-code pills,
+code box, table, diagram, heading rules — was painted scrolling down the note
+and back up.
+
+Something older turned up there, and it is not the zoom's: in landscape, a tap
+that brings up the software keyboard scrolls the tapped line above the top of
+the editor — any line, a table's and a plain paragraph's alike. A probe put it
+on scroll-past-end; fixed the same day (§51.9).
+
+### 51.9 Room past the end of a note is room to scroll into (2026-09-24)
+
+The editor lets a note's last line scroll up to the middle of the view, and the
+room for that was a bottom **content inset** of half the viewport. A scroll view
+keeps what it reveals inside its bounds *less* its insets — UIKit's
+`scrollRectToVisible` and AppKit's `scrollRangeToVisible` alike — so the editor
+believed the lower half of itself was covered. On both platforms a line already
+on screen in the lower half was scrolled up to the middle when revealed: on the
+Mac, 754.5 → 1067.5, half of a 626pt view. On iPad the software keyboard's
+inset came on top — 313pt of ours and 407pt of the keyboard's against a 626pt
+view, a visible band of negative height — and UIKit's own scroll-to-the-caret
+overshot it: a table tap moved the offset 869 → 1066 for a caret at y 946, a
+paragraph tap 208 → 616 for one at 496, and the tapped line ended 94pt above the
+top of the editor. Found in landscape on the `HN-iPad` simulator while checking
+the diagram zoom (§51.8); measured with a probe.
+
+The room is now somewhere to scroll *into*. On iPad it is part of the text
+container — `textContainerInset.bottom` is the 12pt it always was plus half the
+viewport — so it is content, not a covered band, and `contentInset` and the
+scroll indicator insets are the system's alone again (the keyboard's included).
+On the Mac it is `PastEndClipView`, an `NSClipView` whose `constrainBoundsRect`
+lets the bounds go `pastEnd` beyond the document, with no inset of ours at all —
+which also leaves `automaticallyAdjustsContentInsets` on, which the toolbar
+needs. One trap for anyone measuring this: TextKit 2's `UITextView.contentSize`
+is an estimate until the viewport has reached the end of the note — 1,305pt
+reported for a note whose last line sits at 2,384 — so the guard below places
+the last line mid-view before it measures anything.
+
+`ScrollPastEndTests` (the package, both platforms): a line on screen in the
+lower half is not scrolled to; with a 407pt keyboard — given the way SwiftUI's
+keyboard avoidance hands it over, as the view controller's bottom safe area — a
+covered line comes to rest above it. Each failed before the fix. The guard, that
+the last line can still be scrolled to the middle, passes before and after on
+purpose: a fix that simply removed the room would pass the rest.
+
+Checked live. On `HN-iPad` in landscape, Rich Content in Edit, "Rendered
+natively in the editor as you type…" in the lower half, tapped with a finger:
+the keyboard came up and the line stayed on screen above it, scrolled only as
+far as it needed. In portrait, on a second iOS 27 iPad simulator with a fresh
+install holding only the sample collection: the same line, low in the pane where
+the keyboard rises — the tap put the caret on it, above the keyboard. The
+borrowed simulator was put back as it was.
+
+### 51.10 A View diagram button on every diagram in the source (2026-09-24)
+
+In Markdown and Split mode the bar's button and the menu opened the zoom on the
+first diagram in the note: the source view's caret is nobody's to read, and a
+command cannot say which diagram it means anyway. Edit and Preview answer that
+with a button on each picture (§51.8), and now the source does too: every
+diagram's fence carries the same button at the right of its opening line, and
+pressing it opens that diagram. `SourceDiagramButtons` (the app) finds the
+diagrams off the main actor after each edit — one search at a time; typing
+quickly used to start a whole-note parse per character, since cancelling a
+search does not stop its parse — and places a `DiagramButtonView` (the package)
+on each fence inside TextKit's viewport, again whenever the view lays out or
+scrolls; positions outside the viewport are estimates, and nothing there is on
+screen. A press opens its diagram by place, then by source, like every other
+route in.
+
+`DiagramButtonView` draws `DiagramZoomButton`, the drawing the editor puts in a
+picture's corner, so the button is one picture in every mode, and it is a
+button to accessibility named **View diagram**. On the Mac it takes the click
+itself, first mouse included, and presses on a mouse-up over it. On iPad it
+takes no touches: a control laid on a `UITextView` loses its tap to UIKit's
+caret tap, which is what the editor's own button found, so the text view carries
+a `DiagramButtonPress` — the same zero-duration press, claimed at touch-down in
+`shouldReceive` when a touch starts on a button, recognising alongside nothing.
+
+`DiagramButtonTests` (the package): a button named by its host whose press runs
+its action, on both platforms; the Mac view drawing exactly the editor's
+button, pixel for pixel, against an empty view that must differ; and on iPad a
+touch taken at touch-down and pressed on release — not a touch elsewhere, not
+one dragged off before release, not one on a hidden button.
+`SourceDiagramButtonsTests` (the app, both platforms): two identical diagrams
+and a Swift fence get two buttons, each on its own fence's opening line at the
+right, and a press on the second opens the second.
+
+Checked live on `HN-iPad` in landscape, Rich Content. In Markdown mode the
+button sat on the `mermaid` fence's line at the right; a finger press opened the
+zoom on that diagram at 237%, and after Done the source was where it had been —
+no caret placed, no keyboard. In Split mode the same, once the source pane was
+scrolled to the fence, and the `swift` fence below it had no button. Typing and
+deleting in the Markdown pane afterwards kept the caret at the edit (§51.12).
+
+### 51.11 A diagram is drawn off the main actor (2026-09-24)
+
+Every Mermaid render ran on the main actor — parse, layout, rasterise and the
+flip, inside `MainActor.run` in the editor host and on the way into Preview:
+3.7, 17.7 and 123ms at 12, 40 and 120 nodes, measured by the concurrency review
+the same day.
+The reason given was the flip, and it was the only one: BeautifulMermaid's image
+path is CoreGraphics throughout and draws its labels into a thread-local
+`NSGraphicsContext`, and only the app's `lockFocus` flip needed the main
+thread. The flip is a bitmap `CGContext` at the source's own pixel size now, and
+`EditorHost.renderMermaid` and `PreviewSuperset.diagram(_:isDark:)` render
+through `offMain`. `DiagramZoomViewTests.aDiagramRendersTheSameOffTheMainActor`
+draws a diagram on the main actor and off it and compares the pixels, with a
+check that something was drawn at all; the orientation is held by the zoom's
+vector drawing matching the picture, whose control is the picture upside down.
+Formulas and tables stay on the main actor, for different reasons. A formula is
+drawn by a view, `MTMathUILabel`, which has to be made there. A table is drawn
+into an image, but on the Mac through `PlatformImageKit.image(size:)`, whose
+`lockFocusFlipped` is main-thread-only — the limit the diagram's flip had, with
+the same way out. And a diagram inside a `![[Note]]` card is still drawn with
+the card, on the main actor (unimplemented.md §3).
+
+### 51.12 Saving a note compares nothing on the main actor (2026-09-24)
+
+Letting go of a note — the end of editing, a switch of tab or mode, going to
+the background, quitting — carried the editor's copy into the buffer and saved
+it, and compared the whole note on the main actor at every step: the copy with
+the buffer (`adopt`), the buffer with the file whenever the buffer changed
+(`text.didSet`), both again on the way into the save and into the write — and
+then it encoded the note to UTF-8 there as well. The copy is the text storage's
+string, a bridged `NSString`, and comparing one with a Swift string walks it a
+chunk or a character at a time: 82ms for a 2 MB note, one comparison, on this
+Mac (the review measured 31–57ms a MB). A probe `NSString` that counts reads of
+its characters on the main thread counted 338 in one save of a 94 KB note, and
+160,350 — one per character — when the file was checked against the last save
+after a change made elsewhere.
+
+**The fifth comparison was the macro's.** `@Observable`'s setter compares the
+old value with the new before it notifies, to skip an equal one:
+`shouldNotifyObservers` is `lhs != rhs` for an `Equatable` member (checked by
+expanding the macro with `-dump-macro-expansions`). So `text = …` compared the
+whole note by itself, and so did `lastSavedText = …`, and `LiveBuffer`'s
+`text = …` each time the buffer was published to the other scenes — 320,008
+reads for two 94 KB publishes. And Markdown and Split mode write the buffer on
+every keystroke, so per key there were the setter's comparison, `didSet`'s,
+SwiftUI's `onChange(of: editor.text)` comparing the old text with the new, the
+source view's `tv.string != text` echo check — a copy and a comparison — and a
+diagram-button search.
+
+What replaced them:
+
+- **Dirtiness is a count.** `textGeneration` bumps whenever `text` is set;
+  `savedGeneration` is the generation the file holds; `isDirty` is the two
+  differing. A count can only err towards dirty — a buffer typed back to what
+  the file says — never towards clean, which would be the dangerous way.
+- **The one comparison a save needs** — are these bytes the file's already? —
+  runs inside the write's `offMain`, beside the UTF-8 encoding, and compares
+  bytes (`sameBytes`, a `memcmp`), not `==`. `==` is canonical equivalence, so a
+  change that only altered Unicode normalisation — a precomposed é for an e and
+  a combining accent — compared equal and was never saved. When the bytes match,
+  nothing is written: no new `savedRevision`, no `onSaved`.
+- **`reconcileWithDisk` reads the file and compares it off the main actor**, and
+  looks again if a load or a write landed while it was reading.
+- **`text` and `LiveBuffer.text` are observed by hand** (`access` and
+  `withMutation` around an unobserved store), so setting them compares nothing;
+  `lastSavedText` and `conflictDiskText` are not observed at all — nothing
+  watched them.
+- **What follows the text follows its version** — `textVersion`, the editor and
+  the generation: the live-buffer `onChange`, and Preview's superset key, which
+  hashed the whole note on every render.
+- **A settle carries the editor's copy only if it has been edited** since it
+  last matched the buffer. `DocumentLoad` records the document's own `revision`
+  and the buffer's generation at that moment (`matched`), so a settle with
+  nothing typed copies nothing and compares nothing (`carry`), and a cached
+  document coming back to its tab is taken as it is when neither side has moved
+  (`stillMatches`) — that compared the whole note on every tab switch.
+- **The Markdown pane knows its own echo.** Each keystroke goes to the buffer
+  and straight back through the binding; the coordinator keeps the string it
+  handed over (`shown`), and the very same string coming back compares equal
+  from the two strings' storage without a character being read (`differs`).
+  Its diagram search runs one at a time.
+
+Found on the way, and fixed with it: a document built while its note was still
+loading, if the load landed during the build, was taken as current — typing into
+it would have carried the empty document, typing and all, over the note: the
+Start Here loss by a narrower door (§51.6). `DocumentLoad(built:at:for:)` brings
+it up to date first. And one not fixed here: a write the app made into the
+buffer — an accepted tag, link or summary, a property, a whole-note rewrite,
+Review Links, a restored version, an inserted template — never reached the live
+document in Edit, so typing afterwards carried the document over it. The carry
+above stopped a settle with nothing typed from undoing it; §51.15 closes the
+rest.
+
+Measured with `MainActorBudgetTests` (opt-in, run alone): the model's save of a
+2 MB note — the editor's copy taken, checked against the file, encoded and
+written — now costs **0.5ms** of main-thread CPU, where one of the comparisons
+it used to make costs 82ms on its own — the control that shows the instrument
+can see one — against 5ms for two idle seconds. What a collection does after
+the write (`onSaved`: the link graph, search and relatedness indexes, each a
+pass over the note on the main actor) is not in that number; it is open
+(unimplemented.md §3). In Markdown mode the concurrency review measured the
+keystroke path in an optimised build on a 2 MB note: the view's text read after
+an edit, 0.003ms; the echo check, too small to measure, where comparing two
+bridged copies — what it replaced — took 106ms.
+
+Tests, all failing first where the API already existed: `SaveOffMainTests` —
+the whole save reads the editor's copy on the main actor zero times (338
+before) and still writes it; a copy that is the file's bytes is not written
+again, and one that differs is (50 main-thread reads before); a change of
+normalisation is saved (was not); an external change is checked off the main
+actor (160,350 reads before) and a file still holding the last save is no
+change; publishing the buffer reads nothing on the main actor (320,008 before,
+run against the old `LiveBuffer` with everything else fixed); and the control —
+the probe does see a comparison made on the main actor, so its zeroes mean
+something. `DocumentCarryTests` — a settle carries what was typed, once, and
+nothing else, and not a replacement the host made; a document from an earlier
+load is still refused; a document built before the load landed is brought up to
+date, with its control, the same document matched as built, carrying its
+typing over the note. `SourceEditorTests.theEchoOfAKeystrokeIsKnownWithoutReadingTheView`
+is new API and could not fail first; its control shows the count sees a read of
+the view. All of them pass on macOS and in the `HN-iPad` simulator.
+
+Checked live on `HN-iPad` (§51.10): typing into the Markdown pane and deleting
+it again kept the caret at the edit, and the save that followed a switch to
+Preview — the buffer dirty, its bytes the file's — left the file untouched, its
+date and its hash the same as before.
+
+A file-I/O review of the change found one thing it had broken. With dirtiness a
+count, a buffer typed back to what was last saved still reads as dirty, and a
+change made elsewhere in that state raised a conflict where the old comparison
+had reloaded quietly. Worse, **Keep Mine** then compared the buffer with the
+last save, found the same bytes, wrote nothing and called the note saved —
+while the file held the other version, which the next check would have loaded
+over the screen. Both are closed: `reconcileWithDisk` also asks, off the main
+actor, whether the buffer still says what was last written, and takes the
+change elsewhere when it does (a buffer that moves while the file is read is an
+edit in progress, and gets the conflict); Keep Mine makes the other version the
+baseline and marks the buffer dirty whatever it says (`savedGeneration` is
+`nil` — the file holds none of ours), so it writes unless the file already
+holds those very bytes. A check that spans an
+await now notices any change to its baseline, Keep Mine included
+(`lastSavedChanges`). `aBufferTypedBackToTheLastSaveTakesAChangeElsewhere` and
+`keepingMineWritesMineEvenWhenItIsWhatWasLastSaved` failed against the change
+as first written; `keepingMineWritesMine` is the control. The write also hands
+back its UTF-8 copy, which becomes the baseline and what `onSaved` gives the
+collection, whose link graph, search and relatedness indexes read the whole note
+on the main actor after every save — a native string now, not the bridged one.
+That work stays where it is (unimplemented.md §3). The same review found two
+older ways to lose a note: typing while a note loads, closed in §51.13, and a
+cloud mirror evicting an open tab's file, closed in §51.14.
+
+A concurrency review of the whole change found nothing on the wrong actor and
+two more things in the code it touched. `text`, observed by hand, had no
+in-place accessor, so `editor.text += …` — Insert Template's way — copied the
+note to append to it; it has the macro's own `_modify` now
+(`anEditInPlaceIsAnEdit`). And, as a hypothesis from reading the host: for a
+moment after a tab switch the host holds one tab's document beside the next
+tab's model and load, and an end of editing then — the old text view being
+removed while first responder — would carry the first note into the second's
+buffer and save it over the second's file, every count agreeing because both
+tabs are on their first load. HEAD paired them the same way. `DocumentLoad`
+keys its match on the editor as well as the counts, and now on the document
+itself, so a pair it did not match is refused:
+`aDocumentIsCarriedOnlyIntoItsOwnBuffer` failed with B's note holding A's text
+before the guard. Whether the pairing happens on a device was never confirmed;
+since §51.15 the host does not make it. `aKeptDocumentMatchesUntilEitherSideMoves` holds the
+rest of the match: an edit in the document, a write into the buffer, and
+another tab's buffer whose count is the same number.
+
+The full runs found one more thing, and it was a test's: `ChromeUnderTextTests`
+(§51.8) failed on the Mac at seven in the evening — "no band behind the code".
+It looks for the light theme's code band, it never said which theme it wanted,
+and the Mac had switched itself to dark at sunset. It pins the light appearance
+now on both platforms, and passes in a dark session.
+
+### 51.13 Nothing typed while a note is loading is saved over it (2026-09-24)
+
+The file-I/O review of §51.12 found an older way to lose a note. `willOpen`
+locks the buffer the moment a note is chosen — `loadFailure` says it is still
+loading, and `performSave` refuses while it does — so that nothing is written
+before the content arrives. `open` let go of that lock right after flushing the
+note it was leaving: *before* `FileIO.materialise`, which waits up to a minute
+for an online-only note, and before the read, which waits as long as the file's
+provider holds it. For all of that wait the buffer is not the note. In a new tab
+it is the blank the tab starts with; in an editor opened a second time — a retry
+from the "couldn't be read" banner — it is the note shown before. The load had
+not moved, so `adopt` took the editor's copy with whatever was typed into it,
+and the next save — the end of an edit, the app going to the background — wrote
+it over the note that was arriving: the Start Here loss (§51.6) by another
+door, and, in the reused editor, one note written into another's file. It is in
+HEAD; §51.12 did not make it and did not close it.
+
+**Holding a load still, in a test.** The obvious ways do not hold it. An
+online-only note cannot be made to wait: `isMaterialized` answers `true` for
+anything that is not an iCloud item, so `materialise` returns at once. A named
+pipe at the note's path cannot either: `Data(contentsOf:)` refuses a FIFO
+outright ("Permission denied"), so the load fails rather than waits. What does
+hold it is what a provider does while it materialises a file — a coordinated
+write. `FileIO.readData` is a coordinated read and waits behind it, and so does
+a coordinated write, which is how the save then went second. That was probed
+outside the app before a test was written on it: the read waited, the save
+waited, and on release the read took the note that had arrived and the save
+wrote the typing over it.
+
+**The lock is its own now.** `loadsInFlight` counts loads under way, from the
+moment `open` has flushed the note it is leaving until the loaded text is in the
+buffer (a `defer`, so every path through `open` lets go). `performSave` refuses
+while any is — silently, since the load replaces the buffer and nothing typed
+into a blank was a note — and `reconcileWithDisk` stands aside, since the load
+reads the file itself: checked in the wait, the file would be compared with the
+baseline of whatever the buffer held before, and anything typed would put a
+conflict banner over the note as it arrived (a provider writing the file as it
+downloads is exactly what makes the watcher look). Not `loadFailure`: that is
+also what puts "couldn't be read" on screen (`UnloadedBanner` shows whenever it
+is set and nothing is downloading), and held through every ordinary read it
+would flash on each open. A count, so a retry tapped during a load is not
+unlocked when the first load finishes. Nothing new appears on screen: the
+Downloading banner is where it was, and typing into the blank while a note
+loads is replaced by the note when it lands, as it always was — it is just no
+longer written anywhere first.
+
+`UnloadedNoteTests`, each holding the note under a coordinated write:
+`typingIntoANoteStillLoadingIsNeverSavedOverIt` — a new tab, with its control:
+once the load has landed, a save writes; `anEditorOpeningItsNextNoteNeverSavesTheLastOneOverIt`
+— a reused editor, saved by a flush as backgrounding does; and
+`aChangeSeenWhileTheNoteLoadsIsNotAConflict`. Before the fix the note on disk
+became "Typed while it loaded.", the second note's file became the first note,
+and a conflict was raised over the note that had just arrived. The tests *await*
+the save, the flush and the check rather than timing them. The first version
+asked for a refused save to come back within a second, and in a full run —
+every test in the target shares the main actor — the save was sometimes simply
+not scheduled in time. Now the provider lets go by itself after ten seconds, so
+a save queued behind it (the defect) finishes, writes, and fails the test
+instead of hanging it, and a refused one returns however busy the main actor
+is. Proved again with the lock disarmed: all three failed as above. With it,
+the app suite passes (548 tests, twice), and the editor package's (440 on macOS,
+421 on the iPad simulator).
+
+### 51.14 A note open in any window is never evicted from a cloud collection's cache (2026-09-25)
+
+The third finding of the §51.12 file-I/O review. A cloud collection — a
+`RemoteStore` folder — works from a local mirror bounded at 256 MB: opening a
+note downloads it, and past the limit the least recently used bodies are
+written back to zero-byte placeholders (`RemoteMirror.evictIfNeeded`), keeping
+whatever it is told to keep. `hydrateIfNeeded` said it kept "what was just
+opened or what is open in a tab", and `pinnedCachePaths`, whose own comment said
+the same, returned the first alone. So opening a note with the cache full
+emptied the others open in tabs, under them. On the Mac the collection's root
+is the mirror's cache folder, so the file watcher took each eviction for an
+external change and `reconcileWithDisk` ran: a clean tab reloaded an empty
+note, a tab with edits raised a conflict against "". The provider's copy was
+safe — `noteDidSave` will not upload a note that is not hydrated — and that
+same rule meant anything typed in the emptied tab was never uploaded, and was
+written over at the next download.
+
+Two layers now:
+
+- **Every open note is pinned.** `pinnedCachePaths` adds every note an editor
+  holds, in any window, from a weak registry of every `EditorModel` in the
+  process (`EditorModel.openNoteURLs`). Each window keeps its own `EditorTabs`
+  and a note window a bare editor, and a collection sees none of them, so the
+  question is answered where every editor is. Open notes are matched to the
+  cache through `CollectionIndexCache.rootPrefixes` — every spelling of its
+  path — and never by name: `RemoteMirror.relativePath` answers a URL from
+  elsewhere with its last component, which would pin a namesake here. Pinned
+  notes can hold the cache over its limit; what is open is what someone is
+  looking at.
+- **A placeholder is not the note.** Before taking a change, `reconcileWithDisk`
+  asks whether the file is a stand-in (`EditorModel.isPlaceholder`, wired
+  through `EditorTabs` to `Collection.isPlaceholder(at:)`). The collection asks
+  the mirror — `RemoteMirror.isPlaceholder`, a file the manifest knows and has
+  not fetched; not simply `!isHydrated`, which a note just created here also
+  is — from memory, on the main actor. Whether an iCloud item has downloaded is
+  asked beside the read, off it (`FileIO.isMaterialized`); it was asked here
+  first, on the main actor, once per open tab per change seen, until the review
+  of §51.15 moved it. `FileIO.hasContentAvailable` asks the same question of a
+  `Note`, but a `Note` answers for its file as it was when the folder was
+  walked, and an editor holds the one it was opened with, so the file is asked
+  instead. Nothing in the app evicts an open note any more; this is for
+  whatever else ever leaves a stand-in under one.
+
+`OpenTabEvictionTests`, on a mirror with room for one of four notes and tabs
+wired to the collection as the shell wires them:
+`openingANoteNeverEvictsOneOpenInATab` — two notes open, a third opened and
+closed, a fourth opened; before the fix "First" and "Second" went to 0 bytes
+under their tabs, and the control is the closed note, which is evicted: the
+cache is still bounded. `aNoteOpenInAnotherWindowIsNotEvicted` — one note open
+only in another window's tabs, one only in a note window's editor; a pin list
+built from the window at hand would lose both. `aPlaceholderUnderAnOpenTabIsNotTakenAsItsText`
+— before the fix the clean tab loaded "" and the edited one raised a conflict;
+`aRealChangeUnderAnOpenTabIsStillTaken` is its control. With the new pinning
+disarmed, both eviction tests failed again, naming the notes open elsewhere.
+The app suite passes (552 tests), and the app builds.
+
+Found on the way and not fixed here: a note window's editor is wired to
+nothing — no download before it opens, so a placeholder note opens empty there;
+no `onSaved`, so its saves are never uploaded, never marked as the app's own
+write and never indexed; no `saveBlockedReason` (unimplemented.md §1).
+
+### 51.15 Whose text wins: the editor's copy or the buffer (2026-09-25)
+
+In Edit the live `EditorDocument` keeps its own copy of the note, and the
+`EditorModel`'s buffer is what is saved; typing reaches the buffer when the text
+settles (§51.12). When the two differed, the host decided which to keep by
+comparing them — a bridged string against the buffer, on the main actor — and
+took the buffer's side. Three ways to lose work followed, all in HEAD, traced by
+review on 2026-09-24 (unimplemented.md §1):
+
+- **Typing was discarded by a tab switch and return.** Nothing ends editing on a
+  tab switch. The Mac's tab bar takes no focus and the text view is only
+  rebound; on iPad a probe showed the text view removed while first responder,
+  with no end of editing at all. So what was typed stayed in the kept document,
+  and coming back the host replaced it with a buffer that had never seen it.
+  Seen live on `HN-iPad` before the fix: typed into Organising, over to Linking
+  and back — the typing gone from the screen, and never in the file. The same
+  typing went if the document store let the kept document go first, if the tab
+  was pruned (`isDirty` cannot see what was never carried), and under a change
+  made elsewhere, which loaded over it silently.
+- **A write the app made never reached the document** — an accepted tag, link
+  or summary, a property, a rewrite and its Insert Below, Review Links, a
+  restored version, Insert Template. Each set the buffer, the note on screen
+  never showed it, and the next carry wrote the document, without it, back over
+  it.
+- **For a moment after a tab switch the host could pair one tab's document with
+  the next tab's model**, and an end of editing then would have carried note A
+  into note B's buffer. §51.12 made `carry` refuse a pair it had not matched;
+  now the host does not make the pair.
+
+**Whichever moved since they last matched wins** (`DocumentLoad.settle`), asked
+of the counts alone — the document's `revision`, the buffer's
+`textGeneration`, the load:
+
+- only the document moved — typing — so it is carried into the buffer;
+- only the buffer moved — a write the app made, or a load — so it replaces the
+  document, keeping the caret. `replaceText` clears the document's undo, and
+  UIKit's stack lives up the responder chain, so the host resets that too
+  (`proxy.resetUndo()`);
+- both moved: **a load wins**, since a load is the file's text, and one lands
+  over typing only when the person chose Reload — a change elsewhere is a
+  conflict now (below). **Otherwise the typing wins.** Every write the app
+  makes carries first, so both can only have moved if one did not; and typing
+  once replaced is gone from the screen and from every undo stack, where a tag
+  or a property can be accepted again;
+- a pair this load never matched settles to the buffer: the document belongs to
+  another editor, whose own buffer carried it when that editor let go.
+
+What follows from the rule:
+
+- **Switching away carries and saves.** Leaving a note — the host's task
+  starting for the next one, and `onDisappear` — carries the document into its
+  *own* buffer (`settleOnLeaving`) and saves it. A note switch was always one of
+  the four moments a save is taken (§51.12); nothing had marked it.
+- **The app's writes go through `EditorModel.applyEdit`**, which carries what is
+  on screen first — so the change is made to what the person sees — then writes
+  the buffer. The host follows `textVersion`, and the buffer, alone having
+  moved, replaces the document. Every write listed above is converted. Reading
+  the buffer as the note carries first too (`carryLiveEdits`): a rewrite's
+  original, a link review, the outline's jump to a heading.
+- **Everything that judges the buffer carries first**: `reconcileWithDisk`, so
+  typing on screen is unsaved work and a change elsewhere raises the conflict
+  instead of loading over it; `EditorTabs.prune`, so a tab with typing not yet
+  carried is kept; and the document store, which carries a kept document into
+  its own buffer before letting it go (`forget`, `forgetAll`, eviction).
+- **The end of editing names its load.** `onEndEditing` captures the
+  `DocumentLoad` beside its document, and carries into that load's own model —
+  never the host's model of the moment. The pairing was never seen live (on
+  iPad no end of editing fires on a tab switch at all); it is closed either way.
+- **The two whole-note comparisons left in `EditorHost` are gone**
+  (unimplemented.md §3): the reload's `document.text != editor.text`, and the
+  settle of a cached tab shown again.
+- **`willFlush` holds its model weakly.** The closure is stored on the model it
+  names, so the strong capture kept every model alive after its tab closed —
+  and its note in `EditorModel.openNoteURLs` (§51.14), pinned in a cloud cache
+  for good.
+
+**The Properties panel, found by the live check.** With the app's writes
+reaching the document, a tap into a property field showed two older defects.
+The inspector's panel binds straight to the note and writes whatever it is
+handed, including the value a field hands back, unchanged, when it gains focus:
+rendered again, that rewrote the person's front matter in the panel's style —
+`tags: [tour, demo]` became a block list, and was saved — and now also replaced
+the note on screen and cleared its undo. (An identical `text` set notifies
+since §51.12; the macro's comparison was what had kept it quiet.) And every
+row's `Property.id` was a fresh `UUID` per parse, so any change to the note made
+every row a new one and SwiftUI tore down the field being typed in: on iPad a
+tap on a field never kept the keyboard, because the write on focus changed the
+note and the field went with it. `EditorModel.setProperties` is the panel's one
+way in, from the inspector and from the note window's popover, and writes
+nothing when the values are already the note's (`FrontMatter.applyingChanges`,
+one read of the block — the one `applying` makes anyway). A row's identity is
+its key; a key written twice by hand is still two rows. (The panel writing the
+note at every keystroke is the review's first finding, below.)
+
+`WhoseTextWinsTests`, with the model and document wired as the host wires them,
+all failing first but one: `typingSurvivesATabSwitchAndReturn` ("the typing was
+replaced on the way back", "the typing never reached the buffer", "switching
+away did not save it"); `anAppWriteReachesTheDocumentAndSurvivesTyping` ("the
+tag never reached the document on screen", "typing on took the tag away
+again"); `aChangeElsewhereWhileTypingIsAConflictNotAReload` (loaded silently,
+and the typing on screen replaced); `pruningKeepsATabWithTypingNotYetCarried`;
+`forgettingAKeptDocumentCarriesItsTypingFirst`;
+`whenBothMovedWithoutALoadTheTypingWins` ("the buffer does not hold what is on
+screen"); `settlingComparesNothingOnTheMainActor` (48 main-thread reads of the
+buffer in one settle); `handingBackUnchangedPropertiesChangesNothing` (the buffer
+moved, the document was replaced, the front matter rewritten); and
+`aPropertyKeepsItsIdentityWhenItsValueChanges`. `whenBothMovedALoadWins` guards
+the other half of the policy and passed before, and
+`aChangedPropertyReachesTheDocumentAndStays` is the properties' control.
+
+Checked live on `HN-iPad`. Typed into Organising, then tapped Linking's tab: the
+file held the typing the moment the tab changed, and it was still on screen on
+the way back. Then typing in the body, a tap into the priority field — which
+kept the keyboard now, and wrote nothing: the file byte for byte as before —
+two digits there, more typing in the body, and away to another note: the file
+held `priority: 250` and both typings, and so did the screen on the way back.
+
+**What the concurrency review found.** The settle itself was clean — no
+comparison of two notes anywhere in it, and every save it starts goes to the
+model its document was matched with, after the carry it depends on — but the
+paths around it were not, and two of the defects were this change's:
+
+- **Every character typed in a Properties field replaced the note on screen.**
+  With the app's writes reaching the document, the inspector's panel — bound
+  straight to the note, `onPropertiesChanged: {}` — made each keystroke a full
+  parse and restyle of the note, its undo cleared, and six reads of its front
+  matter. The rows are a draft now (`PropertyDraft`), which is the contract
+  `PropertiesEditor` always stated: typing changes the draft, and Return,
+  leaving the field, a toggle, or a property added or removed commits it,
+  through `setProperties`. The draft follows the note by its text version: when
+  the body moves, what is being typed stays; when the front matter changes
+  under it, the note's rows win; and when a tab switch leaves an edit unwritten,
+  it is written into *its* note, not lost and not written into the next. Two
+  more things came with it. **Add item** stopped writing an empty `- ""`, which
+  parsed back as no item, so in the inspector the new row vanished before
+  anything could be typed in it; it now opens a field and commits when that is
+  left. And clearing a number and typing a new one no longer turns it into a
+  quoted string: the empty value in between is never written.
+- **A note open in two windows shared one document.** The store is the app's
+  and its key named the note, not the editor, so the second window was handed
+  the first's document and load: settling it replaced what the first window had
+  typed, and took the load, so the first window's end of editing carried into
+  the second's buffer. The key names the editor (`EditorDocumentStore.Key`).
+- **`reconcileWithDisk` asked the file provider on the main actor** — §51.14's
+  placeholder check called `FileIO.isMaterialized` there, once per open tab per
+  change seen, and changes arrive when the provider is busiest. The main actor
+  asks only the mirror's manifest now (`isPlaceholder`); iCloud is asked beside
+  the read, off it.
+- **Whole-note work older than this change, on the paths it touched.** The
+  inspector took the note as a `String`, so SwiftUI compared it with itself at
+  every redraw of the shell — 206ms for a 2 MB note, the review measured, once a
+  keystroke in Markdown mode — and `OutlineView` the same one level down; both
+  take a `NoteText` now, compared by version. Review Links' guard compared the
+  reviewed text with the current one; it compares text versions
+  (`LinkReviewFlow.apply(_:reviewed:now:to:)`). And reading a note's properties
+  split the whole note and counted its characters (`FrontMatter.block(in:)`); it
+  reads the front matter and stops — which also closed a way to lose text:
+  counting took `\r\n` for two characters, so a property written back cut a
+  letter off the start of the body for each CRLF line in the front matter.
+- **Switching mode saved nothing.** The host's `onDisappear` carried the typing
+  and discarded the model it was carried into, so a switch to Preview left it
+  unsaved until the next flush; it saves now, as leaving for another note does.
+  The debounce state the host still declared — a task never assigned, a pending
+  sync set and landed in the same call — is gone.
+
+**Two more, found by the live check of those fixes.** The caret: a write the
+app makes lands in the front matter, above a caret in the body, and the replace
+put the caret back at its old offset — seven characters short, for a priority
+of 250 in a note whose tags the panel wrote back as a list — so the next
+keystrokes went into the middle of a word (" AFTER" landed inside "DRAFTBODY").
+A caret in the body now moves with the body (`DocumentLoad.caret`), asked of the
+two front matters alone. And a crash: switching notes with a new tag still being
+typed trapped with an index out of range. The draft had moved to the next tab
+(its note still loading, so no rows), and the field, handing its text back as
+it ended editing, read its row through `ForEach($properties)`'s binding — by the
+index it used to have. Where the next note had a row there, the text would have
+gone into the other note. Rows are read and written by identity now, a note's
+fields go with it (`.id` of the editor), and the rows take no write from a field
+of a note they no longer belong to.
+
+More tests, failing first where the API existed: `PropertiesPanelTests` —
+reading a note's properties made 1,330,504 main-thread reads of a 165 KB note
+against 554 for its front matter alone (`readingPropertiesReadsOnlyTheFrontMatter`),
+and the CRLF note came back as `…---\nody starts here.\n`
+(`writingAPropertyKeepsTheBodyWhateverTheLineEndings`); `PropertyDraft` is new
+API, and its three tests have a control — a change to the front matter under the
+rows is what they show. In `WhoseTextWinsTests`,
+`aNoteOpenInTwoWindowsKeepsADocumentForEach` — against the host's key as it was,
+"the second window replaced the first window's typing" and "the first window's
+document now carries into the second window's buffer" — and
+`aWriteAboveTheCaretKeepsItsPlaceInTheBody`, "the caret moved -7 characters
+within the body", with a caret in the front matter as its control.
+`LinkReviewFlowTests` state the guard in versions, and a new one refuses another
+note's editor whatever its count says.
+
+Checked live again on `HN-iPad`, on the final build: typing in the body, `250`
+typed into the priority field, then a tap back into the body — the field
+committed as it was left, and " AFTER" landed after "DRAFTBODY"; **Add item**
+opened a field, "live" typed into it, and a switch to Linking with that field
+still being edited: no crash, Linking's properties untouched (its file dated as
+it was), and Organising's file held `tags: tour, demo, live`; then typing, a
+switch away and back — the file held it, and so did the screen. The app suite
+passes (571 tests), the editor package's (440 on macOS, 421 on the iPad
+simulator), the iOS interface tests (12 of 13; the window-parity capture is
+opt-in and skips), and the app builds.
+
+Found on the way and not fixed here: a note opened straight into Edit shows its
+front matter unfolded — the load replaces the empty document the tab was built
+with and puts its caret back, 0, inside the front matter; HEAD's reload did the
+same (unimplemented.md §6). `EditorDocument.make` and `replaceText` parse the
+whole note on the main actor — `make` is `async` and never leaves it — against
+the package's own rule that a whole-document pass is made once, off it (§3).
+And `willOpen` and `open` still ask the file provider on the main actor
+(`FileIO.hasContentAvailable`), as the reconcile did (§3).
+
+### 51.16 While a conflict is open, only Keep Mine writes the note (2026-09-25)
+
+Found by the file-I/O review of §51.12, and in HEAD. `reconcileWithDisk`
+raises the banner when the note changed elsewhere while the buffer holds edits,
+and keeps their version (`conflictDiskText`) — and then nothing respected it.
+`performSave` never looked at `hasConflict`, so the next settle — the end of
+editing, a tab switch, the app going to the background — wrote the buffer over
+theirs, as if Keep Mine had been chosen. A Reload after that took theirs into
+the buffer and called it clean while the file held mine: theirs was never
+written back, and the next look at the file loaded mine again, without a word.
+The website's manual promised the app "will not silently discard either one";
+it did, both ways.
+
+- **A save writes nothing while a conflict is open**, and the buffer stays
+  dirty. Nothing new is said: the banner says it.
+- **Keep Mine is the one way mine reaches the note.** It carries what is on
+  screen first — the typing the live editor holds that the buffer has not yet
+  taken — makes theirs the baseline, and writes.
+- **A save writes only over the file it last saw**
+  (`FileIO.replace(_:at:ifBytesAre:)`, bytes compared inside the write claim).
+  It replaced whatever was there, so a change made elsewhere since the last
+  look was written over at the next save — and a save already past its
+  guards when a conflict was raised put mine over theirs under the banner,
+  its bookkeeping marked the buffer clean, and the next look at the file,
+  finding our write, ended the conflict and dropped theirs. Now a save that
+  finds the file moved writes nothing, stays dirty, and looks at the file,
+  which raises the conflict at once.
+- **Reload takes theirs; both resolutions wait for a write in flight**
+  (`writeInFlight`), so a write's bookkeeping, unconditional after its await,
+  cannot land on the baseline a resolution sets. And a choice made is the one
+  taken: the banner's buttons wait while one is under way
+  (`isResolvingConflict`) — both used to wait on the same write, and whichever
+  resumed first won.
+- **An open conflict never takes a change silently.** A buffer typed back to
+  the last save looks clean, so a newer change arriving under the banner was
+  loaded into the buffer while the banner still held the older theirs, and
+  Reload then put the older back. It is the same conflict with a newer theirs.
+- **Letting go of a buffer that holds a conflict keeps mine beside the note.**
+  A flush that may be the buffer's last — the app quitting; iOS leaving the
+  foreground, after which the app can be ended without a word; a tab or a note
+  window closing, or a main window with all its tabs; an editor opening
+  another note — neither writes mine over theirs nor drops it. Mine goes into
+  "Title (conflicted copy 2026-09-25).md", the name the cloud mirror already
+  gives the copy it keeps, created beside the note by
+  `FileIO.createConflictedCopy` — atomically, through a hidden staging file
+  renamed into place with `RENAME_EXCL`, so it never writes over a file
+  already there ("… 2", "… 3" after it) and a quit cut short leaves no half
+  of one. One per conflict, made in its turn on the save's write queue — two
+  let-gos at once (iOS drains for resigning active and again for each change
+  of scene phase) made two — and re-checked when its turn comes. A later
+  let-go brings that copy up to date, unless it no longer holds what was
+  written there (someone changed it: it is theirs) or an editor has it open
+  (what it holds would be saved over it from the older mine); then mine gets
+  a copy of its own. The collection hears of it as of a save (`onSaved`), so
+  it is a note in the sidebar at once. The note keeps theirs, and an editor that
+  survives the let-go — an iPad app coming back — still shows the banner; the
+  copy stays whatever is chosen, a note like any other, the person's to
+  delete. A flush that keeps the buffer — a switch of mode, a rename or a move,
+  the Mac going to the background, which is not suspension — writes nothing
+  anywhere while a conflict is open (`EditorModel.flush(lettingGo:)`;
+  `TerminationGuard`'s hooks say which: false for the Mac's scene-phase drain,
+  true for quit and for iOS's resign-active). A copy that cannot be written is
+  a save failure, on the banner, and nothing drops the buffer then: the tab
+  stays open (`EditorTabs.close`), and an editor asked to open another note
+  keeps this one (`flush` says whether mine is safe). A rename or a move of a
+  note with a conflict open is refused until it is chosen — the tab would
+  keep the old path, and Keep Mine would write mine there.
+
+**Why a copy.** Every other answer makes the choice for the person or loses the
+text: writing mine to the note is Keep Mine; keeping it in memory loses it at
+quit, and whenever iOS ends a backgrounded app; an app-private store would need
+a way back to the note that does not exist. A copy beside the note survives
+the process, syncs like any note, and leaves both versions where the person
+will look.
+
+**The review.** The file-I/O and concurrency reviews of the change as first
+written found the save's blind write at the root of three ways it could still
+lose a version — the write landing over theirs, the look after it ending the
+conflict, a let-go then finding nothing dirty to keep — and more around it,
+all fixed above: the newer change taken under an open conflict, the two
+copies, a copy landing after its conflict ended and being recorded against the
+next, a main window's tabs dropped at close with no let-go, a tab closed by
+the index it had before its flush (the wrong tab, or a trap when closed
+twice), a failed copy followed by a close or a switch, a copy updated under an
+editor showing it, rename and move with a conflict open, and the order of two
+choices. Three reached past the editor. In a cloud collection, **every
+complete sync deleted every note made on this device and not yet on the
+provider** — `RemoteMirror.pruneLocalItems` removed each `.md` the provider's
+listing lacked, so new notes and conflicted copies alike — and now removes
+only a note the manifest knew. The mirror's own conflicted copy of theirs was
+written to the same-day name blind, over any copy already there, the editor's
+copy of mine included; it goes through `createConflictedCopy` too. And the
+quit handshake's five-second deadline bounded nothing: a task group returns
+only once every child has, so ⌘Q waited on a wedged provider as long as it
+liked; whichever of the drain and the deadline finishes first now replies.
+
+`ConflictSaveTests`, failing first where the API already existed:
+`aSaveWhileAConflictIsOpenWritesNothing` ("a save while the conflict was open
+wrote mine over theirs", "mine was marked saved"); `reloadingLeavesTheirsInTheFile`
+(the file held mine after Reload, and "the next look at the file put mine
+back"); `lettingGoKeepsMineBesideTheNote` ("letting go wrote mine over theirs",
+"mine was not kept anywhere"); and the two real callers,
+`closingATabWithAConflictKeepsMine` and `openingAnotherNoteKeepsMine`, each of
+which wrote mine over theirs. The copy's contract is new API —
+`aCopyIsKeptCurrentAndNeverWrittenOverAnEdit`,
+`aCopyNeverReplacesAFileAlreadyThere` — and `keepingMineKeepsWhatIsOnScreen`
+failed with the carry disarmed ("Keep Mine left out what was on screen").
+Controls: `keepingMineIsHowMineLands`, which passed before and after, and
+`aFlushThatKeepsTheBufferWritesNothingAnywhere`, the let-go rule's. For the
+review's findings, each failing with its fix disarmed and passing with it:
+`aSaveNeverWritesOverAChangeItHasNotSeen` ("the save wrote over a change it had
+not seen", "the change the save found was not raised"),
+`aNewerChangeUnderAnOpenConflictIsNeverTakenSilently`,
+`twoLetGosAtOnceKeepOneCopy`, `aCopyOpenInAnEditorIsNotWrittenUnderIt`,
+`aTabThatCannotKeepMineStaysOpen`, and in `RemoteMirrorTests`
+`aCompleteSyncKeepsANoteMadeHere` (with a note the provider did delete as its
+control) and `aConflictedCopyNeverReplacesOneAlreadyThere`.
+
+The write in flight across the raising of a conflict could not be held still
+for a test — probed outside the app, a coordinated read asked for after a
+waiting coordinated write is queued behind it — and needs none now: whichever
+way it falls, the write compares with the file inside its claim. Not tested:
+the window's close, the quit deadline and the single choice, which live in
+views and the app delegate.
+
+The app suite passes (590 tests, twice), and the app builds for macOS and for
+the iPad simulator (TerminationGuard's iOS half is compiled only there).
+
+Found on the way and not fixed here: a note created locally in a cloud
+collection is still never uploaded — the mirror's manifest learns of files
+only from the provider's listings, so `noteDidSave` takes a new one for a
+placeholder and refuses it; a conflicted copy kept in such a collection shares
+that, kept on the device and no longer deleted (unimplemented.md §8b). Only
+the most recently opened main window's tabs are checked when the folder
+changes — `Library.onExternalChange` is one closure, and each window's `.task`
+reassigns it — so the others raise their conflicts only when they next save
+(unimplemented.md §1).
+
+### 51.17 A save's index work is parsed off the main actor (2026-09-26)
+
+After every write, `Collection.noteDidSave` patched the collection's indexes
+on the main actor, each patch a pass over the whole note: its aliases three
+times (once to ask whether they had changed, once for the link graph, once for
+search), its wiki-links twice, its headings, its tags, and — with a
+relatedness index built — its retrieval text. §51.12 took the whole-note
+comparisons out of the save and left these in, and the save's budget could
+not see them: `savingALargeNoteBarelyTouchesTheMainActor` saves a model no
+collection listens to.
+
+Measured first. `MainActorBudgetTests.savingALargeNoteInACollectionBarelyTouchesTheMainActor`
+saves a 2 MB note in a 200-note collection whose link graph, search and
+relatedness indexes are built, through an editor wired as the shell wires one
+(`onSaved` → `noteDidSave`), and counts main-thread CPU until the indexes have
+the save and the search aggregates have been rebuilt after it: **158 ms**
+before, against a 100 ms budget and 0.3 ms for the save alone; **4.5–4.8 ms**
+after (two runs). Its control, `parsingALargeNoteOnTheMainActorIsSeen`, makes the same
+parse on the main actor and reads 129–145 ms, so a small number is the save's
+and not the instrument's blindness. Both are opt-in like the rest of the file
+(`TEST_RUNNER_HN_BUDGET_TESTS=1 ./scripts/run-tests.sh
+-only-testing:HelloNotesTests/MainActorBudgetTests`, run alone).
+
+- **Parsed once, off the main actor.** `Collection.SavedNoteIndex` is
+  everything the patches need — `CollectionIndexCache.parse` (headings, tags,
+  aliases, links) and, only when a relatedness index has been built,
+  `RetrievalText.prepare` — made inside `offMain`. The main actor applies it
+  through overloads that take the parsed values:
+  `LinkGraph.updateNote(url:title:aliases:outgoing:)`,
+  `CollectionSearchModel.updateNote(_:headings:tags:aliases:)` and
+  `updateRelatedness(url:title:prepared:)`. The ones taking text stay, for
+  `adopt(createdAt:)`, which indexes an empty note.
+- **Only the newest save of a note is applied.** Synchronous, the patches
+  happened in the order they were asked for; off the actor, parses finish in
+  whatever order they finish, and an older one landing last put the older
+  links and tags back. Each save takes a number from one collection-wide count
+  (`saveSerial`), and a parse is applied only if its number is still the
+  note's newest (`savesToIndex`). One count, never reset: the first draft
+  numbered saves per note and cleared the number once applied, so the next
+  save was 1 again — and a parse still running from the earlier 1 passed for
+  it, and was applied over it. Found while writing the tests.
+- **A note that has left while its save was parsed is not put back.** Deleted,
+  moved, or removed by something else and seen by a walk: search inserts an
+  entry for a note it does not have, so the note was back in search — and so
+  in Open Quickly, whose items are built from search's entries — and the link
+  graph resolved its aliases to a file that was not there.
+- **The rest is decided when the patch lands, not when the save did.** The
+  in-flight rebuild is cancelled then: a rebuild takes each note's record from
+  the cache while the file's size and date still match it, a save does not
+  change the date the collection holds, so one begun while the note was being
+  parsed took its *old* record — and, landing after the patch, put the old
+  links back. And whether the aliases changed is asked of the index then, just
+  before it is patched; asked after, the answer is always no.
+- `savesBeingIndexed` counts the saves still being parsed — what something
+  that must see a save in the indexes waits for (the tests do). Nothing else
+  changed: the cloud upload gate, `adopt(createdAt:)` for a note missing from
+  the list (still synchronous, and O(1)), and the debounced rebuild after an
+  alias change.
+
+`SaveIndexingTests`, each failing with its guard disarmed and passing with it:
+`anOlderSaveThatLandsLastIsNotApplied` (the note's links came back as the
+older save's), `aSaveStillParsingAfterANewerOneLandedIsNeverApplied` (the same,
+with the number per note put back), `aNoteThatLeavesWhileItsSaveIsParsedIsNotPutBack`
+(its alias resolved to the removed file, and search still held it),
+`aRebuildBegunWhileASaveIsParsedDoesNotPutTheOldLinksBack` (with the cancel
+moved back to the moment of the save, the old links returned) and
+`aChangedAliasReachesTheNotesThatLinkByIt` (with the question asked after the
+patch, no backlink ever appeared). `aSaveReachesEveryIndex` is the positive
+control: links, aliases, tags, headings and the relatedness index all have the
+save. Two of the tests check that they set up what they claim to — that the
+save was still being parsed when the note left, or when the third save began —
+and say so when it was not.
+
+**The concurrency review found two things the change broke, both in rename.**
+A rename rewrites `[[links]]` in the notes the link graph says link to the
+renamed one, and the shell flushes every tab just before it renames — so a link
+typed a moment earlier was in a save still being parsed, the graph did not know
+it, and it was left naming a note that no longer exists. And the flushed save's
+patch, landing during the rename's own rebuild, cancelled it, so the renamed
+note was never indexed under its new name. Synchronous, the patch had landed
+before the rename began. **What reads the indexes to act on the vault now
+waits for the saves before it** (`Collection.savesIndexed()`, a continuation
+the last landing parse resumes, after its patch): `renameNote`, and
+`moveItem`, whose scan and rebuild the same flush can cancel. The review also
+found that a note deleted while its save was parsed and made again at the same
+path was given the old save — `forget`, `adopt(renamed:)` and
+`adopt(createdAt:)` now drop a save still being parsed for the path — and that
+every applied save rebuilt the embed provider's name map, titles and paths
+that a save does not change: **23 ms of main-thread CPU per save** at 2,000
+notes (the budget test now runs at that size: 26.7 ms with it, 3.5 ms
+without). It is gone, and so are the two text-taking `updateNote` overloads,
+whose last caller indexed an empty note.
+`aRenameRewritesALinkSavedJustBeforeIt`, `aRenameIsIndexedWhenASaveIsParsedAcrossIt`
+and `aNoteMadeAgainWhileItsOldSaveIsParsedIsNotGivenIt` each failed before and
+pass now.
+
+The app suite passes (599 tests in 89 suites), and the app builds for macOS
+and for the iPad simulator. On the way,
+`duplicateNote`'s `offMain` closure captured a `var` (a warning in Swift 5
+mode, an error in 6); it captures a constant.
+
+Found on the way and not fixed here, both in HEAD and reproduced by a probe:
+a save does not change the date the collection holds for the note (only an
+alias change restats it, so that rows do not jump), so **a later rebuild from
+the cache reverts an earlier save** until the next walk — a note saved with a
+new link lost it when another note's changed alias rebuilt the indexes; and
+**a save's patch cancels whatever rebuild is in flight, and nothing runs it
+again** — another note's alias rebuild (a link by the new alias never became
+a backlink), a delete's, a walk's (unimplemented.md §1). The review added two
+more, not reproduced: a rebuild checks for cancellation once, before it loads
+the link graph, and then loads search whatever happens; and a save made while
+the relatedness index is being built is not in it (§1, §3; all four are fixed
+in §51.22). Also pre-existing,
+on the main actor after a save in a cloud collection: the upload's read of the
+note and the mirror's manifest, encoded and written whole (§3).
+
+### 51.18 Split mode follows typing at a pause (2026-09-26)
+
+Found by review on 2026-09-24 (unimplemented.md §3). The Markdown pane writes
+the buffer on every keystroke — cheap since §51.12 — and everything that
+followed the buffer followed it there, on the main actor. In Split mode each
+key re-ran a body whose `GFMPreview(markdown:)` initialiser rendered the whole
+page with cmark-gfm, and hashed the page twice to decide whether to load it;
+restarted a task that walked every line of the note (`PreviewSuperset`, then
+`@MainActor` throughout), ran `GitHubMarkdown.prepare`, and drew every Mermaid
+diagram again — off the main actor, but uncached, and not stopped by the
+task's cancellation. With the inspector open, the Outline analysed the note
+and parsed it in full for its headings, in `body`, and the Tags tab collected
+its tags there. Measuring found two more readers of the buffer on the typing
+path: the shell read the note (`activeEditor?.noteText`) to hand it to the
+inspector, inside the `AdaptiveShell` slot, so the shell's body re-ran per
+keystroke; and `NoteEditorView` keyed its `LiveBuffer` publish on the
+buffer's version, so the note column — and the pane inside it, whose closures
+SwiftUI cannot compare — redrew on every key.
+
+**Measured first**, in `MainActorBudgetTests` (opt-in, run alone):
+`typingInSplitModeBarelyTouchesTheMainActor` hosts `NoteEditorView` in Split
+mode beside `NoteInspector` on the Outline, fed as the shell feeds it, with a
+694 KB note of prose, headings, lists, a table, code, two diagrams and some
+maths, and types 20 characters into the real source text view, 80 ms apart.
+**Before: at least 700 ms of main-thread CPU per keystroke.** At least,
+because the harness then counted only the redraws: inside a `@MainActor`
+test a turn of the run loop runs no main-actor task — no `.task`, no timer,
+no hop back from `offMain` (probed: a task created before a second's turn had
+not started when it ended) — and an `await` runs tasks but no run loop, so
+SwiftUI does not redraw. The harness now turns the run loop and awaits in
+small steps, and takes off its own cost (73 ms of CPU per idle two seconds),
+measured on the same schedule with nothing typed. **After: 1.6 ms per
+keystroke**, where typing into Markdown mode alone costs 2.5 ms; Preview is
+handed no page while typing and one when it pauses, and catching up costs
+24 ms. The control, `typingIntoAPaneThatRendersEveryKeyIsSeen` — a pane whose
+body renders the page per key, as Preview's did — costs 22 ms a keystroke and
+is handed 20 pages, so the harness sees a redraw and the count sees a page.
+With the settle disarmed, the test fails at 10.8 ms a keystroke against the
+Markdown pane's 3.2.
+
+- **One settle, in the model.** `EditorModel.settledText` is the text as of
+  the last pause in typing, with its version (`NoteText`, compared by
+  version). The Markdown pane writes through `typed(_:)`, which settles
+  `settleDelay` (300 ms) after the typing stops; anything else — a load, an
+  app write, the live editor's text carried in — settles at once, and so does
+  a flush, editing having stopped. Preview, the inspector, the Outline popover
+  and `LiveBuffer` follow it; the live editor in Edit mode still follows the
+  buffer, whose document it holds.
+- **Preview is built off the main actor** (`NotePreview`). Keyed on the
+  settled version, the page's style (`GFMPreview.PageStyle`: the theme's size,
+  the accent its links take, the palette for light or dark), and what embeds
+  resolve to. The superset pass runs off the main actor (`@concurrent`) and
+  hops back only for what must be drawn there — a formula, whose renderer lays
+  out a view, and an embed's card, which the provider draws — each once:
+  diagrams and formulas are kept by source as the tags they became
+  (`PreviewSuperset.rendered`, 16 MB, oldest first), and a card's tag by the
+  image the provider hands back. A cancelled pass stops at the next line.
+  Then the note → GFM step and cmark-gfm, in `offMain`
+  (`GFMPreview.page(_:style:)`).
+- **The web view is told which page it is handed** (`pageID`): a redraw
+  hands the same page over again and is told by its number, where it hashed
+  the whole page — twice — to find out. A page without one is hashed once.
+- **The shell does not read the buffer.** `NoteInspector` takes the editor and
+  reads its settled text itself, so a pause redraws the panel and nothing
+  else; the Outline's analysis and the Tags tab's collection run in tasks
+  keyed on the version, off the main actor, and keep their last answer while
+  the next is made.
+
+Edit ≡ Preview: the page built from a style is byte-for-byte the page the
+preview built before (`aPageBuiltFromItsStyleIsThePageThePreviewShows`), and
+`render-parity.sh` passes — 58 of 58 documents at 1200, 800 and 560pt, the two
+known at 420, chrome parity ok.
+
+`SettledTextTests` (a keystroke waits for the pause, typing that goes on does
+not settle, anything else settles at once, a flush settles);
+`PreviewSupersetTests`' `aDrawnDiagramIsKept`, `aKeptDiagramIsNotDrawnAgain`,
+`aKeptFormulaIsNotDrawnAgain` and `aCancelledPassDrawsNothing`; and in the
+package `GFMPreviewPageTests` (the page built from a style, a style that
+changes with what it draws, a page loaded once per number) — each failing
+with its guard disarmed and passing with it. Seen on the HN-iPad simulator in
+Split mode: typed into the source, the preview's heading and the outline
+caught up once the typing stopped — and, deleting in two bursts, both showed
+the text of the pause between them while the source was already past it.
+
+The app suite passes (609 tests in 90 suites), the editor package on macOS
+(247/24, 178/14, 18/4) and on the iPad simulator (228/22, 178/14, 18/4), the
+iOS interface tests (13, the opt-in window-parity capture skipped), and the app
+builds for both.
+
+Found on the way and not fixed here: a new page starts at the top, so a
+preview scrolled down to a diagram went back to the note's first line when
+typing paused — seen on the simulator. It went back at every keystroke before
+this; keeping the scroll position across a load is unimplemented.md §4.
+
+**The concurrency review found three things, and a regression.** A
+transclusion card was still PNG-encoded on the main actor — kept there on the
+belief that a platform image is not `Sendable`, which it is (the review
+type-checked one in a `Sendable` struct against both SDKs); a standalone probe
+put a card 400pt tall at 30–46 ms and one 8,000pt tall at 680 ms, and a note
+with more than 32 embeds emptied the card cache mid-pass, so every pause
+encoded every card again. Cards and formulas are encoded off the main actor
+now, and kept in the one cache. That cache evicted the oldest *stored* first,
+and a pass visits a note's constructs in document order, so a note whose
+images outgrew the budget evicted each before the next pass reached it and
+every pass drew everything again; it is evicted by pass now — entries the
+oldest passes used go first, never one the storing pass has used — and counts
+its keys (a key carries the whole diagram it names). The Suggest Tags command,
+which switches to the Tags tab in the same update, found nothing collected and
+parsed the note on the main actor; and the Suggest button handed the model
+whatever the tab showed — after a switch of tab, the last note's tags. Both
+resolve the tags in the task that asks, for this version, off the main actor.
+The regression was mine: the pane stayed empty until the whole page was built
+— every diagram not drawn yet, every embed's read — where the old initialiser
+had drawn a plain page at once; and after a switch of tab it showed the last
+note's page for as long. With nothing of the note's on screen, the page
+without the superset comes first now, and the whole page after it, not loaded
+again when the two are the same. `RenderedTagsTests` — a pass that outgrows
+the budget finds everything next time, room is made from the oldest passes,
+keys count, a card is kept for the image it was drawn from — each fails with
+its part disarmed.
+
+The harness took its baseline while the first page was still being built
+(the card is drawn on the main actor the first time), which subtracted that
+from the typing and put the net at nothing. It waits for the window to go
+quiet now, and says so if the baseline was not idle; the note carries a
+transclusion, as the review asked; and the run loop is turned from a
+synchronous helper, since running it from an `async` context is an error in
+Swift 6. **Measured again: 1.5 ms of main-thread CPU a keystroke in Split mode
+with the Outline open**, where the Markdown pane alone costs 2.6 ms; 32 ms
+catching up at the pause, with one page handed over. The app suite passes (623
+tests in 92 suites) and the app builds for macOS and the iPad simulator.
+
+Deliberately not done: typing that never pauses — a held key, dictation —
+defers Preview and the inspector until it does; a settle is a pause.
+
+### 51.19 A note window's editor is wired as a tab's (2026-09-26)
+
+Found 2026-09-25 while fixing cloud-cache eviction (§51.14). `NoteWindowView`
+made a bare `EditorModel` and opened its note itself, where a tab's editor came
+from `EditorTabs.editor(for:)`: told where a save goes (`onSaved` →
+`Collection.noteDidSave`), when a note has arrived (`onBecameAvailable`), when
+a write must be refused (`saveBlockedReason`) and what is a stand-in
+(`isPlaceholder`), and given a cloud note's bytes before it was read
+(`prepareToOpen` → `Collection.hydrateIfNeeded`). A note window got none of
+it. A cloud note still a placeholder in its collection's cache opened empty
+there, and what was typed was written over the placeholder, never uploaded,
+and replaced at the next download; its saves were never registered as the
+app's own writes — so the watcher reported them to the tabs as changes made
+elsewhere — never indexed and never uploaded; and a save into a collection
+whose folder had gone was not refused.
+
+- **One wiring, for both** (`EditorWiring`). `wire(_:)` sets an editor's hooks
+  from a lookup of its note's collection — `init(library:)` in the app, a
+  closure in a test — and `open(_:in:shown:)` opens a note as every editor
+  opens one: its identity first (`willOpen`, so a banner can say it is
+  downloading), then `shown`, where a tab puts itself on screen, then the note.
+  `EditorTabs` holds one (`wiring`, asked when used, so a tab opened before
+  the shell sets it is wired the moment it does) in place of its five closures,
+  and `ContentView.wireTabs` sets it. `NoteWindowView` loads its note through
+  `NoteWindowView.load(_:into:wiring:)`, which wires and opens exactly as a tab
+  does — and shows the note, with its banner, while it downloads, where it
+  showed "Note Unavailable" until the load was done.
+- **Fetching is part of opening** (`EditorModel.prepareToOpen`, awaited inside
+  `open` before the file is read), so every open fetches: the first, and the
+  banner's Try Again, which read the file again without fetching anything.
+- **A placeholder is not the note.** Found while wiring: when the fetch fails —
+  the provider cannot be reached — `open` read the placeholder as an empty
+  note, in a tab and a note window alike, and what was typed into it was
+  written over the placeholder, refused by the upload (which does not upload a
+  note it has not downloaded), and written over in turn by the next download.
+  `open` now asks the collection (`isPlaceholder`) and leaves such a note
+  unloaded: the buffer takes no write, the banner says it could not be
+  downloaded, and Try Again fetches. The note's cloud badge comes off only when
+  it has arrived — the empty file standing in for it answered as present, and
+  `onBecameAvailable` took the badge off a note still in the cloud.
+
+`NoteWindowWiringTests` shows each gap through the window's own path
+(`NoteWindowView.load`) beside the same case through a tab wired as the shell
+wires one — the controls, which passed before and pass now:
+`aCloudNoteOpensInANoteWindowWithItsText`, `aSaveInANoteWindowReachesItsCollection`
+(on the provider, and in the link graph), `aNoteWindowDoesNotWriteIntoAFolderThatHasGone`
+and `aNoteWindowAsksItsCollectionAboutItsNotes` (a stand-in, and the badge) each
+failed before; and `aCloudNoteThatCannotBeFetchedIsNotOpenedEmpty` failed
+before in a note window and in a tab alike (the note opened empty, the typing
+reached the placeholder, Try Again read it without fetching, the badge came
+off). Disarmed one part at a time: without the wiring, the refusal, the
+questions and the upload fail; without the fetch before the read, the text;
+without the placeholder check, the failed fetch. `OpenTabEvictionTests` wires
+its tabs with the shell's wiring now — it had copied two of the closures by
+hand — and opens its note window through the window's path.
+
+Not fixed here: nothing reconciles a note window's editor when its file
+changes elsewhere — it is in no window's tabs, and `Library.onExternalChange`
+is one closure (unimplemented.md §1, with the other main windows' tabs).
+
+The app suite passes (619 tests in 91 suites, on a second run: the first had
+`AgentToolTests.anApprovedEditIsNotMadeOverTextSavedWhileItWaited` give up
+after 5 s waiting for its approval card, and it passed alone three times — it
+waits 30 s now, and a card that never comes fails all the same), and the app
+builds for macOS and the iPad simulator.
+
+### 51.20 A note opens with its front matter folded (2026-09-26)
+
+Seen on the `HN-iPad` simulator on 25 September: a note opened straight into
+Edit showed its front matter unfolded — `---`, `title:`, `tags:` in monospace
+between the inline title and the first heading (Linking and Intelligence in
+DefaultCollection) — where the same note switched to Edit from Preview kept it
+folded. Front matter is source the reader never sees, folded until a caret goes
+into it (`EditorDocument.frontMatterRange`).
+
+**Why.** `EditorHost.settleWithBuffer` keeps the caret across a replacement of
+the document's text: it read `document.selectedRange` before the replace and
+put it back afterwards through the proxy. And `selectedRange` reads `{0, 0}` for
+a document nobody has put a caret in. A new tab's document is built before
+`open` has loaded its note — the tab is on screen first, so it can say the note
+is downloading — so when the note arrived, the host put back a caret that had
+never been there: at 0, in the front matter it had just loaded, and the
+document, told a caret had arrived, opened it. Confirmed with a probe on
+`HN-iPad` (the host's build, the settle, `replaceText`, and every selection the
+view and the document were told of, through `EditorProbe`; removed since). By
+then the placeholder path no longer showed the symptom as reported:
+`DocumentLoad.caret` (§51.15, added an hour after the sighting) moves a caret at
+or past the old body's start along with the body, and an empty document's body
+starts at 0 — so the made-up caret landed at the body's start instead, on the
+blank line under the front matter, which opened: a line's gap (26pt at the
+default size) between the title and the first heading that the same note from
+Preview does not have. And every other replacement of a document nobody had
+clicked into still unfolded it, because there the old text had front matter and
+0 is inside it: a tag accepted, a property changed in the panel, the note
+reloaded after a change made elsewhere.
+
+- **A caret nobody placed is not a caret at 0** (`EditorDocument.caret`). It is
+  `nil` until a selection is reported (`selectionDidChange` — the view's, or a
+  command's that places one), and `nil` again once the text is replaced
+  wholesale, which takes the caret with the text it was in.
+- **The settle puts back only a caret the document had.**
+  `DocumentLoad.settleWithBuffer` returns the replacement and where its caret
+  goes, asked before the replace; the host resets undo and puts back the caret
+  it names, if it names one. A caret someone placed is kept as it was: in the
+  body it moves with the body (§51.15); in the front matter it stays, and the
+  front matter stays open around it. One host serves both platforms, so the Mac
+  has the fix too.
+- `EditorDocument.isFrontMatterFolded` says whether the front matter is drawn
+  folded — read from the font on the first line inside the fences, where the
+  package's own fold test looks — so a host, or a test, can ask what a note
+  opened looking like.
+
+`FrontMatterStaysFoldedTests` builds each document as the host builds one,
+settles it as the host settles it, and puts back the caret as the proxy does.
+Run first against the old behaviour (the new API in place, `caret` answering
+`selectedRange`): `aNoteOpenedStraightIntoEditOpensAsItDoesFromPreview` failed
+("a caret was put at {65, 0} in a note nobody had clicked into"), and
+`anAppWriteLeavesAnUntouchedNoteFolded` and `aReloadLeavesAnUntouchedNoteFolded`
+failed with the front matter unfolded — the reported symptom, reproduced without
+a simulator. The controls passed before and pass now:
+`anAppWriteKeepsACaretInTheBody` (the negative control — an app write keeps a
+caret that is in the body, moved with it), `aCaretInTheFrontMatterKeepsItOpen`
+and `aCaretPutInWhileTheNoteLoadedGoesToTheBody`. In the package,
+`UnplacedCaretTests` holds the document to it — no caret when built or
+replaced, one when told of a selection, at 0 as much as anywhere, and a caret at
+0 opens the front matter (the control for `isFrontMatterFolded`) — and asks each
+platform's text view whether it invents one: a note loading under it, and on the
+Mac the one view re-bound to the next tab's note, report no caret, while a click
+or a tap is reported (the control). Those failed first only because the old
+answer always had a caret; they are the check that neither UIKit nor AppKit's
+own `setSelectedRanges` fix-ups, which `MarkdownTextView` reports to its
+document, make one up.
+
+Live on `HN-iPad`, portrait, with the simulator's preferences naming
+DefaultCollection alone and no cloud cache: Syncing switched from Preview to
+Edit as the baseline; Linking and Intelligence opened straight into Edit —
+folded, each first heading exactly where Syncing's is (a line lower before the
+fix); a property added to Intelligence in the panel and removed again, without
+a tap in the note — folded throughout; and a tap at the top of the text, which
+put the caret in the front matter, opened it. Nothing had been saved to the
+note; the file was checked against a copy taken first.
+
+Not fixed here, and fixed since in §51.26: adding or removing a property
+re-rendered the whole block in the panel's style (`FrontMatter.splicing`), so
+keys nobody touched changed shape — `tags: [tour]` became a block list when
+`status` was added. §51.15 stopped the rewrite only when nothing changed; a
+change now rewrites its own key's lines and no others.
+
+The app suite passes (629 tests in 93 suites); the editor package passes on macOS
+(249 in 25, 178 in 14, 18 in 4) and on the iPad simulator (230 in 23, 178 in 14,
+18 in 4); the app builds for macOS and the iPad simulator.
+
+### 51.21 What changes in a cloud collection reaches the provider (2026-09-27)
+
+Found by reading the code on 25 September, and reproduced before anything was
+changed: a note made in a cloud collection — one opened through a provider's own
+API (Dropbox, Box, Google Drive, OneDrive) and mirrored into a cache
+(`RemoteMirror`) — was never uploaded. `RemoteMirror.upload` updated only a
+record its manifest already had, the manifest learns of files from the
+provider's listings alone, and the save gate asked `isHydrated`, which is false
+for a path the manifest has never seen: every save of a new note was refused,
+with the message meant for a placeholder — "hasn't been downloaded … yet, so it
+wasn't uploaded. Open it first."
+
+Reproducing it found the rest of the same shape. The provider had no call to
+move a file or to make a folder. A rename or a move changed the mirror alone:
+the provider kept the old name, the manifest kept its record under it — a note
+not yet downloaded came back under the old name at the next full sync, and one
+downloaded stayed recorded as a download no longer there — and every save under
+the new name was refused like a new note's. A copy of a note not yet downloaded
+was a copy of its empty placeholder. A folder made here existed here alone, and
+a note put in it could not follow on Box or Google Drive, which file a note only
+into a folder they already have. A deleted note left its record behind, still
+"downloaded", so trimming the cache wrote an empty file back at its name. Links
+a rename rewrites, the copy of mine an editor keeps beside a note (§51.16) and a
+picture pasted into a note were written to this device's copy alone. And quick
+capture into a note not yet downloaded appended to its placeholder: the note
+became the appended line, and the next download put the note back over it.
+
+- **Move and make a folder, on every provider** (`RemoteStore.move(from:to:)`,
+  `createFolder(path:)`). Dropbox: `files/move_v2` and `files/create_folder_v2`,
+  never `autorename`. Box: a `PUT` of the item's name and its parent's id, and
+  `POST /folders`. Google Drive: a metadata `PATCH` that trades parents
+  (`addParents`/`removeParents`), and a file of the folder type. OneDrive: a
+  `PATCH` of the name and the parent's id — an item reference's path is
+  read-only in Graph, so the destination folder's id is asked for first — and a
+  child `POST` with a `folder` facet that fails on a clash. A move keeps the
+  item's identity on the provider — its history, its sharing — which an upload
+  under the new name and a delete of the old would not. Box and Drive move their
+  cached ids with it.
+- **The gate asks whether the file is a placeholder** (`isPlaceholder`), not
+  whether the manifest says it was downloaded — which a note made here never
+  was. `isHydrated(localURL:)` now means "anything but a placeholder", which
+  also stops the app offering to download a note made here and counting it
+  among those a search cannot see. The mirror refuses a placeholder too, as the
+  last line of defence.
+- **A first upload** makes the folders above the file that the provider lacks,
+  checks the name — another device may have put a file there since the cache
+  last looked: the same bytes are this upload's own, whose answer was lost on
+  the way back, and are recorded; anything else is kept beside mine as a
+  conflicted copy, here and on the provider, and reported ("was also made on
+  …") — then records the file, so it is an ordinary note from then on. The
+  conflicted copy the mirror keeps of *theirs* in any conflict goes up too: on
+  this device alone, theirs was lost everywhere else once mine took the name.
+- **Changes take turns, in the order they were made** (`sendSave`, `sendMove`,
+  `sendDelete`, `sendFolder`, and `changesSent()` to wait for them). New Note,
+  its title typed — a rename — and its first words saved arrive as one note
+  under its name, never two; two saves of one note no longer race each other's
+  revision check. A save sends the bytes it wrote, so a rename whose turn comes
+  after the upload's cannot take them from under it. Syncs take their turns
+  among the changes (`syncMetadata`, `refresh`), because they read the record
+  the changes write.
+- **A walk applies what it found to the record as it stands when it ends**, and
+  **leaves alone what a change made here is waiting to take away** (`walk`). It
+  wrote back the record it began with, so a note downloaded while a walk was
+  under way — a large account's walk takes a while, and the collection is open
+  throughout — went back to "placeholder": its saves were refused from then on,
+  and its next open downloaded it again over whatever was typed. And a note
+  renamed here while a walk listed its folder came back as a placeholder under
+  the old name. A walk now removes only records the provider stopped having —
+  unchanged here since it began, and no change waiting on them — and only their
+  files, where the old prune took every unlisted `.md` the manifest had known of;
+  and a record of a download whose file has gone becomes a placeholder again
+  rather than hiding the note. The delta refresh reads the record after its
+  request, and deletes a local file only where the provider had one.
+- **Until a move has its turn**, the manifest — the provider's record — still
+  has the note under its old path, and a question about it at its new one (is it
+  a placeholder; download it; is it in the cache's placeholder list) is asked of
+  the old (`recordedPath`). Eviction leaves such a note alone.
+- **What was made here and never sent goes up at the next refresh**
+  (`sendUnsent`, after `Collection.refreshFromProvider`): a note made while the
+  provider could not be reached, an upload that failed. Only once a walk has
+  listed the whole folder (`RemoteManifest.lastCompleteSync` — optional, so a
+  manifest written before it still decodes): before that, a file here with no
+  record may be one the provider has and the walk has not reached.
+- **The collection reports every change it makes in the cache**: `createNote`
+  (uploaded as it is made, empty), `duplicateNote` (a placeholder downloaded
+  first, or no copy), a daily note (`note(atRelativePath:creatingWith:)`), a
+  pasted picture (`EditorModel.onFileMade`, wired by `EditorWiring`),
+  `createFolder`, `renameNote`, `moveItem`, `deleteNote` and `deleteFolder`;
+  `append` downloads a placeholder before appending, or appends nothing. The
+  notes a rename's link rewrite writes are taken as saves (`noteDidSave`) —
+  indexed with their new links, uploaded — and the open editors are told, as
+  CLAUDE.md asks of every write made outside an editor: a tab showing one would
+  have saved its old text back over the new link.
+- The eager `syncDown`, which nothing in the app calls, records what it
+  downloads, so an upload after it is an ordinary one.
+
+`CloudCollectionChangesTests` drives the collection as the app does, against a
+provider as strict about folders as Box and Google Drive, which issues a revision
+per write and can be unreachable or hold a listing part-way through a walk. Run
+against the old code, 21 of its then 24 cases failed — among them
+`aNoteMadeHereReachesTheProviderWhenItIsSaved` (refused, and the wrong message),
+`aNewNoteNamedAtOnceArrivesUnderItsName`, `aCopyOfANoteNotYetDownloadedCarriesItsText`,
+`aNoteMadeInAFolderMadeHereReachesTheProvider`, `aDeletedNoteLeavesNothingBehind`,
+`appendingToANoteNotYetDownloadedKeepsItsText`,
+`aNoteDownloadedWhileASyncWalksStaysDownloaded` and the rename cases; the two
+controls passed, and pass now — `aNoteDownloadedFromTheProviderStillUploads`, and
+`aPlaceholderIsStillNeverUploaded`, the "never upload a file we never downloaded"
+guard. One passed that should not have: after a *downloaded* note's rename a sync
+did not bring the old name back — because the manifest went on claiming the
+download, a hidden note of its own — so it now checks the record, and a note not
+yet downloaded as well. Three cases changed shape once syncs took turns: a walk
+paused mid-way now releases before the test waits for the changes, and the
+rename-while-walking case holds the root's listing, so the walk lists the old
+name after the rename was made here and before the provider has it. Disarmed one
+at a time, each mechanism fails its own case: without the walk leaving waiting
+changes alone the old name comes back as a placeholder; without the merge a note
+downloaded mid-walk becomes a placeholder again; without the rewrite taken as a
+save the provider keeps the old link. `ProviderMoveAndFolderTests` pins the new
+requests for all four providers, as this codebase pins every provider call it
+cannot run against a live account; the store fakes in the other suites gained the
+two calls.
+
+What a failure leaves: a move the provider refuses (a name taken there, the
+provider out of reach) is reported and leaves the note moved here; its old name
+stays on the provider, and the new one goes up with the next save or refresh, so
+the provider holds both until one is deleted — nothing is lost. A folder whose
+making fails is made on the way when a note is saved into it.
+
+**Review round.** A file-I/O review found no read or write of note content
+outside `FileIO`, and three ways to lose it around placeholders; a concurrency
+review found five kinds of main-actor work and four more defects. Each defect was
+reproduced by a test that failed first, then fixed:
+
+- **A download landing during a rename emptied the note.** An open begun under
+  the old name, whose bytes arrived while the rename's turn was out asking the
+  provider, wrote them under the name the note had left and recorded the
+  download; the record, moved with the rename, then called the empty placeholder
+  at the new name the note — it opened empty, and its first save put that over
+  the provider's copy. A download is now written only where the note is now, over
+  its stand-in, with no move or delete made here taking it elsewhere
+  (`aDownloadLandingDuringARenameNeverEmptiesTheNote`).
+- **What the provider never received is marked, and nothing replaces it**
+  (`RemoteManifest.Entry.unsent`, optional so an older record decodes). A save
+  marks its record at once; an upload that lands clears it. Trimming the cache
+  emptied mine kept after a conflict, and an edit whose upload failed — gone
+  everywhere (`trimmingTheCacheNeverEmptiesWhatWasNotSent`). A walk that saw the
+  provider's copy change made such a note a placeholder again — the edit refused
+  from then on, then downloaded over (`anEditWhoseUploadFailedSurvivesTheNextSync`,
+  and `aNoteSavedWhileASyncWalksAndChangedElsewhereKeepsBoth` for a save made
+  mid-walk); the upload's own check keeps both. A record the provider stopped
+  having keeps its file when unsent, and the file goes up again as made here. The
+  catch-up resends every unsent record, not only files without one.
+- **A file here with content and no record is left for its upload.** A note made
+  offline under a name another device used meanwhile was recorded by the next
+  refresh as the provider's placeholder — refused, skipped by the catch-up, and
+  downloaded over, keeping no copy of mine. Its upload now meets theirs and keeps
+  both (`aNoteMadeOfflineUnderANameMadeElsewhereKeepsBoth`).
+- **A move is reported before the file moves** (`willMove`, then `sendMove` or
+  `cancel`): a walk that listed the old name in the moment between put an empty
+  placeholder back there, which the catch-up would have uploaded as a new note.
+- **A rename the provider refuses keeps the note.** The file has moved here, and
+  the record follows it still naming where the provider has it — so it stays the
+  note, a placeholder opening from there, where it had become a new, empty note
+  under the new name; a later save or refresh asks for the move again
+  (`reconcileName`); and a walk or a delta never takes the other item at that
+  name for this one, or its deletion for this one's
+  (`aRenameTheProviderRefusesKeepsTheNote`).
+- **One mirror per cache** (`RemoteMirror.open`): adding a cloud folder already
+  open made a second, and the two wrote over each other's manifest
+  (`aCacheHasOneMirror`; `Library` is not driven by a test because it saves the
+  collection list into the test host's — the person's — preferences).
+- **A collection from before sends what was made offline**: its manifest has a
+  delta cursor, taken only at the end of a complete walk, and no record of that
+  walk, so the catch-up never ran for it (`aCollectionFromBeforeSendsWhatWasMadeOffline`).
+
+The main actor:
+
+- **The manifest is written elsewhere** (`ManifestWriter`, one per cache, newest
+  record first; a load waits for writes on their way). It was encoded and written
+  whole at every change — 22 ms at 10,000 entries — and this change had made
+  every upload, move, folder and delete one
+  (`recordingAChangeDoesNotWriteTheManifestOnTheMainActor`: under 3 ms, and on disk).
+- **Listings parse their dates with `Date.ISO8601FormatStyle`** (`RemoteDate`):
+  `ISO8601DateFormatter` was 126 ms of a 2,000-entry Dropbox page, and the
+  plain formatter returned nil for a date with fractional seconds
+  (`providerDatesAreReadInEveryShape`; 3 ms for the same 2,000 dates, measured).
+- **The waiting changes are worked out once per change** (`waitingSources`), not
+  followed back for every file a walk lists — 152 ms a 2,000-file batch with 50
+  moves waiting.
+- **A walk deletes the files of dropped records away from the main actor**, and
+  never one changed since the walk began.
+- **A rename's rewritten notes are saved as a batch** (`notesDidSave`), the notes
+  looked up once rather than searched for per note.
+- Daily notes (`note(atRelativePath:creatingWith:)`) are created off the main
+  actor, as `createNote` is: the collection may be an iCloud folder.
+
+Disarmed one at a time, each of these fails its own test; the walk's rule for an
+unsent record first passed disarmed — the record changed after the walk began,
+and a record changed since then already wins — which is what
+`anEditWhoseUploadFailedSurvivesTheNextSync` was written to cover.
+
+Not fixed here, and recorded in unimplemented.md: listings from Box, Google Drive
+and OneDrive carry no revision, so the conflict check on a note the provider has
+works on Dropbox alone (a clash with a note *made* elsewhere is found by name on
+all four); the new calls have not been run against live accounts; a rename does
+not rewrite links in notes not yet downloaded, whose links the index cannot know;
+a save's index patch cancels a full rebuild in flight without restarting it,
+found while testing the link rewrite (fixed in §51.22); the listings themselves are still parsed on
+the main actor, and a pasted picture is still written there.
+
+The app suite passes (673 tests in 95 suites), and the app builds for macOS and
+the iPad simulator.
+
+### 51.22 A save and a rebuild of the indexes no longer undo each other (2026-09-28)
+
+Two defects §51.17 found and left (unimplemented.md §1), each reproduced first
+by a test:
+
+- **A rebuild from the index cache reverted every save before it.**
+  `refreshDerived` takes each note's record from `CollectionIndexCache` while
+  the record matches the note's size and date *as `notes` holds them* — and a
+  save leaves those alone, because restating the note re-sorts the list and
+  bumps `revision`, the sidebar's rebuild (only an alias change restated it).
+  So until the next walk, any rebuild put a saved note's pre-save links, tags
+  and aliases back: a note saved with `[[New]]` linked to `Old` again when
+  another note's changed alias rebuilt the indexes 800 ms later.
+- **A save's patch cancelled the rebuild in flight, and nothing ran it again.**
+  The cancel was the guard against the first defect, for a rebuild that had
+  read the note before the save — and it threw away whatever that rebuild was
+  for: an alias change's (a link by the new alias never became a backlink), a
+  delete's (`forget` rebuilds to drop the note, which went on answering to its
+  alias), a walk's (what it found never reached the indexes).
+
+**What a save patches is kept until a rebuild has read the note from disk
+since** (`Collection.KeptSave`: the headings, tags, aliases and links — not the
+retrieval text). A rebuild reads the notes a save has patched, and the ones
+whose save is still being parsed, from disk rather than from the cache: their
+files are written already, since a save is written before it is indexed, and
+numbered (`saveSerial`) before the rebuild takes its snapshot. When it lands,
+on the main actor, what it read that way lets the kept record go — it is the
+save, or something newer made elsewhere, which must win — and every kept
+record it did not read is applied over what it did (`withKeptSaves`), so a
+save during the rebuild is part of it. A save that lands while `search.load`
+is being computed was patched into the index `load` then replaces, so it is
+patched in again after it (`patchesLanded`); the link graph, loaded before the
+wait, has it. Nothing cancels a rebuild now but a newer one (`deriveTask`); the
+alias change's delayed rebuild has its own handle (`aliasRebuild`), which a
+rebuild begun later makes unnecessary. `restat` is gone — the alias rebuild
+reads the note from disk like any other — so a changed alias no longer jumps
+the note to the top of the list, and `SavedNoteIndex.byteCount`, which only it
+read, went with it. The rebuild's reads are in `offMain` now — which runs at
+its caller's priority, so the rebuild's task asks for the `.userInitiated` the
+`Task.detached` it replaces ran at.
+
+The direction was to keep the record *until a walk that began after the save
+had re-read the note*. A walk changes the size and date `notes` holds, and the
+rebuild after it misses the cache and reads the note — but a rebuild whose
+snapshot came before the walk and lands after it would lose the save if the
+record went when the walk landed, so the letting-go had to be tied to a
+rebuild anyway. Tied to the rebuild's own read, it needs no account of walks
+(which overlap, resume from a checkpoint, or merge a subtree), and an edit made
+elsewhere after the save wins at the next rebuild rather than after the next
+walk. It costs one read per note saved since a rebuild last landed. And the
+cache stays coherent: it is keyed on the size and date `notes` holds, so after
+that read it holds the saved record under exactly the key every later rebuild
+looks it up by — until a walk changes the key and the note is read again.
+
+Found on the way, and fixed with it:
+
+- **A note made while a rebuild ran was dropped by it.** `adopt(createdAt:)`
+  patches the indexes as a save does, and a rebuild begun before the note
+  existed landed without it: `[[Fresh]]` did not resolve and it was not offered
+  as a link until something rebuilt again. It is kept like a save, and put
+  first among the rebuild's records, where the newest note stands in `notes` —
+  a link resolves to the first note of its name.
+- **The search index's deferred fold undid a rebuild.** A patch folds the
+  aggregates — tags, tag tree, link targets, Open Quickly — 250 ms later, from
+  the entries it saw; a rebuild landing in between replaced the entries, and
+  the fold then put the older picture's tags back over them. Replacing the
+  entries cancels a waiting fold (`CollectionSearchModel.apply`); a patch made
+  while the rebuild computed is the caller's to make again, which
+  `refreshDerived` does.
+- **A rebuild replaced by a newer one no longer loads search after it** (the
+  two computations finish in either order): `load` and `refreshDerived` check
+  for cancellation after the wait, as §51.17's review asked.
+- **A save made while the relatedness index was being built never reached
+  it.** Until the build lands there is no index, so a save prepared no
+  retrieval text and changed nothing, and a note the build had already read
+  stayed as it was read until the index was dropped — a delete likewise. Saves
+  and deletes made during the build are kept (`relatednessPending`) and applied
+  before the index is published, and the build publishes it itself: published
+  by the caller, which resumes later, a save landing in between would have been
+  kept for an index that had stopped taking them. A build dropped while it ran
+  (`invalidateRelatedness`, the Rescan command) neither takes the next build's
+  changes nor becomes the index (`relatednessGeneration`); before, it was
+  published anyway.
+- `moveItem` no longer waits for the saves before it: it waited because a
+  save's patch cancelled the move's rebuild. `renameNote` still does — its
+  link rewrite reads the graph.
+
+`SaveIndexingTests`, each with a control, and each failing before its fix in
+the iteration that is not the control:
+`aRebuildAfterASaveKeepsWhatWasSaved` (the first probe: `A` linked to `Old`
+again; the control walks first, which reads the new size and date, and kept
+the save before the fix too), `aSaveDoesNotCancelTheRebuildAnAliasChangeAskedFor`
+(the second: no backlink, where the control has one),
+`aSaveDoesNotCancelTheRebuildADeleteAskedFor` (the deleted note still resolved
+by its alias and was in search), `aSaveDoesNotCancelTheRebuildAfterAWalk` (a
+link the walk found never reached the graph),
+`aNoteMadeWhileARebuildRunsStaysInTheIndexes` (failing with the saves kept and
+the create not), `aRebuildIsNotUndoneByTheFoldASaveLeftWaiting` (with the
+fold's cancel taken out, the tags were the older picture's; since the review
+below the fold also takes its snapshot late, either guard alone holds it, and
+the test fails only with both out), and
+`aSaveMadeWhileRelatednessIsBuiltReachesIt`. The slow rebuilds are made the
+way §51.17's are — two hundred notes changed on disk, so a rebuild re-reads
+them all — and the tests that need one in flight say so when it was not.
+
+**The suite is serialized now** (`@Suite(.serialized)`, as `GitServiceTests`
+is, for the same reason: contention, not a deadlock). What it tests is the
+order in which work lands, and the new tests make rebuilds slow on purpose —
+side by side, one test's rebuild was another's main-actor contention, and under
+the full suite `aNoteThatLeavesWhileItsSaveIsParsedIsNotPutBack`'s check that
+its save was still being parsed when the rebuild landed failed twice while
+passing alone: the scan and rebuild it waits for are main-actor work, the
+parse is not. Serialized, the suite takes about 19 s alone.
+
+Budgets, run alone: a 2 MB save in a collection is 4.6 ms of main-thread CPU,
+as before (§51.17). A forced rebuild of 2,000 notes read 51 ms here, and
+51–53 ms with the old `refreshDerived` put back and measured the same way,
+back to back — that probe is noisy (its idle control read 6–38 ms in the same
+runs) and earlier sessions logged 10–63 ms.
+
+**The concurrency review found three things in the change**, all fixed:
+
+- **A rebuild replaced by a newer one still wrote the index cache, and could
+  write it last.** A rebuild cannot be stopped once it is reading, and its
+  write came after it had finished. If the older one had taken a saved note's
+  pre-save record from the cache while the newer one read the save from disk
+  and let the kept record go, the older write, landing last, made the pre-save
+  record the cache's answer for the note until a walk changed its date. Each
+  rebuild is numbered as it begins (`CollectionIndexCache.rebuildNumber()`, one
+  count for the process, so a collection opened again goes on counting), and a
+  cache is never written by a rebuild older than the last one that wrote it —
+  checked and written under one lock. A rebuild that knows it has been replaced
+  does not write at all. `anOlderRebuildNeverWritesTheCacheOverANewerOne`
+  fails with the check taken out (the older records stood); an unnumbered write,
+  which a test uses to seed a cache, always lands.
+- **The saves re-applied after search was loaded were a pass over the
+  collection each** — and the search index's own patch was too, on every save:
+  `updateNote` found the note's entry with a linear search, and every patch in
+  a burst copied the whole entry array, because the fold the patch before had
+  scheduled held a snapshot of it through its 250 ms wait. A rename's rewrite
+  saves one note per backlink, so a burst is ordinary. Measured by a new budget
+  test, `patchingSearchInABurstBarelyTouchesTheMainActor` — every note of a
+  2,000-note index patched, as for a note every other note links to: **415 ms**
+  of main-thread CPU before, **9–13 ms** after, and 187 ms and 269 ms with
+  either of the two changes alone, both over the 100 ms budget. The fold takes
+  its snapshot when it runs, and the index keeps each note's position
+  (`positionByURL`, computed off the main actor with the rest of a rebuild), so
+  a patch is O(1). The saves re-applied after a load go through
+  `updateNotes`, folded once, with the collection's notes looked up in one
+  map.
+- A note the rebuild did not see was given its relative path — a symlink
+  resolution of the collection's root, on the main actor — for a record
+  nothing reads, since the cache was written before it. It is left empty.
+
+And from the pre-existing findings, the ones in code this change touched: the
+relatedness build reads the vault in `offMain` rather than a `Task.detached`
+(which worked only because `RelatednessDocument`'s memberwise initialiser
+happened to be nonisolated; it is declared `nonisolated` now), it stops reading
+when the index is dropped — a detached read went on through the whole vault,
+seconds of coordinated I/O on iCloud — and a caller that was waiting for a
+dropped build asks again instead of getting that build's index. `moveItem`
+drops a save still being parsed for the moved note, as `forget` and a rename
+do. `BoxStore`'s path caches use scoped locking (`withLock`) — an `NSLock`'s
+`lock()` and `unlock()` in an async function is an error in Swift 6, and
+§51.21 had added four more of them.
+
+**A second review, of those fixes, found three holes in the numbering**, all
+fixed:
+
+- **The main actor waited for cache writes.** A rebuild takes its number on
+  the main actor, and the number came from the counter behind the same lock
+  the write held across the file replacement — so beginning a rebuild while
+  another wrote its cache (any collection's) blocked the main thread for the
+  write. The counter is an `Atomic` of its own now; the lock is taken only off
+  the main actor.
+- **Rescan was not a barrier.** It deleted the cache on the main actor without
+  touching the numbering, so a rebuild still reading — numbered above anything
+  written — wrote the deleted cache back when it finished; if the forced
+  rebuild was then replaced before its own write, its replacement trusted the
+  old records again. Removing the cache now takes a number under the lock and
+  bars every rebuild numbered before it, and a rebuild reads the cache under the
+  same lock (`loadForRebuild`), so one numbered after the removal cannot have
+  read what it removed. Rescan cancels the rebuild in flight, and the removal
+  moved off the main actor, into `rebuildFromScratch`.
+  `aRebuildBegunBeforeARescanCannotWriteTheCacheBack` fails without the bar.
+- **A failed write was counted as written.** The number was recorded before
+  the write, so a failed one barred every older rebuild — and the rebuild whose
+  write failed still let its saves go, though the cache held the notes' old
+  records. The number is recorded after a write succeeds, `save` says whether it
+  wrote, and a rebuild lets a save go only when its write did
+  (`RebuildRecords.cached`); until then the next rebuild reads the note again.
+  `aFailedCacheWriteIsNotCountedAsWritten` makes a write fail by putting a
+  directory where the file goes — and its negative control first passed with
+  the guard taken out, because **`cacheURL(for:)` answered differently with the
+  directory there**: `appendingPathComponent(_:)` without `isDirectory:` stats
+  the path to decide, so the URL gained a trailing slash, and the two writes
+  were counted under two keys. It passes `isDirectory: false` now — which also
+  takes a system call off every caller, `activate` on the main actor among them
+  — and the test fails with the guard out, as it should.
+
+GoogleDrive's path caches were moved to scoped locking too — §51.21 had added
+three bare `lock()`/`unlock()` pairs there, as in `BoxStore`.
+
+The app suite passes (685 tests in 95 suites, about 24 s — the serialized
+`SaveIndexingTests`, 20 of them, are most of it), the main-actor budgets pass
+run alone (a 2 MB save in a collection 4.0–4.6 ms, the 2,000-patch burst
+9–13 ms), and the app builds for macOS. One budget run failed
+`typingInSplitModeBarelyTouchesTheMainActor` at 614 ms of settling — Split mode
+and Preview, no collection involved — and passed at 20 ms and 5 ms run again. Left for a separate pass: isolation warnings in code this
+change did not touch — `LinkProposals`, `MainActorWatchdog`, and `BoxStore`'s
+token refresh — and the providers running on the main actor, which the second
+review measured the reach of (unimplemented.md §3).
+
+### 51.23 Preview keeps its place across pages (2026-09-28)
+
+Seen on the HN-iPad simulator on 26 September (unimplemented.md §4): in Split
+mode, with the preview scrolled down to Rich Content's diagram and table,
+typing one character in the source brought the preview back to the note's
+first line once typing paused. Every page `NotePreview` builds is handed to
+`GFMWebView.load`, which replaces the document (`loadHTMLString`) — and a new
+document starts at the top. §51.18 made it once per pause rather than once per
+keystroke; in Preview it happened at every change made under the note (an app
+write, a reload).
+
+- **The page says where it is scrolled to.** `PreviewScrollRelay` is a
+  `WKScriptMessageHandler` beside `DiagramZoomRelay` — installed once per web
+  view, holding the coordinator weakly — and the page's script posts
+  `window.scrollY` from a scroll listener, at most once a frame, with the
+  page's number. The coordinator keeps it (`PreviewScrollMemory`).
+- **Each page is told where it opens before it is parsed**, not scrolled there
+  after it has loaded: a document-start user script carries the page's number
+  and offset, written into the web view's content controller just before
+  `loadHTMLString` (WebKit removes user scripts only all at once, so all of them
+  are put back each time). The page scrolls itself there as soon as it has been
+  parsed — before it is drawn, where a navigation delegate's `didFinish` comes
+  after the page has been drawn at the top — and again at `load`, for a picture
+  with no size of its own, which grows the page, unless the reader has scrolled
+  it since. The superset's diagrams, formulas and cards carry their sizes, so
+  for those the first scroll is already exact.
+- **The page's own scroll is not reported.** The plain page `NotePreview` shows
+  first for a note, before its diagrams are drawn, is shorter; scrolled to an
+  offset it cannot reach, it would have reported how far it got as where the
+  reader was, and the whole page that follows would have opened there.
+- **A report counts only for the page on screen.** A message still on its way
+  from the page before — the last frame of a scroll, a switch of tab — would
+  otherwise be taken for the new page's. And a page handed over again (every
+  redraw of the pane hands over the page it has) takes no new number, or the
+  page on screen would stop counting.
+- **A note this preview has not shown opens at the top; one it has, where it
+  was left** — a tab switched away from and back to, in the same pane. An offset
+  belongs to the note it was measured in, and carried to another it points at
+  nothing in particular. Notes are told apart by the editor the preview answers
+  heading jumps for (`commandBus(editorID:)`), which it already had, so the app
+  changes nothing. A change of mode builds a new preview, which opens at the top,
+  as before. The memory keeps the 64 notes used most recently.
+
+`GFMPreviewScrollTests` (11, in `MarkdownEditorTests`). A `WKWebView` never
+finishes loading under `swift test` or XCTest, so what they test is what can
+be: which page opens where, what each load is told, what a report means — and
+the page's own script, run in JavaScriptCore against a model of the browser's
+frame (a scroll event is dispatched when a frame is drawn, then the frame
+callbacks asked for so far). Each guard was taken out once and its test failed:
+without the suppression of the page's own scroll, three; without the page
+check on a report, `aReportFromAPageSinceReplacedIsNotTaken`; with a load that
+is skipped taking a number anyway, `eachPageIsToldWhereItOpens`; without the
+reader-moved check at `load`, `aPageIsScrolledAgainWhenLoadedUnlessTheReaderMovedIt`.
+
+Seen working on the HN-iPad simulator (DefaultCollection only), with the
+preview probe on (`HN_PREVIEW_LOG`): Rich Content in Split, the preview
+scrolled down to the diagram and the table, one character typed — after the
+pause the probe logged the new page, one byte longer, `opening at 696.0`, and
+0.4 s later its first glyph at −683.5 (the 12.5pt inset, 696 scrolled). Scrolled
+on to the Code section and typed again: `opening at 1016.0`, and the screenshot
+after the pause is the one before it, pixel for pixel. The keyboard, coming up
+the first time, moved the page itself — the pane shrank from 681 to 361pt —
+before any new page; a page opens where the one before it was when it was
+replaced, which is what the reader was looking at.
+
+The editor package's tests pass on macOS (260/26, 178/14, 18/4: 456 in 44) and
+on the iPad simulator (241/24, 178/14, 18/4: 437 in 42), the app suite passes
+(685 tests in 95 suites), and the app builds for macOS and the iPad simulator.
+The page builder did not change — the scripts are the web view's, not the
+page's — so `render-parity.sh` was not run.
+
+### 51.24 Every open window hears about a change on disk (2026-09-28)
+
+Found by the vault-I/O review on 25 September (unimplemented.md §1). When an
+open collection changes on disk — another app, a sync, a `git pull` — its
+watcher tells the library, and the library called `onExternalChange`: a single
+closure on the app-wide `Library`, which each main window's `.task` set to
+reconcile that window's tabs and revalidate its selection. So the main window
+opened last was the only one told. Every other main window's tabs were never
+reconciled — a change made elsewhere was neither loaded into a clean tab nor
+raised as a conflict in a dirty one, until a save of theirs found the file
+changed and refused to write over it (§51.16). And a note window's editor, in
+no window's tabs, was never told at all: wired as a tab is since §51.19, its
+save raised the right conflict — but only then, not when the change arrived.
+
+- **One observer per window.** `Library.observeExternalChanges(of:_:)` keys a
+  handler by the object the window keeps its editors in — a main window's
+  `EditorTabs`, a note window's `EditorModel` — and `collectionChangedOnDisk()`,
+  which every collection's watcher calls now, tells them all. A main window's
+  handler reconciles its tabs and revalidates *its own* selection, as the
+  closure did; a note window's reconciles its editor.
+- **From when the window appears to when it goes.** Each subscribes in
+  `onAppear` and stops in `onDisappear`, beside its `TerminationGuard` hook — a
+  note window on every appearance rather than once with its load, so one that
+  comes back is told again.
+- **Held weakly.** The owner is handed to the handler rather than captured by
+  it, and the library holds it weakly: a window that goes without saying so is
+  not kept alive by being told about changes, and is let go at the next one.
+  (Its `TerminationGuard` hook still holds it until `onDisappear` removes both.)
+- How each window subscribes is the view's own static function
+  (`ContentView.observeExternalChanges`, `NoteWindowView.observeExternalChanges`),
+  which the tests call — the pattern `NoteWindowView.load` set for loading.
+
+`ExternalChangeTests`: a real change on disk, reported by the collection's own
+watcher to the library as `Library.open` has it. The library opens nothing
+itself — `persist()` would write the test's folder into the app's collection
+list, and in the hosted test bundle `UserDefaults.standard` is the app's own.
+Written first, against the single closure (the seams extracted without a change
+in behaviour): `aChangeOnDiskReachesEveryWindowsEditor` — two main windows and
+a note window; the first window's tab not reloaded nor its selection
+revalidated, and the note window not reloaded — and
+`aChangeOnDiskRaisesEveryWindowsConflictWhenItArrives`, the same with unsaved
+typing: no conflict in the first window or the note window, and nothing written
+over the change. The main window opened last reloaded and raised its conflict
+in both, before as after: the control. With the registry:
+`aWindowThatHasClosedIsNotTold`, which fails with `stopObservingExternalChanges`
+made a no-op, and `theLibraryKeepsNoWindowAlive`, which fails with the owner
+held strongly.
+
+**The concurrency review found the weak hold held nothing for a main window**,
+and three more things, all fixed:
+
+- The main window's handler took `revalidate: { actions.revalidateSelection() }`
+  — and `actions` is a value built from the whole view, whose state holds the
+  tabs, so the handler held the tabs the library held weakly, and the test
+  passed only because it handed in `{}`. The handler now takes the selection as
+  a binding (`$selectedNoteID`, one value of the window's state), the library
+  weakly, and the tabs from the library; `theLibraryKeepsNoWindowAlive` builds
+  the binding as the shell does and fails with the handler holding the tabs.
+- Revalidating a selection searched every note for it, once per open window
+  per change (`library.allNotes.contains`); it looks it up now
+  (`ShellActions.revalidate`, `Library.note(id:)`).
+- A note window registered its `TerminationGuard` hook once, with its load,
+  and removed it at every disappearance, so a window that came back was no
+  longer saved at quit; it registers in `onAppear` beside its observer. And a
+  window that comes back catches up — a change made while it was gone is looked
+  at as it starts listening (`aWindowThatComesBackCatchesUp`, which fails
+  without it); the look captures its window weakly, as the handler does.
+- **A buffer let go whose own save found a change was lost.** Older than this
+  change, and on the paths it drives: `EditorModel.flush(lettingGo:)` asked
+  whether a conflict was open only before saving, and a save that finds a
+  change it has not seen raises one itself and writes nothing — so the flush
+  said the buffer was saved, and a tab or window closing, or the app quitting,
+  dropped it: what was typed was gone, and no conflicted copy kept. It asks
+  again after the save now (`ConflictSaveTests.aBufferLetGoWhoseSaveFindsAChangeKeepsMineBesideTheNote`,
+  failing before; its control, the same flush not letting go, writes nothing
+  anywhere).
+- A note window loads its note before refreshing the repository's status, and
+  does not wait for it: a `git status` walks the whole working tree, and until
+  it had the window said "This note could not be opened".
+
+Recorded, not fixed (unimplemented.md): a window closing removes its
+`TerminationGuard` hook before the last save it stands in for has landed, and a
+reconcile that loads a note whose load had failed leaves it marked failed.
+
+The app suite passes (695 tests in 97 suites, with §51.25's), `ShellContractTests`
+pass, and the app builds for macOS and the iPad simulator.
+
+### 51.25 The Markdown pane saves when editing stops (2026-09-28)
+
+Found by the concurrency review of §51.18 (unimplemented.md §1). Edit mode
+writes a note when editing stops: the live editor's end of editing
+(`onEndEditing`) lands the document in the buffer and saves it
+(`EditorHost.landSync`), and nothing else writes — a text change schedules no
+save (`EditorModel.scheduleSave` is empty on purpose: a save during typing is
+out of date by the next character, and on a File Provider volume it can hold
+the main thread as long as the provider takes). The Markdown pane — Markdown
+mode, and Split mode's source — had no end of editing at all: `SourceEditor`'s
+text view, an `NSTextView` on the Mac and a `UITextView` on iOS, handed each
+keystroke to the buffer (`EditorModel.typed`) and never said when editing
+stopped. So what was typed there was written only at the next flush — a switch
+of note, mode or app, a tab closing, quitting — and lost to a crash before one.
+Clicking into the sidebar or another pane wrote nothing.
+
+- **The pane's end of editing is Edit mode's.** `SourceEditor` takes an
+  `onEndEditing` — `textDidEndEditing` on the Mac, `textViewDidEndEditing` on
+  iOS, both sent when the text view gives up first responder — re-seated on
+  every update with the text binding, because the view outlives a switch of tab.
+  The pane passes `Task { await editor.save() }`: the save `landSync` ends with,
+  through the same model, not a second way to write. Typing still writes
+  nothing.
+
+`SourceEndEditingTests` hosts `NoteEditorView` in a window as
+`MainActorBudgetTests` does — the mode in a defaults suite of its own, since
+the app's preferences are the person's — and types through the real text view.
+`endingEditingInTheMarkdownPaneWritesTheNote`, in Markdown and in Split, failed
+in both before: what was typed reached the buffer, typing wrote nothing, and
+leaving the pane wrote nothing either. Its controls passed before as after:
+Edit mode's end of editing writes, and so does an explicit flush. The test
+bundle builds for iOS too, so the same tests run on the iPad simulator, where
+the save is `textViewDidEndEditing`'s. On the way:
+
+- Split there failed in the test itself, twice. It picks side by side or
+  stacked in a `GeometryReader`, and first the test typed into a text view from
+  an arrangement already replaced — it waits for the settled one, in a window,
+  and for it to take first responder. Then, in a window taller than wide, the
+  keyboard coming up made the pane wider than tall, Split went side by side,
+  and the text view that had the keyboard was made again without it: a defect
+  of Split's own on iPad, recorded in unimplemented.md §7. The test's window was
+  wider than tall, where Split is side by side with the keyboard or without it,
+  until §51.29 fixed Split and put it back to taller than wide.
+- The Edit-mode control crashed the test host twice — the app, which a hosted
+  test runs in — before it was given the `EditorDocumentStore` the live
+  editor's host reads from its environment; SwiftUI stops the process for a
+  missing environment object. Only the test's own notes were open.
+
+The app suite passes (695 tests in 97 suites), the three tests pass on the iPad
+simulator, the iOS interface tests pass (13, one skipped), and the app builds
+for macOS and the iPad simulator.
+
+### 51.26 A property change rewrites its own key and no other (2026-09-29)
+
+Seen on the HN-iPad simulator on 26 September and left open by §51.20: adding
+`status` to Intelligence.md in the Properties panel, whose front matter is
+`title: Intelligence` and `tags: [tour]`, wrote `tags` back as a block list —
+and removing `status` again did not put it back. `EditorModel.setProperties`
+goes through `FrontMatter.applyingChanges`, which since §51.15 returns nil when
+nothing changed; anything else went to `splicing`, which replaced the whole
+block with `render(properties)`, the panel's own style. So every key changed
+shape whenever any key changed. Written as tests before anything was changed,
+the whole-block rewrite:
+
+- turned every flow list into a block list — every note `DefaultCollection`
+  ships writes `tags:` as one;
+- dropped hand-chosen quoting (`'single'` became bare), blank lines, key
+  indentation and comments. A comment with a colon in it was worse than
+  dropped: it was read as a key named `# …` and offered in the panel as one;
+- destroyed a value written over several lines whenever *another* key changed:
+  `summary: >` and its lines became `summary: ">"`, and a line of that text
+  with a colon in it became a key of its own;
+- did not see a block saved with CRLF endings at all. `isFence` trimmed spaces
+  and not the CR, so `---\r` was no fence: the panel showed no properties for
+  a note whose front matter the editor folds (`BlockParser.isDashFence` allows
+  the CR), and a property added there went into a second block above it.
+
+What changed, in `FrontMatter`:
+
+- **A key at a time.** `splicing` walks the block's keys with the lines each
+  was read from. A key whose property is unchanged keeps its lines byte for
+  byte; a changed one is written in their place at its indentation, a list in
+  the style it was written in (a flow list stays one unless an item holds a
+  comma, which the flow form cannot read back; a block list keeps its items'
+  indentation); a removed one takes its lines with it; an added one goes after
+  the last key, in the panel's style. Comments, blank lines, the fences and the
+  order of the keys are the file's. Keys are matched by `Property.id`, in
+  order, so a hand-written repeat is still two rows. `applying` goes the same
+  way, so the suggestions do too: an accepted tag makes `tags: [tour, demo,
+  focus]`, and a summary replaces the summary's line and nothing else.
+- **A key's lines are all of its value.** A `|` or `>` block's text, a value
+  wrapped onto a deeper line, a flow list broken across lines, and a block list
+  past a blank line or a comment between its items are read as one value — one
+  line, as the panel shows a value and the app writes one — and a change or a
+  removal takes all of them. Counted as the key's line alone, the rest would
+  stay behind as lines of nothing, which YAML reads into the key above them. A
+  deeper `key: value` is still a key of its own, read flat as the panel always
+  has, and a change to it is written at its own depth.
+- **A comment is not a key, a CR is not part of a value, and `---\r` is a
+  fence**, as it is to `BlockParser`. A line written in place of another takes
+  its CR; an added line takes the opening fence's.
+
+The rules the suggestions keep are unchanged: a value starting with `[` is
+quoted (`summary: "[[Linked]] from here"`), a scalar is one line, and a
+flow-list item holding `[`, `]`, `{` or `}` is quoted too.
+
+`FrontMatterSpliceTests` (19) writes into a hand-made block — a comment, a
+quoted value, a flow list, a block list, a blank line, single quotes, a key
+order of its own — and asks that adding, removing, changing or renaming one key
+leave every other line byte for byte, and that the changed key read back
+through `properties(in:)`. Twelve of its first fourteen failed before the
+change; the two that passed are the control (the panel's rendering of the same
+properties is not the block as written, so "left as it was" asks something of
+the splice) and removing every key, which removes the block, as before. Four
+more, about values over several lines and a key under another, were written
+against the new splice and three failed it — removing `description` left
+`  wrapped onto the next line.` behind — before a key's lines were made all of
+its value; the fourth, the nested key, passed because a changed line already
+kept its indentation. The last test runs every note `DefaultCollection` ships
+(eleven have front matter): a property added and removed gives the note back
+byte for byte, and each key changed in turn reads back as that change alone,
+moves no line of the body and rewrites no other line. Negative controls,
+temporary edits reverted after: with unchanged keys written again anyway and no
+key given the lines its value goes on over, ten tests failed — eight on lines
+that should have been left as they were, and both multi-line tests on the
+value; with the old whole-block rewrite put back, the shipped-notes test failed
+37 of its expectations.
+`WhoseTextWinsTests.aWriteAboveTheCaretKeepsItsPlaceInTheBody` had measured the
+old rewrite — the body moved seven characters for a priority of 250, five of
+them the tags written as a block list — and asks for the two it moves now.
+
+Checked on the HN-iPad simulator with the app's preferences naming
+`DefaultCollection` alone and no cloud cache — read from the app container's
+own preferences file: `simctl spawn … defaults` reads another domain, and
+there showed no collections at all. `status` added to Intelligence.md in the
+panel was written as one line, `status: ""`, under `tags: [tour]`; removed
+again, the file was byte for byte the copy taken first (the same SHA-1), and
+the copy was put back with its date. On the way: nothing was on disk until the
+app went to the background, because a property change is written only at the
+next flush — recorded in unimplemented.md §1.
+
+The app suite passes (714 tests in 98 suites), and the app builds for macOS and
+the iPad simulator.
+
+### 51.27 A table's picture shows its cells as the page does (2026-09-29)
+
+Seen on the HN-iPad simulator on 26 September, in DefaultCollection's
+Intelligence.md: the table of actions — `| Ask Library (**⇧⌘J**) | … |`,
+`` | Summarise Note | … `summary:` … | `` — showed its raw `**` and backticks in
+Edit, where Preview showed bold and code. Edit draws a table as a picture in
+place of its concealed source, and the app's `TableImageRenderer` drew every
+cell as `NSAttributedString(string: cell)`: the source. The grid was measured by
+`GFMTableGeometry.cellText`, which understood code spans and nothing else — so
+code was *measured* without its backticks and *drawn* with them, a column
+holding a link was as wide as its destination, and a squeezed one wrapped at
+words the page never shows.
+
+- **A cell is its rendered text, measured and drawn as one value.**
+  `GFMTableGeometry.cellText` reads a cell with the editor's own inline pass —
+  `StyleSpec.inlineRuns`, public now, the runs the editor lays over this very
+  cell while the table's source is showing — and sets it with the editor's own
+  mapping from a role to fonts and colours, caret-away (`StyleApplier.apply`,
+  internal now). No second parser. What the editor conceals is not drawn at
+  all: a picture has no caret to reveal it for, a concealed marker keeps a
+  sliver of advance, and its `/`s and spaces would be places to break a line
+  the page never breaks. Code keeps `code`'s padding as kerning — after its
+  last character, and before its first on a no-break space too small to see,
+  standing where the backticks were (kerning on a zero-width space is dropped:
+  measured). `GFMTableGrid` carries each cell's text (`cells`) and where its
+  lines break (`cellLines`), and the row heights are counted from those lines.
+- **The picture is the package's** (`GFMTableImage`), beside the geometry it
+  draws from, and draws exactly the geometry's lines: each in a line box of the
+  row's font centred in the line as CSS centres it (a strut keeps a line of
+  nothing but code from rising), code in the live editor's pill, a cell with
+  fewer lines than its row in the middle of it (`vertical-align: middle`), all
+  under the appearance asked for, so the styled text's dynamic colours resolve
+  for it. A wrapped cell had been drawn by `draw(in:)`, which breaks where
+  TextKit likes and at the font's own line height. `TableImageRenderer` is the
+  app's entry point now: its text size, and the person's accent, which colours a
+  link in a cell as Preview colours one — `EditorHost` passes it, and the
+  document the picture is drawn for is already keyed on the accent.
+- **The parity harness draws the real picture.** It had returned a blank image
+  of the grid's size: right for a height, and an empty box beside Preview's
+  `<table>` in every `--png` dump.
+
+Found by the document gate once a table of long, marked-up cells was in it
+(`36-table-inline-markup.md`, new — no gated table had had more than code in
+its cells) — and true of plain text as much as of Markdown: a plain copy of the
+same table diverged by the same −47.93pt at 560pt and +24.07 at 420.
+
+- **An over-wide table shares its width as WebKit does** (`AutoTableLayout`).
+  GitHub's stylesheet makes an over-wide table exactly the pane's width
+  (`display: block; width: max-content; max-width: 100%`); every column starts
+  at its minimum, and the whole width, minimums included, is shared in
+  proportion to each column's maximum, left to right, none below its minimum,
+  as boxes with their padding and border. It shared only the space above the
+  minimums, in proportion to how much each could give: a wider first column
+  than the page's, and two rows that wrapped in Preview and not in Edit.
+- **A line's trailing space hangs**, as CSS hangs it: it counts neither
+  towards whether a line fits nor towards the narrowest a column can be.
+  Counted, `Summarise ` was a column's minimum, a space wider than the page's,
+  and at 420pt the cell beside it wrapped a line the page did not.
+- **A header cell whose column declares no alignment is centred**, as the page
+  centres a `th`, and a declared `:--` is not; `GFMTableLayout` keeps what the
+  delimiter row declared (`declaredAlignments`, nil for `---`). No height could
+  see it; the pictures did.
+
+`GFMTableInlineMarkupTests` (10, run on macOS and on the iPad simulator): a
+link, a wiki link with and without an alias (escaped in a table: an unescaped
+pipe divides the cell even inside `[[…]]`), strikethrough and an escaped `*`
+measure exactly as the plain text they render as, natural and squeezed; bold,
+italics and code are measured in their own faces; the tour note's row; what a
+cell is drawn from — no markers, the page's faces, no link — and its column as
+wide as that; the lines drawn are the lines counted; the picture is the size
+the geometry reserved; and the two squeezing rules. Against the old code three
+of the first four failed and the fourth — a plain table's natural widths, the
+control — passed, as it still does. `TableImageMarkupTests` (5, pixels, in the
+app): a link, a wiki alias and an escaped `*` are drawn as the plain text's
+ink; `**word**` is the semibold header's ink; code sits in GitHub's pill; a bare
+header is centred and a declared one is not; and a dark table is drawn in light
+ink, the control, which passed throughout — every other test failed before its
+fix. `GFMTableLayoutTests.aPlainDelimiterDeclaresNoAlignment` too. Negative
+controls, each a temporary edit reverted after: counting the trailing space
+again and restoring the old distribution each failed its test, and measuring
+cells as their source again put the new document +96.13pt out at 560pt and at
+800 — the gate sees the defect this fixes.
+
+Compared with a run before any change: `render-parity.sh` passes with its
+fifteen sample runs and its chrome check unchanged; the document gate at 420,
+560, 800 and 1200pt moved **no** existing document's height, Edit or Preview;
+the new one agrees at all four (+0.13pt); and at 420 the advisory list is the
+same two documents (the break after `/`). Looked at with `--png`, not only
+weighed: the tour note's table at 800pt has every line of ink at the same
+height on both sides (8 lines a column, 0px apart at 2×), and the squeezed new
+table has the same lines per column at 560 and 420 with a uniform 1px offset at
+2× — sub-pixel placement, identical for the plain table, within the gate's point.
+
+Checked on the HN-iPad simulator, the app's own preferences naming
+DefaultCollection alone and no cloud cache: Intelligence.md in Edit draws its
+table as Preview does — semibold keys, code in pills, centred headers. The
+note was not written (its bytes and date matched a copy taken first), and the
+editor was put back in Preview.
+
+Not fixed here, and recorded in unimplemented.md §6: Preview's rewrite of an
+aliased wiki link inside a table keeps the escaping backslash in the target;
+`<br>`, inline maths and images in a cell; GitHub's `tabular-nums` on tables.
+And the harness's Preview is built with GitHub's link blue, not the theme's
+accent, so link colours differ in its dumps — not in the app, where both
+surfaces take the person's accent.
+
+The app suite passes (719 tests in 99 suites); the editor package passes on
+macOS (270 in 27, 179 in 14, 18 in 4) and on the iPad simulator (251 in 25, 179
+in 14, 18 in 4); the app builds for macOS and the iPad simulator.
+
+### 51.28 A full build reports no isolation warnings (2026-09-29)
+
+The concurrency review of §51.22 reported four sites; a full build found
+twenty-four. This target builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`
+in the Swift 5 language mode, so an unannotated type or extension member is
+`@MainActor`, and reaching one from nonisolated code is a warning rather than
+Swift 6's error. What the warning means at runtime depends on the call — probed
+with this target's flags: an `async` call hops to the main actor, one hop per
+call; a synchronous one cannot hop, and simply runs where it is, unchecked. A
+warning prints only when its file compiles, so every source of the app and its
+extensions was touched and built — 27 warnings on macOS, 24 of them concurrency
+— and then the same for the iPad simulator, which found one more that only an
+iOS branch contains. Fixed without changing what anything does:
+
+- **Data read off the main actor is `nonisolated`.** `LinkCandidate` and
+  `LinkProposal` (the link scan read `LinkCandidate.names`, a computed member
+  of what was a main-actor type); the watchdog's `Duration.milliseconds` and
+  `.seconds`, read by the nonisolated `MainActorWatchdog` and its sampler
+  thread; `String.stableHash`, which names a walk checkpoint's file from the
+  walk; and SmartPaste's `isBold`, `isItalic` and `isMonospaced`, pure font
+  predicates passed as function values (`font.map(isBold)`), as `isOrdered`
+  already was. All synchronous, all pure: they ran off the main actor before,
+  unchecked, and run there now as declared.
+- **`offMain`, not `Task.detached`**, in `Collection.linkProposals` —
+  `Task.detached` governs priority and cancellation, never isolation, here.
+- **Box's and OneDrive's token refresh run on the main actor, explicitly.**
+  `RefreshCoordinator.refresh` takes a `@Sendable` closure, which is
+  nonisolated, and in it each Keychain read and write and each of the store's
+  own account names was an implicit hop to the main actor. The exchange is
+  `{ @MainActor in … }` now: one hop instead of four, the network awaited off
+  it, and the Keychain work where it already ran — and where Dropbox's and
+  Google's refresh, plain methods of their store, do it. The review checked the
+  single-flighting with a copy of the coordinator: five concurrent 401s, one
+  exchange, one token for all five, and the main actor free during the wait.
+- **Captured state crosses by value.** RemoteMirror hands `offMain` the files
+  to remove as `[gone]` rather than the `var`; DictationController's transcript
+  task takes its own `[weak self]` rather than reading the handler's; and the
+  large-folder prompt's answer is a closure that resumes the continuation,
+  rather than `continuation.resume(returning:)` stored as a plain function,
+  which dropped its `@Sendable` and `sending`.
+- **Scoped locking in async code.** `CollectionEmbedProvider.image(forName:)`
+  took its `NSLock` with `lock()` and `unlock()`, which Swift 6 refuses in an
+  `async` function; `withLock` holds it for the same statements.
+- **iOS only: `WebAuthAnchor`'s scene ranking.** The local function `rank`,
+  declared inside the sort's closure, was nonisolated there and read the
+  main-actor `UIWindowScene.activationState`; it is declared in the
+  `@MainActor` method's body now.
+- **Hardening, clean before and one computed member away from a race.**
+  `CollectionSearchModel`'s folds — `load(pairs:)`, the rebuild
+  `scheduleAggregateRebuild()` schedules, and `contentResults`' reads — ran in
+  `Task.detached` over `Entry`, `Derived`, `QuickOpenItem` and `TagNode`, all
+  unannotated and so `@MainActor`, and clean only because the folds touched
+  nothing but stored properties. The four are `nonisolated` (`QuickOpenItem`
+  declares `Sendable` itself now, which main-actor isolation had supplied), and
+  the three folds use `offMain`, as `refresh(from:)` in the same model already
+  did. The content search also stops building its note dictionary twice on the
+  main actor per query. The folds' fixed `.utility` / `.userInitiated`
+  priorities are gone, and that changes nothing measurable: each detached task
+  was awaited at once by a `.userInitiated` task, and awaiting a task escalates
+  it — probed, a detached `.utility` task awaited so ran at `.high` from its
+  first instruction, `basePriority` still `.low`. `offMain` runs at the caller's
+  priority, which is where they already ran.
+
+One correction to the project's own rules came out of it: `OffMain.swift` and
+AGENTS.md said a main-actor call inside an `offMain` closure "still hops at
+runtime". It does not — the body is synchronous — and a probe built with this
+target's flags read a main-actor member there with `pthread_main_np() == 0`.
+So a warning inside `offMain` is a data race in waiting, not a stall; both say
+so now.
+
+The `swift-concurrency-reviewer` found nothing wrong in the change. What it found
+beside it, in the files touched, is recorded in unimplemented.md: a cloud
+collection's walk runs on the main thread (`RemoteMirror.walk` awaits a plain
+`nonisolated async` function from a `@MainActor` closure — probed, not yet
+measured on a provider), the providers' `list` does too with no warning at
+all, a vault's availability check lists its root on the main actor, Open
+Quickly scores on it, the transclusion card's section and drawing run there
+and the provider's lock guards nothing, a second large-folder prompt could
+leak the first's continuation, and every fold builds a tag tree nothing shows.
+
+Left, being neither isolation nor concurrency: a deprecation
+(`installTap(onBus:…)`, VoiceCapture.swift) and two unused results
+(EditorHost.swift). Fifteen other `Task.detached` blocks remain in the app, each
+clean at this build.
+
+A full rebuild now reports those three warnings and no others, on macOS and for
+the iPad simulator. The app suite passes (719 tests in 99 suites), and so do
+the main-actor budgets on their own (`TEST_RUNNER_HN_BUDGET_TESTS=1`, 13 tests).
+
+### 51.29 Split keeps the keyboard, and every rule keeps up with the pointer (2026-09-29)
+
+Split mode chose its arrangement in a `GeometryReader` — side by side when the
+pane is at least as wide as it is tall, stacked when not — as two branches of
+an `if`: an `HSplitView` or a `VSplitView` on the Mac, an `HStack` or a
+`VStack` on iPad. So the source editor in one branch was a different view from
+the source editor in the other, and crossing square made both panes again. On
+an iPad in portrait with the band hidden the pane is taller than wide, and the
+keyboard is what crosses it: its 340pt come off the pane's height, the pane is
+wider than tall, the source's text view is made again without the keyboard,
+the keyboard goes, and the pane is taller than wide again. Split could not be
+typed in there at all. On the Mac a window resized across square did the same
+to whatever was being typed (unimplemented.md §7, found by §51.25's test).
+
+**One container whose layout changes.** `AdaptiveSplit` (UI/AdaptiveSplit.swift)
+lays the same two panes and one rule out with `AnyLayout(HStackLayout(spacing:
+0))` or `AnyLayout(VStackLayout(spacing: 0))`: an `AnyLayout` changes how its
+children are placed without changing which children they are, so the text
+view, its first responder and its caret survive the flip. The rule is the
+app's own on both platforms, as `ResizableDivider` is — the `HSplitView` it
+replaces on the Mac was AppKit's divider, which is also why its swap for a
+`VSplitView` could not keep the panes. It has a 10pt grab area, the resize
+cursor on the Mac (turned on its side when the panes are stacked), and an
+adjustable action for VoiceOver. It keeps the floors the split views gave each
+pane, 180pt wide side by side and 120pt tall stacked, clamped at use so a pane
+too small for two floors shares what it has. The first pane's size is kept as a
+*share* of the room rather than in points, so a drag means the same thing after
+the flip: dragged to 60% of the height in portrait, the rule came up at 60% of
+the width when the keyboard turned the panes side by side. On iPad, Split's
+panes can be dragged for the first time; the `HStack`/`VStack` had no divider.
+
+The tests came first. `SplitArrangementTests` hosts the real `NoteEditorView`
+in Split, on both platforms, and takes the keyboard in its source:
+`crossingSquareKeepsTheSourcesTextView` resizes the window from 1200×800 to
+taller than wide and back, and `theKeyboardComingUpKeepsTheSourcesTextView`
+(iOS) lets the keyboard come up in an 800×1200 window — stacked until it does —
+and types. Each expects the same `SourceTextView` instance (`===`), still first
+responder, and on iOS a keyboard that stayed. Each also checks that the
+arrangement really changed — the source under 60% of the window's width side by
+side and over 90% stacked, the panes stacked before the keyboard arrived — so a
+test that never crossed square cannot pass. With the old `if`/`else` put back
+inside `AdaptiveSplit`, both failed on macOS and on the iPad simulator. Two
+things about the iPad half: the resize test's tall window is 600×1200 there, so
+it stays taller than wide once the keyboard is kept, and each test waits for
+any keyboard left by the one before to go, which otherwise made the next one
+start side by side. `AdaptiveSplitTests` holds the arithmetic — side by side
+from square, each floor along each axis — and on the Mac drags the rule with
+mouse events through a window: 200pt dragged is 200pt moved, and the rule stops
+at both floors. SourceEndEditingTests' iOS window is back to 800×1200, taller
+than wide, the shape §51.25 had to avoid.
+
+**Looked at on HN-iPad, portrait, band hidden:** Split stacked; a tap in the
+source brought the keyboard up, the panes went side by side, the keyboard
+stayed, and four typed characters landed in the source and in the preview.
+
+**Every rule followed the pointer at half speed.** Dragging the new rule with a
+finger in that same session moved it 60pt for 100. A `DragGesture` measures in
+`.local` by default — the space of the view it is on — and a rule is the thing
+that moves: each step was measured from where the step before had already put
+it, so the rule gave back what it had just moved. The Mac test had passed
+because it sent its ten mouse events back to back, and nothing was laid out
+until the button was up. Sent with the run loop turned between them, as a real
+mouse's arrive between frames, it failed: 200pt dragged, 100 moved.
+`ResizableDivider` — the pattern Split's rule was built from, under the
+sidebar, the right panel, the band's two panes and History's list — and
+History's `StackedSplit` had the same shape, and `RuleDragTests` measured the
+same half for each: 100 of 200. Each drag is measured now in a space that stays
+where it is: the split's own named coordinate space for `AdaptiveSplit` and
+`StackedSplit`, which own their container, and the window's (`.global`) for
+`ResizableDivider`, which has no container of its own. On HN-iPad afterwards a
+100pt drag moved the rule 100.3pt stacked and 100.0pt side by side with the
+keyboard up, measured from full-resolution captures. The test harness,
+`MouseDrag` in RuleDragTests.swift, is shared with `AdaptiveSplitTests`;
+`StackedSplit` lost its `private` so a test can host it.
+
+History still chooses between two branches — an `HStack` with a
+`ResizableDivider`, or `StackedSplit` — but by a fixed width, which a keyboard
+does not change, and it holds no text view; it is left as it is.
+
+The app suite passes (726 tests in 102 suites), as do the layout contract
+(9 tests), chrome parity (16 scenes, none past noise) and the iOS interface
+tests on HN-iPhone (12 cases; the window-parity capture is opt-in and skipped).
+On the iPad simulator `SplitArrangementTests`, `SourceEndEditingTests` — in its
+window taller than wide — and `AdaptiveSplitTests` pass: 7 tests in 3 suites.
+The app builds for macOS and for the iPad simulator.
+
+### 51.30 A property changed in the panel is written when it is committed (2026-09-29)
+
+`EditorModel.setProperties` is the Properties panel's one way into a note (§51.15),
+from the inspector — `ContentView`'s `onPropertiesChanged` — and from the note's
+popover, `NoteEditorView.applyProperties`. It changed the buffer and nothing
+else, and a text change schedules no save (§51.25), so a property added, edited
+or removed reached the file only at the next flush — a switch of note, mode or
+app, a tab closing, quitting. A crash before one lost it, and until then nothing
+else reading the vault saw it. Seen on the HN-iPad simulator: `status`, added
+to Intelligence.md, was not on disk five seconds later, and was written when the
+app went to the background (unimplemented.md §1).
+
+**The panel's commit ends with the editor's own save.** `setProperties` ends
+with `Task { await save() }`, as the Markdown pane's end of editing does, so
+both callers — which already handed it their rows — write without a line of
+their own, including the rows the inspector hands back for a note a tab switch
+left. It is the model's save, not a second way to write, so its rules come with
+it: nothing over an open conflict (§51.16), nothing while a note is loading,
+nothing for a note that could not be read. §51.15's rule stands: rows the note
+already holds are no change (`FrontMatter.applyingChanges` returns `nil`), and no
+change is no write — `applyEdit` now says whether it changed the note, and the
+save follows only a change. That matters when the note holds typing not yet
+written: a commit that saved whatever it was handed would write that, on a field
+merely gaining focus.
+
+The tests came first, in `PropertiesPanelTests`: `aCommitIsWrittenWithoutAFlush`
+— a property added, edited and removed — failed for each, the commit in the note
+and not on disk after two seconds, and so did
+`aCommitWritesTheTypingOnScreenWithIt`, with the editor wired as `EditorHost`
+wires it: the typing on screen is carried and written with the property. The
+controls passed before as after: `aFlushWritesACommit` (the same commit and a
+flush is on the disk, so the file is read as it is written), and
+`anUnchangedCommitWritesNothing`, which fails when the commit's save is made
+unconditional — tried, and put back. The first full run failed the typing test:
+every main-actor test in that stretch of the suite took about four and a half
+seconds, the rest of the suite holding the main actor, and a two-second wait by
+the clock ran out before the save had had its turn. The wait is ten seconds, as
+the suite's other waits for a write allow (`SaveIndexingTests`,
+`ExternalChangeTests`).
+
+**Looked at on HN-iPad**, Intelligence.md in Preview, the app never leaving the
+foreground: in the popover, Add wrote `status: ""` within a second, typing
+`draft` wrote nothing, and Return wrote `status: draft`; in the inspector,
+`-inspector` typed and Return wrote `status: draft-inspector` a second later,
+and the row's remove button took the line away, leaving the note byte for byte
+as it was (§51.26 writes only the key that changed). The note was put back with
+`cp -p`, date and all.
+
+Found beside it, from the code: every other write the app makes through
+`applyEdit` — a tag, a link or a summary accepted, the link review, a rewrite, a
+version restored from History, a template — has the same shape, written only at
+the next flush. Recorded in unimplemented.md §1.
+
+The app suite passes (730 tests in 102 suites, twice), the app builds for macOS
+and for the iPad simulator.
+
+### 51.31 The tests leave nothing in the person's preferences (2026-09-29)
+
+The hosted tests run inside the app's sandbox, so a defaults suite made the
+usual way — `UserDefaults(suiteName: "name")` — is `Library/Preferences/name.plist`
+in the person's own container, beside com.hellotham.HelloNotes.plist. Five
+kinds of test made one per run under a new UUID: `IntelligenceMigrationTests`
+and `SupportContractTests` cleared the domain afterwards, which empties the
+plist to 42 bytes and keeps it, and the MLX picker test, `MainActorBudgetTests`
+(`hn-budget`) and `SourceEndEditingTests` (`hn-end-editing`) never cleaned up
+at all. By this morning the Mac's container held 424, 144, 58, 50 and 65 of
+them, accumulating since 2 September, and the HN-iPad simulator's 47 — and
+`SplitArrangementTests` (§51.29) cleared a fixed-name suite and left its file
+too.
+
+**A file there cannot be deleted for good.** Probed in the test host on both
+platforms: clearing a domain leaves its plist, and deleting the plist was
+undone by cfprefsd, which writes a domain when it chooses — seconds later
+(1.1s, 2.2s and ten seconds as the probes loaded it), and in one run minutes
+later: eighteen files, deleted and watched for three seconds without
+returning, were all back as empty plists by the next run, on the Mac and on
+the simulator alike. A `synchronize()` after the delete brought the file back
+a second later, and so did a late write; waiting before the delete, or after
+the clear, did not help. Only a delete with nothing pending stayed gone — and
+that leaves cfprefsd holding the domain's values, which a suite of the same
+name would inherit.
+
+**So a scratch suite never goes there.** `ScratchDefaults`
+(HelloNotesTests/ScratchDefaults.swift) is a Swift Testing trait —
+`@Test(.scratchDefaults)`, then `ScratchDefaults.suite(label)` anywhere in the
+test, the test's own helpers included (it is found through a task local). A
+suite is named by an absolute path, and `UserDefaults(suiteName:)` given one
+keeps the domain's plist at that path: each test's suites are in a folder of
+its own in the temporary directory, and when the test ends — however it ends —
+their domains are emptied and the folder is deleted. A late write finds no
+folder to land in, and cfprefsd makes none (watched for twelve seconds on both
+platforms); the scope checks the folder is gone. The folder is named for the
+test (`hn-defaults.<Suite>.<test>`), not the run, so a test that dies before
+its cleanup leaves one folder, which its next run empties and removes; a suite
+is emptied when first asked for, since cfprefsd may still hold what the last
+run wrote. The cases of a parameterized test run at once under one name, so a
+second takes `-2`. Nothing of it reaches Library/Preferences at all.
+
+It is used in all six places: the four migration tests (one with two suites,
+`used` and `unused`), the MLX picker test, `SupportContractTests`, the budget
+suite's and `SourceEndEditingTests`' `host` on both platforms (a suite per
+mode), and `SplitArrangementTests`. Two suites are left as they were, opt-in and
+named once: the evaluations' `HelloNotesEvaluations`, a static that the whole
+evaluation run shares, so there is no per-test end to clean up at; and
+`HelloNotesResearchProbe`. Each leaves one file, whatever the number of runs.
+
+On the way: the trait's `provideScope` must be `@concurrent`, and so must its
+closure. This target builds with approachable concurrency, which makes a plain
+`async` function `nonisolated(nonsending)`, and Xcode reported only "does not
+conform to protocol 'TestScoping'" at a call site. `swiftc -typecheck` with the
+target's upcoming features gave the full note: the closure parameter's type.
+
+`ScratchDefaultsTests` came first, against a stub that kept the suites in
+Library/Preferences as the tests did. `aScratchSuiteLeavesNothingInPreferences`
+runs a body as the trait runs a test and looks two ways. The suite's plist
+must reach the test's own folder, which only a suite named by a path can
+write to. Nothing carrying the test's tag may be created or rewritten in
+Library/Preferences — its name is fixed, so a leftover may be a rewrite —
+when the test ends or three seconds later, and the folder must be gone. The
+first version looked only at Library/Preferences, and with the suites put back
+there it passed: cfprefsd wrote their plists ten seconds after the test had
+ended. The control, `clearingADomainLeavesItsFileAndTheCheckSeesIt`, clears a
+domain as the tests did and finds the empty plist it leaves, in a folder of its
+own, because a control file in Library/Preferences would be the very leftover
+this removes, and could not be deleted. `aRunThatDiedLeavesOneSuiteAndTheNextStartsClean`
+failed with the stub too: the last run's value came through.
+
+The app suite passes (733 tests in 103 suites), and so do the budget suite
+(13, both typing tests with it) and the converted suites on HN-iPad (32 in 6).
+Each run's container was listed by name and date before and 20–30 seconds
+after: nothing new and nothing rewritten in Library/Preferences on either
+platform but the app's own plist, which the host app writes itself, and no
+folder left in the temporary directory. The leftovers already there were
+listed and, asked, the person had them deleted by exact name: the 788 of the
+five kinds (741 on the Mac, 47 on the simulator, each prefix + UUID + `.plist`),
+both `hn-split-arrangement-tests` plists, the evaluations' two on the Mac, and
+the probes' own — 830 files in all, none of them com.hellotham.HelloNotes.plist.
+None had come back a minute later; the Mac's Library/Preferences holds the
+app's own plist and three of the system's, the simulator's the app's alone.
+
+**Found on 2026-10-08: the test host crashed after the budget suite passed.**
+"HelloNotes quit unexpectedly" — the Debug build, as the test host, with
+`No Observable object of type EditorDocumentStore found` on the main thread
+while XCTest reported the finished run. The Split typing test hosts
+`NoteEditorView` in a window of its own and stores the editor's mode in the
+test's scratch suite; the window was closed and kept, and the view in it
+outlived the test. When the test ended, `ScratchDefaults` emptied the suite,
+the view's `@AppStorage` mode fell back to its default, Edit, and `EditorHost`
+asked for an `EditorDocumentStore` — which the app's root provides and the
+test's window never had. Before this section the suite was never emptied, so
+the mode never changed under a closed window. Now the view leaves the window
+on every way out of `typingCost`, and `host` gives it the document store, so
+its environment is the app's in every mode, not only in the one the test
+chose. Taking it out of its window does not release it — a check that it was
+gone failed after a second of the run loop turning, with the view still alive
+— so the whole environment is what makes it safe. The budget suite passes
+(15), and the host's output holds no fatal error and no crash was reported.
+
+### 51.32 A vault's availability is checked off the main actor (2026-09-29)
+
+`Collection.unavailability(of:)` says why a vault's folder cannot be read —
+`.missing` when it is not there, `.permissionDenied` when it is there and cannot
+be listed — and to say the second it lists the root with
+`contentsOfDirectory(atPath:)` (the `atPath:` form on purpose: the `at:` form
+refuses a symlink at the end of the path). It was already `nonisolated`, but its
+two callers ran it synchronously on the main actor: `recheckAvailability`, which
+Retry and Relocate go through, and the watcher's `.rootChanged` handling. On a
+File Provider or iCloud volume a listing can be a blocking XPC call, so the app
+would wait on the provider exactly when the folder was in doubt (unimplemented.md
+§3; found by the review of §51.28, inferred from the code rather than measured).
+
+**Both look off the main actor** — `await offMain { Collection.unavailability(of: root) }`
+— with the same reasons from the same function. `CollectionState.UnavailableReason`
+is `nonisolated`, being made on the pool thread and handed back. Moving the look
+made it an `await`, and an `await` is somewhere other work gets in; the look had
+been one synchronous step, and the rest of this is keeping it as good as one:
+
+- **Events and rechecks take turns.** `inTurn` runs each after the one before
+  it: a watcher event (`receive` → `handle`, now `async`) and a recheck's look
+  and verdict (`lookAgain`), whole and in the order they came — as they ran
+  when nothing could come between them. The recheck's scan and index rebuild
+  follow its turn, as they followed its synchronous step. Without the queue an
+  `.unmounted` reported during a root change's look was handled first and then
+  overwritten with the look's `.missing`, and one reported during a recheck's
+  look was overwritten with its `.ready`; both were measured, not supposed.
+- **A recheck under way is joined.** Try Again can be pressed again now that
+  the app is not blocked, and each press queued a look of its own — one after
+  another on a stalled provider, every event behind them waiting. A second
+  recheck answers with the one pending; only the first scans.
+- **A closed collection hears nothing.** `deactivate()` marks it closed first:
+  a turn that starts or lands after that makes no verdict, reports no change
+  and starts no walk — closing gives up the folder's security scope, and the
+  look used to be over before anything could close it — and a reconcile
+  scheduled just before closing is cancelled. `activate()` clears the mark.
+
+The tests came first, in `CollectionAvailabilityTests`. No timing can say where
+a test folder's listing ran — it takes microseconds; a File Provider's is the
+one that blocks — so `unavailability(of:)` tells a probe
+(`Collection.availabilityProbes`, keyed by folder path so parallel tests hear
+only their own; empty outside tests) whether it ran on the main thread.
+`aRecheckLooksAtTheFolderOffTheMainActor` and
+`aRootChangeLooksAtTheFolderOffTheMainActor` failed first, hearing their looks
+on the main thread; the second also checks the conclusions are the old ones (a
+readable folder reconciled with its state untouched, a gone one `.missing` and
+reported). A recheck looks twice, since the scan it starts checks the folder
+too, so they ask that every look was off the main thread. The control,
+`theProbeHearsALookMadeOnTheMainActor`, makes the look from main-actor code as
+the callers did and hears it as such. With the probe holding a look open:
+`anEventAfterARootChangeIsHandledAfterIt` and
+`anUnmountDuringARecheckIsNotOverwritten` (the recheck, queued first, answers
+`true` and the unmount after it stands — what the synchronous code did),
+`aRecheckUnderWayIsJoinedNotRepeated` (three rechecks, one look; three before),
+and `aLookThatLandsAfterClosingSaysNothing` (both paths). Each was seen to fail
+with its fix taken out: the queue not waiting, the recheck outside it, the
+closed checks removed, the looks back on the main actor.
+
+The `swift-concurrency-reviewer` ran twice. The first pass confirmed nothing
+listed on the main actor any more and found the ordering hole above — a recheck
+outside the event chain — with a test that failed on that code exactly as it
+traced; the revision is what closed it. The second pass found the rest (the
+join, a closed collection's scan, `activate` clearing the mark, and one
+sentence the queue needs: a turn must never wait for a turn, or it waits for
+itself), and a Swift 6 typecheck of the change with a negative control found
+nothing. Accepted: an event queued behind a slow root-change look waits for it,
+so the self-write windows (12s and 15s) can call our own autosave external after
+a look slower than that — the old main-actor block delayed it the same way.
+
+The app suite passes (740 tests in 103 suites), and so does the budget suite
+(`TEST_RUNNER_HN_BUDGET_TESTS=1`, 13 tests). The app builds for macOS and for
+the iPad simulator with no warning in Collection.swift.
+
+Recorded in unimplemented.md rather than changed here: the main-actor bookmark
+work that Try Again and Relocate do before the recheck, and the launch-time
+resolution and look in `Library.restore()` (§3); a walk's verdict, older than a
+recheck that has just succeeded, landing after it — as it could before (§1);
+and `ResumableTreeWalk.run` wanting `@concurrent`, and `FileWatcher`'s `deinit`,
+which Swift 6 would refuse (§11).
+
+### 51.33 A table's aliased wiki link names its note in Preview (2026-10-08)
+
+In a table an alias's pipe has to be escaped — `[[Examples/Nested Note\|an alias]]`
+— or it divides the cell, even inside `[[…]]`. Edit read the link right: its
+table unescapes a cell's pipes before the inline parser sees the cell
+(`GFMTableLayout.cells`), so the target is `Examples/Nested Note`. Preview did
+not. `NoteMarkdown.prepare` rewrites wiki links on the raw line, before
+cmark-gfm has seen any table, and its pattern stops at the pipe, so the table's
+escape stayed in the target: `[an alias](Examples/Nested%20Note%5C)`, a note
+whose name ends in a backslash (unimplemented.md §6, measured 2026-09-29 while
+adding the table document in §51.27). The text shown was right on both
+surfaces, and the document gate could not see the difference — it measures
+heights, and a destination has none — though `36-table-inline-markup.md` holds
+exactly this link.
+
+**On a table's lines, the rewrite drops the escape with the pipe.** Which lines
+those are is asked of `BlockParser`, in the parse `prepare` already made to
+find the front matter, because the editor lays out what the parser calls a
+table and nothing else: a line with pipes in it is not a table row unless the
+parser says so. There, an aliased link's or embed's target loses the backslash
+before its pipe (`NoteMarkdown.target`). Only an odd run of backslashes escapes
+the pipe — an even one is escaped backslashes, and stays — because that is how
+the editor's table reads a row. An alias's own escaped pipe
+(`[[Note\|either\|or]]`) stays escaped, or the rewritten link would divide the
+cell the original did not, and a picture sized in a table,
+`![[picture.png\|300]]`, names the picture. Outside a table nothing unescapes
+the pipe and the editor reads `[[Note\|alias]]` as a link to `Note\`, so
+Preview still does: whether `\|` should split an alias there is a question for
+both surfaces at once.
+
+The tests are in `NoteMarkdownTests` (GFMRender), and five failed first:
+`aTablesAliasedLinkNamesTheNote`; `aTablesAliasedLinkReachesTheRendererWhole`,
+through cmark-gfm — one link, in its own cell, the row still two cells wide;
+`theEditorFollowsTheSameNote`, which reads the row through
+`GFMTableLayout.cells` and `InlineParser` as Edit does and asks that Preview's
+decoded destination be Edit's target; `aTablesSizedEmbedNamesThePicture`; and
+`anAliasesOwnEscapedPipeStaysEscaped`. The control,
+`outsideATableTheBackslashIsReadAsTheEditorReadsIt`, keeps the backslash
+outside a table — including on a line with pipes in it that the parser does
+not call a table — and passed before the change and after it.
+
+The editor package passes on macOS (473 tests: 270/27, 179/14, 24/4) and on the
+iPad simulator (454: 251/25, 179/14, 24/4). `render-parity.sh` passes: 59 of 59
+documents agree at 1200, 800 and 560pt, and the 420pt listing names only the
+known two. The app suite passes (740 tests in 103 suites).
+
+Found on the way and recorded in unimplemented.md rather than changed here:
+
+- **Following an aliased link in Edit makes a note named after the whole link**
+  (§1). The editor hands the resolver the link's whole content,
+  `Roadmap|the plan`, and `WikiLinkNavigation.split` takes off a `#heading` and
+  nothing else, so nothing is found — measured in a probe, where `Roadmap`
+  resolved to the note and `Roadmap|the plan` to nothing. Read from the code,
+  not run: the main window's call leaves `createOnMiss` at its default, so
+  `createNote(title:)` then makes `Roadmap|the plan.md` (it did — fixed in
+  §51.35).
+- **A table's `\|` is read into the target everywhere else that reads a wiki
+  link** (§1): the link graph, a rename's rewrite of the links to the renamed
+  note, the mind map, `ComposedNote`, Preview's transclusions, and Edit's
+  broken-link colour outside a table.
+- **Edit's table and Preview's split a row differently at `\\|`** (§6).
+  Measured with a probe: `| a \\| b |` is two cells in Edit, `a \` and `b`, and
+  one in Preview, `a | b`. `GFMTableLayout` reads an even run of backslashes as
+  escaped backslashes and the pipe after them as a divider; cmark-gfm lets a
+  backslash directly before a pipe escape it, whatever comes before. Three
+  backslashes agree. `NoteMarkdown.target` follows the editor's reading and
+  moves with it.
+- **A link clicked in Preview is not followed to its note** (§6; read from the
+  code, not tried). Preview's web view has no navigation delegate, so the
+  destination this change corrects is not one the app follows yet.
+
+### 51.34 A cloud collection's walk runs off the main actor (2026-10-08)
+
+Mirroring a cloud folder walked it on the main thread. `RemoteMirror.walk` is
+the mirror's, reached through `inTurn`'s `@MainActor` closure, and it awaited
+`ResumableTreeWalk.run`, a plain `nonisolated async` function — which under
+approachable concurrency runs where its caller is. So every batch's work did
+too: per file a path worked out and normalised, the records looked up, and up
+to three syscalls. The listings started there as well: the stores were
+main-actor, as everything unannotated is in this target, so a store's `list`
+read its token from the Keychain and parsed its page on the main thread. No
+warning said any of it (unimplemented.md §3, two entries; probed in the review
+of §51.28, never measured).
+
+**Measured first.** `MainActorBudgetTests.mirroringACloudFolderNeverBlocksTheMainActor`
+mirrors 2,000 notes in 100 folders from `MockRemoteStore` into an empty cache
+and counts the main thread's CPU across `syncMetadata()`: **0.973 s**, against
+the suite's 100 ms budget (its idle control read 0.005 s). Now **0.0014 s**.
+The control, `aCloudWalksWorkOnTheMainActorIsSeen`, runs the walk's own
+accumulator over the same listings on the main actor, where the walk ran, and
+is seen at 0.24–0.26 s: the small number is the walk having moved, not the
+instrument missing it. Both check the walk did its work — 2,003 records, and
+the last placeholder on disk.
+
+**The walk.** `walkProvider` is `@concurrent`, so it runs on the pool whoever
+calls it, and does all of the walk: the listings, `WalkFindings.add` per
+directory, the progress reports, the records it did not list, and the cursor a
+complete walk takes — asked before `walk` reads the record back, as it was.
+`walk` stays the mirror's: it snapshots the record, awaits the helper, and
+applies what came back on the main actor by the rules it had — a record
+changed here since the walk began is kept, only a complete walk prunes, and
+only what is unchanged and not waiting on a change made here. What comes back
+is only what differs from the record the walk began with; applying every
+listed item was 10 ms of main-actor work at 20,000 files with nothing changed.
+`WalkFindings` is `nonisolated`, as is everything it calls: `DropboxPath`, the
+progress and outcome types, `RemoteTreeSource`, and static forms of
+`isMisplaced` and `remotePath(forRelative:)`.
+
+**What the walk asked the main actor, it asks a lock.** Two per-file
+questions read main-actor state: whether a change made here is waiting to take
+the path (`isWaitingToGo`), and, before a placeholder was written, whether the
+record had changed since the walk began. On the main actor nothing could come
+between such a question and the write it allowed. The waiting paths are
+`WaitingToGo` now — a `Mutex` the mirror updates as changes are reported, under
+which the walk asks about each file and makes its folder or placeholder, in one
+step, as the batch was. The second question is gone: a placeholder is written
+only where there is no file, and whatever changes a record during a walk — a
+download landing, a save marking it unsent, the cache being trimmed — leaves a
+file there, or is a change reported before its file goes. And a placeholder is
+an exclusive create now (`.withoutOverwriting`): `createFile` replaced a file,
+so a download or a save landing between the check and the write was emptied.
+
+**A delete is reported before its file goes.** A rename always was
+(`willMove`). A delete went the other way — the file to the Trash, then
+`sendDelete` — which was safe only because nothing ran between the two on the
+main actor: a walk away from it that found the file gone and no delete waiting
+would take the download for lost, put an empty placeholder back at the note's
+name, and that would go up as a note made here.
+`sendDelete(of:removing:failed:)` reports the delete and then removes the file
+itself, away from the main actor (on iOS an app's folder has no Trash, and a
+folder of 2,000 notes is 2,000 removals), and reports nothing if the removal
+throws. `deleteNote` and `deleteFolder` delete through it, and a local
+collection's delete goes off the main actor too; `Trash` is `nonisolated`.
+
+**The stores.** `RemoteStore` and its conformers — Box, Dropbox, OneDrive,
+Google Drive and the demo store — are `nonisolated`, so a listing runs where it
+is called: in a walk, on the pool. A page is parsed in `offMain`, so one parsed
+for a change made on the main actor (an upload lists the note's folder before
+and after) is parsed off it too. Drive's change feed, which names ids, was
+placed by searching both id caches for each change — changes × ids, on the main
+actor's turn, 181 ms for 2,000 changes against 20,000 ids — and is placed from
+one map now, built off the main actor once per refresh. Box's and OneDrive's
+token refresh were `@MainActor` only because the Keychain and the stores'
+properties were (§51.28); neither is now. Dropbox's and Drive's, plain methods
+that ran wherever the 401 was met — an upload's turn is the main actor's — go
+through a `RefreshCoordinator` too now: away from the main actor, and one at a
+time. The demo store keeps its files behind a lock, since a walk lists six
+folders at once.
+
+**The tokens** (`TokenCache`, behind `RemoteTokenStore`). Every request read
+its access token from the Keychain — an XPC round trip to `securityd`, six at a
+time during a Box walk. Each account's token is now read once and kept, with
+every write: only the app compiles the file, and every write goes through
+`setToken`, a refresh's included. The concurrency review found the first
+version wrong three ways, each fixed and tested against a keychain of the
+test's own (`TokenCacheTests`): it remembered any failed read as "signed out" —
+a locked keychain then refused every request until the app quit, and "sign in
+again" signs out first, deleting the good tokens — so only a missing item is
+remembered now; it forgot a token whose Keychain write failed, and a refresh
+token Box or OneDrive has just rotated is the only valid one, so the token is
+kept in memory whatever the write does, and an item is updated in place rather
+than deleted and added again; and it held its lock across the Keychain calls,
+so a main-actor read of one account waited on another's XPC call, and now no
+Keychain call is made under the lock a read takes — a read made outside it is
+kept only if nothing was written meanwhile. Its second review found two more:
+one lock serialised every account's writes, so a write waited on another
+account's Keychain call (each account has its own now — a test with that lock
+shared again fails); and a Keychain that could not be read still reached the
+browser as `notAuthenticated`, which offers to sign in again, which signs out
+first — it is `keychainUnavailable` now, shown as what it is.
+
+**A download outlives a walk of a provider whose listing names no revision.**
+A walk keeps a note downloaded only if the provider says it is unchanged, and
+it asked by revision alone — which Box's and Drive's listings do not carry (nor
+the demo store's). So every walk of such a folder made every download a
+placeholder again, its bytes left in place: a note open in an editor had its
+saves refused ("hasn't been downloaded… open it first"), and opening it again
+downloaded the provider's copy over what was typed. A walk of a cache with
+downloads is a folder added again, which is how a closed cloud collection comes
+back. Where neither the listing nor the record names a revision, the same size
+and date are the provider's word now (`WalkFindings.isUnchanged`). Older than
+this change, and found by its second review.
+
+The tests, beside the budget pair and `TokenCacheTests`, are in
+`CloudCollectionChangesTests`. `aNoteDeletedWhileASyncWalksStaysDeleted`
+deletes a note while the walk waits on the provider's root: no placeholder
+back, no record, and deleted on the provider.
+`aWalkPassesOverANoteWhoseDeleteIsWaiting` drives `WalkFindings` itself: a note
+gone with nothing reported is put back as a placeholder (the repair a damaged
+cache needs, and the control), one whose delete is waiting is passed over.
+`aDeleteIsReportedBeforeItsFileGoes`: the removal runs with the delete already
+waiting, off the main thread, and one that throws reports nothing and deletes
+nothing on the provider. `aWalkRecordsOnlyWhatChanged`, and Drive's
+`theChangeFeedIsPlacedFromOneMapOfIds`. `aDownloadOutlivesAWalkOfAProviderWithoutRevisions`
+walks the demo store twice around two downloads, one changed on the provider
+between: it failed first — the unchanged note recorded `hydrated: false` with
+its bytes on disk — and the changed one, the control, is a placeholder again.
+`TokenCacheTests` has eight, `aLockedKeychainDoesNotAskToSignInAgain` among them
+(with its control, a rejected token that does ask). The walk's other cases while
+it is under way — a note made, downloaded, renamed, or saved and changed
+elsewhere — pass unchanged. Of the rest, only the budget test could fail first:
+they exercise new API, and the delete during a walk passes on the old code too,
+the delete completing whole while the walk waits — the gap it closes lies
+between two synchronous main-actor calls, which no test can stop in.
+
+Checked: macOS and the iPad simulator build with no new warning; the app suite
+passes (756 tests in 104 suites) and so does the budget suite on its own (15).
+A Swift 6 typecheck of the app module — the target's own flags with
+`-swift-version 6` — reports no error in any file this touches; with
+`nonisolated` taken off `writePlaceholder` it reports the call in
+`WalkFindings`, and a deliberate type error in RemoteMirror.swift is reported.
+The first such run said the module was clean and had checked almost nothing:
+without `-continue-building-after-errors` the driver schedules no job after
+the first that fails, and the module has 16 Swift 6 errors of its own in seven
+other files, so a deliberate type error went unreported until the flag was
+added (AGENTS.md says so now). The `vault-io-reviewer` passed it: the cache is
+in the app's container, which no file provider manages, so its placeholders
+and folders are written raw as before — and coordinating them under the lock
+would make a rename or a delete on the main actor wait on `NSFileCoordinator`.
+The `swift-concurrency-reviewer` failed the first version for the three token
+defects, a main-actor cost in applying the walk, the delete's removal on the
+main actor and Drive's change feed — all fixed above — and for older work on
+the same paths, recorded below. Its second pass passed those fixes and found
+the shared write lock, the browser's sign-in and the revisions, fixed above;
+what it still fails is recorded below, by decision.
+
+Running the budget suite whole found its test host crashing after the run, from
+§51.31's change, which is fixed and recorded there.
+
+Recorded in unimplemented.md rather than changed here: a refresh with no
+cursor yet, which for Dropbox and OneDrive replays the whole folder on the main
+actor and for Box and Drive keeps a cursor no walk earned (§1); a note made here
+and still empty during a walk, under a name the provider was given elsewhere,
+taken for the provider's placeholder (§1); a download written over a revision
+the walk had moved past (§1); the delta's per-entry work, the download's write
+and the cache's trimming on the main actor (§3); each account's first Keychain
+read of a launch, on the main actor (§3); token refreshes single-flighted per
+store rather than per account (§1); Box's and Drive's listings, which still name
+no revision, so a change there with the same size and second goes unseen and an
+upload checks no conflict (§1); and the Swift 6 errors in seven files (§11).
+
+### 51.35 Following an aliased wiki link opens its note, and makes none (2026-10-08)
+
+Clicking or tapping `[[Roadmap|the plan]]` in Edit did not open Roadmap. The
+editor hands over everything between the brackets — `wikiTargetAttribute`
+holds the link's whole content, on both platforms — and
+`WikiLinkNavigation.split` took off a `#heading` and nothing else, so the
+resolver looked for a note named `Roadmap|the plan`, the link graph and the
+title match found none, and the main window, which creates what a link names
+(`createOnMiss`), made `Roadmap|the plan.md` and opened that; a note window
+did nothing. `[[Note#Part|see]]` reached the note and looked for a heading
+named `Part|see`, and an aliased web link opened its address with the alias in
+it. All the while the link was drawn as found: the editor colours a link by its
+name alone (`StyleApplier.baseTitle`). The tour had it too — Start Here links
+the manual as `[[Manual/Index|user manual]]`, and following it from Edit made
+`Index|user manual.md` in the Manual folder (unimplemented.md §1, found by
+probe while fixing §51.33).
+
+**The alias comes off first.** `withoutAlias` takes what a link names up to
+its first `|`, and without the backslash that escapes that pipe in a table's
+row — the editor reads a table's cells raw, so a tap there hands over
+`Note\|alias` — by the rule Preview reads a table's aliased link by (§51.33):
+an odd run of backslashes escapes the pipe, an even one is backslashes and
+stays. `split` takes the heading off what is left and trims the name, as the
+editor does for the colour, so following a link goes where its colour says;
+`resolve` asks about a web address after taking the alias off too. A link to a
+note that does not exist still makes it — the note it names.
+
+The tests are in `WikiLinkNavigationTests`, and all four failed first:
+`splitsTheAliasOffFirst` (an alias, a heading and an alias, a bare anchor and
+an alias, a table's escaped pipe and an even run that is not one, and a name
+with spaces round it); `anAliasedLinkReachesItsNoteAndMakesNone`, through the
+resolver with create-on-miss on, which reaches Roadmap and its heading four
+ways and asserts the folder holds Roadmap alone — it held three notes more,
+`Roadmap|the plan.md`, `Roadmap\|the plan.md` and ` Roadmap | the plan .md`;
+the control,
+`anAliasedLinkToNothingMakesTheNoteItNames`, where a missing `[[Brand New|the
+alias]]` makes `Brand New.md` (it made `Brand New|the alias.md`); and
+`anAliasedWebLinkOpensItsAddress`. The suite's earlier eight pass unchanged.
+The app suite passes (760 tests in 104 suites), and the app builds for macOS
+and the iPad simulator.
+
+The odd-run rule now has two copies — `NoteMarkdown.target` for Preview and
+`withoutAlias` for following — which is one more reason for the single
+MarkdownCore rule unimplemented.md §1 asks for (a table's `\|` is still read
+into the target by the link graph, a rename's rewrite, the mind map,
+`ComposedNote`, transclusions and Edit's colour), and the question of `\|`
+outside a table is still open for every surface: following
+`[[Note\|alias]]` written outside one now reaches `Note`, while Edit colours
+it as `Note\`. Nothing else turns a link's text into a note's name: the other
+callers of `createNote(title:)` are capture, the Assistant's tool, the composer
+and the self-test.
+
+### 51.36 Every open defect in the backlog, before 1.3.3 (2026-10-08 – 10-09)
+
+The brief was "fix all issues before release", scoped to **every open 🟠/🟡 entry
+in `docs/unimplemented.md` that is a defect in code** — data safety, correctness,
+main-thread stalls, Swift 6 errors, missing tests — leaving features, and
+anything that needs a device or a live account, to be listed. Each fix below was
+written test-first where a test could see it, and each test was checked against
+the defect it names: the fix reverted by hand, the test watched fail, the fix put
+back. Where a check needed a second check (a type-check that can read clean
+because it checked nothing, a pixel scanner that can find no ink), that check
+was planted first. Several entries turned out to rest on a wrong premise, and
+three new defects were found on the way; both are said where they occur.
+
+#### Cloud collections
+
+- **A refresh with no delta cursor walks** (unimplemented.md 🟠). A cursor is
+  taken only at the end of a complete walk, so its absence means no walk has
+  listed the whole folder — one stopped by a refused folder, a cancelled add, a
+  quit. Asked for changes with no cursor, Dropbox and OneDrive answered with
+  every entry, applied one by one on the main actor (0.32 s for 2,000), and Box
+  and Drive with an empty position that was kept, so the folder the walk missed
+  was never listed and the next refresh recorded a complete walk that never
+  happened. `RemoteMirror.applyChanges` now walks instead; a walk runs off the
+  main actor, prunes only when complete and takes its own cursor when it is
+  (`DeltaRemoteStore.latestCursor`). Tests: `aRefreshWithNoCursorWalks`,
+  `aRefreshNeverRecordsAWalkThatDidNotComplete`, and a budget test for the
+  refresh after an incomplete walk.
+- **A note made here and still empty is never taken for the provider's
+  placeholder** (🟠). A new note is created empty and queues its first upload,
+  so until that turn it had no record, and a walk or a delta that found the
+  provider holding an item of the same name — two devices' "Untitled", today's
+  daily note made on the phone — recorded it as a placeholder: its uploads
+  refused, its typing downloaded over. What comes up is now reported before the
+  file exists (`WaitingToGo`, beside what goes away), the walk, its apply and
+  `applyChanges` pass it over, and the upload's turn clears it.
+- **A download is recorded only at the revision it read.** `hydrate` read the
+  bytes and marked the record downloaded without asking whether a walk had
+  recorded a newer revision meanwhile; the next save then passed the conflict
+  check and wrote over the provider's newer copy. It retries while the
+  revision moves (`sameRevision`), and stages the bytes off the main actor
+  (`FileIO.stage`), putting them in place with one coordinated rename
+  (`FileIO.putInPlace`).
+- **Token refreshes are single-flighted per account**, not per store:
+  `RefreshCoordinator.byAccount`. Two collections on one Box or OneDrive account
+  each spent the same single-use refresh token, and the loser's save failed with
+  `invalid_grant`. The token cache is read again after an exchange fails (a
+  token rotated by another process), and a refresh in flight at sign-out writes
+  nothing back (`TokenCacheTests`).
+- **Every provider's listing names the content's revision**: Box's `etag`,
+  Drive's `headRevisionId` (not `version`, which metadata moves) and OneDrive's
+  `eTag`, which its parser read and `$select` left out. Without them no save
+  could tell a note had changed elsewhere since it was downloaded. Live runs
+  against the providers are still for a person with accounts (unimplemented.md
+  §8b).
+- **The self-test removes what it leaves through the mirror**
+  (`DiagnosticSelfTest.removeLeftover`); removed from the cache alone, the next
+  walk put an empty placeholder back on the provider's behalf.
+- **A large-folder prompt over an unanswered one answers the first**
+  (`Library.openChecking`): replaced unanswered, the first caller waited
+  forever.
+- **Off the main actor**: the manifest is decoded once, at launch, and handed
+  to the mirror (`RemoteMirror.open(…manifest:)`); eviction reads each
+  download's last use there and asks each candidate again before writing; the
+  scan folds the manifest into placeholders and sizes inside the walk
+  (`dehydratedRelativePathsIfMoving`); `sendUnsent`'s path comparison runs
+  there; the account's first Keychain read of the launch is warmed there; and a
+  cancelled walk no longer waits for its head listing — for three providers the
+  whole account's recursive prefetch (`ResumableTreeWalk.outcome(for:)` awaits
+  under a cancellation handler; `ConcurrentTreeWalkTests`).
+- **A walk's verdict cannot land over a recheck that just succeeded**
+  (`Collection.recoveries`): a stuck walk's late `.permissionDenied` stood over
+  Try Again's `.ready`, and a clean walk never cleared it.
+- **A change seen during a walk asks for one more pass** instead of cancelling
+  it (`reconcileIsWalking`, `rescanWhenIdle`): a cancelled walk keeps nothing,
+  so changes through a long walk of a big vault kept it from ever finishing
+  (`CollectionAvailabilityTests`).
+- **`syncDown` and `pruneLocalItems` are gone**, with the four progress fields
+  only they wrote. The eager sync lost its last caller to `syncMetadata`. Its
+  tests guarded rules that ship — a failed subfolder costs its subtree, an
+  incomplete or cancelled pass drops nothing, an unreadable root is not an empty
+  folder, progress only climbs, an edit uploads — so they were ported to
+  `syncMetadata` rather than deleted (`RemoteMirrorTests`; with both of the
+  walk's deletion gates removed, two of them fail). The test of non-Markdown
+  files skipped is obsolete: the mirror carries every file.
+
+#### What reaches the file, and when
+
+- **Every app write is a commit** (unimplemented.md §1). A tag, link or
+  summary accepted, the link review, a rewrite, a restored version and a
+  template changed the buffer and reached the file at the next flush;
+  `EditorModel.applyEdit` now ends with the model's own save (`AppWriteTests`).
+- **The Assistant edits an open note in its editor** (`ToolContext`,
+  `openEditor`): the diff is made from what is on screen, unsaved typing
+  included, and the change is made there and saved by the editor's own save,
+  only if the screen still says what was read. Written to the file, it met the
+  typing as a change made elsewhere. The inspector's "link this mention" does
+  the same (`MentionLinker`), falling back to a conditional replace and telling
+  the open editors (`AgentToolTests`, `MentionLinkTests`).
+- **Closing a window waits for its save** (`FlushRegistry`): ⌘W then ⌘Q during
+  a slow coordinated write ended the process with the save unfinished, because
+  the hook came off before the flush began (`FlushRegistryTests`).
+- **A reconcile that loads a note whose load failed clears the failure**, and
+  `open` does not replace a buffer a refused flush left unsaved — it keeps it,
+  or raises a conflict (`UnloadedNoteTests`, `ConflictSaveTests`). A tab whose
+  save was refused stays open with its edit (`EditorTabs.close`).
+- **Opening a note asks the file provider off the main actor**
+  (`EditorModel.willOpen`/`open`), and `EditorModel.init` adds itself to the
+  weak table inside an autorelease pool: the table's `add` autoreleases, so an
+  editor outlived its owner until the run loop drained
+  (`ExternalChangeTests.anEditorGoesWithItsLastOwner`).
+- **Rename, duplicate and move ask whether a name is taken off the main
+  actor**, as `createFolder` makes its folder there; on a File Provider's
+  folder each is a round trip.
+
+#### Wiki links: one rule
+
+`MarkdownCore.WikiLinkSyntax` is what a link names, for every reader: the alias
+begins at the first `|`, and an odd run of backslashes before it is the escape a
+table's row needs (`[[Note\|alias]]`), not the target's. Preview and following a
+link dropped the backslash; the link graph, a rename's rewrite, the mind map, a
+composed note, Preview's transclusions and Edit's colour kept it and named
+`Note\`. Edit's table and Preview's agreed on a row only until `\\|`:
+`GFMTableLayout` now scans a row as cmark-gfm does. A link clicked in Preview
+follows the app's navigation (`hellonotes-wiki:` on both surfaces,
+`PreviewLinkRelay`): the web view had no navigation delegate, so a wiki link went
+nowhere and a web link replaced the preview. And Preview redraws when a note it
+transcludes changes: the revision now travels with the cards
+(`CollectionEmbedProvider.revision`), where Preview had been handed a revision
+that was always 0 on the main window's path (`WikiLinkSyntaxTests`,
+`GFMTableLayoutTests`, `NoteMarkdownTests`, `WikiLinkColourTests`,
+`PreviewLinkTests`, `EscapedAliasLinkTests`, `TransclusionRedrawTests`).
+
+#### The editor's parser
+
+**Incremental parsing converges** (🟠, deferred until now as "the parser every
+other feature sits on"). The walk stopped only where nothing at all was open,
+which in prose is almost nowhere — a blank run is open between paragraphs, the
+item above between items — so a keystroke near the top of a note of paragraphs
+re-walked it to the end: 4,496 lines a keystroke in a 1,500-paragraph note.
+It now stops where it stands exactly where the old walk stood: the same block
+open, started at the same line past the edit, and the same list item behind it
+(`BlockBuilder.resumption`), the old walk's state read off the block before the
+candidate. Every shape of note settles within 3–7 lines; a keystroke on 1 MB is
+0.32 ms in Release. Two older bugs, both incremental-differs-from-full, were
+found by the stronger fuzz the change needed: the walk started knowing nothing
+above it, so `- a`, a blank line and `    - foo` was an item in full and a code
+block the moment anyone typed on its last line (`itemBefore`); and the
+classifier measured an empty item's content column (`*` or `1.` alone) by
+reading past the end of its line into a buffer still holding the line
+classified before. Tests: `IncrementalConvergenceTests` (16 shapes, structural
+edits, two targeted), the prose-and-lists fuzz over four seeds, and
+`anEmptyItemsColumnDoesNotDependOnTheLineAbove`; four controls, each caught.
+
+#### A table's picture, and spec #31
+
+- **`<br>` breaks a cell's line**, at its natural size and squeezed, and the
+  row grows by a line; a trailing `<br>` starts no line, an opening one leaves
+  an empty one, as on the page. Other inline tags are not drawn —
+  `H<sub>2</sub>O` is "H2O", where the picture drew eleven characters of
+  source. Figures are tabular, as GitHub's `table { font-variant: tabular-nums }`
+  has them. And a cell's text sits where the page puts it: each line was
+  centred on `size().height`, which rounds the font's extent up (19 for the
+  system font at 16pt against the 18 both engines lay a line on), so every
+  cell's baseline was half a point high — measured at 2× against WebKit before
+  and after, pixel-identical now. Tests in `GFMTableInlineMarkupTests`
+  (`aBreakTagBreaksTheCellsLine`, `aBrokenCellWrapsEachLineOnItsOwn`,
+  `otherInlineTagsAreNotDrawn`, `figuresInATableAreTabular`,
+  `aCellsBaselineIsWhereThePageDrawsIt`, which draws at 4× on both platforms),
+  and a document for the gate (`37-table-breaks-and-figures.md`, −143.84pt with
+  `<br>` turned off). Maths and pictures *inside* a cell are still drawn as
+  their source; drawing them is new work and is listed as such.
+- **Spec #31**, `- Foo` / `- * * *`, stood 24pt taller in Edit, bare and in
+  context — and in the committed tree too: macOS 27's WebKit collapses an
+  `<hr>`'s bottom margin out of a `<li>`, which is what CSS 2.1 says it does
+  (the `display: table` pseudo-elements sit *inside* the rule and seal
+  nothing). The kept margin and its attribute are gone, and an item-closing
+  rule leaves its margin to `BlockBoxes.gapBetween`, which already exported it.
+  Both sweeps are 672/672 again. The lesson is in the package's CLAUDE.md:
+  re-run both sweeps after an OS bump.
+- **The harness's pictures are cropped to whole points**: a fractional crop
+  shifted the editor's capture by up to half a point, and read as a table drawn
+  a pixel low when it was not.
+
+#### Heading jumps wait for their editor
+
+A jump is kept for its editor (`EditorBus.requestHeadingJump`) and shown by the
+first surface of it that is ready (`HeadingJumpListener`: the editor's text view
+when it reaches a window, Preview when its page finishes loading, the Markdown
+pane). Following `[[Note#Heading]]` waited a fixed 350 ms for the new tab and a
+tab that took longer scrolled nowhere; and a timer cleared a "highlight" 1.2 s
+after every jump — there was none, a jump leaves a caret — collapsing whatever
+selection there was by then and dropping the find bar's query. Both timers are
+gone (`HeadingJumpTests` in the package and the app).
+
+#### The window, the bar and the menus
+
+The UI defect registers (ui.md §12, primary.md §12, secondary.md §9,
+toolbars.md §14, menu.md §8, tabs.md §2.5) had their defects fixed; each fix
+carries its register's item number in a comment. Among them: one stored value
+for the sidebar's visibility (a relaunch showed the sidebar under a bar saying
+Show Sidebar); the rail follows the focus when its collection closes; New Note
+goes to the band's folder only while the band shows; a collection row says what
+the sidebar's rows say; every divider is named for what it sizes; the
+inspector's commands run when it appears holding one; a note's views say so
+with no note open; Escape closes the panel only where it covers the note; an
+attachment opens in the viewer, never an editor tab; editors follow a renamed or
+moved note, keeping caret and undo (`EditorDocumentStore.documentMoved`);
+closing a collection closes its tabs by every route; Open Quickly searches the
+sidebar's collection and is ⇧⌘O; the palette closes before a command that puts
+something over it; About and Acknowledgements work with no window open
+(`WindowRequest`); a note found in Spotlight has an intent to open it
+(`OpenNoteFromSearchIntent` — the system's half wants a live check on a device);
+values the shell published and nothing read are gone. Design questions those
+registers also hold — the tab bar's redesign, column widths — are features and
+stay listed.
+
+#### Main-actor work
+
+Off the main actor now: Open Quickly's scoring (about 20,000 items a query), the
+Tags view's counts (folded with the index — 40 ms at five tags a note), the
+mind map's layout, Properties' front matter (no further than the editor folds),
+the transclusion cards' reads (with a bounded cache, `BoundedCache`), a pasted
+picture's write, launch's bookmark resolution and Try Again's and Relocate's
+(`Bookmark` is `nonisolated`), and `EditorDocument.make`'s whole-document parse,
+which was `async` in name only. The budget suite holds the first of them.
+
+#### Security
+
+**The web tools' address check holds against DNS rebinding.** `validate`
+resolved the host and URLSession resolved it again to connect, so a short-lived
+answer could be public for one and `169.254.169.254` for the other.
+`WebGuard.load` reads the body whole and checks the address every connection
+was made to (`URLSessionTaskMetrics`) before any of it reaches the model
+(`WebGuardTests`). Every fetch the web tools make goes through it.
+
+#### Concurrency and Swift 6
+
+The app type-checks as Swift 6 with no errors (it had 16, and this work added
+four, all fixed): `ResumableTreeWalk.run` is `@concurrent` — a plain
+`nonisolated async` function runs where its caller is, and a walk called from
+the main actor listed folders on it (`aWalkCalledFromTheMainActorWalksOffIt`,
+which probes the listing); `FileWatcher` and the iOS `DirectoryPresenter` are
+`nonisolated`, since a `deinit` calls `stop()`; the accent's colour maths is
+`nonisolated`, since a dynamic colour resolves wherever it is drawn; the two
+regex caches are `nonisolated(unsafe)` over a thread-safe `NSCache`;
+`URLRouter.scheme`, `StoreService`'s listener task and `RailPlaceStorage` say
+what they are; and `VisionAlt` decodes a pasted picture off the main actor,
+through `FileIO`. A deliberate error planted in a file under review was
+reported, so the clean run checked what it says.
+
+#### Git
+
+**Push has a Stop.** SwiftGitX's push ends in `git_remote_push(remote, nil,
+nil)`: no options, so no callback through which a cancel can reach libgit2 —
+which is why Clone, whose SwiftGitX call installs one, could always stop and
+Push could not, and why Create's Stop could stop everything but the push it
+ends in. `GitPush` is the same push written against libgit2 (SwiftGitX's own
+dependency, pinned to one version), with callbacks that answer "stop" once the
+task is cancelled; `GitService.push` runs it on a cancellable runner, the pane
+offers Stop while it runs, and Create pushes through it too. What no callback
+can stop is a connect that never completes. `GitPushTests` pushes to a real bare
+repository and stops one; with callbacks that never stop, the stopped push
+completes and the test fails. The Git suite runs on a two-note vault instead of
+a copy of the sample vault each test.
+
+#### The Assistant, on Apple's model
+
+`AssistantEditEvaluation` asks for a one-line change, approves it and reads the
+file. It had only ever run on two MLX models; §51.2's table has a dash for the
+on-device model. On the on-device model it failed every time, for three reasons,
+each found only after the one before it was fixed:
+
+- **Its setup filled no search index.** `collection.scan()` lists the notes and
+  indexes nothing; in the app the index is filled by the rebuild that opening a
+  collection starts. So `search_notes` found no Shopping note, and the model
+  said so. The setup now fills the index, as the trajectory evaluation's always
+  did.
+- **The tool had the same blind spot in the app.** The index holds only notes it
+  has read: none until that rebuild lands, and never a note that hasn't
+  downloaded. So a note `list_notes` showed was "not matched" by its own name.
+  `search_notes` now also matches titles from the collection's own list
+  (`searchFindsANoteByTitleTheIndexHasNotRead`).
+- **The model asked for approval in words.** Told that "the person approves
+  every change", it read the note and replied "Please confirm this is correct",
+  four requests out of four. It never called `edit_note`, so a requested change
+  took two approvals, or none. The instructions and the tool descriptions now
+  say that calling the tool *is* the request: the app shows the change and saves
+  it only if the person approves.
+- **It restated the lines around the change.** Calling the tool now, it sent
+  `- pears` to replace and `- apples\n- plums\n- flour` as the replacement, four
+  times in five: the surrounding lines were in one argument and not the other.
+  The note gained a second "apples" and a second "flour", and the evaluation
+  still passed, because it checked only that "apples" and "flour" were there. It
+  now checks the whole note.
+  Rewording the argument guides changed nothing (four in five again). So
+  `edit_note` now treats lines its replacement restates on *both* sides of the
+  match as context, not as text to add (`EditReplacement`). One side alone is
+  written as given, because that is also how an insertion looks; only whole
+  lines count; and the person still approves what results. Tests:
+  `EditReplacementTests` (four) and
+  `anEditThatRestatesItsSurroundingsChangesOneLine`; with the change reverted,
+  three of them fail.
+
+With all of these fixed, every evaluation passes three runs out of three on the
+on-device model (18 of 18), including the trajectory evaluation's "never edits
+unasked". The research probe completes: a plan, two sub-questions and a
+write-up, in 42 s.
+
+The evaluations and the probe both named their defaults suites the old way, and
+`HelloNotesEvaluations.plist` was sitting in the container's Library/Preferences.
+Both now keep their settings out of the person's preferences, and
+`noTestNamesASuiteThatLivesInPreferences` scans the tests for that pattern.
+
+#### Tests and the suite
+
+- **The test host opens no window** (`Scene.suppressedUnderTests`): every run of
+  the suite opened the main window on the person's screen and took focus
+  (`TestHostTests`; without the change it reports `main-AppWindow-1`).
+- **The tag tree is gone**: every index fold built one, and nothing showed it.
+- The flows the backlog asked smoke tests for are covered end to end through the
+  real services — external changes (`ExternalChangeTests`, `ConflictSaveTests`,
+  `WhoseTextWinsTests`), rename with its links (`EscapedAliasLinkTests`,
+  `CollectionFileOperationTests`, `TabsFollowMovesTests`), Git commit and push,
+  and an approved Assistant edit (`AgentToolTests`) — and the data-safety paths
+  §1 named have theirs.
+- **Stale**: Open Quickly on iOS was already fixed; and "the universal slice is
+  verified by hand" has no slice to verify — at a macOS 27 deployment target
+  Xcode 27 builds `arm64` alone, and macOS 27 runs only on Apple silicon. The
+  release runbook says so; the website's "Apple silicon & Intel" belongs to
+  1.3.2 and changes with 1.3.3's site.
+
+#### Found by the final checks
+
+- **The iOS build crashed the compiler.** Making the iOS `DirectoryPresenter`
+  `nonisolated` (above) left `accommodatePresentedSubitemDeletion(at:)` written
+  as `async throws`, and SILGen crashed emitting its Objective-C thunk. The
+  class is iOS-only, so no macOS build, test or type-check could see the crash;
+  the interface tests' build did. It now implements the completion-handler
+  form, as its sibling `accommodatePresentedItemDeletion` does.
+- **The test bundle stopped building for iOS.** `PanelRequestTests`, new in this
+  work, imported AppKit without a platform guard. On iOS it now hosts its panel
+  in a UIKit window, and it passes on the iPhone simulator.
+- **No commit could be made where the account has no name.** When neither Git
+  Settings nor any Git configuration gives an identity, a commit is signed with
+  the account's name. The iOS simulator's account has none, so libgit2 refused
+  every commit ("Signature cannot have an empty name or email").
+  `GitService.fallbackIdentity` never returns an empty name
+  (`GitIdentityTests`), and `GitPushTests`, which failed on iOS for exactly this
+  reason, now pass there.
+- **Warnings.** In app code, the Release build is down to one warning:
+  dictation's tap API, deprecated in 27. It is recorded in unimplemented.md §11,
+  because its replacement takes a different buffer range and needs a microphone
+  to test. These warnings were settled:
+  - Vision's request handed to its queue (`nonisolated(unsafe)`, with a comment
+    saying why).
+  - `RemoteMirror.defaultCacheLimit`, a constant used as a default argument.
+  - Two deliberate discards in `DocumentLoad`.
+  - Three in the package that predated this work.
+
+  Four Swift 6 warnings remain: `SpotlightSearch`'s `finishOnce`,
+  `DiagnosticSelfTest`'s quit, `CommandPalette`'s block and `Chrome`'s
+  `capRatio`. Each is a main-thread callback or a constant the compiler cannot
+  see through, and none is a race at runtime.
+
+#### Verification (2026-10-09, on the final tree)
+
+| Check | Result |
+|---|---|
+| App suite (`run-tests.sh`) | 830 tests in 124 suites, pass |
+| Editor package, macOS | 506 in 51 (289/31, 191/16, 26/4), pass |
+| Editor package, iOS (`HN-iPad`) | 487 in 49 (270/29, 191/16, 26/4), pass |
+| iOS interface tests (`HN-iPhone`) | 13 cases: 12 pass, and the opt-in window-parity capture skips |
+| This work's new suites, on iOS | PanelRequest, HeadingJump, AgentTool, EditReplacement, ScratchDefaults, GitPush, GitIdentity: pass |
+| Model evaluations, on-device, three runs | 18 of 18 |
+| Research probe | pass, 42 s |
+| Main-actor budget suite | 17, pass |
+| Spec sweeps, bare and `PARITY_CONTEXT=1` | 672/672 each |
+| `render-parity.sh` | ok: 5 sizes × 3 widths; 60/60 documents at 1200, 800 and 560; at 420 the known two only; chrome ok |
+| `chrome-parity.sh` | 16 scenes ok, worst Δ6 on 0.003% |
+| Swift 6 type-check | 0 errors; a planted error reported, in each of two files |
+| Release, macOS | builds; app and its three extensions are arm64 only |
+| Release, iOS (generic device) | builds; arm64 |
+
+One gate was not run: `window-parity.sh`. It quits the person's running app and
+relaunches it, and a cloud collection restored from `remoteCollectionCaches`
+would be in the capture.
 
 ## 23. Edit and Preview render the same document
 

@@ -21,10 +21,10 @@
 //  eight rows deep. Two panes scroll independently, so the same 320pt shows the
 //  folders *and* the notes at once.
 //
-//  Crucially the structural objection does not apply here either. The band is a
-//  `NavigationStack` inside a `VStack` (`AdaptiveShell.tallShell`), not column
-//  one of a `NavigationSplitView`, so there is no platform-placed sidebar toggle
-//  to lose by putting two things side by side.
+//  Crucially the structural objection does not apply here either. The band is
+//  the top half of a `VStack` (`AdaptiveShell.tallShell`), and its toggle is the
+//  bar's own sidebar button — the same one the column shells use — so there is
+//  no platform-placed toggle to lose by putting two things side by side.
 //
 //  ## One tree, seen twice
 //
@@ -66,14 +66,6 @@ struct BandTwoPane: View {
     @AppStorage("bandContainerPaneWidth") private var containerPaneWidth
         = Double(ShellMetrics.bandContainerPane)
 
-    /// The band is short, so a row is the unit that matters. A finger needs
-    /// 44pt; a pointer does not, and on a Mac that difference is nearly half
-    /// the rows the band can show.
-    private var rowHeight: CGFloat {
-        shell.prefersTouch ? ShellMetrics.noteRowTouchMinimum
-                           : ShellMetrics.noteRowPointerMinimum
-    }
-
     /// What the left pane may be: enough for a folder name, and never so wide
     /// that the notes beside it have less than a list's worth of room.
     private var paneRange: ClosedRange<CGFloat> {
@@ -94,7 +86,7 @@ struct BandTwoPane: View {
         HStack(spacing: 0) {
             ContainerPane(
                 nodes: containers,
-                rowHeight: rowHeight,
+                accent: accent,
                 selection: $containerID,
                 expandedFolders: $expandedFolders,
                 collapsedCollections: $collapsedCollections,
@@ -104,11 +96,12 @@ struct BandTwoPane: View {
                 onDropIntoFolder: onDropIntoFolder)
                 .frame(width: paneWidth)
 
-            ResizableDivider(width: $containerPaneWidth, range: paneRange, edge: .leading)
+            ResizableDivider(width: $containerPaneWidth, range: paneRange, edge: .leading,
+                             label: "Folder list width")
 
             ContentsPane(
                 container: selectedContainer,
-                rowHeight: rowHeight,
+                accent: accent,
                 selection: $selection,
                 actions: actions,
                 row: row)
@@ -127,9 +120,13 @@ struct BandTwoPane: View {
 
 // MARK: - Left: where you are
 
+/// Collections, places and folders — the containers — drawn with the same rows
+/// as the sidebar tree. It was a `List` of `DisclosureGroup`s in `.subheadline`,
+/// which the OS draws at its own size on each platform; now it is the Mac
+/// outline's 11–12pt rows at 22–24pt, on both.
 private struct ContainerPane: View {
     var nodes: [NoteOutlineItem]
-    var rowHeight: CGFloat
+    var accent: Color
     @Binding var selection: String?
     @Binding var expandedFolders: Set<String>
     @Binding var collapsedCollections: Set<Collection.ID>
@@ -139,194 +136,132 @@ private struct ContainerPane: View {
     var onDropIntoFolder: (String, [URL]) -> Bool
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(nodes, id: \.id) { node in
-                ContainerRow(node: node, depth: 0, selection: $selection,
-                             expandedFolders: $expandedFolders,
-                             collapsedCollections: $collapsedCollections,
-                             focusedCollectionID: focusedCollectionID,
-                             actions: actions,
-                             onCloseCollection: onCloseCollection,
-                             onDropIntoFolder: onDropIntoFolder)
+        let lines = ChromeTree.lines(nodes, expanded: expandedFolders,
+                                     collapsed: collapsedCollections,
+                                     include: { $0.isContainer })
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(lines) { line in row(line) }
             }
+            .padding(.vertical, 4)
         }
-        .environment(\.defaultMinListRowHeight, rowHeight)
-        // The container pane carries names and nothing else — no dates, no
-        // snippets — so it does not need body size to be legible, and every
-        // point it gives back is a point of list.
-        .font(.subheadline)
-    }
-}
-
-private struct ContainerRow: View {
-    let node: NoteOutlineItem
-    /// How deep this row sits, so the row can state its own indent.
-    ///
-    /// The List's default insets are what put the pane 4pt over the 44pt touch
-    /// floor — the height is `max(floor, content + insets)`, and the insets were
-    /// the part nobody had chosen. Taking them means taking the *indent* too,
-    /// because that is the leading inset: hence a depth rather than a constant.
-    /// SwiftUI's own step is around 28pt, which in a 260pt pane is a quarter of
-    /// the name gone by the second level.
-    let depth: Int
-    @Binding var selection: String?
-    @Binding var expandedFolders: Set<String>
-    @Binding var collapsedCollections: Set<Collection.ID>
-    var focusedCollectionID: Collection.ID?
-    var actions: SidebarMenu.Actions
-    var onCloseCollection: (Collection) -> Void
-    var onDropIntoFolder: (String, [URL]) -> Bool
-
-    /// Per level. Enough to read as nesting, and no more.
-    private static let indent: CGFloat = 14
-
-    private var subContainers: [NoteOutlineItem] {
-        node.children.filter { child in
-            switch child.kind {
-            case .collection, .place, .folder: return true
-            case .note, .file: return false
-            }
-        }
+        .viewport()
+        .background(Chrome.Colour.chrome)
     }
 
-    var body: some View {
+    @ViewBuilder
+    private func row(_ line: ChromeTreeLine) -> some View {
+        let node = line.item
         // Once: a folder's list stats the disk, and two menus read it.
         let items = SidebarMenu.items(for: node, actions: actions)
-        Group {
-            if subContainers.isEmpty {
-                label(items).tag(node.id)
-            } else {
-                DisclosureGroup(isExpanded: expansion) {
-                    ForEach(subContainers, id: \.id) { child in
-                        ContainerRow(node: child, depth: depth + 1, selection: $selection,
-                                     expandedFolders: $expandedFolders,
-                                     collapsedCollections: $collapsedCollections,
-                                     focusedCollectionID: focusedCollectionID,
-                                     actions: actions,
-                                     onCloseCollection: onCloseCollection,
-                                     onDropIntoFolder: onDropIntoFolder)
-                    }
-                } label: {
-                    // **The label is the selection, not just a disclosure
-                    // handle.** A folder that can be opened is also a folder
-                    // whose notes you want to see, and a `DisclosureGroup` label
-                    // that is not tagged swallows the tap.
-                    label(items).tag(node.id)
-                }
+        ChromeRowFrame(height: ChromeTree.height(node), depth: line.depth,
+                       isSelected: selection == node.id, accent: accent) {
+            ChromeDisclosure(isExpandable: line.isExpandable, isExpanded: line.isExpanded) {
+                toggle(node)
+            }
+            switch node.kind {
+            case .collection(let collection):
+                ChromeCollectionRow(content: CollectionRowContent.make(collection,
+                                                                      focusedID: focusedCollectionID))
+                Spacer(minLength: 4)
+                RowActionsMenu(name: collection.name, items: items)
+            case .place(let name, let symbol):
+                ChromeLabelRow(systemImage: symbol, title: name, titleSize: 11,
+                               titleColour: Chrome.Colour.secondaryLabel)
+                Spacer(minLength: 4)
+            case .folder(let name):
+                ChromeLabelRow(systemImage: "folder", title: name)
+                Spacer(minLength: 4)
+                RowActionsMenu(name: name, items: items)
+            case .note, .file:
+                // Unreachable: only containers are included. Stated so a leaf
+                // that ever arrives here is a visible wrong row, not a blank one.
+                ChromeLabelRow(systemImage: "questionmark", title: "—")
             }
         }
-        .listRowInsets(EdgeInsets(top: 3, leading: 8 + CGFloat(depth) * Self.indent,
-                                  bottom: 3, trailing: 8))
+        .id(node.id)
+        // **The row is the selection, not a disclosure handle**: a folder that
+        // can be opened is also a folder whose notes you want to see. The
+        // triangle opens it.
+        .onTapGesture { selection = node.id }
         .contextMenu { SidebarMenuItems(items: items) }
         // Recents and Bookmarks hold no files, so they refuse a drop — as
-        // `isEnabled`, not as a `false` returned from the action. macOS 27's
-        // `dropDestination` action returns `Void` and the `Bool` one it replaced
-        // is `@_disfavoredOverload`, so the refusal was being *discarded*
-        // (`expression of type 'Bool' is unused`) and the row still lit up as a
-        // target for a drop it would then ignore.
+        // `isEnabled`, which declines before the row lights up.
         .dropDestination(for: URL.self, isEnabled: !node.isPlace) { urls, _ in
             _ = onDropIntoFolder(node.id, urls)
         }
     }
 
-    /// The row, and its menu visible beside it — the band's rows had only the
-    /// long-press, so on a portrait iPad a collection could not be closed, and
-    /// a folder not trashed, by anyone who did not think to hold it.
-    @ViewBuilder
-    private func label(_ items: [SidebarMenu.Item]) -> some View {
-        switch node.kind {
-        case .collection(let collection):
-            let content = CollectionRowContent.make(collection, focusedID: focusedCollectionID)
-            HStack(spacing: 0) {
-                Label(content.name, systemImage: content.symbol)
-                    .fontWeight(content.isFocused ? .semibold : .regular)
-                    .foregroundStyle(content.unavailable == nil ? .primary : .secondary)
-                    .symbolRenderingMode(content.unavailable == nil ? .monochrome : .multicolor)
-                Spacer(minLength: 4)
-                RowActionsMenu(name: content.name, items: items)
+    private func toggle(_ node: NoteOutlineItem) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            if case .collection(let collection) = node.kind {
+                if collapsedCollections.contains(collection.id) { collapsedCollections.remove(collection.id) }
+                else { collapsedCollections.insert(collection.id) }
+            } else {
+                if expandedFolders.contains(node.id) { expandedFolders.remove(node.id) }
+                else { expandedFolders.insert(node.id) }
             }
-        case .place(let name, let symbol):
-            Label(name, systemImage: symbol)
-        case .folder(let name):
-            HStack(spacing: 0) {
-                Label(name, systemImage: "folder")
-                Spacer(minLength: 4)
-                RowActionsMenu(name: name, items: items)
-            }
-        case .note, .file:
-            // Unreachable: `SidebarTree.containers` removed these. Stated
-            // rather than defaulted so a leaf that ever does arrive here is a
-            // visible wrong row and not an invisible blank one.
-            Label("—", systemImage: "questionmark")
         }
-    }
-
-    private var expansion: Binding<Bool> {
-        if case .collection(let collection) = node.kind {
-            return Binding(get: { !collapsedCollections.contains(collection.id) },
-                           set: { open in
-                               if open { collapsedCollections.remove(collection.id) }
-                               else { collapsedCollections.insert(collection.id) }
-                           })
-        }
-        return Binding(get: { expandedFolders.contains(node.id) },
-                       set: { open in
-                           if open { expandedFolders.insert(node.id) }
-                           else { expandedFolders.remove(node.id) }
-                       })
     }
 }
 
 // MARK: - Right: what is there
 
+/// The chosen container's notes and files, in the same rows as the tree.
 private struct ContentsPane: View {
     var container: NoteOutlineItem?
-    var rowHeight: CGFloat
+    var accent: Color
     @Binding var selection: URL?
     var actions: SidebarMenu.Actions
     var row: (Note, String?) -> AnyView
-
-    /// Chosen rather than inherited, for the same reason the container pane
-    /// chooses its own: the row height is `max(floor, content + insets)`, and
-    /// the List's defaults put it over the 44pt floor by four points. There is
-    /// no nesting here, so unlike the left pane the leading inset is a constant.
-    private static let insets = EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12)
 
     private var items: [NoteOutlineItem] {
         container.map { SidebarTree.leaves(of: $0) } ?? []
     }
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(items, id: \.id) { item in
-                switch item.kind {
-                case .note(let note, let snippet):
-                    row(note, snippet)
-                        .listRowInsets(Self.insets)
-                        .contextMenu {
-                            SidebarMenuItems(items: SidebarMenu.items(for: item, actions: actions))
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(items, id: \.id) { item in
+                    ChromeRowFrame(height: ChromeTree.height(item),
+                                   isSelected: item.url != nil && item.url == selection,
+                                   accent: accent) {
+                        switch item.kind {
+                        case .note(let note, let snippet):
+                            row(note, snippet)
+                        case .file(let file):
+                            ChromeLabelRow(systemImage: file.kind.symbol, title: file.name)
+                                .draggable(file.url)
+                        case .collection, .place, .folder:
+                            EmptyView()
                         }
-                case .file(let file):
-                    Label(file.name, systemImage: file.kind.symbol)
-                        .tag(file.url)
-                        .listRowInsets(Self.insets)
-                        .contextMenu {
-                            SidebarMenuItems(items: SidebarMenu.items(for: item, actions: actions))
-                        }
-                case .collection, .place, .folder:
-                    EmptyView()
+                    }
+                    .onTapGesture { if let url = item.url { selection = url } }
+                    .contextMenu {
+                        SidebarMenuItems(items: SidebarMenu.items(for: item, actions: actions))
+                    }
                 }
             }
+            .padding(.vertical, 4)
         }
-        .environment(\.defaultMinListRowHeight, rowHeight)
+        .viewport()
+        .background(Chrome.Colour.content)
         .overlay {
             if items.isEmpty {
-                ContentUnavailableView(
-                    container == nil ? "Nothing Selected" : "No Notes Here",
-                    systemImage: container == nil ? "sidebar.left" : "tray",
-                    description: Text(container == nil
-                        ? "Choose a collection or folder on the left."
-                        : "This folder has no notes of its own."))
+                // Not `ContentUnavailableView`, which is drawn at each OS's own
+                // sizes.
+                VStack(spacing: 6) {
+                    Image(systemName: container == nil ? "sidebar.left" : "tray")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(Chrome.Colour.tertiaryLabel)
+                    Text(container == nil ? "Nothing Selected" : "No Notes Here")
+                        .font(Chrome.Typeface.title)
+                        .foregroundStyle(Chrome.Colour.label)
+                    Text(container == nil ? "Choose a collection or folder on the left."
+                                          : "This folder has no notes of its own.")
+                        .font(Chrome.Typeface.secondary)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
+                }
             }
         }
     }
@@ -354,39 +289,5 @@ struct SidebarLayout<Column: View, Band: View>: View {
 
     var body: some View {
         if shell.kind == .tall { band() } else { column() }
-    }
-}
-
-/// The tall shell's sidebar toggle.
-///
-/// `NavigationSplitView` hands column one a toggle for free, and the tall shell
-/// is a `VStack`, so it was handed nothing: its 320pt band held that much of
-/// every portrait iPad screen with no way to put it away — the one shell where
-/// what you are reading is the smaller half.
-///
-/// It resolves `@Environment(\.shell)` itself for the reason `SidebarLayout`
-/// above spells out: the toolbar is *declared* in `ContentView`, which sits
-/// above the shell, but each item's content is *placed* inside it, where the
-/// environment is real. Reading the kind in `ContentView` would answer `.wide`
-/// in every window and the button would never appear.
-///
-/// Nothing at all in the other shells, rather than a disabled button: they have
-/// a working toggle of their own, and two toggles for one sidebar is worse than
-/// one.
-struct BandToggle: View {
-    @Binding var hidden: Bool
-    @Environment(\.shell) private var shell
-
-    var body: some View {
-        if shell.kind == .tall {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { hidden.toggle() }
-            } label: {
-                Label(hidden ? "Show Collections" : "Hide Collections",
-                      systemImage: hidden ? "sidebar.leading" : "sidebar.squares.leading")
-            }
-            .help(hidden ? "Show the collection list" : "Hide the collection list")
-            .accessibilityIdentifier("shell.bandToggle")
-        }
     }
 }

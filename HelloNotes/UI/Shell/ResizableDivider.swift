@@ -41,6 +41,10 @@ struct ResizableDivider: View {
     /// editor its own.
     let range: ClosedRange<CGFloat>
     var edge: ResizeEdge = .trailing
+    /// What VoiceOver calls it — the region it sizes. Every divider was
+    /// "Panel width", the sidebar's and the band's too (primary.md §12,
+    /// item 9; implemented.md §51.36).
+    var label: String = "Panel width"
 
     /// The width when this drag began, so the gesture is absolute rather than
     /// accumulating rounding.
@@ -51,7 +55,11 @@ struct ResizableDivider: View {
     private static let grabWidth: CGFloat = 10
 
     var body: some View {
-        Divider()
+        // `Chrome.Colour.separator`, not `Divider()`: the system divider is a
+        // different grey on each platform.
+        Rectangle()
+            .fill(Chrome.Colour.separator)
+            .frame(width: 1)
             .overlay {
                 Color.clear
                     .frame(width: Self.grabWidth)
@@ -59,7 +67,7 @@ struct ResizableDivider: View {
                     .gesture(drag)
                     .resizeCursor()
                     .accessibilityElement()
-                    .accessibilityLabel("Panel width")
+                    .accessibilityLabel(label)
                     .accessibilityValue("\(Int(width)) points")
                     .accessibilityAdjustableAction { direction in
                         let step: CGFloat = 20
@@ -69,8 +77,13 @@ struct ResizableDivider: View {
             }
     }
 
+    /// Measured in the window's coordinates, which stay where they are while
+    /// the divider moves. In its own — a `DragGesture`'s default — every step
+    /// was measured from a divider the step before had already moved, so
+    /// every column followed the pointer at half its speed (implemented.md
+    /// §51.29, `RuleDragTests`).
     private var drag: some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
                 let start = startWidth ?? CGFloat(width)
                 if startWidth == nil { startWidth = start }

@@ -20,11 +20,12 @@ import SwiftUI
 import MLXFoundationModels
 import UniformTypeIdentifiers
 
-/// The AI page of Settings — the Mac's AI tab and iOS's Settings ▸ AI, and the
-/// only AI settings screen: every "AI Settings…" opens Settings here
-/// (`SettingsPage.ai`). Already a `Form`, so never wrap it in another one.
-/// Nested forms collapse to a clipped stub; that is how the iOS AI screen
-/// shipped in build 11 having never drawn (see `ScreenRenderTests`).
+/// The AI page of Settings, on both platforms, and the only AI settings
+/// screen: every "AI Settings…" opens Settings here (`SettingsPage.ai`).
+/// Already a `ChromeForm`, which scrolls itself, so it is placed as a page and
+/// never wrapped in another form. Nested forms collapse to a clipped stub;
+/// that is how the iOS AI screen shipped in build 11 having never drawn (see
+/// `ScreenRenderTests`).
 struct IntelligenceSettingsForm: View {
     @Bindable var settings: IntelligenceSettings
 
@@ -51,13 +52,12 @@ struct IntelligenceSettingsForm: View {
     }
 
     var body: some View {
-        startingInHuggingFaceCache(Form {
+        startingInHuggingFaceCache(ChromeForm {
             modelsSection
             assistantSection
             mlxSection
             inlineCompletionSection
         }
-        .formStyle(.grouped)
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { mlx.chooseFolder(url) }
         })
@@ -97,7 +97,7 @@ struct IntelligenceSettingsForm: View {
     // MARK: - Models
 
     private var modelsSection: some View {
-        Section {
+        ChromeSection {
             modelPicker
             modelCaption(for: settings.model,
                          role: "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Library, Research and the suggestions as you type.")
@@ -105,12 +105,12 @@ struct IntelligenceSettingsForm: View {
             if settings.model == .privateCloud, let quota = models.privateCloudQuotaNote {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(quota, systemImage: "gauge.with.dots.needle.67percent")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                         .fixedSize(horizontal: false, vertical: true)
                     if models.canSuggestLimitIncrease {
                         Button("Request More") { models.suggestLimitIncrease() }
-                            .font(.caption)
+                            .controlSize(.small)
                     }
                 }
             }
@@ -128,35 +128,33 @@ struct IntelligenceSettingsForm: View {
         let current = settings.option(for: settings.model)
         var options = models.options
         if !options.contains(current) { options.append(current) }
-        return Picker("Model", selection: Binding(
+        return ChromePopUp("Model", selection: Binding(
             get: { current },
             set: { settings.choose($0) }
-        )) {
-            ForEach(options) { option in
-                Label(models.title(of: option), systemImage: models.systemImage(of: option))
-                    .tag(option)
-            }
-        }
+        ), options: options.map { option in
+            ChromeOption(value: option, title: models.title(of: option),
+                         systemImage: models.systemImage(of: option))
+        })
     }
 
     /// What the role covers, where its text goes, and — when the model cannot
     /// run — why not. Three short lines rather than a paragraph, because the
     /// middle one is the one that matters and must not be buried.
     ///
-    /// The symbols are inline in the text rather than `Label`s: inside a form
-    /// row a `Label` reserves an icon column, which indented the privacy line
-    /// past the line above it on iOS.
+    /// The symbols are inline in the text rather than `Label`s, so every line
+    /// starts at the same edge: a `Label` sets its glyph beside its text, which
+    /// indented the privacy line past the line above it.
     private func modelCaption(for choice: ModelChoice, role: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(role)
             Text("\(Image(systemName: choice.runsOnDevice ? "lock" : "lock.icloud")) \(models.privacySummary(of: choice))")
             if let reason = models.availability(of: choice).reason {
                 Text("\(Image(systemName: "exclamationmark.circle")) \(reason)")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Chrome.Colour.orange)
             }
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        .font(Chrome.Style.caption)
+        .foregroundStyle(Chrome.Colour.secondaryLabel)
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -167,28 +165,35 @@ struct IntelligenceSettingsForm: View {
     /// maximum response tokens and (through `ContextOptions`) reasoning level.
     /// Anything else here would be a control the model never sees.
     private var assistantSection: some View {
-        Section {
-            HStack {
+        ChromeSection {
+            HStack(spacing: 8) {
                 Text("Creativity")
-                Slider(value: $settings.temperature, in: 0...2)
+                ChromeSlider(value: $settings.temperature, in: 0...2)
                 Text(settings.temperature, format: .number.precision(.fractionLength(1)))
-                    .monospacedDigit().foregroundStyle(.secondary)
+                    .monospacedDigit().foregroundStyle(Chrome.Colour.secondaryLabel)
             }
 
-            Picker("Sampling", selection: $settings.sampling) {
-                ForEach(SamplingChoice.allCases) { Text($0.title).tag($0) }
-            }
+            ChromePopUp("Sampling", selection: $settings.sampling,
+                        options: SamplingChoice.allCases.map { ChromeOption(value: $0, title: $0.title) })
             switch settings.sampling {
             case .topK:
-                Stepper(value: $settings.samplingTopK, in: 1...100) {
-                    LabeledContent("Words to sample from", value: "\(settings.samplingTopK)")
+                // The count beside the stepper, as a form row shows a value
+                // beside its control — so the stepper draws no label of its own.
+                LabeledContent("Words to sample from") {
+                    HStack(spacing: 6) {
+                        Text("\(settings.samplingTopK)").monospacedDigit()
+                        ChromeStepper(value: $settings.samplingTopK, in: 1...100) { EmptyView() }
+                            .labelsHidden()
+                            .accessibilityLabel("Words to sample from")
+                            .accessibilityValue("\(settings.samplingTopK)")
+                    }
                 }
             case .topP:
-                HStack {
+                HStack(spacing: 8) {
                     Text("Probability")
-                    Slider(value: $settings.samplingThreshold, in: 0.05...1)
+                    ChromeSlider(value: $settings.samplingThreshold, in: 0.05...1)
                     Text(settings.samplingThreshold, format: .number.precision(.fractionLength(2)))
-                        .monospacedDigit().foregroundStyle(.secondary)
+                        .monospacedDigit().foregroundStyle(Chrome.Colour.secondaryLabel)
                 }
             case .automatic, .greedy:
                 EmptyView()
@@ -196,20 +201,19 @@ struct IntelligenceSettingsForm: View {
             if settings.sampling == .topK || settings.sampling == .topP {
                 LabeledField(label: "Seed", text: seedText, prompt: "Random", isPath: true)
             }
-            Text(settings.sampling.caption).font(.caption).foregroundStyle(.secondary)
+            Text(settings.sampling.caption).font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                 .fixedSize(horizontal: false, vertical: true)
 
             LabeledField(label: "Maximum reply", text: maximumReplyText, prompt: "No limit", isPath: true)
 
             if models.supportsReasoning(settings.model) {
-                Picker("Thinking", selection: $settings.reasoning) {
-                    ForEach(ReasoningChoice.allCases) { Text($0.title).tag($0) }
-                }
+                ChromePopUp("Thinking", selection: $settings.reasoning,
+                            options: ReasoningChoice.allCases.map { ChromeOption(value: $0, title: $0.title) })
             }
             Text(models.supportsReasoning(settings.model)
                  ? "Lower creativity is more focused and predictable. More thinking gives better answers to hard questions, and takes longer."
                  : "Lower creativity is more focused and predictable; higher is more varied. These are the model's own settings, and they apply to the Assistant — the writing tools ask for what each task needs.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                 .fixedSize(horizontal: false, vertical: true)
         } header: {
             Text("Assistant")
@@ -231,22 +235,22 @@ struct IntelligenceSettingsForm: View {
     // MARK: - MLX
 
     private var mlxSection: some View {
-        Section {
+        ChromeSection {
             LabeledContent("Models folder") {
                 HStack {
                     Text(mlx.folderName)
-                        .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel).lineLimit(1).truncationMode(.middle)
                     Button(folderButtonTitle) { choosingFolder = true }
                 }
             }
 
             ForEach(mlx.models) { model in modelRow(model) }
             if mlx.models.isEmpty {
-                Text("No MLX models in this folder yet.").foregroundStyle(.secondary)
+                Text("No MLX models in this folder yet.").foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             if mlx.usesOwnStorage {
                 Text(accessHelp)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -265,16 +269,16 @@ struct IntelligenceSettingsForm: View {
                     .disabled(!customModel.contains("/") || mlx.modelsFolder == nil)
                 }
             }
-            Link("Browse MLX models on Hugging Face", destination: Self.mlxCommunity)
+            ChromeLink("Browse MLX models on Hugging Face", destination: Self.mlxCommunity)
 
             if let caution = mlx.sizeCaution {
                 Label(caution, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let error = mlx.lastError {
                 Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             }
         } header: {
@@ -336,37 +340,37 @@ struct IntelligenceSettingsForm: View {
                 Text(model.name).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Text(model.bytes.formatted(.byteCount(style: .file)))
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel).monospacedDigit()
             }
             if model.rendersTools == false {
                 Text("Can't use tools — with it the Assistant chats only, and Research isn't available.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
                 if !inUse { Button("Use") { settings.choose(.mlx(model.id)) } }
                 Button("Remove…", role: .destructive) { removing = model }
             }
-            .font(.caption)
-            .buttonStyle(.borderless)
+            .font(Chrome.Style.caption)
+            .buttonStyle(ChromeBorderlessStyle())
         }
     }
 
     // MARK: - Inline completion
 
     private var inlineCompletionSection: some View {
-        Section("Inline Completion") {
+        ChromeSection("Inline Completion") {
             Toggle("Suggest as I type", isOn: $inlineCompletion)
                 .disabled(ghostTextUnavailable != nil)
             if let ghostTextUnavailable {
                 // The toggle is off *and* disabled here, and without this line
                 // those look identical to a toggle that simply does nothing.
                 Label(ghostTextUnavailable, systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text(ghostTextHelp)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

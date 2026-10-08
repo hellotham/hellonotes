@@ -22,6 +22,7 @@
 //
 
 import Foundation
+import MarkdownCore
 
 @MainActor
 enum WikiLinkNavigation {
@@ -40,12 +41,34 @@ enum WikiLinkNavigation {
     /// The schemes a `[[target]]` may name that are *not* notes.
     private static let webSchemes: Set<String> = ["http", "https", "mailto", "file"]
 
-    /// Split `Note#heading` into its parts. An empty heading is no heading —
-    /// `[[Note#]]` is a typo, not a request to jump to a nameless section.
+    /// Split what a link names into the note and the heading: the alias off
+    /// first (`withoutAlias`), then the heading, and the note's name trimmed.
+    /// An empty heading is no heading — `[[Note#]]` is a typo, not a request
+    /// to jump to a nameless section.
+    ///
+    /// The editor hands over everything between the brackets, alias and all
+    /// (`wikiTargetAttribute`), and colours the link by its name alone —
+    /// alias off, heading off, trimmed (`StyleApplier.baseTitle`) — so
+    /// following it goes where the colour says. This took off the heading and
+    /// nothing else: `[[Roadmap|the plan]]`, coloured as found, was followed
+    /// to a note named `Roadmap|the plan`, and the main window, which creates
+    /// what a link names, made one (implemented.md §51.35).
     static func split(_ target: String) -> (base: String, heading: String?) {
-        guard let hash = target.firstIndex(of: "#") else { return (target, nil) }
-        let after = String(target[target.index(after: hash)...])
-        return (String(target[..<hash]), after.isEmpty ? nil : after)
+        let named = withoutAlias(target)
+        guard let hash = named.firstIndex(of: "#") else {
+            return (named.trimmingCharacters(in: .whitespaces), nil)
+        }
+        let after = String(named[named.index(after: hash)...])
+        return (String(named[..<hash]).trimmingCharacters(in: .whitespaces), after.isEmpty ? nil : after)
+    }
+
+    /// What a link names, before its alias: up to the first `|`, and without
+    /// the backslash that escapes that pipe in a table's row — where the alias
+    /// is written `[[Note\|alias]]`, or the pipe would divide the cell — by
+    /// the rule every reader of a link shares (`WikiLinkSyntax`,
+    /// implemented.md §51.36).
+    static func withoutAlias(_ target: String) -> String {
+        String(WikiLinkSyntax.split(target).target)
     }
 
     /// Resolve `target` to what should happen.
@@ -63,7 +86,9 @@ enum WikiLinkNavigation {
                         in collection: Collection?,
                         current: Note?,
                         createOnMiss: Bool = true) async -> Destination {
-        if let url = URL(string: target),
+        // The alias off before anything else: `[[https://example.com|the
+        // page]]` is an address, and the alias is not part of it.
+        if let url = URL(string: withoutAlias(target).trimmingCharacters(in: .whitespaces)),
            let scheme = url.scheme?.lowercased(),
            webSchemes.contains(scheme) {
             return .web(url)

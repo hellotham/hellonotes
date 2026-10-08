@@ -63,16 +63,27 @@ enum MentionLinker {
     static func linkFirstMention(of title: String,
                                  in note: Note,
                                  collection: Collection) async {
+        // **Open in an editor: made there**, to what is on screen, and written
+        // by its own save (`applyEdit`) — as the Assistant's edits are. Written
+        // to the file and told to no editor, it met the note's tab as a change
+        // made elsewhere, and asked the person to choose (implemented.md §51.36).
+        if let editor = EditorModel.editors(holding: note.fileURL).first(where: { $0.isLoaded && !$0.hasConflict }) {
+            editor.applyEdit { MentionScanner.linkingFirstMention(of: title, in: $0) }
+            return
+        }
+        // Otherwise the file — and only over the text the link was found in.
         let updated = await offMain { () -> String? in
             guard let text = try? FileIO.readString(at: note.fileURL),
-                  let updated = MentionScanner.linkingFirstMention(of: title, in: text)
+                  let updated = MentionScanner.linkingFirstMention(of: title, in: text),
+                  (try? FileIO.replace(updated, at: note.fileURL, ifContentsEqual: text)) == true
             else { return nil }
-            try? FileIO.write(Data(updated.utf8), to: note.fileURL)
             return updated
         }
         guard let updated else { return }
         // The note *set* is unchanged (one note's content), so no re-scan:
-        // patch the index incrementally and suppress the watcher for our write.
+        // patch the index incrementally and suppress the watcher for our write
+        // — and tell the open editors, which the watcher then will not.
         collection.noteDidSave(note.fileURL, text: updated)
+        collection.noteChangedOutsideEditor()
     }
 }

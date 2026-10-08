@@ -58,17 +58,22 @@ enum WebAuthAnchor {
         // happens to yield, and the sign-in sheet lands over the wrong window.
         // Sorted by how ready each scene is to host it, then by identity so the
         // choice is at least stable across calls.
+        //
+        // `rank` is declared here, where it is the main actor's like the rest
+        // of this method. Declared inside the sort's closure it was nonisolated,
+        // and `activationState` is a main-actor property — a warning only the
+        // iOS build could show.
+        func rank(_ scene: UIWindowScene) -> Int {
+            switch scene.activationState {
+            case .foregroundActive: 0
+            case .foregroundInactive: 1
+            case .background: 2
+            default: 3
+            }
+        }
         let scenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .sorted { lhs, rhs in
-                func rank(_ scene: UIWindowScene) -> Int {
-                    switch scene.activationState {
-                    case .foregroundActive: 0
-                    case .foregroundInactive: 1
-                    case .background: 2
-                    default: 3
-                    }
-                }
                 let (l, r) = (rank(lhs), rank(rhs))
                 if l != r { return l < r }
                 // Same readiness: prefer the one with a key window, then break

@@ -60,31 +60,40 @@ struct CloneRepositoryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Label("Clone Repository", systemImage: "arrow.down.circle").font(.headline)
-                Spacer()
+            ChromeSheetBar("Clone Repository") {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            } trailing: {
+                if git.isBusy {
+                    // A real cancel: libgit2 aborts the transfer at its next progress
+                    // tick (SwiftGitX's callback honours Task.isCancelled).
+                    Button("Stop", role: .cancel) { git.cancelClone() }
+                } else {
+                    Button {
+                        clone()
+                    } label: {
+                        Label("Clone…", systemImage: "arrow.down.circle")
+                    }
+                    .buttonStyle(ChromePushStyle(prominent: true))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(repoURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
             }
-            .padding()
-            Divider()
 
-            Form {
+            ChromeForm {
                 if store.accounts.isEmpty {
-                    Section {
+                    ChromeSection {
                         Text("No accounts connected. Paste a public repository URL below, or add an account in Git Settings to browse your private repositories.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     }
                 } else {
                     browseSection
                 }
                 urlSection
             }
-            .formStyle(.grouped)
 
-            Divider()
-            footer
+            status
         }
-        .panelFrame(width: 560, height: 640)
+        .chromeSheetFrame(width: 560, height: 640)
         // `FolderPicker` has been cross-platform since it was lifted out of the
         // iOS shell — an `NSOpenPanel` in a zero-size sheet on the Mac, the
         // document picker on iOS. This view went on calling `NSOpenPanel`
@@ -102,26 +111,28 @@ struct CloneRepositoryView: View {
 
     // MARK: - Browse
 
+    /// "None", then every connected account, by host.
+    private var accountOptions: [ChromeOption<String>] {
+        [ChromeOption(value: "", title: "None")]
+            + store.accounts.map { ChromeOption(value: $0.host, title: $0.host) }
+    }
+
     private var browseSection: some View {
-        Section("Browse your repositories") {
-            Picker("Account", selection: $selectedHost) {
-                Text("None").tag("")
-                ForEach(store.accounts) { Text($0.host).tag($0.host) }
-            }
-            .onChange(of: selectedHost) { _, _ in loadRepositories() }
+        ChromeSection("Browse your repositories") {
+            ChromePopUp("Account", selection: $selectedHost, options: accountOptions)
+                .onChange(of: selectedHost) { _, _ in loadRepositories() }
 
             if isLoading {
-                HStack { ProgressView().controlSize(.small); Text("Loading…").foregroundStyle(.secondary) }
+                HStack { ProgressView().controlSize(.small); Text("Loading…").foregroundStyle(Chrome.Colour.secondaryLabel) }
             } else if let loadError {
                 Label(loadError, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.orange)
             } else if !selectedHost.isEmpty {
                 if repos.isEmpty {
                     Text("No repositories found for this account.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                 } else {
-                    TextField("Filter", text: $filter, prompt: Text("Filter repositories"))
-                        .textFieldStyle(.roundedBorder)
+                    ChromeTextField("Filter", text: $filter, prompt: "Filter repositories")
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(filteredRepos) { repo in repoRow(repo) }
@@ -140,12 +151,12 @@ struct CloneRepositoryView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: repo.isPrivate ? "lock.fill" : "book.closed")
-                    .foregroundStyle(repo.isPrivate ? Color.orange : Color.secondary)
+                    .foregroundStyle(repo.isPrivate ? Chrome.Colour.orange : Chrome.Colour.secondaryLabel)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(repo.fullName).fontWeight(.medium)
                     if let d = repo.description, !d.isEmpty {
-                        Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(d).font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel).lineLimit(1)
                     }
                 }
                 Spacer()
@@ -153,46 +164,45 @@ struct CloneRepositoryView: View {
             }
             .padding(.vertical, 5).padding(.horizontal, 6)
             .contentShape(Rectangle())
-            .background(selected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+            // The tint, which is the person's chosen accent — `Color.accentColor`
+            // is the asset catalog's, whatever they chose.
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 5).fill(.tint.opacity(0.12))
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePlainStyle())
     }
 
-    // MARK: - URL + action
+    // MARK: - URL + status
 
     private var urlSection: some View {
-        Section("Repository URL") {
+        ChromeSection("Repository URL") {
             LabeledField(label: "URL", text: $repoURL, prompt: "https://github.com/you/notes.git", isPath: true)
             Text("Private repositories clone using the token of the matching connected account.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
         }
     }
 
-    private var footer: some View {
-        HStack {
-            if git.isBusy {
-                ProgressView().controlSize(.small)
-                Text("Cloning…").foregroundStyle(.secondary)
-            } else if let error = git.lastError {
-                Label(error, systemImage: "xmark.octagon").font(.caption).foregroundStyle(.red)
-                    .lineLimit(4).textSelection(.enabled).help(error)
-            }
-            Spacer()
-            if git.isBusy {
-                // A real cancel: libgit2 aborts the transfer at its next progress
-                // tick (SwiftGitX's callback honours Task.isCancelled).
-                Button("Stop", role: .cancel) { git.cancelClone() }
-            } else {
-                Button {
-                    clone()
-                } label: {
-                    Label("Clone…", systemImage: "arrow.down.circle")
+    /// How the clone is going, at the foot: its progress, or why it failed.
+    /// The buttons that start and stop it are in the bar.
+    @ViewBuilder
+    private var status: some View {
+        if git.isBusy || git.lastError != nil {
+            ChromeDivider()
+            HStack(spacing: 8) {
+                if git.isBusy {
+                    ProgressView().controlSize(.small)
+                    Text("Cloning…").foregroundStyle(Chrome.Colour.secondaryLabel)
+                } else if let error = git.lastError {
+                    Label(error, systemImage: "xmark.octagon").font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.red)
+                        .lineLimit(4).textSelection(.enabled).help(error)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(repoURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                Spacer(minLength: 0)
             }
+            .padding(12)
         }
-        .padding()
     }
 
     // MARK: - Logic

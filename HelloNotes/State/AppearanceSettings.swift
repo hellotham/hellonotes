@@ -61,13 +61,15 @@ final class AppearanceSettings {
             switch self {
             case .multicolor, .custom: return nil
             case .lavender: return AppearanceSettings.brandLavender
-            case .blue: return .blue
-            case .purple: return .purple
-            case .pink: return .pink
-            case .red: return .red
-            case .orange: return .orange
-            case .yellow: return .yellow
-            case .green: return .green
+            // The Mac's hues, fixed: `.blue` is a different blue on iOS, and
+            // an accent is the most visible colour in the app.
+            case .blue: return Chrome.Colour.blue
+            case .purple: return Chrome.Colour.purple
+            case .pink: return Chrome.Colour.pink
+            case .red: return Chrome.Colour.red
+            case .orange: return Chrome.Colour.orange
+            case .yellow: return Chrome.Colour.yellow
+            case .green: return Chrome.Colour.green
             case .graphite: return Color(white: 0.5)
             }
         }
@@ -422,21 +424,38 @@ final class AppearanceSettings {
 
 private struct ThemedRoot: ViewModifier {
     let settings: AppearanceSettings
+    @Environment(\.dynamicTypeSize) private var systemTypeSize
+
     func body(content: Content) -> some View {
+        // The app's own controls, fonts and colours are the defaults for the
+        // whole window (`chromeDefaults`), so nothing below falls back to the
+        // platform's drawing by naming no style.
         #if os(macOS)
         // The Mac has no user-facing Dynamic Type, so the app's Text Size
         // slider drives the chrome directly.
         content
+            .chromeDefaults()
             .tint(settings.accentColor)
             .preferredColorScheme(settings.colorScheme)
             .dynamicTypeSize(settings.dynamicTypeSize)
+            .onChange(of: settings.dynamicTypeSize, initial: true) { _, size in
+                ChromeTextScale.shared.update(app: size)
+            }
         #else
-        // On iOS the system Text Size (Dynamic Type) must win — forcing the
-        // app's own size would override the user's accessibility setting. The
-        // in-app slider still scales the editor and preview fonts.
+        // On iOS the system Text Size (Dynamic Type) is not overridden —
+        // forcing the app's own size would override the user's accessibility
+        // setting. The app's slider scales the chrome here exactly as on the
+        // Mac, and the system's size is applied on top of it.
         content
+            .chromeDefaults()
             .tint(settings.accentColor)
             .preferredColorScheme(settings.colorScheme)
+            .onChange(of: settings.dynamicTypeSize, initial: true) { _, size in
+                ChromeTextScale.shared.update(app: size, system: systemTypeSize)
+            }
+            .onChange(of: systemTypeSize) { _, size in
+                ChromeTextScale.shared.update(app: settings.dynamicTypeSize, system: size)
+            }
         #endif
     }
 }

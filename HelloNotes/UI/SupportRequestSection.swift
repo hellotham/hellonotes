@@ -41,7 +41,7 @@ struct SupportRequestSection: View {
     @State private var summary = ""
 
     var body: some View {
-        Section {
+        ChromeSection {
             if store.canRequestSupport {
                 entitled
             } else {
@@ -70,7 +70,7 @@ struct SupportRequestSection: View {
         .disabled(summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
         if let entitlement = store.supportEntitlement {
-            LabeledContent("Sending as") { Text(entitlement).foregroundStyle(.secondary) }
+            LabeledContent("Sending as") { Text(entitlement).foregroundStyle(Chrome.Colour.secondaryLabel) }
         }
     }
 
@@ -89,8 +89,8 @@ struct SupportRequestSection: View {
                 // direction at all, so reordering the screen cannot make the
                 // sentence false again.
                 Text("Either one is on this screen. Nothing else in HelloNotes is affected either way.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.footnote)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
             }
         } icon: {
             Image(systemName: "lock")

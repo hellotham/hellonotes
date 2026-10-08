@@ -161,6 +161,37 @@ public final class EditorProxy {
     }
 }
 
+/// The Mac editor's clip view: it lets the note scroll up past its end by
+/// `pastEnd`, so the last line can be brought to the middle of the window.
+///
+/// Room to scroll *into* — nothing about the view is counted as covered, so
+/// `scrollRangeToVisible` and every other scroll-to-visible sees the whole
+/// view. The space was a bottom content inset, and an inset is exactly what
+/// those treat as hidden (`MarkdownTextView.updateScrollPastEnd`).
+final class PastEndClipView: NSClipView {
+    var pastEnd: CGFloat = 0 {
+        didSet {
+            guard pastEnd != oldValue else { return }
+            // Scrolled further than the new room allows: come back to it.
+            let allowed = constrainBoundsRect(bounds)
+            guard allowed.origin != bounds.origin else { return }
+            scroll(to: allowed.origin)
+            (superview as? NSScrollView)?.reflectScrolledClipView(self)
+        }
+    }
+
+    /// The system's limit, and `pastEnd` beyond it at the bottom. The editor's
+    /// document is flipped, so further down the note is a larger `y`.
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposedBounds)
+        guard pastEnd > 0, let document = documentView, document.isFlipped,
+              proposedBounds.origin.y > rect.origin.y else { return rect }
+        let furthest = document.frame.maxY - rect.height + contentInsets.bottom + pastEnd
+        rect.origin.y = min(proposedBounds.origin.y, max(rect.origin.y, furthest))
+        return rect
+    }
+}
+
 public final class MarkdownTextView: NSTextView {
 
     /// Build the full scroll-view + TextKit 2 text-view assembly. Public so
@@ -213,6 +244,9 @@ public final class MarkdownTextView: NSTextView {
         }
 
         let scrollView = NSScrollView()
+        // Before anything else touches it: the clip view that gives the note
+        // room to scroll past its end (`PastEndClipView`).
+        scrollView.contentView = PastEndClipView()
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         // Leave `automaticallyAdjustsContentInsets` at its default (true).
@@ -407,6 +441,18 @@ public final class MarkdownTextView: NSTextView {
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
     }
 
+    /// Heading jumps addressed to this view's editor: shown on arrival when the
+    /// view is in a window, and when it gets there when it is not — a tab
+    /// opened by following `[[Note#Heading]]` is not, yet (`EditorBus`).
+    public private(set) lazy var headingJumps = HeadingJumpListener(
+        isReady: { [weak self] in self?.window != nil },
+        show: { [weak self] jump in self?.showHeading(ordinal: jump.ordinal, title: jump.title) })
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        headingJumps.surfaceBecameReady()
+    }
+
     /// Ask the document to style what's on screen (± a margin), so fast
     /// scrolling never outruns the background styling pass.
     func ensureVisibleRangeStyled() {
@@ -520,31 +566,31 @@ public final class MarkdownTextView: NSTextView {
     /// Room to scroll **past** the end of the note, so the last line can be
     /// brought to the middle of the window rather than stopping at the bottom.
     ///
-    /// The UIKit twin of this does the same thing with `contentInset.bottom`.
-    /// On AppKit the inset belongs to the scroll view, and
-    /// `automaticallyAdjustsContentInsets` has to be off or the value is
-    /// recomputed from the window's chrome and ours is discarded.
-    ///
     /// The line you are writing is always the last one, and without this it is
     /// pinned to the bottom edge — the least comfortable place on screen to
     /// look at for any length of time.
-    private func updateScrollPastEndInset() {
-        guard let scroll = enclosingScrollView else { return }
-        let viewport = scroll.contentView.bounds.height
-        let content = frame.height
+    ///
+    /// Half the viewport, once the note is long enough to scroll, handed to
+    /// the clip view as room to scroll *into* (`PastEndClipView`). It used to
+    /// be the scroll view's bottom content inset, which AppKit — like UIKit —
+    /// counts as covered: `scrollRangeToVisible` on a line in the lower half of
+    /// the view scrolled it up to the middle, so the first keystroke typed on
+    /// any line down there jumped the note (`ScrollPastEndTests`). Setting the
+    /// inset also meant turning `automaticallyAdjustsContentInsets` off, which
+    /// is what keeps the first lines of a note out from under a toolbar.
+    private func updateScrollPastEnd() {
+        guard let clip = enclosingScrollView?.contentView as? PastEndClipView else { return }
+        let viewport = clip.bounds.height - clip.contentInsets.top
         guard viewport > 0 else { return }
-        let wanted = content > viewport ? viewport / 2 : 0
-        guard abs(scroll.contentInsets.bottom - wanted) > 0.5 else { return }
-        scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets.bottom = wanted
-        // The scroller tracks the text, not the empty space under it.
-        scroll.scrollerInsets.bottom = -wanted
+        let wanted = frame.height > viewport ? viewport / 2 : 0
+        guard abs(clip.pastEnd - wanted) > 0.5 else { return }
+        clip.pastEnd = wanted
     }
 
     public override func layout() {
         super.layout()
         syncRenderMetrics()
-        updateScrollPastEndInset()
+        updateScrollPastEnd()
     }
 
     /// Light ↔ Dark. `syncRenderMetrics()` runs from `layout()`, and switching
@@ -696,6 +742,8 @@ public final class MarkdownTextView: NSTextView {
     /// Host AI hook: when set (and the view is editable), the selection's
     /// context menu offers "Rewrite with AI…", delivering the selected range.
     var onRewriteSelection: ((NSRange) -> Void)?
+    /// Where a rendered diagram's enlarge button sends its press (`DiagramZoom`).
+    var onDiagramZoom: ((DiagramZoom) -> Void)?
     /// Host actions added to the selection's context menu — the same hook UIKit
     /// has, so the vault actions are offered by one mechanism on both platforms
     /// rather than by a menu here and a floating bar there.
@@ -853,12 +901,32 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public override func mouseDown(with event: NSEvent) {
+        // A click on a diagram's enlarge button enlarges it. First, because the
+        // button sits over a band whose nearest character can be the next
+        // block's — a task box one line down would otherwise take the click.
+        if zoomDiagram(at: event) { return }
         // A click on a rendered task checkbox toggles `[ ]` ↔ `[x]` instead
         // of moving the caret.
         if toggleTaskCheckbox(at: event) { return }
         // A click on a callout header's fold chevron toggles the fold.
         if toggleCalloutFold(at: event) { return }
         super.mouseDown(with: event)
+    }
+
+    /// If the click landed on a rendered diagram's enlarge button, hand the
+    /// diagram to the host and return true — before `NSTextView` sees the click,
+    /// so the caret stays where it was and the diagram stays drawn rather than
+    /// opening for editing.
+    private func zoomDiagram(at event: NSEvent) -> Bool {
+        guard let onDiagramZoom, let storage = textStorage,
+              let layoutManager = textLayoutManager else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        let origin = textContainerOrigin
+        guard let zoom = layoutManager.diagramZoom(
+            at: CGPoint(x: point.x - origin.x, y: point.y - origin.y), in: storage)
+        else { return false }
+        onDiagramZoom(zoom)
+        return true
     }
 
     /// If the click landed on a foldable callout header's right-aligned
@@ -1019,7 +1087,8 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var onPasteImageHandler: (() -> String?)?
     private var onInlineContext: ((EditorDocument.InlineContext?, CGRect) -> Void)?
     private var onRewriteSelectionHandler: ((NSRange) -> Void)?
-    private var busDocumentId: String?
+    private var onDiagramZoomHandler: ((DiagramZoom) -> Void)?
+    private var busEditorID: String?
     private var editorProxy: EditorProxy?
     private var wrapGuideColumns = 0
     private var onCaretEscapeTopHandler: ((CaretEscape) -> Void)?
@@ -1099,11 +1168,18 @@ public struct MarkdownEditorView: NSViewRepresentable {
         var copy = self; copy.onRewriteSelectionHandler = handler; return copy
     }
 
+    /// Where a rendered diagram's enlarge button sends its press. The button is
+    /// drawn only for a document built with `EditorServices.offersDiagramZoom`.
+    public func onDiagramZoom(_ handler: @escaping (DiagramZoom) -> Void) -> Self {
+        var copy = self; copy.onDiagramZoomHandler = handler; return copy
+    }
 
-    /// Join the app's per-document notification bus (Format menu commands,
-    /// find bar queries, scroll-to-heading) under this document id.
-    public func commandBus(documentId: String) -> Self {
-        var copy = self; copy.busDocumentId = documentId; return copy
+    /// Join the command bus as the editor `editorID`: Format commands, the find
+    /// bar and heading jumps posted under that id reach this view and no other.
+    /// An id for the *editor*, never for its note — two editors can show one
+    /// note, and a command meant for one must not reach the other (`EditorBus`).
+    public func commandBus(editorID: String) -> Self {
+        var copy = self; copy.busEditorID = editorID; return copy
     }
 
     /// Attach a host-side handle for programmatic edits and commands.
@@ -1126,7 +1202,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         let (scrollView, textView) = MarkdownTextView.scrollableEditor(document: document)
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
-        context.coordinator.subscribeToBus(documentId: busDocumentId)
+        context.coordinator.subscribeToBus(editorID: busEditorID)
         applyProperties(textView)
         return scrollView
     }
@@ -1135,7 +1211,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? MarkdownTextView else { return }
         // The other half of the re-target: the Coordinator outlives a note
         // switch here, so `make` alone is not enough.
-        context.coordinator.subscribeToBus(documentId: busDocumentId)
+        context.coordinator.subscribeToBus(editorID: busEditorID)
         if textView.document !== document {
             textView.bind(to: document)
         }
@@ -1147,6 +1223,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.selectionMenuItems = selectionMenuItemsBuilder
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
+        textView.onDiagramZoom = onDiagramZoomHandler
         textView.onInlineCompletionRequest = onInlineCompletionRequestHandler
         textView.onEndEditing = onEndEditingHandler
         editorProxy?.textView = textView
@@ -1176,9 +1253,9 @@ public struct MarkdownEditorView: NSViewRepresentable {
         weak var textView: MarkdownTextView?
         // Registered/removed on the main thread; deinit only removes.
         nonisolated(unsafe) private var busTokens: [NSObjectProtocol] = []
-        /// What the tokens above are addressed to, so a note switch re-targets
-        /// them rather than leaving them pointed at the note you left.
-        private var busDocumentId: String?
+        /// The editor the tokens above are addressed to, so a switch re-targets
+        /// them rather than leaving them pointed at the editor you left.
+        private var busEditorID: String?
         private var findQuery = ""
         private var findIndex = 0
 
@@ -1223,7 +1300,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         // MARK: App command bus (same notification names the app's Format
         // menu, find bar, and outline already post).
 
-        /// Observe formatting and find commands addressed to `documentId`.
+        /// Observe formatting and find commands addressed to `editorID`.
         ///
         /// **Re-targets.** This guarded on `busTokens.isEmpty` and was called
         /// only from `makeNSView`, while the UIKit half keys on the id and
@@ -1234,13 +1311,19 @@ public struct MarkdownEditorView: NSViewRepresentable {
         /// `hnEditorFormat.<kind>.<note A>` while the Format menu posted
         /// `<note B>`. Bold, Italic and Heading did nothing from the second
         /// note onward, silently. Find kept working, which is why it never
-        /// looked like a dead bus: those names carry no document id.
-        func subscribeToBus(documentId: String?) {
-            guard busDocumentId != documentId else { return }
+        /// looked like a dead bus: those names carried no id at all — and so
+        /// every editor in every window answered them, a Replace All included.
+        /// Everything here is addressed to the editor now (`EditorBus`), and
+        /// the address is the editor's own, never its note's.
+        func subscribeToBus(editorID: String?) {
+            // Heading jumps are the view's own to answer, because only the view
+            // knows when it can (`HeadingJumpListener`).
+            textView?.headingJumps.editorID = editorID
+            guard busEditorID != editorID else { return }
             for token in busTokens { NotificationCenter.default.removeObserver(token) }
             busTokens.removeAll()
-            busDocumentId = documentId
-            guard let documentId, !documentId.isEmpty else { return }
+            busEditorID = editorID
+            guard let editorID, !editorID.isEmpty else { return }
             let center = NotificationCenter.default
 
             let formats: [(String, EditorFormatCommand)] = [
@@ -1251,38 +1334,24 @@ public struct MarkdownEditorView: NSViewRepresentable {
             ]
             for (kind, command) in formats {
                 busTokens.append(center.addObserver(
-                    forName: Notification.Name("hnEditorFormat.\(kind).\(documentId)"),
+                    forName: EditorBus.format(kind, editor: editorID),
                     object: nil, queue: .main
                 ) { [weak self] _ in
                     MainActor.assumeIsolated { self?.textView?.apply(command) }
                 })
             }
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorFormat.heading.\(documentId)"),
+                forName: EditorBus.format("heading", editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let level = note.userInfo?["level"] as? Int ?? 1
                 MainActor.assumeIsolated { [level] in self?.textView?.apply(.heading(level)) }
             })
 
-            // Jump to a heading — a *position*, never a search. See
-            // `hn.editor.jumpToHeading`.
-            busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.jumpToHeading"),
-                object: nil, queue: .main
-            ) { [weak self] note in
-                let ordinal = note.userInfo?["ordinal"] as? Int ?? 0
-                let title = note.userInfo?["title"] as? String ?? ""
-                MainActor.assumeIsolated { [ordinal, title] in
-                    guard let self, let textView = self.textView, textView.window != nil else { return }
-                    textView.showHeading(ordinal: ordinal, title: title)
-                }
-            })
-
             // Find bar. (Heading jumps used to arrive here too, as a query for
             // the heading's own text, which is how they landed on prose.)
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.findQuery"),
+                forName: EditorBus.findQuery(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let query = note.userInfo?["query"] as? String ?? ""
@@ -1294,12 +1363,12 @@ public struct MarkdownEditorView: NSViewRepresentable {
                     if let index { self.findIndex = index }
                     let count = textView.showMatch(of: query, index: self.findIndex)
                     NotificationCenter.default.post(
-                        name: Notification.Name("hn.editor.findResults"),
+                        name: EditorBus.findResults(editor: editorID),
                         object: nil, userInfo: ["count": count])
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.replaceCurrent"),
+                forName: EditorBus.replaceCurrent(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let replacement = note.userInfo?["replacement"] as? String
@@ -1312,7 +1381,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.replaceAll"),
+                forName: EditorBus.replaceAll(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let replacement = note.userInfo?["replacement"] as? String
@@ -1327,7 +1396,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.clearHighlights"),
+                forName: EditorBus.clearHighlights(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -1343,7 +1412,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         public func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             guard let onLinkTap else { return false }
             if let url = link as? URL {
-                if url.scheme == "hellonotes-wiki" {
+                if url.scheme == WikiLinkSyntax.urlScheme {
                     // The raw target travels in the custom attribute (the
                     // URL form is only for hover/click affordances).
                     let target = textView.textStorage?.attribute(wikiTargetAttribute, at: charIndex, effectiveRange: nil) as? String
@@ -1372,7 +1441,7 @@ extension MarkdownTextView: NSAccessibilityCustomRotorItemSearchDelegate {
         guard let heading = document?.rotorHeading(
             after: searchParameters.currentItem?.targetRange.location,
             forward: searchParameters.searchDirection == .next,
-            matching: searchParameters.filterString ?? ""
+            matching: searchParameters.filterString
         ) else { return nil }
         let result = NSAccessibilityCustomRotor.ItemResult(targetElement: self)
         result.targetRange = heading.range
@@ -1389,8 +1458,23 @@ import MarkdownCore
 /// A TextKit 2 `UITextView` bound to an `EditorDocument`'s storage.
 public final class MarkdownUITextView: UITextView {
 
+    /// Heading jumps addressed to this view's editor: shown on arrival when the
+    /// view is in a window, and when it gets there when it is not — a tab
+    /// opened by following `[[Note#Heading]]` is not, yet (`EditorBus`).
+    /// `lazy` for the reason `blockLayoutDelegate` below is.
+    public private(set) lazy var headingJumps = HeadingJumpListener(
+        isReady: { [weak self] in self?.window != nil },
+        show: { [weak self] jump in self?.showHeading(ordinal: jump.ordinal, title: jump.title) })
+
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        headingJumps.surfaceBecameReady()
+    }
+
     private(set) weak var document: EditorDocument?
-    /// Retains the layout delegate that vends chrome-drawing fragments.
+    /// Retains the layout delegate that vends chrome-drawing fragments —
+    /// handed over by `make`, which has to install it before `init` lays the
+    /// text out (see there); `NSTextLayoutManager.delegate` is weak.
     /// `lazy`, not a stored default: `init(usingTextLayoutManager:)` is an
     /// inherited convenience initializer that skips the subclass's stored-
     /// property synthesis, leaving plain defaults null (a weak-assign into a
@@ -1400,9 +1484,14 @@ public final class MarkdownUITextView: UITextView {
     /// page draws as one — `NSTextContentStorage.delegate` is weak, and here
     /// the stack is built before the view, so `make` hands it over.
     var joinedLineDelegate: JoinedLineDelegate?
-    /// Draws the fragment chrome (bullets, callout bands, checkboxes, gutter
-    /// bars, heading rules) — UITextView doesn't invoke custom fragments' draw.
-    private lazy var chromeOverlay = ChromeOverlayView()
+    /// Draws the fragment chrome that sits on the text (bullets, checkboxes,
+    /// rules, rendered pictures) — UITextView doesn't invoke custom fragments'
+    /// draw.
+    private(set) lazy var chromeOverlay = ChromeOverlayView(side: .overText)
+    /// Draws the chrome that sits *behind* the text (code boxes, callout bands,
+    /// inline code pills), from under UIKit's own text views. See
+    /// `ChromeOverlayView.Side`.
+    private(set) lazy var chromeUnderlay = ChromeOverlayView(side: .underText)
     var onLinkTap: ((EditorLinkTap) -> Void)?
     /// Keeps the link tap from competing with the text view's own caret tap.
     /// A separate object, deliberately: `UITextView` is already the delegate of
@@ -1412,6 +1501,15 @@ public final class MarkdownUITextView: UITextView {
     private lazy var linkTapDelegate = LinkTapDelegate()
     /// The link tap, exposed so its arbitration can be asserted.
     private(set) var linkTapRecognizer: UITapGestureRecognizer?
+    /// Decides, at touch-down, which touches belong to a diagram's enlarge
+    /// button — see `diagramZoomRecognizer`. Its own object for the same
+    /// reason `linkTapDelegate` is.
+    private lazy var diagramZoomDelegate = DiagramZoomPressDelegate()
+    /// Presses on a diagram's enlarge button, exposed so its arbitration can
+    /// be asserted.
+    private(set) var diagramZoomRecognizer: UILongPressGestureRecognizer?
+    /// The diagram under the touch the press recogniser took, from touch-down.
+    private(set) var pendingDiagramZoom: DiagramZoom?
 
     /// Ghost text. See `InlineSuggestion.swift` — the invariant *is* the
     /// feature. Read it through the computed `inlineSuggestion`, which
@@ -1440,6 +1538,9 @@ public final class MarkdownUITextView: UITextView {
     /// mismatch is why the iPad's edit menu offered Link, Find Related and Ask
     /// Your Library but not the fourth one the Mac's context menu has.
     var onRewriteSelection: ((NSRange) -> Void)?
+
+    /// Where a rendered diagram's enlarge button sends its press (`DiagramZoom`).
+    var onDiagramZoom: ((DiagramZoom) -> Void)?
 
     /// A *guide*, in the Xcode and VS Code sense: a line you can see while the
     /// text still wraps at the view's edge — the same thing `MarkdownTextView`
@@ -1496,12 +1597,25 @@ public final class MarkdownUITextView: UITextView {
         contentStorage.delegate = joins
         contentStorage.textStorage = document.storage
         let layoutManager = NSTextLayoutManager()
+        // **The editor's fragments from the very first layout** — installed
+        // here, not in `bind`. UIKit lays the text out inside `init`, and
+        // TextKit makes a fragment once per paragraph and keeps it until that
+        // paragraph changes, so a delegate that arrived after `init` came too
+        // late for every paragraph nothing restyled afterwards. A document
+        // styled before its view was made — which is every document the store
+        // hands back, on each rotation and each return to Edit — got plain
+        // fragments, and `ChromeOverlayView` draws only the editor's own: no
+        // bullets, rules or bands, and a blank where each table and diagram
+        // should be. `LiveFragmentTests` holds it.
+        let fragments = RenderedBlockLayoutDelegate()
+        layoutManager.delegate = fragments
         contentStorage.addTextLayoutManager(layoutManager)
         let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
         layoutManager.textContainer = container
 
         let tv = MarkdownUITextView(frame: .zero, textContainer: container)
+        tv.blockLayoutDelegate = fragments
         tv.joinedLineDelegate = joins          // `delegate` above is weak
         tv.bind(to: document)
         tv.isEditable = true
@@ -1603,12 +1717,24 @@ public final class MarkdownUITextView: UITextView {
         tv.addGestureRecognizer(tap)
         tv.linkTapRecognizer = tap
 
-        // Overlay that paints the fragment chrome over the text (scrolls with
-        // the content as a subview of the scroll view).
-        tv.chromeOverlay.textView = tv
-        tv.chromeOverlay.isUserInteractionEnabled = false
-        tv.chromeOverlay.backgroundColor = .clear
-        tv.chromeOverlay.contentMode = .redraw
+        // A diagram's enlarge button: the one recogniser here that *should*
+        // win against UIKit's, and only for touches that begin on a button.
+        let press = UILongPressGestureRecognizer(target: tv, action: #selector(handleDiagramZoomPress(_:)))
+        press.minimumPressDuration = 0
+        press.delegate = tv.diagramZoomDelegate
+        tv.addGestureRecognizer(press)
+        tv.diagramZoomRecognizer = press
+
+        // Two views paint the fragment chrome, one each side of the text (both
+        // scroll with the content as subviews of the scroll view): fills under
+        // it, everything else over it.
+        for chrome in [tv.chromeUnderlay, tv.chromeOverlay] {
+            chrome.textView = tv
+            chrome.isUserInteractionEnabled = false
+            chrome.backgroundColor = .clear
+            chrome.contentMode = .redraw
+        }
+        tv.insertSubview(tv.chromeUnderlay, at: 0)
         tv.addSubview(tv.chromeOverlay)
 
         tv.installHeadingRotor()
@@ -1644,9 +1770,14 @@ public final class MarkdownUITextView: UITextView {
     /// content size, so a full `setNeedsDisplay()` would repaint (and re-walk)
     /// the entire document on every keystroke.
     func refreshChrome() {
-        chromeOverlay.frame = CGRect(origin: .zero, size: contentSize)
         let visible = CGRect(origin: contentOffset, size: bounds.size)
-        chromeOverlay.setNeedsDisplay(visible)
+        for chrome in [chromeUnderlay, chromeOverlay] {
+            chrome.frame = CGRect(origin: .zero, size: contentSize)
+            chrome.setNeedsDisplay(visible)
+        }
+        // Kept at the back whatever UIKit does with its own text views: its
+        // fills are only behind the text while the text is in front of them.
+        if subviews.first !== chromeUnderlay { sendSubviewToBack(chromeUnderlay) }
     }
 
     /// The pasteboard is imported as plain text only: the document storage is
@@ -1704,6 +1835,8 @@ public final class MarkdownUITextView: UITextView {
             .font: document.theme.body,
             .foregroundColor: document.theme.text,
         ]
+        // Already installed by `make`, before the first layout; this keeps a
+        // view built any other way from drawing without its chrome.
         textLayoutManager?.delegate = blockLayoutDelegate
         syncRenderMetrics()
     }
@@ -1760,23 +1893,29 @@ public final class MarkdownUITextView: UITextView {
     /// Half the viewport, which is what "about the middle" means, and only once
     /// the note is long enough to scroll at all — a short note in a tall window
     /// gains nothing from a screenful of emptiness under it.
-    private func updateScrollPastEndInset() {
+    ///
+    /// **Room to scroll into, never a covered band.** It is the bottom of the
+    /// text container's inset — part of the content — and not a content inset.
+    /// A scroll view keeps what it scrolls to inside its bounds *less* its
+    /// insets, so as a content inset half the editor counted as hidden: a tap
+    /// on a line in the lower half scrolled it up to the middle, and with the
+    /// software keyboard's inset on top — 313pt of ours and 407pt of the
+    /// keyboard's against a 626pt view — the band UIKit keeps the caret in had
+    /// negative height, and its own scroll-to-the-caret put the tapped line
+    /// 94pt above the top edge (`ScrollPastEndTests`, docs/implemented.md).
+    private func updateScrollPastEnd() {
+        let base = EditorMetrics.textContainerInset.height
         let viewport = bounds.height - adjustedContentInset.top
-        guard viewport > 0, contentSize.height > viewport else {
-            if contentInset.bottom != 0 { contentInset.bottom = 0 }
-            return
-        }
-        let wanted = viewport / 2
-        guard abs(contentInset.bottom - wanted) > 0.5 else { return }
-        contentInset.bottom = wanted
-        // The indicator tracks the text, not the empty space below it.
-        verticalScrollIndicatorInsets.bottom = 0
+        let text = contentSize.height - (textContainerInset.bottom - base)
+        let wanted = viewport > 0 && text > viewport ? viewport / 2 : 0
+        guard abs(textContainerInset.bottom - (base + wanted)) > 0.5 else { return }
+        textContainerInset.bottom = base + wanted
     }
 
     public override func layoutSubviews() {
         super.layoutSubviews()
         syncRenderMetrics()
-        updateScrollPastEndInset()
+        updateScrollPastEnd()
         // The counterpart of the Mac's bounds observer, which fires on the
         // scroll view's *first* layout as well as on every scroll. iOS only had
         // the scroll half (`scrollViewDidScroll`), so nothing styled the visible
@@ -1809,6 +1948,9 @@ public final class MarkdownUITextView: UITextView {
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         guard let document else { return }
         let point = gesture.location(in: self)
+        // No diagram button here: by the time this runs UIKit may already have
+        // moved the caret, and a caret in a diagram has taken its button away.
+        // `diagramZoomRecognizer` owns those touches.
         // Ghost text first: a tap on it accepts it. Checked before the caret
         // because that region has no other meaning — the caret is already at
         // the end of that line, which is all a tap there could otherwise ask
@@ -1829,6 +1971,53 @@ public final class MarkdownUITextView: UITextView {
             if let url = link as? URL { onLinkTap?(.url(url)) }
             else if let s = link as? String, let url = URL(string: s) { onLinkTap?(.url(url)) }
         }
+    }
+
+    /// The diagram whose enlarge button is under `point` (this view's
+    /// coordinates), with a fingertip's slop around the button. Nil when no
+    /// host is listening — then there is no button to hit, only a diagram.
+    func diagramZoom(at point: CGPoint) -> DiagramZoom? {
+        guard onDiagramZoom != nil, let document, let layoutManager = textLayoutManager else { return nil }
+        let inset = textContainerInset
+        return layoutManager.diagramZoom(at: CGPoint(x: point.x - inset.left, y: point.y - inset.top),
+                                         in: document.storage, slop: DiagramZoomButton.touchSlop)
+    }
+
+    /// A press on a diagram's enlarge button, released over it as a button's
+    /// is: the diagram goes to the host. Dragged off before release, nothing.
+    ///
+    /// **A touch that begins on the button belongs to the button**, and it has
+    /// to be decided at touch-down. The link tap cannot: it recognises
+    /// *alongside* UIKit's recognisers by design (`LinkTapDelegate`), and
+    /// probed live on iPad, UIKit's caret tap acted first — the selection moved
+    /// into the diagram, which revealed its source and took the button away,
+    /// and only then did the link tap look. Refusing UIKit's recognisers in
+    /// `gestureRecognizerShouldBegin` did nothing either: the probe showed UIKit
+    /// never asks the view about its taps. So this recogniser takes the touch
+    /// in `shouldReceive`, while the diagram is still drawn, begins at once (a
+    /// press of no duration), and does not recognise alongside anything — which
+    /// excludes UIKit's tap, loupe and drags for that touch, the way an
+    /// unshared tap recogniser once ate every caret tap in this view. Scoped to
+    /// the button, that is the point. A touch anywhere else never reaches it.
+    @objc func handleDiagramZoomPress(_ press: UILongPressGestureRecognizer) {
+        switch press.state {
+        case .ended:
+            defer { pendingDiagramZoom = nil }
+            guard let zoom = pendingDiagramZoom,
+                  diagramZoom(at: press.location(in: self)) == zoom else { return }
+            onDiagramZoom?(zoom)
+        case .cancelled, .failed:
+            pendingDiagramZoom = nil
+        default:
+            break
+        }
+    }
+
+    /// The touch-down decision, for `DiagramZoomPressDelegate`: take this touch
+    /// if it begins on a diagram's enlarge button.
+    func takesDiagramZoomTouch(at point: CGPoint) -> Bool {
+        pendingDiagramZoom = diagramZoom(at: point)
+        return pendingDiagramZoom != nil
     }
 
     /// If the tap landed on a concealed task box, toggle it (undoably) and
@@ -2178,6 +2367,18 @@ public final class EditorProxy {
 
 
 
+/// Hands `MarkdownUITextView`'s press recogniser only the touches that begin
+/// on a diagram's enlarge button. No `shouldRecognizeSimultaneouslyWith`: not
+/// sharing is what keeps UIKit's caret tap off the button (see
+/// `handleDiagramZoomPress`).
+private final class DiagramZoomPressDelegate: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldReceive touch: UITouch) -> Bool {
+        guard let textView = gestureRecognizer.view as? MarkdownUITextView else { return false }
+        return textView.takesDiagramZoomTouch(at: touch.location(in: textView))
+    }
+}
+
 /// Lets the link tap coexist with the caret tap.
 ///
 /// Two recognisers that both recognise a single tap are mutually exclusive
@@ -2194,11 +2395,33 @@ private final class LinkTapDelegate: NSObject, UIGestureRecognizerDelegate {
     }
 }
 
-/// Transparent subview that paints the fragment chrome over the text. It sits
-/// in the scroll view's content, so it scrolls with the text; it enumerates the
-/// laid-out `RenderedBlockFragment`s and calls their chrome-only draw.
+/// Transparent subview that paints fragment chrome. It sits in the scroll
+/// view's content, so it scrolls with the text; it enumerates the laid-out
+/// `RenderedBlockFragment`s and calls their chrome drawing — one half of it.
 final class ChromeOverlayView: UIView {
+    /// Which side of the text this view paints.
+    ///
+    /// Two, because a fragment's chrome is two kinds of thing: fills that
+    /// belong behind the text and marks that belong on it, and the Mac's
+    /// `draw` paints them in that order around the text. With one view laid
+    /// over the text, the fills landed on top — and the code box is opaque, so
+    /// every code block in Edit on iPad was an empty grey box
+    /// (`ChromeUnderTextTests`). The under-text view is the text view's
+    /// bottom-most subview, under UIKit's own, which draw on a clear ground.
+    enum Side { case underText, overText }
+
+    let side: Side
     weak var textView: MarkdownUITextView?
+    /// How many fragments the last `draw` stepped through — what a walk costs
+    /// is how far it goes, and `ChromeWalkTests` holds it to a screenful.
+    private(set) var fragmentsVisited = 0
+
+    init(side: Side) {
+        self.side = side
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not built from a coder") }
 
     override func draw(_ rect: CGRect) {
         guard let tv = textView, let tlm = tv.textLayoutManager,
@@ -2207,10 +2430,11 @@ final class ChromeOverlayView: UIView {
         // No `.ensuresLayout` — layout is already done when we draw; forcing it
         // here re-enters layout during drawing and crashes.
         // Only draw fragments intersecting the dirty rect, and stop once we're
-        // past it (fragments enumerate top-to-bottom). This trims drawing to the
-        // visible slice; the enumeration itself still skips over fragments above
-        // the rect, so the walk is O(offset-to-viewport + visible), not O(document).
-        tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: []) { fragment in
+        // past it (fragments enumerate top-to-bottom). The walk starts a block
+        // above the viewport (`walkStart`), so it is O(visible), not O(offset).
+        fragmentsVisited = 0
+        tlm.enumerateTextLayoutFragments(from: walkStart(tlm), options: []) { fragment in
+            fragmentsVisited += 1
             // A fragment TextKit has not laid out yet reports
             // `layoutFragmentFrame` of `.zero`, and `options: []` deliberately
             // does not force layout (forcing it here re-enters layout during
@@ -2225,10 +2449,16 @@ final class ChromeOverlayView: UIView {
             if top > rect.maxY { return false }   // below the dirty rect; done
             if let chrome = fragment as? RenderedBlockFragment,
                top + frame.height >= rect.minY {   // intersects vertically
-                chrome.drawChromeOnly(at: CGPoint(x: inset.left + frame.origin.x, y: top), in: context)
+                let origin = CGPoint(x: inset.left + frame.origin.x, y: top)
+                switch side {
+                case .underText: chrome.drawChromeBehindText(at: origin, in: context)
+                case .overText: chrome.drawChromeOverText(at: origin, in: context)
+                }
             }
             return true
         }
+        // The guide and the ghost are marks on the page, not fills under it.
+        guard side == .overText else { return }
         if let x = tv.wrapGuideX {
             // Hairline at the current screen scale, so it stays one pixel.
             let width = 1 / (tv.window?.screen.scale ?? UIScreen.main.scale)
@@ -2241,6 +2471,31 @@ final class ChromeOverlayView: UIView {
         // Last, so the ghost sits over the chrome rather than under a callout
         // band — it is the topmost thing in the editor while it is showing.
         tv.drawInlineSuggestion(in: rect)
+    }
+
+    /// Where the walk starts: the block before the first one TextKit has laid
+    /// out for the viewport.
+    ///
+    /// It started at the top of the note and stepped over every fragment above
+    /// the dirty rect — a third of a microsecond each, once per side, on every
+    /// keystroke and every scroll frame, so near the end of a 1MB note a frame
+    /// spent 7ms before drawing anything (`ChromeWalkTests`). Nothing above
+    /// the viewport is on screen, and a picture hangs below the line that
+    /// paints it by no more than its own block, so one block back catches one
+    /// reaching into view. A dirty rect above the viewport draws nothing now;
+    /// it is off screen, and `refreshChrome` invalidates what scrolls into view.
+    /// Read from the viewport controller rather than hit-tested from the rect:
+    /// asking for the fragment at a point can lay text out, and laying out
+    /// during a draw is the crash above.
+    private func walkStart(_ tlm: NSTextLayoutManager) -> NSTextLocation {
+        let top = tlm.documentRange.location
+        guard let parse = textView?.document?.parse,
+              let content = tlm.textContentManager,
+              let viewport = tlm.textViewportLayoutController.viewportRange,
+              let block = parse.blockIndex(at: content.offset(from: top, to: viewport.location)),
+              block > 0
+        else { return top }
+        return content.location(top, offsetBy: parse.blocks[block - 1].range.location) ?? top
     }
 }
 
@@ -2271,13 +2526,14 @@ public struct MarkdownEditorView: View {
         representable.id(ObjectIdentifier(representable.document))
     }
 
-    /// Listen for formatting and find commands addressed to `documentId`.
+    /// Join the command bus as the editor `editorID` — an id for the editor,
+    /// never its note (see `EditorBus`).
     ///
     /// Removed earlier in the day as dead weight — correctly, at the time:
     /// nothing on iOS posted on it, because the keyboard toolbar that was meant
     /// to never rendered. The iPad menu bar is the poster it was waiting for.
-    public func commandBus(documentId: String) -> Self {
-        var copy = self; copy.representable = representable.commandBus(documentId: documentId); return copy
+    public func commandBus(editorID: String) -> Self {
+        var copy = self; copy.representable = representable.commandBus(editorID: editorID); return copy
     }
 
     public func editable(_ flag: Bool) -> Self {
@@ -2295,6 +2551,12 @@ public struct MarkdownEditorView: View {
     /// receives the range; presenting the sheet is the host's job.
     public func onRewriteSelection(_ handler: @escaping (NSRange) -> Void) -> Self {
         var copy = self; copy.representable = representable.onRewriteSelection(handler); return copy
+    }
+
+    /// Where a rendered diagram's enlarge button sends its press. The button is
+    /// drawn only for a document built with `EditorServices.offersDiagramZoom`.
+    public func onDiagramZoom(_ handler: @escaping (DiagramZoom) -> Void) -> Self {
+        var copy = self; copy.representable = representable.onDiagramZoom(handler); return copy
     }
 
     /// Show a vertical guide at `columns` characters, or 0 for none. A line to
@@ -2347,13 +2609,14 @@ public struct MarkdownEditorView: View {
 }
 
 struct MarkdownEditorRepresentable: UIViewRepresentable {
-    /// Document id for the command bus, if the host wants one.
-    private var busDocumentId: String?
+    /// The editor's id on the command bus, if the host joins one.
+    private var busEditorID: String?
     let document: EditorDocument
     private var isEditable = true
     private var wrapGuideColumns = 0
     private var onCaretEscapeTopHandler: ((CaretEscape) -> Void)?
     private var onRewriteSelectionHandler: ((NSRange) -> Void)?
+    private var onDiagramZoomHandler: ((DiagramZoom) -> Void)?
     private var onLinkTap: ((EditorLinkTap) -> Void)?
     private var onPasteImage: (() -> String?)?
     private var onPasteMarkdown: (() -> String?)?
@@ -2375,8 +2638,8 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         viewportSizeThatFits(proposal)
     }
 
-    func commandBus(documentId: String) -> Self {
-        var copy = self; copy.busDocumentId = documentId; return copy
+    func commandBus(editorID: String) -> Self {
+        var copy = self; copy.busEditorID = editorID; return copy
     }
 
     func editable(_ flag: Bool) -> Self {
@@ -2430,6 +2693,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.wrapGuideColumns = wrapGuideColumns
         tv.onCaretEscapeTop = onCaretEscapeTopHandler
         tv.onRewriteSelection = onRewriteSelectionHandler
+        tv.onDiagramZoom = onDiagramZoomHandler
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
         tv.onPasteMarkdown = onPasteMarkdown
@@ -2438,7 +2702,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onEndEditing = onEndEditing
         editorProxy?.textView = tv
         tv.delegate = context.coordinator
-        context.coordinator.subscribe(documentId: busDocumentId, view: tv)
+        context.coordinator.subscribe(editorID: busEditorID, view: tv)
         // No whole-document styling pass here. It used to run for anything up
         // to 200KB — a synchronous restyle of every block, on the main thread,
         // at the moment a note opens — because `layoutSubviews` had no
@@ -2457,6 +2721,11 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     /// Offer "Rewrite with AI…" on a selection, reporting its range.
     func onRewriteSelection(_ handler: @escaping (NSRange) -> Void) -> Self {
         var copy = self; copy.onRewriteSelectionHandler = handler; return copy
+    }
+
+    /// Where a rendered diagram's enlarge button sends its press.
+    func onDiagramZoom(_ handler: @escaping (DiagramZoom) -> Void) -> Self {
+        var copy = self; copy.onDiagramZoomHandler = handler; return copy
     }
 
     /// Show a vertical guide at `columns` characters, or 0 for none.
@@ -2480,6 +2749,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.wrapGuideColumns = wrapGuideColumns
         tv.onCaretEscapeTop = onCaretEscapeTopHandler
         tv.onRewriteSelection = onRewriteSelectionHandler
+        tv.onDiagramZoom = onDiagramZoomHandler
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
         tv.onPasteMarkdown = onPasteMarkdown
@@ -2488,7 +2758,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onEndEditing = onEndEditing
         editorProxy?.textView = tv
         context.coordinator.selectionMenuItems = selectionMenuItems
-        context.coordinator.subscribe(documentId: busDocumentId, view: tv)
+        context.coordinator.subscribe(editorID: busEditorID, view: tv)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document) }
@@ -2508,7 +2778,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         /// removal happen on the main thread, and `deinit` — which cannot be
         /// isolated — only reads the array to remove what it registered.
         nonisolated(unsafe) private var busTokens: [NSObjectProtocol] = []
-        private var busDocumentId: String?
+        private var busEditorID: String?
         private weak var busView: MarkdownUITextView?
         /// The find bar's query and position, so Next/Previous and Replace act
         /// on the same match the bar is showing.
@@ -2528,14 +2798,17 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             for token in busTokens { NotificationCenter.default.removeObserver(token) }
         }
 
-        /// Observe formatting and find commands addressed to `documentId`.
-        func subscribe(documentId: String?, view: MarkdownUITextView) {
+        /// Observe formatting and find commands addressed to `editorID`.
+        func subscribe(editorID: String?, view: MarkdownUITextView) {
             busView = view
-            guard busDocumentId != documentId else { return }
+            // Heading jumps are the view's own to answer, because only the view
+            // knows when it can (`HeadingJumpListener`).
+            view.headingJumps.editorID = editorID
+            guard busEditorID != editorID else { return }
             for token in busTokens { NotificationCenter.default.removeObserver(token) }
             busTokens.removeAll()
-            busDocumentId = documentId
-            guard let documentId, !documentId.isEmpty else { return }
+            busEditorID = editorID
+            guard let editorID, !editorID.isEmpty else { return }
 
             let center = NotificationCenter.default
             let formats: [(String, EditorFormatCommand)] = [
@@ -2546,14 +2819,14 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             ]
             for (kind, command) in formats {
                 busTokens.append(center.addObserver(
-                    forName: Notification.Name("hnEditorFormat.\(kind).\(documentId)"),
+                    forName: EditorBus.format(kind, editor: editorID),
                     object: nil, queue: .main
                 ) { [weak self] _ in
                     MainActor.assumeIsolated { self?.busView?.apply(command) }
                 })
             }
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorFormat.heading.\(documentId)"),
+                forName: EditorBus.format("heading", editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let level = note.userInfo?["level"] as? Int ?? 1
@@ -2570,19 +2843,19 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             // button living outside the editor would find the window's stack,
             // not the document's.
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorUndo.\(documentId)"),
+                forName: EditorBus.undo(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.busView?.undoManager?.undo() }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorRedo.\(documentId)"),
+                forName: EditorBus.redo(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.busView?.undoManager?.redo() }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorEndEditing.\(documentId)"),
+                forName: EditorBus.endEditing(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { _ = self?.busView?.resignFirstResponder() }
@@ -2590,7 +2863,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             // ⌘F. The system find bar is the text view's own, so the only thing
             // a menu item needs is a way to reach the view that owns it.
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hnEditorFind.\(documentId)"),
+                forName: EditorBus.find(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -2603,22 +2876,10 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                     view.findInteraction?.presentFindNavigator(showingReplace: true)
                 }
             })
-            busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.jumpToHeading"),
-                object: nil, queue: .main
-            ) { [weak self] note in
-                let ordinal = note.userInfo?["ordinal"] as? Int ?? 0
-                let title = note.userInfo?["title"] as? String ?? ""
-                MainActor.assumeIsolated { [ordinal, title] in
-                    guard let self, let textView = self.busView, textView.window != nil else { return }
-                    textView.showHeading(ordinal: ordinal, title: title)
-                }
-            })
-
             // The app's own find bar. These four are the AppKit view's, and they
             // had no listener here — see `showMatch(of:index:)`.
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.findQuery"),
+                forName: EditorBus.findQuery(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let query = note.userInfo?["query"] as? String ?? ""
@@ -2630,12 +2891,12 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                     if let index { self.findIndex = index }
                     let count = textView.showMatch(of: query, index: self.findIndex)
                     NotificationCenter.default.post(
-                        name: Notification.Name("hn.editor.findResults"),
+                        name: EditorBus.findResults(editor: editorID),
                         object: nil, userInfo: ["count": count])
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.replaceCurrent"),
+                forName: EditorBus.replaceCurrent(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let replacement = note.userInfo?["replacement"] as? String
@@ -2648,7 +2909,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.replaceAll"),
+                forName: EditorBus.replaceAll(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] note in
                 let replacement = note.userInfo?["replacement"] as? String
@@ -2663,7 +2924,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                 }
             })
             busTokens.append(center.addObserver(
-                forName: Notification.Name("hn.editor.clearHighlights"),
+                forName: EditorBus.clearHighlights(editor: editorID),
                 object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {

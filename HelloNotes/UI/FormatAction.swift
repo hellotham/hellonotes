@@ -4,8 +4,8 @@
 //
 //  Created by Chris Tham on 18/8/2026.
 //
-//  Formatting commands, and the bus that carries them to whichever editor is
-//  focused.
+//  Formatting commands, and what each one carries to whichever editor is
+//  focused — on that editor's own address (`EditorBus.format`).
 //
 //  **Cross-platform on purpose.** This lived inside `AppCommands.swift`, which
 //  is `#if os(macOS)` in its entirety, so an iPad had no way to express "make
@@ -17,25 +17,11 @@
 import Foundation
 
 /// A Markdown formatting command a menu or toolbar can send to the focused
-/// editor (routed to the editor through its notification bus).
+/// editor, on the editor's own address (`EditorBus.format`).
 enum FormatAction {
     case bold, italic, strikethrough, highlight, inlineCode
     case blockquote, unorderedList, orderedList
     case heading(Int)
-}
-
-extension Notification.Name {
-    /// The bus a formatting command travels on, addressed to one document.
-    static func hnFormat(_ kind: String, documentId: String) -> Notification.Name {
-        Notification.Name("hnEditorFormat.\(kind).\(documentId)")
-    }
-
-    /// Open the editor's find bar. Same shape as the formatting bus: the find
-    /// bar belongs to the text view, so a menu item needs a way to reach the
-    /// one showing this document.
-    static func hnFind(documentId: String) -> Notification.Name {
-        Notification.Name("hnEditorFind.\(documentId)")
-    }
 }
 
 extension FormatAction {

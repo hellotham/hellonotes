@@ -163,4 +163,111 @@ struct PreviewSupersetTests {
         #expect(out.contains("![[Examples/Nested Note]]"),
                 "with no provider it must reach NoteMarkdown untouched")
     }
+
+    // MARK: - Drawn once
+
+    /// A diagram source no other test has drawn.
+    private func freshDiagram() -> String {
+        "graph TD\n  Start --> N\(UUID().uuidString.prefix(8))"
+    }
+
+    /// A pass keeps the diagrams it draws, as the tags they became.
+    @Test func aDrawnDiagramIsKept() async {
+        let source = freshDiagram()
+        let out = await apply("```mermaid\n\(source)\n```\n")
+        #expect(out.contains("hn-diagram"), "the diagram was not drawn, so this tests nothing")
+        let kept = PreviewSuperset.rendered.tag(for: PreviewSuperset.diagramKey(source, isDark: true))
+        #expect(kept?.contains("data:image/png;base64,") == true, "the drawn diagram was not kept")
+    }
+
+    /// And the next pass takes what was kept rather than drawing it again —
+    /// every diagram was drawn again at every change to the note, and in
+    /// Split mode that was every keystroke. Seeded with a tag no renderer
+    /// draws, so the only way into the page is the cache.
+    @Test func aKeptDiagramIsNotDrawnAgain() async {
+        let source = freshDiagram()
+        let kept = "<img class=\"hn-diagram\" alt=\"kept\" width=\"1\" height=\"1\" src=\"data:image/png;base64,AA==\">"
+        PreviewSuperset.rendered.store(kept, for: PreviewSuperset.diagramKey(source, isDark: true))
+        let out = await apply("```mermaid\n\(source)\n```\n")
+        #expect(out.contains(kept), "the diagram was drawn again rather than taken from the cache")
+    }
+
+    /// The same for a formula, which is drawn on the main actor.
+    @Test func aKeptFormulaIsNotDrawnAgain() async {
+        let source = "x^{2} + \(Int.random(in: 100_000...999_999))"   // no other test's
+        let kept = "<img class=\"hn-math-block\" alt=\"kept\" width=\"1\" height=\"1\" src=\"data:image/png;base64,AA==\">"
+        PreviewSuperset.rendered.store(kept, for: PreviewSuperset.mathKey(source, fontSize: 20, isDark: true,
+                                                                         class: "hn-math-block"))
+        let out = await apply("$$\(source)$$")
+        #expect(out.contains(kept), "the formula was drawn again rather than taken from the cache")
+    }
+
+    /// A pass whose task is cancelled — the note changed again, or Preview
+    /// went away — stops, and draws nothing more. Drawing ran to the end
+    /// whoever had stopped waiting for it.
+    @Test func aCancelledPassDrawsNothing() async {
+        let source = freshDiagram()
+        let text = "```mermaid\n\(source)\n```\n"
+        let pass = Task { await PreviewSuperset.apply(to: text, isDark: true, embeds: nil) }
+        pass.cancel()
+        let out = await pass.value
+        #expect(out == text)
+        #expect(PreviewSuperset.rendered.tag(for: PreviewSuperset.diagramKey(source, isDark: true)) == nil,
+                "a cancelled pass drew a diagram")
+    }
+}
+
+/// What `PreviewSuperset` keeps of what it drew (`RenderedTags`): bounded by
+/// size, evicted by pass.
+struct RenderedTagsTests {
+
+    /// A note whose images outgrow the budget is drawn once, not at every
+    /// pass: the pass that drew them keeps them, and the next, visiting them in
+    /// the same order, finds every one. Evicting the oldest stored first, it
+    /// evicted each before the next pass reached it, and found almost none.
+    @Test func aPassThatOutgrowsTheBudgetFindsEverythingNextTime() {
+        let tags = RenderedTags(limit: 1_000)
+        let first = tags.beginPass()
+        for index in 0..<20 {
+            tags.store(String(repeating: "x", count: 200), for: "diagram \(index)", pass: first)
+        }
+        let second = tags.beginPass()
+        let found = (0..<20).filter { tags.tag(for: "diagram \($0)", pass: second) != nil }.count
+        #expect(found == 20, "the next pass found \(found) of 20")
+    }
+
+    /// Room is made from what the oldest passes used, never from what the
+    /// pass storing has used — a hit counts as use.
+    @Test func roomIsMadeFromTheOldestPasses() {
+        let tags = RenderedTags(limit: 1_000)
+        let old = tags.beginPass()
+        tags.store(String(repeating: "a", count: 600), for: "old", pass: old)
+        let later = tags.beginPass()
+        tags.store(String(repeating: "b", count: 600), for: "used", pass: later)
+        #expect(tags.tag(for: "old") == nil, "the oldest pass's entry was kept over budget")
+
+        let now = tags.beginPass()
+        #expect(tags.tag(for: "used", pass: now) != nil)
+        tags.store(String(repeating: "c", count: 600), for: "new", pass: now)
+        #expect(tags.tag(for: "used") != nil, "an entry the storing pass used was evicted")
+        #expect(tags.tag(for: "new") != nil)
+    }
+
+    /// A key carries the whole diagram or formula it names, and an entry for
+    /// one that drew nothing is all key: keys count.
+    @Test func keysCountTowardsTheBudget() {
+        let tags = RenderedTags(limit: 1_000)
+        tags.store("", for: String(repeating: "k", count: 900), pass: tags.beginPass())
+        #expect(tags.size >= 900)
+    }
+
+    /// A card is kept for the image it was drawn from: the provider draws
+    /// again when the note it shows changes, under the same name.
+    @Test func aCardIsKeptForTheImageItWasDrawnFrom() {
+        let tags = RenderedTags(limit: 1 << 20)
+        let drawn = NSObject(), redrawn = NSObject()
+        tags.store("<img>", for: "card", drawnFrom: drawn)
+        #expect(tags.tag(for: "card", drawnFrom: drawn) == "<img>")
+        #expect(tags.tag(for: "card", drawnFrom: redrawn) == nil, "a card drawn again was taken from the cache")
+    }
 }

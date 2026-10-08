@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 15/8/2026.
 //
-//  Every command in the app, findable by typing its name (⌘⇧P).
+//  Every command in the app, findable by typing its name (⇧⌘P).
 //
 //  The app had grown surfaces faster than it had grown ways to reach them —
 //  most visibly the AI features, which sat in a panel organised by the fact that
@@ -39,6 +39,7 @@ struct CommandPaletteView: View {
     let commands: [PaletteCommand]
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppearanceSettings.self) private var appearance
     @State private var query = ""
     @State private var selection: PaletteCommand.ID?
     @FocusState private var fieldFocused: Bool
@@ -68,10 +69,9 @@ struct CommandPaletteView: View {
         // reader" waste the tag rail was just fixed for, in the sibling file.
         let visible = results
         return VStack(spacing: 0) {
-            TextField("Run a command…", text: $query)
+            TextField("", text: $query)
                 .textFieldStyle(.plain)
-                .font(.title3)
-                .padding(12)
+                .focusEffectDisabled()
                 .focused($fieldFocused)
                 .onSubmit(runSelected)
                 .autocorrectionDisabled()
@@ -81,34 +81,48 @@ struct CommandPaletteView: View {
                 // "New Note" and a partial command name can be corrected into a
                 // different result set.
                 .plainSearchField()
+                .accessibilityLabel("Run a command")
+                // The app's placeholder, as Open Quickly draws it.
+                .chromePlaceholder("Run a command…", showing: query.isEmpty)
+                .font(Chrome.Style.title3)
+                .padding(12)
 
-            Divider()
+            ChromeDivider()
 
             if visible.isEmpty {
-                ContentUnavailableView("No matching command", systemImage: "magnifyingglass")
+                ChromeEmptyState("No matching command", systemImage: "magnifyingglass")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // A `List` scrolls to a selection *it* set, never to one assigned
-                // from outside — and the arrow keys below assign from outside,
-                // because the search field keeps focus. Without this the
-                // highlight walks off the bottom of the visible rows and Return
-                // runs a command the reader cannot see.
+                // Nothing scrolls to the selection on its own — and the arrow
+                // keys below assign it from outside, because the search field
+                // keeps focus. Without this the highlight walks off the bottom
+                // of the visible rows and Return runs a command the reader
+                // cannot see.
                 ScrollViewReader { scroller in
-                    List(visible, selection: $selection) { command in
-                        // A Button, not onTapGesture: the row is the palette's
-                        // action, and a bare tap recogniser carries no button trait,
-                        // so VoiceOver read the row out without ever saying it could
-                        // be activated — and its activate action had nothing to fire.
-                        Button { run(command) } label: {
-                            row(command)
-                                // The whole row, including the gaps between glyphs.
-                                .contentShape(.rect)
+                    ScrollView(.vertical) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(visible) { command in
+                                // A Button, not onTapGesture: the row is the
+                                // palette's action, and a bare tap recogniser
+                                // carries no button trait, so VoiceOver read the
+                                // row out without ever saying it could be
+                                // activated — and its activate action had
+                                // nothing to fire.
+                                Button { run(command) } label: {
+                                    PaletteRow(isSelected: command.id == selection,
+                                               accent: appearance.resolvedAccent) {
+                                        row(command)
+                                    }
+                                }
+                                .buttonStyle(ChromePlainStyle())
+                                .id(command.id)
+                                .accessibilityAddTraits(command.id == selection ? .isSelected : [])
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .tag(command.id)
-                        .id(command.id)
+                        .padding(.vertical, 4)
                     }
-                    .listStyle(.plain)
+                    .viewport()
+                    .background(Chrome.Colour.content)
                     .onChange(of: selection) { _, id in
                         guard let id else { return }
                         scroller.scrollTo(id)
@@ -135,22 +149,20 @@ struct CommandPaletteView: View {
     private func row(_ command: PaletteCommand) -> some View {
         HStack(spacing: 8) {
             Image(systemName: command.symbol)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
-                Text(command.title)
-                Text(command.group)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                ChromeLine(command.title, size: Chrome.Style.points(13))
+                ChromeLine(command.group, size: Chrome.Style.points(10), colour: Chrome.Colour.secondaryLabel)
             }
             Spacer(minLength: 8)
             if let shortcut = command.shortcut {
                 Text(shortcut)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.tertiary)
+                    .font(Chrome.Style.caption.monospaced())
+                    .foregroundStyle(Chrome.Colour.tertiaryLabel)
+                    .lineLimit(1)
             }
         }
-        .padding(.vertical, 2)
     }
 
     /// Return runs the *selected* command, and runs the top one only when
@@ -218,10 +230,13 @@ extension AppActions {
             enabled: canNewNote, run: todaysNote)
         add("compose-note", "File", "New Note from a Prompt…", "sparkles.square.filled.on.square",
             shortcut: "⌃⌘N", run: composeNote)
-        add("open-quickly", "File", "Open Quickly", "magnifyingglass",
-            shortcut: "⌘O", enabled: canOpenQuickly, run: openQuickly)
-        add("launcher", "File", "Open Collection", "folder", run: openLauncher)
-        add("acknowledgements", "Help", "Acknowledgements", "heart", run: acknowledgements)
+        // The menu's names and key equivalents, in its notation — ⇧⌘, not ⌘⇧
+        // — and Open Quickly is ⇧⌘O: ⌘O is the launcher, the menu's Open…
+        // (menu.md §8, item 3; implemented.md §51.36).
+        add("open-quickly", "File", "Open Quickly…", "magnifyingglass",
+            shortcut: "⇧⌘O", enabled: canOpenQuickly, run: openQuickly)
+        add("launcher", "File", "Open…", "folder", shortcut: "⌘O", run: openLauncher)
+        add("acknowledgements", "Help", "Acknowledgements…", "heart", run: acknowledgements)
         add("refresh-cloud", "File", "Refresh Cloud Collection", "arrow.clockwise",
             run: refreshCloudCollection)
         add("rescan", "File", "Rescan Collection", "arrow.triangle.2.circlepath", run: rescan)
@@ -269,7 +284,7 @@ extension AppActions {
             }
         }
         add("graph", "View", "Graph View", "point.3.connected.trianglepath.dotted",
-            shortcut: "⌘⇧G", enabled: canGraph, run: graphView)
+            shortcut: "⇧⌘G", enabled: canGraph, run: graphView)
         if let showsNonNoteFiles, let setShowsNonNoteFiles {
             add("toggle-files", "View",
                 showsNonNoteFiles ? "Hide Non-Note Files" : "Show Non-Note Files",
@@ -278,9 +293,9 @@ extension AppActions {
 
         // Assistant
         add("ask-library", "Assistant", "Ask Your Library", "sparkles.rectangle.stack",
-            shortcut: "⌘⇧J", enabled: canAsk, run: askLibrary)
+            shortcut: "⇧⌘J", enabled: canAsk, run: askLibrary)
         add("assistant", "Assistant", "Assistant", "sparkles",
-            shortcut: "⌘⇧A", run: assistant)
+            shortcut: "⇧⌘A", run: assistant)
 
         // AI on the open note. Grouped under "Note" rather than under a heading
         // of their own: someone hunting for a way to summarise is thinking
@@ -296,12 +311,12 @@ extension AppActions {
             shortcut: "⌃⌘K", run: quickCapture)
 
         add("review-links", "Note", "Review Links…", "link.badge.plus",
-            shortcut: "⌘⇧L", run: reviewLinks)
+            shortcut: "⇧⌘L", run: reviewLinks)
 
         // Templates, one entry each — a palette that offered "Insert Template…"
         // and then asked which would be a second search inside a search. The
-        // command reaches a keyboard-less iPad only through here and the
-        // toolbar, since a menu bar needs a keyboard.
+        // menu bar and here are its only routes, so a keyboard-less iPad
+        // reaches it only through here.
         if let insertTemplate {
             for template in templates {
                 add("template-\(template.title)", "Note", "Insert Template: \(template.title)",
@@ -327,7 +342,7 @@ extension AppActions {
 
         // Format — an editable note focused, **and the editor actually on
         // screen**. The formatting bus is installed by `MarkdownTextView` via
-        // `.commandBus(documentId:)`, and that view is only mounted in Edit
+        // `.commandBus(editorID:)`, and that view is only mounted in Edit
         // mode: in Preview, Markdown and Split there is nothing listening, so
         // "Bold" would appear and silently do nothing. The menu has always
         // checked the mode; the palette did not, which is the same promise

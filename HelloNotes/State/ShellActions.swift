@@ -61,6 +61,19 @@ struct ShellActions {
         renameTarget.wrappedValue = note
     }
 
+    /// The note with a conflict still to be chosen that stops a rename or a
+    /// move of `url` — that note, or one inside that folder — if there is one.
+    /// The flush before a rename or a move cannot write a conflicted buffer,
+    /// so its tab would keep the old path, and Keep Mine would later write
+    /// mine there: the ghost file the flush exists to prevent.
+    private func conflictBlocking(_ url: URL) -> Note? {
+        let path = url.standardizedFileURL.path
+        return tabs.editors.first { editor in
+            guard editor.hasConflict, let open = editor.note?.fileURL.standardizedFileURL.path else { return false }
+            return open == path || open.hasPrefix(path + "/")
+        }?.note
+    }
+
     /// Commit the rename in progress.
     ///
     /// **Every** tab is flushed, not just the front one: a rename raised from
@@ -83,9 +96,17 @@ struct ShellActions {
     /// call sees the old value.
     func rename(_ note: Note, to title: String) {
         guard let collection = library.collection(containing: note.fileURL) else { return }
+        if let blocked = conflictBlocking(note.fileURL) {
+            collection.report("“\(blocked.title)” changed on disk while you were editing it. Choose Keep Mine or Reload before renaming it.")
+            return
+        }
         Task {
-            await tabs.flushAll()
-            if let renamed = await collection.renameNote(note, to: title) {
+            await tabs.flushAll(lettingGo: false)
+            // Its tab follows it where it is (`EditorModel.itemMoved`), and
+            // the window shows it only if it was showing it: a rename made the
+            // renamed note the active one, whichever it had been.
+            let wasSelected = selection.wrappedValue == note.id
+            if let renamed = await collection.renameNote(note, to: title), wasSelected {
                 selection.wrappedValue = renamed.id
             }
         }
@@ -193,7 +214,7 @@ struct ShellActions {
         Task {
             guard let expanded = await Templates.expanded(template, noteTitle: title)
             else { return }
-            editor.text += (editor.text.isEmpty ? "" : "\n") + expanded
+            editor.applyEdit { $0 + ($0.isEmpty ? "" : "\n") + expanded }
         }
     }
 
@@ -214,8 +235,15 @@ struct ShellActions {
     /// paragraph explaining why. One name, opposite behaviours, and each
     /// platform was missing what the other did.
     func revalidateSelection() {
-        guard let id = selection.wrappedValue else { return }
-        guard library.allNotes.contains(where: { $0.id == id }) else { return }
+        Self.revalidate(selection, in: library, tabs: tabs)
+    }
+
+    /// `revalidateSelection`, from its parts — for a window's change handler,
+    /// which must not hold the window (`ContentView.observeExternalChanges`).
+    /// The note is looked up, not searched for: this runs for every open window
+    /// at every change on disk.
+    static func revalidate(_ selection: Binding<Note.ID?>, in library: Library, tabs: EditorTabs) {
+        guard let id = selection.wrappedValue, library.note(id: id) != nil else { return }
         Task { await tabs.editor(withID: id)?.reconcileWithDisk() }
     }
 
@@ -233,6 +261,24 @@ struct ShellActions {
     /// folder's absolute path, which begins with its collection's root path.
     func collection(forFolderID id: String) -> Collection? {
         library.collections.first { id == $0.id || id.hasPrefix($0.id + "/") }
+    }
+
+    /// The folder New Note goes into: the band's container, while the band
+    /// is on screen and that container is a folder of an open collection —
+    /// otherwise none, which is the collection's root.
+    ///
+    /// The container outlived the band: a window that was once tall — an iPad
+    /// rotated, a Mac window resized — kept the folder last chosen there, and
+    /// New Note in its column landed in that folder; and with Recents chosen,
+    /// which is a place and not a folder, it was written into the open
+    /// folders, so the tree showed Recents open (primary.md §12, item 14;
+    /// implemented.md §51.36).
+    nonisolated static func newNoteFolder(band containerID: String?, bandShowing: Bool,
+                              collectionIDs: [String]) -> String? {
+        guard bandShowing, let containerID,
+              collectionIDs.contains(where: { containerID == $0 || containerID.hasPrefix($0 + "/") })
+        else { return nil }
+        return containerID
     }
 
     /// Open a folder in the sidebar, so something created inside it is not
@@ -269,6 +315,11 @@ struct ShellActions {
         newFolderName.wrappedValue = ""
     }
 
+    /// Close a collection — **every route**: the row's menu, the unavailable
+    /// collection's Remove, the Cloud Collections manager. Two of them called
+    /// `library.close` themselves, and so kept a selected note's tab, unsaved
+    /// changes and all, showing a note in a collection no longer open
+    /// (tabs.md §2.5, item 15; implemented.md §51.36).
     func closeCollection(_ collection: Collection) {
         // Clear a selection that lives in the collection being closed, or the
         // editor keeps showing a note from a library that is no longer open.
@@ -276,24 +327,44 @@ struct ShellActions {
            library.collection(containing: selected)?.id == collection.id {
             selection.wrappedValue = nil
         }
-        library.close(collection)
+        // What its tabs hold is written before the folder is given up:
+        // closing gives up its security scope, and a save after that fails.
+        let holding = tabs.editors.filter { editor in
+            editor.note.map { library.collection(containing: $0.fileURL)?.id == collection.id } ?? false
+        }
+        guard !holding.isEmpty else { return library.close(collection) }
+        Task {
+            for editor in holding { await editor.flush() }
+            library.close(collection)
+        }
     }
 
     /// Move dropped items into a folder. Plural because a drop can carry
-    /// several; the Mac's `NSOutlineView` drop happens to deliver one.
+    /// several.
     @discardableResult
     func move(_ urls: [URL], intoFolderWithID folderID: String) -> Bool {
         guard let collection = collection(forFolderID: folderID) else { return false }
         let folder = URL(fileURLWithPath: folderID, isDirectory: true)
         let sources = urls.filter { library.collection(containing: $0)?.id == collection.id }
         guard !sources.isEmpty else { return false }
+        if let blocked = sources.lazy.compactMap(conflictBlocking).first {
+            collection.report("“\(blocked.title)” changed on disk while you were editing it. Choose Keep Mine or Reload before moving it.")
+            return false
+        }
         Task {
-            await tabs.flushAll()
+            await tabs.flushAll(lettingGo: false)
             for source in sources {
-                let wasSelected = selection.wrappedValue == source
-                if let destination = await collection.moveItem(at: source, into: folder),
-                   wasSelected {
+                let selected = selection.wrappedValue
+                guard let destination = await collection.moveItem(at: source, into: folder),
+                      let selected else { continue }
+                // The note shown, moved — itself, or with the folder it is in.
+                let from = source.standardizedFileURL.path
+                let path = selected.standardizedFileURL.path
+                if path == from {
                     selection.wrappedValue = destination
+                } else if path.hasPrefix(from + "/") {
+                    selection.wrappedValue = URL(fileURLWithPath: destination.standardizedFileURL.path
+                                                 + path.dropFirst(from.count))
                 }
             }
         }

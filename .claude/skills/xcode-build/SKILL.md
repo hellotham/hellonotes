@@ -39,10 +39,10 @@ xcodebuild build -project HelloNotes.xcodeproj -scheme HelloNotes \
 ## Test
 
 ```bash
-./scripts/run-tests.sh                                     # app suite: 425 tests, 56 suites
-swift test --package-path Packages/NotesEditor             # editor, macOS: 401
+./scripts/run-tests.sh                                     # app suite: 830 tests, 124 suites
+swift test --package-path Packages/NotesEditor             # editor, macOS: 506
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'       # editor, iOS: 381
+  -destination 'platform=iOS Simulator,name=HN-iPad'       # editor, iOS: 487
 xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'platform=macOS' -skipPackagePluginValidation \
   -only-testing:HelloNotesTests/ShellContractTests         # layout contract, ~2s
@@ -54,9 +54,9 @@ xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes \
   edits), runs, and kills any host afterwards whatever the result. A host's argv
   is the *app's*, so `pkill -f HelloNotesTests.xctest` matches nothing; its real
   signature is `-NSTreatUnknownArgumentsAsOpen`.
-- **The iOS editor run prints THREE bundle summaries** — 169/12, 18/4, 194/13.
-  The total is their sum. Reading only the last says "194 in 13" and looks
-  exactly like two thirds of the suite having silently stopped.
+- **The iOS editor run prints THREE bundle summaries** — 270/29, 191/16, 26/4.
+  The total is their sum. Reading only the last says "26 in 4" and looks
+  exactly like nearly all of the suite having silently stopped.
 - **`swift test` only ever builds for macOS**, so the UIKit half goes untested
   until the simulator command runs. That is how a `UITextView` showing a document
   it believed was empty, a zero-width keyboard bar and a link tap that ate the

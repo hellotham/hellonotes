@@ -139,7 +139,7 @@ import Testing
         // The bus lives on the representable's coordinator, which is what
         // `updateUIView` wires up in the app.
         let coordinator = MarkdownEditorRepresentable.Coordinator(document: document)
-        coordinator.subscribe(documentId: id, view: tv)
+        coordinator.subscribe(editorID: id, view: tv)
         #expect(tv.becomeFirstResponder())
 
         tv.selectedRange = NSRange(location: 0, length: 5)
@@ -147,11 +147,11 @@ import Testing
         #expect(document.text.hasPrefix("**plain**"))
 
         NotificationCenter.default.post(
-            name: Notification.Name("hnEditorUndo.\(id)"), object: nil)
+            name: EditorBus.undo(editor: id), object: nil)
         #expect(!document.text.hasPrefix("**plain**"), "undo did not reach the document")
 
         NotificationCenter.default.post(
-            name: Notification.Name("hnEditorEndEditing.\(id)"), object: nil)
+            name: EditorBus.endEditing(editor: id), object: nil)
         #expect(!tv.isFirstResponder, "end-editing did not reach the text view")
     }
 
@@ -712,7 +712,7 @@ import Testing
         weak var weakCoordinator: MarkdownEditorRepresentable.Coordinator?
         do {
             let coordinator = MarkdownEditorRepresentable.Coordinator(document: document)
-            coordinator.subscribe(documentId: "deinit-probe", view: tv)
+            coordinator.subscribe(editorID: "deinit-probe", view: tv)
             weakCoordinator = coordinator
             #expect(weakCoordinator != nil)
         }

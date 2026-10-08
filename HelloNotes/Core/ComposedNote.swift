@@ -22,6 +22,7 @@
 //
 
 import Foundation
+import MarkdownCore
 
 /// A note the app has composed but has not written.
 ///
@@ -155,14 +156,21 @@ nonisolated enum ComposedNote {
             guard !verbatim.contains(where: { NSIntersectionRange($0, match.range).length > 0 })
             else { continue }
 
-            let target = ns.substring(with: match.range(at: 1))
-                .trimmingCharacters(in: .whitespaces)
+            let written = ns.substring(with: match.range(at: 1))
             let alias = match.range(at: 2).location == NSNotFound
                 ? nil : ns.substring(with: match.range(at: 2))
+            // Read by the rule every reader of a link shares (`WikiLinkSyntax`):
+            // a table's aliased link, `[[Note\|alias]]`, names `Note`. Read up
+            // to the pipe, it named `Note\` and was unwrapped to its alias as
+            // if the note did not exist (implemented.md §51.36). Kept, it keeps
+            // the escape, or the rewritten link divides the cell.
+            let named = WikiLinkSyntax.target(written: written, aliased: alias != nil)
+            let pipe = named.count < written.count ? "\\|" : "|"
+            let target = named.trimmingCharacters(in: .whitespaces)
 
             if let real = canonical[target.lowercased()] {
                 kept.append(real)
-                let replacement = alias.map { "[[\(real)|\($0)]]" } ?? "[[\(real)]]"
+                let replacement = alias.map { "[[\(real)\(pipe)\($0)]]" } ?? "[[\(real)]]"
                 result = (result as NSString).replacingCharacters(in: match.range, with: replacement)
             } else {
                 dropped.append(target)

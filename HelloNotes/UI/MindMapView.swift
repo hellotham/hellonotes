@@ -16,6 +16,7 @@
 // **Not macOS-only.** This file was `#if os(macOS)` and used no AppKit and
 // no Mac-only API — the gate was the only thing keeping it off iPad.
 import SwiftUI
+import MarkdownCore
 
 struct MindMapView: View {
     /// The note whose ideas are mapped.
@@ -25,12 +26,15 @@ struct MindMapView: View {
     let text: String
     /// Resolves a `[[wiki-link]]` target to an existing note, if any.
     var resolveLink: (String) -> (url: URL, title: String)?
-    /// Root-chip colour — pass the app's resolved accent.
-    var accent: Color = .accentColor
-    /// Chip text used to scale by canvas zoom alone, ignoring the system text
-    /// size. The *same* factor feeds `estimatedChipSize`, so the chips grow
-    /// with their labels — scaling only the font would clip every title.
-    @ScaledMetric(relativeTo: .body) private var typeScale: CGFloat = 1
+    /// Root-chip colour — the app's resolved accent. Given, because
+    /// `Color.accentColor` is not the person's choice.
+    var accent: Color
+    /// Chip text used to scale by canvas zoom alone, ignoring the text size.
+    /// The *same* factor feeds `estimatedChipSize`, so the chips grow with
+    /// their labels — scaling only the font would clip every title. It is the
+    /// chrome's own factor (`ChromeTextScale`), one table on both platforms,
+    /// where `@ScaledMetric` scaled by each platform's.
+    private var typeScale: CGFloat { ChromeTextScale.shared.factor }
     /// Open a linked note in the editor.
     var onOpenNote: (URL) -> Void = { _ in }
     /// Reveal a section in the note (`nil` = just open the note).
@@ -40,22 +44,34 @@ struct MindMapView: View {
     @State private var gestureBaseZoom: CGFloat?
     @State private var viewportSize: CGSize = .zero
     @State private var didInitialFit = false
-    /// Cached layout (the O(N²) collision relaxation). `text` is constant for the
-    /// view, so this is computed once instead of on every body eval / zoom frame
-    /// (and again in `fitZoom`).
-    @State private var cachedLayout: MindMapModel.Layout?
-    @Environment(\.dismiss) private var dismiss
+    /// The map and its layout, built once per text and text size — the model
+    /// on the main actor, where its links are resolved, and the layout, the
+    /// O(N²) collision relaxation, off it (`build`). The model was a computed
+    /// property, so every body evaluation and every zoom frame parsed the
+    /// note again, and the first layout ran in `body` (implemented.md §51.36).
+    @State private var built: Built?
+
+    private struct Built {
+        let model: MindMapModel
+        let layout: MindMapModel.Layout
+    }
+
+    /// What the map is built from. The text itself, compared as SwiftUI
+    /// compares a task's id: the same string handed again is the same storage,
+    /// which compares at once. The key was a string interpolating the whole
+    /// note, made again at every body evaluation.
+    private struct BuildKey: Equatable {
+        let text: String
+        let rootTitle: String
+        let scale: CGFloat
+    }
 
     private static let zoomRange: ClosedRange<CGFloat> = 0.4...3
-
-    private var model: MindMapModel {
-        MindMapModel(rootTitle: rootTitle, text: text, resolveLink: resolveLink)
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            ChromeDivider()
             scrollingMap
         }
         // No minimum — a pane gives it the width it has; the map scrolls and
@@ -64,21 +80,44 @@ struct MindMapView: View {
 
     private var header: some View {
         HStack {
-            Label("Mind Map", systemImage: "brain").font(.headline)
+            Label("Mind Map", systemImage: "brain").font(Chrome.Style.headline)
             Spacer()
             ZoomControls(zoom: $zoom, range: Self.zoomRange, fitZoom: fitZoom)
             Button {
                 onShowSection(nil)
             } label: { Label("Open “\(rootTitle)”", systemImage: "arrow.up.forward.square") }
         }
-        .padding()
+        // 16 is the Mac's `.padding()`, said rather than asked for: the
+        // default amount is platform-specific.
+        .padding(16)
     }
 
     // MARK: - Map canvas
 
     private var scrollingMap: some View {
-        let model = self.model
-        let layout = cachedLayout ?? model.layout(textScale: typeScale)
+        Group {
+            if let built {
+                map(built.model, built.layout)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        // On the container, which outlives the switch from the spinner to the
+        // map: on either branch, it would build once more when it appeared.
+        .task(id: BuildKey(text: text, rootTitle: rootTitle, scale: typeScale)) { await build() }
+    }
+
+    /// Build the map for the text and text size on screen.
+    private func build() async {
+        let model = MindMapModel(rootTitle: rootTitle, text: text, resolveLink: resolveLink)
+        let scale = typeScale
+        let layout = await offMain { model.layout(textScale: scale) }
+        guard !Task.isCancelled else { return }
+        built = Built(model: model, layout: layout)
+    }
+
+    private func map(_ model: MindMapModel, _ layout: MindMapModel.Layout) -> some View {
         let contentSize = layout.size
         let positions = layout.positions
 
@@ -97,7 +136,7 @@ struct MindMapView: View {
                 // Centre the map in the viewport while it's smaller.
                 .frame(minWidth: viewport.size.width, minHeight: viewport.size.height)
             }
-            .background(.background)
+            .background(Chrome.Colour.content)
             .onChange(of: viewport.size, initial: true) { _, size in
                 viewportSize = size
                 if !didInitialFit, size.width > 0 {
@@ -115,7 +154,6 @@ struct MindMapView: View {
                 }
                 .onEnded { _ in gestureBaseZoom = nil }
         )
-        .task(id: "\(text)|\(typeScale)") { cachedLayout = model.layout(textScale: typeScale) }
     }
 
     private func edgeCanvas(model: MindMapModel, positions: [String: CGPoint]) -> some View {
@@ -129,8 +167,8 @@ struct MindMapView: View {
                 path.move(to: a)
                 path.addLine(to: b)
                 let shading = GraphicsContext.Shading.linearGradient(
-                    Gradient(colors: [(colorOf[edge.from] ?? .secondary).opacity(0.55),
-                                      (colorOf[edge.to] ?? .secondary).opacity(0.55)]),
+                    Gradient(colors: [(colorOf[edge.from] ?? Chrome.Colour.secondaryLabel).opacity(0.55),
+                                      (colorOf[edge.to] ?? Chrome.Colour.secondaryLabel).opacity(0.55)]),
                     startPoint: a, endPoint: b
                 )
                 ctx.stroke(path, with: shading, lineWidth: max(1, 1.4 * zoom))
@@ -180,7 +218,7 @@ struct MindMapView: View {
             .foregroundStyle(chipForeground(node, color: color))
             .shadow(color: .black.opacity(0.25), radius: 2.5 * zoom, y: 1.5 * zoom)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePlainStyle())
         .contextMenu {
             switch node.kind {
             case .linkedNote(let url):
@@ -215,7 +253,7 @@ struct MindMapView: View {
     private func chipForeground(_ node: MindMapModel.Node, color: Color) -> AnyShapeStyle {
         switch node.kind {
         case .root, .section: AnyShapeStyle(.white)
-        case .bullet: AnyShapeStyle(.primary)
+        case .bullet: AnyShapeStyle(Chrome.Colour.label)
         case .linkedNote: AnyShapeStyle(color)
         }
     }
@@ -231,8 +269,7 @@ struct MindMapView: View {
 
     /// The zoom that fits the whole map in the current viewport.
     private func fitZoom() -> CGFloat {
-        guard viewportSize.width > 0, viewportSize.height > 0 else { return 1 }
-        let size = (cachedLayout ?? model.layout(textScale: typeScale)).size
+        guard viewportSize.width > 0, viewportSize.height > 0, let size = built?.layout.size else { return 1 }
         return min(viewportSize.width / size.width, viewportSize.height / size.height) * 0.96
     }
 }
@@ -243,15 +280,15 @@ struct MindMapView: View {
 /// top-level bullets become sub-ideas, and `[[wiki-links]]` attach to the
 /// section they appear in as linked-note leaves. Pure parsing — testable
 /// without a view.
-struct MindMapModel {
-    enum Kind: Hashable {
+nonisolated struct MindMapModel: Sendable {
+    enum Kind: Hashable, Sendable {
         case root
         case section
         case bullet
         case linkedNote(URL)
     }
 
-    struct Node: Identifiable, Hashable {
+    struct Node: Identifiable, Hashable, Sendable {
         let id: String
         let title: String
         let depth: Int
@@ -262,7 +299,7 @@ struct MindMapModel {
         let kind: Kind
     }
 
-    struct Edge: Hashable {
+    struct Edge: Hashable, Sendable {
         let from: String
         let to: String
     }
@@ -276,7 +313,7 @@ struct MindMapModel {
 
     /// The final node placement: positions in world coordinates plus the world
     /// size that contains every chip.
-    struct Layout {
+    struct Layout: Sendable {
         let positions: [String: CGPoint]
         let size: CGSize
     }
@@ -447,15 +484,21 @@ struct MindMapModel {
     /// first run. `try?` here meant a broken pattern would silently render
     /// every mind map with no links at all, and never say why.
     private static let wikiLinkRegex = try! NSRegularExpression(
-        pattern: #"(?<!\!)\[\[([^\]\|#\n]+)(?:#[^\]\|\n]*)?(?:\|[^\]\n]*)?\]\]"#
+        pattern: #"(?<!\!)\[\[([^\]\|#\n]+)(#[^\]\|\n]*)?(\|[^\]\n]*)?\]\]"#
     )
 
+    /// Read by the rule every reader of a link shares (`WikiLinkSyntax`): a
+    /// table's aliased link, `[[Note\|alias]]`, names `Note`. Read up to the
+    /// pipe, it named `Note\` and drew no leaf (implemented.md §51.36). The
+    /// pipe's escape ends the target only when no heading came between them.
     private static func wikiTargets(_ line: String) -> [String] {
         let regex = wikiLinkRegex
         let range = NSRange(line.startIndex..., in: line)
         return regex.matches(in: line, range: range).compactMap { match in
-            guard match.numberOfRanges > 1, let r = Range(match.range(at: 1), in: line) else { return nil }
-            let target = line[r].trimmingCharacters(in: .whitespaces)
+            guard match.numberOfRanges > 3, let r = Range(match.range(at: 1), in: line) else { return nil }
+            let aliased = match.range(at: 2).location == NSNotFound && match.range(at: 3).location != NSNotFound
+            let target = WikiLinkSyntax.target(written: line[r], aliased: aliased)
+                .trimmingCharacters(in: .whitespaces)
             return target.isEmpty ? nil : target
         }
     }

@@ -2,28 +2,22 @@
 //  SettingsView.swift
 //  HelloNotes
 //
-//  The app's settings — one file, two containers.
+//  The app's settings — one container, the same on both platforms.
 //
-//  There were two: `GeneralSettingsView.swift` (a tabbed Preferences window) and
-//  `iOSSettingsView.swift` (a sheet), each gated to its platform. The *controls*
-//  in them are already shared — `AppearanceSettingsSections` and
-//  `FolderConventionSections` — so what was left in each file was arrangement,
-//  and arrangement is where the two genuinely differ: macOS Preferences is a
-//  tab bar of panes and iOS Settings is one scrolling list. Keeping them in one
-//  file with an `#else` says that out loud, and stops a *setting* being added to
-//  one arrangement and forgotten in the other, which is how Reading width,
-//  Editor width and Wrap guide came to be Mac-only in the first place.
+//  There were two: a tabbed Preferences window on the Mac and a pushed `Form`
+//  sheet on iOS, each gated to its platform. The *controls* in them were
+//  already shared — `AppearanceSettingsSections` and `FolderConventionSections`
+//  — but the arrangement was not, and the arrangement was drawn by each OS: a
+//  system toolbar of tabs on one, a system navigation bar and 44pt rows on the
+//  other. An arrangement that differs is where a setting gets added to one
+//  and forgotten in the other, which is how Reading width, Editor width and
+//  Wrap guide came to be Mac-only in the first place; and a drawing that
+//  differs is two apps.
 //
-//  One thing was not arrangement: **Acknowledgements had no iOS route.**
-//  `AcknowledgementsView` has never been gated; it was simply only ever placed
-//  in the Mac's tab bar, so the licences and credits the app ships were
-//  unreachable on iPad.
+//  Acknowledgements are opened from About, on both.
 //
 
 import SwiftUI
-#if !os(macOS)
-import UIKit
-#endif
 
 /// A page of Settings, so a route can open Settings *at* one.
 ///
@@ -41,216 +35,164 @@ enum SettingsPage: String {
     static let storageKey = "settingsPage"
 }
 
-#if os(macOS)
-/// The Preferences window (⌘,): a tabbed container for all app settings.
-struct PreferencesView: View {
-    /// Shared AI settings, so the AI tab and the Assistant's sheet edit the
-    /// same choices.
-    var intelligenceSettings: IntelligenceSettings
-    /// App-wide theming (appearance, accent, text size).
-    var appearance: AppearanceSettings
-    /// Git hosting accounts. Shared with the window rather than owned here —
-    /// see `HelloNotesApp.gitAccounts`.
-    var gitAccounts: GitAccountsStore
-    /// The two voluntary purchases. Owned by the app, not by this window —
-    /// `Settings` is its own scene and gets no environment from the main one.
-    var store: StoreService
-
-    /// A repository-less service for the Settings tab.
-    ///
-    /// `GitSettingsView`'s repository sections need a `GitService`; its
-    /// **Accounts** section needs only the store. Settings is not opened
-    /// "inside" a collection, so it gets a bare service and shows accounts —
-    /// which is the part that has to be reachable before any repository exists.
-    @State private var settingsGit = GitService()
-
-    @AppStorage(SettingsPage.storageKey) private var page = SettingsPage.general
-
-    var body: some View {
-        TabView(selection: $page) {
-            GeneralSettingsView()
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(SettingsPage.general)
-
-            AppearanceSettingsView(settings: appearance)
-                .tabItem { Label("Appearance", systemImage: "paintpalette") }
-                .tag(SettingsPage.appearance)
-
-            // Credentials belong in Settings on both platforms. iOS has had
-            // this ("Repository & Accounts"); macOS reached `GitSettingsView`
-            // only from the inspector's Git pane, which requires a collection
-            // that is already a repository — so the credentials needed to
-            // *clone* one were behind having cloned one.
-            GitSettingsView(store: gitAccounts, git: settingsGit)
-                .tabItem { Label("Git", systemImage: "arrow.trianglehead.branch") }
-                .tag(SettingsPage.git)
-
-            IntelligenceSettingsForm(settings: intelligenceSettings)
-                .tabItem { Label("AI", systemImage: "sparkles") }
-                .tag(SettingsPage.ai)
-
-            // Both platforms, for the reason the file's header gives: a screen
-            // that exists on one shell is a screen nobody looked at on the
-            // other. This one also carries the App Store disclosures, so
-            // "reachable on macOS" is a review requirement, not a nicety.
-            SupportSettingsView(store: store)
-                .tabItem { Label("Support", systemImage: "heart") }
-                .tag(SettingsPage.support)
-        }
-        .frame(width: 560, height: 640)
-    }
-}
-
-struct GeneralSettingsView: View {
-    // Attachments, daily notes and templates now live in
-    // `FolderConventionSettings.swift`, shared with `iOSSettingsView` — the two
-    // screens had drifted into describing the same `@AppStorage` keys
-    // differently, which is a difference in the app, not in the platform.
-    var body: some View {
-        Form {
-            FolderConventionSections()
-        }
-        .formStyle(.grouped)
-    }
-}
-#else
-struct iOSSettingsView: View {
-    @Bindable var settings: AppearanceSettings
-    /// Which model does what.
-    ///
-    /// Present here for the same reason Git is: **settings belong in Settings
-    /// on both platforms.** macOS has had an AI tab since the Preferences
-    /// window existed; iOS once reached the identical form only from the
-    /// editor band's "AI Settings…" and the command palette, so someone looking
-    /// for it where settings live found appearance, Git and folders — and no
-    /// mention of AI at all.
-    var intelligenceSettings: IntelligenceSettings
-    /// The focused collection's Git service, if it is in a repository.
-    /// `GitSettingsView` and `GitAccountsStore` were never Mac-specific — the
-    /// view imports nothing but SwiftUI and the store nothing but Foundation;
-    /// only the settings *window* was macOS, so iPad could read history in the
-    /// inspector and never configure the remote it was reading from.
-    var git: GitService?
-    var accounts: GitAccountsStore?
-    /// The two voluntary purchases — see `PreferencesView.store`.
-    var store: StoreService
-    @Environment(\.dismiss) private var dismiss
-    /// Starts at the page a route asked for, already pushed, so "AI Settings…"
-    /// lands on AI with Settings behind it.
-    @State private var path: [SettingsPage]
-
-    init(settings: AppearanceSettings, intelligenceSettings: IntelligenceSettings,
-         git: GitService?, accounts: GitAccountsStore?, store: StoreService,
-         page: SettingsPage? = nil) {
-        self.settings = settings
-        self.intelligenceSettings = intelligenceSettings
-        self.git = git
-        self.accounts = accounts
-        self.store = store
-        _path = State(initialValue: page.map { [$0] } ?? [])
-    }
-
-    var body: some View {
-        NavigationStack(path: $path) {
-            Form {
-                // The same four groups the Mac's Preferences tab draws, from
-                // `AppearanceSettingsSections`. They were written twice over
-                // the same object, which is how three of them existed on one
-                // platform and not the other.
-                AppearanceSettingsSections(settings: settings, accentLayout: .grid)
-
-                Section("AI") {
-                    NavigationLink(value: SettingsPage.ai) {
-                        Label("Models", systemImage: "sparkles")
-                    }
-                }
-
-                if let git, let accounts {
-                    Section("Git") {
-                        NavigationLink {
-                            // The title is `GitSettingsView`'s own now — set
-                            // here it was a second name for one screen.
-                            GitSettingsView(store: accounts, git: git)
-                        } label: {
-                            Label("Repository & Accounts", systemImage: "arrow.trianglehead.branch")
-                        }
-                    }
-                }
-
-                FolderConventionSections()
-
-                Section("Support") {
-                    NavigationLink {
-                        // `SupportSettingsView` is a `Form` already, exactly as
-                        // `IntelligenceSettingsForm` is. Pushed as a destination that is
-                        // correct; wrapped in another `Form` it would render as
-                        // the same clipped stub the AI screen shipped as in
-                        // build 11.
-                        SupportSettingsView(store: store)
-                    } label: {
-                        Label("Support HelloNotes", systemImage: "heart")
-                    }
-                }
-            }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: SettingsPage.self) { page in
-                if page == .ai {
-                    // The very same form the Mac's AI tab shows — not a
-                    // second, smaller iOS spelling of it.
-                    //
-                    // **Not wrapped in a `Form`.** `IntelligenceSettingsForm` is one
-                    // already (`.formStyle(.grouped)`), and `Form { Form { … } }`
-                    // collapses: the screen rendered as a clipped stub with
-                    // a half-drawn "Defaults" label and nothing else. It
-                    // shipped that way in build 11 because the screen was
-                    // added and never looked at.
-                    IntelligenceSettingsForm(settings: intelligenceSettings)
-                        .navigationTitle("AI")
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-
-}
-#endif
-
-/// The app's settings, however this platform presents them.
+/// The app's settings: **one container, drawn by the app, on both platforms.**
 ///
-/// `PreferencesView` (a tabbed Preferences window) and `iOSSettingsView` (a
-/// pushed `Form`) are genuinely different presentations of one screen — a
-/// `Settings` scene has no iOS spelling and a `NavigationStack` sheet is not
-/// what ⌘, opens. They already draw the same four groups from
-/// `AppearanceSettingsSections` and `FolderConventionSections`.
+/// There were two. The Mac had a `TabView` — a Preferences window with a
+/// toolbar of five tabs — and iOS a `NavigationStack` sheet: one long `Form`
+/// with AI, Git and Support pushed from rows inside it. The pages were shared;
+/// the arrangement was not, so the same setting sat behind a tab on one
+/// platform and three rows down a list on the other, in a system tab bar or a
+/// system navigation bar, at each platform's own sizes.
 ///
-/// What was missing was a name the shell could say without knowing which
-/// platform it was on. Without it the shell's sheet stack had to be gated, and
-/// a gated sheet stack is how the Mac lost `largeFolderAlert` the moment
-/// anything else in that chain moved.
+/// Now it is the Mac's arrangement, drawn: a strip of five tabs above the
+/// page, the chosen tab stored (`SettingsPage.storageKey`) so any route can
+/// open Settings *at* a page, a Done button at the strip's end, and a fixed
+/// 560×640 — the Mac's Settings window and the iPad's sheet are the same size
+/// with the same pixels in them. Only the frame around them is the OS's: a
+/// window with traffic lights on the Mac, a sheet on iOS.
 struct AppSettingsView: View {
     var intelligenceSettings: IntelligenceSettings
     var appearance: AppearanceSettings
+    /// The focused collection's Git service, if any. Settings is not opened
+    /// "inside" a collection, so without one it gets a bare service — which is
+    /// enough for **Accounts**, the part that has to be reachable before any
+    /// repository exists (the credentials needed to *clone* one).
     var git: GitService?
     var accounts: GitAccountsStore?
+    /// The two voluntary purchases.
     var store: StoreService
-    /// The page to open at. The Mac's is stored instead (`SettingsPage.storageKey`),
-    /// because the window ⌘, opens takes no argument.
+    /// A page to open at, for a route that has one in hand. The Mac's `Settings`
+    /// window cannot be handed one (`openSettings` takes no argument), so its
+    /// routes store the page instead; this is the same store.
     var page: SettingsPage? = nil
 
+    @AppStorage(SettingsPage.storageKey) private var selection = SettingsPage.general
+    @State private var bareGit = GitService()
+    @State private var bareAccounts = GitAccountsStore()
+    @Environment(\.dismiss) private var dismiss
+
+    static let size = CGSize(width: 560, height: 640)
+
     var body: some View {
-        #if os(macOS)
-        // A store is always available here — the shell owns one whether or not
-        // a collection is open, which is the whole point of the Git tab.
-        PreferencesView(intelligenceSettings: intelligenceSettings, appearance: appearance,
-                        gitAccounts: accounts ?? GitAccountsStore(), store: store)
-        #else
-        iOSSettingsView(settings: appearance, intelligenceSettings: intelligenceSettings,
-                        git: git, accounts: accounts, store: store, page: page)
-        #endif
+        VStack(spacing: 0) {
+            SettingsTabStrip(selection: $selection) { dismiss() }
+            pageView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .chromeSheetFrame(width: Self.size.width, height: Self.size.height)
+        .onAppear { if let page { selection = page } }
+    }
+
+    @ViewBuilder
+    private var pageView: some View {
+        switch selection {
+        case .general:
+            // Attachments, daily notes and templates (`FolderConventionSections`).
+            ChromeForm { FolderConventionSections() }
+        case .appearance:
+            AppearanceSettingsView(settings: appearance)
+        case .git:
+            GitSettingsView(store: accounts ?? bareAccounts, git: git ?? bareGit)
+        case .ai:
+            // Already a form — never wrap it in another (the build-11 stub).
+            IntelligenceSettingsForm(settings: intelligenceSettings)
+        case .support:
+            // Carries the App Store disclosures, so it must be reachable here
+            // on both platforms — a review requirement, not a nicety.
+            SupportSettingsView(store: store)
+        }
+    }
+}
+
+extension SettingsPage: CaseIterable {
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .appearance: return "Appearance"
+        case .git: return "Git"
+        case .ai: return "AI"
+        case .support: return "Support"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .appearance: return "paintpalette"
+        case .git: return "arrow.trianglehead.branch"
+        case .ai: return "sparkles"
+        case .support: return "heart"
+        }
+    }
+}
+
+/// The five pages as a strip of tabs — a glyph over its name, the chosen one
+/// in the accent on a rounded wash, as the Mac's Preferences toolbar draws
+/// them — with Done at the end. Centred, so the Mac's traffic lights at the
+/// top-left never reach a tab.
+private struct SettingsTabStrip: View {
+    @Binding var selection: SettingsPage
+    let done: () -> Void
+
+    /// Room for Done, kept on *both* sides, so the tabs sit exactly in the
+    /// middle and Done can never overlap the last of them.
+    private static let doneWidth: CGFloat = 60
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: Self.doneWidth)
+                Spacer(minLength: 8)
+                tabs(width: 72)
+                Spacer(minLength: 8)
+                doneButton.frame(width: Self.doneWidth, alignment: .trailing)
+            }
+            // A phone: the tabs share what Done leaves them.
+            HStack(spacing: 4) {
+                tabs(width: nil)
+                doneButton
+            }
+        }
+        .padding(.horizontal, Chrome.Metric.barPadding)
+        .frame(height: 58)
+        .background(Chrome.Colour.chrome.windowDraggable())
+        .overlay(alignment: .bottom) { ChromeDivider() }
+    }
+
+    private var doneButton: some View {
+        Button("Done", action: done)
+            .keyboardShortcut(.cancelAction)
+            .fixedSize()
+    }
+
+    /// The five tabs: 72pt each where there is room, sharing the width where
+    /// there is not.
+    private func tabs(width: CGFloat?) -> some View {
+        HStack(spacing: 2) {
+            ForEach(SettingsPage.allCases, id: \.self) { page in
+                tab(page, width: width)
+            }
+        }
+    }
+
+    private func tab(_ page: SettingsPage, width: CGFloat?) -> some View {
+        let isOn = page == selection
+        return Button { selection = page } label: {
+            VStack(spacing: 3) {
+                Image(systemName: page.symbol)
+                    .font(.system(size: 17))
+                    .frame(height: 20)
+                ChromeLine(page.title, size: 11, colour: isOn ? Chrome.Colour.label : Chrome.Colour.secondaryLabel)
+            }
+            .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(Chrome.Colour.secondaryLabel))
+            .frame(width: width, height: 46)
+            .frame(minWidth: 44, maxWidth: width == nil ? .infinity : width)
+            .background(RoundedRectangle(cornerRadius: 8).fill(isOn ? Chrome.Colour.controlFill : .clear))
+            .contentShape(.rect)
+        }
+        .buttonStyle(ChromePlainStyle())
+        .accessibilityLabel(page.title)
+        .accessibilityIdentifier("settings.tab.\(page.rawValue)")
+        .accessibilityAddTraits(isOn ? [.isSelected, .isButton] : .isButton)
     }
 }

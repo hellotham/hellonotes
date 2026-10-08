@@ -41,6 +41,12 @@ public struct GFMTableLayout: Sendable, Equatable {
     public let rows: [[String]]
     /// One per column, from the delimiter line. Short rows are left-aligned.
     public let alignments: [Alignment]
+    /// One per column, as the delimiter line *declares* it: nil for a plain
+    /// `---`. Only a header cell tells the two apart — cmark writes no `align`
+    /// for `---`, and the page's own stylesheet centres a `th` that has none
+    /// (`text-align: -internal-center`) while a `td` starts at the left. So a
+    /// renderer drawing the header reads this, and every other row `alignments`.
+    public let declaredAlignments: [Alignment?]
     /// The column count the header declares. GFM truncates a longer data row
     /// and pads a shorter one, so this is the width of every row in the grid
     /// however many pipes were typed on any given line.
@@ -69,9 +75,11 @@ public struct GFMTableLayout: Sendable, Equatable {
         let columns = header.count
         guard columns > 0 else { return nil }
         self.columnCount = columns
-        self.alignments = (0..<columns).map {
-            $0 < delimiters.count ? Self.alignment(delimiters[$0]) : .left
+        let declared = (0..<columns).map {
+            $0 < delimiters.count ? Self.declaredAlignment(delimiters[$0]) : nil
         }
+        self.declaredAlignments = declared
+        self.alignments = declared.map { $0 ?? .left }
         // Every row is exactly `columns` wide, because that is the table the
         // page lays out: `| bar |` under a two-column header renders an empty
         // second cell, and `| bar | baz | boo |` renders only the first two.
@@ -83,22 +91,21 @@ public struct GFMTableLayout: Sendable, Equatable {
         self.rows = [fit(header)] + lines.dropFirst(2).map { fit(Self.cells($0)) }
     }
 
-    /// The height the page gives this grid.
-    ///
-    /// One line per cell: the corpus's tables all fit their pane, and a cell
-    /// whose text wraps is a taller row on the page than in the editor's
-    /// image — which scales the whole bitmap down instead of wrapping. That
-    /// divergence is about *fitting*, not about the box model, and it is the
-    /// next thing to measure rather than something to fudge here.
+    /// The height the page gives this grid when it fits its pane: one line
+    /// per cell. A table squeezed until its cells wrap is taller, and that
+    /// height is `GFMTableGeometry.fitted`'s to give — it shrinks the columns
+    /// and wraps the cells as the page does, which is about *fitting* rather
+    /// than about the box model.
     public func height(_ m: GFMBoxMetrics) -> CGFloat { m.tableHeight(rows: rowCount) }
 
     // MARK: - Cells
 
     /// Split one table line into its cells, dropping the outer pipes.
     ///
-    /// Only an *unescaped* pipe divides. `\|` is a literal one — it survives
-    /// into the cell's text with its backslash removed, exactly as the page
-    /// prints it.
+    /// Only an *unescaped* pipe divides — one with no backslash directly
+    /// before it, as cmark-gfm reads a row. `\|` is a literal one: it
+    /// survives into the cell's text with that backslash removed, exactly as
+    /// the page prints it.
     public static func cells(_ line: String) -> [String] {
         let units = Array(line.utf16)
         return scan(units, from: 0, count: units.count) { cell in
@@ -129,28 +136,30 @@ public struct GFMTableLayout: Sendable, Equatable {
 
         var out: [T] = []
         var current: [unichar] = []
-        var escaped = false
         var i = start
         while i < end {
             let c = b[i]
-            if escaped {
-                // A backslash escapes the pipe and nothing else here; anything
-                // else keeps its backslash, because the inline parser still has
-                // to see `\*` as an escape when it styles the cell.
-                if c != 0x7C { current.append(0x5C) }
-                current.append(c)
-                escaped = false
-            } else if c == 0x5C {
-                escaped = true
-            } else if c == 0x7C {
+            if c == 0x5C, i + 1 < end, b[i + 1] == 0x7C {
+                // **A backslash directly before a pipe escapes it, whatever
+                // precedes it** — cmark-gfm's reading of a row, so the page's.
+                // The cell holds the pipe without it. Read as escaped
+                // backslashes, an even run made the pipe after it a divider:
+                // `| a \\| b |` was two cells here and one on the page.
+                current.append(0x7C)
+                i += 2
+                continue
+            }
+            if c == 0x7C {
                 out.append(make(current))
                 current = []
             } else {
+                // Any other backslash stays, because the inline parser still
+                // has to see `\*` — and `\\` — as an escape when it styles
+                // the cell.
                 current.append(c)
             }
             i += 1
         }
-        if escaped { current.append(0x5C) }
         // A trailing pipe closes the row; it does not open a last empty cell.
         // `| a |` is one cell, `| a ||` is two, the second of them empty.
         let trailingPipeClosed = current.allSatisfy { $0 == 0x20 || $0 == 0x09 }
@@ -166,9 +175,10 @@ public struct GFMTableLayout: Sendable, Equatable {
         return !body.isEmpty && body.allSatisfy { $0 == "-" }
     }
 
-    private static func alignment(_ cell: String) -> Alignment {
+    /// `:--` left, `:-:` centre, `--:` right; nil for `---`, which declares none.
+    private static func declaredAlignment(_ cell: String) -> Alignment? {
         let left = cell.hasPrefix(":"), right = cell.hasSuffix(":")
         if left && right { return .center }
-        return right ? .right : .left
+        return right ? .right : left ? .left : nil
     }
 }

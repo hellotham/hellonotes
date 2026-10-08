@@ -51,6 +51,8 @@ struct HelloNotesApp: App {
     #endif
 
     init() {
+        // Before anything draws: text rasterized the way iOS rasterizes it.
+        Chrome.matchTextRendering()
         // First, so it is watching before anything else has a chance to block
         // the main actor. No-op unless HN_STALL_LOG is set on a Debug build.
         MainActorWatchdog.start()
@@ -88,22 +90,40 @@ struct HelloNotesApp: App {
             .themedRoot(appearance)
     }
 
+    /// The first window's size: roomy, 1100×720 — or, for the whole-window
+    /// parity capture (`scripts/window-parity.sh`), exactly the iPad's safe
+    /// area, passed as launch arguments (`-HNWindowWidth 1210 -HNWindowHeight
+    /// 790`) so the two windows are the same size without anyone dragging one.
+    private static var firstWindowSize: CGSize {
+        let defaults = UserDefaults.standard
+        let width = defaults.double(forKey: "HNWindowWidth")
+        let height = defaults.double(forKey: "HNWindowHeight")
+        guard width > 0, height > 0 else { return CGSize(width: 1100, height: 720) }
+        return CGSize(width: width, height: height)
+    }
+
     var body: some Scene {
         WindowGroup(id: "main") {
             // One shell. It was `MacContentView` or `iOSContentView` here,
             // each defined inside a one-sided `#if`, which is what made every
             // divergence between them invisible from the other side.
             rooted(ContentView())
+                .contentUnderTitleBar()
+                .capturedWindowSize()
                 .onOpenURL { router.handle($0) }
         }
         // Both platforms: iPadOS 26 gives a scene a resizable window too, so
         // gating this meant the iPad's first window opened at whatever the
         // system chose while the Mac's opened at a size the app had picked.
-        .defaultSize(width: 1100, height: 720)   // roomy first launch (not the 860pt min floor)
+        .defaultSize(Self.firstWindowSize)   // roomy first launch (not the 860pt min floor)
+        // The app draws its own bar row; the Mac's title bar would be a 28pt
+        // strip above it that the iPad does not have.
+        .appDrawnTitleBar()
         // iPadOS builds its menu bar from a scene's `.commands` exactly as
         // macOS does. Gating this was gating the iPad's whole menu bar and
         // every keyboard shortcut with it — no ⌘B, no ⌘F, no View menu.
         .commands { HelloNotesCommands() }
+        .suppressedUnderTests()
 
         // Standalone single-note windows, opened via `openWindow(value: NoteRef(url))`.
         // NoteRef (not URL) keeps macOS from treating this as a document scene.
@@ -114,8 +134,11 @@ struct HelloNotesApp: App {
         WindowGroup(for: NoteRef.self) { $ref in
             if let ref {
                 rooted(NoteWindowView(fileURL: ref.url))
+                    .contentUnderTitleBar()
             }
         }
+        // Its bar is the app's, as the main window's is.
+        .appDrawnTitleBar()
 
         // Graph, Ask Library, Assistant and Mind Map have **no scene**. They
         // are views of the right panel (`SidePanel`), beside the editor, like
@@ -127,7 +150,7 @@ struct HelloNotesApp: App {
         // asks for by name, New Window and Open in New Window, above.
 
         #if os(macOS)
-        // Preferences window (⌘,): General, Appearance, and AI tabs.
+        // The Settings window (⌘,): `AppSettingsView`, as the iPad's sheet.
         //
         // `Settings` and `MenuBarExtra` are macOS scene *types* with no iOS
         // spelling — there is no menu bar to extend and no Preferences scene to
@@ -138,10 +161,15 @@ struct HelloNotesApp: App {
         // menu-bar item is an extra *route* on the platform that has the
         // concept, not a feature the iPad lacks.
         Settings {
-            PreferencesView(intelligenceSettings: intelligenceSettings, appearance: appearance,
-                            gitAccounts: gitAccounts, store: store)
+            // The very view the iPad's Settings sheet shows, at its fixed
+            // size, with the app's strip of tabs in place of a titled toolbar.
+            AppSettingsView(intelligenceSettings: intelligenceSettings, appearance: appearance,
+                            git: nil, accounts: gitAccounts, store: store)
+                .frame(width: AppSettingsView.size.width, height: AppSettingsView.size.height)
+                .contentUnderTitleBar()
                 .themedRoot(appearance)
         }
+        .appDrawnTitleBar()
 
         // Menu-bar quick capture: jot a line into today's daily note without
         // switching to the app (Phase B — highest daily-value Mac feature).
@@ -160,6 +188,24 @@ struct HelloNotesApp: App {
         // command in `HelloNotesCommands` and the palette, ⌃⌘K, on both. The
         // menu-bar item is an extra *route* on the platform that has the
         // concept, not a feature the other one lacks.
+        #endif
+    }
+}
+
+extension Scene {
+    /// No window when this process is only hosting the test bundle.
+    ///
+    /// A macOS unit-test bundle needs a host, and the host is the app — so
+    /// every run of the suite opened the main window on the person's screen,
+    /// empty, for as long as the tests took, and took focus from whatever
+    /// they were doing. Every test builds the views it needs itself; none
+    /// looks at this window. (`TestEnvironment.isRunningTests` already keeps
+    /// the host from restoring the person's library.)
+    func suppressedUnderTests() -> some Scene {
+        #if os(macOS)
+        defaultLaunchBehavior(TestEnvironment.isRunningTests ? .suppressed : .automatic)
+        #else
+        self
         #endif
     }
 }

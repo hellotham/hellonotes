@@ -176,7 +176,11 @@ enum SmartPaste {
     /// body baseline, when the text is also bold. Browsers export h1–h6 that way.
     /// AppKit and UIKit agree on the idea and disagree on the spelling:
     /// `.bold` vs `.traitBold`, `isFixedPitch` vs `.traitMonoSpace`.
-    private static func isBold(_ font: PlatformFont) -> Bool {
+    ///
+    /// `nonisolated`, like `isOrdered`: pure predicates on a font, and passed
+    /// as function values (`font.map(isBold)`), which a main-actor method cannot
+    /// be without a warning that it might be called off the main actor.
+    private nonisolated static func isBold(_ font: PlatformFont) -> Bool {
         #if canImport(AppKit)
         font.fontDescriptor.symbolicTraits.contains(.bold)
         #else
@@ -184,7 +188,7 @@ enum SmartPaste {
         #endif
     }
 
-    private static func isItalic(_ font: PlatformFont) -> Bool {
+    private nonisolated static func isItalic(_ font: PlatformFont) -> Bool {
         #if canImport(AppKit)
         font.fontDescriptor.symbolicTraits.contains(.italic)
         #else
@@ -192,7 +196,7 @@ enum SmartPaste {
         #endif
     }
 
-    private static func isMonospaced(_ font: PlatformFont) -> Bool {
+    private nonisolated static func isMonospaced(_ font: PlatformFont) -> Bool {
         #if canImport(AppKit)
         font.isFixedPitch
         #else

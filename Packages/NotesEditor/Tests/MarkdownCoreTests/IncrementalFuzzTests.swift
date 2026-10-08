@@ -102,6 +102,84 @@ import Testing
         }
     }
 
+    /// The shapes long notes are made of — prose, lists tight and loose and
+    /// nested, items holding paragraphs, quotes with lazy lines, tables,
+    /// indented code, HTML blocks — in documents long enough to have a tail
+    /// worth keeping. The walk stops wherever it stands exactly where the old
+    /// walk stood (`IncrementalConvergenceTests`), so every state it can stand
+    /// in has to survive this: an open paragraph, a blank run, an item, a
+    /// quote, a table, a code block, an HTML block, and the item above a blank
+    /// line that decides what an indented marker under it is.
+    private static let proseFragments = [
+        "Plain prose sentence.\n", "another line of prose\n", "\n", "\n", "\n", "\n",
+        "- item\n", "- [ ] task\n", "* star item\n", "+ plus\n", "1. one\n", "2. two\n", "1) paren\n",
+        "  - nested\n", "    - deep marker\n", "   - three spaces\n", "  continuation\n",
+        "    indented code\n", "\tTabbed\n", "-\n", "1.\n",
+        "> quote\n", "> [!tip]\n", ">     quoted code\n", "> - quoted item\n", "lazy line\n",
+        "| a | b |\n", "|---|---|\n", "| 1 | 2 |\n", "a | b\n", "--- | ---\n",
+        "# H1\n", "Setext\n", "===\n", "---\n", "***\n",
+        "```\n", "~~~\n", "  ```\n", "$$\n", "$$ x $$\n",
+        "<div>\n", "</div>\n", "<!-- c\n", "-->\n", "<span>\n", "<pre>\n", "</pre>\n",
+        "[ref]: /url\n", "text [[Wiki]] here\n",
+    ]
+
+    private static let proseInsertions = [
+        "x", " ", "\n", "\n\n", "  ", "    ", "- ", "1. ", "2. ", "> ", "#", "# ", "|",
+        "---", "===", "```", "<div>", "-->", "\t", "-", "*", "word", "\n- ", "\n    ",
+    ]
+
+    @Test(arguments: [0x50726F7365 as UInt64, 0x4C69737473, 0x51756F746573, 0x5461626C6573])
+    func proseAndListsAlwaysMatchFullReparse(seed: UInt64) {
+        var rng = SplitMix(state: seed)
+        for round in 0..<50 {
+            let fragmentCount = Int.random(in: 10...70, using: &rng)
+            var doc = ""
+            for _ in 0..<fragmentCount {
+                doc += Self.proseFragments.randomElement(using: &rng)!
+            }
+
+            let ns = NSMutableString(string: doc)
+            var parse = BlockParser.fullParse(ns as NSString)
+
+            for step in 0..<50 {
+                let len = ns.length
+                var range = NSRange(location: 0, length: 0)
+                var replacement = ""
+                switch Int.random(in: 0..<4, using: &rng) {
+                case 0, 1: // insert — the commonest edit is typing
+                    range = NSRange(location: Int.random(in: 0...len, using: &rng), length: 0)
+                    replacement = Self.proseInsertions.randomElement(using: &rng)!
+                case 2: // delete
+                    guard len > 0 else { continue }
+                    let loc = Int.random(in: 0..<len, using: &rng)
+                    range = NSRange(location: loc, length: Int.random(in: 1...max(1, min(len - loc, 16)), using: &rng))
+                default: // replace
+                    guard len > 0 else { continue }
+                    let loc = Int.random(in: 0..<len, using: &rng)
+                    range = NSRange(location: loc, length: Int.random(in: 0...min(len - loc, 8), using: &rng))
+                    replacement = Self.proseInsertions.randomElement(using: &rng)!
+                }
+
+                ns.replaceCharacters(in: range, with: replacement)
+                let edit = TextEdit(range: range, replacementLength: (replacement as NSString).length)
+                parse = BlockParser.incremental(ns as NSString, edit: edit, previous: parse)
+                let full = BlockParser.fullParse(ns as NSString)
+
+                if parse.blocks != full.blocks || parse.lines != full.lines {
+                    Issue.record("""
+                    Incremental diverged with seed \(seed) at round \(round) step \(step)
+                    edit: \(range) ← \(replacement.debugDescription)
+                    document after edit:
+                    \((ns as String).debugDescription)
+                    incremental: \(parse.blocks.map { "\($0.firstLine)+\($0.lineCount) \($0.kind)" })
+                    full:        \(full.blocks.map { "\($0.firstLine)+\($0.lineCount) \($0.kind)" })
+                    """)
+                    return
+                }
+            }
+        }
+    }
+
     @Test func lineIndexSpliceMatchesRebuild() {
         var rng = SplitMix(state: 0x4C696E6573)
         var text = NSMutableString(string: "alpha\nbeta\ngamma\n\ndelta")

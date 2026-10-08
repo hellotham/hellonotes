@@ -53,13 +53,4 @@ struct SidebarRowHeightTests {
                 "a collection row carries a spinner and a close button as well")
     }
     #endif
-
-    /// A pointer hits a 24pt row; a finger needs 44. Paying the touch target
-    /// where there is no finger costs most of a row per row, which on a 320pt
-    /// band is the difference between seven rows and twelve.
-    @Test func aPointerIsNotChargedForATouchTarget() {
-        #expect(ShellMetrics.noteRowPointerMinimum < ShellMetrics.noteRowTouchMinimum)
-        #expect(ShellMetrics.noteRowTouchMinimum >= 44, "the HIG target is a floor, not a preference")
-        #expect(ShellMetrics.noteRowPointerMinimum >= 20, "still a row, not a hairline")
-    }
 }

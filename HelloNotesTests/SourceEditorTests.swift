@@ -18,6 +18,7 @@
 //
 
 import Testing
+import SwiftUI
 @testable import HelloNotes
 #if canImport(AppKit)
 import AppKit
@@ -68,4 +69,68 @@ struct SourceEditorTests {
         #expect(view.spellCheckingType == .no)
         #endif
     }
+
+    /// Markdown mode writes the buffer on every keystroke, and each one comes
+    /// straight back through the binding. The pane knows that echo without
+    /// reading its view — which was a copy of the note and a comparison of two
+    /// bridged strings, per keystroke — and still sees a change made elsewhere.
+    @Test func theEchoOfAKeystrokeIsKnownWithoutReadingTheView() {
+        var buffer = "# Log\n\nAs it was.\n"
+        let coordinator = SourceEditor.Coordinator(text: Binding(get: { buffer }, set: { buffer = $0 }))
+        let view = CountingTextView()
+        Self.show(buffer, in: view)
+        coordinator.shown = buffer
+
+        // A keystroke: the view hands its text over, reading itself once.
+        Self.show("# Log\n\nAs it was. Typed.\n", in: view)
+        view.reads = 0
+        Self.type(in: view, to: coordinator)
+        #expect(view.reads == 1 && buffer == "# Log\n\nAs it was. Typed.\n")
+
+        // It comes back through the binding: the same string, known as such.
+        #expect(!coordinator.differs(from: buffer, in: view), "its own keystroke read as a change")
+        #expect(view.reads == 1, "recognising the echo read the view")
+
+        // A change made elsewhere — a tag, a property — is still a change.
+        buffer = "# Log\n\nChanged elsewhere.\n"
+        #expect(coordinator.differs(from: buffer, in: view), "a change from outside went unseen")
+
+        // The control: with nothing known, the answer comes from the view, and
+        // the count sees it — so the reads above were counted, not missed.
+        coordinator.shown = nil
+        #expect(coordinator.differs(from: buffer, in: view))
+        #expect(view.reads == 2, "a read of the view went uncounted, so the counts above prove nothing")
+    }
+
+    #if canImport(AppKit)
+    /// A source view that counts reads of its text.
+    private final class CountingTextView: NSTextView {
+        var reads = 0
+        override var string: String {
+            get { reads += 1; return super.string }
+            set { super.string = newValue }
+        }
+    }
+
+    private static func show(_ text: String, in view: CountingTextView) { view.string = text }
+
+    private static func type(in view: CountingTextView, to coordinator: SourceEditor.Coordinator) {
+        coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: view))
+    }
+    #else
+    /// A source view that counts reads of its text.
+    private final class CountingTextView: UITextView {
+        var reads = 0
+        override var text: String! {
+            get { reads += 1; return super.text }
+            set { super.text = newValue }
+        }
+    }
+
+    private static func show(_ text: String, in view: CountingTextView) { view.text = text }
+
+    private static func type(in view: CountingTextView, to coordinator: SourceEditor.Coordinator) {
+        coordinator.textViewDidChange(view)
+    }
+    #endif
 }

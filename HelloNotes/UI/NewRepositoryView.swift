@@ -30,17 +30,23 @@ struct NewRepositoryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Label("New Repository", systemImage: "plus.rectangle.on.folder")
-                    .font(.headline)
-                Spacer()
+            ChromeSheetBar("New Repository") {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            } trailing: {
+                if busy {
+                    // Creating with a remote ends in a push, which can hang on
+                    // an unreachable host. Cancelling removes the half-made repo.
+                    Button("Stop", role: .cancel) { git.cancelCreate() }
+                } else {
+                    Button("Create") { create() }
+                        .buttonStyle(ChromePushStyle(prominent: true))
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!canCreate)
+                }
             }
-            .padding()
-            Divider()
 
-            Form {
-                Section("Local") {
+            ChromeForm {
+                ChromeSection("Local") {
                     LabeledField(label: "Name", text: $name, prompt: "my-notes", isPath: true)
                     HStack {
                         Text("Location")
@@ -50,52 +56,45 @@ struct NewRepositoryView: View {
                     }
                     if let parent {
                         Text(parent.appendingPathComponent(name.isEmpty ? "…" : name).path)
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel).lineLimit(1).truncationMode(.middle)
                     }
                 }
 
-                Section("Remote") {
+                ChromeSection("Remote") {
                     Toggle("Create a remote repository", isOn: $createRemote)
                         .disabled(store.accounts.isEmpty)
                     if store.accounts.isEmpty {
                         Text("Add a hosting account in Git Settings to create a remote.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     } else if createRemote {
-                        Picker("Account", selection: $selectedHost) {
-                            ForEach(store.accounts) { Text("\($0.username)@\($0.host)").tag($0.host) }
-                        }
+                        ChromePopUp("Account", selection: $selectedHost,
+                                    options: store.accounts.map {
+                                        ChromeOption(value: $0.host, title: "\($0.username)@\($0.host)")
+                                    })
                         Toggle("Private", isOn: $isPrivate)
                         Text("Creates the repository on the service and pushes the first commit.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                     }
                 }
 
                 if let error {
-                    Text(error).font(.caption).foregroundStyle(.red)
+                    ChromeSection {
+                        Text(error).font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.red)
+                    }
                 }
             }
-            .formStyle(.grouped)
 
-            Divider()
-            HStack {
-                if busy {
+            if busy {
+                ChromeDivider()
+                HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Creating…").foregroundStyle(.secondary)
+                    Text("Creating…").foregroundStyle(Chrome.Colour.secondaryLabel)
+                    Spacer(minLength: 0)
                 }
-                Spacer()
-                if busy {
-                    // Creating with a remote ends in a push, which can hang on
-                    // an unreachable host. Cancelling removes the half-made repo.
-                    Button("Stop", role: .cancel) { git.cancelCreate() }
-                } else {
-                    Button("Create") { create() }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(!canCreate)
-                }
+                .padding(12)
             }
-            .padding()
         }
-        .panelFrame(width: 460, height: 440)
+        .chromeSheetFrame(width: 460, height: 440)
         .onAppear { if selectedHost.isEmpty { selectedHost = store.accounts.first?.host ?? "" } }
         .sheet(isPresented: $showFolderPicker) {
             FolderPicker(startingAt: nil) { urls in

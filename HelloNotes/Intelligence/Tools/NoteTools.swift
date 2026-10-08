@@ -183,7 +183,7 @@ nonisolated struct GrepTool: Tool {
 nonisolated struct CreateNoteTool: Tool {
     let context: ToolContext
     let name = "create_note"
-    let description = "Create a new note. The person approves it before it is written."
+    let description = "Create a new note. Calling this shows the person the note, and it is written only if they approve."
 
     @Generable
     nonisolated struct Arguments {
@@ -206,7 +206,7 @@ nonisolated struct CreateNoteTool: Tool {
 nonisolated struct EditNoteTool: Tool {
     let context: ToolContext
     let name = "edit_note"
-    let description = "Replace exact text in a note. Read the note first and copy the text to replace exactly. The person approves the change."
+    let description = "Replace exact text in a note. Read the note first and copy the text to replace exactly. Calling this shows the person the change, and it is saved only if they approve."
 
     @Generable
     nonisolated struct Arguments {
@@ -231,7 +231,7 @@ nonisolated struct EditNoteTool: Tool {
 nonisolated struct WriteNoteTool: Tool {
     let context: ToolContext
     let name = "write_note"
-    let description = "Replace a note's entire content. Use edit_note for smaller changes. The person approves the change."
+    let description = "Replace a note's entire content. Use edit_note for smaller changes. Calling this shows the person the change, and it is saved only if they approve."
 
     @Generable
     nonisolated struct Arguments {
@@ -251,7 +251,7 @@ nonisolated struct WriteNoteTool: Tool {
 nonisolated struct DeleteNoteTool: Tool {
     let context: ToolContext
     let name = "delete_note"
-    let description = "Move a note to the Trash. The person always confirms a deletion."
+    let description = "Move a note to the Trash. Calling this asks the person to confirm the deletion first."
 
     @Generable
     nonisolated struct Arguments {

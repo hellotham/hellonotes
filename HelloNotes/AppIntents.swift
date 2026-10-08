@@ -153,6 +153,28 @@ struct OpenNoteIntent: AppIntent {
     }
 }
 
+/// What opens a note found in Spotlight: the system asks for an `OpenIntent`
+/// on the entity's type, and there was none — the notes were donated
+/// (`NavigationRouter.donateNotesToSpotlight`), found in ⌘Space, and opened
+/// nothing (ui.md §12, item 7; implemented.md §51.36). Its own type, beside
+/// `OpenNoteIntent`, whose parameter keeps its name for the shortcuts that
+/// already use it; hidden from Shortcuts, where that one is the action.
+struct OpenNoteFromSearchIntent: OpenIntent {
+    static let title: LocalizedStringResource = "Open Note"
+    static let isDiscoverable = false
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Note")
+    var target: NoteEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        guard let router = NavigationRouter.shared else { throw AppIntentError.noOpenCollection }
+        _ = router.selectNote(collectionNamed: target.collectionName, ref: .path(target.relativePath))
+        return .result()
+    }
+}
+
 struct SearchNotesIntent: AppIntent {
     static let title: LocalizedStringResource = "Search Notes"
     static let description = IntentDescription("Search notes in the focused HelloNotes collection.")

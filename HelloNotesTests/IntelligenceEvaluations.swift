@@ -61,7 +61,13 @@ private enum Features {
     static let choice: ModelChoice = mlxFolder == nil ? .onDevice : .mlx
 
     static let settings: IntelligenceSettings = {
-        let defaults = UserDefaults(suiteName: "HelloNotesEvaluations")!
+        // A suite named by a path, so its plist is kept in the temporary
+        // directory: named the usual way it is a file in the person's own
+        // Library/Preferences, and was. Not `ScratchDefaults`, which is one
+        // test's, because every evaluation shares these settings.
+        let name = FileManager.default.temporaryDirectory.appendingPathComponent("hn-defaults.evaluations").path
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
         defaults.set(true, forKey: IntelligenceMigration.doneKey)
         defaults.removeObject(forKey: MLXModelStore.Keys.model)
         defaults.removeObject(forKey: MLXModelStore.Keys.folder)
@@ -546,6 +552,10 @@ struct AssistantEditEvaluation {
 
         let collection = Collection(rootURL: vault)
         collection.scan()
+        // The search index, as the app's activation fills it: a scan lists the
+        // notes and indexes nothing, so `search_notes` found no Shopping note
+        // and the model said so — correctly, about an index that was empty.
+        await collection.search.refresh(from: collection.notes)
         let assistant = AssistantModel(settings: Features.settings)
         let permissions = PermissionBroker()
         assistant.toolContext = ToolContext(collection: collection, search: collection.search,
@@ -573,9 +583,15 @@ struct AssistantEditEvaluation {
         #expect(assistant.errorText == nil, "\(assistant.errorText ?? "")")
         let after = try FileIO.readString(at: note)
         print("EVAL edited note:\n\(after)")
-        #expect(after.contains("plums"), "the edit never reached the file")
+        // What the model did, in the failure: "never reached the file" alone
+        // cannot tell a refused approval from a tool that found nothing.
+        let transcript = assistant.entries.map { String(describing: $0).prefix(600) }.joined(separator: "\n")
+        #expect(after.contains("plums"), "the edit never reached the file:\n\(transcript)")
         #expect(!after.contains("pears"))
-        #expect(after.contains("apples") && after.contains("flour"), "the rest of the note was not left alone")
+        // The whole note, not its words: a check that "apples" and "flour"
+        // survived passed a note that had gained a second "- apples".
+        #expect(after == "# Shopping\n\n- apples\n- plums\n- flour\n",
+                "the rest of the note was not left alone:\n\(transcript)")
     }
 }
 
@@ -613,10 +629,10 @@ struct AssistantEditEvaluation {
 @Suite struct ResearchProbe {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["HN_RESEARCH_PROBE"] == "1"
                    && SystemLanguageModel.default.isAvailable),
-          .timeLimit(.minutes(5)))
+          .timeLimit(.minutes(5)), .scratchDefaults)
     @MainActor
     func researchesAQuestionOnTheOnDeviceModel() async throws {
-        let defaults = UserDefaults(suiteName: "HelloNotesResearchProbe")!
+        let defaults = ScratchDefaults.suite()
         defaults.set(true, forKey: IntelligenceMigration.doneKey)
         let settings = IntelligenceSettings(defaults: defaults)
         settings.model = .onDevice

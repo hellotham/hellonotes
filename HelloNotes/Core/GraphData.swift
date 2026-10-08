@@ -4,7 +4,7 @@
 //
 //  Nodes and edges for the link graph, independent of who draws them.
 //
-//  This lived as two private methods inside `GraphWindowView`, which is a
+//  This lived as two private methods inside `GraphWindowView`, which was a
 //  macOS-only window — so the iPad could not have a graph without a second copy
 //  of the ranking, the neighbourhood walk and the node cap. Two copies of a
 //  layout rule is how the Preview and the editor ended up disagreeing about

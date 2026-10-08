@@ -32,32 +32,36 @@ struct LibraryChatView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                TextField("Ask a question about your notes…", text: $question)
-                    .textFieldStyle(.roundedBorder)
+                TextField("", text: $question)
+                    .textFieldStyle(.plain)
+                    .focusEffectDisabled()
                     .onSubmit(ask)
+                    .chromePlaceholder("Ask a question about your notes…", showing: question.isEmpty)
+                    .accessibilityLabel("Question")
+                    .chromeFieldBox()
                 Button("Ask", action: ask)
                     .keyboardShortcut(.defaultAction)
                     .disabled(busy || question.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding()
 
-            Divider()
+            ChromeDivider()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if case .unavailable(let reason) = intelligence.availability {
                         Label(reason, systemImage: "sparkles.slash")
-                            .foregroundStyle(.secondary).font(.callout)
+                            .foregroundStyle(Chrome.Colour.secondaryLabel).font(Chrome.Style.callout)
                     }
                     if busy {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("Searching your library and thinking…").foregroundStyle(.secondary)
+                            Text("Searching your library and thinking…").foregroundStyle(Chrome.Colour.secondaryLabel)
                         }
                     }
                     if let errorText {
-                        ErrorText(message: errorText, font: .callout,
-                                  systemImage: "exclamationmark.triangle", tint: .orange)
+                        ErrorText(message: errorText, font: Chrome.Style.callout,
+                                  systemImage: "exclamationmark.triangle", tint: Chrome.Colour.orange)
                     }
                     if let answer {
                         // `AnswerMarkdown`, not `Text(answer)`: the model
@@ -67,16 +71,16 @@ struct LibraryChatView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     if !sources.isEmpty {
-                        Divider()
-                        Text("Sources").font(.subheadline.bold())
+                        ChromeDivider()
+                        Text("Sources").font(Chrome.Style.subheadline.bold())
                         ForEach(sources) { note in
                             Button { onOpenNote(note) } label: {
                                 Label(note.title, systemImage: "doc.text")
                             }
-                            // `.link` is macOS-only; `.plain` with the accent
-                            // reads the same on both and keeps one code path.
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.tint)
+                            // A link: the accent, no bezel, drawn by the app.
+                            // `.link` is macOS-only, and `.borderless` is grey
+                            // on the Mac and the accent on iOS.
+                            .buttonStyle(ChromeLinkStyle())
                         }
                     }
                 }

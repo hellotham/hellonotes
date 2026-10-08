@@ -20,33 +20,38 @@ struct QuickCaptureView: View {
     @State private var text = ""
     @State private var status: String?
     @FocusState private var focused: Bool
+    @Environment(\.dismiss) private var dismiss
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Quick Capture", systemImage: "square.and.pencil")
-                .font(.headline)
+                .font(Chrome.Style.headline)
             Text("Appends to today's daily note.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
 
             TextEditor(text: $text)
-                .font(.body)
-#if os(macOS)
-                .frame(width: 300, height: 96)
-#else
-                // A popover has a width to declare; a sheet is given one.
-                .frame(minHeight: 120)
-#endif
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                .font(Chrome.Style.body)
+                .scrollContentBackground(.hidden)
                 .focused($focused)
+                .chromeFieldBox(multiline: true)
+                // The menu-bar window has only its content to size itself by,
+                // so the editor states an ideal size for it; a sheet — the same
+                // on the Mac and the iPad — gives the editor its room, and it
+                // fills it.
+                .frame(minWidth: 300, idealWidth: 300, minHeight: 96, idealHeight: 96)
 
             HStack {
                 if let status {
-                    Text(status).font(.caption).foregroundStyle(.secondary)
+                    Text(status).font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                 }
                 Spacer()
+                // A way out that Escape reaches: as a sheet it had none but a
+                // swipe (toolbars.md §14, item 10; implemented.md §51.36).
+                Button("Close") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Append") { append() }
                     .keyboardShortcut(.return, modifiers: [.command])
                     .disabled(trimmed.isEmpty)

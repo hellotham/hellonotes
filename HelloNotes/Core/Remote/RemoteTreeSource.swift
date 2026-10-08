@@ -15,7 +15,10 @@
 
 import Foundation
 
-struct RemoteTreeSource: TreeSource {
+/// `nonisolated`, as every `TreeSource` must be: unannotated, it was
+/// main-actor in this target, and the walk it serves runs away from the main
+/// actor (`RemoteMirror.walkProvider`; the header of `ResumableTreeWalk.swift`).
+nonisolated struct RemoteTreeSource: TreeSource {
     let store: RemoteStore
     /// Provider-absolute path of the mirrored folder ("" = provider root).
     let remoteRoot: String
@@ -93,11 +96,6 @@ struct RemoteTreeSource: TreeSource {
         }
         while relative.hasPrefix("/") { relative.removeFirst() }
         return relative.isEmpty ? cacheRoot : cacheRoot.appending(path: relative)
-    }
-
-    func remotePath(for cacheURL: URL) -> String {
-        let relative = RemoteMirror.relativePath(of: cacheURL, in: cacheRoot)
-        return remotePath(forRelative: relative)
     }
 }
 

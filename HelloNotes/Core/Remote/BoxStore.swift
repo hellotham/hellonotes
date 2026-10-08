@@ -27,7 +27,9 @@ import Foundation
 import AuthenticationServices
 #endif
 
-final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
+/// `nonisolated`, as every store is (`RemoteStore`); sign-in alone is the
+/// main actor's.
+nonisolated final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "Box"
     /// The Keychain keys for *this* account's tokens.
     ///
@@ -48,8 +50,6 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
     }
     private let redirectURI = "hellonotes://box-auth"
     private let session: URLSession
-    /// Single-flights token refreshes (Box rotates refresh tokens).
-    private let refreshCoordinator = RefreshCoordinator()
 
     /// Path→ID caches (normalized path keys). Root is always folder id "0".
     private let cacheLock = NSLock()
@@ -63,20 +63,19 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
 
     var isAuthenticated: Bool { RemoteTokenStore.token(for: tokenAccount) != nil }
 
+    /// Signed out, or a Keychain that could not be read — two errors, so only
+    /// the first asks to sign in again (`RemoteTokenStore.requireToken`).
     private func requireToken() throws -> String {
-        guard let token = RemoteTokenStore.token(for: tokenAccount) else {
-            throw RemoteStoreError.notAuthenticated
-        }
-        return token
+        try RemoteTokenStore.requireToken(for: tokenAccount)
     }
 
     func signOut() {
         RemoteTokenStore.setToken(nil, for: tokenAccount)
         RemoteTokenStore.setToken(nil, for: refreshAccount)
-        cacheLock.lock()
-        folderIDs = ["": "0"]
-        fileIDs = [:]
-        cacheLock.unlock()
+        cacheLock.withLock {
+            folderIDs = ["": "0"]
+            fileIDs = [:]
+        }
     }
 
     // MARK: - CRUD (path-based over Box's ID-based API)
@@ -93,13 +92,14 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
             let data = try await sendAuthed {
                 Self.listItemsRequest(folderID: folderID, token: $0, offset: offset)
             }
-            let page = try Self.parseItemsPage(data, parentPath: parentPath)
-            cacheLock.lock()
-            for item in page.items {
-                if item.entry.isDirectory { folderIDs[item.entry.path] = item.id }
-                else { fileIDs[item.entry.path] = item.id }
+            // A thousand entries, parsed away from whichever actor asked.
+            let page = try await offMain { try Self.parseItemsPage(data, parentPath: parentPath) }
+            cacheLock.withLock {
+                for item in page.items {
+                    if item.entry.isDirectory { folderIDs[item.entry.path] = item.id }
+                    else { fileIDs[item.entry.path] = item.id }
+                }
             }
-            cacheLock.unlock()
             all += page.items.map(\.entry)
             // Compare against the RAW entry count (`items` drops web_links, so a
             // full page can yield fewer usable items). A short page ends the walk.
@@ -130,7 +130,7 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
         // the caller do its full sync this round.
         let position = cursor ?? "now"
         let data = try await sendAuthed { Self.eventsRequest(streamPosition: position, token: $0) }
-        let page = Self.parseEvents(data)
+        let page = await offMain { Self.parseEvents(data) }
 
         var result = RemoteChangeSet(cursor: page.position)
         guard cursor != nil else { return result }   // first call: cursor only
@@ -172,7 +172,7 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
                                       token: $0, boundary: Self.makeBoundary())
             }
             if let id = Self.parseUploadedFileID(response) {
-                cacheLock.lock(); fileIDs[p] = id; cacheLock.unlock()
+                cacheLock.withLock { fileIDs[p] = id }
             }
         }
     }
@@ -181,24 +181,66 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
         let p = Self.normalizedPath(path)
         if let id = try? await resolveFileID(path: p) {
             _ = try await sendAuthed { Self.deleteFileRequest(fileID: id, token: $0) }
-            cacheLock.lock(); fileIDs[p] = nil; cacheLock.unlock()
+            cacheLock.withLock { fileIDs[p] = nil }
         } else {
             let id = try await resolveFolderID(path: p)
             _ = try await sendAuthed { Self.deleteFolderRequest(folderID: id, token: $0) }
-            cacheLock.lock(); folderIDs[p] = nil; cacheLock.unlock()
+            cacheLock.withLock { folderIDs[p] = nil }
         }
+    }
+
+    /// Box moves and renames in one update of the item: its name and its
+    /// parent's id. The item keeps its id, so the cached ids only change key —
+    /// and a folder's contents, cached under the old path, move with it.
+    func move(from source: String, to destination: String) async throws {
+        let from = Self.normalizedPath(source)
+        let to = Self.normalizedPath(destination)
+        let name = String(to.split(separator: "/").last ?? "")
+        let parentID = try await resolveFolderID(path: Self.parentPath(of: to))
+        if let id = try? await resolveFileID(path: from) {
+            _ = try await sendAuthed {
+                Self.moveRequest(itemID: id, isFolder: false, name: name, parentID: parentID, token: $0)
+            }
+            cacheLock.withLock { fileIDs[from] = nil; fileIDs[to] = id }
+        } else {
+            let id = try await resolveFolderID(path: from)
+            _ = try await sendAuthed {
+                Self.moveRequest(itemID: id, isFolder: true, name: name, parentID: parentID, token: $0)
+            }
+            cacheLock.withLock {
+                folderIDs = Self.moving(folderIDs, from: from, to: to)
+                fileIDs = Self.moving(fileIDs, from: from, to: to)
+            }
+        }
+    }
+
+    func createFolder(path: String) async throws {
+        let p = Self.normalizedPath(path)
+        let name = String(p.split(separator: "/").last ?? "")
+        let parentID = try await resolveFolderID(path: Self.parentPath(of: p))
+        let response = try await sendAuthed {
+            Self.createFolderRequest(name: name, parentID: parentID, token: $0)
+        }
+        if let id = Self.parseItemID(response) {
+            cacheLock.withLock { folderIDs[p] = id }
+        }
+    }
+
+    /// `ids` with every path at or under `from` moved to `to`.
+    static func moving(_ ids: [String: String], from: String, to: String) -> [String: String] {
+        Dictionary(ids.map { path, id in
+            (path == from || path.hasPrefix(from + "/") ? to + path.dropFirst(from.count) : path, id)
+        }, uniquingKeysWith: { _, moved in moved })
     }
 
     // MARK: - Path → ID resolution
 
     private func cachedFolderID(_ path: String) -> String? {
-        cacheLock.lock(); defer { cacheLock.unlock() }
-        return folderIDs[path]
+        cacheLock.withLock { folderIDs[path] }
     }
 
     private func cachedFileID(_ path: String) -> String? {
-        cacheLock.lock(); defer { cacheLock.unlock() }
-        return fileIDs[path]
+        cacheLock.withLock { fileIDs[path] }
     }
 
     /// Walk from the deepest cached ancestor down to `path`, listing each level
@@ -249,16 +291,17 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
 
     /// Box refresh tokens are **single-use**: the refresh response carries a new
     /// refresh token that must replace the stored one, or the next refresh fails.
-    /// Routed through `refreshCoordinator` so concurrent 401s (two uploads, say)
-    /// don't each spend the same token — the loser would get `invalid_grant`.
+    /// So concurrent 401s — two uploads, two collections on one account — must
+    /// not each spend the same token, or the loser gets `invalid_grant`:
+    /// `TokenRefresh` makes one exchange per account at a time, reads the
+    /// token again if it was rotated elsewhere, and keeps nothing after a
+    /// sign-out. Away from the main actor, which none of it needs
+    /// (implemented.md §51.28, §51.34, §51.36).
     private func refreshAccessToken() async throws -> String {
         let id = clientID, secret = clientSecret
         let session = self.session
-        return try await refreshCoordinator.refresh {
-            guard let refresh = RemoteTokenStore.token(for: self.refreshAccount) else {
-                throw RemoteStoreError.notAuthenticated
-            }
-            let request = Self.refreshRequest(refreshToken: refresh, clientID: id, clientSecret: secret)
+        return try await TokenRefresh.refresh(account: tokenAccount, refreshAccount: refreshAccount) { refreshToken in
+            let request = Self.refreshRequest(refreshToken: refreshToken, clientID: id, clientSecret: secret)
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw RemoteStoreError.decoding("no HTTP response")
@@ -270,11 +313,7 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
                   let access = json["access_token"] as? String else {
                 throw RemoteStoreError.decoding("token refresh")
             }
-            RemoteTokenStore.setToken(access, for: self.tokenAccount)
-            if let rotated = json["refresh_token"] as? String {
-                RemoteTokenStore.setToken(rotated, for: self.refreshAccount)
-            }
-            return access
+            return (access, json["refresh_token"] as? String)
         }
     }
 
@@ -337,7 +376,6 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
         -> (changed: [RemoteEntry], deleted: [String], position: String?) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let entries = root["entries"] as? [[String: Any]] else { return ([], [], nil) }
-        let formatter = ISO8601DateFormatter()
         var changed: [RemoteEntry] = []
         var deleted: [String] = []
 
@@ -364,7 +402,7 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
                 name: name,
                 isDirectory: kind == "folder",
                 size: source["size"] as? Int ?? 0,
-                modified: (source["modified_at"] as? String).flatMap { formatter.date(from: $0) },
+                modified: (source["modified_at"] as? String).flatMap(RemoteDate.parse),
                 rev: source["etag"] as? String))
         }
         return (changed, deleted, (root["next_stream_position"] as? NSNumber)?.stringValue
@@ -374,7 +412,10 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
     static func listItemsRequest(folderID: String, token: String, offset: Int = 0) -> URLRequest {
         var c = URLComponents(string: "https://api.box.com/2.0/folders/\(folderID)/items")!
         c.queryItems = [
-            .init(name: "fields", value: "id,type,name,size,modified_at"),
+            // `etag`, the item's revision: without it no save could tell that the
+            // note changed on another device since it was downloaded, and a
+            // walk had no revision to keep a download by (implemented.md §51.36).
+            .init(name: "fields", value: "id,type,name,size,modified_at,etag"),
             .init(name: "limit", value: "\(pageSize)"),
             .init(name: "offset", value: "\(offset)"),
         ]
@@ -400,6 +441,27 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
         var r = URLRequest(url: URL(string: "https://api.box.com/2.0/folders/\(folderID)?recursive=true")!)
         r.httpMethod = "DELETE"
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+
+    /// Move and rename in one: `PUT` the item's new name and its parent's id.
+    static func moveRequest(itemID: String, isFolder: Bool, name: String, parentID: String,
+                            token: String) -> URLRequest {
+        let kind = isFolder ? "folders" : "files"
+        var r = URLRequest(url: URL(string: "https://api.box.com/2.0/\(kind)/\(itemID)")!)
+        r.httpMethod = "PUT"
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = Data("{\"name\":\(jsonString(name)),\"parent\":{\"id\":\(jsonString(parentID))}}".utf8)
+        return r
+    }
+
+    static func createFolderRequest(name: String, parentID: String, token: String) -> URLRequest {
+        var r = URLRequest(url: URL(string: "https://api.box.com/2.0/folders")!)
+        r.httpMethod = "POST"
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = Data("{\"name\":\(jsonString(name)),\"parent\":{\"id\":\(jsonString(parentID))}}".utf8)
         return r
     }
 
@@ -474,7 +536,6 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
               let entries = root["entries"] as? [[String: Any]] else {
             throw RemoteStoreError.decoding("folder items")
         }
-        let formatter = ISO8601DateFormatter()
         let items: [(entry: RemoteEntry, id: String)] = entries.compactMap { e in
             guard let type = e["type"] as? String, type == "file" || type == "folder",
                   let id = e["id"] as? String,
@@ -484,12 +545,18 @@ final class BoxStore: NSObject, RemoteStore, @unchecked Sendable {
                 name: name,
                 isDirectory: type == "folder",
                 size: e["size"] as? Int ?? 0,
-                modified: (e["modified_at"] as? String).flatMap { formatter.date(from: $0) },
-                rev: nil
+                modified: (e["modified_at"] as? String).flatMap(RemoteDate.parse),
+                rev: e["etag"] as? String
             )
             return (entry, id)
         }
         return (items, entries.count)
+    }
+
+    /// An item endpoint — a new folder, an update — answers with the item.
+    static func parseItemID(_ data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return root["id"] as? String
     }
 
     /// The upload endpoints answer with `{"entries":[{"type":"file","id":…}]}`.

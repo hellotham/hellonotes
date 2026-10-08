@@ -42,29 +42,26 @@ struct SidebarEmptyState: View {
     var body: some View {
         if library.isEmpty {
             // **Closing the last collection must not be a dead end.**
-            ContentUnavailableView {
-                Label("No Collections", systemImage: "books.vertical")
-            } description: {
-                Text("Open a folder of Markdown notes, or an Obsidian vault, to get started.")
-            } actions: {
+            ChromeEmptyState("No Collections", systemImage: "books.vertical",
+                             description: Text("Open a folder of Markdown notes, or an Obsidian vault, to get started.")) {
                 Button("Open Collection…", action: openCollection)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ChromePushStyle(prominent: true))
                 Button("Open Recent…", action: openRecent)
                     .disabled(!hasRecents)
             }
         } else if isSearching {
             if search.isEmpty && !search.isInFlight {
-                ContentUnavailableView.search(text: searchText)
+                // What `ContentUnavailableView.search` said, drawn at the
+                // app's sizes rather than each platform's.
+                ChromeEmptyState("No Results", systemImage: "magnifyingglass",
+                                 description: Text("No results for “\(searchText)”. Check the spelling or try a new search."))
             }
         } else if selectedTag == nil, let scope, scope.notes.isEmpty, scope.attachments.isEmpty,
                   library.collections.count == 1 {
-            ContentUnavailableView {
-                Label("No Notes", systemImage: "square.and.pencil")
-            } description: {
-                Text("“\(scope.name)” is empty. Create your first note to get started.")
-            } actions: {
+            ChromeEmptyState("No Notes", systemImage: "square.and.pencil",
+                             description: Text("“\(scope.name)” is empty. Create your first note to get started.")) {
                 Button("New Note", action: newNote)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ChromePushStyle(prominent: true))
             }
         }
     }

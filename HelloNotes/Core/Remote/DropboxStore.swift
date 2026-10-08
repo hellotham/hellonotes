@@ -24,7 +24,9 @@ import CryptoKit
 import AuthenticationServices
 #endif
 
-final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
+/// `nonisolated`, as every store is (`RemoteStore`); sign-in alone is the
+/// main actor's.
+nonisolated final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
     let providerName = "Dropbox"
     /// The Keychain keys for *this* account's tokens.
     ///
@@ -51,11 +53,10 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
 
     var isAuthenticated: Bool { RemoteTokenStore.token(for: tokenAccount) != nil }
 
+    /// Signed out, or a Keychain that could not be read — two errors, so only
+    /// the first asks to sign in again (`RemoteTokenStore.requireToken`).
     private func requireToken() throws -> String {
-        guard let token = RemoteTokenStore.token(for: tokenAccount) else {
-            throw RemoteStoreError.notAuthenticated
-        }
-        return token
+        try RemoteTokenStore.requireToken(for: tokenAccount)
     }
 
     func signOut() {
@@ -70,14 +71,21 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
     /// folder past the page size silently loses its tail.
     func list(path: String) async throws -> [RemoteEntry] {
         var data = try await sendAuthed { Self.listFolderRequest(path: path, token: $0) }
-        var page = try Self.parseListFolderPage(data)
+        var page = try await Self.parsePage(data)
         var all = page.entries
         while page.hasMore, let cursor = page.cursor {
             data = try await sendAuthed { Self.listFolderContinueRequest(cursor: cursor, token: $0) }
-            page = try Self.parseListFolderPage(data)
+            page = try await Self.parsePage(data)
             all += page.entries
         }
         return all
+    }
+
+    /// One page, parsed away from whichever actor asked: up to two thousand
+    /// entries, and their dates.
+    private static func parsePage(_ data: Data) async throws
+        -> (entries: [RemoteEntry], cursor: String?, hasMore: Bool) {
+        try await offMain { try parseListFolderPage(data) }
     }
 
     /// Every entry under `path`, from one recursive `list_folder` plus its
@@ -90,11 +98,11 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
         var data = try await sendAuthed {
             Self.listFolderRequest(path: path, token: $0, recursive: true)
         }
-        var page = try Self.parseListFolderPage(data)
+        var page = try await Self.parsePage(data)
         var all = page.entries
         while page.hasMore, let cursor = page.cursor {
             data = try await sendAuthed { Self.listFolderContinueRequest(cursor: cursor, token: $0) }
-            page = try Self.parseListFolderPage(data)
+            page = try await Self.parsePage(data)
             all += page.entries
         }
         return all
@@ -117,11 +125,11 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
             var data = try await sendAuthed {
                 Self.listFolderRequest(path: path, token: $0, recursive: true)
             }
-            var page = try Self.parseListFolderPage(data)
+            var page = try await Self.parsePage(data)
             result.changed += page.entries
             while page.hasMore, let cursor = page.cursor {
                 data = try await sendAuthed { Self.listFolderContinueRequest(cursor: cursor, token: $0) }
-                page = try Self.parseListFolderPage(data)
+                page = try await Self.parsePage(data)
                 result.changed += page.entries
             }
             result.cursor = page.cursor
@@ -135,9 +143,9 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
             } catch RemoteStoreError.http(let code, _) where code == 409 {
                 return RemoteChangeSet(requiresFullResync: true)
             }
-            let page = try Self.parseListFolderPage(data)
+            let page = try await Self.parsePage(data)
             result.changed += page.entries
-            result.deleted += Self.parseDeletions(data)
+            result.deleted += await offMain { Self.parseDeletions(data) }
             result.cursor = page.cursor
             next = page.hasMore ? page.cursor : nil
         }
@@ -179,6 +187,14 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
         _ = try await sendAuthed { Self.deleteRequest(path: path, token: $0) }
     }
 
+    func move(from source: String, to destination: String) async throws {
+        _ = try await sendAuthed { Self.moveRequest(from: source, to: destination, token: $0) }
+    }
+
+    func createFolder(path: String) async throws {
+        _ = try await sendAuthed { Self.createFolderRequest(path: path, token: $0) }
+    }
+
     /// Send an authenticated request; on a 401 (expired access token) refresh
     /// once with the stored refresh token and retry, so sessions survive the
     /// ~4-hour access-token lifetime without re-prompting the user.
@@ -192,18 +208,20 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
         }
     }
 
-    /// Exchange the stored refresh token for a fresh access token.
+    /// Exchange the stored refresh token for a fresh access token, through
+    /// `TokenRefresh` as every store does — one at a time per account, and
+    /// away from whichever actor hit the 401: an upload's turn is the main
+    /// actor's, and the exchange writes the Keychain.
     private func refreshAccessToken() async throws -> String {
-        guard let refresh = RemoteTokenStore.token(for: refreshAccount) else {
-            throw RemoteStoreError.notAuthenticated
+        let key = appKey
+        return try await TokenRefresh.refresh(account: tokenAccount, refreshAccount: refreshAccount) { [self] refreshToken in
+            let data = try await send(Self.refreshTokenRequest(refreshToken: refreshToken, appKey: key))
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let access = json["access_token"] as? String else {
+                throw RemoteStoreError.decoding("token refresh")
+            }
+            return (access, nil)
         }
-        let data = try await send(Self.refreshTokenRequest(refreshToken: refresh, appKey: appKey))
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let access = json["access_token"] as? String else {
-            throw RemoteStoreError.decoding("token refresh")
-        }
-        RemoteTokenStore.setToken(access, for: tokenAccount)
-        return access
     }
 
     /// Run a request, mapping non-2xx to `RemoteStoreError.http`.
@@ -259,6 +277,23 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
                     body: ["path": normalizedPath(path)])
     }
 
+    /// A move or a rename is one call, which keeps the file's revisions. Never
+    /// `autorename`: a clash is the caller's to see, not Dropbox's to settle
+    /// by quietly choosing another name.
+    static func moveRequest(from source: String, to destination: String, token: String) -> URLRequest {
+        jsonRequest(URL(string: "https://api.dropboxapi.com/2/files/move_v2")!,
+                    token: token,
+                    body: ["from_path": normalizedPath(source),
+                           "to_path": normalizedPath(destination),
+                           "autorename": false])
+    }
+
+    static func createFolderRequest(path: String, token: String) -> URLRequest {
+        jsonRequest(URL(string: "https://api.dropboxapi.com/2/files/create_folder_v2")!,
+                    token: token,
+                    body: ["path": normalizedPath(path), "autorename": false])
+    }
+
     /// Content endpoints pass their arguments in the `Dropbox-API-Arg` header as
     /// JSON (the body carries file bytes, not JSON).
     static func downloadRequest(path: String, token: String) -> URLRequest {
@@ -310,7 +345,6 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
               let entries = root["entries"] as? [[String: Any]] else {
             throw RemoteStoreError.decoding("list_folder entries")
         }
-        let formatter = ISO8601DateFormatter()
         let parsed: [RemoteEntry] = entries.compactMap { e in
             guard let tag = e[".tag"] as? String,
                   let name = e["name"] as? String,
@@ -327,7 +361,7 @@ final class DropboxStore: NSObject, RemoteStore, @unchecked Sendable {
                 name: name,
                 isDirectory: tag == "folder",
                 size: e["size"] as? Int ?? 0,
-                modified: (e["server_modified"] as? String).flatMap { formatter.date(from: $0) },
+                modified: (e["server_modified"] as? String).flatMap(RemoteDate.parse),
                 rev: e["rev"] as? String
             )
         }

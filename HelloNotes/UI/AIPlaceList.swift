@@ -17,6 +17,11 @@
 //  teaches you nothing; a row that is present and does nothing teaches you the
 //  wrong thing.
 //
+//  Drawn with the compact places' own rows and headings, not a `List`: a list
+//  is 13pt rows on the Mac and 17pt rows in inset boxes on iOS, so the same
+//  tab was two different screens. The place's title is its `CompactPlaceBar`,
+//  which the shell puts above this.
+//
 
 import SwiftUI
 
@@ -42,64 +47,88 @@ struct AIPlaceList: View {
     var hasOpenNote: Bool = true
 
     var body: some View {
-        List {
-            Section {
-                Button {
-                    askLibrary()
-                } label: {
-                    Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
-                }
-                .disabled(!canAsk)
+        ScrollView(.vertical) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                row("Ask Your Library", systemImage: "sparkles.rectangle.stack") { askLibrary() }
+                    .disabled(!canAsk)
+                row("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square") { compose?() }
+                    .disabled(compose == nil)
+                footer("Answers are drawn from the notes you have open, with links back to them.")
 
-                Button {
-                    compose?()
-                } label: {
-                    Label("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square")
+                header("This note")
+                Group {
+                    row("Summarise", systemImage: "text.append") { ai?.summarize() }
+                    row("Suggest Tags", systemImage: "number") { ai?.suggestTags() }
+                    row("Suggest Links", systemImage: "link.badge.plus") { ai?.suggestLinks() }
+                    row("Rewrite or Expand…", systemImage: "wand.and.stars") { ai?.rewriteNote() }
                 }
-                .disabled(compose == nil)
-            } footer: {
-                Text("Answers are drawn from the notes you have open, with links back to them.")
-            }
-
-            Section {
-                Button { ai?.summarize() } label: {
-                    Label("Summarize", systemImage: "text.append")
-                }
-                Button { ai?.suggestTags() } label: {
-                    Label("Suggest Tags", systemImage: "number")
-                }
-                Button { ai?.suggestLinks() } label: {
-                    Label("Suggest Links", systemImage: "link.badge.plus")
-                }
-                Button { ai?.rewriteNote() } label: {
-                    Label("Rewrite Note…", systemImage: "wand.and.stars")
-                }
-                Button { reviewLinks?() } label: {
-                    Label("Review Links…", systemImage: "checklist")
-                }
-                .disabled(reviewLinks == nil)
-            } header: {
-                Text("This note")
-            } footer: {
+                .disabled(ai == nil)
+                // Outside the model's group: it finds links without one, as
+                // the Note menu knows, and was greyed out with no model here
+                // (menu.md §8, item 10; implemented.md §51.36).
+                row("Review Links…", systemImage: "checklist") { reviewLinks?() }
+                    .disabled(reviewLinks == nil)
                 if !hasOpenNote {
-                    Text("Open a note to use these.")
+                    footer("Open a note to use these.")
                 } else if ai == nil {
-                    Text("AI isn't available right now — AI Settings says why.")
+                    footer("AI isn't available right now — AI Settings says why.")
+                }
+
+                header(nil)
+                row("Assistant", systemImage: "sparkles") { assistant() }
+                if let aiSettings {
+                    row("AI Settings…", systemImage: "brain") { aiSettings() }
                 }
             }
-            .disabled(ai == nil)
+            .padding(.vertical, 4)
+        }
+        .viewport()
+        .background(Chrome.Colour.chrome)
+    }
 
-            Section {
-                Button { assistant() } label: {
-                    Label("Assistant", systemImage: "sparkles")
-                }
-                if let aiSettings {
-                    Button { aiSettings() } label: {
-                        Label("AI Settings…", systemImage: "brain")
-                    }
+    /// A command: a 12pt glyph and a 13pt title in the shell's row, dimmed
+    /// when it cannot apply. A button, not a tap gesture, so `disabled` stops
+    /// it as well as greying it.
+    private func row(_ title: String, systemImage: String,
+                     action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ChromeRowFrame(height: Chrome.Metric.rowNote, accent: .clear) {
+                HStack(spacing: 6) {
+                    Image(systemName: systemImage)
+                        .font(Chrome.Typeface.rowIcon)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
+                        .frame(width: 16)
+                        .accessibilityHidden(true)
+                    ChromeLine(title, size: 13)
+                    Spacer(minLength: 8)
                 }
             }
         }
-        .navigationTitle("AI")
+        .buttonStyle(ChromePlainStyle())
+    }
+
+    /// A group's heading — or, untitled, the gap between groups — as the other
+    /// compact places draw theirs.
+    @ViewBuilder
+    private func header(_ title: String?) -> some View {
+        if let title {
+            ChromeLine(title, size: 11, weight: .semibold, colour: Chrome.Colour.secondaryLabel)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+        } else {
+            Color.clear.frame(height: 12)
+        }
+    }
+
+    /// What a group's footer said: why its rows are the way they are.
+    private func footer(_ text: String) -> some View {
+        Text(text)
+            .font(Chrome.Style.subheadline)
+            .foregroundStyle(Chrome.Colour.secondaryLabel)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14)
+            .padding(.top, 4)
+            .padding(.bottom, 2)
     }
 }

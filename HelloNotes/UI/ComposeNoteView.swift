@@ -38,7 +38,7 @@ struct ComposeNoteView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider()
+            ChromeDivider()
             content
         }
         .panelFrame(width: 620, height: 560)
@@ -56,7 +56,7 @@ struct ComposeNoteView: View {
     private var header: some View {
         HStack(spacing: 12) {
             Label("New Note from a Prompt", systemImage: "sparkles.square.filled.on.square")
-                .font(.headline)
+                .font(Chrome.Style.headline)
             Spacer()
             Button("Cancel") { composer.cancel(); dismiss() }
                 .keyboardShortcut(.cancelAction)
@@ -80,34 +80,38 @@ struct ComposeNoteView: View {
 
     private var promptForm: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("", selection: $mode) {
-                ForEach(NoteComposer.Mode.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            ChromeSegmented(selection: $mode,
+                            options: NoteComposer.Mode.allCases.map { .init(value: $0, label: $0.title) },
+                            showsTitles: true)
 
             Text(mode == .write
                  ? "Describe the note you want. Notes you already have on the topic are offered to the model as links."
                  : "Ask a question. It is researched on the web and lands as a cited note, linked to what you already have.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.callout)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
                 .fixedSize(horizontal: false, vertical: true)
 
             TextEditor(text: $prompt)
-                .font(.body)
+                .font(Chrome.Style.body)
+                .scrollContentBackground(.hidden)
                 .focused($promptFocused)
+                .chromeFieldBox(multiline: true)
                 .frame(minHeight: 120)
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
 
             if mode == .research {
-                Stepper("Explore \(depth) sub-question\(depth == 1 ? "" : "s")", value: $depth, in: 1...4)
-                    .font(.callout)
+                ChromeStepper(value: $depth, in: 1...4) {
+                    Text("Explore \(depth) sub-question\(depth == 1 ? "" : "s")")
+                }
+                .font(Chrome.Style.callout)
+                // Beside its label, as the Mac's stepper sat — not pushed to
+                // the far edge the way a form row lays one out.
+                .fixedSize()
             }
 
             if case .failed(let message) = composer.phase {
                 Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
+                    .font(Chrome.Style.callout)
+                    .foregroundStyle(Chrome.Colour.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -116,8 +120,8 @@ struct ComposeNoteView: View {
             HStack {
                 if let blockedReason {
                     Label(blockedReason, systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
@@ -125,7 +129,7 @@ struct ComposeNoteView: View {
                     onRun(prompt, mode, depth)
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ChromePushStyle(prominent: true))
                 .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                           || blockedReason != nil)
             }
@@ -137,10 +141,10 @@ struct ComposeNoteView: View {
         VStack(spacing: 12) {
             ProgressView()
             Text(stage)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.callout)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
             Button("Stop") { composer.cancel() }
-                .buttonStyle(.bordered)
+                .buttonStyle(ChromePushStyle())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(30)
@@ -152,14 +156,21 @@ struct ComposeNoteView: View {
     private var draftReview: some View {
         if case .ready(let draft) = composer.phase {
             VStack(alignment: .leading, spacing: 10) {
-                TextField("Title", text: $editedTitle)
+                // No box: the draft's title reads as its heading. The font goes
+                // outside the placeholder so the two are set alike.
+                TextField("", text: $editedTitle)
                     .textFieldStyle(.plain)
-                    .font(.title3.weight(.semibold))
+                    .focusEffectDisabled()
+                    .chromePlaceholder("Title", showing: editedTitle.isEmpty)
+                    .font(Chrome.Style.title3.weight(.semibold))
+                    .accessibilityLabel("Title")
 
-                Divider()
+                ChromeDivider()
 
                 TextEditor(text: $editedBody)
-                    .font(.body.monospaced())
+                    .font(Chrome.Style.body.monospaced())
+                    .scrollContentBackground(.hidden)
+                    .chromeFieldBox(multiline: true)
                     .frame(maxHeight: .infinity)
 
                 provenance(draft)
@@ -173,7 +184,7 @@ struct ComposeNoteView: View {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ChromePushStyle(prominent: true))
                     .disabled(editedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -202,8 +213,8 @@ struct ComposeNoteView: View {
                       systemImage: "link.badge.plus")
             }
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        .font(Chrome.Style.caption)
+        .foregroundStyle(Chrome.Colour.secondaryLabel)
         .fixedSize(horizontal: false, vertical: true)
     }
 

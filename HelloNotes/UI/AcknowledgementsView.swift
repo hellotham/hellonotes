@@ -44,41 +44,54 @@ enum Acknowledgements {
     ]
 }
 
-/// A scrollable list of the app's open-source acknowledgements.
+/// The app's open-source acknowledgements — a sheet of their own, opened
+/// beside About (**Acknowledgements…**), with its title and the way out in a
+/// bar above a scrolling page.
 struct AcknowledgementsView: View {
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        List {
-            Section {
-                Text("HelloNotes is built with these open-source projects. Thank you to their authors and contributors.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            ChromeSheetBar("Acknowledgements") {
+                EmptyView()
+            } trailing: {
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
             }
-            Section("Open-source packages") {
-                ForEach(Acknowledgements.all) { ack in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack {
-                            Text(ack.name).font(.headline)
-                            Spacer()
-                            Text(ack.license)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
+            ChromeForm {
+                ChromeSection {
+                    Text("HelloNotes is built with these open-source projects. Thank you to their authors and contributors.")
+                        .font(Chrome.Style.callout)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
+                }
+                ChromeSection("Open-source packages") {
+                    ForEach(Acknowledgements.all) { ack in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack {
+                                Text(ack.name).font(Chrome.Style.headline)
+                                Spacer()
+                                Text(ack.license)
+                                    .font(Chrome.Style.caption.monospaced())
+                                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                            }
+                            Text(ack.role)
+                                .font(Chrome.Style.caption)
+                                .foregroundStyle(Chrome.Colour.secondaryLabel)
+                            if let link = URL(string: ack.url) {
+                                ChromeLink(ack.url, destination: link)
+                                    .font(Chrome.Style.caption)
+                            }
                         }
-                        Text(ack.role)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if let link = URL(string: ack.url) {
-                            Link(ack.url, destination: link)
-                                .font(.caption)
-                        }
+                        .padding(.vertical, 2)
                     }
-                    .padding(.vertical, 2)
                 }
             }
         }
-        .navigationTitle("Acknowledgements")
+        // The size the Mac's sheet has always been, now on both platforms.
+        .chromeSheetFrame(width: 560, height: 620)
     }
 }
 
 #Preview {
-    AcknowledgementsView().frame(width: 560, height: 640)
+    AcknowledgementsView()
 }

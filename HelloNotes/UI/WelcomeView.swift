@@ -55,7 +55,7 @@ struct WelcomeView: View {
                   detail: "[[Wiki-links]], backlinks, tags, and a graph tie your notes together."),
         Highlight(symbol: "sparkles",
                   title: "On-device intelligence",
-                  detail: "Summarize, rewrite, and ask your library — with Apple Intelligence or your own model."),
+                  detail: "Summarise, rewrite, and ask your library — with Apple Intelligence or your own model."),
     ]
 
     var body: some View {
@@ -70,13 +70,14 @@ struct WelcomeView: View {
                 .padding(.horizontal, 24)
                 .padding(.vertical, 18)
             }
-            Divider()
+            ChromeDivider()
             actions
         }
-        // A firm min height so the macOS sheet is tall enough to show all four
-        // highlights without scrolling (a bare idealHeight collapses to the
-        // ScrollView's minimal ideal). iOS sheets ignore this and use detents.
-        .frame(minWidth: 440, idealWidth: 460, minHeight: 600, idealHeight: 620)
+        // One size on both platforms, tall enough to show all four highlights
+        // without scrolling. It was a minimum on the Mac only — iOS sheets
+        // ignored it and took the system's size — so the first screen anyone
+        // sees was a different layout on each.
+        .chromeSheetFrame(width: 460, height: 620)
     }
 
     // MARK: Header
@@ -90,11 +91,11 @@ struct WelcomeView: View {
                 .background(Self.brandGradient, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .accessibilityHidden(true)
             Text("Welcome to HelloNotes")
-                .font(.title.bold())
+                .font(Chrome.Style.title.bold())
                 .multilineTextAlignment(.center)
             Text("Where every idea says hello.")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.headline)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 28)
@@ -105,15 +106,15 @@ struct WelcomeView: View {
     private func row(_ highlight: Highlight) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: highlight.symbol)
-                .font(.title2)
+                .font(Chrome.Style.title2)
                 .foregroundStyle(.tint)
                 .frame(width: 32)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(highlight.title).font(.headline)
+                Text(highlight.title).font(Chrome.Style.headline)
                 Text(highlight.detail)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.callout)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -140,29 +141,31 @@ struct WelcomeView: View {
                     Button { option.run() } label: {
                         HStack(spacing: 10) {
                             Image(systemName: option.symbol)
-                                .font(.title3)
+                                .font(Chrome.Style.title3)
                                 .frame(width: 24)
                                 .foregroundStyle(.tint)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(option.title).fontWeight(.medium)
                                 Text(option.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(Chrome.Style.caption)
+                                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             Spacer(minLength: 0)
                         }
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Chrome.Colour.quaternaryLabel.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ChromePlainStyle())
                 }
             }
 
             Button("Explore first") { onDismiss() }
-                .buttonStyle(.borderless)
+                // Escape is this sheet's way out too (toolbars.md §14, item 10).
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(ChromeBorderlessStyle())
                 .controlSize(.large)
         }
         .padding(20)

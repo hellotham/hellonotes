@@ -67,7 +67,7 @@ struct CloudCollectionsManager: View {
     /// One account, listed as a *source* to add a collection from.
     ///
     /// Distinct identities matter: the same account appears twice in this one
-    /// `List` — once here and once under Cloud Accounts — and two rows sharing
+    /// list — once here and once under Cloud Accounts — and two rows sharing
     /// an id makes SwiftUI reuse one's content for the other, so the managed
     /// account row rendered as its "From …" twin and no amount of relaunching
     /// changed it. Prefixing the id keeps every row in the list unique.
@@ -99,33 +99,42 @@ struct CloudCollectionsManager: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
-            List {
-                if !collections.isEmpty {
-                    Section("Cloud Collections") {
+            ChromeSheetBar("Manage Cloud Collections") {
+                EmptyView()
+            } trailing: {
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            // A search field so the list stays usable however many providers
+            // exist — the reason this is a modal and not a menu. The app's own,
+            // drawn above the list, where `.searchable` left each platform to
+            // place and draw its field.
+            ChromeSearchField(text: $search, prompt: "Search providers")
+                .padding(10)
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if !collections.isEmpty {
+                        sectionHeader("Cloud Collections")
                         ForEach(collections) { collection in
                             collectionRow(collection)
                         }
                     }
-                }
 
-                // Where a new collection can come *from*. One account can
-                // supply several collections, so these are sources rather than
-                // a one-shot setup step.
-                Section("Add a Collection") {
+                    // Where a new collection can come *from*. One account can
+                    // supply several collections, so these are sources rather
+                    // than a one-shot setup step.
+                    sectionHeader("Add a Collection")
                     syncedFolderRow
                     ForEach(accounts.accounts.map(SourceRow.init)) { row in
                         addFromAccountRow(row.account)
                     }
-                }
 
-                // Managing the accounts themselves — renaming, signing out,
-                // signing in to another. Separate from the section above
-                // because using an account and administering one are different
-                // errands, and merging them is what made a screen full of
-                // "Sign in" rows the only thing an already-connected user saw.
-                Section("Cloud Accounts") {
+                    // Managing the accounts themselves — renaming, signing out,
+                    // signing in to another. Separate from the section above
+                    // because using an account and administering one are
+                    // different errands, and merging them is what made a
+                    // screen full of "Sign in" rows the only thing an
+                    // already-connected user saw.
+                    sectionHeader("Cloud Accounts")
                     ForEach(accounts.accounts.map(ManagedRow.init)) { row in
                         connectedRow(row.account)
                     }
@@ -134,16 +143,17 @@ struct CloudCollectionsManager: View {
                     }
                     if providers.isEmpty && accounts.accounts.isEmpty {
                         Text("No provider matches “\(search)”.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                            .font(Chrome.Style.callout)
+                            .foregroundStyle(Chrome.Colour.secondaryLabel)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
                     }
                 }
+                .padding(.bottom, 10)
             }
-            // A search field so the list stays usable however many providers
-            // exist — the reason this is a modal and not a menu.
-            .searchable(text: $search, prompt: "Search providers")
+            .viewport()
         }
-        .panelFrame(width: 520, height: 580)
+        .chromeSheetFrame(width: 520, height: 580)
         .sheet(item: $picking) { browsing in
             RemoteFolderPicker(model: browsing.model) {
                 dismiss()
@@ -193,14 +203,14 @@ struct CloudCollectionsManager: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            Label("Manage Cloud Collections", systemImage: "cloud")
-                .font(.headline)
-            Spacer()
-            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
-        }
-        .padding()
+    /// A section's heading in the drawn list.
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(Chrome.Style.subheadline.weight(.semibold))
+            .foregroundStyle(Chrome.Colour.secondaryLabel)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
     }
 
     // MARK: - Collections you already have
@@ -219,8 +229,8 @@ struct CloudCollectionsManager: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(collection.name).fontWeight(.medium)
                 Text(describe(collection))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -228,10 +238,12 @@ struct CloudCollectionsManager: View {
             Button(role: .destructive) { removing = collection } label: {
                 Image(systemName: "minus.circle")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(ChromeBorderlessStyle())
             .help("Remove “\(collection.name)” from HelloNotes (your files stay)")
             .accessibilityLabel("Remove \(collection.name)")
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     /// Where a collection's files actually are, in one line.
@@ -268,18 +280,20 @@ struct CloudCollectionsManager: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("From a Synced Cloud Folder…").fontWeight(.medium)
                     Text(syncedSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.tertiaryLabel)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePlainStyle())
     }
 
     /// What the app can honestly say about this device.
@@ -314,17 +328,19 @@ struct CloudCollectionsManager: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("From \(account.displayName)…").fontWeight(.medium)
                     Text(account.provider.displayName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.tertiaryLabel)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePlainStyle())
     }
 
     /// An account already signed in: go straight to browsing it.
@@ -354,17 +370,20 @@ struct CloudCollectionsManager: View {
                         // Signed in" is a stutter, "Jane's / Dropbox · Signed
                         // in" is the one case where you still need telling.
                         Text(status(for: account))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Chrome.Style.caption)
+                            .foregroundStyle(Chrome.Colour.secondaryLabel)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.tertiaryLabel)
                 }
+                // The row's margin inside the label, so it takes the tap too.
+                .padding(.leading, 10)
+                .padding(.vertical, 6)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ChromePlainStyle())
 
             // Visible, not only in the context menu: renaming is the thing a
             // person wants the moment they connect a second account, and a
@@ -373,19 +392,20 @@ struct CloudCollectionsManager: View {
             Button { beginRename(account) } label: {
                 Image(systemName: "pencil")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .buttonStyle(ChromeBorderlessStyle())
+            .foregroundStyle(Chrome.Colour.secondaryLabel)
             .help("Rename this account")
             .accessibilityLabel("Rename \(account.displayName)")
 
             Button(role: .destructive) { accounts.disconnect(account) } label: {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .buttonStyle(ChromeBorderlessStyle())
+            .foregroundStyle(Chrome.Colour.secondaryLabel)
             .help("Sign out of \(account.displayName)")
             .accessibilityLabel("Sign out of \(account.displayName)")
         }
+        .padding(.trailing, 10)
         .contextMenu {
             Button { beginRename(account) } label: {
                 Label("Rename…", systemImage: "pencil")
@@ -422,7 +442,7 @@ struct CloudCollectionsManager: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "plus.circle")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .frame(width: 20)
                 // "New Dropbox", not "Dropbox". Sitting directly under an
                 // account already signed in, a bare provider name read as a
@@ -432,12 +452,14 @@ struct CloudCollectionsManager: View {
                 Text("New \(provider.displayName)")
                 Spacer(minLength: 0)
                 Text("Sign in")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.tertiaryLabel)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePlainStyle())
     }
 
     private func beginRename(_ account: CloudAccount) {

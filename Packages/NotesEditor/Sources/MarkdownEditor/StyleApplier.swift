@@ -529,67 +529,6 @@ nonisolated enum StyleApplier {
             closing.paragraphSpacing = max(trailing, nextIsBlank ? 0 : extraTrailing)
             target.addAttribute(.paragraphStyle, value: closing, range: lastLine)
         }
-        keepARulesBottomMargin(block: block, at: index, in: blocks, line: lastLine,
-                               text: text, to: target, unrendered: unrendered)
-    }
-
-    /// An `<hr>`'s bottom margin survives the end of the note. Nothing else's
-    /// does, and that is not the inconsistency it looks like.
-    ///
-    /// TextKit drops the last paragraph's `paragraphSpacing` unconditionally,
-    /// and for almost every block that is exactly right: a bottom margin at
-    /// the end of the note collapses out through whatever contains it —
-    /// neither `<li>` nor `<blockquote>` has padding or a border on those
-    /// edges to stop it — and lands on `.markdown-body > *:last-child`, whose
-    /// `margin-bottom` the stylesheet zeroes `!important`.
-    ///
-    /// A thematic break is the one element that cannot collapse at all:
-    /// `hr::before` and `hr::after` are `display: table`, a clearfix, so the
-    /// rule's own margins are sealed inside its box. Inside a list item the
-    /// `:last-child` being zeroed is the `<ul>` two levels up and not the rule
-    /// itself, so the page keeps 24pt below it and the editor threw it away —
-    /// a note ending `- Foo` / `- * * *` stood 24pt short, and the pixel
-    /// version of that is a note you cannot scroll to the bottom of.
-    ///
-    /// At the top level the hr *is* the `:last-child` whose margin is being
-    /// zeroed, so TextKit's drop is already right — hence the container test
-    /// as well as the end-of-note one. Read off the line rather than
-    /// recomputed: `applyNestedRule` decides what an `<hr>` in an item is
-    /// worth, and two opinions about that is one too many.
-    private static func keepARulesBottomMargin(block: Block, at index: Int, in blocks: [Block],
-                                               line: NSRange, text: NSString,
-                                               to target: NSMutableAttributedString,
-                                               unrendered: [NSRange]) {
-        switch block.kind {
-        case .listItem, .blockquote: break
-        default: return
-        }
-        guard target.attribute(thematicBreakAttribute, at: line.location,
-                               effectiveRange: nil) != nil else { return }
-        // Walked *backwards* from the end, which stops at the first rendered
-        // block it meets — a handful of trailing blank lines at most. Asking
-        // "is anything after me rendered?" forwards, per block, is the same
-        // answer and O(n) each time; over a whole note that is quadratic, and
-        // it took the editor's own test suite from 26 seconds to five minutes.
-        var lastRendered = blocks.count - 1
-        while lastRendered > index,
-              !BlockBoxes.isRendered(blocks[lastRendered], in: blocks, at: lastRendered,
-                                     text: text, unrendered: unrendered) {
-            lastRendered -= 1
-        }
-        guard lastRendered == index,
-              let para = target.attribute(.paragraphStyle, at: line.location,
-                                          effectiveRange: nil) as? NSParagraphStyle,
-              para.paragraphSpacing > 0 else { return }
-        // Moved, not copied. With a trailing blank run below this is not the
-        // last paragraph after all, the spacing would still apply, and the two
-        // would be counted together; the fragment is where the space lives now.
-        let flat = (para.mutableCopy() as! NSMutableParagraphStyle)
-        let escaping = para.paragraphSpacing
-        flat.paragraphSpacing = 0
-        target.addAttribute(.paragraphStyle, value: flat, range: line)
-        target.addAttribute(escapingMarginAttribute, value: escaping,
-                            range: NSRange(location: line.location, length: 1))
     }
 
     /// Lines with no glyphs left on them, inside a block that still has some.
@@ -979,9 +918,6 @@ nonisolated enum StyleApplier {
                                               revealedLines: Set<Int> = [])
     -> CGFloat {
         let first = block.firstLine, last = block.firstLine + block.lineCount - 1
-        /// The `ul`/`ol` padding every block inside this item inherits. CSS
-        /// gives each list level 2em whatever the writer indented by.
-        let itemListInset = CGFloat(BlockBoxes.listDepth(info) + 1) * m.listIndent
         var extraTrailing: CGFloat = 0
         // Where the item's own content sits — `ul { padding-left: 2em }`, once
         // per nesting level, the same number `BlockBoxes.baseStyle` gives the
@@ -1565,7 +1501,17 @@ nonisolated enum StyleApplier {
         para.minimumLineHeight = m.ruleThickness
         para.maximumLineHeight = m.ruleThickness
         para.paragraphSpacingBefore = m.ruleGap
-        para.paragraphSpacing += m.ruleGap
+        // The margin below is the rule's to keep only while more of the item
+        // follows it. Once the rule closes the item, its margin collapses out
+        // through the `<li>` and the list, and `BlockBoxes.gapBetween` exports
+        // it from the item's edge (`closesWithThematicBreak`) to whatever comes
+        // next — the next item, the block after the list, or nothing. Adding
+        // it here as well counted it twice wherever a blank line followed:
+        // once on this line and once in the blank fragment that stands for
+        // the same collapsed margin (spec #31 in context, 24pt taller).
+        if Self.contentFollows(lineNumber, inside: block, lines: lines, text: text) {
+            para.paragraphSpacing += m.ruleGap
+        }
         target.addAttributes([
             .paragraphStyle: para,
             .font: theme.concealed,
@@ -1578,6 +1524,21 @@ nonisolated enum StyleApplier {
         target.addAttribute(thematicBreakAttribute, value: m.ruleThickness,
                             range: NSRange(location: lineRange.location, length: 1))
         return true
+    }
+
+    /// Does anything but blank lines follow `lineNumber` inside `block`?
+    private static func contentFollows(_ lineNumber: Int, inside block: Block,
+                                       lines: LineIndex, text: NSString) -> Bool {
+        let last = block.firstLine + block.lineCount - 1
+        guard lineNumber < last else { return false }
+        for line in (lineNumber + 1)...last {
+            let content = lines.contentRange(line, in: text)
+            for k in content.location..<(content.location + content.length) {
+                let c = text.character(at: k)
+                if c != 0x20 && c != 0x09 && c != 0x0D { return true }
+            }
+        }
+        return false
     }
 
     /// Give an ATX heading inside a list item its own box — line height, font,
@@ -2750,7 +2711,11 @@ nonisolated enum StyleApplier {
         }
     }
 
-    private static func apply(
+    /// One run's look, in `theme`: the editor's whole mapping from a role to
+    /// fonts and colours. Internal rather than private because a table cell is
+    /// set with it too (`GFMTableGeometry.cellText`), so text reads the same in
+    /// the picture of a table as it does anywhere else in the note.
+    static func apply(
         _ run: StyleRun,
         to target: NSMutableAttributedString,
         theme: EditorTheme,
@@ -2866,7 +2831,7 @@ nonisolated enum StyleApplier {
                 wikiTargetAttribute: target_,
             ]
             if !isEmbed, let encoded = target_.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
-               let url = URL(string: "hellonotes-wiki://\(encoded)") {
+               let url = URL(string: "\(WikiLinkSyntax.urlScheme)://\(encoded)") {
                 attrs[.link] = url
                 #if canImport(AppKit)
                 attrs[.cursor] = NSCursor.pointingHand
@@ -2980,11 +2945,14 @@ nonisolated enum StyleApplier {
         #endif
     }
 
-    /// `Note#heading` and `Note|alias` resolve on the note title alone.
+    /// `Note#heading` and `Note|alias` resolve on the note title alone — the
+    /// alias read off by the rule every reader of a link shares
+    /// (`WikiLinkSyntax`), so `[[Note\|alias]]`, as a table writes it and as
+    /// it may be written anywhere, is coloured as `Note` and not as a broken
+    /// `Note\` (implemented.md §51.36).
     static func baseTitle(of target: String) -> String {
-        var t = target
-        if let pipe = t.firstIndex(of: "|") { t = String(t[..<pipe]) }
-        if let hash = t.firstIndex(of: "#") { t = String(t[..<hash]) }
+        var t = WikiLinkSyntax.split(target).target
+        if let hash = t.firstIndex(of: "#") { t = t[..<hash] }
         return t.trimmingCharacters(in: .whitespaces)
     }
 }

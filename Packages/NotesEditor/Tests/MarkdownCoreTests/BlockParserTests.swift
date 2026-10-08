@@ -280,6 +280,34 @@ import Testing
         #expect(ordered.contentOffset == 8)
     }
 
+    /// An item with nothing after its marker opens one column past it — `1.`
+    /// at 3, `*` at 2 — whatever line came before. The measurement read past
+    /// the end of the line into the classifier's reusable buffer, which holds
+    /// whatever it read last, so the column was one short unless a space
+    /// happened to sit there — 2 for `1.` under both lines below, and a full
+    /// parse and an incremental one disagreeing whenever they had read
+    /// different things last.
+    @Test func anEmptyItemsColumnDoesNotDependOnTheLineAbove() {
+        func emptyItem(after above: String) -> ListInfo? {
+            let blocks = BlockParser.fullParse("\(above)\n1.\n* \n*\n" as NSString).blocks
+            return blocks.compactMap { block -> ListInfo? in
+                if case .listItem(let info) = block.kind, info.isOrdered, block.firstLine == 1 { return info }
+                return nil
+            }.first
+        }
+        let underAnItem = emptyItem(after: "1. a b")
+        let underAHeading = emptyItem(after: "# h")
+        #expect(underAnItem?.contentColumn == 3)
+        #expect(underAHeading?.contentColumn == 3)
+
+        // A bare `*` and one followed by a space are the same empty item.
+        let stars = BlockParser.fullParse("# h\n* \n*\n" as NSString).blocks.compactMap { block -> Int? in
+            if case .listItem(let info) = block.kind { return info.contentColumn }
+            return nil
+        }
+        #expect(stars == [2, 2])
+    }
+
     // MARK: - Math blocks
 
     @Test func mathBlock() {

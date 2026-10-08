@@ -28,13 +28,10 @@ struct WikiLinkCompletionList: View {
     let matches: [WikiCompletion]
     let onSelect: (WikiCompletion) -> Void
 
-    /// Rows are taller on iOS: a 4pt inset around a single line of text is a
-    /// comfortable pointer target and an uncomfortable finger one.
-#if os(iOS)
-    private let rowInset: CGFloat = 9
-#else
+    /// The Mac's row — a 4pt inset around one line — on both platforms, as the
+    /// sidebar's rows are. The whole row takes the tap, which is as much
+    /// target as a column of adjacent rows can give a finger.
     private let rowInset: CGFloat = 4
-#endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,13 +46,15 @@ struct WikiLinkCompletionList: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ChromePlainStyle())
             }
         }
         .frame(width: 260, alignment: .leading)
         .padding(4)
-        .background(.regularMaterial, in: .rect(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
-        .shadow(radius: 8, y: 2)
+        // A card of the content colour: `.regularMaterial` and `.separator`
+        // are each platform's own blur and rule.
+        .background(Chrome.Colour.content, in: .rect(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Chrome.Colour.separator))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
     }
 }

@@ -61,16 +61,18 @@ version instead — see implemented.md §49.*
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): flush-on-quit handshake; atomic assistant writes; surfaced file-operation failures (create/rename/duplicate/delete/folder/move) + partial-rename link-rewrite reporting; export-error alerts; off-main reconcile read; no-config-wipe persist; serialized git status/history/content reads.*
 *Resolved and moved to [implemented.md §7](implemented.md#7--post-review-fix-pass-2026-07-19): `createRepository`/`cloneRepository` routed through the git FIFO queue; serialized `EditorModel` writes (no stale-on-quit race).*
+*Resolved and moved to implemented.md §51.13 (2026-09-24): typing while a note loaded — the blank, or the note shown before — could be saved over the note arriving; the buffer is write-locked for the whole load now.*
+*Resolved and moved to implemented.md §51.14 (2026-09-25): opening a note in a full cloud cache evicted the notes open in other tabs to placeholders under them; every note an editor holds, in any window, is pinned now, and a placeholder is never taken as a note's text.*
+*Resolved and moved to implemented.md §51.15 (2026-09-25): a write the app made into an open note never reached the editor in Edit, and the next typing carried the document back over it; typing in Edit was lost to a tab switch and return, to the document store letting its document go, to a prune, or to a change elsewhere loaded over it; and the host could pair one tab's document with the next tab's model. The two settle by which of them moved since they last matched now, and switching away saves. A note open in two windows no longer shares one document between them, and a property written back no longer cuts a letter off the body for each CRLF line in the front matter.*
+*Resolved and moved to implemented.md §51.16 (2026-09-25): a save while the conflict banner was up wrote mine over theirs, and a Reload after it left mine in the file for the next check to load back; now only Keep Mine writes the note while a conflict is open, both resolutions wait for a write in flight, and a buffer let go with a conflict open — quit, a tab or window closed, iOS leaving the foreground — keeps mine beside the note as a conflicted copy.*
+*Resolved and moved to implemented.md §51.19 (2026-09-26): a note window's editor was wired to nothing — a cloud note still a placeholder opened empty there, its saves were never uploaded, indexed or registered as the app's own, and a save into a folder that had gone was not refused. Tabs and note windows are wired by the same code now (`EditorWiring`); and a cloud note whose download fails opens unloaded, in either, where it opened as an empty note that took typing.*
+*Resolved and moved to implemented.md §51.22 (2026-09-28): a rebuild of the indexes from the cache put a saved note's pre-save links, tags and aliases back, and a save's patch cancelled the rebuild in flight — a delete's, a walk's, a changed alias's — with nothing to run it again. What a save or a new note patches is kept until a rebuild has read the note from disk since, and applied over whatever a rebuild begun before it read; nothing cancels a rebuild but a newer one. A save made while the relatedness index was being built reaches it now, and a cancelled rebuild no longer loads search after the one that replaced it.*
+*Resolved and moved to implemented.md §51.24 (2026-09-28): only the main window opened last had its tabs reconciled when a note changed on disk, and a note window's editor never was. Every open window is told now — each main window's tabs and each note window's editor — from when it appears to when it goes.*
+*Resolved and moved to implemented.md §51.25 (2026-09-28): what was typed in the Markdown pane — Markdown and Split mode — was written only at the next flush, so leaving it for the sidebar or another pane wrote nothing and a crash before a flush lost it. It is written when editing stops, as Edit mode's is, on both platforms.*
+*Resolved and moved to implemented.md §51.30 (2026-09-29): a property changed in the Properties panel — the inspector's or the note's popover — was written only at the next flush; the panel's commit ends with the editor's own save now, and a commit that changes nothing still writes nothing.*
+*Resolved and moved to implemented.md §51.35 (2026-10-08): following an aliased wiki link from Edit — `[[Roadmap|the plan]]` — looked for a note named after the whole link, found none, and in the main window made one (`Roadmap|the plan.md`), the tour's own link to the manual among them; the alias comes off first now, with a table's escaping backslash, and a missing note is made under the name the link gives it.*
+*Resolved and moved to implemented.md §51.36 (2026-10-09): a refresh with no delta cursor walks; a note made here and still empty is never taken for the provider's placeholder; a download is recorded only at the revision it read; token refreshes are single-flighted per account, read again after a refused exchange and never written back after a sign-out; Box, Drive and OneDrive list the content's revision; the self-test removes its leftovers through the mirror; a second large-folder prompt answers the first; a symlinked subfolder is walked, guarded against loops; the Assistant edits an open note in its editor; closing a window waits for its save; a reconcile clears a failed load; every app write into an open note is saved when made; a walk's late verdict cannot overwrite a recheck's success; and every reader of a wiki link takes a table's escaped alias pipe as the escape it is (`WikiLinkSyntax`).*
 
-- 🟡 **A symlinked *subfolder* inside a vault is skipped, not walked** — a
-  symlink reports neither `isDirectory` nor `isRegularFile`, so
-  `LocalTreeSource.children(of:)` falls through both branches and its contents
-  never enter the index. The *root* being a symlink is handled (§41); a symlink
-  further down is not. **Why it is left:** following one needs cycle detection
-  that survives the walk's checkpoint, and a loop is an unbounded walk of
-  someone's vault. **Fix:** a visited-set of resolved directory paths, persisted
-  with the checkpoint so a resumed walk cannot re-enter a cycle.
-- 🟡 **Assistant edit vs. open editor buffer** — the assistant's writes are now atomic, but if the same note is open in the editor with unsaved edits, the change still races the editor's autosave/reconcile (the write goes to disk, not through the open `EditorModel`). Reconciliation raises a conflict in the common case, but a narrow window remains. **Fix:** route assistant writes through the open buffer when the note is being edited.
 - ✅ ~~**`ChatSessionStore` write is `try?`**~~ — resolved (§20): save/clear failures now report through the assistant's `errorText`, except `fileNoSuchFile` on clear (an empty conversation).
 
 ---
@@ -79,9 +81,9 @@ version instead — see implemented.md §49.*
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): `web_fetch`/`web_search` SSRF protection + redirect re-validation; scoped "Allow all" (resets per conversation); bounded `web_search` + SSE error buffers.*
 *Resolved and moved to [implemented.md §7](implemented.md#7--post-review-fix-pass-2026-07-19): `create_note` path-traversal containment; "Allow all" never auto-approves deletions; write-tool symlink containment; NAT64 in the SSRF classifier; Keychain secrets → `…ThisDeviceOnly`; credential-scrubbed git error strings.*
+*Resolved and moved to implemented.md §51.36 (2026-10-09): the web tools' address check holds against DNS rebinding — each body is read whole and the address of every connection that served it checked (`URLSessionTaskMetrics`) before any of it reaches the model.*
 
 - ⬆️ **Git PATs are written in plaintext to `.git/config`** — `GitRemoteURL.authenticated` embeds `user:token@host` into the remote URL (`GitCredentials.swift`), which libgit2 persists on disk; if the collection lives in Dropbox/iCloud the token leaves the Keychain. **Root cause:** SwiftGitX exposes no credential callback, so the token can't be supplied per-operation. **Unblock:** a SwiftGitX credential-callback API (then stop embedding the token in the URL). *(Error strings that would echo the URL are now credential-scrubbed — §7 — but the persisted config value remains.)*
-- 🟠 **SSRF guard isn't pinned to the fetched IP (DNS rebinding / TOCTOU)** — `WebGuard.validate` resolves the host with `getaddrinfo` and classifies the addresses, but `URLSession.bytes(for:)` performs a **second, independent** resolution for the connection. An attacker-controlled short-TTL domain can return a public A record during `validate()` and `169.254.169.254`/`127.0.0.1` during the fetch. Redirects are re-validated but share the gap. **Root cause:** URLSession offers no per-request IP pinning. **Unblock:** resolve once and connect to the pinned IP via a custom `URLProtocol`/Network.framework (a `URLSessionTaskMetrics.remoteAddress` check fires too late for a streamed body). Static private hosts and encoded-IP forms are already blocked.
 - 🟡 **Structural prompt-injection exposure remains** — tool outputs and note content still re-enter the model context with no provenance separation. It's now materially reduced (SSRF guard blocks internal exfiltration; mutating tools are broker-gated, "Allow all" no longer persists across conversations and never auto-approves deletions), but a fully robust design would tag untrusted content and constrain what it can trigger.
 
 ---
@@ -89,25 +91,36 @@ version instead — see implemented.md §49.*
 ## 3 · Performance & memory *(2,000-note scale)*
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): debounced search-aggregate rebuild; bounded `CollectionEmbedProvider`/`BlockRenderAdapter` image caches; bounded + off-main chat-transcript persistence.*
+*Resolved and moved to implemented.md §51.11–§51.12 (2026-09-24): Mermaid diagrams rendered off the main actor, in the editor and in Preview; no whole-note comparison on the main actor when a note is saved, checked against the file (`reconcileWithDisk`), published to other scenes or typed into in Markdown mode (`adopt`'s bridged comparison among them).*
+*Resolved and moved to implemented.md §51.15 (2026-09-25): the last two whole-note comparisons in `EditorHost` — a reload landing in an open Edit tab, and a cached tab shown again — are settled from counts. Typing in a Properties field no longer rewrites the note per character (the rows are a draft, committed on Return or on leaving the field); the inspector and the outline take the note compared by its version, not as a `String`; Review Links compares versions; reading a note's properties reads its front matter only; and `reconcileWithDisk` asks the file provider off the main actor.*
+*Resolved and moved to implemented.md §51.17 (2026-09-26): every save patched the collection's link graph, search index and relatedness index on the main actor, a pass over the whole note each — 158 ms for a 2 MB note in a 200-note collection. The note is parsed once in `offMain` and the result applied on the main actor (under 5 ms), newest save only, never to a note that has left.*
+*Resolved and moved to implemented.md §51.18 (2026-09-26): typing in Split mode rendered the page twice, walked the note for maths and diagrams, drew every diagram again and analysed it for the inspector — at least 700 ms of main-thread CPU a keystroke in a 694 KB note, the shell and the note column redrawing with it. What follows the note without editing it now follows the text as of the last pause in typing (`EditorModel.settledText`), and Preview, the Outline and the Tags tab are built off the main actor: 1.6 ms a keystroke.*
+*Resolved and moved to implemented.md §51.22 (2026-09-28): a save's index patch cancelled a full rebuild in flight and nothing restarted it; no save cancels a rebuild now.*
+*Resolved and moved to implemented.md §51.32 (2026-09-29): a vault's availability was checked by listing its root on the main actor, from a recheck (Retry, Relocate) and from the watcher's root change; both look off it now, taking turns with the watcher's events whole and in order, as they did when the look was synchronous.*
+*Resolved and moved to implemented.md §51.34 (2026-10-08): a cloud collection's walk ran on the main thread, listing through main-actor stores that read their token from the Keychain and parsed every page there; it runs away from the main actor now, asking a lock where it asked the main actor, the stores are `nonisolated` with their pages parsed in `offMain`, Drive's change feed is placed from one map built off it, and each token is read from the Keychain once.*
+*Resolved and moved to implemented.md §51.36 (2026-10-09): Open Quickly scores off the main actor; the Tags view's counts are folded with the index; the mind map's layout, Properties' front-matter read (no further than the editor folds), the transclusion card's read and section, a pasted picture's write, a new folder, the Trash move, launch's bookmark resolution and Try Again's and Relocate's, each account's first Keychain read, opening a note's file-provider question and `EditorDocument.make`'s parse are off it; a change seen during a walk asks for one more pass instead of cancelling it; and a cloud collection stages its downloads, reads its eviction stats, decodes its manifest, folds its placeholders and compares its unsent records off the main actor, and a cancelled walk no longer waits for its prefetch.*
 
-- 🟡 **Transclusion card render runs on the main actor** — a file read + `NoteTranscluder` `lockFocus` per *uncached* `![[Note]]` embed (`CollectionEmbedProvider.swift`) blocks the UI while rendering. Now bounded/cached (so it's rare), but the first render of each card is still main-actor. **Fix:** render to a bitmap off-main (lockFocus is main-only, so this needs a `CGContext`/`NSBitmapImageRep` path).
-- 🟡 **External-change scan isn't fully coalesced** — *partly resolved (§20)*: `Task.detached` doesn't inherit cancellation, so a cancelled debounce task used to leave its walk running while the replacement started another. Cancellation is now forwarded, `enumerate` returns early, and partial results are discarded. **Still open:** there is no in-flight latch, so a change arriving mid-walk still starts a fresh walk once the current one is cancelled rather than queueing one re-run. Deliberately left — a latch adds re-entrancy to the core scan path.
+- 🟡 **A transclusion card is drawn on the main actor.** Its read and its section (`NoteTranscluder.section`) are off it, the provider is `nonisolated` so its lock guards something, and its cache keeps the 64 cards used last rather than emptying past them (implemented.md §51.36). The drawing — `lockFocus`, which is main-thread-only on the Mac — still runs there per uncached `![[Note]]`. **Fix:** draw through a `CGContext`, as diagrams are (§51.11).
 - ✅ ~~**Collections open sequentially at launch**~~ — resolved (§20): `restore()` creates the collections up front and activates them in a task group, so launch costs the slowest scan rather than the sum.
-- 🟡 **Main-actor single-file reads** in `linkMention` (`ContentView.swift` — was
-  `MacContentView.swift` before the 2026-08-22 merge into one cross-platform
-  `ContentView`) and `insertTemplate` (now `State/ShellActions.swift`, not the
-  shell file at all) — small user-initiated reads, low impact.
 - 🟡 **`LibraryChatView.retrieve` reads every note per question** (off-main, user-initiated); fine now, revisit for very large vaults.
+- 🟡 **Formulas, tables and HTML blocks in the editor are rendered on the main actor.** `EditorHost`'s `renderMath`, `renderTable` and `renderInlineMath` run inside `MainActor.run`: a formula because `MTMathUILabel` is a view; a table because on the Mac it is drawn through `PlatformImageKit.image(size:)`, whose `lockFocusFlipped` is main-thread-only — the limit the diagram flip had, and the `CGContext` route that freed diagrams (§51.11) would likely free tables too (`PlatformImageKit` is declared `nonisolated` and its header says off-main renderers call it, which `image(size:)` cannot serve on the Mac). HTML blocks render through a `WKWebView` (`HTMLBlockImageRenderer`). Not measured.
+- ✅ ~~**A cloud collection writes its whole manifest on the main actor, at every change.**~~ — fixed 2026-09-27 (implemented.md §51.21): `ManifestWriter` writes the newest record away from the main actor, one write per burst; a save sends the bytes it wrote, and any other upload reads in `offMain`.
+- 🟡 **A save lists its note's folder on the provider, before and after.** `upload` asks `providerEntry` — a listing of the note's folder — before writing a note made here and after every write, for the revision, and so do a move and a new folder; the listing's page is parsed off the main actor since implemented.md §51.34, but it is a round trip each time, and a page of the whole folder. **Fix:** have `write`, `move` and `createFolder` return the resulting entry (Dropbox's API already answers with it), and add a one-item metadata call, so a save lists nothing — each provider's response shape checked against a live account. (Rename's, duplicate's and move's `fileExists` checks are off the main actor since §51.36.)
+- 🟡 **A refresh with a cursor applies the delta's entries on the main actor** (`applyChanges`: paths, a `holdsContent` stat and a placeholder per entry — 40 ms per 2,000 entries with nothing to write, 147 ms with placeholders; the concurrency review of implemented.md §51.34). The rest that review found — a download's write, eviction's stats, the scan's placeholders and sizes, `sendUnsent`'s comparison, the manifest's first decode, and a Cancel waiting for a whole account's prefetch — is off it (§51.36). **Fix:** the delta's loop the way the walk is: an `@concurrent` helper over a snapshot and `waitingToGo`, its records applied on the main actor.
+- 🟡 **Preview's page carries every diagram, formula and card as base64 in its HTML**, so each load hands the web view all of it again. What was found beside it — the Tags view's counts, the mind map's layout, Properties' front-matter read and the embed provider's reads — is off the main actor (implemented.md §51.36). **Fix:** serve the images through a `WKURLSchemeHandler` from `PreviewSuperset.rendered`, so the page is its text.
+- 🟡 **`EditorDocument.replaceText` parses the whole note on the main actor** — an app write into an open note, or a reload. `make` parses off it since implemented.md §51.36; `replaceText` settles a live document — its selection and its undo stack — in one synchronous step (`DocumentLoad.settle`), so taking its parse off the actor means making that settle asynchronous. **Fix:** parse off the main actor and apply the result in the turn that settles, re-checking the document's version.
 
 ---
 
 ## 4 · Usability & error-surfacing
 
 *Resolved and moved to [implemented.md §6](implemented.md#6--production-release-hardening): file-operation errors now surface (alert); folder-delete confirmation; ⌘P Print; "AI not configured" empty state; rename distinguishes name-taken from OS errors.*
+*Resolved and moved to implemented.md §51.23 (2026-09-28): Preview went back to the top of the note each time it was handed a new page — once per pause in typing in Split mode, and at every change made under it in Preview. The page says where it has been scrolled to, and the next page of the same note opens there; a note the preview has not shown opens at the top, and one switched back to where it was left.*
+*Resolved and moved to implemented.md §51.36 (2026-10-09): Push has a Stop — a push written against libgit2 with callbacks that stop it once cancelled (SwiftGitX's push gave libgit2 none), which Create's push uses too. A connect that never completes is the one thing a callback cannot interrupt.*
 
-- 🟡 **Push still has no Cancel** — clone has had a real Stop for some time, and **create** gained one in §20 (cancellable runner, cancellation forwarded into the detached libgit2 work, half-made repository removed). Push is the remaining op that spins on `git.isBusy` alone.
 - ✅ ~~**References panel disappears when empty**~~ — resolved (§20): the button stays put and shows the same "No References" copy the inspector already used. (The inspector's own tab already had the empty state.)
 - ✅ ~~**Duplicate has no keyboard shortcut**~~ — **entry was stale**: Duplicate is ⌘D (Finder convention) and Bookmark is ⇧⌘D (`AppCommands.swift`). Shipped before 1.1, never struck off.
+- ✅ ~~**Clearing a number property turns it into text.**~~ — resolved (implemented.md §51.15): the panel's rows are a draft, so the empty value in between is never written, and the number typed next is written as a number.
 
 ---
 
@@ -124,6 +137,9 @@ version instead — see implemented.md §49.*
 
 ## 6 · Editor gaps
 
+*Resolved and moved to implemented.md §51.33 (2026-10-08): Preview's aliased wiki link inside a table pointed at a note whose name ends in a backslash, because the rewrite to GFM kept the table's escape in the target; on the lines `BlockParser` calls a table it drops it now, as the editor's table reads the row.*
+*Resolved and moved to implemented.md §51.36 (2026-10-09): Preview redraws when a note it transcludes changes; a link clicked in Preview is followed as one in Edit is; Edit's table splits a row at `\\|` as cmark-gfm does; a table's picture breaks a cell's line at `<br>`, draws no other tag, sets tabular figures and puts a cell's baseline where the page does; and incremental parsing converges in prose.*
+
 - ✅ ~~**Concealed `$$` block leaves a coloured dot and a height gap**~~ — resolved (§20).
   Three separate defects, all from `collapse(range:to:)` treating a multi-line block as
   one line: the image band was reserved once per newline (~90pt of dead space), the block's
@@ -132,13 +148,16 @@ version instead — see implemented.md §49.*
 
 *The **iOS live editor** (`editor-M5`) is now **shipped**, including the fragment chrome — see [implemented.md §6](implemented.md#6--production-release-hardening). iOS has a live TextKit 2 editor with inline styling, caret-driven concealment, and the full block chrome (bullets, checkboxes, callouts, gutter bars, heading rules) via an overlay renderer; the `BlockRendering` chrome was ported to cross-platform CoreGraphics with no macOS regression.*
 
-- 🟡 **iOS block embeds / inline math aren't consumed** — the renderers (`PlatformImageKit`/`MathImageRenderer`/`TableImageRenderer`/Mermaid/transclusion) are now cross-platform and `iOSLiveEditor` wires a `BlockRenderAdapter` (§7), and code-syntax colours **do** render on iOS — but `EditorDocument`'s collapse + `RenderedBlockFragment` image path is still `#if canImport(AppKit)`, so the adapter is never invoked on iOS and embeds/`$…$` math show their Markdown source. **Fix:** port the block-image collapse to the iOS `ChromeOverlayView` (which today draws only fragment chrome, not block images).
+- ✅ ~~**iOS block embeds / inline math aren't consumed**~~ — the collapse path reached iOS some time ago (the `#if canImport(AppKit)` is gone from `EditorDocument`), and `ChromeOverlayView` draws block pictures. A note the document store handed back still showed none of it until 2026-09-24: its paragraphs were laid out inside `UITextView`'s initialiser, before the fragment delegate was installed, in plain fragments the overlay does not draw (implemented.md §51.8). Tables, formulas and diagrams were seen drawn on the iPad simulator after the fix; transclusion cards were not checked there.
+- ✅ ~~**A second identical fenced code block, or the same `$…$` formula or inline picture in a second block, is left undrawn.**~~ — fixed 2026-09-24. `EditorDocument` kept four render caches keyed by content, each turning a second request for a key already in flight away and refreshing only the block that started it; all four now map a key to every block waiting on it (implemented.md §51.8, `IdenticalRendersTests`, `TableEmbedTests.identicalTablesAreBothDrawn`).
+- 🟡 **Maths and pictures inside a table cell are drawn as their source in Edit's picture of the table.** Preview draws a cell's `$…$` (the app's formula image, `PreviewSuperset`) and its `![alt](path)`; the picture draws the formula's source and the image's alt text. Drawing them needs the picture to take rendered pieces from the app — the table is drawn asynchronously already — and to lay replaced elements out in its lines, growing a line box as CSS does: new rendering, not a fix to what the picture draws, which matches the page since implemented.md §51.36 (`<br>`, other tags, tabular figures, the cell's baseline).
 - 🟡 **Live transclusion** — `![[Note]]` embeds render as a static image card (macOS); nested callouts and live selection inside a transclusion aren't supported (needs nested live-layout embeds).
 - 🟡 **Emoji shortcodes** — `:smile:` renders as literal text (matches raw GitHub *source*; github.com substitutes the glyph only at display time, which cmark-gfm/the Preview doesn't). Low value.
+- ✅ ~~**A note opened straight into Edit shows its front matter unfolded.**~~ — fixed 2026-09-26. The host put back a caret nobody had placed (`selectedRange` reads `{0, 0}` before anything puts one in a document): on a note's first load it opened the blank line under the front matter, and on an app write or a reload of a note nobody had clicked into it unfolded the front matter itself. A document has no caret until one is placed now (`EditorDocument.caret`), and the settle puts back only one it had (implemented.md §51.20, `FrontMatterStaysFoldedTests`, `UnplacedCaretTests`).
 
 ---
 
-## 6b · Layout architecture — the parts not yet built *(design: [layout-architecture.md](layout-architecture.md); shipped parts: implemented.md §17)*
+## 6b · Layout architecture — the parts not yet built *(design: [ui.md](ui.md) §11; shipped parts: implemented.md §17)*
 
 The sizing contract, the adaptive shell, both rails (the 64pt library switcher
 with its Library place, and the inspector) and the width model are in. These
@@ -161,15 +180,19 @@ decisions are not:
 - 🟡 **Scroll-linked chrome retraction on compact** (decision 11) — chrome
   retracts when the note is expanded, not in response to scroll direction.
 - 🟡 **A keyboard accessory bar** for touch editing (Part 3) — not built.
+- 🟡 **What the UI registers still hold is design** — each UI design document ends with the defects and gaps its fact-checks found ([ui.md](ui.md) §12, [primary.md](primary.md) §12, [secondary.md](secondary.md) §9, [toolbars.md](toolbars.md) §14, [menu.md](menu.md) §8, [tabs.md](tabs.md) §2.5), and those lists stay the register. Their defects are fixed and marked there (implemented.md §51.36); what is left is design and new work — the tabs redesign proposed in [tabs.md](tabs.md) §3–§9 above all.
 
 ---
 
 ## 7 · iOS / iPadOS parity
 
+*Resolved and moved to implemented.md §51.9–§51.10 (2026-09-24): the tapped line scrolled above the top of the editor when the keyboard came up (scroll-past-end was a covered inset; the Mac had the same shape); the diagram zoom opening on the first diagram in Markdown and Split (a View diagram button on every diagram's fence now).*
+*Resolved and moved to implemented.md §51.29 (2026-09-29): Split mode lost the keyboard when it changed from stacked to side by side — on an iPad in portrait the keyboard itself made that change — because its two arrangements were two branches of an `if`; one `AnyLayout` keeps the panes now, with a rule of the app's own that drags on both platforms. Every rule that drags, `ResizableDivider` included, followed the pointer at half speed; each drag is measured in a space that does not move.*
+
 - ✅ **Live editor** — shipped (`editor-M5`, see §6) with full block chrome; the remaining iOS-editor item is wiring the app-side services (code colours, embeds) — see §6.
 - ✅ **Adaptive shell** — iOS resolves its layout by the same rule as macOS, with a compact tab-bar model of its own (implemented.md §17). The inspector rail, outline, tags, references, properties and history are now cross-platform.
 - 🍎 **macOS-only surfaces** — two, and each is a Mac *shell* concept rather than a gated feature: **menu-bar quick capture** (a `MenuBarExtra`; the iOS equivalent would be a share extension or a Control Center control, i.e. a different feature — the capture *sheet* itself is on iPad, in the shell command menu and the Library actions), and the **Services menu / global hotkey**, which have no iOS counterpart at all: both are system-wide entry points into a *frontmost other app*, which iOS does not offer to third parties. **Open a note in a new window** and the **launcher window** are no longer on this list — both shipped on iPad in the second parity pass (implemented.md §25). Every other entry that used to sit here was stale: Graph, Mind Map, the command palette, Open Quickly, HTML/PDF export, print, the file viewer, unlinked mentions and the Git settings UI were all already on iOS when the audit checked, and image paste, multi-tab, Marp slides, Find & Replace, `[[wiki-link]]` / `#tag` autocomplete, inline completion, heading navigation, folds, inline maths, Mermaid preview and clone/new-repository landed in 1.3.2. See implemented.md §24–25. *(A list of what a platform lacks decays faster than the code does; this one was re-derived feature by feature, because a grep for `#if os(macOS)` reports that a file contains a gate, not what the gate covers.)* *(The AI stack is no longer on this list: 1.3 brought Summarise / Suggest Tags / Suggest Links / Rewrite, the selection actions, Ask Library, the Assistant, Review Links and New Note from a Prompt to iOS — see implemented.md.)*
-- 🟡 **Open Quickly used to be weaker on iOS** — fixed: iPad had a list of its own filtering titles by substring, so ⌘O found a different set of things on each platform. Both now run `quickOpenResults` (fuzzy, headings included, debounced) through one view.
+- ✅ ~~**Open Quickly used to be weaker on iOS**~~ — fixed: iPad had a list of its own filtering titles by substring, so ⌘O found a different set of things on each platform. Both now run `quickOpenResults` (fuzzy, headings included, debounced) through one view.
 - ✅ **AI as a compact place** (decision 7) — built. `CompactPlace` grew its fourth tab, and the reason recorded for its absence ("the Assistant and Ask Library views are still macOS-only") had expired when 1.3 brought both to iOS — the comment outlived the constraint it described. The place puts Ask Your Library and New Note from a Prompt up front, the four note-scoped actions under them (disabled together, with a footer saying which of "no note" or "no provider" is the reason), and the Assistant and AI Settings last. *(Still open from decision 7: Graph and Mind Map as full-screen sheets on iPad — both views are already cross-platform, so this is a presentation to add, not a port.)*
 - ✅ **Inline completion (ghost text)** — shipped on iOS. The ghost is painted by `ChromeOverlayView` (a `UITextView` doesn't invoke a subclass's `draw` over its own text), and the acceptance gesture that had to be designed rather than ported is **a tap on the ghost itself** — the one region on screen where a tap otherwise means nothing, since the caret is already at the end of that line. ⌥⇥ / Esc are offered while a suggestion shows, so a Magic Keyboard iPad behaves like the Mac. Still not on: `→` to accept (the soft keyboard has no arrow) and the Mac's `complete:` on-demand ⌥Esc.
 - ✅ **Folds, inline maths and tappable chrome on iOS** — front-matter folds, callout folds and inline `$…$` maths were the last `#if canImport(AppKit)` in `EditorDocument`. The *drawing* half had been cross-platform since the chrome overlay landed (`PlatformDraw`, `drawChromeOnly` already painted the chevron and the baseline images) — only the document half was gated, and the taps that drive it were unwritten. Tapping a task checkbox toggles it; tapping a callout's chevron folds it. One difference from the Mac, deliberate: the caret is not restored afterwards, because AppKit lets a click be intercepted *before* it moves the caret and UIKit's own recogniser runs alongside ours, so there is no "before" to restore to. The tapped line reveals its source — which is what tapping any line in this editor does.
@@ -243,6 +266,10 @@ What remains are **constraints of the providers and the platform**, not deferred
   request in this codebase is, but none has been exercised against a live account. Box's
   feed is account-wide and filtered to the subtree; Drive's is id-keyed, so a change to a
   file in a folder never walked is left for the next full sync rather than guessed at.
+- ✅ ~~**A note created locally in a cloud collection is never uploaded.**~~ — fixed 2026-09-27 (implemented.md §51.21), with the rest of its kind: a rename, a move, a copy, a new folder, a delete, a link rewrite, a pasted picture and quick capture into a note not yet downloaded now reach the provider, in the order they were made; the providers gained `move` and `createFolder`.
+- 🟡 **Every provider's listing names the content's revision, and only Dropbox's has been seen live.** Box's `etag`, Drive's `headRevisionId` and OneDrive's `eTag` are asked for and parsed since implemented.md §51.36, pinned by fixtures, so a save's conflict check has a revision on every provider; none of the three has been run against a live account.
+- 🟡 **Moving and making folders are request-tested, not live-tested.** The four providers' `move` and `createFolder` (§51.21) are pinned by `ProviderMoveAndFolderTests` the way the delta feeds are, and run against a fake as strict as Box and Drive — not against a live account.
+- 🟡 **A rename does not rewrite links in a cloud note not yet downloaded.** The rewrite reads the notes the index says link to the renamed one, and a placeholder's links are unknown until it is opened, so its copy on the provider keeps the old name. Downloading every note to rename one is the cost that rules out the obvious fix; a provider-side search for `[[Old name` would find them.
 
 ---
 
@@ -259,8 +286,7 @@ What remains are **constraints of the providers and the platform**, not deferred
   a package API change left `HelloNotesTests` uncompilable while `xcodebuild build` kept
   reporting success — **`build` does not compile tests** — and two iOS breaks survived days of
   green macOS builds.
-- 🟡 **The universal (arm64 + x86_64) slice is still verified by hand** — CI builds the native
-  runner architecture only.
+- ✅ ~~**The universal (arm64 + x86_64) slice is still verified by hand**~~ — **stale** from 1.3.3: at a macOS 27 deployment target Xcode 27 builds `arm64` alone (`ARCHS_STANDARD`), and macOS 27 runs only on Apple silicon, so there is no x86_64 slice to verify; the release runbook says so ([production.md](production.md)). The website's "Apple silicon & Intel" is 1.3.2's, and changes with 1.3.3's site.
 - ✅ ~~**The website screenshots predate the shell redesign**~~ — reshot 2026-08-12,
   all ten plates from one binary, and the procedure (plus the Screen Recording
   requirement, the raw-filename convention, and the on-device model's
@@ -296,28 +322,40 @@ What remains are **constraints of the providers and the platform**, not deferred
 
 ## 11 · Tech debt & cleanups
 
-- 🟠 **Incremental parse doesn't converge for prose** (`Packages/NotesEditor/Sources/MarkdownCore/BlockParser.swift`) — convergence only fires at `open == .none` (`isAtBoundary`), which prose (paragraphs, blanks, lists, quotes, tables) never leaves standing between lines, so an edit near the top of a long non-heading note re-parses to EOF: O(document) per keystroke. Correctness holds (fuzz tests pass); only the "cost proportional to the edit" guarantee is defeated. **Fix** needs the convergence check to compare the full builder state (not just `.none`) with its own fuzz re-verification — deliberately still deferred: it is the parser every other feature sits on, and a release week is the wrong time. *(The two sibling defects noted here are resolved in §20: the dead `.blank` merge branch — the test sat after `closeOpen`, which had already reset `open` — and the CRLF classifiers, which made setext headings, thematic breaks and front matter parse as paragraphs in any Windows-saved file.)*
+*Resolved and moved to implemented.md §51.36 (2026-10-09): incremental parsing converges in prose (3–7 lines a keystroke, not the rest of the note); a heading jump waits for its editor rather than a fixed delay, and clears nothing afterwards; the tag tree nothing showed is gone; `ResumableTreeWalk.run` is `@concurrent`; the app type-checks as Swift 6 with no errors; and `syncDown` and `pruneLocalItems` are gone, their tests' rules held to `syncMetadata`.*
 
 - ✅ ~~**Inconsistent regex construction**~~ — resolved (§20): `try!` is the convention for a literal pattern (a failure is a programming error, visible on the first run). `MindMapView`'s `try?` meant a broken pattern would have rendered every mind map with no links and never said why. The two patterns are *not* interchangeable — the mind map's handles `[[Target#heading]]` — so they stay separate.
 - ✅ ~~**Fragile force-unwrap idioms on constants**~~ — resolved (§20) for both sites named. *(The `URL(string:)!` calls in `Core/Remote/*Store.swift` interpolate provider file IDs and are a separate, larger sweep.)*
 - ✅ **Undocumented unsafe-concurrency conformances** — *resolved (§7):* `CollectionEmbedProvider`'s `@unchecked Sendable` now carries a lock-invariant justification, and the editor's `nonisolated(unsafe)` observer tokens (`busTokens`, `boundsObserver`) are documented; `MarkdownTextView`'s bounds observer is now removed in `deinit`.
-- 🟡 **Heading jump is still timing-based** — the two copies of the 1.2 s highlight-clear are now one function (`hnJumpToHeadingInEditor`, §20), so they can no longer drift. The underlying want — an editor-ready signal instead of a fixed delay — is still open.
 - 🟡 **English-only inline copy** — see §10 (also a maintainability cost).
+- 🟡 **Dictation's tap uses the API macOS/iOS 27 deprecated** (`VoiceCapture.swift`,
+  `installTap(onBus:bufferSize:format:block:)` — now the only warning in the app's own
+  code in a Release build). The replacement, `installTapOnBus:bufferSize:format:error:block:`, reports
+  a failure as an error where the old call raises an Objective-C exception the app
+  cannot catch (a format the hardware refuses). It is not a drop-in swap: its
+  documentation gives a supported buffer of **100–400 ms**, and the app asks for
+  4,096 frames — about 85 ms at 48 kHz. It is also `NS_REFINED_FOR_SWIFT`, so the
+  Swift spelling has to be read from a build. Change it with a microphone to hand,
+  on both platforms, and test that dictation still starts; the old call still works
+  on 27.
 
 ---
 
 ## 12 · Testing gaps
 
-- 🟡 **No end-to-end / UI tests** beyond the app unit tests and the editor package's conformance/perf suites. Consider smoke tests for the highest-risk flows: save→external-change reconciliation, rename-with-link-rewrite, git commit/push, and assistant tool approval.
-- 🟡 **Data-safety paths lack tests** — the §1 items (atomic assistant writes, flush-on-quit, transactional rename) would each benefit from a regression test once fixed.
+- ✅ ~~**No end-to-end / UI tests**~~ — the four flows named are tested end to end through the real services: an external change against an open note (`ExternalChangeTests`, `ConflictSaveTests`, `WhoseTextWinsTests`), a rename with its links (`EscapedAliasLinkTests`, `CollectionFileOperationTests`, `TabsFollowMovesTests`), Git commit and push to a real bare repository (`GitServiceTests`, `GitPushTests`), and an approved Assistant edit (`AgentToolTests`); `HelloNotesUITests` launches and drives the app on iOS (implemented.md §51.36).
+- ✅ ~~**Data-safety paths lack tests**~~ — atomic assistant writes (`AgentToolTests`, `FileIO.replace` in `RoadmapTests`), flush-on-quit and a closing window's save (`FlushRegistryTests`), and rename (`CollectionFileOperationTests`, `EscapedAliasLinkTests`, `CloudCollectionChangesTests`) each have theirs (implemented.md §51.36).
 
-- 🟡 **The app suite is hosted by the app, so it is slow and it launches a window.** A macOS
-  unit-test bundle needs a test *host*, and there is no flag that stops it. Two consequences
-  were worth fixing and one is left:
+- ✅ **The app suite is hosted by the app, so it is slow and it launches a window.** A macOS
+  unit-test bundle needs a test *host*, and there is no flag that stops it. Both consequences
+  worth fixing are fixed:
   - ✅ The host used to restore the **user's real library** on launch — 2,000 notes of
     coordinated cloud I/O on the same main actor the `@MainActor` tests run on. The suite sat
     for 20+ minutes looking hung. `TestEnvironment.isRunningTests` now skips the app's launch
     work under a test host; 117 tests complete in seconds.
+  - ✅ It opened the app's main window on the person's screen, every run, and took focus.
+    `Scene.suppressedUnderTests` keeps a test host's window from opening (`TestHostTests`,
+    implemented.md §51.36). A hosted bundle is still slower than a plain one; that is the host.
 - ✅ ~~**The two `GitService` tests deadlock the app suite.**~~ The FIFO waited on
   itself. `run()` stored its task in `lastQueued` and then, inside that task,
   `execute()` called `refreshStatus()` — which took `previous = lastQueued`, *the
@@ -326,8 +364,8 @@ What remains are **constraints of the providers and the platform**, not deferred
   the whole worker pool idle, and why a longer timeout would never have helped.
   `execute()` now uses `refreshStatusInQueue()`, which reads without taking a
   second slot. Full suite: **119 tests in 18 suites, 2.3s.**
-- 🟡 The git tests would also be faster and more hermetic if they did not copy the whole
-  `SampleVault` per test — a two-note fixture would prove the same thing.
+- ✅ ~~The git tests would also be faster and more hermetic if they did not copy the whole
+  `SampleVault` per test~~ — they run on a two-note vault (implemented.md §51.36).
 
 ---
 
@@ -439,7 +477,6 @@ reason that is circular.
 | File | Needs | Already available |
 |---|---|---|
 | `UI/SlidesView.swift` | `NSViewRepresentable` | the `UIViewRepresentable` pattern used by `iOSFileViewer` |
-| `UI/MermaidPreviewView.swift` | `NSImage`, `NSRect` | `PlatformImage`, `PlatformDraw` |
 | `UI/CloneRepositoryView.swift`, `UI/NewRepositoryView.swift` | `NSOpenPanel` | `FolderPicker`, now in the shared `ContentView` (was `iOSContentView` before the 2026-08-22 merge) |
 | `Core/SmartPaste.swift`, `Core/ImagePaste.swift` | `NSPasteboard` | `UIPasteboard` |
 | `Core/VisionAlt.swift` | Vision + `NSImage` | Vision ships on iOS |

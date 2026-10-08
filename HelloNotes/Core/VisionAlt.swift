@@ -18,11 +18,20 @@ import Vision
 import CoreGraphics
 import ImageIO
 
-enum VisionAlt {
+nonisolated enum VisionAlt {
     /// A short alt-text description of the image at `url`, or `nil` if nothing
     /// confident could be derived.
+    ///
+    /// `@concurrent`, and the enum `nonisolated`: by the target's default this
+    /// was main-actor, so a pasted screenshot was decoded on the main thread
+    /// before Vision was ever asked — tens of milliseconds for a large one, just
+    /// as the editor wants to show the paste. Read through `FileIO`, because the
+    /// picture is in the vault, and an uncoordinated read of a vault file is
+    /// the one thing `FileIO` exists to prevent.
+    @concurrent
     static func describe(_ url: URL) async -> String? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+        guard let data = try? FileIO.readData(at: url),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
               let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
 
         // Prefer readable text (screenshots, diagrams) when present.
@@ -80,6 +89,9 @@ enum VisionAlt {
     /// signature), so Release archives segfaulted while Debug built fine.
     private static func perform(_ request: VNRequest, on image: CGImage,
                                 onFailure: @escaping @Sendable () -> Void) {
+        // Handed over, not shared: the caller makes and configures the
+        // request and never touches it again, and only this block runs it.
+        nonisolated(unsafe) let request = request
         DispatchQueue.global(qos: .userInitiated).async {
             let handler = VNImageRequestHandler(cgImage: image, options: [:])
             do { try handler.perform([request]) }
@@ -97,7 +109,11 @@ enum VisionAlt {
 /// signature and segfaulted, so *every* Release archive died (Debug was fine,
 /// which is why it went unnoticed). Both callers funnel through `String?`, so
 /// the generic bought nothing. Keep it concrete.
-private final class OnceResumer: @unchecked Sendable {
+///
+/// `nonisolated`: it is resumed from Vision's completion handlers, on whatever
+/// queue Vision chose, and the lock is what makes that safe — main-actor by the
+/// target's default, every `resume` was a cross-isolation call.
+nonisolated private final class OnceResumer: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
     private let continuation: CheckedContinuation<String?, Never>

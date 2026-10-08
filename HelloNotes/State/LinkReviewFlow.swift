@@ -39,6 +39,10 @@ enum LinkReviewFlow {
         /// The note's text at the moment the proposals were computed. The
         /// ranges are only valid against exactly this.
         let noteText: String
+        /// The note's text version at that moment (`EditorModel.textVersion`) —
+        /// how the guard knows the note is still that text without comparing
+        /// the two.
+        let version: EditorModel.TextVersion?
     }
 
     /// Gather link proposals for `text`.
@@ -46,11 +50,12 @@ enum LinkReviewFlow {
     /// - Parameter collection: the note's **own** collection, never the focused
     ///   one. See the file comment.
     static func begin(text: String,
+                      version: EditorModel.TextVersion?,
                       noteURL: URL?,
                       in collection: Collection?) async -> Request? {
         guard let collection else { return nil }
         let found = await collection.linkProposals(in: text, for: noteURL)
-        return Request(proposals: found, noteText: text)
+        return Request(proposals: found, noteText: text, version: version)
     }
 
     /// What applying the accepted links should do.
@@ -66,15 +71,24 @@ enum LinkReviewFlow {
     static let staleMessage =
         "The note changed while you were reviewing, so no links were added. Run Review Links again."
 
-    /// Decide what accepting `accepted` means for `currentText`.
+    /// Decide what accepting `accepted` means for `currentText`, the note's
+    /// text at version `now`, reviewed at version `reviewed`.
     ///
     /// Pure: the caller owns the buffer and the error banner, which is all that
     /// differed between the two shells once this moved out of them.
+    ///
+    /// **The versions say whether the note moved, not the texts.** Comparing
+    /// the reviewed text with the current one was a pass over both on the main
+    /// actor whenever they were not the same storage — which, once what was
+    /// typed during the review has been carried, they are not. A version moves
+    /// with every change, so the same text written back is stale too: a
+    /// review is cheap to repeat, and a wrong link is a wrong link.
     static func apply(_ accepted: [LinkProposal],
-                      reviewedText: String,
-                      currentText: String) -> Outcome {
+                      reviewed: EditorModel.TextVersion?,
+                      now: EditorModel.TextVersion?,
+                      to currentText: String) -> Outcome {
         guard !accepted.isEmpty else { return .nothing }
-        guard currentText == reviewedText else { return .stale(message: staleMessage) }
+        guard let reviewed, reviewed == now else { return .stale(message: staleMessage) }
         return .apply(LinkProposals.apply(accepted, to: currentText))
     }
 }

@@ -35,11 +35,11 @@ import SwiftUI
 struct ErrorText: View {
     let message: String
     /// Matches the surrounding density — the inspector's panes run at
-    /// `.caption2`, the AI sheets at `.callout`.
-    var font: Font = .caption2
+    /// `Chrome.Style.caption2`, the AI sheets at `Chrome.Style.callout`.
+    var font: Font = Chrome.Style.caption2
     /// A leading glyph, where the site had one.
     var systemImage: String? = nil
-    var tint: Color = .red
+    var tint: Color = Chrome.Colour.red
 
     @State private var copied = false
 
@@ -72,9 +72,9 @@ struct ErrorText: View {
             } label: {
                 Image(systemName: copied ? "checkmark" : "document.on.document")
                     .font(font)
-                    .foregroundStyle(copied ? Color.green : Color.secondary)
+                    .foregroundStyle(copied ? Chrome.Colour.green : Chrome.Colour.secondaryLabel)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ChromePlainStyle())
             .contentTransition(.symbolEffect(.replace))
             .accessibilityLabel(copied ? "Error copied" : "Copy error message")
             .help(copied ? "Copied" : "Copy this message")

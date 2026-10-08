@@ -177,11 +177,14 @@ struct RemoteBrowserModelTests {
     /// "signed in" and completely empty — no files, no error, nothing to act on.
     @Test func anAlreadyAuthenticatedBrowserListsTheRootByItself() async {
         let model = RemoteBrowserModel(store: MockRemoteStore(preAuthenticated: true))
-        #expect(model.isAuthenticated)
+        // Not asked in the initialiser — a Keychain read on the main actor as
+        // the sheet opened (implemented.md §51.36) — but loading until it is.
+        #expect(!model.isAuthenticated && model.isLoading)
         #expect(model.entries.isEmpty)      // nothing has been listed yet
 
-        await model.loadRootIfNeeded()
+        await model.start()
 
+        #expect(model.isAuthenticated)
         #expect(model.entries.contains { $0.name == "Welcome.md" })
         #expect(model.error == nil)
 
@@ -229,6 +232,8 @@ private final class ForbiddenFolderStore: RemoteStore, @unchecked Sendable {
     func read(path: String) async throws -> Data { Data() }
     func write(_ data: Data, to path: String) async throws {}
     func delete(path: String) async throws {}
+    func move(from source: String, to destination: String) async throws {}
+    func createFolder(path: String) async throws {}
 }
 
 /// Pure-logic coverage for the Box provider. Box's API is folder/file-ID based;
@@ -581,51 +586,51 @@ struct RemoteListPaginationTests {
 @MainActor
 struct RemoteMirrorTests {
 
-    @Test func syncDownThenUploadRoundTrips() async throws {
+    /// The tree arrives with its paths mapped both ways, and an edit to a note
+    /// that has been downloaded is what the provider serves after the upload.
+    ///
+    /// The safety rules below were written for `syncDown`, the eager sync that
+    /// downloaded every note; it lost its last caller to `syncMetadata` and is
+    /// gone. The rules were not about downloading, so they are held here to the
+    /// sync that ships.
+    @Test func anEditToADownloadedNoteUploads() async throws {
         let store = MockRemoteStore(preAuthenticated: true)
-        let cache = FileManager.default.temporaryDirectory
-            .appendingPathComponent("hn-mirror-\(UUID().uuidString)")
+        let cache = Self.tempCache()
         defer { try? FileManager.default.removeItem(at: cache) }
-
         let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
-        try await mirror.syncDown()
+        try await mirror.syncMetadata()
 
-        // The remote tree landed in the local cache (incl. the nested folder).
-        let welcome = cache.appendingPathComponent("Welcome.md")
         let idea = cache.appendingPathComponent("Notes/Idea.md")
-        #expect(FileManager.default.fileExists(atPath: welcome.path))
-        #expect(FileManager.default.fileExists(atPath: idea.path))
-
-        // Path mapping round-trips.
+        #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Welcome.md").path))
+        #expect(FileManager.default.fileExists(atPath: idea.path), "the nested folder's note has its place")
         #expect(mirror.remotePath(forLocalURL: idea) == "/Notes/Idea.md")
         #expect(mirror.localURL(forRemotePath: "/Notes/Idea.md").standardizedFileURL == idea.standardizedFileURL)
 
-        // Edit the cached copy, upload, and confirm the store now serves the edit.
+        try await mirror.hydrate(localURL: idea)
         try FileIO.write("# Changed in the mirror", to: idea)
         try await mirror.upload(localURL: idea)
         let readBack = try await store.read(path: "/Notes/Idea.md")
         #expect(String(decoding: readBack, as: UTF8.self) == "# Changed in the mirror")
     }
 
-    /// A note deleted on the provider must disappear from the mirror on the next
+    /// A note deleted on the provider leaves the mirror at the next complete
     /// sync. Otherwise it lingers in the sidebar and the next save re-uploads
     /// (resurrects) it.
-    @Test func syncDownPrunesNotesDeletedRemotely() async throws {
+    @Test func aCompleteSyncDropsANoteDeletedRemotely() async throws {
         let store = MockRemoteStore(preAuthenticated: true)
-        let cache = FileManager.default.temporaryDirectory
-            .appendingPathComponent("hn-mirror-\(UUID().uuidString)")
+        let cache = Self.tempCache()
         defer { try? FileManager.default.removeItem(at: cache) }
-
         let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
-        try await mirror.syncDown()
+        try await mirror.syncMetadata()
         let tasks = cache.appendingPathComponent("Notes/Tasks.md")
         #expect(FileManager.default.fileExists(atPath: tasks.path))
 
         // Deleted on the provider (e.g. from another device) …
         try await store.delete(path: "/Notes/Tasks.md")
-        try await mirror.syncDown()
+        let outcome = try await mirror.syncMetadata()
 
         // … so it must be gone locally too, while its siblings survive.
+        #expect(outcome.isComplete)
         #expect(!FileManager.default.fileExists(atPath: tasks.path))
         #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Notes/Idea.md").path))
         #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Welcome.md").path))
@@ -642,10 +647,8 @@ struct RemoteMirrorTests {
 
     // MARK: - Partial syncs
 
-    /// One unreadable folder — a restricted share, a rate limit — used to abort
-    /// the whole sync and (because the caller discarded the error) leave the
-    /// user with nothing and no explanation. It must now cost only its own
-    /// subtree, and say so.
+    /// One unreadable folder — a restricted share, a rate limit — costs its own
+    /// subtree, not the whole sync, and says so.
     @Test func aFailedSubfolderCostsItsSubtreeNotTheWholeSync() async throws {
         let store = FaultyRemoteStore()
         store.failingFolders = ["/Notes"]
@@ -653,26 +656,26 @@ struct RemoteMirrorTests {
         defer { try? FileManager.default.removeItem(at: cache) }
 
         let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
-        let outcome = try await mirror.syncDown()
+        let outcome = try await mirror.syncMetadata()
 
         #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Welcome.md").path))
         #expect(!FileManager.default.fileExists(atPath: cache.appendingPathComponent("Notes/Idea.md").path))
         #expect(outcome.isComplete == false)
-        #expect(outcome.failures.map(\.path) == ["/Notes"])
+        #expect(outcome.failures.count == 1)
+        #expect(outcome.failures.first?.path.hasSuffix("Notes") == true, "\(outcome.failures)")
     }
 
     /// The invariant everything else rests on: **only a pass that saw the whole
     /// remote tree may delete.** A note absent from a partial listing may simply
-    /// live in a subtree the sync never reached, and pruning it would destroy a
-    /// local copy the provider still has.
-    @Test func anIncompleteSyncPrunesNothing() async throws {
+    /// live in a subtree the sync never reached, and dropping it would lose a
+    /// note the provider still has.
+    @Test func anIncompleteSyncDropsNothing() async throws {
         let store = FaultyRemoteStore()
         let cache = Self.tempCache()
         defer { try? FileManager.default.removeItem(at: cache) }
         let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
 
-        // A complete pass first, so the cache holds the whole tree.
-        let full = try await mirror.syncDown()
+        let full = try await mirror.syncMetadata()
         #expect(full.isComplete)
         let idea = cache.appendingPathComponent("Notes/Idea.md")
         #expect(FileManager.default.fileExists(atPath: idea.path))
@@ -680,90 +683,76 @@ struct RemoteMirrorTests {
         // Now the subfolder becomes unreadable. Its notes are missing from this
         // pass's listing — but they are NOT deleted remotely, and must survive.
         store.failingFolders = ["/Notes"]
-        let partial = try await mirror.syncDown()
+        let partial = try await mirror.syncMetadata()
         #expect(partial.isComplete == false)
         #expect(FileManager.default.fileExists(atPath: idea.path))
         #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Notes/Tasks.md").path))
     }
 
-    /// Cancellation returns what was fetched, marked incomplete — and, being
-    /// incomplete, deletes nothing.
-    @Test func aCancelledSyncIsIncompleteAndPrunesNothing() async throws {
+    /// A cancelled pass is incomplete — whether it ends early or throws — and,
+    /// being incomplete, drops nothing: not even a note the provider really
+    /// did delete, which the next complete pass takes away.
+    @Test func aCancelledSyncDropsNothing() async throws {
         let store = FaultyRemoteStore()
         let cache = Self.tempCache()
         defer { try? FileManager.default.removeItem(at: cache) }
         let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+        let tasks = cache.appendingPathComponent("Notes/Tasks.md")
+        try await store.delete(path: "/Notes/Tasks.md")
 
-        try await mirror.syncDown()
-        // A file the provider does not have: a *complete* sync would prune it.
-        let orphan = cache.appendingPathComponent("Orphan.md")
-        try FileIO.write("# left over", to: orphan)
-
-        let outcome = try await Task {
-            // Cancel before syncDown's first cancellation check, so the test is
-            // deterministic rather than a race with the network stub.
+        let cancelled = try? await Task {
+            // Cancelled before it starts, so the test is deterministic rather
+            // than a race with the stub.
             withUnsafeCurrentTask { $0?.cancel() }
-            return try await mirror.syncDown()
+            return try await mirror.syncMetadata()
         }.value
+        #expect(cancelled?.isComplete != true)
+        #expect(FileManager.default.fileExists(atPath: tasks.path), "a cancelled pass deleted a note")
 
-        #expect(outcome.isComplete == false)
-        #expect(outcome.progress.foldersListed == 0)
-        #expect(FileManager.default.fileExists(atPath: orphan.path))
+        let complete = try await mirror.syncMetadata()
+        #expect(complete.isComplete)
+        #expect(!FileManager.default.fileExists(atPath: tasks.path), "the control: a complete pass does")
     }
 
-    /// The root listing failing means we have nothing at all — an expired token
-    /// or a bad path. That has to reach the user as an error, not arrive as a
-    /// silently empty collection.
-    @Test func rootListingFailureIsFatalRatherThanAnEmptyCollection() async throws {
-        let store = FaultyRemoteStore(preAuthenticated: false)   // every call 401s
+    /// The root listing failing — an expired token, a bad path — means the
+    /// pass saw nothing at all. That must never read as an empty folder: the
+    /// pass is incomplete, the failure is reported, and the notes stay.
+    @Test func anUnreadableRootIsNotAnEmptyCollection() async throws {
+        let store = FaultyRemoteStore()
         let cache = Self.tempCache()
         defer { try? FileManager.default.removeItem(at: cache) }
         let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
 
-        await #expect(throws: RemoteStoreError.notAuthenticated) {
-            try await mirror.syncDown()
-        }
+        store.failingFolders = [""]
+        let outcome = try await mirror.syncMetadata()
+        #expect(outcome.isComplete == false)
+        #expect(!outcome.failures.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Welcome.md").path))
+        #expect(FileManager.default.fileExists(atPath: cache.appendingPathComponent("Notes/Idea.md").path))
     }
 
-    /// The action reported nothing at all while it ran. Progress has to be
-    /// observable, or a long sync is indistinguishable from a dead button.
-    @Test func syncDownReportsProgressAsItGoes() async throws {
+    /// Progress has to be observable while a sync runs, or a long one is
+    /// indistinguishable from a dead button — and it only ever climbs.
+    @Test func aSyncReportsProgressAsItGoes() async throws {
         let store = FaultyRemoteStore()
         let cache = Self.tempCache()
         defer { try? FileManager.default.removeItem(at: cache) }
         let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
 
         let collector = ProgressCollector()
-        let outcome = try await mirror.syncDown { collector.record($0) }
+        let outcome = try await mirror.syncMetadata { collector.record($0) }
 
         #expect(outcome.isComplete)
         #expect(outcome.progress.foldersListed == 2)          // root + /Notes
-        #expect(outcome.progress.notesDownloaded == 3)
+        #expect(outcome.progress.filesMirrored == 3)
         let seen = collector.values
-        #expect(seen.count >= 4)                              // 2 listings + 3 downloads
-        #expect(seen.last?.notesDownloaded == 3)
-        // Counts only ever climb — a progress bar that goes backwards is a lie.
-        #expect(zip(seen, seen.dropFirst()).allSatisfy { $0.notesDownloaded <= $1.notesDownloaded })
-    }
-
-    /// A folder with no Markdown in it syncs to an empty collection. The sync
-    /// has to say so — an unexplained empty collection reads as a broken app.
-    @Test func nonMarkdownFilesAreCountedNotSilentlyIgnored() async throws {
-        let store = FaultyRemoteStore()
-        // A "Resume" folder: real documents, not a note in sight.
-        try await store.write(Data("pdf".utf8), to: "/Resume/Resume.pdf")
-        try await store.write(Data("doc".utf8), to: "/Resume/Cover Letter.docx")
-        let cache = Self.tempCache()
-        defer { try? FileManager.default.removeItem(at: cache) }
-
-        let mirror = RemoteMirror(store: store, cacheRoot: cache,
-                                  remoteRoot: "/Resume", displayName: "Resume")
-        let outcome = try await mirror.syncDown()
-
-        #expect(outcome.isComplete)
-        #expect(outcome.progress.notesDownloaded == 0)
-        #expect(outcome.progress.otherFilesSkipped == 2)
-        #expect(outcome.skippedExamples.contains("Resume.pdf"))
+        #expect(seen.count >= 2)                              // one report per folder listed
+        #expect(seen.last?.filesMirrored == 3)
+        #expect(zip(seen, seen.dropFirst()).allSatisfy {
+            $0.foldersListed <= $1.foldersListed && $0.filesMirrored <= $1.filesMirrored
+        })
     }
 
     // MARK: - Metadata-first mirroring
@@ -878,6 +867,51 @@ struct RemoteMirrorTests {
         #expect(String(decoding: try await store.read(path: "/Welcome.md"), as: UTF8.self) == "# Theirs")
     }
 
+    /// A conflicted copy is never written over one already there. The mirror
+    /// wrote a same-day name blind, so a second conflict replaced the first's
+    /// copy — or the copy of mine an editor keeps beside a note.
+    @Test func aConflictedCopyNeverReplacesOneAlreadyThere() async throws {
+        let store = CountingRemoteStore()
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+        let welcome = cache.appending(path: "Welcome.md")
+        try await mirror.hydrate(localURL: welcome)
+        let stamp = Date().formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())
+        let kept = cache.appending(path: "Welcome (conflicted copy \(stamp)).md")
+        try FileIO.write("# Mine, kept by the editor", to: kept)
+
+        try await store.write(Data("# Theirs".utf8), to: "/Welcome.md")
+        try FileIO.write("# Mine", to: welcome)
+        await #expect(throws: (any Error).self) { try await mirror.upload(localURL: welcome) }
+
+        #expect(try String(contentsOf: kept, encoding: .utf8) == "# Mine, kept by the editor",
+                "the mirror's copy replaced one already there")
+        let next = cache.appending(path: "Welcome (conflicted copy \(stamp) 2).md")
+        #expect(try String(contentsOf: next, encoding: .utf8) == "# Theirs")
+    }
+
+    /// A note made here and not yet on the provider — a new note, the
+    /// conflicted copy an editor keeps beside one — is not one the provider
+    /// deleted, and a complete sync keeps it. Every complete sync removed it.
+    /// The control: one the provider did delete still goes.
+    @Test func aCompleteSyncKeepsANoteMadeHere() async throws {
+        let store = MockRemoteStore(preAuthenticated: true)
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+        let made = cache.appending(path: "Notes/Made here.md")
+        try FileIO.write("# Made here", to: made)
+
+        try await store.delete(path: "/Notes/Tasks.md")
+        try await mirror.syncMetadata()
+        #expect(FileManager.default.fileExists(atPath: made.path), "a complete sync deleted a note made here")
+        #expect(!FileManager.default.fileExists(atPath: cache.appending(path: "Notes/Tasks.md").path),
+                "a note deleted on the provider was kept")
+    }
+
     /// A full sync ends by taking a cursor, so the *first* refresh is already
     /// the cheap path. Without this it re-listed the whole folder just to find
     /// its place — a full traversal spent on bookkeeping.
@@ -947,6 +981,45 @@ struct RemoteMirrorTests {
         #expect(FileManager.default.fileExists(atPath: cache.appending(path: "Welcome.md").path))
     }
 
+    /// A refresh before any walk has listed the whole folder walks. Asked for
+    /// changes with no cursor, Box and Drive answer with a position and
+    /// nothing in it, and the refresh kept the position: the folder the walk
+    /// could not list was never listed afterwards, even once it could be.
+    @Test func aRefreshWithNoCursorWalks() async throws {
+        let store = PositionOnlyDeltaStore()
+        store.failingFolders = ["/Notes"]
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        let first = try await mirror.syncMetadata()
+        #expect(!first.isComplete)
+        #expect(mirror.manifest.deltaCursor == nil)
+
+        store.failingFolders = []
+        let refreshed = try await mirror.refresh()
+        #expect(refreshed.isComplete)
+        #expect(mirror.manifest.entries["Notes/Idea.md"] != nil, "the folder the first walk missed was never listed")
+        #expect(mirror.manifest.deltaCursor == "latest", "the walk did not take its own cursor")
+    }
+
+    /// …and a refresh never records a complete walk that did not happen. The
+    /// position a cursorless delta handed back was taken for the end of one,
+    /// so the refresh after it set `lastCompleteSync` — from which everything
+    /// here with no record is sent up as made here.
+    @Test func aRefreshNeverRecordsAWalkThatDidNotComplete() async throws {
+        let store = PositionOnlyDeltaStore()
+        store.failingFolders = ["/Notes"]
+        let cache = Self.tempCache()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        _ = try await mirror.syncMetadata()
+
+        _ = try await mirror.refresh()
+        _ = try await mirror.refresh()
+        #expect(mirror.manifest.lastCompleteSync == nil, "a refresh recorded a complete walk that never happened")
+        #expect(mirror.manifest.deltaCursor == nil, "a refresh kept a cursor no complete walk took")
+    }
+
     /// Dropbox marks removals with a `deleted` tag and no metadata, so the
     /// entry parser drops them — they need reading separately or a delta would
     /// silently never delete anything.
@@ -987,7 +1060,7 @@ struct RemoteMirrorTests {
             [.modificationDate: Date(timeIntervalSince1970: 0)], ofItemAtPath: welcome.path)
 
         // A limit small enough to force one out, keeping what is on screen.
-        let evicted = mirror.evictIfNeeded(limit: 1, keeping: ["Notes/Idea.md"])
+        let evicted = await mirror.evictIfNeeded(limit: 1, keeping: ["Notes/Idea.md"])
 
         #expect(evicted == 1)
         #expect(mirror.isHydrated(localURL: welcome) == false, "the stale one went")
@@ -1005,7 +1078,7 @@ struct RemoteMirrorTests {
         try await mirror.syncMetadata()
         try await mirror.hydrate(localURL: cache.appending(path: "Welcome.md"))
 
-        #expect(mirror.evictIfNeeded(limit: 100 * 1024 * 1024) == 0)
+        #expect(await mirror.evictIfNeeded(limit: 100 * 1024 * 1024) == 0)
         #expect(mirror.isHydrated(localURL: cache.appending(path: "Welcome.md")))
     }
 
@@ -1102,6 +1175,11 @@ private final class CountingRemoteStore: RemoteStore, @unchecked Sendable {
         lock.lock(); revisions[path, default: 0] += 1; lock.unlock()
     }
     func delete(path: String) async throws { try await inner.delete(path: path) }
+    func move(from source: String, to destination: String) async throws {
+        try await inner.move(from: source, to: destination)
+        lock.lock(); revisions[destination] = revisions.removeValue(forKey: source); lock.unlock()
+    }
+    func createFolder(path: String) async throws { try await inner.createFolder(path: path) }
 }
 
 /// Delta parsing for the three providers whose feeds cannot be exercised
@@ -1237,6 +1315,10 @@ private final class CursorRemoteStore: RemoteStore, @unchecked Sendable {
     func read(path: String) async throws -> Data { try await inner.read(path: path) }
     func write(_ data: Data, to path: String) async throws { try await inner.write(data, to: path) }
     func delete(path: String) async throws { try await inner.delete(path: path) }
+    func move(from source: String, to destination: String) async throws {
+        try await inner.move(from: source, to: destination)
+    }
+    func createFolder(path: String) async throws { try await inner.createFolder(path: path) }
     func latestCursor(path: String) async throws -> String? { "cursor-now" }
 }
 
@@ -1262,7 +1344,50 @@ private final class DeltaRemoteStore: RemoteStore, @unchecked Sendable {
     func read(path: String) async throws -> Data { try await inner.read(path: path) }
     func write(_ data: Data, to path: String) async throws { try await inner.write(data, to: path) }
     func delete(path: String) async throws { try await inner.delete(path: path) }
+    func move(from source: String, to destination: String) async throws {
+        try await inner.move(from: source, to: destination)
+    }
+    func createFolder(path: String) async throws { try await inner.createFolder(path: path) }
     func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? { nextChanges }
+    /// A walk that lists everything ends holding a cursor, as on every real
+    /// provider — so a refresh after it reads this scripted feed.
+    func latestCursor(path: String) async throws -> String? { "c1" }
+}
+
+/// A provider that answers a delta with no cursor the way Box and Google
+/// Drive do — a position, and nothing in it — and can refuse to list a folder.
+private final class PositionOnlyDeltaStore: RemoteStore, @unchecked Sendable {
+    private let inner = MockRemoteStore(preAuthenticated: true)
+    private let lock = NSLock()
+    private var refused: Set<String> = []
+    private var positions = 0
+
+    var failingFolders: Set<String> {
+        get { lock.withLock { refused } }
+        set { lock.withLock { refused = newValue } }
+    }
+
+    var providerName: String { inner.providerName }
+    let accountID = "test-account"
+    var isAuthenticated: Bool { inner.isAuthenticated }
+    func authenticate() async throws { try await inner.authenticate() }
+    func signOut() { inner.signOut() }
+    func list(path: String) async throws -> [RemoteEntry] {
+        if failingFolders.contains(path) { throw RemoteStoreError.http(403, "access_denied") }
+        return try await inner.list(path: path)
+    }
+    func read(path: String) async throws -> Data { try await inner.read(path: path) }
+    func write(_ data: Data, to path: String) async throws { try await inner.write(data, to: path) }
+    func delete(path: String) async throws { try await inner.delete(path: path) }
+    func move(from source: String, to destination: String) async throws {
+        try await inner.move(from: source, to: destination)
+    }
+    func createFolder(path: String) async throws { try await inner.createFolder(path: path) }
+    func changes(since cursor: String?, path: String) async throws -> RemoteChangeSet? {
+        let position = lock.withLock { positions += 1; return positions }
+        return RemoteChangeSet(cursor: "p\(position)")
+    }
+    func latestCursor(path: String) async throws -> String? { "latest" }
 }
 
 /// Collects progress reports from the sync's executor for assertion on the test's.
@@ -1302,4 +1427,303 @@ private final class FaultyRemoteStore: RemoteStore, @unchecked Sendable {
     }
     func write(_ data: Data, to path: String) async throws { try await inner.write(data, to: path) }
     func delete(path: String) async throws { try await inner.delete(path: path) }
+    func move(from source: String, to destination: String) async throws {
+        try await inner.move(from: source, to: destination)
+    }
+    func createFolder(path: String) async throws { try await inner.createFolder(path: path) }
+}
+
+/// A cloud collection's mirror is bounded (256 MB), and opening a note evicts
+/// the least recently used bodies back to placeholders — "never evicting what
+/// was just opened or what is open in a tab", as `hydrateIfNeeded` says. It
+/// kept only what was just opened. On the Mac the collection's root is the
+/// mirror's cache, so the watcher took the eviction for an external change: a
+/// clean tab reloaded an empty note, a tab with edits raised a conflict against
+/// "", and anything typed there afterwards was lost at the next download —
+/// `noteDidSave` will not upload a note that is not hydrated.
+@Suite @MainActor
+struct OpenTabEvictionTests {
+
+    /// Four notes of the same size on a provider, mirrored, in a cache with
+    /// room for one; and tabs wired to the collection as the shell wires them.
+    private func mirroredTabs() async throws -> (tabs: EditorTabs, collection: Collection,
+                                                 mirror: RemoteMirror, cache: URL, notes: [Note]) {
+        let store = MockRemoteStore(preAuthenticated: true)
+        let names = ["First", "Second", "Closed", "Opened"]
+        for name in names {
+            try await store.write(Data("# \(name)\n\n\(String(repeating: "A line of the note.\n", count: 50))".utf8),
+                                  to: "/\(name).md")
+        }
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent("hn-evict-\(UUID().uuidString)")
+        let mirror = RemoteMirror(store: store, cacheRoot: cache, remoteRoot: "", displayName: "Demo")
+        try await mirror.syncMetadata()
+        mirror.cacheLimit = 1_500
+        let collection = Collection(rootURL: cache)
+        collection.remote = mirror
+        let tabs = EditorTabs()
+        tabs.wiring = EditorWiring { _ in collection }
+        let notes = names.map {
+            Note(title: $0, fileURL: cache.appending(path: "\($0).md"), lastModified: Date(), isOnlineOnly: true)
+        }
+        return (tabs, collection, mirror, cache, notes)
+    }
+
+    /// Two notes open in tabs, a third opened and closed, a fourth opened: the
+    /// cache is over its limit from the second note on, and every note a tab
+    /// holds keeps its content. The control is the note no tab holds any more,
+    /// which is evicted — the cache is still bounded, by everything else.
+    @Test func openingANoteNeverEvictsOneOpenInATab() async throws {
+        let (tabs, _, mirror, cache, notes) = try await mirroredTabs()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let first = notes[0], second = notes[1], closed = notes[2], opened = notes[3]
+
+        await tabs.editor(for: first)
+        await tabs.editor(for: second)
+        await tabs.editor(for: closed)
+        await tabs.close(closed.id)
+        await tabs.editor(for: opened)
+
+        for note in [first, second, opened] {
+            #expect(mirror.isHydrated(localURL: note.fileURL), "“\(note.title)” is open in a tab and was evicted")
+            let bytes = try Data(contentsOf: note.fileURL).count
+            #expect(bytes > 0, "“\(note.title)” is open in a tab and its file is \(bytes) bytes")
+        }
+        #expect(!mirror.isHydrated(localURL: closed.fileURL), "a note no tab holds was kept: the cache is unbounded")
+        #expect(try Data(contentsOf: closed.fileURL).isEmpty)
+    }
+
+    /// Open anywhere is open. Each window keeps its own tabs, and a note window
+    /// holds an editor of its own; a note open only there survives what this
+    /// window's opening evicts — which a pin list built from this window's tabs
+    /// would not give it.
+    @Test func aNoteOpenInAnotherWindowIsNotEvicted() async throws {
+        let (tabs, collection, mirror, cache, notes) = try await mirroredTabs()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let otherWindow = EditorTabs()
+        otherWindow.wiring = EditorWiring { _ in collection }
+        await otherWindow.editor(for: notes[0])
+        let noteWindow = EditorModel()
+        await NoteWindowView.load(notes[1], into: noteWindow, wiring: EditorWiring { _ in collection })
+
+        await tabs.editor(for: notes[2])
+        await tabs.editor(for: notes[3])
+
+        for note in notes[0...1] {
+            #expect(mirror.isHydrated(localURL: note.fileURL), "“\(note.title)”, open in another window, was evicted")
+            #expect(try Data(contentsOf: note.fileURL).count > 0)
+        }
+        #expect(noteWindow.text.hasPrefix("# Second"))
+    }
+
+    /// A placeholder is not the note. However an open note's file comes to be
+    /// one again — here the mirror is told to drop everything, open or not —
+    /// the change the watcher reports is not taken as the note's text: a clean
+    /// tab keeps its note rather than loading the placeholder's emptiness over
+    /// it, and a tab with edits raises no conflict against "".
+    @Test func aPlaceholderUnderAnOpenTabIsNotTakenAsItsText() async throws {
+        let (tabs, _, mirror, cache, notes) = try await mirroredTabs()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let clean = await tabs.editor(for: notes[0])
+        let edited = await tabs.editor(for: notes[1])
+        let cleanText = clean.text
+        #expect(cleanText.hasPrefix("# First"), "the tab never loaded its note")
+        edited.text += "Typed in the second tab.\n"
+
+        await mirror.evictIfNeeded(limit: 0)
+        #expect(try Data(contentsOf: notes[0].fileURL).isEmpty, "nothing was dropped, so this is not the case")
+        await tabs.reconcileAll()
+
+        #expect(clean.text == cleanText, "a clean tab loaded a placeholder as its note: \(clean.text.debugDescription)")
+        #expect(!edited.hasConflict, "a tab with edits raised a conflict against a placeholder")
+    }
+
+    /// The control: a real change to an open note's file is still taken — the
+    /// guard asks whether the file is a stand-in, not whether it changed.
+    @Test func aRealChangeUnderAnOpenTabIsStillTaken() async throws {
+        let (tabs, _, _, cache, notes) = try await mirroredTabs()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let clean = await tabs.editor(for: notes[0])
+
+        try Data("# First\n\nChanged elsewhere.\n".utf8).write(to: notes[0].fileURL)
+        await tabs.reconcileAll()
+        #expect(clean.text == "# First\n\nChanged elsewhere.\n")
+    }
+}
+
+/// Moving and making folders on each provider — the calls a rename, a move and
+/// New Folder make in a cloud collection. They cannot be exercised without a
+/// live account, so, per this file's convention, the requests are pinned: the
+/// endpoint and method, a clash that fails rather than quietly picking another
+/// name, and the ids that Box, Drive and Graph address by.
+struct ProviderMoveAndFolderTests {
+
+    private func json(_ request: URLRequest) throws -> [String: Any] {
+        let body = try #require(request.httpBody)
+        return try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    }
+
+    private func query(_ request: URLRequest) -> [String: String] {
+        let items = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
+        return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+    }
+
+    // MARK: Dropbox
+
+    @Test func dropboxMovesInOneCallAndNeverRenamesOnAClash() throws {
+        let r = DropboxStore.moveRequest(from: "/Notes/Old.md", to: "Archive/New.md", token: "T")
+        #expect(r.httpMethod == "POST")
+        #expect(r.url?.absoluteString == "https://api.dropboxapi.com/2/files/move_v2")
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+        let body = try json(r)
+        #expect(body["from_path"] as? String == "/Notes/Old.md")
+        #expect(body["to_path"] as? String == "/Archive/New.md")
+        #expect(body["autorename"] as? Bool == false)
+    }
+
+    @Test func dropboxMakesAFolderWithoutRenamingIt() throws {
+        let r = DropboxStore.createFolderRequest(path: "/Projects/", token: "T")
+        #expect(r.httpMethod == "POST")
+        #expect(r.url?.absoluteString == "https://api.dropboxapi.com/2/files/create_folder_v2")
+        let body = try json(r)
+        #expect(body["path"] as? String == "/Projects")
+        #expect(body["autorename"] as? Bool == false)
+    }
+
+    // MARK: Box
+
+    @Test func boxMovesAnItemByItsNameAndItsParentsID() throws {
+        let file = BoxStore.moveRequest(itemID: "F1", isFolder: false, name: "New.md", parentID: "P2", token: "T")
+        #expect(file.httpMethod == "PUT")
+        #expect(file.url?.absoluteString == "https://api.box.com/2.0/files/F1")
+        #expect(file.value(forHTTPHeaderField: "Authorization") == "Bearer T")
+        let body = try json(file)
+        #expect(body["name"] as? String == "New.md")
+        #expect((body["parent"] as? [String: Any])?["id"] as? String == "P2")
+
+        let folder = BoxStore.moveRequest(itemID: "D1", isFolder: true, name: "Archive", parentID: "0", token: "T")
+        #expect(folder.url?.absoluteString == "https://api.box.com/2.0/folders/D1")
+    }
+
+    @Test func boxMakesAFolderInItsParentAndReadsItsID() throws {
+        let r = BoxStore.createFolderRequest(name: "Projects", parentID: "0", token: "T")
+        #expect(r.httpMethod == "POST")
+        #expect(r.url?.absoluteString == "https://api.box.com/2.0/folders")
+        let body = try json(r)
+        #expect(body["name"] as? String == "Projects")
+        #expect((body["parent"] as? [String: Any])?["id"] as? String == "0")
+        #expect(BoxStore.parseItemID(Data(#"{"type":"folder","id":"777","name":"Projects"}"#.utf8)) == "777")
+    }
+
+    /// The cached path → id map follows a folder's move, contents and all —
+    /// and leaves a sibling whose name only begins the same alone.
+    @Test func cachedIDsFollowAFolderMove() {
+        let ids = ["": "0", "/A": "1", "/A/b.md": "2", "/AB": "3"]
+        let expected = ["": "0", "/C": "1", "/C/b.md": "2", "/AB": "3"]
+        #expect(BoxStore.moving(ids, from: "/A", to: "/C") == expected)
+        #expect(GoogleDriveStore.moving(ids, from: "/A", to: "/C") == expected)
+    }
+
+    // MARK: Google Drive
+
+    @Test func driveRenamesInPlaceAndMovesByTradingParents() throws {
+        let rename = GoogleDriveStore.moveRequest(fileID: "F1", name: "New.md",
+                                                  addParent: nil, removeParent: nil, token: "T")
+        #expect(rename.httpMethod == "PATCH")
+        #expect(rename.url?.path == "/drive/v3/files/F1")
+        #expect(query(rename)["addParents"] == nil && query(rename)["removeParents"] == nil,
+                "a rename in place traded parents")
+        #expect(try json(rename)["name"] as? String == "New.md")
+
+        let move = GoogleDriveStore.moveRequest(fileID: "F1", name: "New.md",
+                                                addParent: "P2", removeParent: "P1", token: "T")
+        #expect(query(move)["addParents"] == "P2")
+        #expect(query(move)["removeParents"] == "P1")
+    }
+
+    @Test func driveMakesAFolderAsAFileOfTheFolderType() throws {
+        let r = GoogleDriveStore.createFolderRequest(name: "Projects", parentID: "root", token: "T")
+        #expect(r.httpMethod == "POST")
+        #expect(r.url?.absoluteString == "https://www.googleapis.com/drive/v3/files?fields=id")
+        let body = try json(r)
+        #expect(body["name"] as? String == "Projects")
+        #expect(body["mimeType"] as? String == "application/vnd.google-apps.folder")
+        #expect(body["parents"] as? [String] == ["root"])
+    }
+
+    // MARK: OneDrive
+
+    @Test func oneDriveAsksForTheDestinationFoldersID() {
+        let folder = OneDriveStore.itemIDRequest(path: "/Archive", token: "T")
+        #expect(folder.url?.absoluteString.hasPrefix("https://graph.microsoft.com/v1.0/me/drive/root:/Archive:") == true)
+        #expect(query(folder)["$select"] == "id")
+        let root = OneDriveStore.itemIDRequest(path: "", token: "T")
+        #expect(root.url?.absoluteString.hasPrefix("https://graph.microsoft.com/v1.0/me/drive/root?") == true)
+        #expect(OneDriveStore.parseItemID(Data(#"{"id":"ABC!1"}"#.utf8)) == "ABC!1")
+    }
+
+    /// A parent named by id: an item reference's `path` is read-only in Graph.
+    @Test func oneDriveMovesByPatchingTheNameAndTheParentsID() throws {
+        let r = OneDriveStore.moveRequest(path: "/Notes/Old.md", name: "New.md", parentID: "P2", token: "T")
+        #expect(r.httpMethod == "PATCH")
+        #expect(r.url?.absoluteString == "https://graph.microsoft.com/v1.0/me/drive/root:/Notes/Old.md:")
+        let body = try json(r)
+        #expect(body["name"] as? String == "New.md")
+        let parent = try #require(body["parentReference"] as? [String: Any])
+        #expect(parent["id"] as? String == "P2")
+        #expect(parent["path"] == nil)
+    }
+
+    @Test func oneDriveMakesAFolderAsAChildThatFailsOnAClash() throws {
+        let nested = OneDriveStore.createFolderRequest(path: "/Notes/Projects", token: "T")
+        #expect(nested.httpMethod == "POST")
+        #expect(nested.url?.absoluteString == "https://graph.microsoft.com/v1.0/me/drive/root:/Notes:/children")
+        let body = try json(nested)
+        #expect(body["name"] as? String == "Projects")
+        #expect(body["folder"] != nil)
+        #expect(body["@microsoft.graph.conflictBehavior"] as? String == "fail")
+
+        let top = OneDriveStore.createFolderRequest(path: "/Projects", token: "T")
+        #expect(top.url?.absoluteString == "https://graph.microsoft.com/v1.0/me/drive/root/children")
+    }
+}
+
+/// Every provider's listing names each item's revision, so a save can tell
+/// that the note changed on another device since it was downloaded — and keep
+/// both — and a walk can keep a download by it (implemented.md §51.36). Only
+/// Dropbox's did: Box asked for no `etag`, Drive's listings for no revision at
+/// all, and OneDrive's `$select` left out the `eTag` its parser reads.
+struct ProviderRevisionTests {
+
+    @Test func boxAsksForEachItemsETagAndReadsIt() throws {
+        let url = BoxStore.listItemsRequest(folderID: "0", token: "T").url?.absoluteString ?? ""
+        #expect(url.contains("fields=id,type,name,size,modified_at,etag"), "\(url)")
+        let page = try BoxStore.parseItemsPage(Data("""
+        {"entries":[{"type":"file","id":"1","name":"Idea.md","size":3,"modified_at":"2026-07-21T10:00:00-07:00","etag":"4"}]}
+        """.utf8), parentPath: "")
+        #expect(page.items.first?.entry.rev == "4")
+    }
+
+    /// The content's revision, `headRevisionId` — not `version`, which every
+    /// change of metadata moves — in every listing and in the change feed, so
+    /// the two agree about what a revision is.
+    @Test func driveAsksForTheContentRevisionEverywhere() throws {
+        let listing = GoogleDriveStore.listRequest(folderID: "root", token: "T").url?.absoluteString ?? ""
+        let parents = GoogleDriveStore.filesInParentsRequest(parents: ["a"], token: "T").url?.absoluteString ?? ""
+        let changes = GoogleDriveStore.changesRequest(pageToken: "p", token: "T").url?.absoluteString ?? ""
+        for (name, url) in [("listing", listing), ("files in parents", parents), ("changes", changes)] {
+            #expect(url.contains("headRevisionId"), "the \(name) request asks for no revision: \(url)")
+            #expect(!url.contains("version"), "the \(name) request asks for `version`: \(url)")
+        }
+        let file = #"{"id":"F1","name":"Idea.md","mimeType":"text/markdown","size":"3","modifiedTime":"2026-07-21T10:00:00Z","headRevisionId":"r9","parents":["a"]}"#
+        #expect(try GoogleDriveStore.parseFileList(Data(#"{"files":[\#(file)]}"#.utf8), parentPath: "").first?.entry.rev == "r9")
+        #expect(try GoogleDriveStore.parseFilesInParentsPage(Data(#"{"files":[\#(file)]}"#.utf8)).items.first?.rev == "r9")
+        #expect(GoogleDriveStore.parseChangesPage(Data(#"{"changes":[{"fileId":"F1","file":\#(file)}]}"#.utf8)).changed.first?.entry.rev == "r9")
+    }
+
+    @Test func oneDriveAsksForTheETagItsParserReads() {
+        let url = OneDriveStore.listRequest(path: "/Notes", token: "T").url
+        let select = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            .queryItems?.first { $0.name == "$select" }?.value ?? ""
+        #expect(select.split(separator: ",").contains("eTag"), "$select is \(select)")
+    }
 }

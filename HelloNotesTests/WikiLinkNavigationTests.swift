@@ -143,6 +143,76 @@ struct WikiLinkNavigationTests {
             target: "Anything", in: nil, current: nil)
         #expect(destination == .none)
     }
+
+    // MARK: - An alias
+
+    /// The editor hands over everything between the brackets, alias and all,
+    /// and colours the link by its name alone (`StyleApplier.baseTitle`):
+    /// following it goes where the colour says. Taking off the heading and
+    /// nothing else followed `[[Roadmap|the plan]]` to a note named
+    /// `Roadmap|the plan`.
+    @Test func splitsTheAliasOffFirst() {
+        #expect(WikiLinkNavigation.split("Roadmap|the plan").base == "Roadmap")
+        #expect(WikiLinkNavigation.split("Roadmap|the plan").heading == nil)
+        #expect(WikiLinkNavigation.split("Roadmap#Part|see #3").base == "Roadmap")
+        #expect(WikiLinkNavigation.split("Roadmap#Part|see #3").heading == "Part")
+        #expect(WikiLinkNavigation.split("#Part|see").base == "")
+        #expect(WikiLinkNavigation.split("#Part|see").heading == "Part")
+        // A table's row holds the alias's pipe escaped; the backslash is the
+        // table's. Only an odd run escapes — an even one is backslashes.
+        #expect(WikiLinkNavigation.split("Roadmap\\|the plan").base == "Roadmap")
+        #expect(WikiLinkNavigation.split("Roadmap\\\\|the plan").base == "Roadmap\\\\")
+        // Trimmed, as the editor reads the name it colours by.
+        #expect(WikiLinkNavigation.split(" Roadmap | the plan ").base == "Roadmap")
+    }
+
+    /// Following an aliased link reaches its note — and its heading — and
+    /// makes nothing. In the main window, which creates what a link names, it
+    /// made `Roadmap|the plan.md` and opened that.
+    @Test func anAliasedLinkReachesItsNoteAndMakesNone() async throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("Roadmap", "# Roadmap\n\n## Part\n", in: root)
+        let collection = Collection(rootURL: root)
+        collection.scan()
+
+        for (target, heading) in [("Roadmap|the plan", nil), ("Roadmap#Part|see", "Part"),
+                                  ("Roadmap\\|the plan", nil), (" Roadmap | the plan ", nil)] as [(String, String?)] {
+            let destination = await WikiLinkNavigation.resolve(target: target, in: collection, current: nil)
+            guard case .note(let note, let reached) = destination else {
+                Issue.record("\(target) should reach Roadmap, got \(destination)"); continue
+            }
+            #expect(note.title == "Roadmap", "\(target) reached \(note.title)")
+            #expect(reached == heading, "\(target) reached heading \(reached ?? "none")")
+        }
+        let notes = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasSuffix(".md") }
+        #expect(notes == ["Roadmap.md"], "following a link made \(notes)")
+    }
+
+    /// The control: a link to a note that does not exist still makes it — the
+    /// note it names, not the note and its alias.
+    @Test func anAliasedLinkToNothingMakesTheNoteItNames() async throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("Seed", "# Seed\n", in: root)
+        let collection = Collection(rootURL: root)
+        collection.scan()
+
+        let destination = await WikiLinkNavigation.resolve(target: "Brand New|the alias", in: collection, current: nil)
+        guard case .note(let note, _) = destination else {
+            Issue.record("expected a created note, got \(destination)"); return
+        }
+        #expect(note.title == "Brand New")
+        let notes = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasSuffix(".md") }.sorted()
+        #expect(notes == ["Brand New.md", "Seed.md"], "following a link made \(notes)")
+    }
+
+    /// An aliased web link opens its address, not the address and its alias.
+    @Test func anAliasedWebLinkOpensItsAddress() async {
+        let destination = await WikiLinkNavigation.resolve(
+            target: "https://example.com/page|the page", in: nil, current: nil)
+        #expect(destination == .web(URL(string: "https://example.com/page")!))
+    }
 }
 
 /// Path-qualified targets resolve in the **link graph**, not only in

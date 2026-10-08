@@ -13,9 +13,15 @@
 //  is no error, no warning, and nothing on screen except a tap that does not
 //  work.
 //
-//  Where the text comes from differs and should: a window has no editor, so it
-//  reads the file; a sheet is over the open note and uses the live buffer, which
-//  is what makes the map reflect unsaved edits. So the text is a parameter.
+//  The text came from different places too, and on purpose: the Mac's window
+//  had no editor, so it read the file and drew the note as of the last
+//  autosave, while the iPad's sheet sat over the open note and was handed the
+//  live buffer. Both hosts are gone — the map is a view of the right panel on
+//  both platforms, beside the editor — and so is the difference: `MindMapPanel`
+//  hands over the live buffer while the editor holds the note, which is what
+//  makes the map reflect unsaved edits, and reads the file only when it does
+//  not. The text stays a parameter so that choice stays with the panel; this
+//  view draws what it is handed and reads no file.
 //
 
 import SwiftUI
@@ -26,9 +32,15 @@ struct MindMapPane: View {
     /// The note's Markdown. The caller decides where it comes from.
     let text: String?
 
-    /// Open a note — a window asks the main one, a sheet selects directly.
+    /// Open a linked note. Supplied, like the graph's `onOpen`, because where a
+    /// note opens is the host's business and this is only the map:
+    /// `MindMapPanel` passes `Library.requestOpen`, as the graph and Ask
+    /// Library do.
     var onOpenNote: (URL) -> Void
-    /// Jump to a section of the root note. iPad never supplied this.
+    /// Jump to a section of the root note (`nil`: just open it). No default,
+    /// unlike `MindMapView`'s: a caller that leaves it out does not compile,
+    /// where the iPad's sheet left it out and shipped heading taps that did
+    /// nothing.
     var onShowSection: (String?) -> Void
 
     @Environment(Library.self) private var library
@@ -41,29 +53,28 @@ struct MindMapPane: View {
             ?? rootURL.deletingPathExtension().lastPathComponent
     }
 
+    // No `navigationTitle`: the panel's header says "Mind Map", the map's
+    // own header names the note, and there is no platform bar to title.
     var body: some View {
-        Group {
-            if let c = collection, let text {
-                MindMapView(
-                    rootTitle: rootTitle,
-                    rootURL: rootURL,
-                    text: text,
-                    resolveLink: { target in
-                        guard let url = c.linkGraph.resolve(target),
-                              let note = c.notes.first(where: { $0.fileURL == url }) else { return nil }
-                        return (url, note.title)
-                    },
-                    accent: appearance.resolvedAccent,
-                    onOpenNote: onOpenNote,
-                    onShowSection: onShowSection
-                )
-            } else if collection != nil {
-                ProgressView()   // text still loading
-            } else {
-                ContentUnavailableView("Note Unavailable", systemImage: "brain",
-                                       description: Text("This note's collection is no longer open."))
-            }
+        if let c = collection, let text {
+            MindMapView(
+                rootTitle: rootTitle,
+                rootURL: rootURL,
+                text: text,
+                resolveLink: { target in
+                    guard let url = c.linkGraph.resolve(target),
+                          let note = c.notes.first(where: { $0.fileURL == url }) else { return nil }
+                    return (url, note.title)
+                },
+                accent: appearance.resolvedAccent,
+                onOpenNote: onOpenNote,
+                onShowSection: onShowSection
+            )
+        } else if collection != nil {
+            ProgressView()   // text still loading
+        } else {
+            ChromeEmptyState("Note Unavailable", systemImage: "brain",
+                             description: Text("This note's collection is no longer open."))
         }
-        .navigationTitle("Mind Map — \(rootTitle)")
     }
 }

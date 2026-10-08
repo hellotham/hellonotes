@@ -62,8 +62,12 @@ nonisolated enum DirectoryEvent: Equatable, Sendable {
 ///
 /// `@unchecked Sendable`: the FSEvents callback fires on a background dispatch
 /// queue; `onEvent` is `@Sendable` and expected to hop to the main actor
-/// itself. Start/stop are only called from the main actor.
-final class FileWatcher: @unchecked Sendable {
+/// itself. Start/stop are only called from the main actor — and from `deinit`,
+/// which is why the class is `nonisolated`: a `deinit` is never isolated, and
+/// one calling a main-actor `stop()` is an error in Swift 6, silent in this
+/// target's Swift 5 mode, and a data race if a watcher is ever released off the
+/// main actor.
+nonisolated final class FileWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
     private let onEvent: @Sendable (DirectoryEvent) -> Void
     /// A dedicated serial queue for the stream's callbacks, so `stop()` can
@@ -181,7 +185,11 @@ final class FileWatcher: @unchecked Sendable {
 /// Used on iOS; on macOS `FileWatcher` remains the better instrument, because
 /// FSEvents reports the things a presenter cannot — a moved root, an unmounted
 /// volume, a dropped batch.
-final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
+///
+/// `nonisolated` for the same reason as `FileWatcher` — its `deinit` calls
+/// `stop()` — and because every presenter callback arrives on
+/// `presentedItemOperationQueue`, never on the main actor.
+nonisolated final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
     private var root: URL
     /// What happened, in the same vocabulary `FileWatcher` speaks.
@@ -240,8 +248,14 @@ final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
     func presentedSubitemDidAppear(at url: URL) { onEvent(.itemsChanged([url.path])) }
 
-    func accommodatePresentedSubitemDeletion(at url: URL) async throws {
+    /// The completion-handler form, as `accommodatePresentedItemDeletion` has:
+    /// written `async throws` on a `nonisolated` class, the Objective-C thunk
+    /// Swift makes for it crashed the compiler (SILGen,
+    /// `emitNativeToForeignThunk`) — on iOS only, the one platform that builds
+    /// this class, so no macOS build or test could see it.
+    func accommodatePresentedSubitemDeletion(at url: URL, completionHandler: @escaping (Error?) -> Void) {
         onEvent(.itemsChanged([url.path]))
+        completionHandler(nil)
     }
 
     /// The watched folder was moved or renamed.

@@ -133,9 +133,14 @@ nonisolated enum AssistantInstructions {
             if toolNames.contains("grep_collection") {
                 guidance += " grep_collection finds exact text across every note."
             }
-            guidance += " To change notes, read the note first, then use edit_note for a change"
+            // The call *is* the request for approval. Told only that "the
+            // person approves every change", Apple's on-device model asked for
+            // that approval itself, in words — "Please confirm this is
+            // correct" — and never called the tool: four requests out of four,
+            // so a change asked for took two approvals, or none.
+            guidance += " When the person asks for a change, read the note first, then call edit_note for a change"
             guidance += toolNames.contains("write_note") ? ", write_note to replace a whole note," : ""
-            guidance += " or create_note for a new note. The person approves every change before it is saved, and each one is committed to Git."
+            guidance += " or create_note for a new note. Calling the tool is how you ask for approval: the app shows the person the exact change, saves it only if they approve, and commits it to Git. So never ask the person to approve or confirm a change in your reply — make the call, and they answer the app."
             if toolNames.contains("web_fetch") {
                 guidance += " Use web_search and web_fetch for information from outside the notes."
             } else {

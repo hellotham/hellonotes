@@ -457,9 +457,11 @@ struct ShellComplianceTests {
     /// side only, and nothing failed to compile.
     ///
     /// What that cost was not the find bar — iOS has `UIFindInteraction` for
-    /// that — but **every jump to a heading**. `hnJumpToHeadingInEditor` posts
-    /// `hn.editor.findQuery`, so tapping an outline row, a mind-map section or
-    /// a `[[link#heading]]` did nothing at all on one platform.
+    /// that — but **every jump to a heading**, which was posted as
+    /// `hn.editor.findQuery` then, so tapping an outline row, a mind-map
+    /// section or a `[[link#heading]]` did nothing at all on one platform. A
+    /// jump is the view's own to answer now (`HeadingJumpListener`, which shows
+    /// it when the view is in a window), and both views must have one.
     @Test("Both editors listen on the same editor notifications")
     func bothEditorsAnswerTheCommandBus() throws {
         let package = URL(filePath: #filePath)
@@ -469,18 +471,84 @@ struct ShellComplianceTests {
                                 encoding: .utf8)
         // Both halves are in one file now, so each name must appear twice —
         // once on each side of the gate. Counting is the point: a single
-        // occurrence is exactly the state this test exists to catch.
-        for name in ["hn.editor.findQuery", "hn.editor.replaceCurrent",
-                     "hn.editor.replaceAll", "hn.editor.clearHighlights"] {
+        // occurrence is exactly the state this test exists to catch. The names
+        // are addressed to the editor now (`EditorBus`), so each is spelled as
+        // the call that builds it for this editor's id.
+        for name in ["EditorBus.findQuery(editor: editorID)", "EditorBus.replaceCurrent(editor: editorID)",
+                     "EditorBus.replaceAll(editor: editorID)", "EditorBus.clearHighlights(editor: editorID)"] {
             #expect(source.ranges(of: name).count >= 2,
                     "\(name) is observed by one editor only")
         }
+        #expect(source.ranges(of: "lazy var headingJumps = HeadingJumpListener(").count >= 2,
+                "one editor cannot answer a heading jump")
         // `showMatch` lives with the rest of the `MarkdownFormatting`
         // conformance, whose two halves are also one gate now.
         let commands = try String(contentsOf: package.appending(path: "EditorCommands.swift"),
                                   encoding: .utf8)
         #expect(commands.ranges(of: "func showMatch(of query: String, index: Int) -> Int").count >= 2,
                 "one editor cannot jump to a match, so no heading link can scroll to one there")
+    }
+
+    /// Every command on the editor's bus names the editor it is for.
+    ///
+    /// The find bar's four messages, the heading jump, the match count that
+    /// answers a find, and ⌘F were posted with no address, and every editor in
+    /// every window answered them: a find in one window moved the selection in
+    /// another, and Replace All there rewrote the note open here. The Format bus
+    /// had an address, but it was the note's path — which two windows on one
+    /// note share. `EditorBusTests` holds the editors to the contract; this
+    /// holds the app, which that test cannot see: no source here spells a bus
+    /// name without an editor, and every view that joins the bus joins as its
+    /// `EditorModel`, never as its note.
+    ///
+    /// The note's sheet commands too — Rewrite or Expand, Present as Slides and
+    /// View Diagram. Posted to no one, one command opened its sheet in every
+    /// window at once: reproduced with two windows, where a Rewrite chosen in
+    /// one opened a rewrite sheet in both, each over its own note and wired to
+    /// replace it.
+    @Test("Every command on the editor's bus names its editor")
+    func theEditorBusIsAddressed() throws {
+        let app = URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes")
+        let files = (FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL } ?? []).filter { $0.pathExtension == "swift" }
+        #expect(files.count > 150, "the scan read \(files.count) sources — it is not reading the app")
+        let unaddressed = ["\"hn.editor.findQuery\"", "\"hn.editor.replaceCurrent\"",
+                           "\"hn.editor.replaceAll\"", "\"hn.editor.clearHighlights\"",
+                           "\"hn.editor.jumpToHeading\"", "\"hn.editor.findResults\"",
+                           "\"hn.editor.toggleFind\"", "\"hnEditorFormat.", "\"hnEditorFind.",
+                           "\"hnEditorUndo.", "\"hnEditorRedo.", "\"hnEditorEndEditing.",
+                           "\"hn.editor.rewriteNote\"", "\"hn.editor.showSlides\"",
+                           "\"hn.editor.showMermaid\"",
+                           ".commandBus(documentId", "documentId: note."]
+        for file in files {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            for name in unaddressed where source.contains(name) {
+                Issue.record("\(file.lastPathComponent) spells an editor-bus name without its editor: \(name)")
+            }
+        }
+        // Every view on the bus joins as its editor: the live editor, and in
+        // the pane both the Markdown source and Preview.
+        let host = try Self.source("UI/EditorHost.swift")
+        #expect(host.contains(".commandBus(editorID: editor.editorID)"),
+                "the live editor does not join the bus as its editor")
+        let pane = try Self.source("UI/NoteEditorPane.swift")
+        #expect(pane.contains("editorID: editor.editorID"),
+                "the Markdown pane does not join the bus as its editor")
+        let preview = try Self.source("UI/NotePreview.swift")
+        #expect(preview.contains(".commandBus(editorID: editor.editorID)"),
+                "Preview does not join the bus as its editor")
+        // The control: the scan has to be able to see a post at all. The find
+        // bar's Replace All is addressed, and it is found where it is posted.
+        let bar = try Self.source("UI/NoteEditorView.swift")
+        #expect(bar.contains("EditorBus.replaceAll(editor: editor.editorID)"),
+                "the find bar's Replace All was not found — this test is not reading what posts")
+        // And the sheets answer their own editor, in the same file.
+        for sheet in [".hnRewriteNote(editor: editor.editorID)", ".hnShowSlides(editor: editor.editorID)",
+                      ".hnShowMermaid(editor: editor.editorID)"] {
+            #expect(bar.contains(sheet), "a note sheet does not listen on its own editor: \(sheet)")
+        }
     }
 
     /// The host's handle on the editor offers the same thing on both.
@@ -536,42 +604,37 @@ struct ShellComplianceTests {
     /// platforms. It is — and it put search inside the collapsible column and
     /// reversed a documented decision. Parity is not a licence to overrule the
     /// chrome contract; one hand-built field placed leading satisfies both.
-    @Test("Search is a toolbar item at the leading end, on both platforms")
+    ///
+    /// The bar is the app's own now (`shellBar`, one builder for both
+    /// platforms), so "leading on both" is one statement: the field is the
+    /// bar's first item. And `.searchable` is nowhere in the shell — the
+    /// compact Search place draws the same field, full width.
+    @Test("Search is the bar's leading item, on both platforms")
     func searchIsInTheToolbarLeading() throws {
         let source = try Self.source("ContentView.swift")
         let sidebar = try #require(Self.propertyBody(named: "collectionTree", in: source),
                                    "collectionTree is not a `some View` property any more")
-        // Scoped to the sidebar. The *compact* shell's Search tab uses
-        // `.searchable` and should: there the search screen is the place, and
-        // D9's objections are about the band in the column shell.
-        #expect(!sidebar.contains(".searchable("),
-                "the sidebar uses `.searchable`, which D9 rejects and which puts search inside the collapsible column")
-        // **Not on the sidebar's own toolbar either.** That bar is inside the
-        // collapsible column, and at 335pt it cannot hold a field beside the
-        // toggle — iPadOS moved it into the `•••` overflow and the field
-        // disappeared, which is D9's failure reproduced by hand. It belongs on
-        // the editor column's toolbar, where it also survives a collapse.
+        // Code only: a comment may name what it replaced.
+        let code = source.split(separator: "\n").filter {
+            !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+        }.joined(separator: "\n")
+        #expect(!code.contains(".searchable("),
+                "the shell uses `.searchable`, which D9 rejects and which each platform draws its own way")
+        // **Not in the sidebar.** It is inside the collapsible column, and at
+        // 335pt it cannot hold a field beside the toggle — iPadOS once moved
+        // it into the `•••` overflow and the field disappeared, which is D9's
+        // failure reproduced by hand. It belongs on the editor's bar, where it
+        // also survives a collapse.
         #expect(!sidebar.contains("searchField"),
-                "the search field is on the sidebar's own toolbar, which is inside the collapsible column")
-        #expect(source.ranges(of: "ToolbarItem(placement: .barLeading) { searchField }").count == 2,
-                "the search field is not a leading item on both of the editor column's toolbars")
-    }
-
-    /// A platform placement means the edge it is named after.
-    ///
-    /// `barTrailing` mapped to `.primaryAction`, which Apple documents as the
-    /// *leading* edge on macOS — so an inspector toggle asking for the trailing
-    /// end landed on the wrong side of the window. The Mac's own measured
-    /// chrome uses an unplaced `ToolbarItemGroup`, which is `.automatic`.
-    @Test("barTrailing is not macOS's leading placement")
-    func trailingPlacementIsActuallyTrailing() throws {
-        let source = try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/UI/Shell/ToolbarPlacement.swift"), encoding: .utf8)
-        let trailing = source.components(separatedBy: "static var barTrailing")[1]
-            .components(separatedBy: "}")[0]
-        #expect(!trailing.contains(".primaryAction"),
-                "barTrailing maps to `.primaryAction`, which is macOS's leading edge")
+                "the search field is in the sidebar, which is inside the collapsible column")
+        let bar = try #require(source.components(separatedBy: "private func shellBar(").dropFirst().first,
+                               "shellBar is not a function any more")
+        let stack = try #require(bar.components(separatedBy: "HStack(spacing: Chrome.Metric.barSpacing) {").dropFirst().first,
+                                 "shellBar is not an HStack of bar items")
+        let firstItem = stack.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty && !$0.hasPrefix("//") } ?? ""
+        #expect(firstItem.contains("searchField()"),
+                "the bar's first item is `\(firstItem)`, not the search field")
     }
 
     /// A collection row says the same five things on both platforms.
@@ -592,9 +655,10 @@ struct ShellComplianceTests {
         let source = try String(contentsOf: URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "HelloNotes/UI/NoteOutlineList.swift"), encoding: .utf8)
-        // Once per renderer, plus the `.help` on the SwiftUI row.
-        #expect(source.ranges(of: "CollectionRowContent.make(").count >= 2,
-                "one of the two sidebars still derives a collection row itself")
+        // One renderer now — the AppKit outline and the SwiftUI list became one
+        // drawn list (`ChromeRows`) — so one call, and nothing derived beside it.
+        #expect(source.ranges(of: "CollectionRowContent.make(").count >= 1,
+                "the sidebar no longer reads its collection rows from CollectionRowContent")
         for derived in ["case .unavailable(let reason) = collection.state",
                         "collection.showsScanProgress",
                         "collection.git.status.isRepository",
@@ -663,12 +727,38 @@ struct ShellComplianceTests {
     /// on the Mac that found it, an Obsidian vault. A probe presenting both
     /// orderings off-screen read the panel's own `directoryURL`: inside gave
     /// `~/Documents`, outside gave `~/.cache/huggingface/hub`.
+    /// **The chrome's orange is the app's, never the platform's.**
+    /// `Color.orange` is a different orange on each platform, and
+    /// `Chrome.Colour.orange` is AppKit's value on both (D12). Two collection
+    /// rows and the collection status bar drew the platform's, beside the
+    /// app's everywhere else (ui.md §12, item 3; implemented.md §51.36). The
+    /// accent picker's `.orange` is a choice of accent, not a colour, and is
+    /// not matched here.
+    @Test("No view draws the platform's orange")
+    func noViewDrawsThePlatformsOrange() throws {
+        let root = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes")
+        let files = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+            .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+        #expect(files.count > 100, "the app's sources were not found, so this checks nothing")
+        for file in files {
+            // Code only: a comment may name what it does not use.
+            let code = try String(contentsOf: file, encoding: .utf8)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            for pattern in ["Color.orange", "? .orange :", "(.orange)", ": .orange)"] {
+                #expect(!code.contains(pattern), "\(file.lastPathComponent) draws \(pattern)")
+            }
+        }
+    }
+
     @Test("The models folder panel's configuration wraps its importer")
     func folderPanelConfigurationWrapsTheImporter() throws {
         let source = try Self.source("UI/Assistant/IntelligenceSettingsView.swift")
         // Everything the helper is handed: from its opening parenthesis to the
         // one that balances it.
-        let opening = try #require(source.range(of: "startingInHuggingFaceCache(Form"),
+        let opening = try #require(source.range(of: "startingInHuggingFaceCache(ChromeForm"),
                                    "the settings form no longer passes itself to the panel helper")
         var depth = 1
         var end = opening.upperBound

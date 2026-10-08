@@ -18,7 +18,9 @@
 import Foundation
 
 enum URLRouter {
-    static let scheme = "hellonotes"
+    /// `nonisolated`: a constant, read by the App Intents entity off the main
+    /// actor (`NoteEntity.deepLink`).
+    nonisolated static let scheme = "hellonotes"
 
     enum Destination: Equatable {
         case note(collection: String, ref: NoteRef)

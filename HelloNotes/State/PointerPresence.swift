@@ -6,23 +6,16 @@
 //
 //  Is there a pointer? — asked of the hardware, not of the operating system.
 //
-//  `AdaptiveShell` takes `prefersTouch`, and it does more than size hit targets:
-//  `tabBarHeight` changes with it, and so does the floor a note row may be
-//  compressed to (`noteRowTouchMinimum` vs `noteRowPointerMinimum`) — a finger
-//  needs 44pt where a pointer needs 24, which is nearly half the rows a short
-//  band can show. It used to decide a format bar too, until that bar turned out
-//  never to have been built. The Mac passed
-//  `false` and the iPad passed `true`, both hard-coded — so a Mac window and an
-//  iPad of the same size rendered different shells, which the layout contract
-//  forbids in as many words: chosen by the axis of abundance, *never by device*.
+//  What reads it now is the words a view uses — the graph says "tap" to a
+//  finger and "click" to a pointer. The shell used to take it too, for a tab
+//  bar's height, a note row's floor and a format bar, and none of those read
+//  it: the format bar was never built, and the heights were declared and
+//  drawn by nothing (ui.md §12, item 1; implemented.md §51.36). The Mac passed
+//  `false` and the iPad `true`, both hard-coded — so a Mac window and an iPad
+//  of the same size answered differently, where the layout contract chooses
+//  by the axis of abundance, *never by device*.
 //
-//  Decision 3 says "a persistent format bar needs a pointer and room". An iPad
-//  with a Magic Keyboard and trackpad has a pointer and, at 1470pt, the room.
-//  The rule was never "not on iOS" — the implementation had substituted the
-//  operating system for the fact the rule is actually about, which is the same
-//  substitution that kept the inspector column off iPad.
-//
-//  So the question is answered here, once, and both shells ask it with the same
+//  So the question is answered here, once, and both platforms ask it with the same
 //  expression. `GCMouse` is the documented way to ask on iOS and reports mice
 //  and trackpads alike; it is also *dynamic*, which matters — detaching an iPad
 //  from its keyboard should give back the touch sizing while you are holding it.

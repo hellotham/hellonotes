@@ -18,8 +18,11 @@
 //  reader.
 //
 //  And the selection tint: `selectedContentBackgroundColor` on one side,
-//  `.selection` on the other. `.selection` is the cross-platform spelling of the
-//  same idea, so it is what both use.
+//  `.selection` on the other — and `.selection` is not the same colour on
+//  both, it only has the same name. Everything here is `Chrome` now: fixed
+//  sizes and colours, 28pt tabs whatever is doing the tapping (a tab's target
+//  is its own frame), and no material or scroll view
+//  of its own — it lives in the shell's bar, which decides what scrolls.
 //
 
 import SwiftUI
@@ -31,44 +34,36 @@ struct EditorTabBar: View {
     /// Closing goes through the caller so a *background* tab closing cannot
     /// move the selection off the note being read.
     let onClose: (Note.ID) -> Void
-
-    @Environment(\.shell) private var shell
+    var accent: Color = .accentColor
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(notes) { tab($0) }
-            }
-            .padding(.horizontal, 2)
+        HStack(spacing: Chrome.Metric.barSpacing) {
+            ForEach(notes) { tab($0) }
         }
-        // The contract's number, not a literal: 44pt where a finger is doing the
-        // tapping, 32 where a pointer is.
-        .frame(height: shell.tabBarHeight)
-        .background(.bar)
+        .frame(height: Chrome.Metric.control)
     }
 
     private func tab(_ note: Note) -> some View {
         let isActive = note.id == activeID
         return HStack(spacing: 4) {
-            Text(note.title)
-                .lineLimit(1)
-                .font(.subheadline)
-                .fontWeight(isActive ? .semibold : .regular)
+            ChromeLine(note.title, size: 13, weight: isActive ? .semibold : .regular,
+                       colour: isActive ? Chrome.Colour.label : Chrome.Colour.secondaryLabel)
 
             Button { onClose(note.id) } label: {
                 Image(systemName: "xmark")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Chrome.Colour.tertiaryLabel)
+                    .frame(width: 16, height: 16)
+                    .contentShape(.rect.inset(by: -6))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ChromePlainStyle())
             .accessibilityLabel("Close \(note.title)")
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .frame(minHeight: shell.tabBarHeight - 8)
-        .background(isActive ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: 7))
-        .foregroundStyle(isActive ? Color.primary : .secondary)
+        .frame(maxWidth: Chrome.Metric.tabMaxWidth)
+        .frame(height: Chrome.Metric.control)
+        .background(isActive ? Chrome.selection(accent) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: Chrome.Metric.radius))
         // The whole tab selects, padding and vertical slack included. Wrapping
         // only the `Text` in a `Button` shrank the target to the title's glyph
         // box — about 17pt tall inside a 44pt touch bar — and left this
@@ -105,7 +100,7 @@ struct EditorTabBar: View {
         // fill — three visual signals, none of which reaches VoiceOver. The app's
         // other tab strip already says it: `InspectorOverlay:126`, which adds
         // `.isSelected` alone because its row already *is* a `Button`. (The
-        // accent swatches at `AppearanceSettingsSections:160` write the same
+        // accent swatches in `AppearanceSettingsSections` write the same
         // `[.isButton, .isSelected]` pair, but they are a colour picker, not a
         // tab strip, and being buttons already they do not need the `.isButton`
         // half either. This HStack is not a button, so here it is load-bearing.)

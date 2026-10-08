@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Synchronization
 import UniformTypeIdentifiers
 
 #if os(macOS)
@@ -93,7 +94,9 @@ enum CollectionState: Equatable {
         }
     }
 
-    enum UnavailableReason: Equatable {
+    /// `nonisolated`: made off the main actor by `Collection.unavailability(of:)`
+    /// and handed back to it.
+    nonisolated enum UnavailableReason: Equatable {
         case missing            // moved, renamed, or deleted
         case unmounted          // the volume went away
         case permissionDenied   // the sandbox grant no longer holds
@@ -247,12 +250,59 @@ final class Collection: Identifiable {
     @discardableResult
     func recheckAvailability() async -> Bool {
         guard case .unavailable = state else { return true }
-        guard Self.unavailability(of: rootURL) == nil else { return false }
-        state = .ready
-        await scanOffMain()
-        refreshDerived()
-        return true
+        // One recheck at a time. Pressed again while one is still looking —
+        // which the app can be now it is not blocked — Try Again joins it and
+        // answers with it, rather than queueing a look of its own behind it.
+        if let pending = recheckTurn {
+            return await pending.value != .stillUnavailable
+        }
+        // The look and its verdict take their turn with the watcher's events
+        // (`inTurn`): the look waits off the main actor now, and it was one
+        // synchronous step, which nothing could come between.
+        let turn = inTurn { [weak self] () -> Recheck in
+            guard let self else { return .stillUnavailable }
+            return await self.lookAgain()
+        }
+        recheckTurn = turn
+        let found = await turn.value
+        if recheckTurn == turn { recheckTurn = nil }
+        switch found {
+        case .alreadyBack: return true
+        case .stillUnavailable: return false
+        case .back:
+            // Not for a collection closed since its turn ended: the walk would
+            // run over a folder whose security scope it has given up.
+            guard !isClosed else { return true }
+            await scanOffMain()
+            refreshDerived()
+            return true
+        }
     }
+
+    /// The recheck queued or under way, for another to join.
+    @ObservationIgnored private var recheckTurn: Task<Recheck, Never>?
+
+    /// What a recheck's turn found.
+    private enum Recheck: Sendable { case back, alreadyBack, stillUnavailable }
+
+    /// A recheck's turn: look at the folder, and bring the collection back if
+    /// it can be read. Off the main actor, because the look lists the folder,
+    /// and on a File Provider or iCloud volume a listing can be a blocking XPC
+    /// call.
+    private func lookAgain() async -> Recheck {
+        // A turn before this one — another recheck — may have brought it back.
+        guard !isClosed, case .unavailable = state else { return isAvailable ? .alreadyBack : .stillUnavailable }
+        let root = rootURL
+        let reason = await offMain { Collection.unavailability(of: root) }
+        guard !isClosed, reason == nil else { return .stillUnavailable }
+        state = .ready
+        recoveries &+= 1
+        return .back
+    }
+
+    /// Counts the rechecks that found the folder readable, so a walk's
+    /// verdict can tell it is older than one (`performScan`).
+    @ObservationIgnored private var recoveries = 0
 
     /// Why the folder can't be read, or `nil` when it can.
     ///
@@ -260,12 +310,21 @@ final class Collection: Identifiable {
     /// grant, where the path is present and the read is refused — so this
     /// actually attempts the enumeration the scan is about to do.
     nonisolated static func unavailability(of url: URL) -> CollectionState.UnavailableReason? {
-        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
-        guard (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil else {
+        let path = url.path
+        if let probe = availabilityProbes.withLock({ $0[path] }) { probe(Thread.isMainThread) }
+        guard FileManager.default.fileExists(atPath: path) else { return .missing }
+        guard (try? FileManager.default.contentsOfDirectory(atPath: path)) != nil else {
             return .permissionDenied
         }
         return nil
     }
+
+    /// Told, for a folder's path, whether a look at that folder ran on the
+    /// main thread — a test's way to see where `unavailability(of:)` runs,
+    /// which no timing can show: a test's folder lists in microseconds, and it
+    /// is a File Provider's that can block. Keyed by path, so tests running at
+    /// once hear only their own folders; empty outside tests.
+    nonisolated static let availabilityProbes = Mutex<[String: @Sendable (_ onMainThread: Bool) -> Void]>([:])
 
     /// The Markdown notes discovered inside the collection.
     var notes: [Note] = []
@@ -298,7 +357,18 @@ final class Collection: Identifiable {
     /// session may never touch. It is pure derived data, so building late costs
     /// nothing but the first call.
     private var relatedness: TermVectorRelatednessIndex?
-    private var relatednessBuild: Task<TermVectorRelatednessIndex, Never>?
+    /// The build in flight: `nil` from it means it was dropped while it ran.
+    private var relatednessBuild: Task<TermVectorRelatednessIndex?, Never>?
+
+    /// What a save or a delete did to a note while the index was built — which
+    /// read each note as it was when it began, and until it lands there is no
+    /// index to change. Applied before anyone can ask it anything.
+    private enum RelatednessChange { case update(RelatednessDocument), remove }
+    @ObservationIgnored private var relatednessPending: [URL: RelatednessChange] = [:]
+    /// Which build the index is — so one dropped while it ran
+    /// (`invalidateRelatedness`) neither takes the next one's changes nor
+    /// becomes the index.
+    @ObservationIgnored private var relatednessGeneration = 0
 
     /// Whether the index is already built, so UI can offer "Suggest" without
     /// implying it is instant.
@@ -314,56 +384,91 @@ final class Collection: Identifiable {
     ///
     /// The in-flight `Task` is held so that two callers arriving together — the
     /// References tab and a menu command, say — share one build instead of
-    /// reading the whole vault twice.
+    /// reading the whole vault twice. A build dropped while it ran answers
+    /// nothing, and its callers ask again.
     private func relatednessIndex() async -> TermVectorRelatednessIndex {
-        if let relatedness { return relatedness }
-        if let relatednessBuild { return await relatednessBuild.value }
-
-        let notes = self.notes
-        let build = Task.detached(priority: .userInitiated) { () -> TermVectorRelatednessIndex in
-            // Reading and preparing happens off the main actor; so does the
-            // tokenising inside `rebuild`, because the index is an actor.
-            let documents: [RelatednessDocument] = notes.compactMap { note in
-                // Only notes already on this device. The first Compose, Research
-                // or Suggest Links builds this, and reading an online-only note
-                // downloads it — so without the check that one request pulled
-                // the whole cloud vault local.
-                guard FileIO.hasContentAvailable(note),
-                      let raw = try? FileIO.readString(at: note.fileURL) else { return nil }
-                let text = RetrievalText.prepare(raw)
-                guard text.count >= 80 else { return nil }
-                return RelatednessDocument(url: note.fileURL, title: note.title, text: text)
+        while true {
+            if let relatedness { return relatedness }
+            if let relatednessBuild {
+                if let index = await relatednessBuild.value { return index }
+                continue
             }
-            let index = TermVectorRelatednessIndex()
-            await index.rebuild(with: documents)
-            return index
+            relatednessGeneration &+= 1
+            let generation = relatednessGeneration
+            let notes = self.notes
+            relatednessBuild = Task { () -> TermVectorRelatednessIndex? in
+                // Reading and preparing happens off the main actor; so does the
+                // tokenising inside `rebuild`, because the index is an actor.
+                let documents = await offMain { () -> [RelatednessDocument] in
+                    notes.compactMap { note in
+                        // Dropped: the rest of the vault is not worth reading
+                        // — on an iCloud vault that is seconds of coordinated
+                        // I/O, which a detached build went on doing.
+                        guard !Task.isCancelled else { return nil }
+                        // Only notes already on this device. The first Compose,
+                        // Research or Suggest Links builds this, and reading an
+                        // online-only note downloads it — so without the check
+                        // that one request pulled the whole cloud vault local.
+                        guard FileIO.hasContentAvailable(note),
+                              let raw = try? FileIO.readString(at: note.fileURL) else { return nil }
+                        let text = RetrievalText.prepare(raw)
+                        guard text.count >= 80 else { return nil }
+                        return RelatednessDocument(url: note.fileURL, title: note.title, text: text)
+                    }
+                }
+                guard relatednessGeneration == generation else { return nil }
+                let index = TermVectorRelatednessIndex()
+                await index.rebuild(with: documents)
+                // What was saved or deleted while it was built goes in first.
+                while relatednessGeneration == generation, !relatednessPending.isEmpty {
+                    let pending = relatednessPending
+                    relatednessPending = [:]
+                    for (url, change) in pending {
+                        switch change {
+                        case .update(let document): await index.update(document)
+                        case .remove: await index.remove(url)
+                        }
+                    }
+                }
+                // Published here, with nothing waiting — not by a caller, which
+                // resumes later: a save landing in between would be kept for an
+                // index that had already stopped taking them.
+                guard relatednessGeneration == generation else { return nil }
+                relatedness = index
+                relatednessBuild = nil
+                return index
+            }
         }
-        relatednessBuild = build
-        let index = await build.value
-        relatedness = index
-        relatednessBuild = nil
-        return index
     }
 
-    /// Keep the index current for one note. Cheap — one note's terms — and a
-    /// no-op until something has actually built the index.
-    private func updateRelatedness(url: URL, title: String, text: String) {
-        guard let relatedness else { return }
-        let document = RelatednessDocument(url: url, title: title,
-                                           text: RetrievalText.prepare(text))
-        Task { await relatedness.update(document) }
+    /// Keep the index current for one note, from its text already prepared
+    /// (`RetrievalText.prepare`, which a save runs off the main actor). Cheap —
+    /// one note's terms — kept for the build while one runs, and a no-op until
+    /// something asks for the index.
+    private func updateRelatedness(url: URL, title: String, prepared: String) {
+        let document = RelatednessDocument(url: url, title: title, text: prepared)
+        if let relatedness {
+            Task { await relatedness.update(document) }
+        } else if relatednessBuild != nil {
+            relatednessPending[url] = .update(document)
+        }
     }
 
     private func removeFromRelatedness(_ url: URL) {
-        guard let relatedness else { return }
-        Task { await relatedness.remove(url) }
+        if let relatedness {
+            Task { await relatedness.remove(url) }
+        } else if relatednessBuild != nil {
+            relatednessPending[url] = .remove
+        }
     }
 
     /// Drop the index so the next use rebuilds it. Used when the whole
     /// collection is re-read and per-note patching cannot be trusted.
     private func invalidateRelatedness() {
+        relatednessGeneration &+= 1
         relatednessBuild?.cancel()
         relatednessBuild = nil
+        relatednessPending = [:]
         relatedness = nil
     }
 
@@ -404,10 +509,13 @@ final class Collection: Identifiable {
     func linkProposals(in text: String, for noteURL: URL?, limit: Int = 10) async -> [LinkProposal] {
         let candidates = linkCandidates
         let declined = declinedLinks.all
-        let found = await Task.detached(priority: .userInitiated) {
+        // `offMain`, not `Task.detached`, which says nothing about isolation:
+        // the scan read `LinkCandidate.names`, a member of what was then a
+        // main-actor type, and only a warning said so.
+        let found = await offMain {
             LinkProposals.proposals(in: text, candidates: candidates,
                                     declined: declined, excludingNoteAt: noteURL)
-        }.value
+        }
         guard found.count > limit else { return found }
 
         // Rank by relatedness, keep the best, then restore reading order — the
@@ -536,13 +644,21 @@ final class Collection: Identifiable {
     /// autosaving, or iCloud streaming a file down in pieces) into a single
     /// scan + reconcile, instead of re-walking the whole vault per event.
     private var externalReconcileTask: Task<Void, Never>?
+    /// Whether that reconcile is past its debounce and walking — when a change
+    /// seen asks for one more pass rather than cancelling it.
+    private var reconcileIsWalking = false
 
     /// How long a reconcile waits for the burst to end before scanning.
     private static let reconcileDebounce: Duration = .milliseconds(400)
 
-    /// Debounced index refresh scheduled after an editor save (the note *set*
-    /// is unchanged, so no re-scan is needed — only the content-derived index).
+    /// The rebuild of the derived indexes in flight (`refreshDerived`). Only a
+    /// newer rebuild cancels it — one that will land with everything it would
+    /// have, and more.
     private var deriveTask: Task<Void, Never>?
+
+    /// The rebuild a changed alias asks for, waiting for the edits to stop
+    /// (`applyDerivedUpdates`). Any rebuild begun after the save covers it.
+    private var aliasRebuild: Task<Void, Never>?
 
     /// Whatever this platform notices changes with — FSEvents or a file
     /// presenter. One property, because `Collection` only ever asks it to start
@@ -614,6 +730,7 @@ final class Collection: Identifiable {
         self.showsNonNoteFiles = UserDefaults.standard.object(forKey: key) as? Bool ?? true
         git.rootURL = rootURL
         bookmarks.load(rootURL: rootURL)
+        embedProvider.owner = self
     }
 
     // MARK: - Scanning
@@ -684,16 +801,12 @@ final class Collection: Identifiable {
         }
 
         return (
-            discovered.sorted { $0.lastModified > $1.lastModified },
+            discovered.sorted(by: Note.newestFirst),
             discoveredFiles.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
             discoveredFolders
         )
     }
 
-    /// Scan synchronously (used by the infrequent, user-initiated file
-    /// mutations that need the updated note immediately afterwards).
-    ///
-    /// A cancelled walk is **discarded**, never applied.
     /// Synchronous whole-folder scan. **Tests only.**
     ///
     /// It walks the entire tree on the main actor, so on anything larger than a
@@ -829,6 +942,8 @@ final class Collection: Identifiable {
 
     private func performScan() async {
         let collectionID = id
+        // Whether a recheck finds the folder while this walk looks at it.
+        let recoveriesBefore = recoveries
         let source = LocalTreeSource(root: rootURL, includesNonNoteFiles: showsNonNoteFiles)
         let resume = Self.resumePoint(for: collectionID)
         /// Whether this pass will visit the whole tree, and may therefore
@@ -882,8 +997,11 @@ final class Collection: Identifiable {
         // Now one detached task walks, accumulates and sorts, and hands back
         // finished, already-sorted pictures. The main actor's entire job is to
         // assign one value, at most a few times a second.
-        let remoteState: (cacheRoot: URL, dehydrated: Set<String>, trueSizes: [String: Int])? =
-            remote.map { ($0.cacheRoot, $0.dehydratedRelativePaths, $0.manifest.sizes) }
+        // The manifest as it is now — a copy of a struct — folded into the
+        // placeholders and sizes off the main actor, inside the walk: at
+        // 20,000 records that was 12 ms here per scan (implemented.md §51.36).
+        let remoteState: (cacheRoot: URL, manifest: RemoteManifest, moving: Set<String>?)? =
+            remote.map { ($0.cacheRoot, $0.manifest, $0.dehydratedRelativePathsIfMoving) }
 
         // Bounded, so a fast filesystem cannot pile work onto a slow consumer.
         // The old stream was unbounded with no backpressure, which is why a
@@ -896,8 +1014,8 @@ final class Collection: Identifiable {
             var found = ScanAccumulator()
             if let remoteState {
                 found.cacheRoot = remoteState.cacheRoot
-                found.dehydrated = remoteState.dehydrated
-                found.trueSizes = remoteState.trueSizes
+                found.dehydrated = remoteState.moving ?? remoteState.manifest.dehydratedPaths
+                found.trueSizes = remoteState.manifest.sizes
             }
             var lastEmit = ContinuousClock.now
 
@@ -950,7 +1068,18 @@ final class Collection: Identifiable {
             walk.cancel()
         }
 
-        if let reason = result.unavailable { markUnavailable(reason); return }
+        if let reason = result.unavailable {
+            // **Not over a recheck that has found the folder since.** A walk
+            // stuck in its root look on a stalled provider, the provider
+            // recovering, and Try Again finding the folder readable: its walk
+            // joins this one, and this one's failed look landed
+            // `.permissionDenied` over the newer `.ready` — which the clean
+            // pass after it never clears, so a readable collection said it had
+            // lost permission while Try Again had said it was back. That pass
+            // looks again, and is the one to say so if it has gone again.
+            if recoveries == recoveriesBefore { markUnavailable(reason) }
+            return
+        }
         guard let found = finalPicture else {
             // The stream ended without a final picture: the walk was cancelled
             // before it finished. Publish nothing — the previous picture is
@@ -1143,7 +1272,7 @@ final class Collection: Identifiable {
         }
 
         var sorted: ScanPicture {
-            (notes.sorted { $0.lastModified > $1.lastModified },
+            (notes.sorted(by: Note.newestFirst),
              files.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
              folders)
         }
@@ -1210,7 +1339,7 @@ final class Collection: Identifiable {
         }
 
         let mergedNotes = (keptNotes + fresh.notes)
-            .sorted { $0.lastModified > $1.lastModified }
+            .sorted(by: Note.newestFirst)
         let mergedFiles = (keptFiles + fresh.attachments)
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         let mergedFolders = blindSpots == nil
@@ -1232,6 +1361,13 @@ final class Collection: Identifiable {
             refreshDerived()
         } catch {
             report("Couldn't refresh from \(remote.store.providerName): \(error.localizedDescription)")
+            return
+        }
+        // Then what the provider has never had — a note made while it could not
+        // be reached, one whose upload failed. It stayed on this device until
+        // it was edited again, or for good.
+        remote.sendUnsent { [weak self] error in
+            self?.report("Couldn't upload to \(remote.store.providerName): \(error.localizedDescription)")
         }
     }
 
@@ -1244,7 +1380,7 @@ final class Collection: Identifiable {
             try await remote.hydrate(localURL: url)
             // Keep the cache bounded, never evicting what was just opened or
             // what is open in a tab.
-            remote.evictIfNeeded(keeping: pinnedCachePaths(including: url))
+            await remote.evictIfNeeded(limit: remote.cacheLimit, keeping: pinnedCachePaths(including: url))
             // **One note changed, so update one note.** This used to
             // `await scanOffMain()` here, and `hydrateIfNeeded` is wired as
             // `tabs.prepareToOpen` — so *selecting* a note in a cloud collection
@@ -1272,6 +1408,18 @@ final class Collection: Identifiable {
         adopt(hydrated: url)
     }
 
+    /// Whether the file at `url` is a cloud mirror's placeholder — a file of
+    /// the note's name with nothing in it — as the mirror's manifest says now:
+    /// a `Note` records what its file was when the folder was walked, and an
+    /// editor holds the one it was opened with. From memory, so it can be asked
+    /// on the main actor. Whether an iCloud item has downloaded is the file
+    /// provider's to answer, and is asked off it (`FileIO.isMaterialized`,
+    /// beside `EditorModel.reconcileWithDisk`'s read) — it was asked here, on
+    /// the main actor, once per open tab per change seen on disk.
+    func isPlaceholder(at url: URL) -> Bool {
+        remote?.isPlaceholder(localURL: url) ?? false
+    }
+
     /// Mark a just-downloaded note as local, without re-walking the folder.
     private func adopt(hydrated url: URL) {
         guard let index = notes.firstIndex(where: { $0.fileURL == url }) else { return }
@@ -1285,10 +1433,28 @@ final class Collection: Identifiable {
     }
 
     /// Cache-relative paths that must survive eviction: whatever was just
-    /// opened, plus anything the editor is currently holding.
+    /// opened, plus every note an editor is holding, in any window.
+    ///
+    /// It was the first alone, while this comment already promised the second.
+    /// Opening a note with the cache full dropped the others open in tabs back
+    /// to placeholders under them; the watcher — the collection's root is this
+    /// cache — took each for an external change, so a clean tab reloaded an
+    /// empty note and one with edits raised a conflict against "", and what
+    /// was typed there after was lost at the next download, since a note that
+    /// is not hydrated is never uploaded (`noteDidSave`). Open notes are
+    /// matched through `rootPrefixes`, every spelling of this cache's path,
+    /// and never by name: `RemoteMirror.relativePath` answers a URL from
+    /// elsewhere with its last component, which would pin a namesake here.
     private func pinnedCachePaths(including url: URL) -> Set<String> {
         guard let remote else { return [] }
-        return [RemoteMirror.relativePath(of: url, in: remote.cacheRoot)]
+        let prefixes = CollectionIndexCache.rootPrefixes(remote.cacheRoot)
+        var pinned: Set<String> = [RemoteMirror.relativePath(of: url, in: remote.cacheRoot)]
+        for open in EditorModel.openNoteURLs {
+            let path = open.standardizedFileURL.path
+            guard let prefix = prefixes.first(where: { path.hasPrefix($0) }) else { continue }
+            pinned.insert(String(path.dropFirst(prefix.count)))
+        }
+        return pinned
     }
 
     /// Download every note whose content isn't local yet, so a content search
@@ -1407,6 +1573,7 @@ final class Collection: Identifiable {
     }
 
     func activate(onExternalChange: @escaping @MainActor () -> Void) async {
+        isClosed = false
         securityScoped = rootURL.startAccessingSecurityScopedResource()
         retriedAfterIssues = false
 
@@ -1466,6 +1633,11 @@ final class Collection: Identifiable {
 
     /// Stop watching and relinquish the security scope. Call before closing.
     func deactivate() {
+        // A look under way, or a turn still queued, answers for a collection
+        // no longer open: its verdict is dropped (`handle`, `lookAgain`) — and
+        // a reconcile scheduled just before closing would walk it.
+        isClosed = true
+        externalReconcileTask?.cancel()
         stopObserving()
         externalChangeHandler = nil
         if securityScoped { rootURL.stopAccessingSecurityScopedResource(); securityScoped = false }
@@ -1482,23 +1654,38 @@ final class Collection: Identifiable {
     /// memory, which keeps this correct for every kind of change.
     ///
     /// `force` ignores the cache and re-parses everything (the Rescan command).
+    ///
+    /// **A save never cancels this, and it never undoes a save** — see
+    /// `KeptSave`. Notes a save or a new note has patched since a rebuild last
+    /// read them are read from disk here, not taken from the cache, and a save
+    /// that lands while this runs is applied over what it read.
     func refreshDerived(force: Bool = false) {
         embedProvider.update(notes: notes)
         let noteList = notes
         let root = rootURL
+        // Written already, every one: a save is written before it is indexed.
+        let unread = Set(keptSaves.keys).union(savesToIndex.keys)
+        let begun = saveSerial
+        let number = CollectionIndexCache.rebuildNumber()
+        // This rebuild includes whatever alias change that one waits for.
+        aliasRebuild?.cancel()
         deriveTask?.cancel()
-        deriveTask = Task {
-            let pairs = await Task.detached(priority: .userInitiated) { () -> [(note: Note, record: NoteIndexRecord)] in
-                let cached = force ? [:] : (CollectionIndexCache.load(for: root) ?? [:])
-                var pairs: [(note: Note, record: NoteIndexRecord)] = []
+        // `offMain` runs at the caller's priority: this is the one the reads
+        // ran at in a detached task, ahead of background work.
+        deriveTask = Task(priority: .userInitiated) {
+            let found = await offMain { () -> RebuildRecords in
+                let cached = force ? [:] : (CollectionIndexCache.loadForRebuild(for: root) ?? [:])
+                var found = RebuildRecords()
                 var reparsed = 0
                 for note in noteList {
                     let rel = CollectionIndexCache.relativePath(of: note.fileURL, in: root)
-                    if let record = cached[rel], record.matches(note) {
-                        pairs.append((note, record))
+                    let saved = unread.contains(note.fileURL)
+                    if !saved, let record = cached[rel], record.matches(note) {
+                        found.append(note, record)
                     } else if FileIO.hasContentAvailable(note),
                               let text = try? FileIO.readString(at: note.fileURL) {
-                        pairs.append((note, CollectionIndexCache.record(for: note, relativeTo: root, text: text)))
+                        found.append(note, CollectionIndexCache.record(for: note, relativeTo: root, text: text))
+                        if saved { found.read.insert(note.fileURL) }
                         reparsed += 1
                     }
                     // An online-only note that isn't cached is skipped rather
@@ -1507,36 +1694,108 @@ final class Collection: Identifiable {
                     // materializes it) or edited. This keeps first-open of a
                     // cloud vault from pulling every note local.
                 }
-                // Persist when anything was re-parsed or notes were removed.
-                if reparsed > 0 || pairs.count != cached.count {
-                    CollectionIndexCache.save(pairs.map { $0.record }, for: root)
+                // Persist when anything was re-parsed or notes were removed —
+                // unless a newer rebuild has begun, which writes its own (and
+                // is the only one allowed to once it has: see `save`).
+                if !Task.isCancelled, reparsed > 0 || found.pairs.count != cached.count {
+                    found.cached = CollectionIndexCache.save(found.pairs.map { $0.record }, for: root,
+                                                             rebuild: number)
                 }
-                return pairs
-            }.value
+                return found
+            }
             guard !Task.isCancelled else { return }
 
+            let pairs = withKeptSaves(found, begun: begun)
+            let applied = patchesLanded
             MainActorWatchdog.measure("linkGraph.load(\(pairs.count) records)") {
                 linkGraph.load(pairs: pairs)
             }
             await search.load(pairs: pairs)
+            // Replaced while search was built: the newer rebuild lands with
+            // all of this, and `load` has not applied it (see there).
+            guard !Task.isCancelled else { return }
+            // A save — or a new note — that landed while search was being
+            // built was patched into the index `load` has just replaced. The
+            // link graph, loaded before, has it. Several at once — a rename's
+            // rewrite saves one note per backlink — are found in one pass.
+            let late = keptSaves.filter { $0.value.landed > applied }
+            if !late.isEmpty {
+                MainActorWatchdog.measure("search: \(late.count) saves made while it loaded") {
+                    let byURL = Dictionary(notes.map { ($0.fileURL, $0) }, uniquingKeysWith: { first, _ in first })
+                    search.updateNotes(late.compactMap { url, kept in
+                        byURL[url].map { (note: $0, headings: kept.headings, tags: kept.tags, aliases: kept.aliases) }
+                    })
+                }
+            }
             MainActorWatchdog.measure("derivedRevision bump → observers") {
                 derivedRevision &+= 1
             }
         }
     }
 
+    /// What a rebuild found, off the main actor.
+    private nonisolated struct RebuildRecords: Sendable {
+        var pairs: [(note: Note, record: NoteIndexRecord)] = []
+        /// Where each note's record is in `pairs`.
+        var position: [URL: Int] = [:]
+        /// The notes it read from disk because a save had patched them.
+        var read: Set<URL> = []
+        /// Whether the cache holds what it read, now: it wrote it.
+        var cached = false
+
+        mutating func append(_ note: Note, _ record: NoteIndexRecord) {
+            position[note.fileURL] = pairs.count
+            pairs.append((note, record))
+        }
+    }
+
+    /// A rebuild's records as they stand when it lands: a kept save it has
+    /// read from disk since is let go, and every other one is applied over
+    /// what it read.
+    private func withKeptSaves(_ found: RebuildRecords, begun: Int) -> [(note: Note, record: NoteIndexRecord)] {
+        guard !keptSaves.isEmpty else { return found.pairs }
+        var pairs = found.pairs
+        var unseen: [(note: Note, record: NoteIndexRecord)] = []
+        for (url, kept) in keptSaves {
+            if found.read.contains(url), kept.serial <= begun {
+                // Read after the save was written, so what was read is the
+                // save — or something newer, made elsewhere, which must win.
+                // Let go once the cache holds it too: until then the cache
+                // holds the note's record from before the save, under the
+                // date `notes` still has, and the next rebuild reads it again.
+                if found.cached { keptSaves[url] = nil }
+            } else if let index = found.position[url] {
+                pairs[index].record = kept.applied(to: pairs[index].record)
+            } else if let note = notes.first(where: { $0.fileURL == url }) {
+                // Made after the rebuild began, or not readable when it looked.
+                // Never written — the cache was, before this — so no path.
+                unseen.append((note, kept.applied(to: NoteIndexRecord(
+                    relativePath: "", mtime: note.lastModified.timeIntervalSinceReferenceDate,
+                    size: note.fileSize, aliases: [], tags: [], headings: [], outgoing: []))))
+            } else {
+                keptSaves[url] = nil                      // it has left the collection
+            }
+        }
+        // Ahead of the rest, where a note made since — the newest — stands in
+        // `notes`: a link resolves to the first note of its name.
+        return unseen.isEmpty ? pairs : unseen + pairs
+    }
+
     /// Rebuild everything from scratch, ignoring the index cache — the safety
     /// valve for when the index ever looks wrong.
     func rescan() {
-        CollectionIndexCache.remove(for: rootURL)
-        // **Drop the walk checkpoint too.** Without this, "rebuild everything
-        // from scratch" quietly resumed from a stored frontier and walked only
-        // part of the tree — so the one command offered as the escape hatch for
-        // a wrong index reproduced the wrong index, and there was no way out of
+        // **Drop the walk checkpoint**, as well as the index cache (in
+        // `rebuildFromScratch`). Without this, "rebuild everything from
+        // scratch" quietly resumed from a stored frontier and walked only part
+        // of the tree — so the one command offered as the escape hatch for a
+        // wrong index reproduced the wrong index, and there was no way out of
         // the state from inside the app at all.
         WalkCheckpointStore.remove(for: id)
         invalidateRelatedness()
         retriedAfterIssues = false
+        // The rebuild in flight read the cache being thrown away; the one the
+        // rescan ends with replaces it.
+        deriveTask?.cancel()
         Task { await rebuildFromScratch() }
     }
 
@@ -1547,6 +1806,12 @@ final class Collection: Identifiable {
     /// is why the command shipped with no test at all, and why "rescan does
     /// nothing" went unnoticed for so long. The caller that can wait, waits.
     func rebuildFromScratch() async {
+        // Off the main actor: removing the cache waits for a write of it in
+        // progress, and bars every rebuild begun before it from writing it
+        // back — it was being removed on the main actor, where a rebuild still
+        // reading could write it again after it.
+        let root = rootURL
+        await offMain { CollectionIndexCache.remove(for: root) }
         await scanOffMain()
         refreshDerived(force: true)
     }
@@ -1561,7 +1826,7 @@ final class Collection: Identifiable {
         #if os(macOS)
         let watcher = FileWatcher { [weak self] event in
             Task { @MainActor [weak self] in
-                self?.handle(event, onExternalChange: onExternalChange)
+                self?.receive(event, onExternalChange: onExternalChange)
             }
         }
         watcher.start(url: rootURL)
@@ -1572,7 +1837,7 @@ final class Collection: Identifiable {
                 // The presenter speaks the same vocabulary the watcher does —
                 // including `.rootChanged`, which it could not say at all while
                 // its callback was "a subitem, or nothing".
-                self?.handle(event, onExternalChange: onExternalChange)
+                self?.receive(event, onExternalChange: onExternalChange)
             }
         }
         presenter.start()
@@ -1585,19 +1850,68 @@ final class Collection: Identifiable {
         observer = nil
     }
 
+    /// The last turn queued (`inTurn`).
+    @ObservationIgnored private var lastTurn: Task<Void, Never>?
+    /// Set by `deactivate`: the collection is being closed, and a look that
+    /// lands after that has nothing to say about it.
+    @ObservationIgnored private var isClosed = false
+
+    /// Run `work` after every turn queued before it — a watcher event, or a
+    /// recheck's look and verdict. Both look at the folder off the main actor
+    /// now, so each waits there; each ran whole, and in the order it came,
+    /// when the look was synchronous, and each still does. Without it an
+    /// `.unmounted` reported during a root change's look, or during a
+    /// recheck's, landed first and was then overwritten by the look's older
+    /// answer — `.missing`, or `.ready`. And rechecks queue rather than each
+    /// holding a pool thread on a stalled provider.
+    ///
+    /// **A turn must never wait for a turn** — `inTurn(…).value`, or anything
+    /// that does, such as `recheckAvailability()`: it would wait for itself,
+    /// and every turn after it with it. Turns call synchronous code and
+    /// `offMain`, nothing else.
+    @discardableResult
+    private func inTurn<T: Sendable>(_ work: @escaping @MainActor () async -> T) -> Task<T, Never> {
+        let previous = lastTurn
+        let turn = Task { @MainActor () -> T in
+            await previous?.value
+            return await work()
+        }
+        lastTurn = Task { @MainActor in _ = await turn.value }
+        return turn
+    }
+
+    /// Handle `event` in its turn. Returns the handling, for a test to wait on.
+    @discardableResult
+    func receive(_ event: DirectoryEvent,
+                 onExternalChange: @escaping @MainActor () -> Void) -> Task<Void, Never> {
+        inTurn { [weak self] in
+            guard let self else { return }
+            await self.handle(event, onExternalChange: onExternalChange)
+        }
+    }
+
     /// Turn what the observer said into what the collection should do about it.
     ///
     /// One handler for both platforms. It used to be two — `handle(_:)` over
     /// FSEvents flags and `presenterDidReportChange(at:)` over a URL — and they
     /// had drifted: only the macOS one refreshed Git status when `.git` churned.
-    private func handle(_ event: DirectoryEvent,
-                        onExternalChange: @escaping @MainActor () -> Void) {
+    ///
+    /// Events reach it one at a time, in the order they came (`receive`), and
+    /// a collection being closed hears none of them.
+    func handle(_ event: DirectoryEvent,
+                onExternalChange: @escaping @MainActor () -> Void) async {
+        guard !isClosed else { return }
         switch event {
         case .rootChanged:
             // Moved, renamed, or deleted. Re-check rather than assume: a rename
             // *back*, or an editor's atomic save-over of the folder, can raise
-            // this while leaving a perfectly readable directory behind.
-            if let reason = Self.unavailability(of: rootURL) {
+            // this while leaving a perfectly readable directory behind. Looked
+            // at off the main actor — it lists the folder, and on a File
+            // Provider or iCloud volume a listing can be a blocking XPC call.
+            let root = rootURL
+            let reason = await offMain { Collection.unavailability(of: root) }
+            guard !isClosed else { return }
+            if let reason {
                 markUnavailable(reason)
                 onExternalChange()
             } else {
@@ -1695,10 +2009,23 @@ final class Collection: Identifiable {
     /// caused ourselves has stopped being news.
     private func reconcileSoon(onExternalChange: @escaping @MainActor () -> Void,
                                after delay: Duration) {
+        // **A walk under way is not cancelled for a change seen during it** —
+        // a cancelled walk keeps nothing and the next starts over, so changes
+        // arriving through a long walk of a big vault kept it from ever
+        // finishing (implemented.md §51.36). It is asked for one more pass,
+        // which `scanOffMain` runs before it returns, and so before the
+        // reconcile awaiting it reports. Only a reconcile still waiting out
+        // its debounce is replaced.
+        if reconcileIsWalking, scanInFlight != nil {
+            rescanWhenIdle = true
+            return
+        }
         externalReconcileTask?.cancel()
         externalReconcileTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
+            self.reconcileIsWalking = true
+            defer { self.reconcileIsWalking = false }
             // No gate here any more, because there is nothing to gate
             // against: the app no longer writes to the vault while the user is
             // typing, so the self-write that used to trigger this walk — and
@@ -1825,6 +2152,22 @@ final class Collection: Identifiable {
     /// A save is a save on both platforms; there is nothing about this body that
     /// needs AppKit.
     func noteDidSave(_ url: URL, text: String) {
+        didSave(url, text: text, note: notes.first(where: { $0.fileURL == url }))
+    }
+
+    /// Several saves the app made at once — the notes a rename's link rewrite
+    /// wrote — with the notes looked up once rather than searched for per
+    /// save: 1,000 rewrites in a 10,000-note collection were a 104 ms freeze,
+    /// measured by the concurrency review of implemented.md §51.21.
+    func notesDidSave(_ saves: [(url: URL, text: String)]) {
+        guard !saves.isEmpty else { return }
+        let byURL = Dictionary(notes.map { ($0.fileURL, $0) }, uniquingKeysWith: { first, _ in first })
+        for save in saves { didSave(save.url, text: save.text, note: byURL[save.url]) }
+    }
+
+    /// `noteDidSave`, with the saved note already found — nil when it is not in
+    /// the picture yet.
+    private func didSave(_ url: URL, text: String, note found: Note?) {
         rememberSelfWrite(url)
         let title = url.deletingPathExtension().lastPathComponent
 
@@ -1838,13 +2181,19 @@ final class Collection: Identifiable {
             // The indexers are gated too, so reaching here means something got
             // past them — which is exactly when a last line of defence earns its
             // keep.
-            guard remote.isHydrated(localURL: url) else {
+            //
+            // **A placeholder, not "a file the manifest does not say is
+            // downloaded".** That is also every note made here — a new note, a
+            // copy, the conflicted copy an editor keeps — which the provider has
+            // never had, and each of their saves was refused with this message.
+            guard !remote.isPlaceholder(localURL: url) else {
                 report("“\(title)” hasn't been downloaded from \(remote.store.providerName) yet, so it wasn't uploaded. Open it first.")
                 return
             }
-            Task {
-                do { try await remote.upload(localURL: url) }
-                catch { report("Couldn't upload “\(title)” to \(remote.store.providerName): \(error.localizedDescription)") }
+            // In its turn, and as it was saved: a rename right after the save
+            // may have moved the file before the upload's turn comes.
+            remote.sendSave(of: url, data: Data(text.utf8)) { [weak self] error in
+                self?.report("Couldn't upload “\(title)” to \(remote.store.providerName): \(error.localizedDescription)")
             }
         }
 
@@ -1863,63 +2212,201 @@ final class Collection: Identifiable {
         //  * aliases changed — that alters how *other* notes' links resolve, so
         //    the derived indexes do need rebuilding. But they rebuild from
         //    index records, not from a folder walk.
-        let parsedAliases = MarkdownParsing.aliases(in: text)
-        let aliasesChanged = parsedAliases != search.aliases(of: url)
-
-        guard let note = notes.first(where: { $0.fileURL == url }) ?? adopt(createdAt: url) else { return }
+        guard let note = found ?? adopt(createdAt: url) else { return }
 
         // Reached only from a save, and a save is only taken once editing has
-        // stopped — so this runs when the user is not typing, by construction
-        // rather than by asking.
-        applyDerivedUpdates(for: note, url: url, title: title,
-                            text: text, aliasesChanged: aliasesChanged)
+        // stopped, so the parse begins when the user is not typing. The patch
+        // lands a parse later, when they may be again — it is a few dictionary
+        // entries.
+        indexSaved(note, title: title, text: text)
     }
 
-    /// The post-save index work.
-    private func applyDerivedUpdates(for note: Note, url: URL, title: String,
-                                     text: String, aliasesChanged: Bool) {
+    /// Everything the indexes a save patches need from the saved text, in one
+    /// pass — made off the main actor (`indexSaved`).
+    nonisolated struct SavedNoteIndex: Sendable {
+        let headings: [DocumentHeading]
+        let tags: [String]
+        let aliases: [String]
+        let outgoing: [String]
+        /// For the relatedness index, and only when one has been built.
+        let retrievalText: String?
+
+        init(_ text: String, forRelatedness: Bool) {
+            let parsed = CollectionIndexCache.parse(text)
+            headings = parsed.headings
+            tags = parsed.tags
+            aliases = parsed.aliases
+            outgoing = parsed.outgoing
+            retrievalText = forRelatedness ? RetrievalText.prepare(text) : nil
+        }
+    }
+
+    /// What a save — or a new note — patched into the link graph and search
+    /// index, kept until a rebuild has read the note from disk since.
+    ///
+    /// A save patches the indexes and leaves the note's size and date in
+    /// `notes` as they were: restating it would re-sort the list and bump
+    /// `revision` — the sidebar's rebuild — on every save. But a rebuild takes
+    /// a note's record from the index cache while those still match it, so
+    /// until a walk had read the new ones, *every* rebuild put the note's
+    /// pre-save links, tags and aliases back (an alias changed on another
+    /// note was enough to ask for one). A save's patch cancelled the rebuild in
+    /// flight instead, meant for one that had read the note before the save —
+    /// and whatever that rebuild was for, a delete or a walk's findings, was
+    /// dropped with it, with nothing to run it again.
+    ///
+    /// Kept, a save is part of every rebuild that lands after it. One begun
+    /// after the save reads the note from disk, not the cache — and so lets a
+    /// change made elsewhere since win — and the save is let go; one begun
+    /// before it has the save applied over what it read (`withKeptSaves`). No
+    /// walk has to happen, and no rebuild has to be cancelled.
+    private struct KeptSave {
+        /// The save's number in `saveSerial`. Its file was written before it
+        /// was numbered, so a rebuild begun after it reads the save from disk.
+        let serial: Int
+        /// When its patch landed, in `patchesLanded` — whether a rebuild's
+        /// search index was built with it.
+        let landed: Int
+        let headings: [DocumentHeading]
+        let tags: [String]
+        let aliases: [String]
+        let outgoing: [String]
+
+        func applied(to record: NoteIndexRecord) -> NoteIndexRecord {
+            var record = record
+            record.headings = headings
+            record.tags = tags
+            record.aliases = aliases
+            record.outgoing = outgoing
+            return record
+        }
+    }
+    @ObservationIgnored private var keptSaves: [URL: KeptSave] = [:]
+    @ObservationIgnored private var patchesLanded = 0
+
+    /// Keep what was just patched into the indexes for `url`. See `KeptSave`.
+    private func keep(_ url: URL, serial: Int, headings: [DocumentHeading], tags: [String],
+                      aliases: [String], outgoing: [String]) {
+        patchesLanded &+= 1
+        keptSaves[url] = KeptSave(serial: serial, landed: patchesLanded, headings: headings,
+                                  tags: tags, aliases: aliases, outgoing: outgoing)
+    }
+
+    /// Which save of each note is the newest one being indexed, by its number
+    /// in `saveSerial`.
+    @ObservationIgnored private var savesToIndex: [URL: Int] = [:]
+    /// One count for every save — and every new note — never reset. A number
+    /// per note, cleared once applied, would start again at 1 — and a parse
+    /// still running from an earlier 1 would then pass for the newest save and
+    /// be applied over it.
+    @ObservationIgnored private var saveSerial = 0
+
+    /// Saves still being parsed for the indexes — zero once every save has
+    /// been applied or superseded.
+    @ObservationIgnored private(set) var savesBeingIndexed = 0
+    @ObservationIgnored private var savesIndexedWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Returns once every save made so far has been applied to the indexes (or
+    /// superseded by a newer one) — for work that reads them to act on the
+    /// vault. A rename rewrites the links the link graph knows, and the shell
+    /// flushes every tab just before it renames: without this, a link typed a
+    /// moment before was still being parsed, so it was not rewritten.
+    func savesIndexed() async {
+        guard savesBeingIndexed > 0 else { return }
+        await withCheckedContinuation { savesIndexedWaiters.append($0) }
+    }
+
+    /// One save's parse has landed, applied or not.
+    private func saveIndexed() {
+        savesBeingIndexed -= 1
+        guard savesBeingIndexed == 0 else { return }
+        let waiters = savesIndexedWaiters
+        savesIndexedWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// Patch the indexes a save touches — **parsed once, off the main actor,
+    /// and applied on it.**
+    ///
+    /// All of it ran on the main actor after every write: the saved note's
+    /// aliases were read three times and its links twice, then its headings,
+    /// its tags and — with a relatedness index built — its retrieval text,
+    /// each a pass over the whole note: 158ms of main-thread CPU for one save
+    /// of a 2 MB note in a 200-note collection, where the save itself costs
+    /// 0.3ms. Applying what the parse found is a few dictionary entries — 5ms
+    /// for the same save (`MainActorBudgetTests`).
+    ///
+    /// Synchronous, it happened in the order it was asked for; off the actor,
+    /// parses finish in whatever order they finish, so the orders are held by
+    /// hand (`SaveIndexingTests`). **Only the newest save of a note is
+    /// applied**: parses run side by side, and an older one landing last would
+    /// put the older links and tags back. A note that has left the collection
+    /// while its save was parsed — deleted, moved — is not put back into the
+    /// indexes, and a note made again at its path is a new note, not given the
+    /// old one's save (`forget`, `adopt(renamed:)`, `adopt(createdAt:)` drop
+    /// it). The rest is decided when the patch lands, not when the save did
+    /// (`applyDerivedUpdates`); and what reads the indexes to act on the vault
+    /// waits for them (`savesIndexed`).
+    private func indexSaved(_ note: Note, title: String, text: String) {
+        let url = note.fileURL
+        saveSerial &+= 1
+        let save = saveSerial
+        savesToIndex[url] = save
+        // Built, or being built — a build may have read the note already.
+        let forRelatedness = relatedness != nil || relatednessBuild != nil
+        savesBeingIndexed += 1
+        Task { [weak self] in
+            let parsed = await offMain { SavedNoteIndex(text, forRelatedness: forRelatedness) }
+            guard let self else { return }
+            // After the patch, so a waiter that resumes finds it applied.
+            defer { self.saveIndexed() }
+            guard self.savesToIndex[url] == save else { return }
+            self.savesToIndex[url] = nil
+            guard let current = self.notes.first(where: { $0.fileURL == url }) else { return }
+            self.applyDerivedUpdates(for: current, url: url, title: title, parsed: parsed, serial: save)
+        }
+    }
+
+    /// The post-save index work, from the note already parsed.
+    private func applyDerivedUpdates(for note: Note, url: URL, title: String, parsed: SavedNoteIndex,
+                                     serial: Int) {
+        // Asked of the index before this save is applied to it: after, the
+        // answer is always no.
+        let aliasesChanged = parsed.aliases != search.aliases(of: url)
         MainActorWatchdog.measure("noteDidSave.incremental") {
-            // Cancel any in-flight debounced rebuild: it reads cache-first from a
-            // pre-save mtime, so if it lands after this in-place patch it would
-            // revert the just-saved note's links/tags in the index.
-            deriveTask?.cancel()
+            // No rebuild is cancelled: one in flight lands with this save
+            // applied over what it read (`KeptSave`).
             MainActorWatchdog.measure("linkGraph.updateNote") {
-                linkGraph.updateNote(url: url, title: title, text: text)
+                linkGraph.updateNote(url: url, title: title, aliases: parsed.aliases, outgoing: parsed.outgoing)
             }
             MainActorWatchdog.measure("search.updateNote") {
-                search.updateNote(note, text: text)
+                search.updateNote(note, headings: parsed.headings, tags: parsed.tags, aliases: parsed.aliases)
             }
-            updateRelatedness(url: url, title: title, text: text)
-            MainActorWatchdog.measure("embedProvider.update(\(notes.count) notes)") {
-                embedProvider.update(notes: notes)   // bump so transclusions re-render
+            keep(url, serial: serial, headings: parsed.headings, tags: parsed.tags,
+                 aliases: parsed.aliases, outgoing: parsed.outgoing)
+            if let prepared = parsed.retrievalText {
+                updateRelatedness(url: url, title: title, prepared: prepared)
             }
+            // No `embedProvider.update(notes:)`: its map is titles and paths,
+            // which a save does not change, and rebuilding it was a pass over
+            // every note in the collection per save. Transclusions re-render
+            // on this bump.
             derivedRevision &+= 1
         }
 
         guard aliasesChanged else { return }
+        // Other notes' links may name this one by the alias, which its own
+        // entry cannot say: rebuilding re-resolves them all. It reads this
+        // note from disk, where the save is, and everything else from the
+        // cache — so nothing is restated here, which would re-sort the list
+        // under the cursor.
         MainActorWatchdog.note("noteDidSave: aliases changed — rebuilding derived indexes from records")
-        // Make this note's stat current so the cache diff re-parses *it* and
-        // reloads everything else from cache. Without this the record still
-        // matches the pre-save mtime and the rebuild would restore the aliases
-        // that were just removed. Only done here, not on every save: `notes` is
-        // sorted by modification date, and re-stating on each keystroke would
-        // make rows jump about under the cursor.
-        restat(note, savedByteCount: text.utf8.count)
-        deriveTask = Task { [weak self] in
+        aliasRebuild?.cancel()
+        aliasRebuild = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(800))
             guard !Task.isCancelled, let self else { return }
             self.refreshDerived()
         }
-    }
-
-    /// Update one note's size and modification date in place, without a walk.
-    private func restat(_ note: Note, savedByteCount: Int) {
-        guard let index = notes.firstIndex(where: { $0.fileURL == note.fileURL }) else { return }
-        notes[index] = Note(title: note.title, fileURL: note.fileURL,
-                            lastModified: Date(), fileSize: savedByteCount,
-                            isOnlineOnly: note.isOnlineOnly)
-        notes.sort { $0.lastModified > $1.lastModified }
-        revision &+= 1
     }
 
     // MARK: - File operations
@@ -1958,15 +2445,39 @@ final class Collection: Identifiable {
             return candidate
         }
         // Registered before the file exists, so no watcher can hear about it
-        // first and take it for an external change (see `adopt(createdAt:)`).
+        // first and take it for an external change (see `adopt(createdAt:)`)
+        // — and, on a cloud collection, no walk can take it for the provider's
+        // placeholder before its upload records it (`RemoteMirror.willMake`).
         rememberSelfWrite(candidate)
+        remote?.willMake(candidate)
         do {
             try await offMain { try FileIO.create(Data(), at: candidate) }
         } catch {
+            remote?.cancelMaking(candidate)
             report("Couldn't create the note: \(error.localizedDescription)")
             return nil
         }
+        // On a cloud collection, on the provider too — from the moment it is
+        // made, like a note made in any other folder, not only once something
+        // is typed into it.
+        madeHere(candidate, data: Data())
         return adopt(createdAt: candidate)
+    }
+
+    /// A file made here — a note, a copy, a picture pasted beside a note — to
+    /// the provider in its turn, on a cloud collection. Nothing otherwise.
+    private func madeHere(_ url: URL, data: Data?) {
+        guard let remote else { return }
+        let name = url.lastPathComponent
+        remote.sendSave(of: url, data: data) { [weak self] error in
+            self?.report("Couldn't upload “\(name)” to \(remote.store.providerName): \(error.localizedDescription)")
+        }
+    }
+
+    /// A file the editor put beside a note: a pasted picture.
+    func fileMadeHere(_ url: URL) {
+        rememberSelfWrite(url)
+        madeHere(url, data: nil)
     }
 
     /// Take a just-created file into the in-memory picture, without re-walking
@@ -1989,6 +2500,9 @@ final class Collection: Identifiable {
         // this one was ours. `renameNote` and `append` already did this; create
         // and delete were the two that did not.
         rememberSelfWrite(url)
+        // A new note: a save of an old one at this path, still being parsed,
+        // is not its save.
+        savesToIndex[url] = nil
 
         let note = Note(title: url.deletingPathExtension().lastPathComponent,
                         fileURL: url,
@@ -1998,7 +2512,7 @@ final class Collection: Identifiable {
         notes.append(note)
         // Same order `ScanAccumulator.sorted` uses, so an inserted note sits
         // exactly where a scan would have put it — newest first.
-        notes.sort { $0.lastModified > $1.lastModified }
+        notes.sort(by: Note.newestFirst)
         // A note created in a folder the picture has never seen brings the
         // folder with it, derived the way the cache derives folders — rather
         // than waiting for a walk of the whole collection to discover it.
@@ -2008,9 +2522,12 @@ final class Collection: Identifiable {
         revision &+= 1
 
         // The derived indexes take the same O(1) path a save does. The note is
-        // empty, so there is nothing to parse and no file to read.
-        linkGraph.updateNote(url: url, title: note.title, text: "")
-        search.updateNote(note, text: "")
+        // empty, so there is nothing to parse and no file to read — and kept
+        // like a save, or a rebuild begun before it lands without it.
+        linkGraph.updateNote(url: url, title: note.title, aliases: [], outgoing: [])
+        search.updateNote(note, headings: [], tags: [], aliases: [])
+        saveSerial &+= 1
+        keep(url, serial: saveSerial, headings: [], tags: [], aliases: [], outgoing: [])
         embedProvider.update(notes: notes)
         derivedRevision &+= 1
         return note
@@ -2019,6 +2536,8 @@ final class Collection: Identifiable {
     /// Drop a note we just removed from the in-memory picture. See `adopt`.
     private func forget(_ note: Note) {
         rememberSelfWrite(note.fileURL)
+        savesToIndex[note.fileURL] = nil              // see `indexSaved`
+        keptSaves[note.fileURL] = nil                 // and `KeptSave`
         notes.removeAll { $0.fileURL == note.fileURL }
         revision &+= 1
         removeFromRelatedness(note.fileURL)
@@ -2038,6 +2557,9 @@ final class Collection: Identifiable {
     /// `nil` if the name is empty/unchanged or the destination already exists.
     @discardableResult
     func renameNote(_ note: Note, to newTitle: String) async -> Note? {
+        // The links to rewrite are the link graph's, so the saves made just
+        // before — the shell flushes every tab first — have to be in it.
+        await savesIndexed()
         let title = newTitle
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")
@@ -2051,18 +2573,34 @@ final class Collection: Identifiable {
         // allow it through rather than reporting a spurious "already exists".
         let sameFile = destination.standardizedFileURL.path.lowercased()
             == note.fileURL.standardizedFileURL.path.lowercased()
-        guard sameFile || !FileManager.default.fileExists(atPath: destination.path) else {
+        // Asked off the main actor: on a File Provider's folder it is a round
+        // trip to the provider (implemented.md §51.36).
+        let taken = sameFile ? false : await offMain { FileManager.default.fileExists(atPath: destination.path) }
+        guard !taken else {
             report("A note named “\(title)” already exists in this folder.")
             return nil
         }
+        // On a cloud collection, renamed there too — reported before the file
+        // moves (`RemoteMirror.willMove`), so a sync under way never finds the
+        // old name empty and puts it back. It was renamed here alone: the
+        // provider kept the old name, which came back at the next sync, and the
+        // new one was never uploaded.
+        let moving = remote?.willMove(from: note.fileURL, to: destination)
         do {
             // Coordinated, and off the main actor: on a File Provider folder a
             // move waits for the provider, and an *uncoordinated* one can be
             // undone by it — which is what "the rename didn't stick" looks like.
             try await offMain { try FileIO.move(from: note.fileURL, to: destination) }
         } catch {
+            if let moving { remote?.cancel(moving) }
             report("Couldn't rename the note: \(error.localizedDescription)")
             return nil
+        }
+        if let remote, let moving {
+            let old = note.title
+            remote.sendMove(moving) { [weak self] error in
+                self?.report("Couldn't rename “\(old)” on \(remote.store.providerName): \(error.localizedDescription)")
+            }
         }
 
         bookmarks.updatePath(from: note.fileURL, to: destination)   // keep the pin
@@ -2071,6 +2609,9 @@ final class Collection: Identifiable {
         // the graph still keys the note by its old URL.
         let candidates = wikiLinkRewriteCandidates(for: note.fileURL, movedTo: destination)
         let moved = adopt(renamed: note, to: destination, title: title)
+        // The editors holding it follow it, in this turn — before the changed
+        // note list prunes their tabs (`EditorModel.itemMoved`).
+        EditorModel.itemMoved(from: note.fileURL, to: destination, title: title)
 
         // The rename is complete the moment the file has moved and the picture
         // has adopted it. Rewriting other notes' `[[links]]` is bookkeeping that
@@ -2108,6 +2649,8 @@ final class Collection: Identifiable {
         let now = Date()
         rememberSelfWrite(note.fileURL, at: now)      // the file that left
         rememberSelfWrite(destination, at: now)       // and the one that arrived
+        savesToIndex[note.fileURL] = nil              // see `indexSaved`
+        keptSaves[note.fileURL] = nil                 // and `KeptSave`: read again where it went
 
         // Keep `lastModified` — a move preserves it, and inventing a new one
         // would jump the note to the top of a list sorted by it, on nothing
@@ -2117,7 +2660,7 @@ final class Collection: Identifiable {
                          isOnlineOnly: note.isOnlineOnly)
         notes.removeAll { $0.fileURL == note.fileURL || $0.fileURL == destination }
         notes.append(moved)
-        notes.sort { $0.lastModified > $1.lastModified }
+        notes.sort(by: Note.newestFirst)
         revision &+= 1
         embedProvider.update(notes: notes)
         derivedRevision &+= 1
@@ -2142,22 +2685,35 @@ final class Collection: Identifiable {
     /// and return the copy.
     @discardableResult
     func duplicateNote(_ note: Note) async -> Note? {
+        // A copy of a note not yet downloaded was a copy of its placeholder:
+        // an empty note under the copy's name. Fetched first — and no copy if
+        // it cannot be, which the download has already said.
+        if isPlaceholder(at: note.fileURL) {
+            await hydrateIfNeeded(note.fileURL)
+            guard !isPlaceholder(at: note.fileURL) else { return nil }
+        }
         let folder = note.fileURL.deletingLastPathComponent()
         let base = "\(note.title) copy"
-        var candidate = folder.appendingPathComponent("\(base).md")
-        var counter = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent("\(base) \(counter).md")
-            counter += 1
+        // The free name found off the main actor, as `createNote` finds one.
+        let candidate = await offMain { () -> URL in
+            var candidate = folder.appendingPathComponent("\(base).md")
+            var counter = 2
+            while FileManager.default.fileExists(atPath: candidate.path) {
+                candidate = folder.appendingPathComponent("\(base) \(counter).md")
+                counter += 1
+            }
+            return candidate
         }
+        let destination = candidate
         do {
-            try await offMain { try FileIO.copy(from: note.fileURL, to: candidate) }
+            try await offMain { try FileIO.copy(from: note.fileURL, to: destination) }
         } catch {
             report("Couldn't duplicate the note: \(error.localizedDescription)")
             return nil
         }
         // The copy carries content, so unlike a fresh note it needs indexing —
         // but in the background, like every other one-file change here.
+        madeHere(destination, data: nil)
         let copy = adopt(createdAt: candidate)
         reindexSoon()
         return copy
@@ -2167,20 +2723,27 @@ final class Collection: Identifiable {
     /// their `![[…]]` embed forms to the new title in every note — including the
     /// renamed note itself, whose file has already moved to `movedTo`.
     /// Case-insensitive and whitespace-tolerant; aliases and headings survive.
+    ///
+    /// And `[[oldTitle\|alias]]`, as a table writes an aliased link — the
+    /// escape is not the name's (`WikiLinkSyntax`), and stays where it is. It
+    /// looked for the old name followed by `#`, `|` or `]]` alone, so a
+    /// table's links kept the old name and broke (implemented.md §51.36).
+    /// Only the name followed by one backslash and the pipe is `oldTitle`: a
+    /// longer run leaves backslashes in the name, which is another note's.
     private func rewriteWikiLinks(from oldTitle: String, to newTitle: String,
                                   in urls: [URL]) async {
         guard !urls.isEmpty else { return }
         // Read + rewrite the candidates off the main actor — it's file I/O.
         // Collect the notes we couldn't rewrite so the shell can tell the user
         // exactly which links may now be stale, rather than failing silently.
-        let outcome: (written: [URL], failed: [String]) = await offMain {
+        let outcome: (written: [(url: URL, text: String)], failed: [String]) = await offMain {
             let escaped = NSRegularExpression.escapedPattern(for: oldTitle)
             guard let regex = try? NSRegularExpression(
-                pattern: #"(\[\[)\s*"# + escaped + #"\s*(?=[#|\]])"#,
+                pattern: #"(\[\[)\s*"# + escaped + #"\s*(?=[#|\]]|\\\|)"#,
                 options: [.caseInsensitive]
             ) else { return ([], []) }
             let template = "$1" + NSRegularExpression.escapedTemplate(for: newTitle)
-            var written: [URL] = []
+            var written: [(url: URL, text: String)] = []
             var failed: [String] = []
             for url in urls {
                 guard let text = try? FileIO.readString(at: url),
@@ -2191,7 +2754,7 @@ final class Collection: Identifiable {
                                                              withTemplate: template)
                 do {
                     try FileIO.write(Data(updated.utf8), to: url)
-                    written.append(url)
+                    written.append((url, updated))
                 } catch {
                     failed.append(url.lastPathComponent)
                 }
@@ -2199,10 +2762,15 @@ final class Collection: Identifiable {
             return (written, failed)
         }
 
-        // Register these writes as our own so the change watcher doesn't re-scan
-        // them as external changes (a spurious reconcile + double re-index).
-        let now = Date()
-        for url in outcome.written { rememberSelfWrite(url, at: now) }
+        // Each is a save the app made, and taken as one: registered as our own
+        // (so the watcher does not re-scan it as a change made elsewhere),
+        // indexed with its new links — and, on a cloud collection, uploaded.
+        // It was written to this device's copy alone, and the provider's kept
+        // the link to the old name.
+        notesDidSave(outcome.written)
+        // A write made outside the editor tells the open editors, or a tab
+        // showing one of these notes saves its old text back over the new link.
+        if !outcome.written.isEmpty { noteChangedOutsideEditor() }
 
         let failures = outcome.failed
         if !failures.isEmpty {
@@ -2217,16 +2785,29 @@ final class Collection: Identifiable {
     @discardableResult
     func note(atRelativePath relativePath: String, creatingWith content: @autoclosure () -> String) async -> Note? {
         let url = rootURL.appendingPathComponent(relativePath)
-        let fileManager = FileManager.default
 
-        if !fileManager.fileExists(atPath: url.path) {
-            try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Off the main actor, as `createNote` is: the collection can be an
+        // iCloud or File Provider folder, where the check and the coordinated
+        // create both wait for the provider — and quick capture, Siri and
+        // dictation all come this way.
+        if await !offMain({ FileManager.default.fileExists(atPath: url.path) }) {
+            let data = Data(content().utf8)
+            // Reported before it exists, as `createNote`'s is: a daily note made
+            // on the phone may already be on the provider under this name.
+            remote?.willMake(url)
             do {
-                try FileIO.create(Data(content().utf8), at: url)
+                try await offMain {
+                    try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                             withIntermediateDirectories: true)
+                    try FileIO.create(data, at: url)
+                }
             } catch {
+                remote?.cancelMaking(url)
                 report("Couldn't create “\(relativePath)”: \(error.localizedDescription)")
                 return nil
             }
+            // Its folders are made on the provider on the way (`RemoteMirror`).
+            madeHere(url, data: data)
             await scanOffMain()
             refreshDerived()
         }
@@ -2238,6 +2819,14 @@ final class Collection: Identifiable {
         // Read, join and write in one hop off the main actor — both file calls
         // are coordinated, so both can block on a provider.
         let url = note.fileURL
+        // Appended to a placeholder, the text was appended to nothing: the
+        // note became the appended line, and the next download put the note
+        // back over it. Fetched first — and nothing appended if it cannot be,
+        // which the download has already said.
+        if isPlaceholder(at: url) {
+            await hydrateIfNeeded(url)
+            guard !isPlaceholder(at: url) else { return }
+        }
         let outcome = await offMain { () -> Result<String, Error>? in
             guard let existing = try? FileIO.readString(at: url) else { return nil }
             let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
@@ -2262,25 +2851,33 @@ final class Collection: Identifiable {
 
     /// Move a note to the Trash (never a hard delete) and re-index.
     func deleteNote(_ note: Note) async {
-        // Capture the remote path *before* trashing (the mapping is by URL).
-        let remotePath = remote.map { $0.remotePath(forLocalURL: note.fileURL) }
         // `Trash.item` throws only when the file is still there, so a thrown
         // error is the one case where dropping it from the model would be a
         // lie. It used to call `trashItem` directly, report the throw, and
         // `forget(note)` anyway — which on iOS (no Trash for an app container)
         // removed the note from the sidebar, left it on disk, and let the next
         // scan bring it back.
+        let url = note.fileURL
         do {
-            try Trash.item(at: note.fileURL)
+            // A direct-API collection must delete on the provider too, or the
+            // next sync silently brings back the note the user just deleted —
+            // in its turn, after whatever was asked of the note before, and
+            // forgotten by the mirror, whose record of a download no longer
+            // here let trimming the cache write an empty file back at the
+            // deleted note's name. Reported before the file goes, so a sync
+            // under way never finds the note gone and puts it back. Either way
+            // the file goes away from the main actor.
+            if let remote {
+                let title = note.title
+                try await remote.sendDelete(of: url, removing: { _ = try Trash.item(at: url) }) { [weak self] error in
+                    self?.report("Couldn't delete “\(title)” on \(remote.store.providerName): \(error.localizedDescription)")
+                }
+            } else {
+                try await offMain { _ = try Trash.item(at: url) }
+            }
         } catch {
             report("Couldn't delete “\(note.title)”: \(error.localizedDescription)")
             return
-        }
-        // A direct-API collection must delete on the provider too, or the next
-        // syncDown silently re-downloads the note the user just deleted.
-        if let remote, let remotePath {
-            do { try await remote.store.delete(path: remotePath) }
-            catch { report("Couldn't delete “\(note.title)” on \(remote.store.providerName): \(error.localizedDescription)") }
         }
         forget(note)
     }
@@ -2294,17 +2891,34 @@ final class Collection: Identifiable {
             .replacingOccurrences(of: "/", with: "-")
         guard !base.isEmpty else { return nil }
         let container = parent ?? rootURL
-        var candidate = container.appendingPathComponent(base, isDirectory: true)
-        var counter = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = container.appendingPathComponent("\(base) \(counter)", isDirectory: true)
-            counter += 1
+        // The name found and the folder made off the main actor: on a File
+        // Provider's folder each is a round trip to the provider, and they
+        // were made on the main thread (implemented.md §51.36).
+        let made = await offMain { () -> Result<URL, Error> in
+            var candidate = container.appendingPathComponent(base, isDirectory: true)
+            var counter = 2
+            while FileManager.default.fileExists(atPath: candidate.path) {
+                candidate = container.appendingPathComponent("\(base) \(counter)", isDirectory: true)
+                counter += 1
+            }
+            return Result { try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: false) }
+                .map { candidate }
         }
-        do {
-            try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: false)
-        } catch {
+        let candidate: URL
+        switch made {
+        case .success(let url): candidate = url
+        case .failure(let error):
             report("Couldn't create the folder: \(error.localizedDescription)")
             return nil
+        }
+        // On a cloud collection, made there too: it existed here alone, and a
+        // note put in it could not follow on a provider that files a note only
+        // into a folder it has (Box, Google Drive).
+        if let remote {
+            let name = candidate.lastPathComponent
+            remote.sendFolder(candidate) { [weak self] error in
+                self?.report("Couldn't make the folder “\(name)” on \(remote.store.providerName): \(error.localizedDescription)")
+            }
         }
         await scanOffMain()
         refreshDerived()
@@ -2313,16 +2927,19 @@ final class Collection: Identifiable {
 
     /// Move a folder (and its contents) to the Trash and re-index.
     func deleteFolder(at url: URL) async {
-        let remotePath = remote.map { $0.remotePath(forLocalURL: url) }
         do {
-            try Trash.item(at: url)
+            // On the provider too, reported before the folder goes, as a
+            // note's delete is (`deleteNote`) — and away from the main actor.
+            if let remote {
+                try await remote.sendDelete(of: url, removing: { _ = try Trash.item(at: url) }) { [weak self] error in
+                    self?.report("Couldn't delete the folder on \(remote.store.providerName): \(error.localizedDescription)")
+                }
+            } else {
+                try await offMain { _ = try Trash.item(at: url) }
+            }
         } catch {
             report("Couldn't delete the folder: \(error.localizedDescription)")
             return
-        }
-        if let remote, let remotePath {
-            do { try await remote.store.delete(path: remotePath) }
-            catch { report("Couldn't delete the folder on \(remote.store.providerName): \(error.localizedDescription)") }
         }
         await scanOffMain()
         refreshDerived()
@@ -2334,17 +2951,32 @@ final class Collection: Identifiable {
     func moveItem(at itemURL: URL, into folder: URL) async -> URL? {
         let destination = folder.appendingPathComponent(itemURL.lastPathComponent)
         guard destination.standardizedFileURL != itemURL.standardizedFileURL else { return nil }
-        guard !FileManager.default.fileExists(atPath: destination.path) else {
+        guard await !offMain({ FileManager.default.fileExists(atPath: destination.path) }) else {
             report("“\(itemURL.lastPathComponent)” already exists in that folder.")
             return nil
         }
+        // Reported before the file moves, as a rename is (`renameNote`).
+        let moving = remote?.willMove(from: itemURL, to: destination)
         do {
             try await offMain { try FileIO.move(from: itemURL, to: destination) }
         } catch {
+            if let moving { remote?.cancel(moving) }
             report("Couldn't move “\(itemURL.lastPathComponent)”: \(error.localizedDescription)")
             return nil
         }
+        if let remote, let moving {
+            let name = itemURL.lastPathComponent
+            remote.sendMove(moving) { [weak self] error in
+                self?.report("Couldn't move “\(name)” on \(remote.store.providerName): \(error.localizedDescription)")
+            }
+        }
         bookmarks.updatePath(from: itemURL, to: destination)   // keep the pin
+        savesToIndex[itemURL] = nil               // see `indexSaved`
+        keptSaves[itemURL] = nil                  // and `KeptSave`: read again where it went
+        // The editors holding it — or a note inside it — follow it, before
+        // the walk changes the note list and prunes their tabs
+        // (`EditorModel.itemMoved`).
+        EditorModel.itemMoved(from: itemURL, to: destination)
         await scanOffMain()
         refreshDerived()
         return destination

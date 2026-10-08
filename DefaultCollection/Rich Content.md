@@ -33,6 +33,8 @@ flowchart LR
     Find --> Write
 ```
 
+The View diagram button in a diagram's top-right corner shows it larger — pinch, double-click (double-tap on iPad) or use the zoom controls to go closer. In Edit, click the diagram itself to edit its source. In Markdown and Split, where a diagram is its source, the same button sits at the right-hand end of its first line.
+
 ## Tables
 
 | Feature | Where |

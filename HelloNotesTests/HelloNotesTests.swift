@@ -7,6 +7,7 @@
 
 import Testing
 import Foundation
+import Synchronization
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -130,7 +131,7 @@ struct HelloNotesTests {
         #expect(editor.text == "my unsaved edit") // not clobbered
 
         // Reloading adopts the disk copy.
-        editor.resolveConflictReloading()
+        await editor.resolveConflictReloading()
         #expect(editor.text == "their external edit")
         #expect(editor.hasConflict == false)
     }
@@ -293,6 +294,17 @@ struct HelloNotesTests {
 
     // MARK: - LinkGraph
 
+    /// The graph built as the app builds it: from each note's index record.
+    @MainActor
+    private static func linkGraph(of notes: [Note], in vault: URL) throws -> LinkGraph {
+        let graph = LinkGraph()
+        graph.load(pairs: try notes.map { note in
+            (note, CollectionIndexCache.record(for: note, relativeTo: vault,
+                                               text: try FileIO.readString(at: note.fileURL)))
+        })
+        return graph
+    }
+
     @Test @MainActor
     func backlinksResolveAcrossNotes() async throws {
         let vault = try copiedSampleVault()
@@ -301,8 +313,7 @@ struct HelloNotesTests {
         let indexer = Collection(rootURL: vault)
         indexer.scan()
 
-        let graph = LinkGraph()
-        await graph.rebuild(from: indexer.notes)
+        let graph = try Self.linkGraph(of: indexer.notes, in: vault)
 
         // In the sample vault, Ideas and Roadmap both link `[[Welcome]]`.
         let welcome = try #require(indexer.notes.first { $0.title == "Welcome" })
@@ -412,18 +423,6 @@ struct HelloNotesTests {
         #expect(search.notesTagged("demo").map(\.title) == ["Callouts"])
     }
 
-    @Test
-    func tagTreeNestsBySlash() {
-        let tree = TagTree.build(from: ["project/website", "project/hellonotes", "urgent"])
-        #expect(tree.map(\.name) == ["project", "urgent"])       // levels sorted
-
-        let project = tree.first { $0.name == "project" }
-        #expect(project?.fullPath == "project")
-        #expect(project?.children.map(\.name) == ["hellonotes", "website"])
-        #expect(project?.children.first?.fullPath == "project/hellonotes")
-        #expect(tree.first { $0.name == "urgent" }?.children.isEmpty == true)
-    }
-
     @Test @MainActor
     func notesTaggedMatchesNestedChildren() async throws {
         let vault = try copiedSampleVault()
@@ -443,8 +442,6 @@ struct HelloNotesTests {
         #expect(Set(search.notesTagged("project").map(\.title)) == ["A", "B"])
         // Selecting the child matches only the child.
         #expect(search.notesTagged("project/hellonotes").map(\.title) == ["A"])
-        // The tree nests the child under the parent.
-        #expect(search.tagTree().first { $0.name == "project" }?.children.map(\.name) == ["hellonotes"])
     }
 
     // MARK: - Aliases, links & mentions
@@ -464,8 +461,7 @@ struct HelloNotesTests {
 
         let indexer = Collection(rootURL: vault)
         indexer.scan()
-        let graph = LinkGraph()
-        await graph.rebuild(from: indexer.notes)
+        let graph = try Self.linkGraph(of: indexer.notes, in: vault)
 
         let welcome = try #require(indexer.notes.first { $0.title == "Welcome" })
         let ideas = try #require(indexer.notes.first { $0.title == "Ideas" })
@@ -602,7 +598,7 @@ struct HelloNotesTests {
 
     #if os(macOS)
     @Test @MainActor
-    func pastedImageIsSavedAndLinked() throws {
+    func pastedImageIsSavedAndLinked() async throws {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
@@ -620,10 +616,10 @@ struct HelloNotesTests {
         pasteboard.clearContents()
         pasteboard.setData(png, forType: .png)
 
-        let markdown = try #require(
-            ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(pasteboard), nextTo: noteURL, subfolder: "assets",
-                                 timestamp: Date(timeIntervalSince1970: 1_000_000))
-        )
+        let placement = ImagePaste.place(nextTo: noteURL, subfolder: "assets",
+                                         timestamp: Date(timeIntervalSince1970: 1_000_000))
+        #expect(await ImagePaste.write(try #require(ImagePaste.pasteboardPNG(pasteboard)), to: placement))
+        let markdown = placement.markdown
 
         #expect(markdown.hasPrefix("![](assets/Pasted-"))
         #expect(markdown.hasSuffix(".png)"))
@@ -634,7 +630,7 @@ struct HelloNotesTests {
     }
 
     @Test @MainActor
-    func pastedImageWithEmptySubfolderSavesNextToNote() throws {
+    func pastedImageWithEmptySubfolderSavesNextToNote() async throws {
         let vault = try copiedSampleVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
@@ -648,10 +644,10 @@ struct HelloNotesTests {
         pasteboard.clearContents()
         pasteboard.setData(png, forType: .png)
 
-        let markdown = try #require(
-            ImagePaste.saveImage(pngData: ImagePaste.pasteboardPNG(pasteboard), nextTo: noteURL, subfolder: "",
-                                 timestamp: Date(timeIntervalSince1970: 2_000_000))
-        )
+        let placement = ImagePaste.place(nextTo: noteURL, subfolder: "",
+                                         timestamp: Date(timeIntervalSince1970: 2_000_000))
+        #expect(await ImagePaste.write(try #require(ImagePaste.pasteboardPNG(pasteboard)), to: placement))
+        let markdown = placement.markdown
 
         // No subfolder in the link, and the file sits beside the note.
         #expect(markdown.hasPrefix("![](Pasted-"))
@@ -659,6 +655,26 @@ struct HelloNotesTests {
         let assetName = markdown.dropFirst("![](".count).dropLast(")".count)
         let assetURL = noteURL.deletingLastPathComponent().appendingPathComponent(String(assetName))
         #expect(FileManager.default.fileExists(atPath: assetURL.path))
+    }
+
+    /// Two pastes in one second, the first not yet written when the second
+    /// chooses its name: two names. The picture is written off the main actor
+    /// after the paste has returned its Markdown (implemented.md §51.36), so a
+    /// name taken and not yet on disk is held, or both would write one file.
+    @Test @MainActor
+    func twoPastesInOneSecondGetTwoNames() async throws {
+        let vault = try copiedSampleVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let noteURL = note("Welcome", in: vault)
+        let when = Date(timeIntervalSince1970: 3_000_000)
+
+        let first = ImagePaste.place(nextTo: noteURL, subfolder: "assets", timestamp: when)
+        let second = ImagePaste.place(nextTo: noteURL, subfolder: "assets", timestamp: when)
+        #expect(first.url != second.url, "two pastes chose one file")
+        #expect(await ImagePaste.write(Data([0x89, 0x50]), to: first))
+        #expect(await ImagePaste.write(Data([0x89, 0x51]), to: second))
+        #expect(try Data(contentsOf: first.url) == Data([0x89, 0x50]))
+        #expect(try Data(contentsOf: second.url) == Data([0x89, 0x51]))
     }
     #endif
 
@@ -886,7 +902,7 @@ struct MindMapModelTests {
 /// The Git tests, on their own serialized suite.
 ///
 /// They are the only tests here that do real work through libgit2 — init, add
-/// every file in a copy of the sample vault, commit, walk history — and
+/// every file in a small vault, commit, walk history — and
 /// `GitService` is `@MainActor`, so that work competes for the same actor the
 /// other three dozen `@MainActor` tests in this file are running on. Left in
 /// the parallel suite they do finish, but slowly enough that the run looks
@@ -897,14 +913,17 @@ struct MindMapModelTests {
 @Suite(.serialized)
 @MainActor
 struct GitServiceTests {
-    /// Same fixture helpers as `HelloNotesTests` — private there, and a shared
-    /// base would buy nothing but coupling for two small functions.
-    private static let sampleVaultURL = HelloNotesTests.sampleVaultURL
-
-    private func copiedSampleVault() throws -> URL {
+    /// Two notes, one of them in a folder: everything these tests ask of a
+    /// collection. Each used to copy the whole sample vault and commit every
+    /// file in it, which made this the slowest suite in the app for no more
+    /// proof than two notes give.
+    private func smallVault() throws -> URL {
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("HelloNotesGitTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.copyItem(at: Self.sampleVaultURL, to: dest)
+        try FileManager.default.createDirectory(at: dest.appendingPathComponent("Notes", isDirectory: true),
+                                                withIntermediateDirectories: true)
+        try write("# Welcome\n", to: dest.appendingPathComponent("Welcome.md"))
+        try write("# Idea\n", to: dest.appendingPathComponent("Notes/Idea.md"))
         return dest
     }
 
@@ -914,7 +933,7 @@ struct GitServiceTests {
 
     @Test @MainActor
     func gitInitStatusAndCommit() async throws {
-        let vault = try copiedSampleVault()
+        let vault = try smallVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
         let git = GitService()
@@ -939,7 +958,7 @@ struct GitServiceTests {
     /// exposes only libgit2's no-search `git_repository_open`.
     @Test @MainActor
     func aSubfolderOfARepositoryIsRecognisedAsOne() async throws {
-        let repo = try copiedSampleVault()
+        let repo = try smallVault()
         defer { try? FileManager.default.removeItem(at: repo) }
         let docs = repo.appendingPathComponent("Docs", isDirectory: true)
         try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
@@ -964,7 +983,7 @@ struct GitServiceTests {
     /// makes full Git UI safe to offer there at all.
     @Test @MainActor
     func committingFromASubfolderLeavesTheRestOfTheRepositoryAlone() async throws {
-        let repo = try copiedSampleVault()
+        let repo = try smallVault()
         defer { try? FileManager.default.removeItem(at: repo) }
         let docs = repo.appendingPathComponent("Docs", isDirectory: true)
         try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
@@ -1005,15 +1024,15 @@ struct GitServiceTests {
 
     @Test @MainActor
     func gitNoteHistoryTracksFileRevisions() async throws {
-        let vault = try copiedSampleVault()
+        let vault = try smallVault()
         defer { try? FileManager.default.removeItem(at: vault) }
 
         let git = GitService()
         git.rootURL = vault
         await git.initializeRepository()
-        await git.commitAll(message: "Import sample vault")   // baseline
+        await git.commitAll(message: "Import")   // baseline
 
-        // Track a fresh note's revisions on top of the sample-vault baseline.
+        // Track a fresh note's revisions on top of the baseline.
         let noteURL = vault.appendingPathComponent("History.md")
         try write("# Version one", to: noteURL)
         await git.commitAll(message: "First")
@@ -1190,6 +1209,289 @@ struct CollectionAvailabilityTests {
         #expect(editor.saveError != nil)
         #expect(editor.isDirty, "the edit must survive in the buffer, not be dropped")
         #expect(try String(contentsOf: file, encoding: .utf8) == "# One")
+    }
+
+    // MARK: - Where the folder is looked at
+
+    /// Where each look at `root` ran — `true` for the main thread — while
+    /// `body` runs. Heard through `Collection.availabilityProbes`: a test's
+    /// folder lists far too quickly for any timing to catch where it ran.
+    private func looks(at root: URL, during body: () async throws -> Void) async rethrows -> [Bool] {
+        let seen = Looks()
+        Collection.availabilityProbes.withLock { $0[root.path] = { seen.add($0) } }
+        defer { _ = Collection.availabilityProbes.withLock { $0.removeValue(forKey: root.path) } }
+        try await body()
+        return seen.all
+    }
+
+    private final class Looks: @unchecked Sendable {
+        private let lock = NSLock()
+        private var onMainThread: [Bool] = []
+        func add(_ value: Bool) { lock.withLock { onMainThread.append(value) } }
+        var all: [Bool] { lock.withLock { onMainThread } }
+    }
+
+    /// A recheck — Retry, Relocate — looks at the folder off the main actor.
+    /// `unavailability(of:)` lists it, and on a File Provider or iCloud volume
+    /// a listing can be a blocking XPC call; it ran on the main actor, with
+    /// the app waiting on it.
+    @Test func aRecheckLooksAtTheFolderOffTheMainActor() async throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let collection = Collection(rootURL: root)
+        collection.markUnavailable(.missing)
+
+        var back = false
+        let seen = await looks(at: root) { back = await collection.recheckAvailability() }
+        #expect(back, "a readable folder was not picked back up")
+        #expect(collection.state == .ready)
+        // Its own look, and the scan that follows it looks too: none of them
+        // on the main thread.
+        #expect(!seen.isEmpty && !seen.contains(true),
+                "the recheck looked at the folder on the main thread: \(seen)")
+    }
+
+    /// So does a root change the watcher reports, and it concludes what it
+    /// did on the main actor: a folder still readable is reconciled, its state
+    /// left alone; one that is gone is `.missing`, and the change is reported.
+    @Test func aRootChangeLooksAtTheFolderOffTheMainActor() async throws {
+        let readableRoot = try vault()
+        let goneRoot = try vault()
+        defer {
+            try? FileManager.default.removeItem(at: readableRoot)
+            try? FileManager.default.removeItem(at: goneRoot)
+        }
+        let readable = Collection(rootURL: readableRoot)
+        let gone = Collection(rootURL: goneRoot)
+        readable.scan()
+        gone.scan()
+        try FileManager.default.removeItem(at: goneRoot)
+
+        var reported = 0
+        let stillThere = await looks(at: readableRoot) {
+            await readable.handle(.rootChanged) { reported += 1 }
+        }
+        #expect(readable.state == .ready, "a readable folder was marked unavailable")
+        #expect(reported == 0)
+
+        let missing = await looks(at: goneRoot) {
+            await gone.handle(.rootChanged) { reported += 1 }
+        }
+        #expect(gone.state == .unavailable(.missing))
+        #expect(reported == 1, "the folder going was not reported")
+        #expect(!stillThere.isEmpty && !missing.isEmpty && !(stillThere + missing).contains(true),
+                "a root change looked at the folder on the main thread: \(stillThere + missing)")
+    }
+
+    /// Events are still handled in the order they came. A root change's look
+    /// now waits off the main actor, and an `.unmounted` reported behind it —
+    /// handled after it when the look was synchronous — must not land first
+    /// and then be overwritten with the look's `.missing`. The look is held
+    /// here long enough for the unmount to overtake it, if it can.
+    @Test func anEventAfterARootChangeIsHandledAfterIt() async throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let collection = Collection(rootURL: root)
+        collection.scan()
+        try FileManager.default.removeItem(at: root)
+
+        Collection.availabilityProbes.withLock { $0[root.path] = { _ in Thread.sleep(forTimeInterval: 0.3) } }
+        defer { _ = Collection.availabilityProbes.withLock { $0.removeValue(forKey: root.path) } }
+        let rootChanged = collection.receive(.rootChanged) {}
+        let unmounted = collection.receive(.unmounted) {}
+        await rootChanged.value
+        await unmounted.value
+        #expect(collection.state == .unavailable(.unmounted),
+                "the root change's look overwrote the unmount reported after it: \(collection.state)")
+    }
+
+    /// A recheck and an event take their turns in the order they came: the
+    /// recheck's look and verdict, then an unmount reported while it looked,
+    /// which stands — as it did when the look was one synchronous step. With
+    /// the recheck outside the queue, the unmount landed during the look and
+    /// was then overwritten by the recheck's older "readable".
+    @Test func anUnmountDuringARecheckIsNotOverwritten() async throws {
+        let root = try vault()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            WalkCheckpointStore.remove(for: root.standardizedFileURL.path)
+        }
+        let collection = Collection(rootURL: root)
+        collection.markUnavailable(.missing)
+        Collection.availabilityProbes.withLock { $0[root.path] = { _ in Thread.sleep(forTimeInterval: 0.3) } }
+        defer { _ = Collection.availabilityProbes.withLock { $0.removeValue(forKey: root.path) } }
+
+        let recheck = Task { await collection.recheckAvailability() }
+        try await Task.sleep(for: .milliseconds(100))       // its look is under way
+        await collection.receive(.unmounted) {}.value       // reported after the look began
+        #expect(await recheck.value, "the recheck, queued before the unmount, did not finish its turn")
+        #expect(collection.state == .unavailable(.unmounted),
+                "the recheck's older look overwrote the unmount: \(collection.state)")
+    }
+
+    /// Try Again pressed again while a recheck is still looking joins it, and
+    /// answers with it. Each press queued a look of its own, and on a stalled
+    /// provider they ran one after another, every event behind them waiting;
+    /// when the look blocked the main actor there was no pressing again.
+    @Test func aRecheckUnderWayIsJoinedNotRepeated() async throws {
+        let root = try vault()
+        try FileManager.default.removeItem(at: root)        // every look finds it gone
+        let collection = Collection(rootURL: root)
+        collection.markUnavailable(.missing)
+        let seen = Looks()
+        Collection.availabilityProbes.withLock {
+            $0[root.path] = { onMainThread in seen.add(onMainThread); Thread.sleep(forTimeInterval: 0.2) }
+        }
+        defer { _ = Collection.availabilityProbes.withLock { $0.removeValue(forKey: root.path) } }
+
+        async let first = collection.recheckAvailability()
+        async let second = collection.recheckAvailability()
+        async let third = collection.recheckAvailability()
+        let answers = await [first, second, third]
+        #expect(answers == [false, false, false])
+        #expect(seen.all.count == 1, "three rechecks looked \(seen.all.count) times, one after another")
+    }
+
+    /// A collection closed while a look is under way hears nothing from it: no
+    /// `.ready` and no walk after a recheck, no verdict and no report after a
+    /// root change. Closing gives up the folder's security scope, and the look
+    /// used to be over before anything could close it.
+    @Test func aLookThatLandsAfterClosingSaysNothing() async throws {
+        let recheckedRoot = try vault()
+        let watchedRoot = try vault()
+        defer {
+            for root in [recheckedRoot, watchedRoot] {
+                try? FileManager.default.removeItem(at: root)
+                WalkCheckpointStore.remove(for: root.standardizedFileURL.path)
+            }
+        }
+        let rechecked = Collection(rootURL: recheckedRoot)
+        rechecked.markUnavailable(.missing)
+        let watched = Collection(rootURL: watchedRoot)
+        watched.scan()
+        try FileManager.default.removeItem(at: watchedRoot)
+        Collection.availabilityProbes.withLock { probes in
+            for root in [recheckedRoot, watchedRoot] { probes[root.path] = { _ in Thread.sleep(forTimeInterval: 0.3) } }
+        }
+        defer {
+            Collection.availabilityProbes.withLock { probes in
+                for root in [recheckedRoot, watchedRoot] { probes.removeValue(forKey: root.path) }
+            }
+        }
+
+        var reported = 0
+        let recheck = Task { await rechecked.recheckAvailability() }
+        let rootChange = watched.receive(.rootChanged) { reported += 1 }
+        try await Task.sleep(for: .milliseconds(100))       // both looks under way
+        rechecked.deactivate()
+        watched.deactivate()
+
+        #expect(await recheck.value == false, "a closed collection was brought back")
+        await rootChange.value
+        #expect(rechecked.state == .unavailable(.missing), "a closed collection was brought back: \(rechecked.state)")
+        #expect(watched.state == .ready, "a closed collection was given a verdict: \(watched.state)")
+        #expect(reported == 0, "a closed collection's change was reported")
+    }
+
+    /// **A walk's verdict does not land over a recheck that has since found
+    /// the folder.** A walk stuck in its root look on a stalled provider; the
+    /// provider recovers; Try Again finds the folder readable, says so, and
+    /// joins the stuck walk — whose look then fails, and landed
+    /// `.permissionDenied` over the newer `.ready`. The pass after it is
+    /// clean, and a clean walk never clears `.unavailable`, so a readable
+    /// collection said it had lost permission while Try Again had answered
+    /// that it was back.
+    ///
+    /// The walk's look — the first — waits until the recheck's has found the
+    /// folder, then finds it unreadable; a look after those finds it
+    /// readable again, as the provider would.
+    @Test func aWalksVerdictDoesNotLandOverARecheckThatFoundTheFolder() async throws {
+        let root = try vault()
+        let readable: [FileAttributeKey: Any] = [.posixPermissions: 0o755]
+        defer {
+            try? FileManager.default.setAttributes(readable, ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+            WalkCheckpointStore.remove(for: root.standardizedFileURL.path)
+        }
+        let collection = Collection(rootURL: root)
+        collection.markUnavailable(.missing)
+        let walkMayLook = DispatchSemaphore(value: 0)
+        let looks = Locked(0)
+        Collection.availabilityProbes.withLock {
+            $0[root.path] = { _ in
+                var look = 0
+                looks.mutate { $0 += 1; look = $0 }
+                if look == 1 { _ = walkMayLook.wait(timeout: .now() + 30) }
+                if look >= 3 { try? FileManager.default.setAttributes(readable, ofItemAtPath: root.path) }
+            }
+        }
+        defer { _ = Collection.availabilityProbes.withLock { $0.removeValue(forKey: root.path) } }
+
+        let walk = Task { await collection.scanOffMain() }
+        while looks.value < 1 { try await Task.sleep(for: .milliseconds(10)) }
+        let recheck = Task { await collection.recheckAvailability() }
+        while collection.state != .ready { try await Task.sleep(for: .milliseconds(10)) }
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        walkMayLook.signal()
+
+        #expect(await recheck.value, "the recheck found the folder and did not say so")
+        await walk.value
+        #expect(looks.value >= 3, "nothing looked after the walk, so this tests nothing")
+        #expect(collection.state == .ready,
+                "the stuck walk's verdict landed over the recheck that found the folder: \(collection.state)")
+        #expect(collection.notes.count == 2)
+    }
+
+    /// **A change seen during a walk does not cancel it.** The reconcile's
+    /// task was cancelled for each change, and the cancellation reached the
+    /// walk, which kept nothing — so changes arriving through a long walk of a
+    /// big vault kept it from ever finishing. A walk under way is asked for one
+    /// more pass instead, run before the reconcile reports (implemented.md
+    /// §51.36). The first walk is held in its look at the folder past the
+    /// moment it shows its progress, so its summary says how it ended.
+    @Test func aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt() async throws {
+        let root = try vault()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            WalkCheckpointStore.remove(for: root.standardizedFileURL.path)
+        }
+        let collection = Collection(rootURL: root)
+        let walkMayLook = DispatchSemaphore(value: 0)
+        let looks = Locked(0)
+        Collection.availabilityProbes.withLock {
+            $0[root.path] = { _ in
+                var look = 0
+                looks.mutate { $0 += 1; look = $0 }
+                if look == 1 { _ = walkMayLook.wait(timeout: .now() + 30) }
+            }
+        }
+        defer { _ = Collection.availabilityProbes.withLock { $0.removeValue(forKey: root.path) } }
+
+        var reported = 0
+        await collection.handle(.eventsDropped) { reported += 1 }
+        let deadline = ContinuousClock.now + .seconds(20)
+        while looks.value < 1, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        await collection.handle(.eventsDropped) { reported += 1 }     // seen during the walk
+        try await Task.sleep(for: .milliseconds(900))                   // past the progress reveal
+        walkMayLook.signal()
+        while (looks.value < 2 || reported < 1), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(collection.lastScanSummary?.wasCancelled == false,
+                "the change seen during the walk cancelled it: \(String(describing: collection.lastScanSummary))")
+        #expect(looks.value == 2, "one more pass, and only one: \(looks.value) walks")
+        #expect(reported == 1)
+        #expect(collection.notes.count == 2)
+    }
+
+    /// The control: a look made from main-actor code, as both callers made it,
+    /// is heard as one — so the two above can fail.
+    @Test func theProbeHearsALookMadeOnTheMainActor() async throws {
+        let root = try vault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seen = await looks(at: root) { _ = Collection.unavailability(of: root) }
+        #expect(seen == [true], "a look on the main actor was not heard as one: \(seen)")
     }
 }
 

@@ -56,7 +56,7 @@ struct FileViewerView: View {
         VStack(spacing: 0) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider()
+            ChromeDivider()
             bottomBar
         }
         .task(id: file.url) { await materialise() }
@@ -69,11 +69,8 @@ struct FileViewerView: View {
             // a zero-byte placeholder, which Quick Look draws as simply nothing
             // — indistinguishable from a document that failed to open, and
             // permanent, because nothing was going to reload it.
-            ContentUnavailableView {
-                Label("Downloading “\(file.name)”", systemImage: "arrow.down.circle")
-            } description: {
-                Text("Fetching it from the cloud.")
-            }
+            ChromeEmptyState("Downloading “\(file.name)”", systemImage: "arrow.down.circle",
+                             description: Text("Fetching it from the cloud."))
         } else {
             switch file.kind {
             case .pdf:
@@ -93,14 +90,14 @@ struct FileViewerView: View {
     private var bottomBar: some View {
         HStack(spacing: 8) {
             Label(file.name, systemImage: file.kind.symbol)
-                .foregroundStyle(.secondary).lineLimit(1)
+                .foregroundStyle(Chrome.Colour.secondaryLabel).lineLimit(1)
             Spacer(minLength: 12)
             Button {
                 ExternalURL.open(file.url)
             } label: {
                 Image(systemName: "arrow.up.forward.app").frame(width: 22, height: 18)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(ChromeBorderlessStyle())
             .help("Open in default app")
             .accessibilityLabel("Open in default app")
 
@@ -110,14 +107,14 @@ struct FileViewerView: View {
                 } label: {
                     Image(systemName: "folder").frame(width: 22, height: 18)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(ChromeBorderlessStyle())
                 .help(FileReveal.revealTitle)
                 .accessibilityLabel(FileReveal.revealTitle)
             }
         }
-        .font(.callout)
+        .font(Chrome.Style.callout)
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(.bar)
+        .background(Chrome.Colour.chrome)
     }
 
     // MARK: - Getting the bytes here

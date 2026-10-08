@@ -1,5 +1,5 @@
 //
-//  SelectionActionBar.swift
+//  SelectionActions.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 16/8/2026.
@@ -14,10 +14,10 @@
 //  is all this offers — link it, find notes like it, ask the library about it.
 //  Three actions, each impossible for Writing Tools by construction.
 //
-//  How they *surface* differs, because the platforms differ. macOS floats the
-//  bar below (an `NSTextView` has no system selection bar to join). iOS puts
-//  them in the system edit menu, which is already there and already where the
-//  hand goes — see `iOSLiveEditor`.
+//  They surface as items in the editor's selection menu on both platforms —
+//  the context menu on the Mac, the system edit menu on iOS, which is already
+//  there and already where the hand goes (`menuItems(for:)`). The Mac once
+//  floated a bar of its own below the selection.
 //
 
 import SwiftUI

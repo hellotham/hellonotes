@@ -16,6 +16,13 @@ import AppKit
 /// actions operate on) and persists the set of open collections so they reopen
 /// on the next launch. Collections themselves stay isolated — the library only
 /// aggregates them for library-wide search and reopening.
+/// A run launched only to be captured (`scripts/window-parity.sh`, with
+/// `-HNCaptureSession YES`): it changes nothing the person keeps — not the
+/// open collections, not the recents.
+enum CaptureSession {
+    static var isActive: Bool { UserDefaults.standard.bool(forKey: "HNCaptureSession") }
+}
+
 @MainActor
 @Observable
 final class Library {
@@ -73,16 +80,61 @@ final class Library {
 
     var isEmpty: Bool { collections.isEmpty }
 
-    /// Called when any open collection changes on disk — wired by the view to
-    /// reconcile open editors and revalidate the selection.
-    var onExternalChange: @MainActor () -> Void = {}
+    /// What each window does when an open collection changes on disk, by the
+    /// object it keeps its editors in — a main window's tabs, a note window's
+    /// editor (`observeExternalChanges(of:_:)`).
+    ///
+    /// **One per window.** It was a single closure, `onExternalChange`, which
+    /// every main window's `.task` set — so the main window opened last was the
+    /// only one told. The tabs of every other main window were never
+    /// reconciled: a change made elsewhere was neither loaded into their clean
+    /// tabs nor raised as a conflict in dirty ones, until a save of theirs
+    /// refused to write over it. And a note window's editor, in no window's
+    /// tabs, was never told at all.
+    @ObservationIgnored private var externalChangeObservers: [ObjectIdentifier: ExternalChangeObserver] = [:]
+
+    private struct ExternalChangeObserver {
+        /// Held weakly: a window that goes without saying so is not kept
+        /// alive by this, and is let go at the next change.
+        weak var owner: AnyObject?
+        let notify: @MainActor () -> Void
+    }
+
+    /// Tell `owner` each time an open collection changes on disk — by calling
+    /// `handler` with it — until it stops (`stopObservingExternalChanges(of:)`)
+    /// or goes. It is held weakly and handed to `handler`, so the handler need
+    /// not hold it. Observing again replaces the handler.
+    func observeExternalChanges<Owner: AnyObject>(of owner: Owner,
+                                                   _ handler: @escaping @MainActor (Owner) -> Void) {
+        externalChangeObservers[ObjectIdentifier(owner)] = ExternalChangeObserver(owner: owner) { [weak owner] in
+            if let owner { handler(owner) }
+        }
+    }
+
+    func stopObservingExternalChanges(of owner: AnyObject) {
+        externalChangeObservers[ObjectIdentifier(owner)] = nil
+    }
+
+    /// An open collection changed on disk — what each collection's watcher
+    /// calls (`Collection.activate(onExternalChange:)`). Every window is told.
+    func collectionChangedOnDisk() {
+        for (key, observer) in externalChangeObservers {
+            if observer.owner == nil {
+                externalChangeObservers[key] = nil
+            } else {
+                observer.notify()
+            }
+        }
+    }
 
     /// Called with a collection's root URL each time it's opened — wired to the
     /// recents store.
     var onOpened: @MainActor (URL) -> Void = { _ in }
 
-    /// A note another window (graph, mind map, assistant, chat) asked the main
-    /// window to select. The main window observes this, selects the note, and
+    /// A note the main window has been asked to select by something that holds
+    /// no selection of its own: the right panel's Graph, Mind Map and Ask
+    /// Library, or `NavigationRouter` (the URL scheme, intents, the Services
+    /// menu, widgets). The main window observes this, selects the note, and
     /// clears it.
     var pendingOpenNoteID: Note.ID?
 
@@ -158,7 +210,7 @@ final class Library {
         let collection = Collection(rootURL: url)
         collections.append(collection)
         focusedID = collection.id
-        await collection.activate(onExternalChange: { [weak self] in self?.onExternalChange() })
+        await collection.activate(onExternalChange: { [weak self] in self?.collectionChangedOnDisk() })
         persist()
         onOpened(url)
         return collection
@@ -185,7 +237,7 @@ final class Library {
         store: RemoteStore, remoteRoot: String, displayName: String,
         progress: @escaping @Sendable (RemoteSyncProgress) -> Void = { _ in }
     ) async throws -> RemoteSyncOutcome {
-        let mirror = RemoteMirror(
+        let mirror = RemoteMirror.open(
             store: store,
             cacheRoot: RemoteMirror.cacheDirectory(provider: store.providerName,
                                                    folder: remoteRoot.isEmpty ? displayName : remoteRoot),
@@ -204,7 +256,7 @@ final class Library {
             collection.remote = mirror
             collections.append(collection)
             focusedID = collection.id
-            await collection.activate(onExternalChange: { [weak self] in self?.onExternalChange() })
+            await collection.activate(onExternalChange: { [weak self] in self?.collectionChangedOnDisk() })
         }
 
         // Show it before the sync, not after: the collection exists now, and the
@@ -213,7 +265,7 @@ final class Library {
         persist()
 
         // Metadata first: the folder's *shape* arrives immediately and content
-        // is fetched when something needs it. `syncDown` downloaded every note
+        // is fetched when something needs it. The eager sync downloaded every note
         // before showing anything, which is fine for a notes vault and hopeless
         // for an account of any size — and it skipped non-Markdown files
         // entirely, so a folder of PDFs mirrored to an empty collection.
@@ -301,14 +353,26 @@ final class Library {
     /// word and no way to narrow the choice, on the platform where the wait is
     /// longest. The estimate and the flow are shared now, and the question is
     /// published for whichever shell is on screen to ask.
-    func openChecking(_ urls: [URL]) async {
+    func openChecking(_ urls: [URL],
+                      estimate estimateSize: (URL) async -> FolderSizeEstimate = { await Library.estimateSize(of: $0) }) async {
         for url in urls {
-            let estimate = await Self.estimateSize(of: url)
+            let estimate = await estimateSize(url)
             guard estimate.looksLarge else { await open(url: url); continue }
             // Ask, and wait for the answer the shell brings back.
+            // A closure that resumes it, not `continuation.resume(returning:)`
+            // itself: that is `@Sendable (sending LargeFolderChoice) -> ()`, and
+            // stored as a plain function it lost both, which the compiler warns
+            // risks a data race. The choice is `Sendable`, so nothing is lost.
             let choice = await withCheckedContinuation { continuation in
+                // A question still up when another comes — two adds at once —
+                // is answered for its asker, as Cancel. Replaced, it took its
+                // caller's continuation with it, and that caller waited forever.
+                if let unanswered = pendingLargeFolder {
+                    pendingLargeFolder = nil
+                    unanswered.answer(.cancel)
+                }
                 pendingLargeFolder = LargeFolderPrompt(url: url, estimate: estimate,
-                                                       answer: continuation.resume(returning:))
+                                                       answer: { continuation.resume(returning: $0) })
             }
             switch choice {
             case .addAnyway:
@@ -557,10 +621,17 @@ final class Library {
         var restored: [Collection] = []
         var refreshedBookmarks = false
 
+        // **Resolved off the main actor, all of them at once.** Resolving can
+        // mount a volume and minting a stale one again asks the sandbox; it
+        // was done here, one bookmark after another, holding the launch up
+        // behind the splash (implemented.md §51.36).
+        let bookmarks = datas
+        let resolutions = await offMain { bookmarks.map { Bookmark.resolveRefreshing($0) } }
+
         for (index, data) in datas.enumerated() {
             let lastKnownPath = index < paths.count ? paths[index] : nil
 
-            guard let resolved = Bookmark.resolveRefreshing(data) else {
+            guard let resolved = resolutions[index] else {
                 // The bookmark is dead — the folder is gone, or its volume is.
                 // Dropping it here is what made collections silently disappear
                 // between launches. Keep it, say why, and let the user decide.
@@ -570,7 +641,17 @@ final class Library {
                 guard !collections.contains(where: { $0.id == id }) else { continue }
                 let collection = Collection(rootURL: url)
                 collection.bookmarkData = data
-                collection.markUnavailable(Collection.unavailability(of: url) ?? .missing)
+                // Missing, at once; the reason is corrected by a look at the
+                // folder off the main actor that nothing waits for. The list
+                // is built whole here, so the look was a listing of a dead
+                // folder on the main actor inside it.
+                collection.markUnavailable(.missing)
+                Task { [weak collection] in
+                    let reason = await offMain { Collection.unavailability(of: url) }
+                    // Unless something has answered since — a Try Again.
+                    guard let collection, let reason, collection.state == .unavailable(.missing) else { return }
+                    collection.markUnavailable(reason)
+                }
                 collections.append(collection)
                 continue
             }
@@ -590,7 +671,7 @@ final class Library {
         await restoreRemoteCollections()
         guard !restored.isEmpty else { return }
 
-        let externalChange: @MainActor () -> Void = { [weak self] in self?.onExternalChange() }
+        let externalChange: @MainActor () -> Void = { [weak self] in self?.collectionChangedOnDisk() }
         await withTaskGroup(of: Void.self) { group in
             for collection in restored {
                 group.addTask { @MainActor in
@@ -607,6 +688,11 @@ final class Library {
     }
 
     private func persist() {
+        // A parity capture (`scripts/window-parity.sh`) opens the sample
+        // collection alone; saving that as the open list would drop every
+        // collection the person actually has open. It saves nothing instead —
+        // which is also why nothing has to be put back afterwards.
+        guard !CaptureSession.isActive else { return }
         // Keep the two arrays index-aligned, and keep an *unavailable*
         // collection's existing bookmark rather than trying to re-mint one from
         // a folder that isn't there — re-minting would fail and quietly drop it,
@@ -654,23 +740,32 @@ final class Library {
         let caches = (UserDefaults.standard.array(forKey: Self.remoteCachesKey) as? [String]) ?? []
         for path in caches {
             let cacheRoot = URL(fileURLWithPath: path, isDirectory: true)
-            guard let manifest = RemoteManifest.load(fromCacheRoot: cacheRoot) else { continue }
+            // Read and decoded off the main actor — a manifest is a record per
+            // file in the account's folder — and handed to the mirror, which
+            // decoded it again at its first use (implemented.md §51.36).
+            guard let manifest = await offMain({ RemoteManifest.load(fromCacheRoot: cacheRoot) }) else { continue }
             // No account recorded means no way to know whose credentials this
             // needs, so it cannot be rebuilt — better an absent collection than
             // one silently signed in as somebody else.
             guard let accountID = manifest.accountID,
                   let store = Self.makeStore(named: manifest.provider, accountID: accountID)
             else { continue }
+            // The account's token read off the main actor, into the cache the
+            // refresh below asks: its first read of the launch is a Keychain
+            // call, and it was made on the main actor, for as long as any
+            // Keychain prompt stayed up (implemented.md §51.36).
+            _ = await offMain { store.isAuthenticated }
             let id = cacheRoot.standardizedFileURL.path
             guard !collections.contains(where: { $0.id == id }) else { continue }
 
-            let mirror = RemoteMirror(store: store, cacheRoot: cacheRoot,
-                                      remoteRoot: manifest.remoteRoot,
-                                      displayName: manifest.displayName)
+            let mirror = RemoteMirror.open(store: store, cacheRoot: cacheRoot,
+                                           remoteRoot: manifest.remoteRoot,
+                                           displayName: manifest.displayName,
+                                           manifest: manifest)
             let collection = Collection(rootURL: cacheRoot)
             collection.remote = mirror
             collections.append(collection)
-            await collection.activate(onExternalChange: { [weak self] in self?.onExternalChange() })
+            await collection.activate(onExternalChange: { [weak self] in self?.collectionChangedOnDisk() })
 
             // Then reconcile in the background — the cached notes are already on
             // screen, so a slow provider costs nothing but freshness.
@@ -698,8 +793,11 @@ final class Library {
     /// folder that *moved* is followed rather than reported missing forever.
     @discardableResult
     func retry(_ collection: Collection) async -> Bool {
+        // Resolved off the main actor, and without mounting: a share gone away
+        // is mounted in the Finder, not by Try Again on the main thread
+        // (implemented.md §51.36).
         if let data = collection.bookmarkData,
-           let resolved = Bookmark.resolveRefreshing(data) {
+           let resolved = await offMain({ Bookmark.resolveRefreshing(data, mounting: false) }) {
             if let refreshed = resolved.refreshed { collection.bookmarkData = refreshed }
             // Moved: the bookmark tracks the folder by identity, so it now points
             // somewhere else. The collection's id *is* its path, so it has to be
@@ -730,7 +828,8 @@ final class Library {
         guard let collection = collections.first(where: { $0.id == collectionID }) else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        collection.bookmarkData = Bookmark.data(for: url)
+        // Minted off the main actor (implemented.md §51.36).
+        collection.bookmarkData = await offMain { Bookmark.data(for: url) }
         if url.standardizedFileURL.path != collection.id {
             // Picked a different folder than the one that was broken (the user
             // is relocating a moved vault, not just re-granting the same one)

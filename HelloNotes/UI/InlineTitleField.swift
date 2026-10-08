@@ -53,15 +53,29 @@ struct InlineTitleField: NSViewRepresentable {
         field.usesSingleLineMode = true
         field.cell?.wraps = false
         field.cell?.isScrollable = true
-        field.placeholderString = "Untitled"
+        field.placeholderAttributedString = Self.placeholder(in: font)
         field.delegate = context.coordinator
         context.coordinator.field = field
         return field
     }
 
+    /// "Untitled" in the app's placeholder colour. `placeholderString` draws
+    /// in AppKit's own placeholder grey, which is not the grey iOS draws — so
+    /// the field gets the words with the colour attached, where its own text
+    /// would sit.
+    private static func placeholder(in font: NSFont) -> NSAttributedString {
+        NSAttributedString(string: "Untitled", attributes: [
+            .font: font,
+            .foregroundColor: NSColor(Chrome.Colour.tertiaryLabel),
+        ])
+    }
+
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
-        if field.font != font { field.font = font }
+        if field.font != font {
+            field.font = font
+            field.placeholderAttributedString = Self.placeholder(in: font)
+        }
         // Never fight the user's own typing.
         if field.stringValue != text, field.currentEditor() == nil {
             field.stringValue = text
@@ -204,9 +218,12 @@ struct InlineTitleField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField("Untitled", text: $text)
+        // No title: a `TextField`'s title is UIKit's placeholder, in UIKit's
+        // grey. The app draws "Untitled" in its own colour, as the Mac's field
+        // does, and the font goes outside it so the two are set alike.
+        TextField("", text: $text)
             .textFieldStyle(.plain)
-            .font(Font(font))
+            .focusEffectDisabled()
             .submitLabel(.done)
             .autocorrectionDisabled()
             .focused($focused)
@@ -220,6 +237,9 @@ struct InlineTitleField: View {
                 // to keep — the same contract the Mac's field reports.
                 onEnterBody(nil)
             }
+            .chromePlaceholder("Untitled", showing: text.isEmpty)
+            .font(Font(font))
+            .accessibilityLabel("Note title")
     }
 }
 #endif

@@ -37,15 +37,12 @@ nonisolated struct WebSearchTool: Tool {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Macintosh) HelloNotes", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 20
-        // Stream with a byte cap so a hostile or huge response can't balloon memory.
-        let session = WebGuard.session(timeout: 20)
-        let (bytes, response) = try await session.bytes(for: request)
+        // Streamed with a byte cap so a hostile or huge response can't balloon
+        // memory, and refused if a private address served it (`WebGuard.load`).
+        let (data, response) = try await WebGuard.load(request, timeout: 20, byteCap: 4 * 1024 * 1024)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ToolError.failed("The search failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
         }
-        var data = Data()
-        let cap = 4 * 1024 * 1024
-        for try await byte in bytes { data.append(byte); if data.count >= cap { break } }
         let html = String(data: data, encoding: .utf8) ?? ""
         let results = parseResults(html, limit: limit)
         guard !results.isEmpty else { return "No results for “\(query)”." }
@@ -118,17 +115,11 @@ nonisolated struct WebFetchTool: Tool {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Macintosh) HelloNotes", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 25
-        let byteCap = 4 * 1024 * 1024
-        let session = WebGuard.session(timeout: 25)
-        let (bytes, response) = try await session.bytes(for: request)
+        // Refused if a private address served it, whatever the host resolved
+        // to when it was validated (`WebGuard.load`).
+        let (data, response) = try await WebGuard.load(request, timeout: 25, byteCap: 4 * 1024 * 1024)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ToolError.failed("Couldn't load that page (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
-        }
-        var data = Data()
-        data.reserveCapacity(min(byteCap, max(0, Int(exactly: http.expectedContentLength) ?? 0)))
-        for try await byte in bytes {
-            data.append(byte)
-            if data.count >= byteCap { break }
         }
         let html = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
         let text = HTMLText.plain(html)

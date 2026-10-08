@@ -7,11 +7,10 @@
 //  The assistant, with its model, permission broker and skill store, pointed at
 //  whichever collection is focused.
 //
-//  Extracted from `AuxiliaryWindows` when the assistant came to iOS. That file
-//  is macOS-only for a good reason — it is about *windows*, which iOS does not
-//  have — but the thing inside the window was never Mac-specific. So the
-//  ownership lives here and each platform supplies its own container: a `Window`
-//  scene on the Mac, a sheet on iOS.
+//  Extracted from `AuxiliaryWindows` when the assistant came to iOS, where it
+//  lived in a `Window` scene on the Mac and a sheet on iOS. It is one of the
+//  right panel's views on both now (`SidePanel.assistant`), and the ownership
+//  stays here.
 //
 
 import SwiftUI
@@ -67,9 +66,9 @@ struct AssistantHost: View {
     /// Nothing to present: the Mac opens its Settings window.
     private func presentingSettings(_ content: some View) -> some View { content }
     #else
-    /// Presented from here, not the shell: the Assistant is itself a sheet on
-    /// iOS, and the shell cannot present another while it is up — which is why
-    /// the old "Open AI Settings…" button here did nothing on iPad.
+    /// Presented from here, not the shell: the Assistant, a view of the panel,
+    /// has no route to the shell's own Settings sheet — the old "Open AI
+    /// Settings…" button here did nothing on iPad for want of one.
     private func presentingSettings(_ content: some View) -> some View {
         content.sheet(isPresented: $showSettings) {
             AppSettingsView(intelligenceSettings: intelligenceSettings, appearance: appearance,

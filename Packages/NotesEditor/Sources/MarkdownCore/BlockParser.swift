@@ -9,10 +9,11 @@
 //  Full parse walks every line once. Incremental parse re-walks only the
 //  damaged block neighborhood and *splices*: it starts one block before the
 //  edit (context rules — setext underlines, table delimiter rows — look one
-//  line back) and walks forward until the new block boundaries realign with
-//  the old ones, then keeps the old tail with shifted offsets. Edits that
-//  genuinely change everything downstream (opening an unclosed fence) walk
-//  to EOF — that O(rest) cost is inherent, not accidental.
+//  line back) and walks forward until it stands exactly where the old walk
+//  stood at the same line — the same block open, the same list item behind
+//  it — then keeps the old tail with shifted offsets. Edits that genuinely
+//  change everything downstream (opening an unclosed fence) walk to EOF —
+//  that O(rest) cost is inherent, not accidental.
 //
 //  The classifier is editor-grade Markdown, not spec-grade CommonMark: the
 //  goal is stable, predictable styling at interactive latency. Export paths
@@ -27,7 +28,7 @@ public enum BlockParser {
 
     public static func fullParse(_ text: NSString) -> ParseResult {
         let lines = LineIndex(text: text)
-        let blocks = parseLines(text, lines: lines, from: 0, stopAt: nil)?.blocks ?? []
+        let blocks = parseLines(text, lines: lines, from: 0)?.blocks ?? []
         return ParseResult(lines: lines, blocks: blocks)
     }
 
@@ -38,12 +39,23 @@ public enum BlockParser {
         edit: TextEdit,
         previous: ParseResult
     ) -> ParseResult {
+        incrementalWalk(text, edit: edit, previous: previous).result
+    }
+
+    /// `incremental`, and how many lines it walked to get there — the number
+    /// the convergence tests hold to the size of the edit rather than the size
+    /// of the note.
+    static func incrementalWalk(
+        _ text: NSString,
+        edit: TextEdit,
+        previous: ParseResult
+    ) -> (result: ParseResult, linesWalked: Int) {
         var lines = previous.lines
         lines.apply(edit, newText: text)
 
         guard !previous.blocks.isEmpty else {
-            let blocks = parseLines(text, lines: lines, from: 0, stopAt: nil)?.blocks ?? []
-            return ParseResult(lines: lines, blocks: blocks)
+            let walk = parseLines(text, lines: lines, from: 0)
+            return (ParseResult(lines: lines, blocks: walk?.blocks ?? []), walk?.linesWalked ?? 0)
         }
 
         // --- 1. Damage window in old-block terms -------------------------
@@ -76,26 +88,28 @@ public enum BlockParser {
         let delta = edit.delta
         let lineDelta = lines.lineCount - previous.lines.lineCount
 
-        // --- 2. Old tail candidates for convergence ----------------------
-        // Old blocks strictly after the damage window, with the offsets they
-        // will have in the new text. The walk stops as soon as it starts a
-        // fresh block exactly at one of these starts.
-        var tailIndex = lastDamaged + 1
-        func tailStartInNewText(_ i: Int) -> Int { oldBlocks[i].range.location + delta }
+        // --- 2. What the walk starts knowing -----------------------------
+        // The one thing the walk reads from the blocks behind it is the most
+        // recent list item past any blank run — it decides whether a marker
+        // indented four under a blank line is an item or a code block. A
+        // fresh walk knew nothing above `startLine`, so `- a`, a blank line
+        // and `    - foo` parsed as an item in full and as a code block the
+        // moment anyone typed on the last line.
+        let itemBefore = BlockBuilder.mostRecentItem(in: oldBlocks[..<firstDamaged])
 
         // --- 3. Re-walk from the damage start until convergence ----------
-        let walk = parseLines(text, lines: lines, from: startLine, stopAt: { newBlockStart in
-            while tailIndex < oldBlocks.count && tailStartInNewText(tailIndex) < newBlockStart {
-                tailIndex += 1
-            }
-            return tailIndex < oldBlocks.count && tailStartInNewText(tailIndex) == newBlockStart
-        })
+        // Old blocks strictly after the damage window are the candidates, at
+        // the offsets they will have in the new text; the walk stops at the
+        // first one it reaches standing exactly where the old walk stood.
+        let walk = parseLines(text, lines: lines, from: startLine, itemBefore: itemBefore,
+                              tail: Tail(blocks: oldBlocks, next: lastDamaged + 1,
+                                         delta: delta, lineShift: lineDelta))
 
         var blocks = Array(oldBlocks[..<firstDamaged])
         if let walk {
             blocks.append(contentsOf: walk.blocks)
-            if walk.converged {
-                for i in tailIndex..<oldBlocks.count {
+            if let keep = walk.keepingFrom {
+                for i in keep..<oldBlocks.count {
                     var b = oldBlocks[i]
                     b.range.location += delta
                     b.firstLine += lineDelta
@@ -103,28 +117,52 @@ public enum BlockParser {
                 }
             }
         }
-        return ParseResult(lines: lines, blocks: blocks)
+        return (ParseResult(lines: lines, blocks: blocks), walk?.linesWalked ?? 0)
     }
 
     // MARK: - The line walk
 
     private struct Walk {
         var blocks: [Block]
-        var converged: Bool
+        /// The old block the rest of the parse is kept from, when the walk
+        /// converged; `nil` when it walked to the end.
+        var keepingFrom: Int?
+        var linesWalked: Int
     }
 
-    /// Classify lines from `from`, building blocks. When `stopAt` returns
-    /// true for a fresh block's start offset, stop and report convergence.
-    /// Returns nil only for the empty document (no lines to walk is
-    /// impossible — LineIndex always has one line).
+    /// The old parse's blocks past the damage, where an incremental walk may
+    /// stop and keep the rest.
+    private struct Tail {
+        let blocks: [Block]
+        /// The first candidate not yet passed. Only ever moves forward, as the
+        /// walk does.
+        var next: Int
+        let delta: Int
+        let lineShift: Int
+
+        /// Where the old parse can be kept from, if an old block starts at
+        /// `offset` and the walk stands where the old walk stood before it.
+        mutating func keep(at offset: Int, standing builder: BlockBuilder) -> Int? {
+            while next < blocks.count && blocks[next].range.location + delta < offset { next += 1 }
+            guard next < blocks.count, blocks[next].range.location + delta == offset else { return nil }
+            return builder.resumption(before: next, in: blocks, lineShift: lineShift)
+        }
+    }
+
+    /// Classify lines from `from`, building blocks. With a `tail`, stop at the
+    /// first line where the old parse can be kept from (`Tail.keep`). Returns
+    /// nil only for the empty document (no lines to walk is impossible —
+    /// LineIndex always has one line).
     private static func parseLines(
         _ text: NSString,
         lines: LineIndex,
         from startLine: Int,
-        stopAt: ((Int) -> Bool)?
+        itemBefore: ListInfo? = nil,
+        tail: Tail? = nil
     ) -> Walk? {
-        var builder = BlockBuilder(text: text, lines: lines)
+        var builder = BlockBuilder(text: text, lines: lines, itemBefore: itemBefore)
         var cursor = LineCursor(text: text)
+        var tail = tail
         var line = startLine
 
         // Front matter can only begin at the very first line.
@@ -140,22 +178,27 @@ public enum BlockParser {
         }
 
         while line < lines.lineCount {
-            // Convergence check happens only at fresh block boundaries.
-            if let stopAt, builder.isAtBoundary, line > startLine {
-                let offset = lines.lineRange(line).location
-                if stopAt(offset) {
-                    return Walk(blocks: builder.finish(), converged: true)
-                }
+            // Convergence: the old walk stood here too, in the same state, so
+            // everything it made from here on is what this walk would make.
+            // The block still open is the old one's to finish — it ends where
+            // the old one ended — so only the closed blocks are this walk's.
+            if line > startLine,
+               let keep = tail?.keep(at: lines.lineRange(line).location, standing: builder) {
+                return Walk(blocks: builder.emitted, keepingFrom: keep, linesWalked: line - startLine)
             }
 
             let info = cursor.classify(lineRange: lines.contentRange(line, in: text))
             line = builder.consume(line: line, info: info, cursor: &cursor)
         }
-        // Also allow convergence exactly at end-of-walk (an edit at EOF).
-        return Walk(blocks: builder.finish(), converged: false)
+        return Walk(blocks: builder.finish(), keepingFrom: nil, linesWalked: line - startLine)
     }
 
-    static let frontMatterSearchLimit = 200
+    /// The line front matter's closing fence must come before: one unclosed
+    /// by then is not front matter. Public, because the app reads the same
+    /// block for its properties (`FrontMatter`) and must not read more of a
+    /// note than the editor folds — nor the whole of one that opens with a
+    /// rule and never closes it.
+    public static let frontMatterSearchLimit = 200
 
     /// Does the text between two `---` fences hold at least one YAML mapping
     /// entry — a `key:` line?
@@ -659,12 +702,21 @@ struct LineCursor {
         // `ul ul { margin-top: 0 }`. 4pt per nested task item, and a checklist
         // is mostly nested task items. `contentOffset` still points past the
         // checkbox, because that is where the text is drawn.
+        //
+        // An item with nothing after its marker takes its one space from past
+        // the end of the line, so the loop counts that position as a space
+        // rather than reading it. Reading it read the cursor's reusable buffer,
+        // which still held whatever was classified last — so a lone `*` or `1.`
+        // was a column short unless a space happened to be left there, a full
+        // parse and an incremental one disagreed about the same item whenever
+        // they had read different things last, and the line under it was
+        // nested or not by chance.
         var column = indent + markerLength
         var k = indent + markerLength
         if k < count, b[k] == 0x09 {
             column += 1
         } else {
-            while k < content { if b[k] == 0x20 { column += 1 }; k += 1 }
+            while k < content { if k >= count || b[k] == 0x20 { column += 1 }; k += 1 }
         }
         var task: TaskState? = nil
         // `[ ] ` / `[x] ` immediately after the marker.
@@ -738,7 +790,18 @@ private struct BlockBuilder {
     /// happened since. A marker line always ends the open list (a marker of its
     /// own starts a nested list), so by the time one is classified `open` is
     /// `.blank` and the item it has to be measured against is no longer there.
+    ///
+    /// This is the only thing the walk ever reads from the blocks behind it,
+    /// which is what lets an incremental walk start knowing one value
+    /// (`itemBefore`) instead of the whole parse above it — and stop once its
+    /// value agrees with the old walk's (`resumption`).
     private func mostRecentItem() -> ListInfo? {
+        Self.mostRecentItem(in: blocks[...], before: itemBefore)
+    }
+
+    /// `mostRecentItem` over any run of blocks; `before` is what lies above
+    /// them when they run out.
+    static func mostRecentItem(in blocks: ArraySlice<Block>, before: ListInfo? = nil) -> ListInfo? {
         for block in blocks.reversed() {
             switch block.kind {
             case .blank: continue
@@ -746,7 +809,7 @@ private struct BlockBuilder {
             default: return nil
             }
         }
-        return nil
+        return before
     }
 
 
@@ -771,15 +834,102 @@ private struct BlockBuilder {
     }
     private var open: Open = .none
     private var lastLine = 0
+    /// `mostRecentItem` above the line the walk starts on — nothing for a full
+    /// parse, the parse above the damage for an incremental one.
+    private let itemBefore: ListInfo?
 
-    init(text: NSString, lines: LineIndex) {
+    init(text: NSString, lines: LineIndex, itemBefore: ListInfo? = nil) {
         self.text = text
         self.lines = lines
+        self.itemBefore = itemBefore
     }
 
-    var isAtBoundary: Bool {
-        if case .none = open { return true }
-        return false
+    /// The blocks closed so far, without closing the one still open.
+    var emitted: [Block] { blocks }
+
+    /// Where an old parse can be kept from, if this walk stands exactly where
+    /// the walk that made `old` stood before consuming the first line of
+    /// `old[next]` — or `nil` if it does not.
+    ///
+    /// What the walk does from a line on is decided by three things: the lines
+    /// themselves, which are the same in both texts past the edit; the block
+    /// still open; and the list item behind it (`mostRecentItem`). The lines it
+    /// looks *back* at all lie inside the open block, or are the line above —
+    /// so equal open blocks that started past the edit, and equal items, mean
+    /// equal futures, and the old parse from here on is this one's.
+    ///
+    /// The old walk's state is read off the block *before* `old[next]`. A
+    /// block that ends where the next one starts was still open when the walk
+    /// reached that line — every block is closed by the line after it
+    /// (`closeOpen(through: line - 1)`), or by the one after that when a
+    /// table's delimiter row splits the header off a paragraph or an item —
+    /// unless it closes itself on its own last line: a heading, a rule, front
+    /// matter, a fence or formula or comment that reached its end, after which
+    /// nothing was open. An HTML block ended by a blank line was open when the
+    /// blank line came. Nothing else stops before the next block starts.
+    ///
+    /// It used to stop only where nothing at all was open, which in prose is
+    /// almost nowhere — a blank run is open between paragraphs, the item above
+    /// between items — so a keystroke near the top of a note of paragraphs
+    /// re-walked it to the end.
+    func resumption(before next: Int, in old: [Block], lineShift: Int) -> Int? {
+        guard next > 0 else { return nil }
+        let previous = old[next - 1]
+        // Where the old open block started, in this text's lines. A tail
+        // block lies wholly past the edit, so this is past it too, and so is
+        // everything the walk will look back at.
+        let from = previous.firstLine + lineShift
+        let stillOpen: Bool
+        switch open {
+        case .none:
+            guard Self.closesItself(previous.kind) else { return nil }
+            stillOpen = false
+        case .paragraph(let line):
+            guard line == from, previous.kind == .paragraph else { return nil }
+            stillOpen = true
+        case .blank(let line):
+            guard line == from, previous.kind == .blank else { return nil }
+            stillOpen = true
+        case .list(let line, let info):
+            guard line == from, previous.kind == .listItem(info) else { return nil }
+            stillOpen = true
+        case .quote(let line, let callout):
+            guard line == from, previous.kind == .blockquote(callout: callout) else { return nil }
+            stillOpen = true
+        case .indentedCode(let line):
+            guard line == from, previous.kind == .indentedCode else { return nil }
+            stillOpen = true
+        case .table(let line, let sawDelimiter):
+            guard sawDelimiter, line == from, previous.kind == .table else { return nil }
+            stillOpen = true
+        case .html(let line, let condition):
+            guard condition >= 6, line == from,
+                  previous.kind == .htmlBlock(condition: condition, closed: true) else { return nil }
+            stillOpen = true
+        case .fence, .math, .listFence:
+            // Everything until the close is swallowed; the old block cannot
+            // have ended before it.
+            return nil
+        }
+        // What the old walk had closed behind it at that point.
+        let behind = stillOpen ? next - 1 : next
+        guard mostRecentItem() == Self.mostRecentItem(in: old[..<behind]) else { return nil }
+        return behind
+    }
+
+    /// Does a block of this kind close on its own last line, leaving nothing
+    /// open for the next?
+    private static func closesItself(_ kind: BlockKind) -> Bool {
+        switch kind {
+        case .heading, .thematicBreak, .frontMatter:
+            return true
+        case .fencedCode(_, let closed), .mathBlock(let closed):
+            return closed
+        case .htmlBlock(let condition, let closed):
+            return closed && condition <= 5
+        case .paragraph, .indentedCode, .blockquote, .listItem, .table, .blank:
+            return false
+        }
     }
 
     /// Consume `line` (already classified); returns the next line to visit.

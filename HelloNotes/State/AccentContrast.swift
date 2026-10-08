@@ -33,7 +33,13 @@ import MarkdownEditor   // PlatformColor
 /// An sRGB colour as three components. Deliberately not a platform type: every
 /// function below is pure arithmetic, so it runs identically on both platforms
 /// and in a test with no UI at all.
-struct SRGB: Equatable {
+///
+/// `nonisolated`, with its extensions: a dynamic colour resolves wherever the
+/// framework draws it (`PlatformColor.adaptive`), and by the target's default
+/// every call this maths made from that `@Sendable` closure was to the main
+/// actor — an error in Swift 6, silent in Swift 5 mode, and a race whenever a
+/// colour resolved off the main thread.
+nonisolated struct SRGB: Equatable, Sendable {
     var red: CGFloat
     var green: CGFloat
     var blue: CGFloat
@@ -103,7 +109,7 @@ struct SRGB: Equatable {
 
 // MARK: - The three platform adapters
 
-extension SRGB {
+nonisolated extension SRGB {
     /// The window background each appearance measures text contrast against.
     /// Not the real window colour (which is a material and has no single value)
     /// but the value the material resolves close to — the same two constants
@@ -111,7 +117,7 @@ extension SRGB {
     static func windowGround(isDark: Bool) -> SRGB { grey(isDark ? 0.12 : 0.98) }
 }
 
-extension PlatformColor {
+nonisolated extension PlatformColor {
     /// This colour's sRGB components.
     ///
     /// Via `CGColor` rather than each platform's component accessors: those

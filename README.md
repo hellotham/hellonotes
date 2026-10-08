@@ -9,7 +9,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 |---|---|
 | [docs/PRD.md](docs/PRD.md) | Product vision, users, feature requirements, success metrics |
 | [docs/architecture.md](docs/architecture.md) | Current 4-layer architecture + the Swift packages the app links |
-| [docs/layout-architecture.md](docs/layout-architecture.md) | The shell: the axis-of-abundance rule, component sizes, the sizing contract every viewport obeys, and the settled layout decisions ([wireframes](docs/wireframes.html)) |
+| [docs/ui.md](docs/ui.md) | The UI design: the axis-of-abundance rule and the shells, component sizes, the app-drawn chrome, the sizing contract every viewport obeys, and the layout decisions. The window's parts each have their own: [primary sidebar](docs/primary.md), [right panel](docs/secondary.md), [toolbars](docs/toolbars.md), [tabs](docs/tabs.md), [menu bar](docs/menu.md) |
 | [docs/unimplemented.md](docs/unimplemented.md) | Production-readiness register — release blockers, deferrals, bugs, tech debt, security, performance, usability & accessibility gaps (from a five-lane audit) |
 | [docs/native-roadmap.md](docs/native-roadmap.md) | Forward roadmap for deeper Apple-platform integration (App Intents, widgets, Spotlight…) |
 | [docs/cloud-native-roadmap.md](docs/cloud-native-roadmap.md) | Cloud storage: the File Provider path (on-demand files) and the direct-API providers, phase by phase |

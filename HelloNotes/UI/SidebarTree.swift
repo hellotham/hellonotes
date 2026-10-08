@@ -16,10 +16,9 @@
 //  a redundant header under a tag filter, and inert pinned rows.
 //
 //  Each of those was fixed by editing the iPad's copy. This removes the copy.
-//  The rendering stays per-platform, because an `NSOutlineView` and a SwiftUI
-//  `List` are genuinely different views — the same split `FileViewerView` makes
-//  for PDFs — but what is *in* the tree is one function now, so a row that
-//  gains a field gains it on both or neither.
+//  What is *in* the tree is one function now, and one drawn list renders it on
+//  both platforms (`NoteOutlineList`), so a row that gains a field gains it on
+//  both or neither.
 //
 
 import Foundation

@@ -97,7 +97,7 @@ nonisolated enum CollectionTree {
         case .name:
             sortedNotes = folder.notes.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         case .modified:
-            sortedNotes = folder.notes.sorted { $0.lastModified > $1.lastModified }
+            sortedNotes = folder.notes.sorted(by: Note.newestFirst)
         }
         for note in sortedNotes {
             result.append(CollectionTreeNode(id: note.fileURL.path, name: note.title, note: note, children: nil))

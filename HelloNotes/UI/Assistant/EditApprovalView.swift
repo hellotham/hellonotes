@@ -20,15 +20,15 @@ struct EditApprovalView: View {
             Color.black.opacity(0.35).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
-                    Text(prompt.title).font(.headline)
+                    Image(systemName: "hand.raised.fill").foregroundStyle(Chrome.Colour.orange)
+                    Text(prompt.title).font(Chrome.Style.headline)
                 }
-                Text(prompt.detail).font(.callout).foregroundStyle(.secondary)
+                Text(prompt.detail).font(Chrome.Style.callout).foregroundStyle(Chrome.Colour.secondaryLabel)
                 // The model can propose several changes at once; they queue, and
                 // saying so stops the next card reading as the same one again.
                 if broker.queuedCount > 0 {
                     Text(broker.queuedCount == 1 ? "1 more change is waiting." : "\(broker.queuedCount) more changes are waiting.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                 }
 
                 if let diff = prompt.diff { DiffPreview(diff: diff, requestID: prompt.id) }
@@ -43,14 +43,16 @@ struct EditApprovalView: View {
                         .keyboardShortcut(.cancelAction)
                     Button("Approve") { broker.respond(approved: true) }
                         .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(ChromePushStyle(prominent: true))
                 }
             }
             .padding(18)
             .frame(maxWidth: 460)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
-            .shadow(radius: 20)
+            // A card of the content colour, not a material: `.regularMaterial`
+            // is a different blur and tint on each platform.
+            .background(Chrome.Colour.content, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Chrome.Colour.separator))
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
         }
     }
 }
@@ -75,13 +77,13 @@ private struct DiffPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label(diff.path, systemImage: "doc.text").font(.caption.monospaced()).foregroundStyle(.secondary)
+            Label(diff.path, systemImage: "doc.text").font(Chrome.Style.caption.monospaced()).foregroundStyle(Chrome.Colour.secondaryLabel)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(lines.indices, id: \.self) { index in
                         let line = lines[index]
                         Text(line.text.isEmpty ? " " : line.text)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(Chrome.Style.sized(10, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 6).padding(.vertical, 1)
                             .background(line.kind.background)
@@ -89,13 +91,13 @@ private struct DiffPreview: View {
                     }
                     if hiddenCount > 0 {
                         Text(hiddenCount == 1 ? "1 more line not shown" : "\(hiddenCount) more lines not shown")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                             .padding(6)
                     }
                 }
             }
             .frame(maxHeight: 260)
-            .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
+            .background(Chrome.Colour.quaternaryLabel.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
         }
         .task(id: requestID) {
             let diff = diff
@@ -141,15 +143,15 @@ private extension DiffLine.Kind {
     var background: Color {
         switch self {
         case .same: .clear
-        case .add: .green.opacity(0.18)
-        case .remove: .red.opacity(0.18)
+        case .add: Chrome.Colour.green.opacity(0.18)
+        case .remove: Chrome.Colour.red.opacity(0.18)
         }
     }
     var foreground: Color {
         switch self {
-        case .same: .secondary
-        case .add: .green
-        case .remove: .red
+        case .same: Chrome.Colour.secondaryLabel
+        case .add: Chrome.Colour.green
+        case .remove: Chrome.Colour.red
         }
     }
 }

@@ -7,9 +7,9 @@
 //  Choose a folder from a signed-in cloud account, in the shape of a file
 //  picker rather than a bespoke browser.
 //
-//  `RemoteBrowserView` — which still exists, and is still the right thing for
-//  *reading and editing* a note straight off a provider — was doing double
-//  duty as the way you added a collection, and it made a poor picker. It has a
+//  `RemoteBrowserView` — a browser for *reading and editing* a note straight
+//  off a provider, since removed — was doing double duty as the way you added
+//  a collection, and it made a poor picker. It has a
 //  sign-out button in the same row as the action, it opens notes into an
 //  editor when you tap them, it can only add the folder you are currently
 //  *inside* rather than one you can see, and it says "Add as Collection" where
@@ -18,13 +18,15 @@
 //  app, including the panel you get for a folder on disk two menu items away.
 //
 //  So this borrows the *shape* of that panel — a path bar you can walk back
-//  up, a list where folders are navigable and files are visible but inert, and
-//  Cancel/Open in the bottom-right — without pretending to be a pixel copy of
-//  it. Where it deliberately departs is the click: a single click descends,
-//  as it does in the Files picker, rather than selecting a row for a second
-//  click to open. See `targetName` for why — the faithful version had the
-//  row's double-click recogniser eating the list's single click, which made
-//  every folder look dead.
+//  up, and a list where folders are navigable and files are visible but
+//  inert — without pretending to be a pixel copy of it. Cancel and Open sit in
+//  the sheet's own bar at the top, as they do in every sheet the app draws,
+//  either side of the name of the folder Open would take. Where it
+//  deliberately departs is the click: a single click descends, as it does in
+//  the Files picker, rather than selecting a row for a second click to open.
+//  See `targetName` for why — the faithful version had the row's double-click
+//  recogniser eating the list's single click, which made every folder look
+//  dead.
 //
 
 import SwiftUI
@@ -51,13 +53,18 @@ struct RemoteFolderPicker: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ChromeSheetBar(targetName) {
+                leadingAction
+            } trailing: {
+                trailingAction
+            }
             pathBar
-            Divider()
+            ChromeDivider()
             content
-            Divider()
-            actionBar
+            ChromeDivider()
+            statusLine
         }
-        .panelFrame(width: 560, height: 520)
+        .chromeSheetFrame(width: 560, height: 520)
         // Signing in is part of opening, not a separate screen to find.
         //
         // This used to be `loadRootIfNeeded()` alone, whose first line is
@@ -65,13 +72,7 @@ struct RemoteFolderPicker: View {
         // nothing at all and drew an empty folder. Someone who had just
         // chosen "Dropbox ▸ Sign in" got a blank list and no way forward,
         // which reads exactly like a provider with no files in it.
-        .task {
-            if model.isAuthenticated {
-                await model.loadRootIfNeeded()
-            } else {
-                await model.connect()
-            }
-        }
+        .task { await model.start() }
         // Reported from `onChange`, **not** from the end of the `.task` above.
         //
         // A `.task` is cancelled when its view goes away, and the sheet goes
@@ -98,10 +99,10 @@ struct RemoteFolderPicker: View {
             .disabled(!model.canGoUp)
             .help("Back")
 
-            Image(systemName: CloudProvider.symbol).foregroundStyle(.secondary)
+            Image(systemName: CloudProvider.symbol).foregroundStyle(Chrome.Colour.secondaryLabel)
             Text(model.providerName).fontWeight(.medium)
             Text(model.displayPath)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
                 .lineLimit(1)
                 .truncationMode(.head)
             Spacer(minLength: 0)
@@ -124,19 +125,19 @@ struct RemoteFolderPicker: View {
                     .font(.system(size: 40))
                     .foregroundStyle(.tint)
                 Text("Sign in to \(model.providerName)")
-                    .font(.title3.bold())
+                    .font(Chrome.Style.title3.bold())
                 Text("HelloNotes needs permission to list your folders. Nothing is downloaded until you choose one.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.callout)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 340)
                 Button("Sign In") { Task { await model.connect() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ChromePushStyle(prominent: true))
                     .controlSize(.large)
                 if let error = model.error {
                     Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                        .font(Chrome.Style.caption)
+                        .foregroundStyle(Chrome.Colour.red)
                         .multilineTextAlignment(.center)
                         .textSelection(.enabled)
                         .frame(maxWidth: 360)
@@ -147,32 +148,38 @@ struct RemoteFolderPicker: View {
         } else if let error = model.error, model.entries.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.largeTitle)
-                    .foregroundStyle(.orange)
+                    .font(Chrome.Style.largeTitle)
+                    .foregroundStyle(Chrome.Colour.orange)
                 Text(error)
-                    .font(.callout)
+                    .font(Chrome.Style.callout)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .textSelection(.enabled)
                 if model.needsReauthentication {
                     Button("Sign In Again") { Task { await model.reconnect() } }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(ChromePushStyle(prominent: true))
                 }
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(model.entries, id: \.path) { entry in
-                row(entry)
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(model.entries, id: \.path) { entry in
+                        row(entry)
+                    }
+                }
+                .padding(.vertical, 4)
             }
-            .listStyle(.inset)
+            .viewport()
+            .background(Chrome.Colour.content)
             // Files are *shown*, not hidden. A folder that looks empty because
             // the picker filtered its notes out is a folder you cannot tell
             // apart from an actually empty one — and knowing the notes are
             // there is the whole reason you are about to choose it.
             .overlay {
                 if model.entries.isEmpty && !model.isLoading {
-                    ContentUnavailableView("Empty Folder",
+                    ChromeEmptyState("Empty Folder",
                                            systemImage: "folder",
                                            description: Text("Nothing here to choose."))
                 }
@@ -184,7 +191,7 @@ struct RemoteFolderPicker: View {
     private func row(_ entry: RemoteEntry) -> some View {
         if entry.isDirectory {
             Button { Task { await model.open(entry) } } label: { rowBody(entry) }
-                .buttonStyle(.plain)
+                .buttonStyle(ChromePlainStyle())
         } else {
             rowBody(entry)
         }
@@ -193,59 +200,84 @@ struct RemoteFolderPicker: View {
     private func rowBody(_ entry: RemoteEntry) -> some View {
         HStack(spacing: 8) {
             Image(systemName: entry.isDirectory ? "folder.fill" : "doc.text")
-                .foregroundStyle(entry.isDirectory ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                .foregroundStyle(entry.isDirectory ? AnyShapeStyle(.tint) : AnyShapeStyle(Chrome.Colour.tertiaryLabel))
                 .frame(width: 18)
             Text(entry.name)
-                .foregroundStyle(entry.isDirectory ? .primary : .secondary)
+                .foregroundStyle(entry.isDirectory ? Chrome.Colour.label : Chrome.Colour.secondaryLabel)
             Spacer(minLength: 0)
             if entry.isDirectory {
                 Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.tertiaryLabel)
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .contentShape(.rect)
     }
 
     // MARK: - Actions
 
-    private var actionBar: some View {
+    /// The way out. None while a folder is being added — Stop is the way out
+    /// of that — and no Escape once adding has failed, as before.
+    @ViewBuilder
+    private var leadingAction: some View {
+        switch model.addState {
+        case .adding:
+            EmptyView()
+        case .failed:
+            Button("Cancel") { dismiss() }
+        case .idle, .added:
+            Button("Cancel") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+        }
+    }
+
+    /// The way forward: Open, Try Again after a failure, Stop while adding.
+    @ViewBuilder
+    private var trailingAction: some View {
+        switch model.addState {
+        case .adding:
+            Button("Stop") { model.cancelAdd() }
+        case .failed:
+            Button("Try Again") { model.addAsCollection() }
+                .buttonStyle(ChromePushStyle(prominent: true))
+                .keyboardShortcut(.defaultAction)
+        case .idle, .added:
+            // "Open", not "Add as Collection": this is the same act as
+            // choosing a folder on disk, and calling it something else in
+            // one of the two places is what made them feel unrelated.
+            Button("Open") { model.addAsCollection() }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(ChromePushStyle(prominent: true))
+                .disabled(!model.canAddAsCollection)
+        }
+    }
+
+    /// What Open does, how the add is going, or why it failed — at the foot,
+    /// under the folder it is about.
+    private var statusLine: some View {
         HStack(spacing: 10) {
             if case .adding(let progress) = model.addState {
                 ProgressView().controlSize(.small)
                 Text(summary(progress))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .monospacedDigit()
-                Spacer(minLength: 0)
-                Button("Stop") { model.cancelAdd() }
             } else if case .failed(let message) = model.addState {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Chrome.Colour.orange)
                 Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .lineLimit(2)
-                Spacer(minLength: 0)
-                Button("Cancel") { dismiss() }
-                Button("Try Again") { model.addAsCollection() }
-                    .keyboardShortcut(.defaultAction)
             } else {
                 Text("Open “\(targetName)” as a collection.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer(minLength: 0)
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                // "Open", not "Add as Collection": this is the same act as
-                // choosing a folder on disk, and calling it something else in
-                // one of the two places is what made them feel unrelated.
-                Button("Open") { model.addAsCollection() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canAddAsCollection)
             }
+            Spacer(minLength: 0)
         }
         .padding(12)
         .onChange(of: model.addState) { _, state in

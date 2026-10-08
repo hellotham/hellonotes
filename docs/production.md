@@ -963,7 +963,9 @@ Apple Account password revokes it, and you'd re‑run this.
 **Either** archive + export in Xcode (Organizer ▸ Distribute App ▸ Direct
 Distribution), **or** headlessly — no Xcode UI needed:
 ```bash
-# 1 · Archive (universal: arm64 + x86_64)
+# 1 · Archive (arm64 — from 1.3.3, whose macOS 27 floor runs only on Apple silicon;
+#     Xcode 27's ARCHS_STANDARD is `arm64` at that deployment target. 1.3.2 and
+#     earlier, at 26.5, were universal.)
 xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'generic/platform=macOS' -skipPackagePluginValidation \
   -archivePath build/HelloNotes.xcarchive -allowProvisioningUpdates
@@ -990,7 +992,7 @@ and assess the app as a user's Mac would):
 spctl --assess -t open --context context:primary-signature --verbose dist/HelloNotes.dmg
 #   → accepted / source=Notarized Developer ID
 hdiutil attach dist/HelloNotes.dmg -nobrowse -mountpoint /tmp/hn
-lipo -info /tmp/hn/HelloNotes.app/Contents/MacOS/HelloNotes   # x86_64 arm64
+lipo -info /tmp/hn/HelloNotes.app/Contents/MacOS/HelloNotes   # arm64 (1.3.3+)
 spctl --assess --type execute --verbose /tmp/hn/HelloNotes.app
 xcrun stapler validate /tmp/hn/HelloNotes.app                 # works offline
 hdiutil detach /tmp/hn

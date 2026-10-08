@@ -39,7 +39,12 @@
 import Foundation
 
 /// One proposed link: a phrase in this note, and the note it should point at.
-struct LinkProposal: Identifiable, Equatable, Sendable {
+///
+/// `nonisolated`, like `LinkCandidate`: both are data that `LinkProposals`
+/// builds and reads off the main actor, and in this target an unannotated type
+/// is `@MainActor` — so reading a computed member such as `names` there was a
+/// cross-actor reference the compiler could only warn about.
+nonisolated struct LinkProposal: Identifiable, Equatable, Sendable {
     /// Stable across regeneration of the same note, so a review session can
     /// track what has been decided.
     var id: String { "\(targetTitle.lowercased())@\(range.location)" }
@@ -52,7 +57,7 @@ struct LinkProposal: Identifiable, Equatable, Sendable {
 }
 
 /// A note that could be linked to.
-struct LinkCandidate: Sendable {
+nonisolated struct LinkCandidate: Sendable {
     let title: String
     let url: URL
     /// Front-matter aliases, which are equally valid ways to name the note.
@@ -142,7 +147,11 @@ nonisolated enum LinkProposals {
 
     // MARK: - Private
 
-    private static let regexCache = NSCache<NSString, NSRegularExpression>()
+    /// `nonisolated(unsafe)` because `NSCache` is not `Sendable` and *is*
+    /// thread-safe — Foundation documents it so, and it locks internally — and
+    /// a compiled `NSRegularExpression` is immutable. A second lock around it
+    /// would be a lock around a lock.
+    nonisolated(unsafe) private static let regexCache = NSCache<NSString, NSRegularExpression>()
 
     private static func wordRegex(for name: String) -> NSRegularExpression? {
         if let cached = regexCache.object(forKey: name as NSString) { return cached }

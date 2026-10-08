@@ -164,7 +164,7 @@ disagrees with what the user can see, the measurement is the suspect.
 - `scratchpad/LayoutRef/` — the shell layout contract across every device size.
 - `scratchpad/RealProbe/` — drives the **real** `MarkdownEditor` package in an
   `NSWindow` that is never ordered front, and asserts the sizing contract
-  (`docs/layout-architecture.md` Part 5). `swift run RealProbe` — exits non-zero
+  (`docs/ui.md` §8, the sizing contract). `swift run RealProbe` — exits non-zero
   on failure.
 
 ### The running app's own geometry probe

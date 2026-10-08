@@ -23,12 +23,16 @@ struct GraphEdge: Hashable {
     let to: Int
 }
 
-/// The shared node palette for the graph and mind-map views — distinct,
-/// adaptive system hues that read well in light and dark.
+/// The shared node palette for the graph and mind-map views — distinct hues
+/// that read well in light and dark. The system's, as AppKit resolves them,
+/// fixed per appearance like the chrome's own: a system colour resolves to
+/// each platform's value, so a folder's colour was the platform's choice.
 enum NodePalette {
     static let colors: [Color] = [
-        .blue, .purple, .pink, .orange, .teal, .green,
-        .indigo, .red, .cyan, .mint, .yellow, .brown,
+        Chrome.Colour.blue, Chrome.Colour.purple, Chrome.Colour.pink,
+        Chrome.Colour.orange, Chrome.Colour.teal, Chrome.Colour.green,
+        Chrome.Colour.indigo, Chrome.Colour.red, Chrome.Colour.cyan, Chrome.Colour.mint,
+        Chrome.Colour.yellow, Chrome.Colour.brown,
     ]
 
     static func color(_ index: Int) -> Color {
@@ -37,8 +41,8 @@ enum NodePalette {
 
     /// Semantic edge colours when a note is focused: the notes it links to,
     /// and the notes that link to it.
-    static let outgoing: Color = .blue
-    static let incoming: Color = .orange
+    static let outgoing: Color = Chrome.Colour.blue
+    static let incoming: Color = Chrome.Colour.orange
 }
 
 /// Shared zoom controls for the canvas views: −, live percentage, +, Fit.
@@ -56,8 +60,8 @@ struct ZoomControls: View {
                 .help("Zoom out")
                 .accessibilityLabel("Zoom out")
             Text("\(Int((zoom * 100).rounded()))%")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(Chrome.Style.caption.monospacedDigit())
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
                 .frame(width: 40)
             Button {
                 zoom = min(range.upperBound, zoom * 1.25)
@@ -67,9 +71,9 @@ struct ZoomControls: View {
             Button("Fit") {
                 zoom = min(max(fitZoom(), range.lowerBound), range.upperBound)
             }
-            .help("Fit the whole graph in the window")
+            .help("Zoom to fit everything")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(ChromeBorderlessStyle())
     }
 }
 
@@ -79,25 +83,30 @@ struct ZoomControls: View {
 /// Click a note to focus it — its outgoing links and backlinks light up in
 /// two colours and everything else dims; double-click to open the note.
 /// The canvas scrolls and zooms (pinch or the header controls).
+///
+/// It never closes itself — it is a panel beside the editor, and a note
+/// opened from it opens beside it. A Done button, and a click that opened
+/// the note and closed the graph, were here for sheets, behind an
+/// `isWindowed` flag; nothing had passed `false` since the Mac's and the
+/// iPad's graphs became one view (`GraphPane`), and they went.
 struct GraphView: View {
     let nodes: [GraphNode]
     let edges: [GraphEdge]
     let onSelect: (URL) -> Void
-    /// Fallback tint (used by the focus ring); nodes take their colour per folder.
-    var accent: Color = .accentColor
-    /// Node labels used to scale by canvas zoom alone, so raising the system
-    /// text size moved every other surface in the app and left the graph at a
-    /// flat 11pt. Zoom still multiplies on top — the two are independent.
-    @ScaledMetric(relativeTo: .caption) private var labelPointSize: CGFloat = 11
-    /// When hosted in its own window there is no sheet to dismiss: hide the
-    /// Done button, and clicking focuses rather than dismissing.
-    var isWindowed = false
+    /// The app's accent, for the focus ring; nodes take their colour per
+    /// folder. Given, because `Color.accentColor` is not the person's choice.
+    var accent: Color
+    /// Node labels used to scale by canvas zoom alone, so raising the text
+    /// size moved every other surface in the app and left the graph at a flat
+    /// 11pt. Zoom still multiplies on top — the two are independent. The text
+    /// size is the chrome's one table (`Chrome.Style.points`), where
+    /// `@ScaledMetric` scaled by each platform's own.
+    private var labelPointSize: CGFloat { Chrome.Style.points(11) }
     /// The focused note (drives directional edge colouring). Owned by the host
     /// so it can also drive scoping.
     var focusedURL: URL?
     var onFocusChange: (URL?) -> Void = { _ in }
 
-    @Environment(\.dismiss) private var dismiss
     @State private var positions: [CGPoint] = []
     /// World size, derived from the laid-out (and collision-relaxed) nodes.
     @State private var contentSize = CGSize(width: 520, height: 520)
@@ -154,20 +163,15 @@ struct GraphView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                // No title: the surface's own chrome says "Graph" (`AuxiliarySheet`),
-                // and the inspector's graph pane is titled by the inspector.
+                // No title: the panel's own header says "Graph".
                 Spacer()
                 Text("\(nodes.count) notes · \(edges.count) links")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 ZoomControls(zoom: $zoom, range: Self.zoomRange, fitZoom: fitZoom)
-                if !isWindowed {
-                    Button("Done") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                }
             }
             .padding(12)
-            Divider()
+            ChromeDivider()
             scrollingCanvas
         }
         // No minimum: this is a pane now, and a canvas that demands 560pt
@@ -185,7 +189,7 @@ struct GraphView: View {
                     // Centre the world in the viewport while it's smaller.
                     .frame(minWidth: viewport.size.width, minHeight: viewport.size.height)
             }
-            .background(.background)
+            .background(Chrome.Colour.content)
             .onChange(of: viewport.size, initial: true) { _, size in
                 viewportSize = size
                 // Open at "everything visible" once, then leave zoom alone.
@@ -208,39 +212,44 @@ struct GraphView: View {
 
     /// Discoverability footer: a hint while nothing is focused; a direction
     /// legend (plus clear button) while a note is.
-    @ViewBuilder
     private var canvasFooter: some View {
-        if isWindowed {
-            HStack(spacing: 10) {
-                if let f = focusedIndex {
-                    Text(nodes[f].label).fontWeight(.semibold).lineLimit(1)
-                    Label("Links to", systemImage: "arrow.right")
-                        .foregroundStyle(NodePalette.outgoing)
-                    Label("Linked from", systemImage: "arrow.left")
-                        .foregroundStyle(NodePalette.incoming)
-                    Button {
-                        onFocusChange(nil)
-                    } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.borderless)
-                        .help("Clear focus")
-                        .accessibilityLabel("Clear focus")
-                } else {
-                    Text(PointerPresence.shared.prefersTouch
-                         ? "Tap a note to trace its links · double-tap to open"
-                         : "Click a note to trace its links · double-click to open")
-                        .foregroundStyle(.secondary)
-                }
+        HStack(spacing: 10) {
+            if let f = focusedIndex {
+                Text(nodes[f].label).fontWeight(.semibold).lineLimit(1)
+                Label("Links to", systemImage: "arrow.right")
+                    .foregroundStyle(NodePalette.outgoing)
+                Label("Linked from", systemImage: "arrow.left")
+                    .foregroundStyle(NodePalette.incoming)
+                Button {
+                    onFocusChange(nil)
+                } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(ChromeBorderlessStyle())
+                    .help("Clear focus")
+                    .accessibilityLabel("Clear focus")
+            } else {
+                Text(PointerPresence.shared.prefersTouch
+                     ? "Tap a note to trace its links · double-tap to open"
+                     : "Click a note to trace its links · double-click to open")
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
             }
-            .font(.caption)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.thinMaterial, in: Capsule())
-            .padding(10)
         }
+        .font(Chrome.Style.caption)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        // A card floating over the canvas, not a material: a blur is the
+        // platform's drawing, and a different one on each.
+        .background(Chrome.Colour.content, in: Capsule())
+        .overlay(Capsule().strokeBorder(Chrome.Colour.separator))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        .padding(10)
     }
 
     private var graphCanvas: some View {
-        Canvas { context, _ in
+        // Read here, in the body, so a change of text size is observed and
+        // redraws the canvas; a read inside the renderer below is not
+        // guaranteed to be.
+        let labelPointSize = self.labelPointSize
+        return Canvas { context, _ in
             guard positions.count == nodes.count else { return }
             let colors = nodeColors
             let deg = degrees
@@ -283,7 +292,7 @@ struct GraphView: View {
                         shading = .color(NodePalette.incoming.opacity(0.9))
                         lineWidth = max(1.4, 1.8 * zoom)
                     } else {
-                        shading = .color(.secondary.opacity(0.10))
+                        shading = .color(Chrome.Colour.secondaryLabel.opacity(0.10))
                     }
                 } else {
                     shading = .linearGradient(
@@ -338,7 +347,7 @@ struct GraphView: View {
                 ctx.draw(
                     Text(nodes[i].label)
                         .font(.system(size: labelPointSize * zoom, weight: .medium))
-                        .foregroundStyle(.primary),
+                        .foregroundStyle(Chrome.Colour.label),
                     at: CGPoint(x: p.x, y: p.y + r + 10 * zoom)
                 )
             }
@@ -367,20 +376,13 @@ struct GraphView: View {
                     // Double-click: open the note.
                     if let i = nearestNode(to: double.location) {
                         onSelect(nodes[i].url)
-                        if !isWindowed { dismiss() }
                     }
                 case .second(let single):
-                    if isWindowed {
-                        // Click: focus (or clear on a repeat / empty click).
-                        if let i = nearestNode(to: single.location) {
-                            onFocusChange(nodes[i].url == focusedURL ? nil : nodes[i].url)
-                        } else {
-                            onFocusChange(nil)
-                        }
-                    } else if let i = nearestNode(to: single.location) {
-                        // Sheets keep the original click-to-open behaviour.
-                        onSelect(nodes[i].url)
-                        dismiss()
+                    // Click: focus (or clear on a repeat / empty click).
+                    if let i = nearestNode(to: single.location) {
+                        onFocusChange(nodes[i].url == focusedURL ? nil : nodes[i].url)
+                    } else {
+                        onFocusChange(nil)
                     }
                 }
             }

@@ -104,20 +104,16 @@ nonisolated public let quoteBarExtraAttribute = NSAttributedString.Key("hn.quote
 /// Custom attribute (Int level) on an h1/h2 heading line — the fragment draws a
 /// full-width bottom rule below it, matching GitHub's heading borders.
 nonisolated public let headingRuleAttribute = NSAttributedString.Key("hn.headingRule")
-/// Custom attribute (CGFloat) on the first char of a block's **last** line:
-/// space to reserve below it that must not be dropped at the end of the note.
-/// `RenderedBlockFragment.bottomMargin` returns it. See `StyleApplier`'s
-/// `keepARulesBottomMargin` for the one thing it is for.
-nonisolated public let escapingMarginAttribute = NSAttributedString.Key("hn.escapingMargin")
 /// Custom attribute (CGFloat) on the first char of a block's **first** line:
 /// space to reserve *above* it that must not be dropped at the start of the
 /// note. `RenderedBlockFragment.topMargin` returns it.
 ///
-/// The mirror of `escapingMarginAttribute`, and it exists for the same reason
-/// the code box's bottom padding does. A `<p>` inside a loose `<li>`, or a
-/// heading opening one, has a `margin-top` that collapses straight out through
-/// the `<li>` and the `<ul>` — and at the very top of a note there is nothing
-/// above for it to collapse into, so the page simply starts that much lower.
+/// It exists for the same reason the code box's bottom padding does: TextKit
+/// drops space at the edge of the document that the page keeps. A `<p>` inside
+/// a loose `<li>`, or a heading opening one, has a `margin-top` that collapses
+/// straight out through the `<li>` and the `<ul>` — and at the very top of a
+/// note there is nothing above for it to collapse into, so the page simply
+/// starts that much lower.
 /// TextKit drops `paragraphSpacingBefore` on the document's first paragraph
 /// outright, so the space used to be added to the *line height* instead — and a
 /// line height applies to every **wrapped** visual line, so an opening item long
@@ -205,8 +201,7 @@ nonisolated public let inlineImageBaselineAttribute = NSAttributedString.Key("hn
 nonisolated let chromeAttributes: [NSAttributedString.Key] = [
     taskCheckboxAttribute, calloutTintAttribute, calloutIconAttribute,
     calloutFoldAttribute, listBulletAttribute, blockquotePlainAttribute,
-    quoteBarExtraAttribute, headingRuleAttribute, escapingMarginAttribute,
-    openingMarginAttribute,
+    quoteBarExtraAttribute, headingRuleAttribute, openingMarginAttribute,
     thematicBreakAttribute, codeBandAttribute, codeBottomPadAttribute,
     inlineCodeAttribute, inlineImageAttribute, inlineImageBaselineAttribute,
 ]
@@ -264,48 +259,91 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
     }
 
     override nonisolated func draw(at point: CGPoint, in context: CGContext) {
-        drawCodeBand(at: point, in: context)       // behind everything
-        drawCalloutBands(at: point, in: context)   // behind the text
+        drawChromeBehindText(at: point, in: context)
+        super.draw(at: point, in: context)   // the text (and concealed source)
+        drawChromeOverText(at: point, in: context)
+    }
+
+    /// What sits *behind* the text: the code box, a callout's band, an inline
+    /// code pill — fills, one of them opaque.
+    ///
+    /// The Mac draws these before `super.draw`. UIKit never calls `draw`, so on
+    /// iPad a view under the text paints them (`ChromeOverlayView.Side`). They
+    /// were painted on the one view over the text there, and the code box is
+    /// opaque: every code block in Edit on iPad was an empty grey box.
+    nonisolated func drawChromeBehindText(at point: CGPoint, in context: CGContext) {
+        drawCodeBand(at: point, in: context)
+        drawCalloutBands(at: point, in: context)
         drawInlineCodePills(at: point, in: context)
-        super.draw(at: point, in: context)   // concealed source (invisible)
+    }
+
+    /// What sits *on* the text: checkboxes, bullets, rules, and the rendered
+    /// pictures that stand in for concealed source.
+    nonisolated func drawChromeOverText(at point: CGPoint, in context: CGContext) {
         drawTaskCheckboxes(at: point, in: context)
         drawListBullets(at: point, in: context)
         drawHeadingRule(at: point, in: context)
         drawThematicBreak(at: point, in: context)
         drawInlineImages(at: point, in: context)
-
         drawBlockImage(at: point, in: context)
     }
 
     /// The rendered table / diagram / display-maths image, in the band that
-    /// `EditorDocument.collapse(range:to:)` reserved for it.
+    /// `EditorDocument.collapse(range:to:)` reserved for it — and, on a diagram
+    /// the host can show larger, the enlarge button in its corner.
     private nonisolated func drawBlockImage(at point: CGPoint, in context: CGContext) {
-        guard let (image, bandTop) = blockImage(), let cg = PlatformDraw.cgImage(image) else { return }
-        let leftInset = point.x - layoutFragmentFrame.origin.x
-            + (textLayoutManager?.textContainer?.lineFragmentPadding ?? 0)
-        let rect = CGRect(x: leftInset, y: point.y + bandTop,
-                          width: image.size.width, height: image.size.height)
+        guard let (image, _) = blockImage(), let cg = PlatformDraw.cgImage(image),
+              let frame = pictureFrame() else { return }
+        // From where the fragment is to where it was asked to draw.
+        let rect = frame.offsetBy(dx: point.x - layoutFragmentFrame.minX,
+                                  dy: point.y - layoutFragmentFrame.minY)
         PlatformDraw.image(cg, in: rect, context: context)
+        if hasDiagramZoom {
+            DiagramZoomButton.draw(in: DiagramZoomButton.frame(in: rect), context: context)
+        }
     }
 
-    /// Draw everything except the text at `point` — chrome *and* the block
-    /// image. Used by the iOS overlay renderer, since `UITextView` doesn't
-    /// invoke a custom fragment's `draw(at:in:)` the way `NSTextView` does.
+    /// Where the picture this fragment draws sits, in text-container
+    /// coordinates — a line fragment's padding in from the container's edge and
+    /// `bandTop` below the fragment's top — or nil if it draws none. What is
+    /// drawn and where its enlarge button is are both this one rectangle.
+    nonisolated func pictureFrame() -> CGRect? {
+        guard let (image, bandTop) = blockImage() else { return nil }
+        return CGRect(x: textLayoutManager?.textContainer?.lineFragmentPadding ?? 0,
+                      y: layoutFragmentFrame.minY + bandTop,
+                      width: image.size.width, height: image.size.height)
+    }
+
+    /// Whether the picture this fragment draws carries an enlarge button.
+    private nonisolated var hasDiagramZoom: Bool {
+        guard let ts = textStorage, let range = fragmentRange, range.length > 0,
+              range.location < ts.length else { return false }
+        return ts.attribute(diagramZoomAttribute, at: range.location, effectiveRange: nil) != nil
+    }
+
+    /// The enlarge button this fragment draws, in text-container coordinates,
+    /// or nil if it draws none.
     ///
-    /// The block image belongs here, not only in `draw`: leaving it out is why
-    /// a table on iPad stayed as pipes and dashes. The source is concealed and
-    /// a band is reserved for the image either way, so omitting the draw left
-    /// an empty band rather than a table.
+    /// The same arithmetic as `drawBlockImage`, moved from "where the fragment
+    /// was asked to draw" to "where the fragment is": the picture starts a line
+    /// fragment's padding in from the container's edge and `bandTop` below the
+    /// fragment's top.
+    nonisolated func diagramZoomButtonFrame() -> CGRect? {
+        guard hasDiagramZoom, let picture = pictureFrame() else { return nil }
+        return DiagramZoomButton.frame(in: picture)
+    }
+
+    /// Everything except the text, behind and over together — for a context
+    /// with no text in it (a test's bitmap). On screen the two halves go to two
+    /// views, one each side of the text.
+    ///
+    /// The block image belongs in the second half, not only in `draw`: leaving
+    /// it out is why a table on iPad stayed as pipes and dashes. The source is
+    /// concealed and a band is reserved for the image either way, so omitting
+    /// the draw left an empty band rather than a table.
     nonisolated func drawChromeOnly(at point: CGPoint, in context: CGContext) {
-        drawCodeBand(at: point, in: context)
-        drawCalloutBands(at: point, in: context)
-        drawInlineCodePills(at: point, in: context)
-        drawTaskCheckboxes(at: point, in: context)
-        drawListBullets(at: point, in: context)
-        drawHeadingRule(at: point, in: context)
-        drawThematicBreak(at: point, in: context)
-        drawInlineImages(at: point, in: context)
-        drawBlockImage(at: point, in: context)
+        drawChromeBehindText(at: point, in: context)
+        drawChromeOverText(at: point, in: context)
     }
 
     // MARK: - Task checkboxes
@@ -612,14 +650,6 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         if let level = headingRuleLevel {
             extra += metrics(at: range.location).headingRuleInset(level)
         }
-        // A margin that CSS keeps at the end of the note, parked here for the
-        // same reason: `paragraphSpacing` would be dropped. See
-        // `escapingMarginAttribute`.
-        if let ts = textStorage, range.location < ts.length,
-           let escaping = ts.attribute(escapingMarginAttribute, at: range.location,
-                                       effectiveRange: nil) as? CGFloat {
-            extra += escaping
-        }
         // `pre { padding-bottom }`. Padding, exactly like the heading rule's —
         // and for the same reason it cannot live in the line height: a line
         // height is *per visual line*, so a wrapped listing would pay it twice,
@@ -639,6 +669,11 @@ nonisolated final class RenderedBlockFragment: NSTextLayoutFragment {
         var bounds = super.renderingSurfaceBounds
         if let (image, bandTop) = blockImage() {
             bounds = bounds.union(CGRect(x: 0, y: bandTop, width: image.size.width, height: image.size.height))
+            // A diagram shorter than the button hangs it below the picture.
+            if let button = diagramZoomButtonFrame() {
+                bounds = bounds.union(button.offsetBy(dx: -layoutFragmentFrame.minX,
+                                                      dy: -layoutFragmentFrame.minY))
+            }
         }
         if drawsFullWidthChrome, let width = textLayoutManager?.textContainer?.size.width {
             bounds.origin.x = -layoutFragmentFrame.origin.x

@@ -86,7 +86,7 @@ Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P
 > **Search & nav:** title filter, full-text search with snippets, Open Quickly (⇧⌘O) over notes/headings/aliases, tags + **nested tags** tree + **tag autocomplete**, **bookmarks**, **daily notes** + **templates**.
 > **AI (optional):** on-device Apple Intelligence (summarise / suggest tags / suggest links), **Ask Library** retrieval chat with citations, an agentic **Assistant** (tools incl. web search/fetch, note editing behind explicit approval, skills, deep research), and pluggable providers — local (Apple, MLX, Ollama, LM Studio) or the user's own cloud key (Anthropic, OpenAI-compatible, Gemini). Keys in the Keychain; no developer backend.
 > **Git:** repo status, init, local commit, opt-in auto-commit (never auto-pushes), push/fetch, per-note **version history** (browse + restore), **clone** + **create-remote** with HTTPS token auth (Keychain), in-app git identity.
-> **Platform:** macOS adaptive shell (width/aspect-driven; see layout-architecture.md) with full menu bar, windowed Graph/Mind Map/Assistant/Ask Library, appearance settings (theme/accent/text size), launch splash with build info; iOS/iPadOS runs the same shell sharing Core/State, with the full four view modes.
+> **Platform:** macOS adaptive shell (width/aspect-driven; see ui.md) with full menu bar, windowed Graph/Mind Map/Assistant/Ask Library, appearance settings (theme/accent/text size), launch splash with build info; iOS/iPadOS runs the same shell sharing Core/State, with the full four view modes.
 > **System integration** *(added 2026-07-19/20 — [native-roadmap.md](native-roadmap.md))*: App Intents (`NoteEntity` + Siri/Shortcuts), Spotlight donation, a recent-notes **widget**, **Quick Look** preview + thumbnail extensions, menu-bar quick capture + global hotkey, `hellonotes://` URL scheme, Services menu, state restoration, TipKit, on-device dictation (SpeechAnalyzer) and Foundation Models `@Generable`.
 > **Cloud storage** *(added 2026-07-20/21 — [cloud-native-roadmap.md](cloud-native-roadmap.md))*: a vault folder may live in **Box, Dropbox, OneDrive (personal/business), Google Drive or iCloud** via Apple's File Provider layer, with files kept **online-only until opened** (coordinated I/O + dataless-aware indexing); or an account can be connected **directly over its own API** (four built-in clients, no vendor SDKs) and promoted to a first-class collection in the sidebar.
 > **Deferred** (engine walls / roadmap): create-on-miss from an in-editor muted link click, git pull/merge + conflict UI, richer iOS editor — see [unimplemented.md](unimplemented.md).
@@ -131,7 +131,7 @@ Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P
 
 ### 7.7 Platform
 - **P0** macOS 15+ **adaptive shell** — one width- and aspect-driven layout, not a fixed 3-column split.
-  See [docs/layout-architecture.md](layout-architecture.md) and [docs/wireframes.html](wireframes.html).
+  See [docs/ui.md](ui.md); the original wireframes are [docs/wireframes.html](wireframes.html).
 - **P2** iOS/iPadOS uses the **same shell**, sharing the Core/State layers — device identity is never
   consulted, because Stage Manager makes it meaningless (an iPad window can be 320pt or 1600pt wide).
 
@@ -145,7 +145,7 @@ Priority: **P0 = MVP**, **P1 = fast-follow**, **P2 = roadmap**. **v1.0 shipped P
 ## 9. UX overview
 
 The shell follows the **axis of abundance**, not the device. Full design in
-[docs/layout-architecture.md](layout-architecture.md); wireframes for every size in
+[docs/ui.md](ui.md); the original wireframes for every size are in
 [docs/wireframes.html](wireframes.html).
 
 | Available space | Shell | Navigation lives |

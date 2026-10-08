@@ -7,6 +7,7 @@
 
 import CoreGraphics
 import BeautifulMermaid
+import MarkdownCore
 import MarkdownEditor
 
 #if canImport(AppKit)
@@ -77,7 +78,9 @@ enum NoteTranscluder {
 
     /// Extract the section under `heading` (down to the next heading of the same
     /// or higher level). Returns the whole text if `heading` is nil/not found.
-    static func section(_ heading: String?, from markdown: String) -> String {
+    /// `nonisolated`: a pass over the embedded note, made off the main actor
+    /// beside its read (`CollectionEmbedProvider.image`).
+    nonisolated static func section(_ heading: String?, from markdown: String) -> String {
         guard let heading, !heading.isEmpty else { return markdown }
         let lines = markdown.components(separatedBy: "\n")
         var startIndex: Int?
@@ -103,7 +106,9 @@ enum NoteTranscluder {
 
     // MARK: - Lightweight Markdown → attributed string
 
-    private static func attributedBody(from markdown: String, isDark: Bool) -> NSAttributedString {
+    /// Internal rather than private so a test can read what a card draws
+    /// without decoding its picture.
+    static func attributedBody(from markdown: String, isDark: Bool) -> NSAttributedString {
         let text = FrontMatter.body(of: markdown)   // skip the note's own front matter
         let base = PlatformFont.appSystem(13)
         let textColor: PlatformColor = isDark ? PlatformColor(white: 0.9, alpha: 1) : PlatformColor(white: 0.1, alpha: 1)
@@ -117,17 +122,23 @@ enum NoteTranscluder {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
-            // Fenced block: ```mermaid renders a diagram, others stay as code.
-            if trimmed.hasPrefix("```") {
-                let lang = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased()
+            // Fenced block: a diagram renders as one, anything else stays as
+            // code. Which fences are diagrams is the editor's rule, asked rather
+            // than copied (`MermaidDiagram.isDiagram(info:)`): the copy here knew
+            // backtick fences whose info string was the one word, so a
+            // `~~~mermaid` diagram or a ```mermaid theme=dark one was drawn in
+            // its own note and shown as code in every card that embedded it.
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                let fence = String(trimmed.prefix(while: { $0 == trimmed.first }))
+                let info = trimmed.dropFirst(fence.count)
                 var bodyLines: [String] = []
                 i += 1
-                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix(fence) {
                     bodyLines.append(lines[i]); i += 1
                 }
                 i += 1   // skip closing fence
                 let source = bodyLines.joined(separator: "\n")
-                if lang == "mermaid", let img = mermaidImage(source, isDark: isDark) {
+                if MermaidDiagram.isDiagram(info: info), let img = mermaidImage(source, isDark: isDark) {
                     out.append(imageAttachment(img, maxWidth: textContentWidth))
                     out.append(NSAttributedString(string: "\n"))
                 } else {
@@ -228,7 +239,7 @@ enum NoteTranscluder {
         return NSAttributedString(attachment: attachment)
     }
 
-    private static func headingParts(_ line: String) -> (level: Int, title: String)? {
+    private nonisolated static func headingParts(_ line: String) -> (level: Int, title: String)? {
         guard let m = line.range(of: #"^(#{1,6})\s+"#, options: .regularExpression) else { return nil }
         let hashes = line[line.startIndex..<m.upperBound].filter { $0 == "#" }.count
         let title = String(line[m.upperBound...]).trimmingCharacters(in: .whitespaces)

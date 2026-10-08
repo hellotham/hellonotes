@@ -42,9 +42,11 @@ struct SupportSettingsView: View {
     /// one screen a reviewer is required to check.
     static let privacyURL = URL(string: "https://hellotham.com/hellonotes/privacy")!
 
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
-        Form {
-            Section {
+        ChromeForm {
+            ChromeSection {
                 // **This used to say "nothing on this screen unlocks a
                 // feature", and that is no longer true.** One thing does: a
                 // support request. Everything the app *does* is still included
@@ -52,28 +54,24 @@ struct SupportSettingsView: View {
                 // overstating it is how a listing promises "priority support"
                 // that no queue anywhere implements.
                 Text("HelloNotes is free, and every feature is included for everyone. Backing the app adds one thing: you can send a support request from inside it.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.callout)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
             }
 
             championSection
             commercialSection
             SupportRequestSection(store: store)
 
-            Section {
-                Link(destination: Self.eulaURL) {
-                    Label("Terms of Use (EULA)", systemImage: "doc.text")
-                }
-                Link(destination: Self.privacyURL) {
-                    Label("Privacy Policy", systemImage: "hand.raised")
-                }
+            ChromeSection {
+                policyLink("Terms of Use (EULA)", systemImage: "doc.text", destination: Self.eulaURL)
+                policyLink("Privacy Policy", systemImage: "hand.raised", destination: Self.privacyURL)
             } header: {
                 Text("Terms")
             } footer: {
                 Text("HelloNotes collects nothing. Purchases are handled entirely by the App Store — the app never sees a payment detail.")
             }
 
-            Section {
+            ChromeSection {
                 Button {
                     Task { await store.restore() }
                 } label: {
@@ -84,14 +82,12 @@ struct SupportSettingsView: View {
             }
 
             if case .failed(let message) = store.loadState {
-                Section {
+                ChromeSection {
                     Label(message, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                 }
             }
         }
-        .formStyle(.grouped)
-        .navigationTitle("Support")
         .task { await store.load() }
         .alert("Thank you", isPresented: thanksBinding) {
             Button("OK") { store.lastThanks = nil }
@@ -108,7 +104,7 @@ struct SupportSettingsView: View {
     // MARK: - Champion
 
     @ViewBuilder private var championSection: some View {
-        Section {
+        ChromeSection {
             if let product = store.champion {
                 productRow(
                     title: product.displayName,
@@ -139,7 +135,7 @@ struct SupportSettingsView: View {
     // MARK: - Commercial
 
     @ViewBuilder private var commercialSection: some View {
-        Section {
+        ChromeSection {
             if let product = store.commercial {
                 productRow(
                     title: product.displayName,
@@ -197,17 +193,17 @@ struct SupportSettingsView: View {
                             product: Product) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.headline)
+                Text(title).font(Chrome.Style.headline)
                 Spacer(minLength: 12)
                 // Price and period together, so neither can be read without
                 // the other.
                 Text("\(price) \(cadence)")
-                    .font(.callout)
+                    .font(Chrome.Style.callout)
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             if !detail.isEmpty {
-                Text(detail).font(.callout).foregroundStyle(.secondary)
+                Text(detail).font(Chrome.Style.callout).foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             Button {
                 Task { await store.purchase(product) }
@@ -218,7 +214,7 @@ struct SupportSettingsView: View {
                     Text(action)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(ChromePushStyle(prominent: true))
             .disabled(store.purchasing != nil)
         }
         .padding(.vertical, 2)
@@ -240,19 +236,30 @@ struct SupportSettingsView: View {
         case .idle, .loading:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Contacting the App Store…").foregroundStyle(.secondary)
+                Text("Contacting the App Store…").foregroundStyle(Chrome.Colour.secondaryLabel)
             }
         case .loaded, .failed:
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(name) is unavailable right now.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 Button("Try Again") {
                     Task { await store.reload() }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ChromePushStyle())
             }
             .padding(.vertical, 2)
         }
+    }
+
+    /// One of the two policy links 3.1.2(c) requires on this screen: its glyph
+    /// and title in the accent, as `ChromeLink` draws a link. A `Link` is the
+    /// Mac's link blue there and the tint on iOS.
+    private func policyLink(_ title: String, systemImage: String, destination: URL) -> some View {
+        Button { openURL(destination) } label: {
+            Label(title, systemImage: systemImage)
+        }
+        .buttonStyle(ChromeLinkStyle())
+        .accessibilityAddTraits(.isLink)
     }
 
     // MARK: - Alerts

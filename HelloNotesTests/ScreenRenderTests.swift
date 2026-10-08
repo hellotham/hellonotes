@@ -79,7 +79,10 @@ struct ScreenRenderTests {
 
     /// The screen that shipped broken.
     @Test func aiSettingsDrawsItsContent() {
-        let painted = paintedPixels(IntelligenceSettingsForm(settings: IntelligenceSettings()))
+        // Laid out flat: the page is a `ChromeForm`, which scrolls, and
+        // `ImageRenderer` draws nothing inside a scroll view.
+        let painted = paintedPixels(IntelligenceSettingsForm(settings: IntelligenceSettings())
+            .environment(\.chromeFormScrolls, false))
         #expect(painted > 2_000,
                 "AI settings painted \(painted) glyph pixels — that is a collapsed form, not a screen")
     }
@@ -87,7 +90,11 @@ struct ScreenRenderTests {
     /// The folder-convention rows, which carry four of the fields that had no
     /// label on iOS.
     @Test func folderSettingsDrawTheirRows() {
-        let painted = paintedPixels(Form { FolderConventionSections() })
+        // The sections alone: `ChromeForm` is a scroll view, and this counts
+        // what the rows paint, not whether a platform scroll view renders
+        // offscreen.
+        let painted = paintedPixels(VStack(alignment: .leading, spacing: 30) { FolderConventionSections() }
+            .padding(20))
         #expect(painted > 2_000, "folder settings painted \(painted) pixels")
     }
 }

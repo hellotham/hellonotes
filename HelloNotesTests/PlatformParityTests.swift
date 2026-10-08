@@ -58,7 +58,10 @@ struct PlatformParityTests {
         // referring to it is not a parity signal. (It failed exactly that way
         // on the first run, which is the sort of thing a scan should be made to
         // prove about itself.)
-        let structOpens = /^struct ([A-Za-z_][A-Za-z0-9_]*)/
+        // Any type opening ends the one before — a class or an extension after
+        // an actions struct is not its fields (`WindowRequest.pending` was
+        // read as one).
+        let structOpens = /^(?:@[A-Za-z]+\s+)*(?:final\s+)?(?:struct|class|enum|extension)\s+([A-Za-z_][A-Za-z0-9_]*)/
         let declaration = /^\s*var ([A-Za-z_][A-Za-z0-9_]*)\s*:/
         var fields: Set<String> = []
         var insideActions = false

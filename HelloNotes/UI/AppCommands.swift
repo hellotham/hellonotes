@@ -13,9 +13,9 @@
 //  **Cross-platform.** This file was `#if os(macOS)` end to end. iPadOS builds
 //  its menu bar from a scene's `.commands` exactly as macOS does, so gating the
 //  file gated the iPad's entire menu bar *and* every keyboard shortcut with it:
-//  no ⌘B, no ⌘F, no View menu. What is genuinely Mac-only — windows, the
-//  Finder, NSWorkspace — is gated item by item instead, so an iPad never shows
-//  a command it cannot honour.
+//  no ⌘B, no ⌘F, no View menu. Every command is on both now — only the iPad's
+//  own Settings… is gated, the Mac's coming from its `Settings` scene — and a
+//  command that cannot run where it is greys out.
 
 import SwiftUI
 #if os(macOS)
@@ -46,14 +46,12 @@ enum CloudBrowser: String, CaseIterable, Identifiable, Codable {
     #endif
 
     var id: String { rawValue }
-    var windowID: String { rawValue }
 
     /// The providers a *person* may pick, which is not `allCases`.
     ///
     /// `allCases` carries the debug `.mock` store, and a menu built from it
     /// offered "Cloud Demo (Mock)" alongside Dropbox and Box — in every debug
-    /// build, to anyone using one. The scene still registers `allCases`, so the
-    /// demo window keeps working; it simply is not something the app *offers*.
+    /// build, to anyone using one. It is not something the app *offers*.
     /// Anything user-facing reads this.
     static var selectable: [CloudBrowser] {
         #if DEBUG
@@ -62,14 +60,6 @@ enum CloudBrowser: String, CaseIterable, Identifiable, Codable {
         allCases
         #endif
     }
-
-    /// What the window is called.
-    ///
-    /// `RemoteBrowserView` sets no `navigationTitle`, and these scenes lost the
-    /// titles they carried as `Window("Box (Direct)", …)` when they became
-    /// `WindowGroup`s — a `WindowGroup` with no title falls back to the app's
-    /// name, so opening all four gave four windows called "HelloNotes".
-    var windowTitle: String { "\(displayName) (Direct)" }
 
     var displayName: String {
         switch self {
@@ -85,10 +75,9 @@ enum CloudBrowser: String, CaseIterable, Identifiable, Codable {
 
     /// The store this browser drives.
     ///
-    /// Here rather than at the call site because macOS opens four `Window`s
-    /// that each name their own store and iOS presents one sheet that has to
-    /// pick — and a second mapping from case to store is how the two platforms
-    /// end up disagreeing about which provider "Box" means.
+    /// Here rather than at each call site because more than one surface
+    /// picks a store — and a second mapping from case to store is how two of
+    /// them end up disagreeing about which provider "Box" means.
     /// - Parameter accountID: which connected account's credentials to use.
     ///   Always required: a provider on its own no longer identifies a set of
     ///   credentials, because a person may hold several accounts on one.
@@ -142,6 +131,15 @@ struct AddCollectionActions {
     var cloneRepository: () -> Void
     /// Create a new collection backed by a new Git repository.
     var newRepository: () -> Void
+
+    /// The same, each run through `wrap` first — a window closing its Open
+    /// Quickly palette before a sheet of these opens over it.
+    func closing(_ wrap: (@escaping () -> Void) -> () -> Void) -> AddCollectionActions {
+        AddCollectionActions(openFolder: wrap(openFolder), openObsidianVault: wrap(openObsidianVault),
+                             openiCloudDrive: wrap(openiCloudDrive), openCloudFolder: wrap(openCloudFolder),
+                             newCollection: wrap(newCollection), cloneRepository: wrap(cloneRepository),
+                             newRepository: wrap(newRepository))
+    }
 
     /// The same options, as data.
     ///
@@ -287,6 +285,10 @@ struct AppActions {
     /// Open-source licences and credits. Beside About, which is what it is
     /// part of — not a preference.
     var acknowledgements: (() -> Void)?
+    /// About HelloNotes: the splash, in *this* window, until dismissed. An
+    /// action rather than a broadcast, so with several windows open it shows
+    /// in the one you are looking at, not in all of them.
+    var about: (() -> Void)?
     /// Open Settings. iOS only needs it — the Mac's `Settings` scene puts
     /// Settings… and ⌘, in the app menu itself — but it is supplied on both,
     /// like every action here.
@@ -303,7 +305,8 @@ struct AppActions {
     /// it at all. The iPad had it in the toolbar menu. The menu-bar item stays
     /// as an extra route on the platform that has the concept.
     var quickCapture: (() -> Void)? = nil
-    /// Templates in the focused collection, and inserting one at the caret.
+    /// Templates in the focused collection, and appending one to the open
+    /// note (`ShellActions.insertTemplate`).
     ///
     /// Both are here rather than in `NoteMenuActions` because the list depends
     /// on the *collection* and the insertion on the *editor*, and a menu that
@@ -384,6 +387,29 @@ extension FocusedValues {
     @Entry var appActions: AppActions?
 }
 
+/// Something a menu command asked a window to show when there was no window
+/// to ask — the Mac keeps running with none open. The command asks, then opens
+/// one, and the window takes the request as it appears (`ContentView`).
+///
+/// About opened a window and said that window would show the launch splash,
+/// which shows once per launch, so a later window showed nothing; and
+/// Acknowledgements greyed out, although it is about the app and not about a
+/// window (menu.md §8, item 11; implemented.md §51.36).
+@MainActor @Observable final class WindowRequest {
+    enum Kind: Equatable { case about, acknowledgements }
+
+    static let shared = WindowRequest()
+
+    /// Asked for, and not yet shown.
+    var pending: Kind?
+
+    /// The request, taken: whichever window takes it shows it.
+    func take() -> Kind? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
 /// File / Note / Format / View menu commands.
 struct HelloNotesCommands: Commands {
     @FocusedValue(\.appActions) private var actions
@@ -417,18 +443,33 @@ struct HelloNotesCommands: Commands {
 
     var body: some Commands {
         // MARK: App — About shows the splash (it carries the version, build,
-        // and credits), staying up until clicked.
+        // and credits) over the window you are in, staying up until clicked.
         // Both platforms: iPadOS builds its menu bar from these same commands,
         // so gating this removed the iPad's About box rather than describing a
-        // platform that has none. See `SplashPresenter`.
+        // platform that has none.
         CommandGroup(replacing: .appInfo) {
-            Button("About HelloNotes") { SplashPresenter.show(autoDismiss: false) }
+            Button("About HelloNotes") {
+                if let about = actions?.about {
+                    about()
+                } else {
+                    // No window to show it in — the Mac keeps running with none
+                    // open. Open one, which shows it (`WindowRequest`).
+                    WindowRequest.shared.pending = .about
+                    openWindow(id: "main")
+                }
+            }
             // Beside About, not inside Settings. Nothing here is a preference
             // — there is nothing to choose — and a licences-and-credits screen
             // filed under "things you can change" is filed wrongly. It sat as
             // a fourth Preferences tab on macOS and a Settings row on iOS.
-            Button("Acknowledgements…") { actions?.acknowledgements?() }
-                .disabled(actions?.acknowledgements == nil)
+            Button("Acknowledgements…") {
+                if let acknowledgements = actions?.acknowledgements {
+                    acknowledgements()
+                } else {
+                    WindowRequest.shared.pending = .acknowledgements
+                    openWindow(id: "main")
+                }
+            }
         }
 
         // MARK: Settings — ⌘, is where people with a keyboard look for them,
@@ -527,7 +568,6 @@ struct HelloNotesCommands: Commands {
             Divider()
             Button("Refresh Cloud Collection") { actions?.refreshCloudCollection?() }
                 .disabled(actions?.refreshCloudCollection == nil)
-            Divider()
 
             // Grouped by what happens, not by how it works. Everything in the
             // first group is a file picker over folders already on this device
@@ -535,7 +575,11 @@ struct HelloNotesCommands: Commands {
             // division is real rather than cosmetic: the sandbox cannot even
             // enumerate the mounted providers, so the two can never be one
             // command that decides for itself.
+            // The rule above them goes with them: left between Refresh Cloud
+            // Collection and Print's own, it doubled when they are absent
+            // (menu.md §8, item 8).
             if let add = actions?.addCollection {
+                Divider()
                 ForEach(AddCollectionGroup.allCases, id: \.self) { group in
                     Menu(group.title) {
                         ForEach(add.options(in: group)) { option in

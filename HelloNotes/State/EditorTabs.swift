@@ -22,21 +22,11 @@ final class EditorTabs {
     /// and appending a duplicate tab.
     private var openTasks: [Note.ID: Task<EditorModel, Never>] = [:]
 
-    /// Routed to whichever collection owns the saved note, so it can suppress
-    /// the file watcher for its own write and refresh its index incrementally.
-    var onNoteSaved: (@MainActor (URL, String) -> Void)?
-
-    /// A note finished downloading from the cloud — see
-    /// `EditorModel.onBecameAvailable`.
-    var onNoteBecameAvailable: (@MainActor (URL) -> Void)?
-
-    /// Asked before every editor write: return a reason to refuse it. The shell
-    /// blocks saves into a collection whose folder has gone missing.
-    var saveBlocked: (@MainActor (URL) -> String?)?
-
-    /// Called before a note is loaded, so a direct-API collection can fetch the
-    /// real bytes for what is currently only a placeholder.
-    var prepareToOpen: (@MainActor (URL) async -> Void)?
+    /// What each tab's editor is told about the collection its note lives in —
+    /// the same wiring a note window's editor gets (`EditorWiring`). Set by the
+    /// shell, and asked when used rather than kept when a tab is made, so a
+    /// tab opened before the shell sets it is wired the moment it does.
+    var wiring = EditorWiring.unwired
 
     /// The notes currently open in tabs, in tab order.
     var openNotes: [Note] { editors.compactMap(\.note) }
@@ -47,8 +37,9 @@ final class EditorTabs {
 
     /// Sum of every tab's *load* revision, plus the number of tabs.
     ///
-    /// A tab is appended only after its note has been read, so this is what
-    /// changes when text first becomes available for a newly opened note.
+    /// A tab is appended first and fills in once its note has been read
+    /// (`editor(for:)`), so this is what changes when text first becomes
+    /// available for a newly opened note.
     /// Anything deriving from an open note's text must name it: keying on
     /// `totalSavedRevision` alone means the derived value is computed against
     /// the empty placeholder editor and never recomputed, because opening a
@@ -68,9 +59,8 @@ final class EditorTabs {
         }
         let task = Task { [weak self] () -> EditorModel in
             let model = EditorModel()
-            model.onSaved = { [weak self] url, text in self?.onNoteSaved?(url, text) }
-            model.onBecameAvailable = { [weak self] url in self?.onNoteBecameAvailable?(url) }
-            model.saveBlockedReason = { [weak self] url in self?.saveBlocked?(url) }
+            let wiring = EditorWiring { [weak self] url in self?.wiring.collection(url) }
+            wiring.wire(model)
             // **The tab appears first, then it fills in.**
             //
             // It used to be appended only after `open` returned, and `open`
@@ -79,14 +69,9 @@ final class EditorTabs {
             // all* for as long as the download took, and the only way to learn
             // it had worked was to click again afterwards. The editor knows how
             // to say it is downloading (`DownloadingBanner`); it just has to be
-            // on screen to say it.
-            model.willOpen(note)
-            self?.editors.append(model)
-
-            // Fetch the content *before* the editor reads the file, or it would
-            // load a placeholder's emptiness as the note's text.
-            await self?.prepareToOpen?(note.fileURL)
-            await model.open(note)
+            // on screen to say it. The content is fetched after that and before
+            // the editor reads the file (`EditorWiring.open`).
+            await wiring.open(note, in: model, shown: { self?.editors.append(model) })
             self?.openTasks[note.id] = nil
             return model
         }
@@ -101,17 +86,30 @@ final class EditorTabs {
 
     /// Close a tab, flushing its edits. Returns the id that should become active
     /// (a neighbouring tab), or nil if none remain.
+    ///
+    /// The tab is found again after the flush, by the editor itself: the flush
+    /// can take as long as a coordinated write does, and an index taken before
+    /// it closed whichever tab had moved into that place — or trapped, once the
+    /// same tab had been closed twice. And a tab whose conflict could not keep
+    /// mine beside its note stays open, with its banner: closing it would drop
+    /// mine. So does a tab whose save was refused — its folder gone, its note
+    /// not loaded — and the edit kept in the buffer, as the banner promises:
+    /// the tab was removed whatever the flush did, and the edit went with it
+    /// (tabs.md §2.5, item 6; implemented.md §51.36).
     @discardableResult
     func close(_ id: Note.ID) async -> Note.ID? {
-        guard let index = editors.firstIndex(where: { $0.note?.id == id }) else { return nil }
-        await editors[index].flush()
+        guard let editor = editors.first(where: { $0.note?.id == id }) else { return nil }
+        guard await editor.flush(), !(await editor.holdsUnsavedWork()) else { return id }
+        guard let index = editors.firstIndex(where: { $0 === editor }) else { return nil }
         editors.remove(at: index)
         let neighbour = editors.indices.contains(index) ? editors[index] : editors.last
         return neighbour?.note?.id
     }
 
-    func flushAll() async {
-        for editor in editors { await editor.flush() }
+    /// Flush every tab — see `EditorModel.flush(lettingGo:)`: `false` when
+    /// the tabs stay, as they do across a rename or a move.
+    func flushAll(lettingGo: Bool = true) async {
+        for editor in editors { await editor.flush(lettingGo: lettingGo) }
     }
 
     func reconcileAll() async {
@@ -134,10 +132,15 @@ final class EditorTabs {
     /// rule is that nothing outside the editor may close the file being typed
     /// into. A genuine deletion goes through `close(_:)`.
     func prune(keeping ids: Set<Note.ID>) {
+        // Typing an editor holds and has not carried is unsaved work, and
+        // `isDirty` sees it only once carried.
+        for editor in editors { editor.carryLiveEdits() }
         editors.removeAll { editor in
             guard let id = editor.note?.id else { return true }
             if ids.contains(id) { return false }
-            return !editor.isDirty
+            // A conflict still to be chosen is unsaved work too, whatever the
+            // count says.
+            return !editor.isDirty && !editor.hasConflict
         }
     }
 }

@@ -82,15 +82,24 @@ public struct EditorServices: Sendable {
     public var codeHighlighter: (any CodeHighlighting)?
     /// Inline rendering of block embeds (images, Mermaid, math). Optional.
     public var blockRenderer: (any BlockRenderer)?
+    /// Whether a rendered diagram carries an enlarge button (`DiagramZoom`).
+    ///
+    /// A host that sets this installs `onDiagramZoom` on the view, which is
+    /// where the button's press goes. Off by default, so a document drawn for
+    /// nothing that could show a diagram larger — the parity harness, a test —
+    /// draws no button that does nothing.
+    public var offersDiagramZoom: Bool
 
     public init(
         wikiLinkExists: (@Sendable (String) -> Bool)? = nil,
         codeHighlighter: (any CodeHighlighting)? = nil,
-        blockRenderer: (any BlockRenderer)? = nil
+        blockRenderer: (any BlockRenderer)? = nil,
+        offersDiagramZoom: Bool = false
     ) {
         self.wikiLinkExists = wikiLinkExists
         self.codeHighlighter = codeHighlighter
         self.blockRenderer = blockRenderer
+        self.offersDiagramZoom = offersDiagramZoom
     }
 }
 
@@ -140,6 +149,22 @@ public final class EditorDocument {
     /// reference.
     public private(set) var selectedRange = NSRange(location: 0, length: 0)
 
+    /// The caret — or `nil` while nothing has put one in this text.
+    ///
+    /// `selectedRange` reads `{0, 0}` for a document nobody has put a caret
+    /// in — one just built, or one whose text was just replaced wholesale —
+    /// and that is not a caret at the start of the note but no caret at all.
+    /// Put back as one, around a replacement, it reported a caret *arriving*
+    /// at offset 0, and what sits at 0 is the note's front matter, which
+    /// unfolded: `---`, `title:`, `tags:` in monospace between the title and
+    /// the first heading, on a note that had only been opened. A host putting
+    /// the caret back asks this, not `selectedRange`.
+    public var caret: NSRange? { hasCaret ? selectedRange : nil }
+
+    /// Whether a selection has been reported since the document was built or
+    /// its text last replaced — see `caret`.
+    private var hasCaret = false
+
     /// Substring access without snapshotting the whole document.
     public func text(in range: NSRange) -> String {
         guard range.location >= 0, range.location + range.length <= storage.length else { return "" }
@@ -171,12 +196,17 @@ public final class EditorDocument {
 
     // MARK: - Init
 
-    public init(text: String, theme: EditorTheme = EditorTheme(), services: EditorServices = EditorServices()) {
+    public convenience init(text: String, theme: EditorTheme = EditorTheme(),
+                            services: EditorServices = EditorServices()) {
+        self.init(text: text, parse: BlockParser.fullParse(text as NSString), theme: theme, services: services)
+    }
+
+    /// A document of `text`, already parsed as `parse`.
+    init(text: String, parse: ParseResult, theme: EditorTheme, services: EditorServices) {
         self.theme = theme
         self.services = services
 
-        let ns = text as NSString
-        self.parse = BlockParser.fullParse(ns)
+        self.parse = parse
         storage.setAttributedString(NSAttributedString(string: text, attributes: [
             .font: theme.body,
             .foregroundColor: theme.text,
@@ -191,14 +221,25 @@ public final class EditorDocument {
         storage.delegate = storageDelegate
     }
 
-    /// Async factory retained for API symmetry; open is cheap enough to be
-    /// synchronous now (full parse of 3.8 MB ≈ 12 ms; styling is lazy).
+    /// A document of `text`, with its whole-document parse made **off the
+    /// main actor** — the one pass over the whole note this package allows
+    /// itself, made once, at open (CLAUDE.md, invariant 2). It was `async` in
+    /// name only: this module is main-actor by default and nothing in it
+    /// suspended, so every open parsed the note on the main thread
+    /// (implemented.md §51.36). The storage and the first screens' styling
+    /// are the text view's, and stay on the main actor.
     public static func make(
         text: String,
         theme: EditorTheme = EditorTheme(),
         services: EditorServices = EditorServices()
     ) async -> EditorDocument {
-        EditorDocument(text: text, theme: theme, services: services)
+        let parse = await parsed(text)
+        return EditorDocument(text: text, parse: parse, theme: theme, services: services)
+    }
+
+    /// `text`'s whole-document parse, on the concurrent pool.
+    @concurrent nonisolated static func parsed(_ text: String) async -> ParseResult {
+        BlockParser.fullParse(text as NSString)
     }
 
     // MARK: - Programmatic replacement (load, external reload)
@@ -257,6 +298,9 @@ public final class EditorDocument {
         styledBlocks = Array(repeating: false, count: parse.blocks.count)
         revealedBlocks = []
         revealedLines = []
+        // The caret was in the text that is gone. A host that had one puts it
+        // back (`selectionDidChange`); one that had none leaves none.
+        hasCaret = false
         // Invalidate the whole-document GFM-run cache BEFORE styling the new
         // text: `revision` isn't bumped until the end of this method, so an
         // unreset cache (stamped equal by a prior caret move) would make
@@ -385,6 +429,7 @@ public final class EditorDocument {
         let oldRange = NSRange(location: editedRange.location, length: editedRange.length - delta)
         let edit = TextEdit(range: oldRange, replacementLength: editedRange.length)
         remapFoldedCallouts(oldRange: oldRange, delta: delta)
+        remapRendersInFlight(oldRange: oldRange, delta: delta)
 
         var t0 = DispatchTime.now()
         let hadPendingStyling = styledBlocks.contains(false)
@@ -503,6 +548,7 @@ public final class EditorDocument {
     /// property the old engine never had).
     public func selectionDidChange(_ selection: NSRange) {
         selectedRange = selection
+        hasCaret = true
         guard externalSessionDepth == 0 else { return }
         var newRevealed = Set<Int>()
         if let lo = parse.blockIndex(at: selection.location) {
@@ -1009,6 +1055,24 @@ public final class EditorDocument {
         return [block.range]
     }
 
+    /// Whether the note's front matter is folded away — drawn at no height, as
+    /// it is until a caret goes into it (`frontMatterRange`). `false` for a
+    /// note that has none.
+    ///
+    /// Read from what is drawn — the font on the first line inside the fences,
+    /// where the package's own fold test looks — rather than from the reveal
+    /// state, so a host asking what a note opened looking like is told what
+    /// the reader sees.
+    public var isFrontMatterFolded: Bool {
+        guard let block = parse.blocks.first, case .frontMatter = block.kind,
+              block.range.length > 0, NSMaxRange(block.range) <= storage.length else { return false }
+        let ns = storage.mutableString
+        let inside = NSMaxRange(ns.lineRange(for: NSRange(location: block.range.location, length: 0)))
+        guard inside < NSMaxRange(block.range) else { return false }
+        let font = storage.attribute(.font, at: inside, effectiveRange: nil) as? PlatformFont
+        return font?.pointSize == EditorTheme.concealedSize
+    }
+
     /// Reference definitions the cmark inversion cannot see, because a
     /// container node covers them along with its children — one inside a list
     /// item, or one sitting above a paragraph in the same block.
@@ -1259,6 +1323,17 @@ public final class EditorDocument {
         }
     }
 
+    // MARK: - Diagrams
+
+    /// The note's Mermaid diagrams, in order, from the parse the document
+    /// already keeps: O(blocks), no second parse, and in the coordinates of
+    /// `selectedRange` and of a diagram button's press. The host's diagram
+    /// zoom lists them from here — it used to write the editor's text back to
+    /// its model and parse it again, both on the main actor.
+    public var mermaidDiagrams: [MermaidDiagram] {
+        parse.mermaidDiagrams(in: storage.mutableString)
+    }
+
     // MARK: - Fenced-code syntax highlighting
 
     /// Color runs per (code, language) hash, in code-relative coordinates.
@@ -1266,7 +1341,12 @@ public final class EditorDocument {
     /// re-applies colors *synchronously* — no flash when the caret enters
     /// or leaves a code block. Misses fetch asynchronously.
     @ObservationIgnored private var highlightColorCache: [Int: [(NSRange, PlatformColor)]] = [:]
-    @ObservationIgnored private var highlightsInFlight: Set<Int> = []
+    /// Highlights in flight, by cache key, with where the code of each block
+    /// waiting on one starts — the shape `blockRendersInFlight` has, for the
+    /// same reason. Two identical listings share one highlight; a set of keys
+    /// turned the second away while the first was being coloured, and only the
+    /// block that asked first was coloured when it landed.
+    @ObservationIgnored private var highlightsInFlight: [Int: Set<Int>] = [:]
 
     private func refreshHighlight(blockIndex: Int, revealed: Bool) {
         guard let highlighter = services.codeHighlighter,
@@ -1307,26 +1387,42 @@ public final class EditorDocument {
             applyHighlight(runs: runs, at: bodyRange.location)
             return
         }
-        guard !highlightsInFlight.contains(key) else { return }
-        highlightsInFlight.insert(key)
+        // One highlight per listing: a block whose code is already being
+        // coloured waits for that one, and is coloured when it lands.
+        if highlightsInFlight[key] != nil {
+            highlightsInFlight[key]?.insert(bodyRange.location)
+            return
+        }
+        highlightsInFlight[key] = [bodyRange.location]
 
         Task { [weak self] in
             let highlighted = await highlighter.highlight(code, language: language)
             guard let self else { return }
-            self.highlightsInFlight.remove(key)
+            let waiting = self.highlightsInFlight.removeValue(forKey: key) ?? []
             guard !highlighted.isEmpty else { return }
             let runs = highlighted.map { ($0.range, $0.color) }
             if self.highlightColorCache.count > 128 { self.highlightColorCache.removeAll() }
             self.highlightColorCache[key] = runs
-            // The text may have shifted while the highlight ran; re-derive
-            // the block from the body's old location and apply only if its
+            // The text may have shifted while the highlight ran; re-derive each
+            // waiting block from where its code was and apply only if its
             // content still matches (otherwise the next restyle picks the
             // cached runs up).
-            if let idx = self.parse.blockIndex(at: min(bodyRange.location, max(0, self.storage.length - 1))),
-               case .fencedCode = self.parse.blocks[idx].kind {
+            for idx in self.waitingBlocks(at: waiting) {
+                guard case .fencedCode = self.parse.blocks[idx].kind else { continue }
                 self.refreshHighlight(blockIndex: idx, revealed: self.revealedBlocks.contains(idx))
             }
         }
+    }
+
+    /// The blocks now at `locations` — where the blocks waiting on a render
+    /// started when they asked — each once, in document order. A block that
+    /// asked twice (two identical formulas in one paragraph) is refreshed once,
+    /// and a refresh redraws everything in it.
+    private func waitingBlocks(at locations: Set<Int>) -> [Int] {
+        let last = max(0, storage.length - 1)
+        return Set(locations.compactMap { parse.blockIndex(at: min($0, last)) })
+            .filter { parse.blocks.indices.contains($0) }
+            .sorted()
     }
 
     /// Overlay foreground colors onto the code body. Colors only — fonts,
@@ -1361,7 +1457,16 @@ public final class EditorDocument {
     /// Rendered image per (kind) content hash. Cached so a restyle re-applies
     /// the collapse+image synchronously (no flash on caret enter/leave).
     @ObservationIgnored private var blockImageCache: [Int: PlatformImage] = [:]
-    @ObservationIgnored private var blockRendersInFlight: Set<Int> = []
+    /// Renders in flight, by cache key, with where each block waiting on one
+    /// starts.
+    ///
+    /// Two blocks with the same picture — a diagram pasted twice, two identical
+    /// tables — share one render. The second used to be turned away while the
+    /// first was drawing (a set of keys, and `contains` means "someone else is
+    /// on it"), and when the render landed only the block that had started it
+    /// was collapsed. The second kept its source on screen, already marked
+    /// styled, so nothing ever came back for it.
+    @ObservationIgnored private var blockRendersInFlight: [Int: Set<Int>] = [:]
 
     /// The renderable embed a block represents, or nil. A standalone image
     /// embed is a paragraph whose entire content is one `![[…]]`.
@@ -1376,14 +1481,9 @@ public final class EditorDocument {
         guard block.range.location >= 0,
               block.range.location + block.range.length <= ns.length else { return nil }
         switch block.kind {
-        case .fencedCode(let info, let closed):
-            guard closed, info.split(separator: " ").first.map(String.init)?.lowercased() == "mermaid" else { return nil }
-            let bodyFirst = block.firstLine + 1
-            let bodyLast = block.firstLine + block.lineCount - 2
-            guard bodyFirst <= bodyLast else { return nil }
-            let start = parse.lines.lineRange(bodyFirst).location
-            let end = parse.lines.contentRange(bodyLast, in: ns)
-            return .mermaid(source: ns.substring(with: NSRange(location: start, length: end.location + end.length - start)))
+        case .fencedCode:
+            // The rule the app lists diagrams by, too (`mermaidDiagrams`).
+            return parse.mermaidSource(ofBlock: blockIndex, in: ns).map { .mermaid(source: $0) }
         case .mathBlock(let closed):
             guard closed else { return nil }
             let src = ns.substring(with: block.range)
@@ -1537,25 +1637,34 @@ public final class EditorDocument {
         let key = hasher.finalize()
 
         if let image = blockImageCache[key] {
-            collapse(range: content, to: image, extraBelow: baselineAllowance(for: kind))
+            var zoom: String?
+            if services.offersDiagramZoom, case .mermaid(let source) = kind { zoom = source }
+            collapse(range: content, to: image, extraBelow: baselineAllowance(for: kind), zoom: zoom)
             return
         }
-        guard !blockRendersInFlight.contains(key) else { return }
-        blockRendersInFlight.insert(key)
+        // One render per picture: a block whose picture is already being drawn
+        // waits for that one, and is collapsed when it lands.
+        if blockRendersInFlight[key] != nil {
+            blockRendersInFlight[key]?.insert(content.location)
+            return
+        }
+        blockRendersInFlight[key] = [content.location]
 
         Task { [weak self] in
             let image = await renderer.render(kind, maxWidth: maxWidth, darkMode: dark)
             guard let self else { return }
-            self.blockRendersInFlight.remove(key)
+            let waiting = self.blockRendersInFlight.removeValue(forKey: key) ?? []
             guard let image else { return }
             if self.blockImageCache.count > 64 { self.blockImageCache.removeAll() }
             self.blockImageCache[key] = image
-            // Re-derive the block (text may have shifted) and re-apply if it's
-            // still the same kind and not currently revealed.
-            if let idx = self.parse.blockIndex(at: min(content.location, max(0, self.storage.length - 1))),
-               !self.isRevealedAllowingSpan(idx),
-               self.blockEmbedKind(at: idx) == kind {
-                self.refreshBlockEmbed(blockIndex: idx, revealed: false)
+            // Re-derive each waiting block (text may have shifted) and re-apply
+            // if it's still the same kind and not currently revealed.
+            for location in waiting.sorted() {
+                if let idx = self.parse.blockIndex(at: min(location, max(0, self.storage.length - 1))),
+                   !self.isRevealedAllowingSpan(idx),
+                   self.blockEmbedKind(at: idx) == kind {
+                    self.refreshBlockEmbed(blockIndex: idx, revealed: false)
+                }
             }
         }
     }
@@ -1593,7 +1702,10 @@ public final class EditorDocument {
             + (-theme.body.descender).rounded()
     }
 
-    private func collapse(range: NSRange, to image: PlatformImage, extraBelow: CGFloat = 0) {
+    /// - Parameter zoom: the diagram's source, when the picture is a diagram
+    ///   the host can show larger — see `diagramZoomAttribute`.
+    private func collapse(range: NSRange, to image: PlatformImage, extraBelow: CGFloat = 0,
+                          zoom: String? = nil) {
         guard range.location + range.length <= storage.length else { return }
         let ns: NSString = storage.mutableString
 
@@ -1687,6 +1799,12 @@ public final class EditorDocument {
             storage.addAttribute(blockImageTopAttribute, value: RenderedBlockFragment.imageGap,
                                  range: NSRange(location: drawAt, length: 1))
         }
+        // Over the whole source, not just the character that draws: a click on
+        // the button lands over whichever of the block's lines is under it.
+        if let zoom {
+            storage.addAttribute(diagramZoomAttribute, value: DiagramZoomMark(source: zoom),
+                                 range: concealed)
+        }
         storage.endEditing()
         isApplyingStyles = false
         // The image arrives asynchronously, long after the restyle that
@@ -1772,6 +1890,33 @@ public final class EditorDocument {
         return offset < parse.lines.lineRange(block.firstLine).location + parse.lines.lineRange(block.firstLine).length
     }
 
+    /// Keep the places of the blocks waiting on renders valid across an edit,
+    /// by `remapFoldedCallouts`' rule: before the edit stays, after it shifts,
+    /// inside it goes — that block was edited, and its restyle asks again.
+    ///
+    /// A waiting block is looked up by where it started when the render lands,
+    /// and a render takes long enough to type in. Unmoved, two paragraphs typed
+    /// above a waiting block left its old place inside another block, the
+    /// picture or colours went to nobody, and the block kept its source until
+    /// the caret passed through it (`IdenticalRendersTests`).
+    private func remapRendersInFlight(oldRange: NSRange, delta: Int) {
+        let oldEnd = oldRange.location + oldRange.length
+        func remap(_ waiting: inout [Int: Set<Int>]) {
+            guard !waiting.isEmpty else { return }
+            for (key, places) in waiting {
+                waiting[key] = Set(places.compactMap { place in
+                    if place < oldRange.location { return place }    // before the edit
+                    if place < oldEnd { return nil }                  // inside → asks again
+                    return place + delta                              // after → shift
+                })
+            }
+        }
+        remap(&highlightsInFlight)
+        remap(&blockRendersInFlight)
+        remap(&inlineMathInFlight)
+        remap(&inlineImagesInFlight)
+    }
+
     /// Keep folded-callout offsets valid after a text edit at `editStart`
     /// with `delta` change in length.
     private func remapFoldedCallouts(oldRange: NSRange, delta: Int) {
@@ -1787,7 +1932,12 @@ public final class EditorDocument {
     // MARK: - Inline math (`$…$` rendered as baseline images)
 
     @ObservationIgnored private var inlineMathCache: [Int: PlatformImage] = [:]
-    @ObservationIgnored private var inlineMathInFlight: Set<Int> = []
+    /// Formulas in flight, by cache key, with where each span waiting on one
+    /// starts — `blockRendersInFlight`'s shape. The same formula in two
+    /// paragraphs is one render, and the second paragraph was turned away and
+    /// left as source; two in one paragraph always drew, because a refresh
+    /// redraws the whole block.
+    @ObservationIgnored private var inlineMathInFlight: [Int: Set<Int>] = [:]
 
     /// Render each inline `$…$` span in a block to an image drawn at its
     /// baseline, concealing the source and reserving its width — unless the
@@ -1814,20 +1964,23 @@ public final class EditorDocument {
                     applyInlineMath(range: node.range, image: image)
                     continue
                 }
-                guard !inlineMathInFlight.contains(key) else { continue }
-                inlineMathInFlight.insert(key)
-                let rangeLoc = node.range.location
+                // One render per formula: a span whose formula is already being
+                // drawn waits for that one, and is drawn when it lands.
+                if inlineMathInFlight[key] != nil {
+                    inlineMathInFlight[key]?.insert(node.range.location)
+                    continue
+                }
+                inlineMathInFlight[key] = [node.range.location]
                 Task { [weak self] in
                     let image = await renderer.renderInlineMath(source, fontSize: fontSize, darkMode: dark)
                     guard let self else { return }
-                    self.inlineMathInFlight.remove(key)
+                    let waiting = self.inlineMathInFlight.removeValue(forKey: key) ?? []
                     guard let image else { return }
                     if self.inlineMathCache.count > 256 { self.inlineMathCache.removeAll() }
                     self.inlineMathCache[key] = image
-                    // Re-derive the span (text may have shifted) and re-apply
-                    // if the block is still unrevealed inline content.
-                    if let idx = self.parse.blockIndex(at: min(rangeLoc, max(0, self.storage.length - 1))),
-                       !self.revealedBlocks.contains(idx) {
+                    // Re-derive each waiting span's block (text may have shifted)
+                    // and re-apply if it is still unrevealed inline content.
+                    for idx in self.waitingBlocks(at: waiting) where !self.revealedBlocks.contains(idx) {
                         self.refreshInlineMath(blockIndex: idx, revealed: false)
                     }
                 }
@@ -1863,7 +2016,11 @@ public final class EditorDocument {
     /// Rendered image per (target, width, appearance) hash — the same
     /// re-apply-synchronously-on-restyle contract the block embeds use.
     @ObservationIgnored private var inlineImageCache: [Int: PlatformImage] = [:]
-    @ObservationIgnored private var inlineImagesInFlight: Set<Int> = []
+    /// Pictures in flight, by cache key, with where each one waiting on a
+    /// render starts — `blockRendersInFlight`'s shape: the same picture in two
+    /// paragraphs is one render, and the second used to be turned away and
+    /// left as source.
+    @ObservationIgnored private var inlineImagesInFlight: [Int: Set<Int>] = [:]
 
     /// Draw every `![alt](path)` and `<img src=…>` that sits *inside* a line
     /// of text as the picture it stands for.
@@ -1921,27 +2078,30 @@ public final class EditorDocument {
                     applyInlineImage(range: node.range, image: image)
                     continue
                 }
-                guard !inlineImagesInFlight.contains(key) else { continue }
-                inlineImagesInFlight.insert(key)
-                let rangeLoc = node.range.location
+                // One render per picture: a node whose picture is already being
+                // drawn waits for that one, and is drawn when it lands.
+                if inlineImagesInFlight[key] != nil {
+                    inlineImagesInFlight[key]?.insert(node.range.location)
+                    continue
+                }
+                inlineImagesInFlight[key] = [node.range.location]
                 Task { [weak self] in
                     let image = await renderer.render(.image(target: target),
                                                       maxWidth: maxWidth, darkMode: dark)
                     guard let self else { return }
-                    self.inlineImagesInFlight.remove(key)
+                    let waiting = self.inlineImagesInFlight.removeValue(forKey: key) ?? []
                     guard let image else { return }
                     if self.inlineImageCache.count > 256 { self.inlineImageCache.removeAll() }
                     self.inlineImageCache[key] = image
-                    // Re-derive the block (text may have shifted under the
-                    // render) and re-apply if the caret has not since arrived.
-                    guard let idx = self.parse.blockIndex(at: min(rangeLoc, max(0, self.storage.length - 1))),
-                          !self.revealedBlocks.contains(idx) else { return }
-                    self.refreshInlineImages(blockIndex: idx, revealed: false)
-                    // The picture arrives long after the restyle that asked for
-                    // it, and on iOS the chrome is painted by an overlay view
-                    // rather than by the fragment — so without this the overlay
-                    // keeps whatever it drew before the image existed.
-                    if self.parse.blocks.indices.contains(idx) {
+                    // Re-derive each waiting block (text may have shifted under
+                    // the render) and re-apply where the caret has not since
+                    // arrived.
+                    for idx in self.waitingBlocks(at: waiting) where !self.revealedBlocks.contains(idx) {
+                        self.refreshInlineImages(blockIndex: idx, revealed: false)
+                        // The picture arrives long after the restyle that asked
+                        // for it, and on iOS the chrome is painted by an overlay
+                        // view rather than by the fragment — so without this the
+                        // overlay keeps whatever it drew before the image existed.
                         self.onRestyle?(self.parse.blocks[idx].range)
                     }
                 }

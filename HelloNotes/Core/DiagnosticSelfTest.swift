@@ -132,14 +132,26 @@ enum DiagnosticSelfTest {
         let deleted = ContinuousClock.now
         await collection.deleteNote(target)
         MainActorWatchdog.note("SELFTEST deleteNote: \(ContinuousClock.now - deleted)")
-        if FileManager.default.fileExists(atPath: target.fileURL.path) {
-            try? FileManager.default.removeItem(at: target.fileURL)
-        }
+        await removeLeftover(target.fileURL, in: collection)
     }
 
     // MARK: - Leave nothing behind
 
     private static let scratchTitle = "HelloNotes Self-Test"
+
+    /// A scratch note `deleteNote` could not remove, removed — on a cloud
+    /// collection through the mirror, which hears of the delete before the
+    /// file goes. Removed from the cache alone, it stayed on the provider and
+    /// the next walk put an empty placeholder back (implemented.md §51.36).
+    static func removeLeftover(_ url: URL, in collection: Collection) async {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        if let remote = collection.remote {
+            try? await remote.sendDelete(of: url, removing: { try FileManager.default.removeItem(at: url) },
+                                         failed: { _ in })
+        } else {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
 
     private static func cleanUp(_ note: Note, in collection: Collection, hooks: Hooks) async {
         // Order matters, and getting it wrong left thirteen empty notes in the
@@ -156,7 +168,7 @@ enum DiagnosticSelfTest {
 
         if FileManager.default.fileExists(atPath: note.fileURL.path) {
             MainActorWatchdog.note("SELFTEST cleanup — file survived deleteNote, removing it")
-            try? FileManager.default.removeItem(at: note.fileURL)
+            await removeLeftover(note.fileURL, in: collection)
         }
         let gone = !FileManager.default.fileExists(atPath: note.fileURL.path)
         MainActorWatchdog.note("SELFTEST cleaned up \(note.fileURL.lastPathComponent) — removed=\(gone)")

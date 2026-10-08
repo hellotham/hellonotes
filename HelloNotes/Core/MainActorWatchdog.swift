@@ -328,7 +328,10 @@ nonisolated enum MainActorWatchdog {
     }
 }
 
+/// `nonisolated`: in this target an unannotated extension's members are
+/// `@MainActor`, and the watchdog — which must never ask the main actor for
+/// anything — reads these from its own thread and its nonisolated statics.
 private extension Duration {
-    var milliseconds: Int { Int(components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000) }
-    var seconds: TimeInterval { TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18 }
+    nonisolated var milliseconds: Int { Int(components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000) }
+    nonisolated var seconds: TimeInterval { TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18 }
 }

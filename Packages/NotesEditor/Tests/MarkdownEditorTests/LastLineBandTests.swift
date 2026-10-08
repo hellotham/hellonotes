@@ -245,31 +245,48 @@ import UIKit
 
     // MARK: - A rule at the end of the note
 
-    /// `<hr>` is the one element whose bottom margin the end of the note does
-    /// not take away. `hr::before` / `hr::after` are `display: table` — a
-    /// clearfix — so the rule's margins never collapse out to the article's
-    /// `:last-child`, which is what the stylesheet zeroes. Inside a list item
-    /// that `:last-child` is the `<ul>` and not the rule, so the page keeps
-    /// 24pt below it; the editor dropped it with every other last paragraph's,
-    /// and the note ended 24pt above its own bottom.
-    @Test func aRuleEndingAListKeepsItsBottomMargin() {
+    /// A rule ending the note keeps no margin below it, in a list item or out
+    /// of one — the page's last painted thing is the rule itself.
+    ///
+    /// The editor used to keep 24pt under a rule ending a list item, on the
+    /// reading that `hr::before` / `hr::after` (`display: table`, a clearfix)
+    /// seal the rule's margins inside its box. They cannot: the pseudo-elements
+    /// sit *inside* the `<hr>`, and its own bottom margin collapses out through
+    /// the `<li>` like any last child's, which is what CSS 2.1 says and what
+    /// the page measures — the item's box ends at the rule (WebKit, macOS 27:
+    /// `<li>` 28px for 24 of margin above a 4px rule, nothing below). Spec #31
+    /// stood 24pt taller in Edit than Preview from then on.
+    @Test func aRuleEndingTheNoteKeepsNoMarginBelowIt() {
         let m = metrics(16)
-        #expect(same(spaceBelowLastLine("- Foo\n- * * *", at: "* * *"), m.ruleGap))
-        // Not at the top level: there the `<hr>` *is* the `:last-child` whose
-        // own margin-bottom is being zeroed, so there is nothing to keep.
+        #expect(spaceBelowLastLine("- Foo\n- * * *", at: "* * *") == 0)
         #expect(spaceBelowLastLine("Foo\n\n* * *", at: "* * *") == 0)
-        // And it is the *same* 24 with an item still to come, where the
-        // ordinary `paragraphSpacing` is holding it — not 24 twice, which is
-        // what copying rather than moving it would have given.
+        // With an item still to come the margin is between two things the
+        // page paints, and the ordinary `paragraphSpacing` holds it.
         #expect(same(spaceBelowLastLine("- Foo\n- * * *\n- Bar", at: "* * *"), m.ruleGap))
     }
 
-    /// The whole note, added up by hand: one item's line, `li + li`, and the
-    /// rule with a 24pt margin on each side. It measured 24 short.
+    /// The whole note, added up by hand: one item's line, `li + li`, the rule's
+    /// 24pt margin above it, and the rule.
     @Test func aNoteEndingInARuleAddsUpToWhatThePageDraws() {
         let m = metrics(16)
         #expect(same(layout("- Foo\n- * * *").height,
-                     m.bodyLineHeight + m.listItemGap + m.ruleGap + m.ruleThickness + m.ruleGap))
+                     m.bodyLineHeight + m.listItemGap + m.ruleGap + m.ruleThickness))
+    }
+
+    /// The same list with a paragraph after it: the rule's 24pt margin
+    /// collapses out of the item and the list with the list's own 16, so 24
+    /// separates the rule from the paragraph — once. The rule's line added its
+    /// margin as its own spacing while the blank line below, which stands for
+    /// the collapsed margin between the list and the paragraph, carried the
+    /// same 24 again: spec #31 in context measured 24pt taller than the page.
+    @Test func aRuleEndingAnItemCountsItsMarginOnceBeforeTheNextBlock() {
+        let m = metrics(16)
+        #expect(same(layout("- Foo\n- * * *\n\nBelow.").height,
+                     m.bodyLineHeight + m.listItemGap + m.ruleGap + m.ruleThickness
+                        + m.ruleGap + m.bodyLineHeight))
+        // Inside the item, with more of it after the rule, the margin is the
+        // rule's own to keep: nothing else stands for it.
+        #expect(same(spaceBelowLastLine("- Foo\n  ***\n  bar", at: "***"), m.ruleGap))
     }
 
     /// Two rules with nothing between them: 4pt of rule, one 24pt gap (the two

@@ -47,21 +47,20 @@ struct NoteEditorPane: View {
     /// Renders `![[Note]]` transclusion cards.
     var embedProvider: CollectionEmbedProvider? = nil
 
-    /// The note with its maths and transclusions already drawn, or nil until
-    /// the first pass finishes.
-    @State private var supersetMarkdown: String?
     /// What `[[` and `#` complete to. Defaults to the collection's index.
     var completionSource: WikiCompletionSource? = nil
     /// Preview mode is this pane with no caret.
     var isEditable: Bool = true
+    /// Where a diagram's enlarge button sends its press, in Edit and in
+    /// Preview alike.
+    var onDiagramZoom: (DiagramZoom) -> Void = { _ in }
 
     /// Bumped when the caret arrives from the note below — see the Mac's
     /// `NoteEditorView`, which does the same with the same notification.
     @State private var titleFocusRequest = CaretHandoff()
 
-    /// Which appearance the editor is drawing in, so Preview resolves the same
-    /// dynamic colours rather than letting the page guess from
-    /// `prefers-color-scheme`.
+    /// Which appearance the editor is drawing in — for the canvas, which the
+    /// pane paints behind whichever renderer is on screen.
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -188,7 +187,8 @@ struct NoteEditorPane: View {
                 headings: { name in collection?.search.headings(forName: name) ?? [] },
                 currentText: { editor.text }
             ),
-            intelligence: IntelligenceService(settings: intelligenceSettings)
+            intelligence: IntelligenceService(settings: intelligenceSettings),
+            onDiagramZoom: onDiagramZoom
         )
     }
 
@@ -199,89 +199,53 @@ struct NoteEditorPane: View {
         // `iOSSourceEditor` — typing `---` under a table header was producing
         // an em dash and quietly breaking the table.
         SourceEditor(
-            text: Binding(get: { editor.text }, set: { editor.text = $0 }),
+            // A keystroke: what follows the text waits for typing to pause
+            // (`EditorModel.settledText`).
+            text: Binding(get: { editor.text }, set: { editor.typed($0) }),
             fontSize: appearance.editorFontSize,
-            // Same identifier the live editor answers to, so one bar drives
-            // whichever editable mode is on screen.
-            documentId: note.fileURL.path
+            // Same address the live editor answers to, so one bar drives
+            // whichever editable mode is on screen — the editor's, not the
+            // note's, so a second window on this note is not driven with it.
+            editorID: editor.editorID,
+            // Each diagram's own button, as Edit and Preview have — the source
+            // has no picture to put one on, so it goes on the fence.
+            onDiagramZoom: onDiagramZoom,
+            // Editing stopped: write it, as Edit mode does
+            // (`EditorHost.landSync`) — through the model's own save, and
+            // explicitly, because a text change schedules nothing. Without
+            // it, what was typed here was written only at the next flush — a
+            // switch of note, mode or app, a tab closing, quitting — and lost
+            // to a crash before one.
+            onEndEditing: { Task { await editor.save() } }
         )
     }
 
     /// Read-only rendered preview (WKWebView over the shared HTML export),
-    /// through `GitHubMarkdown.prepare` exactly as the Mac's `githubPreview` is
-    /// — and through `PreviewSuperset` first, which draws the parts of a note
-    /// that are not GFM at all.
-    ///
-    /// **Rendered asynchronously, and that is not incidental.** Maths and
-    /// transclusion cards are bitmaps produced by the same renderers the editor
-    /// uses, and a transclusion has to *read another note* to draw. Doing that
-    /// on the way into a `View`'s body would put a file read on the main actor
-    /// once per embed, which is the exact hazard `CollectionEmbedProvider`'s own
-    /// notes describe. So the substitution runs in a task and the page is
-    /// rebuilt when it lands; until then Preview shows the plain-GFM page, which
-    /// is what it always showed.
+    /// through `PreviewSuperset` — which draws the parts of a note that are not
+    /// GFM at all — and `GitHubMarkdown.prepare`, built off the main actor from
+    /// the text as of the last pause in typing (`NotePreview`).
     private var preview: some View {
-        // `GFMPreview` — the package's own preview, cross-platform since it was
-        // written. `MarkdownWebView` was a second WKWebView wrapper over the
-        // same renderer, in the app, on one platform.
-        GFMPreview(
-            markdown: supersetMarkdown ?? GitHubMarkdown.prepare(editor.text),
-            baseURL: note.fileURL.deletingLastPathComponent(),
-            // No size here: the theme below states it, and `GFMPreview`
-            // measures the page at the theme's own size. Passing both is what
-            // let Preview render at 16 while Edit rendered at 17.
-            // The same theme `EditorHost` hands the live editor, so Preview
-            // paints the note in the same ink — and paints no canvas of its
-            // own, so the background behind it does not change with the mode.
-            theme: EditorTheme(fontSize: appearance.editorFontSize,
-                               accent: appearance.editorAccentPlatformColor),
-            isDark: colorScheme == .dark
-        )
-        // Keyed on the text, the appearance and the collection's note set: the
-        // first two change what is drawn, and the third changes what an
-        // `![[embed]]` resolves to.
-        .task(id: supersetKey) {
-            supersetMarkdown = GitHubMarkdown.prepare(
-                await PreviewSuperset.apply(to: editor.text,
-                                            isDark: colorScheme == .dark,
-                                            embeds: embedProvider ?? collection?.embedProvider))
-        }
-    }
-
-    /// What the superset pass depends on. `derivedRevision` rather than the
-    /// note list itself, so adding a note re-resolves embeds without making
-    /// this string O(notes) on every render.
-    private var supersetKey: String {
-        "\(editor.text.hashValue)|\(colorScheme == .dark)|\(collection?.derivedRevision ?? 0)"
+        NotePreview(editor: editor, note: note, appearance: appearance,
+                    embeds: embedProvider ?? collection?.embedProvider,
+                    onDiagramZoom: onDiagramZoom,
+                    onOpenWikiLink: onOpenWikiLink)
     }
 
     /// Source + preview together — side by side on a wide (landscape) screen,
-    /// stacked on a tall (portrait) one.
+    /// stacked on a tall (portrait) one, with a rule that drags between them.
+    ///
+    /// One container whose layout changes (`AdaptiveSplit`), not an `if` over
+    /// two: the arrangement follows the pane's shape, and on iPad the keyboard
+    /// changes that shape — a pane taller than wide is wider than tall once the
+    /// keyboard has taken its height. Two branches made the source's text view
+    /// again at that moment, without the keyboard; so the keyboard went, the
+    /// pane was taller again, and Split's source could not be typed in. The
+    /// Mac's `HSplitView`/`VSplitView` pair did the same across square.
     private var splitEditor: some View {
-        GeometryReader { geo in
-            // Side by side in a landscape column, stacked in a portrait one —
-            // the same rule on both. `HSplitView`/`VSplitView` give the Mac a
-            // *draggable* divider and exist only there, so the arrangement is
-            // shared and the splitter is not.
-            if geo.size.width >= geo.size.height {
-                #if canImport(AppKit)
-                HSplitView {
-                    sourceEditor.frame(minWidth: 180)
-                    preview.frame(minWidth: 180)
-                }
-                #else
-                HStack(spacing: 0) { sourceEditor; Divider(); preview }
-                #endif
-            } else {
-                #if canImport(AppKit)
-                VSplitView {
-                    sourceEditor.frame(minHeight: 120)
-                    preview.frame(minHeight: 120)
-                }
-                #else
-                VStack(spacing: 0) { sourceEditor; Divider(); preview }
-                #endif
-            }
+        AdaptiveSplit {
+            sourceEditor
+        } second: {
+            preview
         }
     }
 }

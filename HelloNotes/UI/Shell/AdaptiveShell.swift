@@ -7,11 +7,16 @@
 //  nothing about notes, collections or editors — which is what lets the whole
 //  contract be asserted in HelloNotesTests without an app.
 //
-//  Native where native delivers the contract: the wide shells are a real
-//  `NavigationSplitView` plus a real `.inspector`, so draggable and collapsible
-//  columns, the sidebar toggle, and sidebar material all come from the system
-//  (decisions 4 and 12). Custom layout only where the system has no equivalent:
-//  the top band of a tall shell, and the compact bottom chrome.
+//  **Drawn by the app, not the OS.** The column shells were a
+//  `NavigationSplitView` and the tall shell wrapped its halves in
+//  `NavigationStack`s — and each of those is drawn by the platform, to the
+//  platform's own metrics: a floating glass sidebar and a 52pt unified toolbar
+//  on macOS, a full-height sidebar and a 50pt navigation bar on iPadOS. Two
+//  builds of the same code were two different pictures. Every column here is
+//  an `HStack`/`VStack` of the app's own views, sized by `ShellMetrics` and
+//  drawn with `Chrome`, so a Mac window and an iPad of the same size are the
+//  same pixels. The sidebar collapses and resizes through the app's own
+//  toggle and `ResizableDivider`, the same way the panel always did.
 //
 
 import SwiftUI
@@ -23,18 +28,16 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
     /// View menu can toggle it, and so it can be remembered (decision 10).
     @Binding var inspectorPresented: Bool
 
-    /// Whether the tall shell's navigation band is hidden.
-    ///
-    /// The column shells get a sidebar toggle from `NavigationSplitView` for
-    /// free. The tall shell is a `VStack` and gets nothing, so the band held a
-    /// fixed 320pt of every portrait iPad screen with no way to reclaim it —
-    /// the one shell where the note being read is the smaller half.
+    /// Whether the tall shell's navigation band is hidden — the app's own
+    /// toggle, as the column shells' sidebar is (`columnVisibility`, the same
+    /// stored value in the column shells' form). The band held a fixed 320pt
+    /// of every portrait iPad screen with no way to reclaim it before there
+    /// was one — the one shell where the note being read is the smaller half.
     @Binding var bandHidden: Bool
-    /// Column visibility for the wide shells, so the sidebar toggle works.
+    /// Whether the column shells show the sidebar — `.detailOnly` hides it.
+    /// The type is kept from the split-view days so every command that already
+    /// reads and writes it still does.
     @Binding var columnVisibility: NavigationSplitViewVisibility
-
-    /// Touch sizing. Passed in rather than sniffed, so a test can drive it.
-    var prefersTouch: Bool = false
 
     /// Collections, their folders, and the pinned Recents/Bookmarks sections —
     /// one tree, one column, and **the only collapsible panel** (D2/D3).
@@ -46,6 +49,8 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
     /// choice; clamped at use, so a narrower window borrows the width back
     /// rather than forgetting it (`ResizableDivider`).
     @AppStorage("sidePanelWidth") private var panelWidth = Double(ShellMetrics.panelIdeal)
+    /// The sidebar's width, as dragged — the person's, like the panel's.
+    @AppStorage("sidebarWidth") private var sidebarWidth = Double(ShellMetrics.sidebarIdeal)
     /// The whole compact presentation, supplied by the caller.
     ///
     /// Compact is not the wide shell with different furniture — it is a
@@ -61,8 +66,7 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
             let context = ShellContext(
                 kind: kind,
                 size: geo.size,
-                paneWidth: Self.estimatedPaneWidth(kind: kind, width: geo.size.width),
-                prefersTouch: prefersTouch
+                paneWidth: Self.estimatedPaneWidth(kind: kind, width: geo.size.width)
             )
 
             arrangement(kind, context: context)
@@ -84,32 +88,27 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
         }
     }
 
-    // MARK: - Wide / two: the native three-column shell plus an inspector
+    // MARK: - Wide / two: sidebar, editor, panel
 
     private func columnShell(_ kind: ShellKind, width: CGFloat) -> some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar()
-                .navigationSplitViewColumnWidth(min: ShellMetrics.sidebarFloor,
-                                                ideal: ShellMetrics.sidebarIdeal,
-                                                max: ShellMetrics.sidebarCap)
-        } detail: {
-            // The inspector is a **sibling of the editor**, not `.inspector()`.
-            //
-            // `.inspector()` forces a `»` chevron into the toolbar that cannot
-            // be suppressed, and the chevron then swallows toolbar items when
-            // the band gets tight — which is where "three inspector toggles,
-            // one hidden under »" came from. An `HStack` sibling has no chrome
-            // of its own, so the five tab toggles in the band are the panel's
-            // only affordance (D6/D7). Proven in finvestlens `Views.swift:1293`
-            // and in `scratchpad/ChromeLab --design 10`.
-            HStack(spacing: 0) {
-                EditorPaneContainer { pane() }
-                if inspectorPresented, ShellMetrics.hasPanelColumn(kind: kind, width: width) {
-                    let available = width - ShellMetrics.sidebarIdeal
-                    ResizableDivider(width: $panelWidth, range: panelRange(available: available))
-                    inspector()
-                        .frame(width: panelWidth(in: available))
-                }
+        let showsSidebar = columnVisibility != .detailOnly
+        let sidebarShare = showsSidebar ? clampedSidebarWidth(in: width) + 1 : 0
+        return HStack(spacing: 0) {
+            if showsSidebar {
+                sidebar()
+                    .frame(width: clampedSidebarWidth(in: width))
+                ResizableDivider(width: $sidebarWidth, range: sidebarRange(in: width), edge: .leading,
+                                 label: "Sidebar width")
+            }
+            // The panel is a **sibling of the editor**, not `.inspector()`,
+            // which forces a chevron into the toolbar that cannot be
+            // suppressed and swallows toolbar items when the bar gets tight.
+            EditorPaneContainer { pane() }
+            if inspectorPresented, ShellMetrics.hasPanelColumn(kind: kind, width: width) {
+                let available = width - sidebarShare
+                ResizableDivider(width: $panelWidth, range: panelRange(available: available))
+                inspector()
+                    .frame(width: panelWidth(in: available))
             }
         }
     }
@@ -121,21 +120,18 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
     /// measure and spends the height that portrait has spare.
     private func tallShell(width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // The band needs its own navigation context. In the column shells
-            // `NavigationSplitView` provides one per column; here the shell
-            // must, or `.navigationTitle` and every toolbar button silently
-            // disappears. One cell now rather than two: collections and folders
-            // are a single tree (D2), so there is nothing to sit beside.
+            // No `NavigationStack`: it existed to give the band a navigation
+            // bar for its title and toolbar, which the OS drew differently on
+            // each platform. The band draws its own header now.
             if !bandHidden {
-                NavigationStack { sidebar() }
+                sidebar()
                     .frame(height: ShellMetrics.bandIdeal)
                     .accessibilityIdentifier("shell.band")
-
-                Divider()
+                Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
             }
 
             HStack(spacing: 0) {
-                EditorPaneContainer { NavigationStack { pane() } }
+                EditorPaneContainer { pane() }
                 // The rail is a column wherever the editor keeps its floor.
                 if inspectorPresented, ShellMetrics.hasPanelColumn(kind: .tall, width: width) {
                     ResizableDivider(width: $panelWidth, range: panelRange(available: width))
@@ -144,6 +140,21 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
                 }
             }
         }
+    }
+
+    // MARK: - Sidebar width
+
+    /// Never below its floor or above its cap, and never so wide the editor
+    /// loses its own floor.
+    private func sidebarRange(in width: CGFloat) -> ClosedRange<CGFloat> {
+        let upper = min(ShellMetrics.sidebarCap,
+                        max(ShellMetrics.sidebarFloor, width - ShellMetrics.editorFloor))
+        return ShellMetrics.sidebarFloor...upper
+    }
+
+    private func clampedSidebarWidth(in width: CGFloat) -> CGFloat {
+        let range = sidebarRange(in: width)
+        return min(max(CGFloat(sidebarWidth), range.lowerBound), range.upperBound)
     }
 
     // MARK: - Panel width
@@ -165,7 +176,7 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
 
     /// What the pane will be *before* the user drags a divider. Only used to
     /// seed the environment; `EditorPaneContainer` measures the truth and
-    /// refines it, so a dragged column still gets the right format-bar rule.
+    /// refines it, so a dragged column still gets the right reading measure.
     static func estimatedPaneWidth(kind: ShellKind, width: CGFloat) -> CGFloat {
         let divider: CGFloat = 1
         switch kind {
@@ -186,9 +197,8 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
 // MARK: - The pane
 
 /// Measures the pane it actually got and republishes it, so everything inside
-/// (the format-bar rule, the reading measure, the pane ceiling) reads one
-/// number that matches reality — including after a divider drag, which the
-/// shell's own estimate cannot see.
+/// — the reading measure — reads one number that matches reality, including
+/// after a divider drag, which the shell's own estimate cannot see.
 ///
 /// Deliberately has **no** `minWidth: editorFloor`: the floor is a design
 /// target enforced by the declared window minimum, and baking it in here makes

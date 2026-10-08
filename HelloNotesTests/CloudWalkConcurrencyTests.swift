@@ -151,6 +151,8 @@ struct RecursiveListingTests {
         func read(path: String) async throws -> Data { Data() }
         func write(_ data: Data, to path: String) async throws {}
         func delete(path: String) async throws {}
+        func move(from source: String, to destination: String) async throws {}
+        func createFolder(path: String) async throws {}
     }
 
     private func walk(_ store: CountingStore, prefetching: Bool) async -> Int {
@@ -244,6 +246,18 @@ struct RecursiveListingCoverageTests {
 /// Google Drive assembles a subtree from two queries; these check the parsing
 /// that makes that possible, which needs no network.
 struct GoogleDriveTreeParsingTests {
+
+    /// The change feed is placed by id, from one map built per refresh: every
+    /// id listed, files and folders, a file's path over a folder's — as the
+    /// lookup it replaced searched the files first.
+    @Test func theChangeFeedIsPlacedFromOneMapOfIds() {
+        let byID = GoogleDriveStore.pathsByID(files: ["/Notes/Idea.md": "f1", "/Shared": "x"],
+                                              folders: ["/Notes": "d1", "/Shared": "x", "/Old": "f1"])
+        #expect(byID["f1"] == "/Notes/Idea.md", "a folder's path won over a file's for one id")
+        #expect(byID["d1"] == "/Notes")
+        #expect(byID["x"] == "/Shared")
+        #expect(byID["unknown"] == nil, "an id never listed was placed")
+    }
 
     @Test func aFolderPageYieldsIdsNamesAndParents() throws {
         let json = Data("""

@@ -6,27 +6,42 @@
 //
 
 import SwiftUI
+import MarkdownEditor
 
 extension Notification.Name {
-    /// Menu → editor: toggle the Find & Replace bar (the Edit ▸ Find command).
-    static let hnEditorToggleFind = Notification.Name("hn.editor.toggleFind")
+    /// Menu → editor: toggle the Find & Replace bar (the Edit ▸ Find command),
+    /// addressed to one editor (`EditorModel.editorID`). It was addressed to
+    /// none, so ⌘F in one window toggled the find bar in every window — the
+    /// same defect as the rest of the editor's bus (`EditorBus`).
+    static func hnEditorToggleFind(editor: String) -> Notification.Name {
+        Notification.Name("hn.editor.toggleFind.\(editor)")
+    }
     /// Menu → editor: open the rewrite sheet over the whole note (Note ▸ Rewrite
     /// or Expand Note…). A notification for the same reason Find is one — the
     /// sheet belongs to the editor, which owns the text and the replace path,
-    /// while the command belongs to the menu bar.
-    static let hnRewriteNote = Notification.Name("hn.editor.rewriteNote")
+    /// while the command belongs to the menu bar. Addressed to one editor, as
+    /// ⌘F is: posted to none, one Rewrite opened a rewrite sheet in every
+    /// window at once, each over its own note and wired to replace it.
+    static func hnRewriteNote(editor: String) -> Notification.Name {
+        Notification.Name("hn.editor.rewriteNote.\(editor)")
+    }
 
-    /// Show the note as Marp slides / preview its Mermaid diagrams.
+    /// Show the note as Marp slides / open the diagram zoom on the diagram
+    /// nearest the caret.
     ///
     /// Posted rather than called because the sheets live on `NoteEditorView`
     /// and the commands that ask for them live in the shell's menus — the same
     /// split `hnRewriteNote` already had. Before this, iOS kept its own copies
-    /// of both sheets so its menu had something local to set.
-    static let hnShowSlides = Notification.Name("hn.editor.showSlides")
-    static let hnShowMermaid = Notification.Name("hn.editor.showMermaid")
-    /// Host → engine: scroll to (and briefly highlight) the first match of a
-    /// query in the editor's displayed text. Used for table-of-contents jumps.
-    static let hnEditorFindQuery = Notification.Name("hn.editor.findQuery")
+    /// of both sheets so its menu had something local to set. Addressed to one
+    /// editor too: View Diagram (then Mermaid Diagrams) chosen in one window
+    /// opened the sheet in every window — an empty one over a note that had no
+    /// diagrams.
+    static func hnShowSlides(editor: String) -> Notification.Name {
+        Notification.Name("hn.editor.showSlides.\(editor)")
+    }
+    static func hnShowMermaid(editor: String) -> Notification.Name {
+        Notification.Name("hn.editor.showMermaid.\(editor)")
+    }
     /// Put the caret in the band's library-search field (⌥⌘F).
     static let hnFocusLibrarySearch = Notification.Name("hn.shell.focusLibrarySearch")
     /// The caret tried to leave the top of the document — put focus on the
@@ -39,57 +54,24 @@ extension Notification.Name {
     /// opened with nothing focused at all — no caret, no keyboard — which reads
     /// as the app having lost focus rather than never having taken it.
     static let hnEditorFocusTitle = Notification.Name("hn.editor.focusTitle")
-    /// Host → engine: clear find highlights.
-    static let hnEditorClearHighlights = Notification.Name("hn.editor.clearHighlights")
-    /// Host → whichever surface is on screen: put the n-th heading at the top.
-    ///
-    /// **Not a find, and not an offset either.**
-    ///
-    /// It began as a find — the heading's own text, posted as a search query —
-    /// so "go to Maths" meant "select the first occurrence of the word Maths",
-    /// which is the front matter's `title:` line as often as not.
-    ///
-    /// The obvious repair, a source offset, is worse than it looks: an offset is
-    /// only valid for the text it was measured against, so it goes stale the
-    /// moment anything above the heading is typed — and on iPad the inspector is
-    /// a *column*, so the outline is on screen while you type. Keeping it fresh
-    /// means re-parsing the document, and a whole-document parse is precisely
-    /// what may not happen on the editor's actor.
-    ///
-    /// So what travels is an **ordinal**: the heading's index in document order,
-    /// which the outline already knows because it drew that row. Each surface
-    /// resolves it against something it already maintains — the editor against
-    /// `EditorDocument.blocks`, whose ranges the splicer keeps current with no
-    /// parse at all; Preview against the n-th `<h1>`…`<h6>` in the DOM. The
-    /// `title` rides along only to notice when the two disagree, and the
-    /// fallback is still a *heading*, never prose.
-    static let hnEditorJumpToHeading = Notification.Name("hn.editor.jumpToHeading")
-    /// Engine → host: number of matches for the last `findQuery` (`userInfo["count"]`).
-    static let hnEditorFindResults = Notification.Name("hn.editor.findResults")
-    /// Host → engine: replace the current find match (`userInfo` query/replacement/currentIndex).
-    static let hnEditorReplaceCurrent = Notification.Name("hn.editor.replaceCurrent")
-    /// Host → engine: replace every find match (`userInfo` query/replacement).
-    static let hnEditorReplaceAll = Notification.Name("hn.editor.replaceAll")
 }
 
-/// Scroll the editor to a heading and clear the resulting highlight a moment
-/// later, so a table-of-contents jump flashes the destination instead of
-/// leaving it permanently marked.
+/// Take the editor to a heading: at once where a surface of it is showing, and
+/// otherwise as soon as one is (`EditorBus.requestHeadingJump`).
 ///
-/// One implementation because there are two callers — the toolbar's outline
-/// popover and the inspector's outline — and they each had their own copy of
-/// the same `asyncAfter(1.2)`. Two copies of a timing constant drift, and when
-/// they do, "clear highlight" starts behaving differently depending on which
-/// outline you used.
+/// Addressed to `editor`, the one whose outline was tapped (`EditorBus`):
+/// unaddressed, a jump in one window scrolled every editor and preview in
+/// every other.
+///
+/// It used to clear a highlight 1.2s later, on a timer started by the post.
+/// There was no highlight to clear — a jump leaves a caret at the heading, not
+/// a selection — so all the timer did was collapse whatever selection there was
+/// by then and drop the find bar's query: a word selected in the second after
+/// a jump was deselected under the pointer, and a find in progress lost its
+/// matches. A jump now ends where it lands.
 @MainActor
-func hnJumpToHeading(ordinal: Int, title: String) {
-    NotificationCenter.default.post(
-        name: .hnEditorJumpToHeading, object: nil,
-        userInfo: ["ordinal": ordinal, "title": title]
-    )
-    DispatchQueue.main.asyncAfter(deadline: .now() + hnHeadingHighlightDuration) {
-        NotificationCenter.default.post(name: .hnEditorClearHighlights, object: nil)
-    }
+func hnJumpToHeading(ordinal: Int, title: String, editor: String) {
+    EditorBus.requestHeadingJump(HeadingJump(ordinal: ordinal, title: title), editor: editor)
 }
 
 /// Jump to the heading *named* `title` — for `[[Note#Heading]]`, which carries a
@@ -99,35 +81,50 @@ func hnJumpToHeading(ordinal: Int, title: String) {
 /// text. It happens **off the main actor**, and only when a link is followed —
 /// never while typing. Every other caller already knows the ordinal, because the
 /// outline drew the row.
-func hnJumpToHeading(titled title: String, in text: String) async {
+func hnJumpToHeading(titled title: String, in text: String, editor: String) async {
     let ordinal = await offMain {
         MarkdownParsing.headings(in: text).firstIndex { $0.title == title }
     }
     guard let ordinal else { return }
-    await MainActor.run { hnJumpToHeading(ordinal: ordinal, title: title) }
+    await MainActor.run { hnJumpToHeading(ordinal: ordinal, title: title, editor: editor) }
 }
-
-/// How long a jumped-to heading stays highlighted. Long enough to catch the
-/// eye after the scroll settles, short enough not to look like a selection.
-let hnHeadingHighlightDuration: TimeInterval = 1.2
 
 /// A popover showing the note's statistics and an outline (table of contents).
 /// Clicking a heading jumps the editor to that section.
 struct OutlineView: View {
-    let text: String
+    /// The note, compared by its version: a redraw of whatever holds this view
+    /// would otherwise compare the note with itself (`NoteText`). The text as
+    /// of the last pause in typing (`EditorModel.settledText`).
+    let content: NoteText
     var onSelectHeading: (Int, DocumentHeading) -> Void = { _, _ in }
+    /// How tall the headings' list may grow before it scrolls: a popover's
+    /// cap, or `nil` for the panel, which is as tall as the window. The panel
+    /// kept the popover's 320pt, and a long outline scrolled inside a short
+    /// box in a tall panel (secondary.md §9, item 5; implemented.md §51.36).
+    var headingsHeight: CGFloat? = 320
+
+    /// What the note was analysed to, off the main actor.
+    ///
+    /// It was analysed in `body` — the statistics and a full Markdown parse
+    /// for the headings, two passes over the whole note on the main actor at
+    /// every redraw, and in Markdown and Split mode the note changed at every
+    /// keystroke. Kept until the next analysis lands, so the outline does not
+    /// blank while it is made.
+    @State private var analysis: Analysis?
+
+    private struct Analysis {
+        let stats: DocumentStatistics
+        let headings: [DocumentHeading]
+    }
 
     var body: some View {
-        // Compute once per render: these were computed properties referenced
-        // several times in `body`, so each render re-ran analyze()/headings()
-        // over the whole note 4× / 2×.
-        let stats = DocumentAnalyzer.analyze(text)
-        let headings = MarkdownParsing.headings(in: text)
+        let stats = analysis?.stats ?? .empty
+        let headings = analysis?.headings ?? []
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("STATISTICS")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption2)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                 statRow("Words", stats.words.formatted())
                 statRow("Characters", stats.characters.formatted())
                 statRow("Paragraphs", stats.paragraphs.formatted())
@@ -135,17 +132,17 @@ struct OutlineView: View {
             }
             .padding(12)
 
-            Divider()
+            ChromeDivider()
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("OUTLINE")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption2)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
 
                 if headings.isEmpty {
                     Text("No headings")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .font(Chrome.Style.callout)
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 1) {
@@ -154,31 +151,41 @@ struct OutlineView: View {
                                     onSelectHeading(ordinal, heading)
                                 } label: {
                                     Text(heading.title)
-                                        .font(heading.level == 1 ? .callout.weight(.semibold) : .callout)
+                                        .font(heading.level == 1 ? Chrome.Style.callout.weight(.semibold) : Chrome.Style.callout)
                                         .lineLimit(1)
                                         .padding(.leading, CGFloat(heading.level - 1) * 14)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .contentShape(.rect)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(ChromePlainStyle())
                                 .padding(.vertical, 2)
                             }
                         }
                     }
-                    .frame(maxHeight: 320)
+                    .frame(maxHeight: headingsHeight ?? .infinity)
                 }
             }
             .padding(12)
         }
-        .frame(width: 260)
+        // The panel's width, whatever it is dragged to — a fixed 260 sat
+        // centred in a wide panel and overflowed a narrow one.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: content.version) {
+            let text = content.text
+            let (stats, headings) = await offMain {
+                (DocumentAnalyzer.analyze(text), MarkdownParsing.headings(in: text))
+            }
+            guard !Task.isCancelled else { return }
+            analysis = Analysis(stats: stats, headings: headings)
+        }
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label)
             Spacer()
-            Text(value).foregroundStyle(.secondary).monospacedDigit()
+            Text(value).foregroundStyle(Chrome.Colour.secondaryLabel).monospacedDigit()
         }
-        .font(.callout)
+        .font(Chrome.Style.callout)
     }
 }

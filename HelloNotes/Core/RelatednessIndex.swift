@@ -40,8 +40,9 @@ nonisolated struct RelatedNote: Equatable, Sendable {
     let score: Double
 }
 
-/// One note, as a retrieval index sees it.
-struct RelatednessDocument: Sendable {
+/// One note, as a retrieval index sees it. Made while a build reads the
+/// vault, off the main actor.
+nonisolated struct RelatednessDocument: Sendable {
     let url: URL
     let title: String
     /// Already passed through `RetrievalText.prepare`.

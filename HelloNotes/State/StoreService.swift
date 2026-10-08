@@ -120,7 +120,11 @@ final class StoreService {
     private let cloud: NSUbiquitousKeyValueStore?
     private static let countKey = "championContributions"
 
-    private var updatesTask: Task<Void, Never>?
+    /// Set once, in `init`, and read once, in `deinit` — which is never
+    /// isolated, and runs when nothing else can reach this — so it is
+    /// `nonisolated(unsafe)`, as the editors' observer tokens are, and nothing
+    /// observes it.
+    @ObservationIgnored nonisolated(unsafe) private var updatesTask: Task<Void, Never>?
 
     /// - Parameters:
     ///   - defaults: injectable so tests do not touch the user's real count.

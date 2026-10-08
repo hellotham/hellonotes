@@ -10,8 +10,8 @@
   The floor is high on purpose: every AI feature runs on the 27 Foundation Models API (the
   `LanguageModel` protocol MLX plugs into, dynamic profiles, Private Cloud Compute), and an app
   cannot promise an OS its own embedded extensions refuse to run on.
-- Multiplatform: One shell, `AdaptiveShell`, chosen by the *axis of abundance* (width/height), never by device — a Mac window and an iPad of the same size get the same layout. See `docs/layout-architecture.md`.
-- The window has **exactly one collapsible column**: a sidebar holding a *single tree* — Recents and Bookmarks pinned at the top, then one root per open collection, expanding into that collection's folders. SwiftUI only gives a correctly-placed sidebar toggle to column one, which is why everything navigational lives there and **no command may live inside it** (a hidden command is an unreachable command). Commands go in the toolbar: search leading, New Note / Open Quickly centre, the five inspector toggles trailing. See `docs/shell-chrome.md`.
+- Multiplatform: One shell, `AdaptiveShell`, chosen by the *axis of abundance* (width/height), never by device — a Mac window and an iPad of the same size get the same layout. See `docs/ui.md`, and for each part of the window `docs/primary.md`, `docs/secondary.md`, `docs/toolbars.md`, `docs/tabs.md` and `docs/menu.md`.
+- The window has **exactly one collapsible column**: a sidebar holding a *single tree* — Recents and Bookmarks pinned at the top, then one root per open collection, expanding into that collection's folders. Everything navigational lives there and **no command may live inside it** (a hidden command is an unreachable command). Commands go in the bar over the editor, which the app draws — the same pixels on both platforms: Search · Sidebar · New Note · More ⋯ | the open notes' tabs | Note Actions ⌄ · Panel (the right panel's own header picks what it shows). See `docs/shell-chrome.md` (D12).
 - Anything keyed on a collection (the outline cache key, drop targets, "New Note" at a root) reads the sidebar's selection. **A cache key must name everything the cached value depends on** — keying the outline on one collection made opening or closing another invisible.
 - State: Use the `@Observable` macro exclusively. DO NOT use legacy `@ObservableObject` or `@StateObject`.
 - Data Source: No CoreData. The local file system directory is the absolute source of truth.
@@ -26,15 +26,18 @@
 
 # Commands
 - Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification. **Every app `xcodebuild` needs `-skipPackagePluginValidation`**: mlx-swift's `Cmlx` target carries a `CudaBuild` build-tool plugin (inert on Apple platforms), and without the flag the build fails at "Validate plug-in" before compiling a file. Xcode's GUI asks once to Trust & Enable instead. The Hugging Face bridges in `Intelligence/Models/MLXBridge.swift` are hand-written rather than mlx-swift-lm's macros for the same reason — a macro plugin would need `-skipMacroValidation` everywhere too.
-- Editor tests (macOS): `swift test --package-path Packages/NotesEditor` — **three bundles here too**: 217/16, 173/13, 18/4, and `tail` shows the smallest. A toolchain bump can stop this target *compiling*, which both editor suites share, so both die at once and silently: Xcode 27 made `TableEmbedTests.blankImage` unreachable from the `nonisolated` `BlockRenderer` witness beside it, and 408 + 387 tests had been building nothing for weeks. `error: Build failed` is a failing suite, not a missing one.
-- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 387 tests in 30 suites, verified 2026-09-04). It runs **three bundles** and prints a summary line for each — 18/4, 173/13, 196/13 — so the total is their *sum*; reading only the last one says "196 in 13" and looks like two thirds of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
+- Editor tests (macOS): `swift test --package-path Packages/NotesEditor` — **three bundles here too**: 289/31, 191/16, 26/4 — 506 tests in 51 suites, 2026-10-09 — and `tail` shows the smallest. A toolchain bump can stop this target *compiling*, which both editor suites share, so both die at once and silently: Xcode 27 made `TableEmbedTests.blankImage` unreachable from the `nonisolated` `BlockRenderer` witness beside it, and 408 + 387 tests had been building nothing for weeks. `error: Build failed` is a failing suite, not a missing one.
+- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 487 tests in 49 suites, verified 2026-10-09). It runs **three bundles** and prints a summary line for each — 270/29, 191/16, 26/4 — so the total is their *sum*; reading only the last one says "26 in 4" and looks like nearly all of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
 - **Look at the iOS app without the user's device**: `xcodebuild build -destination 'platform=iOS Simulator,name=HN-iPad'`, then `xcrun simctl install HN-iPad <app>`, `xcrun simctl launch HN-iPad com.hellotham.HelloNotes`, and `xcrun simctl io HN-iPad screenshot out.png` — which is readable. A whole iPad session was shipped blind (a keyboard bar that never rendered, a zero-width one, five inspector toggles that could not work at that width) because nobody looked. `simctl` has no tap injection, so driving the UI still needs the live panel — which needs `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` from the user.
 - Is it running on the device? `xcrun devicectl device info processes --device <id> | grep "HelloNotes.app/HelloNotes"` — **capital H**. A lower-cased pattern matches nothing and reads exactly like a crash-on-launch; an hour went into diagnosing a crash that never happened. Cross-check against `--domain-type systemCrashLogs`: no new `.ips` means no crash, whatever the process list appears to say.
 - Layout contract: `./scripts/run-tests.sh -only-testing:HelloNotesTests/ShellContractTests` (~2s — run it after any shell or representable change).
+- **Window parity**: `./scripts/window-parity.sh` — the whole window: the iPad app in the `HN-iPad` simulator in landscape against the Mac app at exactly its safe area (1210×790pt), same settings, same sample collection, captured empty and with a note open, compared pixel by pixel with only the traffic lights, window corners and iPadOS's resize grabber masked. It is what found the 28pt strip a hidden Mac title bar still reserves (`contentUnderTitleBar`) and the notes saved in the same second listed in a different order on each (`Note.newestFirst`) — neither visible to the scene renders. It quits your running HelloNotes gracefully, launches the Debug build with only `DefaultCollection` open via the argument domain and `-HNCaptureSession YES` (which saves no collection list or recents), and afterwards only *reads* your preferences back to check them: an earlier version imported a backup and lost the race with `cfprefsd`, leaving the sample as the only open collection. The Mac half needs the screen unlocked: with `loginwindow` in front, a new window stays at 90% of its size and cannot be captured, which reads exactly like a window-sizing bug.
+- **Chrome parity**: `./scripts/chrome-parity.sh` — renders the chrome (bar, rows, status bar, panel header, a settings form, a sheet bar, an empty state) on macOS *and* in the `HN-iPad` simulator and compares the two pictures pixel by pixel; anything past antialiasing (Δ>12, or >0.1% of a scene) fails, and a one-pixel shift fails it by 4–7%. Run it after touching `Chrome*.swift` or any shared control. The macOS half is app-hosted, so it goes through `run-tests.sh`.
 - **Model evaluations** (Apple's Evaluations framework, real on-device model, ~30s, opt-in — needs Apple Intelligence, so never CI): `TEST_RUNNER_HN_EVALUATIONS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/IntelligenceEvaluationTests`. Tags, links, rewrites, long-note summaries and Assistant tool trajectories. Add `TEST_RUNNER_HN_EVAL_MLX_FOLDER=<absolute path>` to run the same suite on an MLX model — a model folder, or a model's `models--org--name` folder in `~/.cache/huggingface/hub` (list what is there with `mlx_lm.manage --scan`; never download one without asking), loaded through the app's own folder path; a `~` would expand inside the test host's container. Two more suites run under the same flags and pick themselves by the model: `AssistantEditEvaluation` (a tool call, an approval, and the note on disk changes — the trajectory suite denies every approval, so nothing else ever writes) and `AssistantWithoutToolsEvaluation` (a model whose template has no tools must answer in words, not imitation calls). Add them with their own `-only-testing:` flags. Run after touching any prompt, schema, tool, `HistoryWindow` or `TokenBudget` — the unit tests prove plumbing and could not see the two defects this suite found in its first hour (below). Read per-sample results with `xcrun xcresulttool export attachments --path <xcresult> --output-path <dir>` (`.xcevalresult` JSON). Two more opt-in probes run inside the signed app: `TEST_RUNNER_HN_RESEARCH_PROBE=1 … -only-testing:HelloNotesTests/ResearchProbe` (a real deep-research run, ~30s, searches the web) and `TEST_RUNNER_HN_PCC_PROBE=1 … -only-testing:HelloNotesTests/PrivateCloudComputeProbe` (one PCC request; does nothing unless the build is entitled).
 - **iOS interface tests** — the only check that a screen actually *draws*:
   `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=iOS Simulator,name=HN-iPhone' -skipPackagePluginValidation -only-testing:HelloNotesUITests`
-  (~4 min, 12 cases, headless). Run it after any change to a settings screen, the
+  (~4 min, 13 cases — one, the window-parity capture, skips unless its script runs it —
+  headless). Run it after any change to a settings screen, the
   shell, or the editor's chrome — **and actually run it**:
   `testTheOpenNoteIsNotClippedOffTheScreen` waited for a word count that was
   removed from the status bar on 2 September and failed every run from that day
@@ -45,8 +48,8 @@
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 507 tests in 79 suites, ~9s (1.3.3).
-- **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **58 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
+  afterwards whatever the result. 830 tests in 124 suites, ~25s (2026-10-09).
+- **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **60 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
   `HN_CONFIG=Release ./scripts/relaunch-debug.sh` launches the **Release** build, which is the only one that proves anything
@@ -110,6 +113,20 @@
   *next to apply*, not *next to fetch***: an in-flight listing is still inside
   `frontier[head...]`, so a checkpoint taken mid-window loses nothing. Only
   fetching overlaps — `onBatch` is not `@Sendable`.
+- **Only a newer rebuild cancels a rebuild — a save never does, and a rebuild
+  never undoes a save.** A save patches the link graph and search in place and
+  leaves the note's size and date in `notes` alone (restating would re-sort the
+  list on every save), so the index cache, keyed on those, still vouches for
+  the pre-save record. `Collection.KeptSave` holds what each save and each new
+  note patched until a rebuild has read that note from disk since: a rebuild
+  reads those notes past the cache and applies the rest over what it read when
+  it lands. The guard it replaced cancelled the rebuild in flight — and with it
+  whatever that rebuild was for, a delete, a walk's findings, an alias's
+  backlinks — with nothing to run it again. A cancel is a promise that
+  something newer does the work. And a cancelled rebuild still finishes
+  reading, so it must not write the index cache after a newer one has: each
+  rebuild is numbered, and `CollectionIndexCache.save(_:for:rebuild:)` refuses
+  an older number (implemented.md §51.22).
 - **`Form { IntelligenceSettingsForm(…) }` collapses — the shared AI settings form is
   already a `Form`.** Nesting one Form in another renders a clipped stub: a
   half-drawn section header in an empty box and nothing else. That is how the
@@ -135,7 +152,10 @@
   sequence, not a string, so it does not survive its own round trip); a scalar is
   one line, so a summary is folded; and `MarkdownParsing.tags` reads the `tags:`
   key plus inline tags **in the body only** — scanning front matter for `#` turns
-  a summary quoting a hashtag into a tag nobody wrote.
+  a summary quoting a hashtag into a tag nobody wrote. And a write rewrites only
+  the lines of the keys it changes (`FrontMatter.splicing`, implemented.md
+  §51.26): rendering the whole block again turned every flow list into a block
+  list and dropped comments whenever any key changed.
 - **A source-symmetry check cannot see whether a screen renders.**
   `PlatformParityTests` asks whether every `AppActions` field is wired on both
   shells; that is the *command* axis and it is blind to rendering, labelling and
@@ -179,7 +199,22 @@
   is not the same promise as "I won't take it": three captures of a private
   2,019-note vault were taken *while checking whether the vault had switched*.
   Back the plist up first and restore it after — opening or closing a collection
-  changes the user's state.
+  changes the user's state. **`collectionPaths` lists local collections only.**
+  A cloud collection comes back on launch from `remoteCollectionCaches`
+  (`Library.restore()`), so read that key too and capture only if it is empty:
+  on 24 September `collectionPaths` said DefaultCollection alone and the
+  sidebar in the capture showed a OneDrive collection's folders. The capture
+  was deleted; the check is both keys now.
+- **A hosted test's defaults are `ScratchDefaults`, never
+  `UserDefaults(suiteName:)`.** The tests run inside the app's sandbox, so a
+  named suite is a plist in the person's own `Library/Preferences`, and
+  clearing its domain empties the file and keeps it: five kinds of test left
+  741 there, one per run. Nor can one be deleted for good — cfprefsd writes
+  a domain when it chooses, seconds or minutes later, and a file deleted before
+  that write is written again. `@Test(.scratchDefaults)` and
+  `ScratchDefaults.suite(label)` name the suite by a path in a folder of the
+  test's own in the temporary directory, and delete the folder when the test
+  ends; `ScratchDefaultsTests` guards it (implemented.md §51.31).
 - **Read every summary a command prints.** The iOS editor suite emits **three**
   bundle lines (18/4, 173/13, 196/13); `tail -3` shows the last one, and
   reporting "196 of 383 tests ran" from it invented a coverage hole that did not
@@ -223,6 +258,11 @@
   and then failed its first listing — healthy, and empty. Resolve for the
   *enumeration* only and keep the collection's own spelling on the URLs you
   store, or you trade one mismatch for another.
+- **Order notes with `Note.newestFirst`, never by date alone.** Notes saved
+  in the same second (a batch write, a copy, a checkout — the whole sample
+  collection) tie, and a date-only sort leaves them in whatever order it was
+  handed: a dictionary's, which changes with the hash seed. The Mac and the
+  iPad listed the same folder in two orders, and one Mac could on two launches.
 - **"The same notes" is a set, not an array.** `CollectionIndexCache.notes(for:)`
   sorts a **Dictionary's** values, and dictionary order depends on the process's
   hash seed — so two notes sharing a modification date come out in a different
@@ -269,6 +309,19 @@
   second edit for nothing. And a tool that *throws* aborts the whole response
   (`ToolCallError`, transcript rolled back) — recoverable failures are returned
   as text (`ToolOutcome`), only cancellation propagates.
+- **Calling the tool is the request for approval — say so, or the on-device
+  model asks in words.** Told only that "the person approves every change", it
+  replied "Please confirm this is correct" and never called `edit_note` (four of
+  four). Once calling, it sends the changed line as `oldText` and that line *with
+  its neighbours restated* as `newText`, so `EditReplacement` reads whole lines
+  restated on both sides as context (one side is how an insertion looks — left
+  as written); rewording the arguments' `@Guide`s did not move it (four in five
+  before and after). An evaluation's setup must be
+  the app's: `collection.scan()` fills no search index, and the edit evaluation,
+  never before run on the on-device model, failed there first because
+  `search_notes` truthfully found nothing. Check results whole —
+  `contains("apples")` passed a note with a second "- apples" (implemented.md
+  §51.36).
 - **Don't use `SystemLanguageModel(useCase: .contentTagging)` for tags.** Measured:
   it extracts key *phrases* ("bikes along the Kamo river") whatever the schema's
   `@Guide` says, and its guardrail refused a sourdough-baking note. The general
@@ -289,6 +342,39 @@
   build folds some short literals into the machine code, where no scan sees them
   (checked with `swiftc -O`: `"Groqish"` vanished, `"OpenAI"` did not). Check the
   source, which is what the test does.
+- **An editor's copy of a note goes back into the model only through
+  `EditorModel.adopt(_:fromLoad:)`.** The host builds its document from the
+  model's text and pushes it back when editing settles (end of editing, a
+  flush, the host going away) on the rule "if they differ, the editor's is
+  newer" — wrong for a document built while the note was still loading, which
+  holds nothing: if the load lands without it being refreshed, pushing it back
+  saves an empty note over a full one. That wiped `Start Here` on 19 September
+  (a new 0-byte file, quarantined by HelloNotes, seven seconds after build 22
+  launched). `adopt` refuses a copy made from an earlier load;
+  `UnloadedNoteTests` holds it, with a negative control.
+- **A write the app makes into an open note goes through
+  `EditorModel.applyEdit`, never `editor.text = …`.** It carries what is on
+  screen first, so the change is made to what the person sees; the host
+  follows `textVersion` and, the buffer alone having moved, replaces the
+  document — undo reset, and a caret in the body moved *with* the body
+  (`DocumentLoad.caret`), because an app write lands in the front matter,
+  above it: kept at its offset, the next keystrokes went into the middle of a
+  word. Written straight into the buffer, the change never reached the
+  document in Edit and the next carry took it away again. Which side wins is
+  `DocumentLoad.settle`'s rule — whichever moved since they last matched —
+  asked of counts, never of the texts. And bind rows a focused field can
+  outlive by identity, never by index: a field hands its text back as it ends
+  editing, after its rows may have changed, and `ForEach($properties)` trapped
+  on a note switch (implemented.md §51.15).
+- **Nothing is written unless something writes it.** A text change schedules
+  no save (`EditorModel.scheduleSave` is empty on purpose), so a commit — the
+  end of editing in either pane, a property committed in the panel — ends with
+  the model's own `save()` (§51.25, §51.30), never a second way to write, and a
+  commit that changed nothing writes nothing (`applyEdit` says whether it
+  changed the note). Without it the change reached the file at the next flush,
+  and a crash before one lost it. Every app write is a commit: `applyEdit` ends
+  with the same save (§51.36), so a tag, link or summary accepted, the link
+  review, a rewrite, a restored version and a template are written when made.
 - **A write the app makes outside the editor must tell the open editors, and an
   approved write must replace only what was approved.** `noteDidSave` registers a
   write as the app's own, so the watcher ignores it — and a tab showing that note
@@ -298,12 +384,67 @@
   clicking Approve in the Assistant's window ends editing in the note's window,
   which saves typing the diff never showed. And never read a note as `?? ""` on
   a path that shows or replaces it — an unreadable note is not an empty one.
+- **Anything the app makes, moves or deletes in a cloud collection's cache is
+  reported to the mirror, which takes it to the provider in turn.** A cloud
+  collection is a cache of a provider's folder, and `RemoteMirror`'s manifest is
+  the provider's record, so a file changed in the cache and not reported lives
+  on one device: new notes, renames, copies and new folders did, and a rename's
+  old name came back at the next sync (implemented.md §51.21). Go through
+  `Collection` (`madeHere`, `noteDidSave`, `renameNote`, …), which calls
+  `sendSave`/`sendMove`/`sendDelete`/`sendFolder` — and a move or a delete is
+  reported *before* the file goes (`willMove`; `sendDelete(of:removing:)`
+  removes the file itself), or a walk in the gap puts the old name back: the
+  walk runs off the main actor and asks about each file, and writes its
+  placeholder, under the lock a change is reported under (`WaitingToGo`),
+  so a file gone and not yet reported is one it repairs (implemented.md
+  §51.34). The upload gate is `isPlaceholder` — never "the manifest does not say
+  it was downloaded", which is every note made here. A record marked `unsent`
+  holds something the provider never received: nothing may replace its file —
+  not eviction, not a walk, not a download. Changes and walks take turns, in
+  order; a walk applies what it found to the record as it stands when it ends,
+  and leaves alone what a waiting change will take away.
+- **A Swift 6 typecheck is how an isolation mistake shows when Swift 5 mode
+  says nothing — and it needs `-continue-building-after-errors`.** Take the
+  `builtin-SwiftDriver … swiftc -module-name HelloNotes …` line from a build
+  log, drop the output, index and incremental flags, set `-swift-version 6`
+  and add `-typecheck`. Without the flag the driver schedules no job after the
+  first that fails, and the module has Swift 6 errors of its own (16, in seven
+  files, on 2026-10-08), so most files are never checked and the run reads
+  clean: a deliberate type error put in RemoteMirror.swift went unreported.
+  Before believing a clean result, put a deliberate error in the file under
+  review and see it reported (implemented.md §51.34).
 - **A `nonisolated async` helper that waits or polls must be `@concurrent`.**
   Under approachable concurrency it inherits the caller's actor, so
   `FileIO.materialise` polled the file provider on the main thread every 200 ms
   for up to a minute, from both the editor and the Assistant. `offMain` catches
-  main-actor state in its closure only as a *warning* in this target — and the
-  call still hops at runtime.
+  main-actor state in its closure only as a *warning* in this target — and at
+  runtime nothing hops: the body is synchronous, so main-actor code it reaches
+  runs on the pool thread, unchecked (probed 2026-09-29, implemented.md
+  §51.28). A warning there is a data race in waiting, not a stall.
+- **Moving work off the main actor adds an `await`, and an `await` lets the
+  next event in first.** `Collection.handle` ran each watcher event whole; once
+  `.rootChanged` awaited its look at the folder off the main actor, an
+  `.unmounted` reported after it was handled during the await and then
+  overwritten with the look's `.missing`, and a recheck's `.ready` overwrote an
+  unmount the same way (implemented.md §51.32). Events and rechecks now take
+  turns (`Collection.inTurn`) — whole, in the order they came — and a turn must
+  never await a turn, or it waits for itself. Where no timing can see a quick
+  call, a probe of the thread it ran on can (`Collection.availabilityProbes`,
+  keyed by path so parallel tests hear only their own).
+- **`@Observable` compares on every set, so a note-sized `Equatable` property
+  compares the whole note.** The macro's setter asks
+  `shouldNotifyObservers(old, new)`, which is `lhs != rhs` for an `Equatable`
+  member (see it: `swiftc -typecheck -Xfrontend -dump-macro-expansions`), so
+  `editor.text = …` compared the note with itself on the main actor on every
+  set — per keystroke in Markdown mode, 41 ms a MB when the new text is an
+  editor's bridged `NSString`. A note's text is observed by hand (`access` /
+  `withMutation` around an `@ObservationIgnored` store: `EditorModel.text`,
+  `LiveBuffer.text`); what nothing watches is `@ObservationIgnored`; and a view
+  follows the text by `EditorModel.textVersion`, never `onChange(of:
+  editor.text)`, which is one more comparison. Whether a save has anything to
+  write is a byte comparison off the main actor (`EditorModel.sameBytes`) —
+  `==` is canonical equivalence, and a change of normalisation is a change to
+  the file. implemented.md §51.12.
 - **A streaming reply must not redraw the conversation per snapshot.** The
   on-device model yields ~40 snapshots a second; redrawing each re-parsed the
   reply's Markdown from line one (15 ms at 30 KB). `AssistantModel` follows at
@@ -345,6 +486,56 @@
   the open note's menu, from the same `SidebarMenu` list. `Menu(primaryAction:)`
   *looks* like a plain button and is a hidden menu: tap was New Note, hold was
   everything else, and on every iPad that hid Settings.
+- **The Mac and the iPad are the same pixels, so the app draws its own
+  chrome — never the platform's.** A system control, container, text style or
+  colour is each OS's drawing at each OS's numbers: `.font(.body)` is 13pt on
+  the Mac and 17pt on iOS, a `Toggle` 36×16 and 51×31, a `Form` row 36pt and
+  44pt, `.secondary` and `Color.orange` different values, `.borderless` grey
+  and accent-tinted, and a `List`, `NavigationStack` bar, `.toolbar`,
+  `TabView` or material different pictures outright. Use the tokens in
+  `UI/Shell/Chrome.swift` (`Chrome.Typeface`/`Chrome.Style` — the Mac's sizes;
+  `Chrome.Colour` — AppKit's values, both appearances) and the controls in
+  `ChromeControls.swift`/`ChromeRows.swift`: `ChromePushStyle`/
+  `ChromeBorderlessStyle`/`ChromeLinkStyle`, the switch and checkbox styles,
+  `ChromePopUp`, `ChromeSegmented`, `ChromeSlider`, `ChromeStepper`,
+  `ChromeTextField` (placeholders are drawn by the app), `ChromeForm` +
+  `ChromeSection`, `ChromeSheetBar` + `chromeSheetFrame`, `ChromeEmptyState`,
+  `ChromeDivider`, `ChromeRowFrame`. `chromeDefaults()` in `ThemedRoot` makes
+  them the defaults at every window root — so **an unstyled `Button` is a push
+  button**, and a row, card or glyph needs `ChromePlainStyle`. What stays the
+  OS's: its window controls (`WindowControls.leadingInset`), and a menu,
+  popover or alert once *open*; the button that opens one is ours. Inside menu
+  content `Divider()` is the menu's separator — never `ChromeDivider`.
+- **Fixed numbers were not enough; three platform differences survive them,
+  each measured by `scripts/chrome-parity.sh`.** macOS font smoothing puts
+  12–19% more ink on every glyph (`Chrome.matchTextRendering()` registers
+  `AppleFontSmoothing = 0` for the app only). A line box is rounded per
+  platform — 11pt is 14.0 on the Mac and 13.5 on iOS, 17pt 20.0 and 20.5 — so
+  paragraphs drift half a point a line; `.lineHeight(.leading(increase: 3))`
+  at the root makes every line its size + 3 — whole points, so there is
+  nothing to round (`ChromeParityTests.everyLineIsItsSizePlusThree`; a
+  `.multiple(factor: 16/13)` rule agreed only where 16/13 happened to land on
+  a whole point). Stack spacing is the same trap: a stack that names none gets
+  a gap each platform computes from its own rounding of the font — 9pt against
+  8.5 for 13pt text over a button — so every vertical stack names its spacing
+  (`everyVerticalStackNamesItsSpacing`), including the implicit one a
+  `ScrollView` with several children makes.
+  And even at 13pt, where the totals agree, macOS puts the baseline half a
+  point lower, so a single line centred in a control sat a pixel low:
+  `ChromeLine` centres on the capitals and fixes its own box. Chrome text is
+  not scaled through text styles any more: `ChromeTextScale` applies one
+  factor from one table, driven by the app's Text Size on **both** platforms
+  (it syncs between devices, and the iPad used to ignore it) with iOS's own
+  Larger Text on top — exactly 1.0 at the defaults.
+- **A view nothing shows is deleted in the change that stops showing it.**
+  `TagTreeRow` lost its last caller when the tag tree was replaced (11 Aug),
+  `RemoteBrowserView` when browsing became the folder picker (late Aug), and a
+  `ChromeBackButton` was written for sheets that turned out not to need one —
+  all three kept compiling with no caller, and the chrome sweep converted one
+  of them line by line without being able to tell it was invisible. Before
+  converting or fixing a view, grep for its callers; after replacing one,
+  delete the old one. A file with no route to the screen is not a feature
+  kept in reserve, it is a question someone has to ask.
 - **Every panel drags to resize, and the width is the person's.**
   `shell-chrome.md` D7 promised a draggable splitter from the day the inspector
   was designed and the code never had one, so every panel was whatever number
@@ -352,7 +543,20 @@
   760. `ResizableDivider` stores the width and **clamps it at use**: drag it
   wide, narrow the window, and the width is borrowed back rather than
   forgotten. A 1pt line is not a target; the grab area is 10pt and the pointer
-  changes over it.
+  changes over it. **Measure a drag where nothing moves** — `.global`, or the
+  container's named coordinate space — never in a `DragGesture`'s default
+  `.local`, which is the rule's own and moves with the drag: every rule in the
+  app followed the pointer at half speed until §51.29. A test of one must turn
+  the run loop between its mouse events (`MouseDrag`, RuleDragTests.swift);
+  sent back to back, nothing is laid out until the button is up, and the
+  half-speed rule passes.
+- **A view whose arrangement follows its size changes its *layout*, never its
+  branch.** Two branches of an `if` are two sets of views, so crossing between
+  them makes every child again — a text view with the keyboard and the caret
+  among them. And the keyboard is a size change: Split on an iPad in portrait
+  flipped to side by side when it came up, made the source's text view again
+  without it, and so sent it away (§51.29). `AnyLayout` changes the layout and
+  keeps the children (`AdaptiveSplit`).
 - **Collections on the left, the editor in the middle, anything else on the
   right — one panel, one state, one width.** Outline, Tags, References,
   Properties, History, Mind Map, Graph, Ask Library and the Assistant are not
@@ -379,10 +583,13 @@
   `.secondary`, or the tint at low opacity behind it.
 - **One Settings, opened at a page.** AI settings are `SettingsPage.ai`, never a
   second screen: a standalone "AI Settings" sheet beside "Settings…" read as two
-  places. The Mac's page is stored, because `openSettings` takes no argument;
-  iOS pushes it. The Assistant presents Settings itself — on iOS it is already
-  presented, and the shell cannot present over it, which is why its old
-  "Open AI Settings…" did nothing on iPad. ⌘, opens Settings on iPad too.
+  places. Settings is one container on both (`AppSettingsView`: a strip of five
+  tabs over the page, 560×640) — the Mac's `Settings` window and the iPad's
+  sheet show the same view — and the page is stored (`SettingsPage.storageKey`),
+  because the Mac's `openSettings` takes no argument; a sheet route may also pass
+  it. The Assistant presents Settings itself — on iOS it is already presented,
+  and the shell cannot present over it, which is why its old "Open AI
+  Settings…" did nothing on iPad. ⌘, opens Settings on iPad too.
 - **The on-device model is "System"** — Apple's name for it (`fm --help`:
   `system`, "System model available"). Its variant, AFM 3 Core or Core
   Advanced, is the hardware's decision; naming it made people ask for the other.
@@ -440,9 +647,9 @@
   iPad — and scrolls.** Settings came last in the iPad's `…` menu and fell below
   the fold of the menu added to make it findable. Order for the fold.
 - **The simulator tool's taps arrive as a mouse.** After the first one
-  `PointerPresence` reports a pointer, the band switches to 24pt rows and stays
-  there across relaunches — so a touch-sized layout can only be looked at
-  before the first tap.
+  `PointerPresence` reports a pointer, and what reads it — the graph's "Tap" or
+  "Click" — says the pointer's word until the next launch. Row heights are
+  fixed and do not follow it (implemented.md §51.36).
 - **One model, and the framework's knobs — no roles, no inventions.** There was
   a model for the Assistant and another for the writing tools; with MLX they
   could not even differ, since one MLX model is loaded at a time, so picking one

@@ -43,28 +43,35 @@ struct FindReplaceBar: View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Find", text: $findText)
-                    .textFieldStyle(.roundedBorder)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                TextField("", text: $findText)
+                    .textFieldStyle(.plain)
+                    .focusEffectDisabled()
                     .focused($findFocused)
                     .onSubmit(onNext)
                     .onChange(of: findText) { _, _ in onFindChanged() }
+                    .chromePlaceholder("Find", showing: findText.isEmpty)
+                    .accessibilityLabel("Find")
+                    .chromeFieldBox()
 
                 Text(countLabel)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(Chrome.Style.caption.monospacedDigit())
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
                     .frame(minWidth: 64, alignment: .trailing)
 
                 Button(action: onPrevious) {
                     Image(systemName: "chevron.up")
                 }
-                .help("Previous match (Shift-Return)")
+                // No shortcut of its own to name: Shift-Return is the field's
+                // submit, which is Next, and ⇧⌘G — the usual Find Previous —
+                // is Graph View here (toolbars.md §14, item 12).
+                .help("Previous match")
                 .disabled(matchCount == 0)
 
                 Button(action: onNext) {
                     Image(systemName: "chevron.down")
                 }
-                .help("Next match (return)")
+                .help("Next match (Return)")
                 .disabled(matchCount == 0)
 
                 Button("Done", action: onClose)
@@ -73,9 +80,13 @@ struct FindReplaceBar: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "arrow.2.squarepath")
-                    .foregroundStyle(.secondary)
-                TextField("Replace", text: $replaceText)
-                    .textFieldStyle(.roundedBorder)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                TextField("", text: $replaceText)
+                    .textFieldStyle(.plain)
+                    .focusEffectDisabled()
+                    .chromePlaceholder("Replace", showing: replaceText.isEmpty)
+                    .accessibilityLabel("Replace")
+                    .chromeFieldBox()
 
                 Button("Replace", action: onReplace)
                     .disabled(matchCount == 0)
@@ -85,8 +96,9 @@ struct FindReplaceBar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        // The chrome grey, not `.bar`, which is each platform's own material.
+        .background(Chrome.Colour.chrome)
+        .overlay(alignment: .bottom) { ChromeDivider() }
         .onAppear { findFocused = true }
     }
 }

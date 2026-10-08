@@ -80,17 +80,28 @@ struct SupportContractTests {
         #expect(source.contains("Restore Purchases"))
     }
 
-    /// Reachable on **both** shells. The AI settings screen shipped in build 11
-    /// having never drawn on iOS because it existed only in the Mac's tab bar;
-    /// this screen carries review-required disclosures, so "reachable on macOS"
-    /// is not enough.
+    /// Reachable on **both** platforms. The AI settings screen shipped in
+    /// build 11 having never drawn on iOS because it existed only in the Mac's
+    /// tab bar; this screen carries review-required disclosures, so "reachable
+    /// on macOS" is not enough.
+    ///
+    /// Settings is one container now — the same strip of tabs over the same
+    /// page on both — so "both" is three facts about one file: Support is a
+    /// page, the page is `SupportSettingsView`, and the strip draws every page.
+    /// And nothing in the file is gated, because a gate is how one platform
+    /// grows an arrangement the other lacks.
     @Test func supportIsReachableFromBothSettingsShells() throws {
         let source = try Self.source("UI/SettingsView.swift")
-        let macTab = source.contains("SupportSettingsView(store: store)")
-            && source.contains("Label(\"Support\", systemImage: \"heart\")")
-        let iosRow = source.contains("Label(\"Support HelloNotes\", systemImage: \"heart\")")
-        #expect(macTab, "macOS Preferences must carry a Support tab")
-        #expect(iosRow, "iOS Settings must carry a Support row")
+        #expect(source.contains("case general, appearance, git, ai, support"),
+                "Support is not a page of Settings")
+        let pages = try #require(source.components(separatedBy: "private var pageView").dropFirst().first,
+                                 "AppSettingsView no longer builds its pages in `pageView`")
+        #expect(pages.contains("case .support:") && pages.contains("SupportSettingsView(store: store)"),
+                "the Support page does not show SupportSettingsView")
+        #expect(source.contains("ForEach(SettingsPage.allCases"),
+                "the tab strip does not draw every page")
+        #expect(!source.contains("#if os("),
+                "Settings has a platform gate again — one platform can grow a page the other lacks")
     }
 
     // MARK: - The champion count
@@ -105,10 +116,8 @@ struct SupportContractTests {
     }
 
     /// A fresh install reads whatever this device already knew.
-    @Test @MainActor func theCountIsRestoredFromLocalStorage() throws {
-        let suite = "SupportContractTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+    @Test(.scratchDefaults) @MainActor func theCountIsRestoredFromLocalStorage() throws {
+        let defaults = ScratchDefaults.suite()
         defaults.set(4, forKey: "championContributions")
 
         // `cloud: nil` keeps the test off the real iCloud key-value store —

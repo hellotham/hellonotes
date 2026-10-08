@@ -14,6 +14,7 @@
 
 import Foundation
 import CryptoKit
+import Synchronization
 
 /// One note's parsed metadata plus the stat fingerprint that validates it.
 nonisolated struct NoteIndexRecord: Codable, Sendable {
@@ -61,7 +62,7 @@ nonisolated enum CollectionIndexCache {
                         lastModified: Date(timeIntervalSinceReferenceDate: record.mtime),
                         fileSize: record.size)
         }
-        .sorted { $0.lastModified > $1.lastModified }
+        .sorted(by: Note.newestFirst)
     }
 
     /// Bump when the record format **or what the parse extracts** changes; a
@@ -108,26 +109,80 @@ nonisolated enum CollectionIndexCache {
     /// Cached records keyed by relative path, or `nil` when there is no usable
     /// cache (first run, version mismatch, or a corrupt file).
     static func load(for rootURL: URL) -> [String: NoteIndexRecord]? {
-        guard let data = try? Data(contentsOf: cacheURL(for: rootURL)),
+        records(in: try? Data(contentsOf: cacheURL(for: rootURL)))
+    }
+
+    /// `load`, for a rebuild: read in turn with `save` and `remove`, so a
+    /// rebuild numbered after a `remove` cannot have read what it removed.
+    /// Off the main actor only — it can wait for a write.
+    static func loadForRebuild(for rootURL: URL) -> [String: NoteIndexRecord]? {
+        let url = cacheURL(for: rootURL)
+        return records(in: ordering.withLock { try? Data(contentsOf: url) })
+    }
+
+    private static func records(in data: Data?) -> [String: NoteIndexRecord]? {
+        guard let data,
               let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
               snapshot.version == version else { return nil }
         return Dictionary(snapshot.records.map { ($0.relativePath, $0) },
                           uniquingKeysWith: { first, _ in first })
     }
 
-    /// Persist `records` atomically. Failures are non-fatal — the cache is an
-    /// optimisation, and the next launch just rebuilds.
-    static func save(_ records: [NoteIndexRecord], for rootURL: URL) {
+    /// Persist `records` atomically, and say whether they were. Failures are
+    /// non-fatal — the cache is an optimisation, and the next launch just
+    /// rebuilds.
+    ///
+    /// `rebuild` is the writing rebuild's number (`rebuildNumber()`), and a
+    /// cache is never written by a rebuild older than the last one that wrote
+    /// it. A rebuild cannot be stopped once it is reading, so one replaced by a
+    /// newer one still finishes — and could write after it. The newer one began
+    /// from a newer picture: it read a saved note from disk and let go of the
+    /// save it kept (`Collection.KeptSave`), where the older one took the note's
+    /// pre-save record from the cache. Written last, that record would have
+    /// been the cache's answer for the note until a walk changed its date. A
+    /// write that fails leaves the number where it was, and says so: the
+    /// rebuild must not let a save go that the cache does not hold.
+    @discardableResult
+    static func save(_ records: [NoteIndexRecord], for rootURL: URL, rebuild: UInt64? = nil) -> Bool {
         let url = cacheURL(for: rootURL)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(Snapshot(version: version, records: records)) else { return }
-        try? data.write(to: url, options: .atomic)
+        guard let data = try? JSONEncoder().encode(Snapshot(version: version, records: records)) else { return false }
+        return ordering.withLock {
+            if let rebuild, rebuild <= writtenBy[url, default: 0] { return false }
+            guard (try? data.write(to: url, options: .atomic)) != nil else { return false }
+            if let rebuild { writtenBy[url] = rebuild }
+            return true
+        }
     }
 
-    /// Remove the cache (used by Rescan to guarantee a from-scratch rebuild).
+    /// A number for a rebuild about to begin: larger than every one before it,
+    /// in any collection, so a collection opened again goes on counting. An
+    /// atomic of its own, not `ordering`: a rebuild begins on the main actor,
+    /// which must never wait for a cache being written.
+    static func rebuildNumber() -> UInt64 {
+        rebuilds.wrappingAdd(1, ordering: .relaxed).newValue
+    }
+
+    private static let rebuilds = Atomic<UInt64>(0)
+
+    /// Held across a check and a read, a write or a removal, which are file
+    /// operations — so a lock that may be held through I/O, and never taken
+    /// on the main actor.
+    private static let ordering = NSLock()
+    nonisolated(unsafe) private static var writtenBy: [URL: UInt64] = [:]
+
+    /// Remove the cache (Rescan's from-scratch rebuild), and in the same step
+    /// bar every rebuild begun before it from writing one back: what they read
+    /// is what is being thrown away. Its number is taken under the lock, so a
+    /// rebuild numbered after it reads the cache only once it is gone
+    /// (`loadForRebuild`). Off the main actor only.
     static func remove(for rootURL: URL) {
-        try? FileManager.default.removeItem(at: cacheURL(for: rootURL))
+        let url = cacheURL(for: rootURL)
+        ordering.withLock {
+            writtenBy[url] = rebuildNumber()
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     // MARK: - Paths
@@ -198,6 +253,9 @@ nonisolated enum CollectionIndexCache {
             .appendingPathComponent("HelloNotes/IndexCache", isDirectory: true)
         let digest = SHA256.hash(data: Data(rootURL.standardizedFileURL.path.utf8))
         let name = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
-        return base.appendingPathComponent("\(name).json")
+        // `isDirectory: false`: without it the call stats the path to decide,
+        // so the URL depended on what was on disk there — and cost a system
+        // call wherever it was asked, the main actor included.
+        return base.appendingPathComponent("\(name).json", isDirectory: false)
     }
 }
