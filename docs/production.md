@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 26` — uploaded to TestFlight (both platforms) on 2026-09-22. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, and 26 makes its Access MLX Models panel open in the right folder. 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 27` — uploaded to TestFlight (both platforms) on 2026-10-09. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, and 27 carries everything since (§10f). 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -714,6 +714,42 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10f · 1.3.3 build 27 — uploaded to TestFlight, 2026-10-09
+
+From `b819c1b`. Both platforms printed `Progress 100%: Upload succeeded` and
+`** EXPORT SUCCEEDED **`: macOS at 08:41 and iOS at 08:44.
+
+Read back from each archive, not from the project:
+- Both archives read 1.3.3 (27), as do all six extensions.
+- Both apps are arm64 only. 1.3.3 is the first Mac release that is not
+  universal, because its macOS 27 floor runs only on Apple silicon.
+- Neither app nor any extension carries a temporary-exception entitlement.
+- All five cloud-provider keys are present (checked by length).
+- `ITSAppUsesNonExemptEncryption` is false. The iOS minimum is 27.0.
+
+27 carries everything since 26, implemented.md §51.5–§51.36:
+- The Mac and the iPad draw the same pixels.
+- The data-safety work on what reaches the file and when.
+- Cloud collections' changes reach the provider.
+- Incremental parsing converges.
+- The Assistant edits a note on Apple's own model, which no build had done.
+- Every open defect in unimplemented.md is fixed.
+
+Before archiving, on the committed tree:
+- 830 app tests.
+- 506 + 487 editor tests (macOS + iOS).
+- The iOS interface suite.
+- The on-device evaluations, three times over (18/18).
+- `render-parity.sh` and `chrome-parity.sh`.
+- A Swift 6 type-check with a planted error caught.
+- Release builds of both platforms.
+
+The iOS interface tests found that the iOS build crashed the compiler, which
+no Mac check could see. An archive would have been the first to say so.
+
+**Check the builds in TestFlight.** An upload that reports success is not a
+build that arrived (§10a).
 
 ## 10e · 1.3.3 build 26 — uploaded to TestFlight, 2026-09-22
 
