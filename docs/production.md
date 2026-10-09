@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 27` — uploaded to TestFlight (both platforms) on 2026-10-09. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, and 27 carries everything since (§10f). 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 28` — uploaded to TestFlight (both platforms) on 2026-10-09. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), and 28 the rearrangement asked for after testing 27 (§10g). 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -633,6 +633,17 @@ xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
 The export step uploads directly. (For CI, authenticate `notarytool`/`altool`
 with an **App Store Connect API key** instead of your Apple ID.)
 
+**When Xcode's sign-in has lapsed**, both exports fail before anything is sent:
+`exportArchive Failed to Use Accounts — App Store Connect access for
+"RPL5R637DS" is required`. Sign in again under Xcode ▸ Settings ▸ Accounts.
+The team's API key, in `~/.appstoreconnect/private_keys/`, can stand in for
+the account on **iOS only**. Add `-authenticationKeyPath`,
+`-authenticationKeyID` and `-authenticationKeyIssuerID` to the export. The
+issuer ID is at the top of Users and Access ▸ Integrations ▸ App Store Connect
+API. The key cannot do a **macOS** export: its Mac Installer Distribution
+certificate is cloud-managed, which the key's role may not use, so it fails
+with "Cloud signing permission error". Build 28 went up both ways (§10g).
+
 ### Option C — iOS, command line
 
 `ExportOptions-AppStore-iOS.plist` is the upload plist
@@ -714,6 +725,57 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10g · 1.3.3 build 28 — uploaded to TestFlight, 2026-10-09
+
+From `c353ba4`. Both platforms printed `Progress 100%: Upload succeeded` and
+`** EXPORT SUCCEEDED **`: iOS at 15:50 and macOS at 15:52. In TestFlight's
+Build Uploads, iOS 1.3.3 (28) showed **Complete** within minutes, and macOS 1.3.3 (28) a few minutes after
+that. Both are in the internal group HelloNotes testers, which has two
+testers. Each is listed as "Ready to Submit", while 27, already installed, is
+listed as "Testing". Unlike 27, neither has a "What to Test" note.
+
+The first attempt sent nothing on either platform: `Failed to Use Accounts`.
+Xcode's sign-in had lapsed since 27 went up that morning.
+- The team's API key uploaded the iOS build.
+- macOS cannot go that way: "Cloud signing permission error", no local Mac
+  Installer Distribution certificate.
+- So macOS went through the Xcode account once it was signed in again (§9).
+
+Read back from each archive, not from the project:
+- Both archives read 1.3.3 (28), as do all six extensions.
+- Both apps are arm64 only. The minimums are macOS 27.0 and iOS 27.0.
+- Neither app nor any extension carries a temporary-exception entitlement.
+- All five cloud-provider keys are present (checked by length).
+- `ITSAppUsesNonExemptEncryption` is false.
+- The bundled manual is the corrected one.
+
+28 carries the rearrangement asked for after testing 27 on the Mac
+(implemented.md §51.37):
+- **The sidebar is the collection's.** The Mind Map, the Assistant, Ask Your
+  Library and Git sit above the tree. New Folder, New Collection, Open
+  Collection and Open Default Collection sit below it. A phone's Notes place
+  carries the same rows.
+- **The bar is the notes'.** It holds New Note (into the selected note's
+  folder), Today's Note, Find & Replace and More ⋯.
+- **The panel is the open note's.** It holds Summary & Outline, Tags, Links,
+  Properties, History and Graph.
+- **The bottom bar is the four view modes.**
+- **The Graph and the Mind Map are each their own thing.** The Graph is one
+  note's links in and out. The Mind Map is the links across the collection,
+  in a tab.
+- **27's Graph drew every label in one pile.** That is fixed.
+
+Before archiving, on the committed tree:
+- 843 app tests.
+- The new and changed suites on iOS, and the iOS interface suite.
+- `chrome-parity.sh`, 16/16.
+- A Swift 6 type-check: 0 errors, with a planted error caught.
+
+Not run again, because nothing they cover has changed since 27:
+- the editor package's 506 + 487 tests,
+- `render-parity.sh`,
+- the on-device evaluations.
 
 ## 10f · 1.3.3 build 27 — uploaded to TestFlight, 2026-10-09
 
