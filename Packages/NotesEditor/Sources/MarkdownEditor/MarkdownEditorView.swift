@@ -1256,7 +1256,9 @@ public struct MarkdownEditorView: NSViewRepresentable {
         /// The editor the tokens above are addressed to, so a switch re-targets
         /// them rather than leaving them pointed at the editor you left.
         private var busEditorID: String?
-        private var findQuery = ""
+        /// The find bar's pattern and position, so Next/Previous and Replace
+        /// act on the same match the bar is showing.
+        private var findPattern = FindPattern("")
         private var findIndex = 0
 
         init(document: EditorDocument, onLinkTap: ((EditorLinkTap) -> Void)?) {
@@ -1355,16 +1357,23 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 object: nil, queue: .main
             ) { [weak self] note in
                 let query = note.userInfo?["query"] as? String ?? ""
+                let isRegularExpression = note.userInfo?["regex"] as? Bool ?? false
                 let index = note.userInfo?["currentIndex"] as? Int
-                MainActor.assumeIsolated { [query, index] in
+                MainActor.assumeIsolated { [query, isRegularExpression, index] in
                     guard let self, let textView = self.textView, textView.window != nil else { return }
-                    if query != self.findQuery { self.findIndex = 0 }
-                    self.findQuery = query
+                    let pattern = FindPattern(query, isRegularExpression: isRegularExpression)
+                    if pattern != self.findPattern { self.findIndex = 0 }
+                    self.findPattern = pattern
                     if let index { self.findIndex = index }
-                    let count = textView.showMatch(of: query, index: self.findIndex)
+                    // A count, or why there is none: a pattern still being
+                    // typed, or one too slow to finish (`FindPattern`).
+                    let results: [String: Any] = switch textView.showMatch(of: pattern, index: self.findIndex) {
+                    case .success(let count): ["count": count]
+                    case .failure(let problem): ["count": 0, "problem": problem.rawValue]
+                    }
                     NotificationCenter.default.post(
                         name: EditorBus.findResults(editor: editorID),
-                        object: nil, userInfo: ["count": count])
+                        object: nil, userInfo: results)
                 }
             })
             busTokens.append(center.addObserver(
@@ -1374,10 +1383,18 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 let replacement = note.userInfo?["replacement"] as? String
                 MainActor.assumeIsolated { [replacement] in
                     guard let self, let textView = self.textView, textView.window != nil,
-                          let replacement else { return }
-                    let sel = textView.selectedRange()
-                    if sel.length > 0 { textView.performEdit(replacing: sel, with: replacement) }
-                    _ = textView.showMatch(of: self.findQuery, index: self.findIndex)
+                          let replacement,
+                          case .success(let matches) = self.document.replacements(of: self.findPattern,
+                                                                                 with: replacement)
+                    else { return }
+                    // The match the find selected, with its own groups. It was
+                    // the selection, whatever it held, so a selection moved
+                    // off the match was replaced too.
+                    let selection = textView.selectedRange()
+                    if let match = matches.first(where: { $0.range == selection }) {
+                        textView.performEdit(replacing: match.range, with: match.text)
+                    }
+                    _ = textView.showMatch(of: self.findPattern, index: self.findIndex)
                 }
             })
             busTokens.append(center.addObserver(
@@ -1388,10 +1405,14 @@ public struct MarkdownEditorView: NSViewRepresentable {
                 MainActor.assumeIsolated { [replacement] in
                     guard let self, let textView = self.textView, textView.window != nil,
                           let replacement,
-                          !self.findQuery.isEmpty else { return }
-                    // Back to front, so earlier ranges stay valid.
-                    for range in self.document.findMatches(of: self.findQuery).reversed() {
-                        textView.performEdit(replacing: range, with: replacement)
+                          case .success(let matches) = self.document.replacements(of: self.findPattern,
+                                                                                 with: replacement)
+                    else { return }
+                    // Back to front, so earlier ranges stay valid. Each text
+                    // was worked out before the first edit, from the note as
+                    // the find saw it.
+                    for match in matches.reversed() {
+                        textView.performEdit(replacing: match.range, with: match.text)
                     }
                 }
             })
@@ -1401,7 +1422,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let textView = self.textView, textView.window != nil else { return }
-                    self.findQuery = ""
+                    self.findPattern = FindPattern("")
                     self.findIndex = 0
                     let caret = textView.selectedRange()
                     textView.setSelectedRange(NSRange(location: caret.location, length: 0))
@@ -2780,9 +2801,9 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         nonisolated(unsafe) private var busTokens: [NSObjectProtocol] = []
         private var busEditorID: String?
         private weak var busView: MarkdownUITextView?
-        /// The find bar's query and position, so Next/Previous and Replace act
-        /// on the same match the bar is showing.
-        private var findQuery = ""
+        /// The find bar's pattern and position, so Next/Previous and Replace
+        /// act on the same match the bar is showing.
+        private var findPattern = FindPattern("")
         private var findIndex = 0
 
         /// Block observers are retained by `NotificationCenter` until they are
@@ -2883,16 +2904,23 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                 object: nil, queue: .main
             ) { [weak self] note in
                 let query = note.userInfo?["query"] as? String ?? ""
+                let isRegularExpression = note.userInfo?["regex"] as? Bool ?? false
                 let index = note.userInfo?["currentIndex"] as? Int
-                MainActor.assumeIsolated { [query, index] in
+                MainActor.assumeIsolated { [query, isRegularExpression, index] in
                     guard let self, let textView = self.busView, textView.window != nil else { return }
-                    if query != self.findQuery { self.findIndex = 0 }
-                    self.findQuery = query
+                    let pattern = FindPattern(query, isRegularExpression: isRegularExpression)
+                    if pattern != self.findPattern { self.findIndex = 0 }
+                    self.findPattern = pattern
                     if let index { self.findIndex = index }
-                    let count = textView.showMatch(of: query, index: self.findIndex)
+                    // A count, or why there is none: a pattern still being
+                    // typed, or one too slow to finish (`FindPattern`).
+                    let results: [String: Any] = switch textView.showMatch(of: pattern, index: self.findIndex) {
+                    case .success(let count): ["count": count]
+                    case .failure(let problem): ["count": 0, "problem": problem.rawValue]
+                    }
                     NotificationCenter.default.post(
                         name: EditorBus.findResults(editor: editorID),
-                        object: nil, userInfo: ["count": count])
+                        object: nil, userInfo: results)
                 }
             })
             busTokens.append(center.addObserver(
@@ -2902,10 +2930,18 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                 let replacement = note.userInfo?["replacement"] as? String
                 MainActor.assumeIsolated { [replacement] in
                     guard let self, let textView = self.busView, textView.window != nil,
-                          let replacement else { return }
-                    let sel = textView.selectedRange
-                    if sel.length > 0 { textView.performEdit(replacing: sel, with: replacement) }
-                    _ = textView.showMatch(of: self.findQuery, index: self.findIndex)
+                          let replacement, let document = textView.document,
+                          case .success(let matches) = document.replacements(of: self.findPattern,
+                                                                            with: replacement)
+                    else { return }
+                    // The match the find selected, with its own groups. It was
+                    // the selection, whatever it held, so a selection moved
+                    // off the match was replaced too.
+                    let selection = textView.selectedRange
+                    if let match = matches.first(where: { $0.range == selection }) {
+                        textView.performEdit(replacing: match.range, with: match.text)
+                    }
+                    _ = textView.showMatch(of: self.findPattern, index: self.findIndex)
                 }
             })
             busTokens.append(center.addObserver(
@@ -2915,11 +2951,15 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
                 let replacement = note.userInfo?["replacement"] as? String
                 MainActor.assumeIsolated { [replacement] in
                     guard let self, let textView = self.busView, textView.window != nil,
-                          let replacement, !self.findQuery.isEmpty,
-                          let document = textView.document else { return }
-                    // Back to front, so earlier ranges stay valid.
-                    for range in document.findMatches(of: self.findQuery).reversed() {
-                        textView.performEdit(replacing: range, with: replacement)
+                          let replacement, let document = textView.document,
+                          case .success(let matches) = document.replacements(of: self.findPattern,
+                                                                            with: replacement)
+                    else { return }
+                    // Back to front, so earlier ranges stay valid. Each text
+                    // was worked out before the first edit, from the note as
+                    // the find saw it.
+                    for match in matches.reversed() {
+                        textView.performEdit(replacing: match.range, with: match.text)
                     }
                 }
             })
@@ -2929,7 +2969,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let textView = self.busView, textView.window != nil else { return }
-                    self.findQuery = ""
+                    self.findPattern = FindPattern("")
                     self.findIndex = 0
                     textView.selectedRange = NSRange(location: textView.selectedRange.location, length: 0)
                 }

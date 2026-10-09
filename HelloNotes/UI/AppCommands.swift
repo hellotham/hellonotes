@@ -98,10 +98,11 @@ enum CloudBrowser: String, CaseIterable, Identifiable, Codable {
 /// Every way to add a collection, as one value.
 ///
 /// Grouped rather than six loose closures on `AppActions` because they are one
-/// set that four surfaces draw — the sidebar's New Collection and Open
-/// Collection rows, the File menu (which iPadOS renders into a real menu bar
-/// too), the compact shell's `…` and the command palette. Passing them together is what stops a surface
-/// quietly offering five of the six.
+/// set that three surfaces draw — the New Collection and Open Collection
+/// submenus of the sidebar's `+` (and the phone's Notes place, which has the
+/// same `+`), the File menu (which iPadOS renders into a real menu bar too) and
+/// the command palette. Passing them together is what stops a surface quietly
+/// offering five of the six.
 ///
 /// The order here is the order they are offered: everything reachable by a
 /// file picker first (no sign-in, works offline), then the one that signs in,

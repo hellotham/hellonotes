@@ -47,11 +47,12 @@ generated from the same commands. Where that is not yet true, §8 says so.
 | | macOS | iPadOS | iPhone |
 |---|---|---|---|
 | Menu bar | always | built from the same commands; the system decides when to show it, so the app treats it as out of sight and keeps a touch route for almost everything (§8, item 1 lists the exceptions) | **none** |
-| Settings | the `Settings` scene puts **Settings… ⌘,** in the app menu | the app adds **Settings… ⌘,**, which opens the Settings sheet; it greys out with no window | the Library place's More ⋯, and the AI place's AI Settings… |
+| Settings | the `Settings` scene puts **Settings… ⌘,** in the app menu; the bar's ⚙ opens the same view as a sheet | the app adds **Settings… ⌘,**, which opens the Settings sheet; it greys out with no window. The bar's ⚙ opens it too | the Library place's More ⋯, and the AI place's AI Settings… |
 | Mac-only | the system's Services, Hide, Quit and window-tab items; the menu-bar extra (§6); the Services provider; the global shortcut | — | — |
 
 On **iPhone** every command's route is in the compact shell: the places' bars
-and More ⋯, the AI place, the open note's Note Actions, and the row menus
+(the Notes place's `+` and More ⋯), the AI place, the open note's Note Actions,
+and the row menus
 ([primary.md](primary.md) §10, [toolbars.md](toolbars.md) §3.3). The exceptions,
 which an iPhone cannot reach at all, are listed in §8, item 1.
 
@@ -238,9 +239,10 @@ The app draws these buttons; the OS draws the menus they open.
 
 | Menu | Where | Document |
 |---|---|---|
-| **More ⋯** | the bar | [toolbars.md](toolbars.md) §3.2 |
+| **New Note +** | the bar | [toolbars.md](toolbars.md) §3.2 |
+| **Search 🔍** | the bar | [toolbars.md](toolbars.md) §3.2 |
 | **Note Actions ⌄** | the bar, with a note open | [toolbars.md](toolbars.md) §3.3 |
-| **Add Collection +** | the sidebar's header | [primary.md](primary.md) §7 |
+| **Add Folder or Collection +** | the sidebar's header, and the phone's Notes place | [primary.md](primary.md) §7, §10 |
 | **Row menus** (`…` and context menus) | sidebar, band and compact rows | [primary.md](primary.md) §6 |
 | **✦ AI** and **Export** | the editor's status bar | [toolbars.md](toolbars.md) §5.1 |
 | **The panel's pull-down** | the panel's header, when narrow | [secondary.md](secondary.md) §3 |
@@ -327,14 +329,19 @@ or extend another app's menus.
      Collection** and a collection's **Reveal**; a folder's **New Note Here**,
      **New Folder Here…**, **Reveal** and **Move to Trash**; an attachment's
      **Open in Default App**; and a note's **Download / Remove Download**. They
-     are in row menus and More ⋯ only.
+     are in row menus and the sidebar's `+` only.
    - **Git**: Initialize Repository, Commit, Push, Fetch and Connect Remote live
-     only in the status bar's Git popover.
+     only in the Git pane — the sidebar's Git row, or a note window's bottom
+     bar.
    - The reverse gap, menu items with **no touch route**: the **Command
      Palette**, **Insert Template**, **About**, **Acknowledgements…**,
-     **HelloNotes Help**, **Dictate to Daily Note** (dictation is supported on
-     iOS too) and **New Window**. A keyboard-less iPad reaches them only through
-     the menu bar, and an iPhone not at all.
+     **HelloNotes Help** and **New Window**. A keyboard-less iPad reaches them
+     only through the menu bar, and an iPhone not at all. **Dictate to Daily
+     Note** has had one on a wide iPad since D14, the bar's `+`.
+   - **On iPhone** (and in a narrow iPad window, the compact shell), the bar's
+     `+` and 🔍 are not drawn, so **Today's Note**, **Open Quickly** and
+     **Dictate to Daily Note** have no touch route there; the Search place
+     searches, and its bar has **New Note**.
 2. **Two tab systems on the Mac.** View ▸ Show Tab Bar and Show All Tabs, and
    Window ▸ Show Previous/Next Tab, Move Tab to New Window and Merge All
    Windows, are macOS's **window** tabs. They appear because the app never

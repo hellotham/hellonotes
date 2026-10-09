@@ -650,20 +650,17 @@ public final class EditorDocument {
         return nil
     }
 
-    /// Case-insensitive matches of `query` (find bar, scroll-to-heading).
-    public func findMatches(of query: String) -> [NSRange] {
-        guard !query.isEmpty else { return [] }
-        let ns: NSString = storage.mutableString
-        var result: [NSRange] = []
-        var searchStart = 0
-        while searchStart < ns.length {
-            let r = ns.range(of: query, options: [.caseInsensitive],
-                             range: NSRange(location: searchStart, length: ns.length - searchStart))
-            guard r.location != NSNotFound else { break }
-            result.append(r)
-            searchStart = r.location + max(1, r.length)
-        }
-        return result
+    /// The find bar's matches: a phrase anywhere, ignoring case, or a regular
+    /// expression (`FindPattern`) — or why there are none to show.
+    public func findMatches(of pattern: FindPattern) -> Result<[NSRange], FindPattern.Problem> {
+        pattern.matches(in: storage.mutableString)
+    }
+
+    /// Each match of `pattern` with the text that replaces it — for a regular
+    /// expression, `replacement` expanded against that match's own groups.
+    public func replacements(of pattern: FindPattern,
+                             with replacement: String) -> Result<[FindPattern.Replacement], FindPattern.Problem> {
+        pattern.replacements(in: storage.mutableString, with: replacement)
     }
 
     /// Document headings (outline, scroll targets).

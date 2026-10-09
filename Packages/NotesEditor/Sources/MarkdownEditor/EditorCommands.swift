@@ -281,17 +281,21 @@ extension MarkdownTextView: MarkdownFormatting {
 
     // MARK: - Find & navigation
 
-    /// Select and scroll to the `index`-th match of `query`; returns the
-    /// match count (the app's find bar shows it).
+    /// Select and scroll to the `index`-th match of `pattern`; returns the
+    /// match count (the app's find bar shows it), or why there is none.
     @discardableResult
-    public func showMatch(of query: String, index: Int) -> Int {
-        guard let document else { return 0 }
-        let matches = document.findMatches(of: query)
-        guard !matches.isEmpty else { return 0 }
-        let target = matches[max(0, min(index, matches.count - 1))]
-        setSelectedRange(target)
-        reliablyScroll(to: target)
-        return matches.count
+    public func showMatch(of pattern: FindPattern, index: Int) -> Result<Int, FindPattern.Problem> {
+        guard let document else { return .success(0) }
+        switch document.findMatches(of: pattern) {
+        case .failure(let problem):
+            return .failure(problem)
+        case .success(let matches):
+            guard !matches.isEmpty else { return .success(0) }
+            let target = matches[max(0, min(index, matches.count - 1))]
+            setSelectedRange(target)
+            reliablyScroll(to: target)
+            return .success(matches.count)
+        }
     }
 }
 
@@ -335,14 +339,18 @@ extension MarkdownUITextView: MarkdownFormatting {
     /// they landed on the front matter or on prose. They go through
     /// `showHeading(at:)` now and carry a position.
     @discardableResult
-    public func showMatch(of query: String, index: Int) -> Int {
-        guard let document else { return 0 }
-        let matches = document.findMatches(of: query)
-        guard !matches.isEmpty else { return 0 }
-        let target = matches[max(0, min(index, matches.count - 1))]
-        selectedRange = target
-        reliablyScroll(to: target)
-        return matches.count
+    public func showMatch(of pattern: FindPattern, index: Int) -> Result<Int, FindPattern.Problem> {
+        guard let document else { return .success(0) }
+        switch document.findMatches(of: pattern) {
+        case .failure(let problem):
+            return .failure(problem)
+        case .success(let matches):
+            guard !matches.isEmpty else { return .success(0) }
+            let target = matches[max(0, min(index, matches.count - 1))]
+            selectedRange = target
+            reliablyScroll(to: target)
+            return .success(matches.count)
+        }
     }
 }
 

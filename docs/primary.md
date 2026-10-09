@@ -18,23 +18,25 @@ collection's commands. It answers **"where is it, and what is the collection?"**
   and the two pinned places, Recents and Bookmarks. Nothing about *what a note
   is* lives here: tags, outline, links, properties, history and the note's graph
   are the right panel's ([secondary.md](secondary.md), decision L1).
-- **The collection's commands, as named rows** (D13, which amends D8's "no
-  commands"). Above the tree, its tools: **Mind Map** (the links across it, a
+- **The collection's commands** (D13, which amends D8's "no commands"; D14).
+  Above the tree, its tools as named rows: **Mind Map** (the links across it, a
   tab), **Assistant** and **Ask Your Library** (tabs), and **Git** — its branch,
   a dot for uncommitted changes, and the Git pane as a popover (none for a
-  direct-API collection). Below the tree, making and opening: **New Folder…**,
-  **New Collection** ⌄ (Empty Folder… · Git Repository…), **Open Collection** ⌄
-  (from Folder… · from iCloud Drive… · from Obsidian Vault… · from Cloud… · from
-  Repository… · — · Open Recent…) and **Open Default Collection**. Each acts on
-  the sidebar's selection. Rows in the column (22pt, a 12pt glyph in the accent
+  direct-API collection). Rows in the column (22pt, a 12pt glyph in the accent
   and a 12pt name, `SidebarCommandSection`); in the band a strip of the same
-  commands across its top (`SidebarCommandStrip`). The worry D8 answered — that
-  people collapse the sidebar while they work — is answered differently: what
-  they work on then is a note, and nothing here is a note's command; the
-  sidebar's toggle is always in the bar, and every row is in the menu bar and
-  the command palette as well.
-- **The notes' commands are not here**: New Note, Today's Note, search, Find,
-  Open Quickly and the rest are in the bar over the editor and in the menu bar.
+  across its top (`SidebarCommandStrip`). Making and opening are the **`+`** in
+  the header (§7): **New Folder…**, **New Collection** ▸ (Empty Folder… · Git
+  Repository…), **Open Collection** ▸ (from Folder… · from iCloud Drive… · from
+  Obsidian Vault… · from Cloud… · from Repository…), **Open Recent…** and
+  **Open Default Collection**. Each acts on the sidebar's selection. The worry
+  D8 answered — that people collapse the sidebar while they work — is answered
+  differently: what they work on then is a note, and nothing here is a note's
+  command; while the sidebar is hidden its toggle is the bar's first button,
+  and all of these but New Folder and Git are in the menu bar and the command
+  palette as well ([menu.md](menu.md) §8).
+- **The notes' commands are not here**: making a note (the bar's `+`), search,
+  Find and Open Quickly (its 🔍) and Settings are in the bar over the editor and
+  in the menu bar.
 - **Actions whose whole subject is a row** stay on the rows, as Apple's apps put
   them: each row's own menu (its `…` button and its context menu); the menu on
   the empty space below the rows; the buttons in the sidebar's empty states
@@ -256,20 +258,24 @@ you cannot see.
 - 40pt, the height of the bar over the editor, so the columns share one top
   edge (D11). The window drags by its background.
 - On the Mac the **traffic lights** sit over its leading end, as in Apple
-  Notes. On iPad the leading end is empty.
-- Nothing else. Its **Add Collection** `+` became the **New Collection** and
-  **Open Collection** rows below the tree (§1), which draw the same set
-  (`AddCollectionActions.options`) by group — as do the File menu, the compact
-  Library's More ⋯, the command palette and the Welcome and launcher screens.
+  Notes; the sidebar's own **Hide Sidebar** toggle (`sidebar.leading`) comes
+  after them (78pt in on the Mac, at the leading edge on iPad).
+- At its trailing end, the **`+`** — **Add Folder or Collection**
+  (`collectionAddItems`): New Folder…, —, New Collection ▸, Open Collection ▸,
+  —, Open Recent…, Open Default Collection. The two submenus draw
+  `AddCollectionActions.options` by group, as do the File menu, the command
+  palette and the Welcome and launcher screens. It was here until build 28
+  drew its items as rows below the tree, and came back after it (D14).
 
 ---
 
 ## 8. Showing, hiding and sizing it
 
-- **One toggle**, the bar's second button, **Show Sidebar / Hide Sidebar**
-  (`sidebar.leading`), hides whichever left region the shell has: the column or
-  the band (D3, as amended). It is at the same place, size and drawing on both
-  platforms.
+- **One toggle**, **Hide Sidebar / Show Sidebar** (`sidebar.leading`), hides
+  whichever left region the shell has: the column or the band (D3, as
+  amended). It is in the sidebar's header while the sidebar shows, and the
+  bar's first button while it is hidden — the one place left that could bring
+  it back (D14). The same drawing on both platforms.
 - With the sidebar hidden, the bar is the window's top-left corner and pads its
   leading end by 78pt on the Mac for the traffic lights.
 - **Search reopens it.** Edit ▸ Search All Collections (⌥⌘F) shows a hidden
@@ -340,7 +346,7 @@ place is remembered per window.
 
 | Place | Bar | Content |
 |---|---|---|
-| **Notes** (`folder`) | "Library" · **More ⋯** | a "Collections" heading, then one row per open collection: 32pt, `books.vertical`, the name at 13pt (semibold and ✓ when focused), the note count, `…`. Then **All Notes** (clears a tag filter, ✓ when none is active). With no collection open: **Open Folder…** |
+| **Notes** (`folder`) | "Library" · **`+`** · **More ⋯** | the collection's tools as rows (Mind Map, Assistant, Ask Your Library, Git), a "Collections" heading, then one row per open collection: 32pt, `books.vertical`, the name at 13pt (semibold and ✓ when focused), the note count, `…`. Then **All Notes** (clears a tag filter, ✓ when none is active). With no collection open: **Open Folder…** |
 | **Search** (`magnifyingglass`) | the collection's name, "#tag" under a tag filter, or "Library" · **New Note** | a full-width search field ("Search *collection*"), then the collection's notes: its search results, its tagged notes under a filter, or all of them. One collection, unlike the sidebar's search, which covers every open collection |
 | **Tags** (`number`) | "Tags" | **All Notes**, then every tag of the collection; choosing one filters the notes and switches to Search. Empty: **No Tags** ("Tags you write as #tag in a note appear here.") |
 | **AI** (`sparkles`) | "AI" | the AI commands ([secondary.md](secondary.md) §7) |
@@ -349,19 +355,18 @@ place is remembered per window.
   clears the search, the tag filter and the selected note.
 - **Tapping a note** selects it. It shows in the mini strip above the tab bar,
   and tapping the strip shows the note full screen.
-- **The Notes place is the phone's sidebar**, so the collection's commands are
-  rows in it, from the sidebar's own definitions: its tools (Mind Map,
-  Assistant, Ask Your Library, Git) above the Collections list, and New
-  Folder…, New Collection ⌄, Open Collection ⌄ (with Open Recent…) and Open
-  Default Collection below it — with no collection open, those last rows are
-  the place. On iPhone, with no menu bar, they are the one route to adding a
-  collection that is always there. Its **More ⋯** holds New Note (when a
-  collection is open), —, Settings… (implemented.md §51.37).
+- **The Notes place is the phone's sidebar**, so it has the collection's
+  commands from the sidebar's own definitions: its tools as rows above the
+  Collections list (implemented.md §51.37), and the sidebar's **`+`** in its
+  bar — New Folder…, New Collection ▸, Open Collection ▸, Open Recent…, Open
+  Default Collection (§51.38). On iPhone, with no menu bar, the `+` is the one
+  route to adding a collection that is always there. Its **More ⋯** holds New
+  Note (when a collection is open), —, Settings….
 - Note rows are the sidebar's own note rows, with the tree's menu on a
   long-press. **Collection rows are drawn separately** from the sidebar's: they
   show no unavailable warning, scanning spinner or Git dot (§12).
 - The **Library place** (quick actions — New Note, New Note from a Prompt…,
-  Quick Capture…, Settings…, the phone's stand-in for the bar's More ⋯ — then
+  Quick Capture…, Settings…, the phone's stand-in for the bar's `+` and ⚙ — then
   recent notes and bookmarks across every collection, `LibraryPlace`) takes the Search place's list when no collection
   is open, or when the sidebar's scope is the whole library (§11) and the search
   field is empty and no tag filter is on.

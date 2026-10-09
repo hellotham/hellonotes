@@ -216,6 +216,24 @@ struct ShellComplianceTests {
         return body
     }
 
+    /// The body of `func name(…) … {`, braces balanced — `propertyBody` for a
+    /// function.
+    private static func functionBody(named name: String, in source: String) -> String? {
+        guard let start = source.range(of: "func \(name)("),
+              let open = source[start.upperBound...].firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var body = ""
+        for character in source[source.index(after: open)...] {
+            if character == "{" { depth += 1 }
+            if character == "}" {
+                if depth == 0 { break }
+                depth -= 1
+            }
+            body.append(character)
+        }
+        return body
+    }
+
     /// The specific subversion that shipped: handing the shared shell a constant
     /// where it expects live state. It renders every arithmetic test green and
     /// the layout wrong.
@@ -381,20 +399,46 @@ struct ShellComplianceTests {
     @Test("Each command is in one place")
     func eachCommandIsInOnePlace() throws {
         let source = try Self.source("ContentView.swift")
-        let more = try #require(Self.propertyBody(named: "shellCommandMenu", in: source))
-        for command in ["showTool(", "beginNewFolder", "addCollectionItems", "openDefaultCollection",
-                        "openTodaysNote", "showPanel("] {
-            #expect(!more.contains(command), "the bar's More menu holds \(command) again")
+        // The bar over the editor is three buttons — + · 🔍 · ⚙ — and the
+        // sidebar's toggle only while the sidebar is away (after build 28, at
+        // the person's direction). There is no More menu.
+        #expect(!source.contains("shellCommandMenu"), "the bar has its More menu again")
+        let bar = try #require(Self.functionBody(named: "shellBar", in: source))
+        for part in ["newNoteMenu", "searchMenu", "title: \"Settings\"", "if sidebarHidden { sidebarToggle }"] {
+            #expect(bar.contains(part), "the bar lost \(part)")
+        }
+        for duplicate in ["ChromeButton(title: \"New Note\"", "ChromeButton(title: \"Today's Note\"",
+                          "ChromeButton(title: \"Find & Replace\"", "openWindow(value: NoteRef"] {
+            #expect(!bar.contains(duplicate), "the bar holds \(duplicate) beside its menus again")
+        }
+        // The ways to make a note are the bar's `+`.
+        let newNote = try #require(Self.propertyBody(named: "newNoteMenu", in: source))
+        for command in ["newNote()", "openTodaysNote()", "showCompose = true", "showQuickCapture = true",
+                        "dictation.toggle()"] {
+            #expect(newNote.contains(command), "the bar's + lost \(command)")
+        }
+        // Looking for something is its 🔍: a search across the collections, a
+        // note by name, find and replace in the open note.
+        let search = try #require(Self.propertyBody(named: "searchMenu", in: source))
+        for command in ["openSearch()", "showOpenQuickly = true", "findInNote()"] {
+            #expect(search.contains(command), "the bar's 🔍 lost \(command)")
         }
         let tools = try #require(Self.propertyBody(named: "collectionToolCommands", in: source))
         for command in ["showTool(.mindMap)", "showTool(.assistant)", "showTool(.askLibrary)", "gitCommand"] {
             #expect(tools.contains(command), "the sidebar's tools lost \(command)")
         }
-        let manage = try #require(Self.propertyBody(named: "collectionManageCommands", in: source))
-        for command in ["beginNewFolder", "AddCollectionGroup.new", "AddCollectionGroup.open",
+        // Making and opening collections and folders: the `+` in the sidebar's
+        // header, as it was before build 28 — menu items, not rows.
+        let add = try #require(Self.propertyBody(named: "collectionAddItems", in: source))
+        for command in ["beginNewFolder", "AddCollectionGroup.allCases", "showLauncher = true",
                         "openDefaultCollection()"] {
-            #expect(manage.contains(command), "the sidebar's collection commands lost \(command)")
+            #expect(add.contains(command), "the sidebar's + lost \(command)")
         }
+        let header = try #require(Self.propertyBody(named: "sidebarHeader", in: source))
+        #expect(header.contains("collectionAddItems"), "the sidebar's header lost its +")
+        #expect(header.contains("sidebarToggle"), "the sidebar's header lost the sidebar's toggle")
+        #expect(!source.contains("SidebarCommandSection { collectionAddItems }"),
+                "the sidebar draws its + menu's items as rows again")
         let noteMenu = try #require(Self.propertyBody(named: "noteMenu", in: source))
         for duplicate in ["Picker(\"View\"", "togglePanel()", ".mindMap"] {
             #expect(!noteMenu.contains(duplicate), "Note Actions holds \(duplicate) again — it has a place already")
@@ -412,7 +456,8 @@ struct ShellComplianceTests {
     }
 
     /// The phone's Notes place is its sidebar, so it carries the sidebar's
-    /// commands, as rows, and the phone's other lists do not repeat them.
+    /// commands — the tools as rows, the rest under a `+` — and the phone's
+    /// other lists do not repeat them.
     ///
     /// When the Mind Map moved out of the panel, the panel had been the phone's
     /// only visible route to the collection's map: the Library place lists it
@@ -421,8 +466,8 @@ struct ShellComplianceTests {
     @Test func thePhonesNotesPlaceIsItsSidebar() throws {
         let source = try Self.source("ContentView.swift")
         let notes = try #require(Self.propertyBody(named: "collectionsList", in: source))
-        for rows in ["collectionToolCommands", "collectionManageCommands"] {
-            #expect(notes.contains(rows), "the phone's Notes place lost \(rows)")
+        for part in ["collectionToolCommands", "collectionAddItems"] {
+            #expect(notes.contains(part), "the phone's Notes place lost \(part)")
         }
         let library = try #require(Self.propertyBody(named: "libraryActions",
                                                      ofType: "[LibraryPlace.Action]", in: source))
@@ -546,7 +591,9 @@ struct ShellComplianceTests {
         // conformance, whose two halves are also one gate now.
         let commands = try String(contentsOf: package.appending(path: "EditorCommands.swift"),
                                   encoding: .utf8)
-        #expect(commands.ranges(of: "func showMatch(of query: String, index: Int) -> Int").count >= 2,
+        // A `FindPattern` since regular expressions joined the find bar
+        // (implemented.md §51.39) — a phrase or a pattern, a count or a problem.
+        #expect(commands.ranges(of: "func showMatch(of pattern: FindPattern, index: Int) -> Result<Int, FindPattern.Problem>").count >= 2,
                 "one editor cannot jump to a match, so no heading link can scroll to one there")
     }
 
@@ -667,10 +714,13 @@ struct ShellComplianceTests {
     /// chrome contract; one hand-built field placed leading satisfies both.
     ///
     /// The bar is the app's own now (`shellBar`, one builder for both
-    /// platforms), so "leading on both" is one statement: the field is the
-    /// bar's first item. And `.searchable` is nowhere in the shell — the
-    /// compact Search place draws the same field, full width.
-    @Test("Search is the bar's leading item, on both platforms")
+    /// platforms), so "leading on both" is one statement: search is in the
+    /// bar's leading group, before the tabs. Since build 28 that group is
+    /// + · 🔍 · ⚙, at the person's direction — the 🔍 opens the field in its
+    /// place while a search lasts — so search is second, not first. And
+    /// `.searchable` is nowhere in the shell — the compact Search place draws
+    /// the same field, full width.
+    @Test("Search is in the bar's leading group, on both platforms")
     func searchIsInTheToolbarLeading() throws {
         let source = try Self.source("ContentView.swift")
         let sidebar = try #require(Self.propertyBody(named: "collectionTree", in: source),
@@ -692,10 +742,10 @@ struct ShellComplianceTests {
                                "shellBar is not a function any more")
         let stack = try #require(bar.components(separatedBy: "HStack(spacing: Chrome.Metric.barSpacing) {").dropFirst().first,
                                  "shellBar is not an HStack of bar items")
-        let firstItem = stack.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty && !$0.hasPrefix("//") } ?? ""
-        #expect(firstItem.contains("searchField()"),
-                "the bar's first item is `\(firstItem)`, not the search field")
+        let leading = try #require(stack.components(separatedBy: "tabStrip").first,
+                                   "shellBar has no tabs")
+        #expect(leading.contains("searchField(") && leading.contains("searchMenu"),
+                "the bar's search is not in its leading group, before the tabs")
     }
 
     /// A collection row says the same five things on both platforms.

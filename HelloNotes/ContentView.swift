@@ -131,6 +131,9 @@ struct ContentView: View {
 
     /// Full-text query for the note list (searches across every collection).
     @State private var searchText = ""
+    /// Whether the bar's search field is open — Search Notes or ⌥⌘F opened it,
+    /// and it closes back to the 🔍 when it is empty and loses focus.
+    @State private var searchOpen = false
 
     /// Debounced full-text results, computed off the render path so typing in
     /// the search field doesn't scan every note's body on each keystroke.
@@ -699,7 +702,7 @@ struct ContentView: View {
             if sidebarHidden {
                 withAnimation(.easeInOut(duration: 0.18)) { bandHidden = false }
             }
-            searchFocused = true
+            openSearch()
         }
         .declaredWindowMinimum()
         .task {
@@ -1591,7 +1594,7 @@ struct ContentView: View {
     /// to). Parity is not a licence to overrule the chrome contract; the answer
     /// that satisfies both is one hand-built field, placed leading, shared.
     private func searchField(maxWidth: CGFloat = Chrome.Metric.searchWidth,
-                             prompt: String = "Search") -> some View {
+                             prompt: String = "Search", focusOnAppear: Bool = false) -> some View {
         HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")
                 .font(Chrome.Typeface.rowIcon)
@@ -1624,13 +1627,15 @@ struct ContentView: View {
         .padding(.horizontal, 8)
         // A range, so a narrow bar squeezes the field before it squeezes any
         // button; drawn at the same height as every other control in the bar.
-        // 72 is the glyph, "Search" and the padding: the bar's buttons are
-        // seven since Today's Note and Find & Replace joined them, and at 120
-        // the bar's fixed part outgrew the editor at the Mac's minimum window
-        // with both columns open (toolbars.md §3.1).
-        .frame(minWidth: 72, maxWidth: maxWidth)
+        // In the bar it is open only while searching, beside two buttons, so
+        // 120 fits the Mac's minimum window with both columns open
+        // (toolbars.md §3.1).
+        .frame(minWidth: 120, maxWidth: maxWidth)
         .frame(height: Chrome.Metric.control)
         .background(Chrome.Colour.fill, in: RoundedRectangle(cornerRadius: Chrome.Metric.radius))
+        // The bar's field was a 🔍 a moment ago, so it cannot take focus until
+        // it is on screen; `openSearch` asks again here.
+        .onAppear { if focusOnAppear && searchOpen { searchFocused = true } }
     }
 
     /// The sidebar: Recents and Bookmarks pinned above every open collection,
@@ -1657,15 +1662,10 @@ struct ContentView: View {
                     ChromeDivider()
                     outlineList
                         .overlay { sidebarEmptyState }
-                    ChromeDivider()
-                    SidebarCommandSection { collectionManageCommands }
                 }
             } band: {
                 VStack(spacing: 0) {
-                    SidebarCommandStrip {
-                        collectionToolCommands
-                        collectionManageCommands
-                    }
+                    SidebarCommandStrip { collectionToolCommands }
                     ChromeDivider()
                     BandTwoPane(
                         roots: sidebarTree.roots,
@@ -1710,15 +1710,24 @@ struct ContentView: View {
             newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) })
     }
 
-    /// The top of the sidebar, at the bar's height: where the Mac's window
-    /// buttons sit, and a place to drag the window by. It held an Add
-    /// Collection `+`, which is New Collection and Open Collection below the
-    /// tree now, named.
+    /// The top of the sidebar, at the bar's height: the Mac's window buttons,
+    /// the sidebar's own toggle beside them, and its `+` — a folder, a new or
+    /// existing collection, a recent one, the collection that ships with the
+    /// app (`collectionAddItems`). After build 28 the toggle moved here from
+    /// the bar over the editor, and the `+` came back from being rows below
+    /// the tree (implemented.md §51.38). A place to drag the window by, too.
     private var sidebarHeader: some View {
         HStack(spacing: Chrome.Metric.barSpacing) {
+            sidebarToggle
             Spacer(minLength: 0)
+            ChromeMenuButton(title: "Add Folder or Collection", systemImage: "plus",
+                             accent: appearance.resolvedAccent) {
+                collectionAddItems
+            }
         }
         .padding(.horizontal, Chrome.Metric.barPadding)
+        // The Mac's window buttons are drawn over this corner.
+        .padding(.leading, WindowControls.leadingInset)
         .frame(height: Chrome.Metric.barHeight)
         .background(Chrome.Colour.chrome.windowDraggable())
         .overlay(alignment: .bottom) {
@@ -1779,37 +1788,44 @@ struct ContentView: View {
         }
     }
 
-    /// Making and opening collections and folders, below the tree.
+    /// The sidebar's `+`: making and opening folders and collections, as menu
+    /// items — the sidebar's header, and the phone's Notes place, which is its
+    /// sidebar. They were named rows below the tree in build 28; the `+` they
+    /// had been under came back at the person's direction (§51.38).
     @ViewBuilder
-    private var collectionManageCommands: some View {
+    private var collectionAddItems: some View {
         let scope = railCollection ?? focused
-        let accent = appearance.resolvedAccent
-        SidebarCommandRow("New Folder…", systemImage: "folder.badge.plus", accent: accent) {
+        Button {
             actions.beginNewFolder(in: scope, folderID: nil)
+        } label: {
+            Label("New Folder…", systemImage: "folder.badge.plus")
         }
         .disabled(scope == nil)
-        SidebarCommandMenuRow(AddCollectionGroup.new.title, systemImage: "rectangle.stack.badge.plus",
-                              accent: accent) {
-            addCollectionOptions(in: .new)
-        }
-        SidebarCommandMenuRow(AddCollectionGroup.open.title, systemImage: AddCollectionGroup.open.symbol,
-                              accent: accent) {
-            addCollectionOptions(in: .open)
-            Divider()
-            Button {
-                showLauncher = true
+        Divider()
+        ForEach(AddCollectionGroup.allCases, id: \.self) { group in
+            Menu {
+                addCollectionOptions(in: group)
             } label: {
-                Label("Open Recent…", systemImage: "clock.arrow.circlepath")
+                Label(group.title, systemImage: group.symbol)
             }
         }
-        SidebarCommandRow("Open Default Collection", systemImage: "books.vertical", accent: accent) {
+        Divider()
+        Button {
+            showLauncher = true
+        } label: {
+            Label("Open Recent…", systemImage: "clock.arrow.circlepath")
+        }
+        // Also `File ▸ Open Default Collection` — but a menu bar needs a
+        // hardware keyboard on an iPad, and a phone has none.
+        Button {
             openDefaultCollection()
+        } label: {
+            Label("Open Default Collection", systemImage: "books.vertical")
         }
     }
 
-    /// One group's ways to add a collection, as menu items — the sidebar's New
-    /// Collection and Open Collection rows, in the column, the band and the
-    /// phone's Notes place.
+    /// One group's ways to add a collection, as menu items — the submenus of
+    /// the sidebar's `+` (`collectionAddItems`).
     ///
     /// The *set* lives in `AddCollectionActions.options`, not here: the File
     /// menu — which iPadOS builds into a real menu bar too — the command
@@ -2376,18 +2392,22 @@ struct ContentView: View {
     // MARK: - Compact: the collection list as its own place
 
     /// The phone's sidebar: its collections, with the collection's commands
-    /// as the sidebar has them — the tools above the list, making and opening
-    /// collections below it. One definition (`collectionToolCommands`,
-    /// `collectionManageCommands`), so the phone cannot fall behind.
+    /// as the sidebar has them — the tools as rows above the list, and making
+    /// and opening folders and collections under a `+` in its bar. One
+    /// definition (`collectionToolCommands`, `collectionAddItems`), so the
+    /// phone cannot fall behind.
     ///
-    /// These were a menu here, and the tools were reached from the panel; when
-    /// the Mind Map left the panel for the sidebar, a phone with a collection
-    /// open had no visible route to it (implemented.md §51.37). On **iPhone**
-    /// there is no menu bar either, so these rows are the only route to adding
-    /// a source.
+    /// The tools were reached from the panel; when the Mind Map left the panel
+    /// for the sidebar, a phone with a collection open had no visible route to
+    /// it (implemented.md §51.37). On **iPhone** there is no menu bar either,
+    /// so the `+` is the only route to adding a source.
     private var collectionsList: some View {
         VStack(spacing: 0) {
             CompactPlaceBar("Library") {
+                ChromeMenuButton(title: "Add Folder or Collection", systemImage: "plus",
+                                 accent: appearance.resolvedAccent) {
+                    collectionAddItems
+                }
                 ChromeMenuButton(title: "More", systemImage: "ellipsis.circle",
                                  accent: appearance.resolvedAccent, spokenName: "More actions") {
                     if !library.isEmpty {
@@ -2408,7 +2428,11 @@ struct ContentView: View {
             }
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if !library.isEmpty {
+                    if library.isEmpty {
+                        Button("Open Folder…") { library.requestOpenFolder() }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                    } else {
                         SidebarCommandSection { collectionToolCommands }
                         compactHeader("Collections")
                         ForEach(library.collections) { collection in
@@ -2421,11 +2445,7 @@ struct ContentView: View {
                         // Tags are not here. The library rail answers "where is it?";
                         // tags are cross-cutting and belong to the inspector, or to
                         // their own place in the compact tab bar (decision 1).
-                        compactHeader(nil)
                     }
-                    // With no collection open, these are the whole place: the
-                    // ways to add one.
-                    SidebarCommandSection { collectionManageCommands }
                 }
                 .padding(.bottom, 8)
             }
@@ -2626,7 +2646,7 @@ struct ContentView: View {
     /// same trap; this is the toolbar's copy of it.
 
     /// Library-wide commands, shown in the Library place: the compact shell's
-    /// stand-in for the bar's More menu, which the phone does not draw (see
+    /// stand-in for the bar's `+` and ⚙, which the phone does not draw (see
     /// `detail(showsShellCommands:)`) — making notes, not collections. A
     /// command in neither has no route on a phone at all, and Graph View was
     /// one. Opening a collection, the Mind Map, the Assistant and Ask Your
@@ -2734,14 +2754,17 @@ struct ContentView: View {
     }
 
     /// The bar over the editor — **the same pixels on both platforms**:
-    /// Search · Sidebar · New Note · Today's Note · Find & Replace · More ⋯ |
-    /// tabs | Note Actions ⌄ · Panel.
+    /// `+` · 🔍 · ⚙ | tabs | Note Actions ⌄ · Panel, with the sidebar's toggle
+    /// first while the sidebar is away.
     ///
-    /// Its leading half is the notes of the collection: finding them, making
-    /// them, opening them. The collection itself — its tools, its folders, its
-    /// Git, opening another — is the sidebar's, where the collection is; the
-    /// note's own views are the panel's, and how the note is shown is the
-    /// bottom bar's. Each command is in one of them, not several.
+    /// Its leading half is the notes of the collection: making them (`+`),
+    /// finding them and finding in them (🔍, which opens the search field in
+    /// its place while a search lasts), and Settings. The collection itself —
+    /// its tools, its folders, its Git, opening another — is the sidebar's,
+    /// where the collection is; the note's own commands are Note Actions, its
+    /// views the panel's, and how it is shown the bottom bar's. Each command
+    /// is in one of them, not several. It was seven buttons and a menu until
+    /// after build 28, at the person's direction (implemented.md §51.38).
     ///
     /// It was a system toolbar, and a system toolbar is the platform's drawing:
     /// NSToolbar at the Mac's metrics, UINavigationBar at iPadOS's, and a
@@ -2754,22 +2777,24 @@ struct ContentView: View {
     private func shellBar(showsShellCommands: Bool) -> some View {
         let accent = appearance.resolvedAccent
         return HStack(spacing: Chrome.Metric.barSpacing) {
-            // On the phone the Search place has the field; a second one here,
-            // bound to the same focus, would be two fields answering ⌥⌘F.
-            if showsShellCommands { searchField() }
             if showsShellCommands {
-                ChromeButton(title: sidebarHidden ? "Show Sidebar" : "Hide Sidebar",
-                             systemImage: "sidebar.leading", accent: accent) { toggleSidebar() }
-                    .accessibilityIdentifier("shell.bandToggle")
-                ChromeButton(title: "New Note", systemImage: "square.and.pencil", accent: accent) { newNote() }
-                    .disabled((railCollection ?? focused) == nil)
-                ChromeButton(title: "Today's Note", systemImage: "calendar", accent: accent) { openTodaysNote() }
-                    .disabled((railCollection ?? focused) == nil)
-                ChromeButton(title: "Find & Replace", systemImage: "text.magnifyingglass", accent: accent) {
-                    findInNote()
+                // The sidebar's toggle is in the sidebar's own header; with the
+                // sidebar away it is here, in the window's top-left corner, or
+                // nothing on screen could bring the sidebar back.
+                if sidebarHidden { sidebarToggle }
+                newNoteMenu
+                // On the phone the Search place has the field; a second one
+                // here, bound to the same focus, would be two fields answering
+                // ⌥⌘F.
+                if searchFieldShown {
+                    searchField(focusOnAppear: true)
+                } else {
+                    searchMenu
                 }
-                .disabled(!noteIsInFront)
-                shellCommandMenu
+                // One Settings — AI is a page of it.
+                ChromeButton(title: "Settings", systemImage: "gearshape", accent: accent) {
+                    showSettings = true
+                }
             }
             Group {
                 if editor.note != nil || !toolTabs.open.isEmpty {
@@ -2792,6 +2817,14 @@ struct ContentView: View {
         // With the sidebar away the bar is the window's top-left corner, where
         // the Mac's traffic lights are.
         .padding(.leading, sidebarHidden ? WindowControls.leadingInset : 0)
+        // An open search with nothing in it closes back to the 🔍 when it is
+        // left — by focus going elsewhere, or by its text being cleared.
+        .onChange(of: searchFocused) { _, focused in
+            if !focused && searchText.isEmpty { searchOpen = false }
+        }
+        .onChange(of: searchText) { _, text in
+            if text.isEmpty && !searchFocused { searchOpen = false }
+        }
         .frame(height: Chrome.Metric.barHeight)
         .background(Chrome.Colour.chrome.windowDraggable())
         .overlay(alignment: .bottom) {
@@ -2934,15 +2967,35 @@ struct ContentView: View {
 
 
 
-    /// The rest of the bar's commands: the notes of the collection, the open
-    /// note in a window of its own, and Settings. What it no longer holds is
-    /// in one other place each: Today's Note and Find are buttons beside it;
-    /// the Mind Map, the Assistant, Ask Your Library, New Folder and opening a
-    /// collection are the sidebar's, because they are the collection's.
-    private var shellCommandMenu: some View {
+    /// The bar's `+`: every way to make a note — a new one in the folder you
+    /// are in (`newNote()`), today's, one written from a prompt, a capture,
+    /// and dictation into today's. They were two buttons and two entries in
+    /// More ⋯, and dictation was only in the menu bar, which an iPad without
+    /// a keyboard does not show.
+    private var newNoteMenu: some View {
         let scope = railCollection ?? focused
-        return ChromeMenuButton(title: "More", systemImage: "ellipsis.circle",
-                                accent: appearance.resolvedAccent, spokenName: "More actions") {
+        let dictation = DictationController.shared
+        return ChromeMenuButton(title: "New Note", systemImage: "plus",
+                                accent: appearance.resolvedAccent) {
+            Button {
+                newNote()
+            } label: {
+                Label("New Note", systemImage: "square.and.pencil")
+            }
+            .disabled(scope == nil)
+            Button {
+                openTodaysNote()
+            } label: {
+                Label("Today's Note", systemImage: "calendar")
+            }
+            .disabled(scope == nil)
+            Divider()
+            Button {
+                showCompose = true
+            } label: {
+                Label("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square")
+            }
+            .disabled(scope == nil)
             Button {
                 showQuickCapture = true
             } label: {
@@ -2950,32 +3003,61 @@ struct ContentView: View {
             }
             .disabled(library.isEmpty)
             Button {
+                dictation.toggle()
+            } label: {
+                Label(dictation.isRecording ? "Stop Dictation" : "Dictate to Daily Note",
+                      systemImage: dictation.isRecording ? "stop.circle" : "mic")
+            }
+            .disabled(!dictation.isSupported)
+        }
+    }
+
+    /// The bar's 🔍: looking for something — a note across the collections, a
+    /// note by name, a phrase in the open note. Search Notes opens the search
+    /// field in the 🔍's place for as long as the search lasts. The note's find
+    /// bar finds and replaces in one, so it is one item.
+    private var searchMenu: some View {
+        ChromeMenuButton(title: "Search", systemImage: "magnifyingglass",
+                         accent: appearance.resolvedAccent) {
+            Button {
+                openSearch()
+            } label: {
+                Label("Search Notes", systemImage: "magnifyingglass")
+            }
+            Button {
                 showOpenQuickly = true
             } label: {
                 Label("Open Quickly…", systemImage: "arrow.forward.square")
             }
-            .disabled(scope?.notes.isEmpty ?? true)
-            Button {
-                showCompose = true
-            } label: {
-                Label("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square")
-            }
-            .disabled(scope == nil)
+            .disabled((railCollection ?? focused)?.notes.isEmpty ?? true)
             Divider()
             Button {
-                if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
+                findInNote()
             } label: {
-                Label("Open Note in New Window", systemImage: "macwindow.badge.plus")
+                Label("Find & Replace in Note", systemImage: "text.magnifyingglass")
             }
             .disabled(!noteIsInFront)
-            Divider()
-            // One Settings — AI is a page of it.
-            Button {
-                showSettings = true
-            } label: {
-                Label("Settings…", systemImage: "gearshape")
-            }
         }
+    }
+
+    /// Whether the bar shows the search field rather than its 🔍: while a
+    /// search is open or has text.
+    private var searchFieldShown: Bool { searchOpen || !searchText.isEmpty }
+
+    /// Open the bar's search field and put the caret in it — Search Notes and
+    /// ⌥⌘F. Focus is asked for here, for a field already on screen (the
+    /// phone's Search place has one), and again as the bar's field appears.
+    private func openSearch() {
+        searchOpen = true
+        searchFocused = true
+    }
+
+    /// Show or hide the sidebar — in the sidebar's header, and in the bar
+    /// while the sidebar is away.
+    private var sidebarToggle: some View {
+        ChromeButton(title: sidebarHidden ? "Show Sidebar" : "Hide Sidebar",
+                     systemImage: "sidebar.leading", accent: appearance.resolvedAccent) { toggleSidebar() }
+            .accessibilityIdentifier("shell.bandToggle")
     }
 
     // MARK: - AI on the open note

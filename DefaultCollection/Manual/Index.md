@@ -59,13 +59,14 @@ The [[Start Here|tour]] shows you the app. This is the reference.
 | ⇧⌘L | Review Links… |
 
 > [!note] On iPhone and iPad
-> On iPad the commands are where this manual says they are — the sidebar, the bar
-> over the note (its ⋯ menu, and **Note Actions** for the note itself), the panel,
-> and the four views at the foot of the note. The menu bar at the top of the screen
-> has the menus a Mac has; the Command Palette, New Window and Dictate to Daily Note
-> are only there. On iPhone, and in a narrow iPad window, the collection's commands
-> are rows in the **Notes** tab, the AI commands have a tab of their own, and an
-> open note's are in its **Note Actions**. A hardware keyboard gets the shortcuts
-> above. Formatting is on the bar above the keyboard — the
+> On iPad the commands are where this manual says they are — the sidebar, the
+> bar over the note (its **+** for new notes, its search button, Settings, and
+> **Note Actions** for the note itself), the panel, and the four views at the
+> foot of the note. The menu bar at the top of the screen has the menus a Mac
+> has; the Command Palette and New Window are only there. On iPhone, and in a
+> narrow iPad window, the collection's commands are in the **Notes** tab — its
+> tools as rows, the rest under its **+** — the AI commands have a tab of their
+> own, and an open note's are in its **Note Actions**. A hardware keyboard gets
+> the shortcuts above. Formatting is on the bar above the keyboard — the
 > floating shortcuts row on iPad, its own bar on iPhone — and appears whenever
 > there is a cursor, in any editing view.

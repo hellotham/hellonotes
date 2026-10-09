@@ -56,7 +56,7 @@ what order, at what size, and when it shows.
 |---|---|---|---|---|
 | **Shell bar** | over the editor | 40 | all (reduced on compact) | `ContentView.shellBar` |
 | **Sidebar header** | top of the primary sidebar or band | 40 | column, tall | `ContentView.sidebarHeader` |
-| **Sidebar commands** | rows above and below the tree; a strip across the top of the band | 22 a row; 40 the strip | column, tall | `SidebarCommandSection`, `SidebarCommandStrip` |
+| **Sidebar commands** | the collection's tools, as rows above the tree; a strip across the top of the band | 22 a row; 40 the strip | column, tall | `SidebarCommandSection`, `SidebarCommandStrip` |
 | **Panel header** | top of the right panel | 40 | all | `SidePanelHeader` |
 | **Graph controls** | under the panel header, in Graph: two rows | ≥ 36, then a counts-and-zoom row | all | `GraphPane.controls`, `GraphView` |
 | **Mind Map header** | top of the Mind Map tab | content | all | `MindMapView.header` |
@@ -84,15 +84,17 @@ Its order is the iPad's layout at the Mac's scale, the same on both platforms:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────┐
-│ [🔍 Search    ] [⊟] [✎] [📅] [⌕] [⋯] │ Note A × │ ◉ Mind Map × │…        [⌄] [◨]     │
+│ [+] [🔍] [⚙] │ Note A × │ ◉ Mind Map × │…                               [⌄] [◨]     │
 └──────────────────────────────────────────────────────────────────────────────────────┘
-  field 72–180     28   28   28   28   28   tabs: the flexible middle        28   28
+  28   28   28   tabs: the flexible middle                                 28   28
 ```
 
-**Search · Sidebar · New Note · Today's Note · Find & Replace · More ⋯ | the
-open notes' tabs, then the collection's tools' | Note Actions ⌄ · Panel.** Its
-leading half is the notes of the collection — finding them, making them,
-opening them; the collection itself is the sidebar's (D13). 40pt tall, 10pt padding, 4pt between items, the chrome grey, a 1pt
+**`+` · 🔍 · ⚙ | the open notes' tabs, then the collection's tools' | Note
+Actions ⌄ · Panel**, with the sidebar's toggle first while the sidebar is
+hidden, and the search field in the 🔍's place while a search lasts (D14). Its
+leading half is the notes of the collection — making them, finding them and
+finding in them — and Settings; the collection itself is the sidebar's (D13).
+40pt tall, 10pt padding, 4pt between items, the chrome grey, a 1pt
 rule below, and the window drags by its background (Mac). With the sidebar
 hidden the bar is the window's top-left corner, so on the Mac it pads its
 leading end by 78pt for the traffic lights (`WindowControls.leadingInset`; 0 on
@@ -100,53 +102,60 @@ iOS).
 
 | # | Item | Glyph | What it does | Shown |
 |---|---|---|---|---|
-| 1 | **Search** field | `magnifyingglass` | searches every open collection; the results replace the tree in the primary sidebar ([primary.md](primary.md) §3.2). The placeholder "Search" is drawn by the app; a clear button (`xmark.circle.fill`) appears with text; Return leaves the field. ⌥⌘F puts the caret here and shows a hidden sidebar. VoiceOver: "Search all collections" | not on compact |
-| 2 | **Show Sidebar / Hide Sidebar** | `sidebar.leading` | hides or shows the primary sidebar, or the band on a tall shell | not on compact |
-| 3 | **New Note** | `square.and.pencil` | creates a note in the sidebar's scope collection, or in the band's chosen container ([primary.md](primary.md) §9); disabled with no collection | not on compact |
-| 4 | **Today's Note** | `calendar` | opens or makes today's daily note in the scope collection; disabled with no collection | not on compact |
-| 5 | **Find & Replace** | `text.magnifyingglass` | the open note's find bar (as ⌘F: switches to Edit first) | not on compact; enabled while a note is in front |
-| 6 | **More** ⋯ | `ellipsis.circle` | a menu (§3.2). VoiceOver: "More actions" | not on compact |
-| 7 | **Tabs** | — | the open notes, then the collection's tools open beside them (Mind Map, Assistant, Ask Your Library — a symbol before the title); flexible; scrolls when it does not fit ([tabs.md](tabs.md)) | while a note or a tool is open; otherwise empty space |
-| 8 | **Note Actions** ⌄ | `chevron.down.circle` | a menu (§3.3) | while a note is in front |
-| 9 | **Show Panel / Hide Panel** | `sidebar.trailing` | shows or hides the right panel; drawn on while the panel shows | always |
+| 1 | **Show Sidebar** | `sidebar.leading` | shows the primary sidebar, or the band on a tall shell. The toggle lives in the sidebar's header (§4); it is here only while the sidebar is hidden, because nothing else on screen could bring it back | while the sidebar is hidden; not on compact |
+| 2 | **New Note** `+` | `plus` | a menu: every way to make a note (§3.2) | not on compact |
+| 3 | **Search** 🔍 | `magnifyingglass` | a menu (§3.2). **Search Notes** — and ⌥⌘F, which also shows a hidden sidebar — turns the 🔍 into the search field, focused (120–180pt). It searches every open collection, and the results replace the tree in the primary sidebar ([primary.md](primary.md) §3.2). The placeholder "Search" is drawn by the app; a clear button (`xmark.circle.fill`) appears with text; Return leaves the field. Empty and left — focus elsewhere, or its text cleared — it folds back to the 🔍. VoiceOver: "Search all collections" | not on compact |
+| 4 | **Settings** | `gearshape` | opens Settings | not on compact |
+| 5 | **Tabs** | — | the open notes, then the collection's tools open beside them (Mind Map, Assistant, Ask Your Library — a symbol before the title); flexible; scrolls when it does not fit ([tabs.md](tabs.md)) | while a note or a tool is open; otherwise empty space |
+| 6 | **Note Actions** ⌄ | `chevron.down.circle` | a menu (§3.3) | while a note is in front |
+| 7 | **Show Panel / Hide Panel** | `sidebar.trailing` | shows or hides the right panel; drawn on while the panel shows | always |
 
 ### 3.1 Narrow widths
 
-The seven buttons are fixed. The search field (72–180pt) and the tabs share
-whatever is left. SwiftUI sizes the field first and offers it a share, so the
-two shrink together and the tabs can start scrolling before the field reaches
-its 72pt minimum. **There is no floor under the tabs.** The bar's fixed part
-(padding, seven buttons, eight gaps and the field at its minimum) is 320pt —
-it was 304pt with five buttons and a 120pt field; Today's Note and Find &
-Replace joined the bar (D13), and the field's minimum came down to the glyph,
-the word and its padding so that they would fit.
+The buttons are fixed; the tabs take whatever is left. **There is no floor
+under the tabs.** The bar's fixed part — padding, five buttons and five gaps,
+with a note in front — is **180pt**: 212 with the sidebar hidden (and the Mac's
+78pt for the traffic lights), and while a search lasts the field replaces the
+🔍 at 120pt or more, so 272. SwiftUI sizes the field first and offers it a
+share, so the field and the tabs shrink together. It was 320pt with seven
+buttons and a field that was always open (D13), which overflowed the editor at
+the Mac's minimum window; the three buttons of D14 fit it.
 
 - **At the Mac's minimum window (860pt)** with a 280pt sidebar and the panel
-  open, the panel is clamped to 259pt and the editor is 319pt: the bar's fixed
-  part overflows it by 1pt, and the tabs get nothing.
+  open, the panel is clamped to 259pt and the editor is 319pt: the tabs get
+  139pt, or 47 while a search is open.
 - **With the sidebar dragged to 340pt**, the panel sits at its 220pt floor and
-  the editor gets 298pt, and the bar overflows the editor by 22pt.
+  the editor gets 298pt: the tabs get 118pt, or 26 while a search is open.
 
 [tabs.md](tabs.md) T9 designs the fallback. The overflow itself is the shared
 width budget in `ui.md` §12, item 2.
 
-### 3.2 More ⋯
+### 3.2 The `+` and the 🔍
+
+**`+` — New Note** (`newNoteMenu`):
 
 | Item | Glyph | Enabled when |
 |---|---|---|
+| New Note | `square.and.pencil` | a collection is in scope — into the selected note's folder, or the band's container ([primary.md](primary.md) §9) |
+| Today's Note | `calendar` | a collection is in scope |
+| — | | |
+| New Note from a Prompt… | `sparkles.square.filled.on.square` | a collection is in scope |
 | Quick Capture… | `square.and.pencil.circle` | a collection is open |
-| Open Quickly… | `arrow.forward.square` | the scope collection has notes |
-| New Note from a Prompt… | `sparkles.square.filled.on.square` | a collection is open |
-| — | | |
-| Open Note in New Window | `macwindow.badge.plus` | a note is in front |
-| — | | |
-| Settings… | `gearshape` | always |
+| Dictate to Daily Note (Stop Dictation while it records) | `mic` (`stop.circle`) | dictation is supported |
 
-Short, so Settings is never below the fold of a menu that a portrait iPad caps
-at about 520pt (`implemented.md` §51.4). It held seventeen items: Today's Note,
-now a button beside it; the Assistant, Ask Your Library and Graph View; and New
-Folder, New Collection, Open Collection, Open Recent and Open Default
-Collection — the collection's, which are the sidebar's now (D13; [primary.md](primary.md)).
+**🔍 — Search** (`searchMenu`):
+
+| Item | Glyph | Enabled when |
+|---|---|---|
+| Search Notes | `magnifyingglass` | always — opens the field in the 🔍's place |
+| Open Quickly… | `arrow.forward.square` | the scope collection has notes |
+| — | | |
+| Find & Replace in Note | `text.magnifyingglass` | a note is in front — the note's find bar, which finds and replaces in one (as ⌘F: switches to Edit first) |
+
+**More ⋯ is gone** (D14): Quick Capture and New Note from a Prompt are the
+`+`'s, Open Quickly the 🔍's, Settings its own button, and Open Note in New
+Window was already in Note Actions. It had held seventeen items before D13,
+and seven after.
 
 ### 3.3 Note Actions ⌄
 
@@ -167,7 +176,7 @@ collection's (D13).
 
 | Shell | Bar |
 |---|---|
-| Column, tall | all nine items |
+| Column, tall | all seven items (the sidebar's toggle only while the sidebar is hidden) |
 | Compact, note expanded | **tabs · Note Actions · Panel** only (`showsShellCommands: false`): the Search place has the field, and the places carry the rest. It sits **under** the expanded note's own bar (§8.4) |
 
 ---
@@ -176,16 +185,16 @@ collection's (D13).
 
 Both are 40pt rows in the chrome grey with a rule below.
 
-- **Sidebar header**: empty — the traffic lights sit at its leading end on the
-  Mac, and the window drags by it. Its Add Collection `+` is the **New
-  Collection** and **Open Collection** rows below the tree now. →
-  [primary.md](primary.md) §7.
-- **Sidebar commands**: the collection's, as named rows — **Mind Map**,
-  **Assistant**, **Ask Your Library** and **Git** (its branch, a dot for
-  changes, the Git pane as a popover) above the tree; **New Folder…**, **New
-  Collection** ⌄, **Open Collection** ⌄ (with Open Recent…) and **Open Default
-  Collection** below it. In the band, the same commands as a strip across its
-  top. → [primary.md](primary.md).
+- **Sidebar header**: the sidebar's own **Hide Sidebar** toggle, after the
+  Mac's traffic lights (78pt in, `WindowControls.leadingInset`; 0 on iOS), and
+  at its trailing end a **`+`** — **Add Folder or Collection**: New Folder…,
+  New Collection ▸, Open Collection ▸, Open Recent… and Open Default Collection
+  (`collectionAddItems`), menu items as they were before build 28 (D14). The
+  window drags by it. → [primary.md](primary.md) §7.
+- **Sidebar commands**: the collection's tools, as named rows above the tree —
+  **Mind Map**, **Assistant**, **Ask Your Library** and **Git** (its branch, a
+  dot for changes, the Git pane as a popover). In the band, the same as a
+  strip across its top. → [primary.md](primary.md).
 - **Panel header**: the strip of the note's six views (or a pull-down when it
   cannot fit) and **Close panel**. → [secondary.md](secondary.md) §3.
 
@@ -218,7 +227,7 @@ How the note is shown (D13): whether it saved, and the view mode.
 It carried eleven more — Find, the note's properties, links and outline as
 popovers, a mind map, slides, a diagram, an AI menu, version history, export and
 a new window — each of which had a place already: the panel's views, the bar's
-Find & Replace and More ⋯, and Note Actions. A **note window**, which has no
+🔍 (find and replace), and Note Actions. A **note window**, which has no
 panel and no command bar, keeps the note's commands in its bottom bar
 (`NoteEditorView.commandsInBottomBar`): after the mode, **Find & replace (⌘F)**
 (Edit only), **Edit front-matter properties**, **Links to and from this note**,
@@ -264,20 +273,33 @@ Under the empty editor, while a collection is focused:
 
 ## 6. The Find & Replace bar
 
-Toggled by Edit ▸ Find… (⌘F) or the bar's **Find & Replace** (a note window:
-its bottom bar's magnifier). It works in Edit: ⌘F from another mode switches to
-Edit first. It sits above the note pane at full width.
+Toggled by Edit ▸ Find… (⌘F) or **Find & Replace in Note** in the bar's 🔍 menu
+(a note window: its bottom bar's magnifier). It works in Edit: ⌘F from another
+mode switches to Edit first. It sits above the note pane at full width.
 
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│ 🔍 [Find                         ]   2 of 7   [⌃] [⌄]   [Done]    │
-│ ⇄  [Replace                      ]          [Replace] [Replace All]│
-└───────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│ 🔍 [Find                       ] [.*]   2 of 7   [⌃] [⌄]   [Done]    │
+│ ⇄  [Replace                    ]              [Replace] [Replace All] │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 Return in the Find field goes to the next match; the chevrons go back and
 forward (wrapping); **Done** (Escape) closes it and clears the highlights. It
-closes itself when the editor switches to another note. The previous-match
+closes itself when the editor switches to another note.
+
+**`.*` makes the find a regular expression** (`FindPattern`, ICU's): drawn as
+the bar's glyph buttons are, the accent on its fill while on, and kept between
+finds and launches (`findUsesRegularExpression`). Both fields' placeholders say
+so. A pattern ignores case like a phrase, unless it says `(?-i)`, and `^` and
+`$` match at every line. The replacement is then a template: `$0`–`$99` are the
+match and its groups, `\n` and `\t` a newline and a tab, `\\` and `\$` a
+backslash and a dollar sign. A pattern the editor cannot read — `(` while it is
+being typed — says **Invalid pattern** in red where the count goes; one that
+runs past half a second says **Too slow**, and the search stops rather than
+freezing the window (implemented.md §51.39). **Replace** replaces the match the
+find selected, with its own groups, and nothing if the selection has moved off
+it. The previous-match
 button's tooltip promises Shift-Return, which nothing binds (§14).
 
 ---
@@ -316,8 +338,9 @@ running into the home-indicator area, a rule on top.
 ### 8.2 The place bar
 
 Each place's own 40pt bar: its title centred (13pt semibold), its commands at the
-trailing end. Library has **More ⋯**, Search has **New Note**, Tags and AI have
-none ([primary.md](primary.md) §10).
+trailing end. Library (the Notes place, the phone's sidebar) has the sidebar's
+**`+`** and **More ⋯**, Search has **New Note**, Tags and AI have none
+([primary.md](primary.md) §10).
 
 ### 8.3 The mini strip
 

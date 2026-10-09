@@ -302,6 +302,8 @@ presents once open — a menu, a popover, an alert.
 
 **D13. The collection is the sidebar's, the note the panel's, and each command
 is in one place** (2026-10-09, after 1.3.3 build 27, at the person's direction).
+*(Amended by D14: the sidebar's making and opening commands are a `+` in its
+header again, and the bar is three buttons.)*
 Testing build 27 on the Mac, the person found the commands confusing and
 duplicated across bars — the More menu, Note Actions and the bottom bar carried
 the same commands three times, and the collection's commands were in none of
@@ -330,15 +332,46 @@ holds nothing of the collection's, the sidebar holds the collection's commands,
 Note Actions holds no view mode, panel toggle or map, and only a note window's
 bottom bar holds the note's commands.
 
+**D14. Two `+` menus, and three buttons in the bar** (2026-10-09, after 1.3.3
+build 28, at the person's direction). Build 28 drew New Folder, New Collection,
+Open Collection and Open Default Collection as rows below the tree, where they
+had been menu items under a `+`; and the bar still had seven buttons and a More
+menu. The person asked for the `+` back, for every way of making a note to be
+one `+` in the bar, and for the sidebar's toggle to be in the sidebar — which
+leaves the bar three buttons:
+
+- **The sidebar's header**: its own toggle beside the window buttons, and at
+  its trailing end a `+` — New Folder…, New Collection ▸, Open Collection ▸,
+  Open Recent…, Open Default Collection (`collectionAddItems`). The tools stay
+  rows above the tree. The phone's Notes place, its sidebar, has the same `+`
+  in its bar.
+- **The bar**: `+` (New Note, Today's Note, New Note from a Prompt…, Quick
+  Capture…, Dictate to Daily Note) · 🔍 (Search Notes, Open Quickly…, Find &
+  Replace in Note) · ⚙ Settings. Search Notes — and ⌥⌘F — opens the search
+  field in the 🔍's place, focused, for as long as the search lasts; empty and
+  left, it folds back. The note's find bar finds and replaces in one, so it is
+  one item, not the two the sketch showed.
+- **While the sidebar is hidden** its toggle is the bar's first button, in the
+  window's top-left corner: the toggle lives in the sidebar, and nothing else
+  could bring a hidden sidebar back.
+- **More ⋯ is gone**: Quick Capture and New Note from a Prompt are the `+`'s,
+  Open Quickly the 🔍's, Settings its own button, and Open Note in New Window
+  was in Note Actions already.
+
+`ShellComplianceTests.eachCommandIsInOnePlace` holds it: the bar is the three,
+with no More menu and nothing beside the `+` that makes a note; the 🔍 holds
+search, Open Quickly and find; the sidebar's header holds its toggle and its
+`+`; and its items are menu items, not rows.
+
 ---
 
 ## Part 5 — Wireframe (wide, 1470pt)
 
-*As built (D12, D13), on both platforms:*
+*As built (D12, D13, D14), on both platforms:*
 
 ```
 ┌────────────────┬──────────────────────────────────────────────────────────┐
-│ ●●●            │ 🔍 Search ⊟ ✎ 📅 ⌕ ⋯ │ Note A │ ◉ Mind Map │     ⌄  ◨  │ ← ONE bar, 40pt
+│ ●●● ⊟        + │ + 🔍 ⚙ │ Note A │ ◉ Mind Map │                  ⌄  ◨  │ ← ONE bar, 40pt
 ├────────────────┼──────────────────────────────────────────────────────────┤
 │ ◉ Mind Map     │                                                          │
 │ ✦ Assistant    │   the open note — or a tool's tab in front of it         │
@@ -347,17 +380,18 @@ bottom bar holds the note's commands.
 │ ▸ Recents      │                                                          │
 │ ▾ Collection   │                                                          │
 │   ▸ Folder     │                                                          │
-│ + New Folder…  │                                                          │
-│ + New Coll. ⌄  │                                                          │
-│ ▢ Open Coll. ⌄ │                        Edit · Preview · Markdown · Split │
-│ ▤ Open Default │  saved                                                   │
+│                │                                                          │
+│                │                                                          │
+│                │                        Edit · Preview · Markdown · Split │
+│                │  saved                                                   │
 └────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
-Search · Sidebar · New Note · Today's Note · Find & Replace · More ⋯ | the open
-notes' tabs, then the tools' | Note Actions ⌄ · Panel. The tabs take whatever
-the buttons leave and scroll inside it, so the buttons never move and never
-fold away.
+`+` · 🔍 · ⚙ (the sidebar's toggle first while the sidebar is hidden) | the open
+notes' tabs, then the tools' | Note Actions ⌄ · Panel. The sidebar's header
+holds its toggle and, at its trailing end, its `+`. The tabs take whatever the
+buttons leave and scroll inside it, so the buttons never move and never fold
+away.
 
 *The original wireframe, for the reasoning:*
 

@@ -2,22 +2,24 @@
 //  SidebarCommands.swift
 //  HelloNotes
 //
-//  The collection's commands, in the sidebar that holds the collection: its
-//  tools above the tree (the Mind Map of its links, the Assistant, Ask Your
-//  Library, its Git) and, below it, making and opening collections and folders.
+//  The collection's tools, in the sidebar that holds the collection, above
+//  its tree: the Mind Map of its links, the Assistant, Ask Your Library, its
+//  Git. Making and opening folders and collections is the `+` in the
+//  sidebar's header (`collectionAddItems` in ContentView), menu items as it
+//  was before build 28; they were rows below the tree in 28.
 //
-//  The sidebar used to hold no commands at all — "a hidden command is an
-//  unreachable command" — and the one exception was a `+` menu in its header.
-//  So the collection's commands were in the bar over the *editor*, in a menu
-//  shared with the notes' commands, and some were in the bottom bar as well:
-//  the same thing in three places, none of them where the collection was. They
-//  are here now, named, one row each. The sidebar's own toggle is always in the
-//  bar, and every one of them is in the menu bar too.
+//  The sidebar used to hold no commands but that `+` — "a hidden command is
+//  an unreachable command" — so the collection's tools were in the bar over
+//  the *editor*, in a menu shared with the notes' commands, and some were in
+//  the bottom bar as well: the same thing in three places, none of them where
+//  the collection was. They are here now, named, one row each, and all but
+//  Git are in the menu bar too.
 //
-//  One definition, drawn two ways: rows in the sidebar column, and — in the
-//  band, the tall shell's left region, which is wide and only about 320pt
-//  high — a strip of the same commands across its top. The rows read which
-//  from the environment, so the shell writes each command once.
+//  One definition, drawn two ways: rows in the sidebar column (and the
+//  phone's Notes place, which is its sidebar), and — in the band, the tall
+//  shell's left region, which is wide and only about 320pt high — a strip of
+//  the same commands across its top. The rows read which from the
+//  environment, so the shell writes each command once.
 //
 
 import SwiftUI
@@ -65,40 +67,12 @@ struct SidebarCommandRow: View {
     }
 }
 
-/// A command that opens a menu of choices — New Collection, Open Collection —
-/// drawn like the rows beside it, with a chevron saying it opens a menu.
-struct SidebarCommandMenuRow<Content: View>: View {
-    let title: String
-    let systemImage: String
-    var accent: Color = .accentColor
-    @ViewBuilder let content: () -> Content
-
-    init(_ title: String, systemImage: String, accent: Color = .accentColor,
-         @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.systemImage = systemImage
-        self.accent = accent
-        self.content = content
-    }
-
-    var body: some View {
-        Menu(content: content) {
-            SidebarCommandLabel(title: title, systemImage: systemImage, opensMenu: true, accent: accent)
-        }
-        .menuStyle(.button)
-        .buttonStyle(ChromePlainStyle())
-        .menuIndicator(.hidden)
-        .accessibilityLabel(title)
-    }
-}
-
-/// The look both kinds of command share, as a row or as a strip button.
+/// A command's look, as a row or as a strip button.
 private struct SidebarCommandLabel: View {
     let title: String
     let systemImage: String
     var detail: String? = nil
     var showsDot: Bool = false
-    var opensMenu: Bool = false
     var accent: Color
 
     @Environment(\.sidebarCommandLayout) private var layout
@@ -138,11 +112,6 @@ private struct SidebarCommandLabel: View {
             }
             if showsDot {
                 Circle().fill(Chrome.Colour.orange).frame(width: 6, height: 6)
-            }
-            if opensMenu {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8 * scale, weight: .semibold))
-                    .foregroundStyle(Chrome.Colour.tertiaryLabel)
             }
         }
     }

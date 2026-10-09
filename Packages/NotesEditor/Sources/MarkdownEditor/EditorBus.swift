@@ -58,24 +58,29 @@ public nonisolated enum EditorBus {
         Notification.Name("hn.editor.jumpToHeading.\(editor)")
     }
 
-    /// Select a find match: `userInfo["query"]`, and `userInfo["currentIndex"]`
-    /// for Next and Previous.
+    /// Select a find match: `userInfo["query"]`, `userInfo["regex"]` (a Bool —
+    /// whether the query is a regular expression; a phrase without it), and
+    /// `userInfo["currentIndex"]` for Next and Previous. See `FindPattern`.
     public static func findQuery(editor: String) -> Notification.Name {
         Notification.Name("hn.editor.findQuery.\(editor)")
     }
 
-    /// The editor's answer to `findQuery`: `userInfo["count"]` matches. Addressed
-    /// on the way back as well — one editor's count is not another find bar's.
+    /// The editor's answer to `findQuery`: `userInfo["count"]` matches, and
+    /// `userInfo["problem"]` (a `FindPattern.Problem` raw value) when a regular
+    /// expression could not be read or ran out of time. Addressed on the way
+    /// back as well — one editor's count is not another find bar's.
     public static func findResults(editor: String) -> Notification.Name {
         Notification.Name("hn.editor.findResults.\(editor)")
     }
 
-    /// Replace the current match with `userInfo["replacement"]`.
+    /// Replace the current match with `userInfo["replacement"]` — a template, its
+    /// groups expanded, when the find is a regular expression.
     public static func replaceCurrent(editor: String) -> Notification.Name {
         Notification.Name("hn.editor.replaceCurrent.\(editor)")
     }
 
-    /// Replace every match of the last query with `userInfo["replacement"]`.
+    /// Replace every match of the last query with `userInfo["replacement"]`,
+    /// expanded per match when the find is a regular expression.
     public static func replaceAll(editor: String) -> Notification.Name {
         Notification.Name("hn.editor.replaceAll.\(editor)")
     }

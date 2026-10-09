@@ -5,8 +5,9 @@ tags: [manual]
 
 # Settings
 
-On a Mac, **HelloNotes ▸ Settings…** (**⌘,**). On iPad, the **⋯** button in the
-toolbar, or **⌘,** with a keyboard; on iPhone, the **⋯** button in the Notes tab.
+On a Mac, **HelloNotes ▸ Settings…** (**⌘,**), or the **⚙** button in the bar
+over the note. On iPad, the same **⚙** button, or **⌘,** with a keyboard; on
+iPhone, or in a narrow iPad window, the **⋯** button in the Notes tab.
 
 ## Appearance
 

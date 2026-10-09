@@ -14,6 +14,7 @@
 
 import SwiftUI
 import GFMRender
+import MarkdownCore
 import MarkdownEditor
 
 /// The editor column: hosts HelloNotes' TextKit 2 editor (Packages/NotesEditor)
@@ -126,6 +127,12 @@ struct NoteEditorView: View {
     @State private var replaceText = ""
     @State private var findMatchCount = 0
     @State private var findCurrentIndex = 0
+    /// Whether the find is a regular expression — kept between finds and
+    /// launches, as the find bars people know do.
+    @AppStorage("findUsesRegularExpression") private var findUsesRegularExpression = false
+    /// Why the editor found nothing to count: a pattern it cannot read, or
+    /// one that ran out of time.
+    @State private var findProblem: FindPattern.Problem?
 
     /// Whole-document derivations shown in the bottom bar. These are O(text)
     /// scans, so they are NOT computed properties: a computed property would
@@ -225,7 +232,10 @@ struct NoteEditorView: View {
                             findText: $findText,
                             replaceText: $replaceText,
                             currentIndex: $findCurrentIndex,
+                            isRegularExpression: $findUsesRegularExpression,
                             matchCount: findMatchCount,
+                            problem: findProblem,
+                            accent: appearance.resolvedAccent,
                             onFindChanged: postFindQuery,
                             onNext: { stepMatch(by: 1) },
                             onPrevious: { stepMatch(by: -1) },
@@ -375,6 +385,7 @@ struct NoteEditorView: View {
                 // window's find bar's.
                 .onReceive(NotificationCenter.default.publisher(for: EditorBus.findResults(editor: editor.editorID))) { note in
                     let count = note.userInfo?["count"] as? Int ?? 0
+                    findProblem = (note.userInfo?["problem"] as? String).flatMap(FindPattern.Problem.init(rawValue:))
                     findMatchCount = count
                     if count == 0 {
                         findCurrentIndex = 0
@@ -447,13 +458,14 @@ struct NoteEditorView: View {
         findCurrentIndex = 0
         guard !findText.isEmpty else {
             findMatchCount = 0
+            findProblem = nil
             NotificationCenter.default.post(name: EditorBus.clearHighlights(editor: editor.editorID), object: nil)
             return
         }
         NotificationCenter.default.post(
             name: EditorBus.findQuery(editor: editor.editorID),
             object: nil,
-            userInfo: ["query": findText, "currentIndex": 0]
+            userInfo: ["query": findText, "regex": findUsesRegularExpression, "currentIndex": 0]
         )
     }
 
@@ -464,7 +476,7 @@ struct NoteEditorView: View {
         NotificationCenter.default.post(
             name: EditorBus.findQuery(editor: editor.editorID),
             object: nil,
-            userInfo: ["query": findText, "currentIndex": findCurrentIndex]
+            userInfo: ["query": findText, "regex": findUsesRegularExpression, "currentIndex": findCurrentIndex]
         )
     }
 

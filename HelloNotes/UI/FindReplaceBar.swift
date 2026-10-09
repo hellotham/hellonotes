@@ -11,6 +11,7 @@
 //  Created by Chris Tham on 11/7/2026.
 //
 
+import MarkdownCore
 import SwiftUI
 
 /// A find/replace bar shown above the editor. It drives the editor's find
@@ -18,12 +19,22 @@ import SwiftUI
 /// (`hnEditorFindQuery` / `hnEditorReplace*`), so it holds no reference to the
 /// text view — it just posts queries and reflects the match count the engine
 /// posts back.
+///
+/// The `.*` button makes the find a regular expression (`FindPattern`): the
+/// replacement is then a template — `$1` the first group, `\n` a new line —
+/// and a pattern the editor cannot read, or one too slow to finish, is said
+/// where the count goes.
 struct FindReplaceBar: View {
     @Binding var findText: String
     @Binding var replaceText: String
     /// 0-based index of the focused match; -1 when there are none.
     @Binding var currentIndex: Int
+    /// Whether the find is a regular expression rather than a phrase.
+    @Binding var isRegularExpression: Bool
     let matchCount: Int
+    /// Why the editor has no count to give, or nil.
+    var problem: FindPattern.Problem?
+    var accent: Color = .accentColor
     var onFindChanged: () -> Void
     var onNext: () -> Void
     var onPrevious: () -> Void
@@ -35,6 +46,11 @@ struct FindReplaceBar: View {
 
     private var countLabel: String {
         if findText.isEmpty { return "" }
+        switch problem {
+        case .invalid: return "Invalid pattern"
+        case .tooSlow: return "Too slow"
+        case nil: break
+        }
         if matchCount == 0 { return "No results" }
         return "\(currentIndex + 1) of \(matchCount)"
     }
@@ -50,14 +66,22 @@ struct FindReplaceBar: View {
                     .focused($findFocused)
                     .onSubmit(onNext)
                     .onChange(of: findText) { _, _ in onFindChanged() }
-                    .chromePlaceholder("Find", showing: findText.isEmpty)
+                    .chromePlaceholder(isRegularExpression ? "Find (regular expression)" : "Find",
+                                       showing: findText.isEmpty)
                     .accessibilityLabel("Find")
                     .chromeFieldBox()
 
+                RegularExpressionToggle(isOn: $isRegularExpression, accent: accent) {
+                    onFindChanged()
+                }
+
                 Text(countLabel)
                     .font(Chrome.Style.caption.monospacedDigit())
-                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                    .foregroundStyle(problem == nil ? Chrome.Colour.secondaryLabel : Chrome.Colour.red)
                     .frame(minWidth: 64, alignment: .trailing)
+                    .help(problem == .tooSlow
+                          ? "The pattern took longer than half a second, so the search stopped. Patterns that nest repeats, like (a*)*, can take that long."
+                          : "")
 
                 Button(action: onPrevious) {
                     Image(systemName: "chevron.up")
@@ -84,7 +108,8 @@ struct FindReplaceBar: View {
                 TextField("", text: $replaceText)
                     .textFieldStyle(.plain)
                     .focusEffectDisabled()
-                    .chromePlaceholder("Replace", showing: replaceText.isEmpty)
+                    .chromePlaceholder(isRegularExpression ? "Replace ($1 for a group)" : "Replace",
+                                       showing: replaceText.isEmpty)
                     .accessibilityLabel("Replace")
                     .chromeFieldBox()
 
@@ -100,5 +125,40 @@ struct FindReplaceBar: View {
         .background(Chrome.Colour.chrome)
         .overlay(alignment: .bottom) { ChromeDivider() }
         .onAppear { findFocused = true }
+    }
+}
+
+/// The find bar's `.*`: whether the find is a regular expression. Drawn as the
+/// bar's glyph buttons are (`ChromeGlyph`) — the accent on its selection fill
+/// while on — with the two characters editors use for it, since no SF Symbol
+/// says "regular expression".
+private struct RegularExpressionToggle: View {
+    @Binding var isOn: Bool
+    var accent: Color
+    var onChange: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+            onChange()
+        } label: {
+            Text(".*")
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundStyle(isOn ? accent : Chrome.Colour.secondaryLabel)
+                .frame(width: Chrome.Metric.control, height: Chrome.Metric.control)
+                .background(
+                    RoundedRectangle(cornerRadius: Chrome.Metric.radius)
+                        .fill(isOn ? Chrome.selection(accent)
+                                   : hovering ? Chrome.Colour.hover : Color.clear))
+                .contentShape(.rect.inset(by: -(Chrome.Metric.touchTarget - Chrome.Metric.control) / 2))
+        }
+        .buttonStyle(ChromePlainStyle())
+        .onHover { hovering = $0 }
+        .help("Regular expression — in the replacement, $1 is the first group and \\n a new line")
+        .accessibilityLabel("Regular expression")
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }

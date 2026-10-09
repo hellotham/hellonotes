@@ -8416,6 +8416,175 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.39 Regular expressions in find and replace (2026-10-10)
+
+The person asked to "allow regex in find and replace".
+
+**What it does.**
+- **A `.*` button in the find bar** makes the find a regular expression. It is
+  drawn as the bar's glyph buttons are, and is kept between finds and launches
+  (`findUsesRegularExpression`). Both fields' placeholders say so.
+- **A pattern is ICU's** (`NSRegularExpression`). It ignores case like a phrase,
+  unless it says `(?-i)`, and `^` and `$` match at every line.
+- **The replacement is a template.** `$0`–`$99` are the match and its groups,
+  and `\n` and `\t` are a newline and a tab — the template language has no
+  spelling for those, so `FindPattern.template` adds one. `\\` and `\$` are a
+  backslash and a dollar sign, and a trailing lone backslash is kept as a
+  backslash.
+- **A phrase is unchanged.** It matches case-insensitively and its replacement
+  is only its own text, `$1` included.
+- **The bar says what went wrong.** A pattern the editor cannot read shows
+  **Invalid pattern** in red where the count goes. One that runs past half a
+  second shows **Too slow**.
+
+**Where it lives.**
+- `FindPattern` (MarkdownCore) is pure and `Sendable`. It finds the matches,
+  and works out each match's replacement against its own groups.
+- `EditorDocument.findMatches(of:)` and `replacements(of:with:)` hand it the
+  storage.
+- Both editors' `showMatch(of:index:)` return a count or a `Problem`.
+- Both coordinators read `userInfo["regex"]` and answer with
+  `userInfo["problem"]`.
+- **Replace All** works out every replacement before the first edit, from the
+  note as the find saw it, then applies them back to front.
+- **Replace** replaces the match the find selected, with its groups. It used to
+  replace whatever was selected, so a selection moved off the match was
+  replaced too.
+
+**The time limit.** The find searches on every keystroke, on the main actor. A
+pattern like `(a*)*b` backtracks exponentially: in a probe over 28 `a`s it was
+still running after five seconds, with no way to stop it. With `.reportProgress`
+the enumeration block is called *during* the backtracking — 1,511 times in 0.2s —
+so a deadline can set `stop`. Half a second is far longer than a sane pattern
+needs over a long note, and short enough that a runaway one stalls a keystroke
+rather than the window.
+
+**Tests.**
+- `FindPatternTests` (12) covers:
+  - phrases, patterns, case and `(?-i)`, anchors per line;
+  - an unreadable pattern;
+  - the runaway pattern stopping inside its limit;
+  - groups, `\n` and `\t`, the template's own escapes;
+  - an empty match inserting (`^` → a prefix per line);
+  - a phrase's literal replacement, an empty pattern.
+- `RegexFindTests` (5) drives a real editor through the bus, as the find bar
+  does: the count and the selection, Replace All and Replace expanding groups,
+  an unreadable pattern answered as a problem, and a phrase staying a phrase.
+  It runs on AppKit under `swift test` and on UIKit under the iOS run, because
+  the bus is written twice.
+- The negative control made `FindPattern` ignore the flag. Every
+  regular-expression test failed (10 of the 12 and all 5); the phrase tests did
+  not.
+- `ShellComplianceTests`' check that both editors can show a match now looks
+  for the new signature.
+
+**Seen, not inferred.** In the iPad simulator:
+- the `.*` toggle on its accent fill;
+- the placeholders "Find (regular expression)" and "Replace ($1 for a group)";
+- `note\w*` counting "1 of 12" in a note;
+- `note\w*(` saying **Invalid pattern** in red, with Replace and Replace All
+  disabled.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| Editor package, macOS | 294/32 + 203/17 + 26/4 = 523 tests, pass (was 506) |
+| Editor package, iOS | 275/30 + 203/17 + 26/4 = 504 tests, pass (was 487) |
+| App suite (`run-tests.sh`) | 843 tests in 128 suites, pass |
+| iPad simulator | built and looked at, as above |
+
+### 51.38 Two `+` menus, and three buttons in the bar (2026-10-09, after build 28)
+
+**What the person asked for**, testing build 28:
+- New Collection, Open Collection and the rest "used to be menu items underneath
+  a + button", and they asked why that couldn't be kept.
+- The ways of making a note could be menu items under a `+` in the top-left
+  toolbar.
+- With those, and the sidebar's toggle moved to the top of the sidebar itself,
+  the top left could be three buttons: `+`, search/find/replace, and Settings.
+
+Asked how one button could both search the collections and find in a note, they
+chose a 🔍 menu whose Search Notes opens the field in the bar while a search
+lasts (shell-chrome.md D14).
+
+**Where everything is now.**
+- **The sidebar's header** has its own toggle beside the window buttons. At its
+  trailing end is a `+` (`collectionAddItems`): New Folder…, New Collection ▸,
+  Open Collection ▸, Open Recent… and Open Default Collection. The tools stay
+  as rows above the tree. Build 28's rows below the tree are gone. The phone's
+  Notes place, its sidebar, has the same `+` in its bar, beside its ⋯.
+- **The bar** has three buttons:
+  - `+` (`newNoteMenu`): New Note, Today's Note, then New Note from a Prompt…,
+    Quick Capture… and Dictate to Daily Note.
+  - 🔍 (`searchMenu`): Search Notes and Open Quickly…, then Find & Replace in
+    Note.
+  - ⚙ Settings.
+- **More ⋯ is gone.** Open Note in New Window was in Note Actions already.
+- **While the sidebar is hidden**, its toggle is the bar's first button.
+  Nothing else on screen could bring the sidebar back.
+- **Search Notes and ⌥⌘F** open the search field in the 🔍's place and focus it.
+  When it is empty and left — focus goes elsewhere, or its text is cleared — it
+  folds back. A field that was a 🔍 a moment ago cannot take focus until it is
+  on screen, so it asks again as it appears (`focusOnAppear`).
+- **Find and replace is one item.** The note's find bar always has both rows,
+  so "Find in Note" and "Find & Replace", as the sketch had them, would have
+  been the same bar twice.
+- **Dictate to Daily Note joined the `+`.** It was only in the menu bar, which
+  an iPad without a keyboard does not show.
+- **Deleted:** More ⋯ (`shellCommandMenu`) and the menu-row view the sidebar's
+  rows used (`SidebarCommandMenuRow`).
+
+**The bar's width.** With a note in front, its fixed part is 180pt: five
+buttons, five gaps and the padding. It is 212pt with the sidebar hidden, and
+272pt while a search is open. It was 320pt, which overflowed the editor at the
+Mac's minimum window (toolbars.md §3.1).
+
+**Tests.**
+- `ShellComplianceTests.eachCommandIsInOnePlace` is rewritten for the three
+  buttons, the two menus and the sidebar's header.
+  `thePhonesNotesPlaceIsItsSidebar` now covers the phone's `+`. Both were run
+  first against build 28's arrangement, and failed.
+- `searchIsInTheToolbarLeading` checked that the search field was the bar's
+  *first* item (D9). It now checks that search is in the bar's leading group,
+  before the tabs. D9's two other checks still stand: no `.searchable`, and no
+  search in the sidebar.
+
+**Seen, not inferred.** In the iPad simulator, in landscape:
+- the sidebar's header (⊟ … `+`) and the bar (`+` 🔍 ⚙);
+- the 🔍 menu, with Find & Replace in Note dimmed while no note is open;
+- Search Notes turning the 🔍 into a focused field, and an empty field folding
+  back when the keyboard went;
+- hiding the sidebar put ⊟ first in the bar, and that button brought the
+  sidebar back;
+- both `+` menus.
+
+The iPhone in landscape draws the same. The compact Notes place's `+` was
+exercised by the interface tests, not looked at.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| App suite (`run-tests.sh`) | 843 tests in 128 suites, pass |
+| `ShellComplianceTests` | 22 pass, and failed against build 28's arrangement first |
+| iOS interface tests | 12 pass, and the opt-in window-parity capture skips |
+| The manual's changed lines | `docs-fact-checker`: 27 claims, all true. Three sentences narrowed to where they hold (a phone and a narrow iPad window draw no `+`, 🔍 or ⚙). Two stale code comments and an overstated "in the menu bar too" (New Folder and Git have no menu item) were fixed |
+
+**Left.**
+- `window-parity.sh` was not run, because it quits the running HelloNotes. On
+  the Mac the sidebar's toggle sits 78pt in, after the traffic lights; on the
+  iPad it sits at the leading edge. A whole-window comparison will show that
+  glyph's offset, as the bar already would with the sidebar hidden. It is the
+  OS's window controls, not a drawing difference.
+- The two `+` buttons sit either side of the column divider: the sidebar's and
+  the bar's. That is the arrangement the person chose in the sketch. Their
+  tooltips and spoken names differ: "Add Folder or Collection" and "New Note".
+- **On iPhone**, Today's Note, Open Quickly and Dictate to Daily Note have no
+  touch route. The compact shell draws no `+` or 🔍, and in builds 27 and 28
+  the first two had none there either. Giving the Search place's bar the same
+  `+` would add the first and the third (menu.md §8).
+
 ### 51.37 The collection on the left, the note on the right, each command in one place (2026-10-09)
 
 Testing build 27 on the Mac, the person found the bars confusing and duplicated:

@@ -78,14 +78,16 @@ here first.
    as places.
 3. **One row of chrome, ever** (D1). No panel adds a row beneath the bar.
 4. **Each command is in one place, and the place says what it is about** (D13,
-   amending D8's "no command in the sidebar"). The collection's commands are
-   named rows in the sidebar — its tools (Mind Map, Assistant, Ask Your
-   Library, Git) above the tree, making and opening (New Folder, New Collection,
-   Open Collection, Open Default Collection) below it; the notes' are in the
-   bar over the editor; the note's own in Note Actions; and how the note is
-   shown in the bottom bar. People collapse the sidebar while working on a
-   note, and nothing in it is a note's command; its toggle is always in the
-   bar, and every command is in the menu bar too.
+   amending D8's "no command in the sidebar"; D14). The collection's commands
+   are the sidebar's — its tools (Mind Map, Assistant, Ask Your Library, Git)
+   as named rows above the tree, and making and opening (New Folder, New
+   Collection, Open Collection, Open Recent, Open Default Collection) under the
+   `+` in its header, beside its own toggle; the notes' are the bar's three
+   buttons — `+` (every way to make a note), 🔍 (search, Open Quickly, find)
+   and ⚙ Settings; the note's own are in Note Actions; and how the note is
+   shown is in the bottom bar. People collapse the sidebar while working on a
+   note, and nothing in it is a note's command; while it is hidden its toggle
+   is the bar's first button, and every command is in the menu bar too.
 5. **Every command has a menu-bar item and a visible touch route.** The bar is
    a shortcut and never the only way. Nothing is reachable only through a
    long-press, right-click or swipe (HIG, Context menus). iPhone has no menu
