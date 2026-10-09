@@ -55,6 +55,11 @@ The one exception, and it is Apple's: an action whose entire subject is the
 sidebar's own content (New Folder, New Collection) may sit in the band **at the
 sidebar's trailing edge**, beside the toggle, where it disappears with it.
 
+*Amended by D13 (2026-10-09): the collection's commands are named rows in the
+sidebar itself. P2 collapses the sidebar to work on a note, and nothing the
+sidebar holds is a note's command; its toggle stays in the bar, and every row
+is in the menu bar and the command palette too.*
+
 ---
 
 ## Part 2 — Survey: five apps, measured
@@ -201,7 +206,8 @@ an area. A strip would also re-introduce chrome inside the collapsible panel —
 the defect being removed from the inspector.
 
 **D6. The right panel holds anything ancillary, and its own header says
-which.** The window is three regions: collections on the left, the editor in the
+which.** *(Amended by D13: the panel holds the note's six; the collection's
+three are tabs, opened from the sidebar.)* The window is three regions: collections on the left, the editor in the
 middle, anything else on the right. Outline, Tags, References, Properties,
 History and the Mind Map are about the note; Graph, Ask Library and the
 Assistant are about the collection; all nine are the same kind of thing —
@@ -294,21 +300,64 @@ compares the pixels; `implemented.md` §51.5 has the three differences fixed
 numbers alone did not remove. The OS keeps its window controls and anything it
 presents once open — a menu, a popover, an alert.
 
+**D13. The collection is the sidebar's, the note the panel's, and each command
+is in one place** (2026-10-09, after 1.3.3 build 27, at the person's direction).
+Testing build 27 on the Mac, the person found the commands confusing and
+duplicated across bars — the More menu, Note Actions and the bottom bar carried
+the same commands three times, and the collection's commands were in none of
+them that was the collection's — and the Graph and the Mind Map the wrong way
+round. So:
+
+- **The sidebar is the collection**: its tree, and its commands as named rows —
+  Mind Map, Assistant, Ask Your Library and Git above the tree; New Folder, New
+  Collection, Open Collection and Open Default Collection below it. Rows in the
+  column, a strip across the top of the band (`SidebarCommands.swift`).
+- **The bar over the editor is the notes of the collection**: Search · Sidebar ·
+  New Note · Today's Note · Find & Replace · More ⋯ (Quick Capture, Open
+  Quickly, New Note from a Prompt, Open Note in New Window, Settings) | tabs |
+  Note Actions ⌄ (the note's own commands) · Panel.
+- **The right panel is the open note's**: Summary & Outline, Tags, Links,
+  Properties, History and Graph — the Graph being this note's links in and out.
+- **The collection's tools open in the middle as tabs** beside the notes: the
+  Mind Map — the links across the collection, drawn as a mind map — the
+  Assistant and Ask Your Library (`CollectionTool`, `ToolTabs`).
+- **The bottom bar is how the note is shown**: its save status and the view
+  modes. A note window, with no panel and no command bar, keeps the note's
+  commands there.
+
+`ShellComplianceTests.eachCommandIsInOnePlace` holds it: the bar's More menu
+holds nothing of the collection's, the sidebar holds the collection's commands,
+Note Actions holds no view mode, panel toggle or map, and only a note window's
+bottom bar holds the note's commands.
+
 ---
 
 ## Part 5 — Wireframe (wide, 1470pt)
 
-*As built (D12), on both platforms:*
+*As built (D12, D13), on both platforms:*
 
 ```
-┌────────────────┬────────────────────────────────────────────────────────────┐
-│ ●●●          + │ 🔍 Search   ⊟  ✎  ⋯  │ Note A │ Note B │          ⌄  ◨   │ ← ONE bar, 40pt
-├────────────────┼────────────────────────────────────────────────────────────┤
+┌────────────────┬──────────────────────────────────────────────────────────┐
+│ ●●●            │ 🔍 Search ⊟ ✎ 📅 ⌕ ⋯ │ Note A │ ◉ Mind Map │     ⌄  ◨  │ ← ONE bar, 40pt
+├────────────────┼──────────────────────────────────────────────────────────┤
+│ ◉ Mind Map     │                                                          │
+│ ✦ Assistant    │   the open note — or a tool's tab in front of it         │
+│ ✦ Ask Your Lib.│                                                          │
+│ ⎇ Git  main •  │                                                          │
+│ ▸ Recents      │                                                          │
+│ ▾ Collection   │                                                          │
+│   ▸ Folder     │                                                          │
+│ + New Folder…  │                                                          │
+│ + New Coll. ⌄  │                                                          │
+│ ▢ Open Coll. ⌄ │                        Edit · Preview · Markdown · Split │
+│ ▤ Open Default │  saved                                                   │
+└────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
-Search · Sidebar · New Note · More ⋯ | the open notes' tabs | Note Actions ⌄ ·
-Panel. The tabs take whatever the buttons leave and scroll inside it, so the
-buttons never move and never fold away.
+Search · Sidebar · New Note · Today's Note · Find & Replace · More ⋯ | the open
+notes' tabs, then the tools' | Note Actions ⌄ · Panel. The tabs take whatever
+the buttons leave and scroll inside it, so the buttons never move and never
+fold away.
 
 *The original wireframe, for the reasoning:*
 
@@ -402,9 +451,10 @@ Checklist, run **in full** after every change — not just the item last reporte
 1. One row of chrome; nothing stacked in any panel.
 2. Exactly one sidebar toggle, the bar's second button, and it works. *(It was
    "at the sidebar's trailing edge" until D3 was amended.)*
-3. The panel's own header carries its nine views and Close, and nothing else is
-   drawn above the panel. No `»`. *(It was "five tab toggles" until D6 moved
-   the views into the panel.)*
+3. The panel's own header carries the note's six views and Close, and nothing
+   else is drawn above the panel. No `»`. *(It was "five tab toggles" until D6
+   moved the views into the panel, and nine until D13 moved the collection's
+   three to tabs.)*
 4. The panel's views are chosen in its header, not in a second strip inside it.
 5. Search is an expanded field, the bar's first item.
 6. Recents and Bookmarks are collapsible sections above the collections.

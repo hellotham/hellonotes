@@ -17,7 +17,7 @@ special.
 ## The tour
 
 1. [[Writing]] — live formatting, and why there is no "preview toggle" tax
-2. [[Linking]] — `[[wiki-links]]`, backlinks, and the graph
+2. [[Linking]] — `[[wiki-links]]`, backlinks, the graph and the mind map
 3. [[Organising]] — folders, tags, and properties
 4. [[Rich Content]] — callouts, maths, diagrams, tables, transclusion
 5. [[Finding Things]] — search, Open Quickly, the outline

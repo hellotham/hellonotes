@@ -33,6 +33,7 @@ struct CommandPaletteTests {
             canNewNote: true, newNote: {}, todaysNote: {}, openLauncher: {},
             canOpenQuickly: true, openQuickly: {},
             canGraph: true, graphView: {},
+            canMindMap: true, mindMap: {},
             canAsk: true, askLibrary: {}, assistant: {},
             canCloseTab: true, closeTab: {},
             format: { _ in },
@@ -74,7 +75,7 @@ struct CommandPaletteTests {
         // Edit
         "find", "search-all",
         // View
-        "graph", "toggle-files",
+        "graph", "mind-map", "toggle-files",
         // Assistant
         "ask-library", "assistant",
         // Note
@@ -169,6 +170,7 @@ struct CommandPaletteTests {
             canNewNote: true, newNote: {}, todaysNote: {}, openLauncher: {},
             canOpenQuickly: true, openQuickly: {},
             canGraph: true, graphView: {},
+            canMindMap: true, mindMap: {},
             canAsk: true, askLibrary: {}, assistant: {},
             canCloseTab: true, closeTab: {},
             searchAllCollections: {},
@@ -193,6 +195,7 @@ struct CommandPaletteTests {
             canNewNote: false, newNote: {}, todaysNote: {}, openLauncher: {},
             canOpenQuickly: false, openQuickly: {},
             canGraph: false, graphView: {},
+            canMindMap: false, mindMap: {},
             canAsk: false, askLibrary: {}, assistant: {},
             canCloseTab: false, closeTab: {},
             addCollection: AddCollectionActions(
@@ -203,7 +206,7 @@ struct CommandPaletteTests {
             editorMode: .edit, setEditorMode: { _ in })
         let ids = Set(bare.paletteCommands.map(\.id))
 
-        for absent in ["new-note", "todays-note", "open-quickly", "graph", "ask-library", "close-tab",
+        for absent in ["new-note", "todays-note", "open-quickly", "graph", "mind-map", "ask-library", "close-tab",
                        "rescan", "refresh-cloud", "find", "review-links", "compose-note",
                        "ai-summarize", "rename", "print", "format-bold"] {
             #expect(!ids.contains(absent), "\(absent) should be absent with nothing open")

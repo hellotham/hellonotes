@@ -98,9 +98,9 @@ enum CloudBrowser: String, CaseIterable, Identifiable, Codable {
 /// Every way to add a collection, as one value.
 ///
 /// Grouped rather than six loose closures on `AppActions` because they are one
-/// menu section that four surfaces draw — the sidebar's `+`, the File menu
-/// (which iPadOS renders into a real menu bar too), the compact shell's `…`
-/// and the command palette. Passing them together is what stops a surface
+/// set that four surfaces draw — the sidebar's New Collection and Open
+/// Collection rows, the File menu (which iPadOS renders into a real menu bar
+/// too), the compact shell's `…` and the command palette. Passing them together is what stops a surface
 /// quietly offering five of the six.
 ///
 /// The order here is the order they are offered: everything reachable by a
@@ -258,8 +258,12 @@ struct AppActions {
     var openDefaultCollection: (() -> Void)?
     var canOpenQuickly: Bool
     var openQuickly: () -> Void
+    /// The open note's links in and out, in the panel: needs a note.
     var canGraph: Bool
     var graphView: () -> Void
+    /// The links across the sidebar's collection, as a tab: needs notes.
+    var canMindMap: Bool
+    var mindMap: () -> Void
     var canAsk: Bool
     var askLibrary: () -> Void
     var assistant: () -> Void
@@ -347,8 +351,8 @@ struct AppActions {
 ///
 /// These are note operations, so they live in the Note menu beside Rename and
 /// Duplicate rather than in an "Intelligence" panel of their own. Each one's
-/// **result** lands in the inspector tab that already owns that kind of
-/// information — a summary in Outline, tags in Tags, links in References — so
+/// **result** lands in the panel view that already owns that kind of
+/// information — a summary in Summary & Outline, tags in Tags, links in Links — so
 /// the command is findable in one fixed place and its output is where you would
 /// have gone looking for it anyway. That pairing is the whole point: an "AI
 /// panel" is organised by which technology produced the answer, which is the one
@@ -356,11 +360,11 @@ struct AppActions {
 struct AIActions {
     /// Which model does the work, so the menu can say so rather than implying magic.
     var modelName: String
-    /// Summarise the note; lands at the top of the Outline tab.
+    /// Summarise the note; lands at the top of Summary & Outline.
     var summarize: () -> Void
-    /// Suggest tags the note's content implies; lands in the Tags tab.
+    /// Suggest tags the note's content implies; lands in Tags.
     var suggestTags: () -> Void
-    /// Suggest notes worth linking to; lands in the References tab.
+    /// Suggest notes worth linking to; lands in Links.
     var suggestLinks: () -> Void
     /// Rewrite or expand the whole note, reviewed before it replaces anything.
     var rewriteNote: () -> Void
@@ -739,10 +743,15 @@ struct HelloNotesCommands: Commands {
 
             Divider()
 
-            Button("Graph View") { actions?.graphView() }
+            // The note's graph is a view of the panel; the collection's map, a
+            // tab. Both were "Graph" once, the wrong way round.
+            Button("Graph") { actions?.graphView() }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(!(actions?.canGraph ?? false))
-            Button("Ask Library") { actions?.askLibrary() }
+            Button("Mind Map") { actions?.mindMap() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(!(actions?.canMindMap ?? false))
+            Button("Ask Your Library") { actions?.askLibrary() }
                 .keyboardShortcut("j", modifiers: [.command, .shift])
                 .disabled(!(actions?.canAsk ?? false))
             Button("Assistant") { actions?.assistant() }

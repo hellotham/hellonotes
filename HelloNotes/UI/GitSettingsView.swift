@@ -58,7 +58,7 @@ struct GitSettingsView: View {
     private var accountsSection: some View {
         ChromeSection("Accounts") {
             if store.accounts.isEmpty {
-                Text("No accounts yet. Add one to push and pull over HTTPS.")
+                Text("No accounts yet. Add one to push and fetch over HTTPS.")
                     .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
             }
             ForEach(store.accounts) { account in

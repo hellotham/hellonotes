@@ -1,39 +1,45 @@
 ---
-status: CURRENT (2026-09-24). Describes the right panel as built, the rules it
+status: CURRENT (2026-10-09). Describes the right panel as built, the rules it
 follows and its open defects (§9). Decision record: `shell-chrome.md` D6, D6a,
-D7; decisions L1, L8, L10 and L16 in `ui.md` §11. Overview: `ui.md`.
+D7, D13; decisions L1, L8, L10 and L16 in `ui.md` §11. Overview: `ui.md`.
 ---
 
 # The secondary sidebar: the right panel
 
-The right of the window holds **anything ancillary** to what you are writing:
-what the open note is, what touches it, and three views of the whole collection.
-It answers **"what is this, and what touches it?"**, where the primary sidebar
-answers "where is it?" ([primary.md](primary.md)). Older code calls it the
-inspector or the rail.
+The right of the window holds **what the open note is**: its summary and
+outline, its tags, its links, its properties, its history and its graph. It
+answers **"what is this, and what touches it?"**, where the primary sidebar
+answers "where is it, and what is the collection?" ([primary.md](primary.md)).
+Older code calls it the inspector or the rail. The collection's tools — the
+Mind Map, Ask Library, the Assistant — were views of it until D13; they open as
+tabs beside the notes now (§6).
 
 ---
 
-## 1. Nine views, one panel
+## 1. Six views, one panel, one note
 
-| Group | View | Symbol | What it shows |
-|---|---|---|---|
-| **This note** | Outline | `list.bullet.indent` | a summary on request, the note's statistics and its headings |
-| | Tags | `number` | the note's tags, suggested tags, and every tag in the collection |
-| | References | `link` | suggested links, outgoing links, linked mentions, unlinked mentions |
-| | Properties | `tag` | the note's front matter, as fields |
-| | History | `clock.arrow.circlepath` | the note's Git history, with restore |
-| | Mind Map | `point.topleft.down.curvedto.point.bottomright.up` | the note's ideas as a map, from the live text |
-| **This collection** | Graph | `point.3.connected.trianglepath.dotted` | the link graph |
-| | Ask Library | `sparkles.rectangle.stack` | questions answered from every open note, with citations |
-| | Assistant | `sparkles` | the agentic assistant, which can read and (with approval) edit notes |
+| View | Symbol | What it shows |
+|---|---|---|
+| Summary & Outline | `list.bullet.indent` | a summary on request, the note's statistics and its headings |
+| Tags | `number` | the note's tags, suggested tags, and every tag in the collection |
+| Links | `link` | suggested links, outgoing links, linked mentions, unlinked mentions |
+| Properties | `tag` | the note's front matter, as fields |
+| History | `clock.arrow.circlepath` | the note's Git history, with restore |
+| Graph | `point.3.connected.trianglepath.dotted` | the note's links in and out, as a graph — one link deep, or two or three |
 
-**Why one panel** (D6, L16). They are one kind of thing: ancillary to the note
-in the middle. For a while the app carried two of everything for them, two
-enums, two states, two chromes and two widths, and the second set had been
-windows on the Mac and sheets on iPad. A window or a sheet over the note is a
-note you cannot type in, and **an editor never blocks editing**. So they share
-one panel, one piece of state (`SidePanel`), one width and one header.
+**Why one panel** (D6, L16). They are one kind of thing: facts about the note in
+the middle. For a while the app carried two of everything for them, two enums,
+two states, two chromes and two widths, and the second set had been windows on
+the Mac and sheets on iPad. A window or a sheet over the note is a note you
+cannot type in, and **an editor never blocks editing**. So they share one panel,
+one piece of state (`SidePanel`), one width and one header.
+
+**Why only the note's** (D13). The panel held the collection's three as well —
+nine views — and so did not say what it was about, and neither did its views:
+a map of one note's ideas was called the Mind Map, while the whole collection's
+links were the Graph. The Graph is this note's links now, and the Mind Map is
+the collection's links, a tab of its own (§6). A choice stored as "mindMap",
+"askLibrary" or "assistant" is read leniently, as the outline.
 
 ---
 
@@ -70,25 +76,23 @@ open still draws.
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│ [▤] [#] [⇄] [◇] [↺] [◈]  │  [⋈] [✧] [✦]                         ⊗ │  40pt · chrome grey · rule below
+│ [▤] [#] [⇄] [◇] [↺] [⋈]                                          ⊗ │  40pt · chrome grey · rule below
 └────────────────────────────────────────────────────────────────────┘
-   the note's six          the collection's three                Close
+   the note's six                                                Close
 ```
 
 - **40pt, the bar's height and colour**, so the panel's header, the bar over
   the editor and the sidebar's header make one continuous row (D1).
-- **A strip of nine buttons**, the bar's own 28pt `ChromeButton`s, 4pt apart:
-  the note's six, a 1 × 16pt rule, the collection's three. The chosen view is
-  drawn as a bar button that is on: its glyph in the accent over the accent at
-  30%. **The strip is visible, not behind a tap** (D6): what you can switch to
+- **A strip of six buttons**, the bar's own 28pt `ChromeButton`s, 4pt apart.
+  The chosen view is drawn as a bar button that is on: its glyph in the accent
+  over the accent at 30%. **The strip is visible, not behind a tap** (D6): what you can switch to
   should be seen. The strip draws no title; the highlighted button says what is
   showing.
-- **The note's six are disabled when no note is open.** The header does not
-  switch away from one that is already chosen (§5).
+- **The six are disabled when no note is open.** The header does not switch
+  away from one that is already chosen (§5).
 - **Too narrow for the strip** (the panel's floor is 220pt), the header shows a
   pull-down instead: the current view's glyph and **name** and a chevron,
-  opening a menu with two sections, **This note** and **This collection**, and
-  a check on the current view. `ViewThatFits` chooses, so the fallback is the
+  opening a menu of the six, with a check on the current view. `ViewThatFits` chooses, so the fallback is the
   layout's own answer rather than a width written down twice.
 - **Close panel** (`xmark.circle.fill`) at the trailing end. It is also the
   window's **cancel action**, so Escape closes the panel when nothing else
@@ -101,15 +105,8 @@ open still draws.
 | Route | Effect | Platforms |
 |---|---|---|
 | Bar ▸ **Show Panel / Hide Panel** (`sidebar.trailing`, the bar's last button, drawn on while the panel shows) | toggles it, on the last view used | both |
-| Bar ▸ **Note Actions ⌄ ▸ Show Panel / Hide Panel** | the same | both |
-| Bar ▸ **Note Actions ⌄ ▸ Mind Map**; status bar ▸ mind map button | Mind Map | both |
-| View ▸ **Graph View** (⇧⌘G), **Ask Library** (⇧⌘J), **Assistant** (⇧⌘A) | that view | both (menu bar) |
-| Bar ▸ **More ⋯ ▸** Assistant, Ask Your Library, Graph View | that view | both |
-| Collection status bar (no note open) ▸ Graph view, Ask your library, Assistant | that view | both |
-| Note ▸ **Summarise Note** · **Suggest Tags** · **Suggest Links**; the status bar's ✦ menu; Note Actions ⌄; the palette; the AI place | Outline, Tags or References, and asks that view to run the suggestion (see §9, item 1) | both |
-| A selection's **Ask Your Library** | Ask Library, asking "Explain this, using my notes: *phrase*" | both |
-| Compact **AI** place ▸ Ask Your Library, Assistant | that view | both, compact shell |
-| Command palette | Graph View, Ask Your Library, Assistant | both |
+| View ▸ **Graph** (⇧⌘G); the command palette | Graph | both (menu bar) |
+| Note ▸ **Summarise Note** · **Suggest Tags** · **Suggest Links**; Note Actions ⌄; the palette; the AI place | Summary & Outline, Tags or Links, and asks that view to run the suggestion | both |
 
 The routes that show a view go through `showPanel(_:)`, which sets the view and
 shows the panel. The three suggestion routes go through `askInspector(_:)`,
@@ -134,7 +131,8 @@ use. As an overlay it is always 360.
 
 ## 5. The note's views
 
-Outline, Tags, References, Properties and History are all `NoteInspector`. Its
+Summary & Outline, Tags, Links, Properties and History are all `NoteInspector`
+(whose cases keep their older names, `outline` and `references`). Its
 content is aligned to the top, because a bare `maxHeight: .infinity` centres a
 short outline in a tall panel, which reads as a layout fault. References and
 Properties scroll as a whole. In Outline only the headings box scrolls, and in
@@ -147,7 +145,7 @@ where they are.
   other four draw an empty note: no summary, no tags, and References says
   "Nothing links to this note yet, and it links nowhere." (§9, item 2).
 
-### 5.1 Outline
+### 5.1 Summary & Outline
 
 1. **SUMMARY**: a **Summarise** button (**Again** once there is a summary), a
    sentence explaining it, the summary once it arrives, and **Save to
@@ -179,7 +177,7 @@ that already has rows, snippets and selection: the primary sidebar
 ([primary.md](primary.md) §3.3). The panel sets the filter; it does not draw a
 second list of notes.
 
-### 5.3 References
+### 5.3 Links
 
 1. **SUGGESTED** with **Suggest** (a model call over the collection's retrieval
    neighbours): accepted suggestions are added to the note's `related:`
@@ -208,28 +206,34 @@ editor's buffer and are saved with it.
 collection's Git repository, and restoring a revision into the editor. Without a
 note: **No Note** ("Select a note to see how it has changed.").
 
-### 5.6 Mind Map
+### 5.6 Graph
 
-`MindMapPanel`: the open note as a map, built from the **live buffer** (what is
-being typed) when the editor holds the note, and from the file otherwise. A
-link node opens the linked note. A section node opens the note and searches its
-text for the heading, which lands on the first match, not necessarily the
-heading itself; the root and bullet nodes only open the note. Without a note:
-**No Note** ("Open a note to map it."). The view draws its own header row: a
-"Mind Map" title, zoom controls and **Open "*note*"** (§9, item 7).
+`NoteGraphPanel` → `GraphPane`: the open note at the centre, ringed, and what
+links to it and what it links to around it — arrows coloured by direction while
+a node is focused — under two rows: "Links in and out" with **Link distance**
+(Direct links, Within 2 links, Within 3 links; remembered as `noteGraphDepth`),
+and the graph's own "*n* notes · *m* links" with zoom controls. Built from the
+collection the note is in, not the focused one. A single click focuses a node; a
+double-click opens its note, and the graph follows it. With no links: **No
+Links**; without a note: **No Note** ("Open a note to see its links in and
+out.").
 
 ---
 
-## 6. The collection's views
+## 6. The collection's tools — tabs, not views of the panel
 
-| View | Content | Notes |
-|---|---|---|
-| **Graph** | `GraphPane`: the link graph, under two rows. The first is a strip of two unlabelled pop-ups: the scope, **Whole Collection** or **Around "*note*"** (or "Around Focused Note"), and, around a note, the link distance, **1–3 links**. The scope is disabled while no node is focused. When the graph is capped: "Showing the *n* most-connected notes · *m* more hidden". The second is the graph's own: "*n* notes · *m* links" and zoom controls | the strip falls back to one line, a shorter line, or two rows (`ViewThatFits`) |
-| **Ask Library** | `LibraryChatView`: retrieval-augmented questions over every open collection, answers with links back | a question sent from a selection waits on the app-wide library and is asked automatically when an Ask Library view next appears, in whichever window that is. If Ask Library is already showing, it waits |
-| **Assistant** | `AssistantHost`: the agentic assistant. It draws its own header row (agent mode, the model, New conversation, AI settings), and its edits need approval (`EditApprovalView`) | |
+The collection's tools open in the middle of the window as **tabs beside the
+notes** (`CollectionTool`, `ToolTabs`), from the sidebar's rows
+([primary.md](primary.md)), the View menu (⇧⌘M, ⇧⌘J, ⇧⌘A), the command palette,
+a selection's Ask Your Library, and on a phone the AI place and the Notes
+place's ⋯. Choosing a note puts them behind it; closing the one in front shows
+the note again. They are not remembered across launches.
 
-None of the three keeps a window's habits. The graph used to demand a 560pt
-minimum and drew past the edge of the first panel it was put in.
+| Tool | Content |
+|---|---|
+| **Mind Map** | `MindMapView`: the links across the sidebar's collection, as a mind map (`CollectionMindMap`). The collection at the centre; its most-connected notes head the coloured branches — each group of linked notes' best-connected one, and any note with three or more links of its own besides those to other heads; every other note on the branch that reaches it first; the links the tree leaves out as faint dashed cross-links. A header with the collection's name, "*n* notes · *m* links" (the tooltip says how many linked notes the 160-note cap left off and how many notes have no links) and zoom. Built off the main actor from a snapshot of the link graph's backlinks. Clicking a note opens it |
+| **Ask Your Library** | `LibraryChatView`: retrieval-augmented questions over every open collection, answers with links back. A question sent from a selection is taken as it is asked, whether the tab is just opening or already in front |
+| **Assistant** | `AssistantHost`: the agentic assistant. It draws its own header row (agent mode, the model, New conversation, AI settings), and its edits need approval (`EditApprovalView`) |
 
 ---
 
@@ -248,9 +252,10 @@ A row that cannot apply is **disabled, not hidden**. In the This note group the
 footer says why; the first group's footer is fixed text, so a disabled Ask Your
 Library or New Note from a Prompt… gives no reason. Review Links… is disabled
 with the rest of its group when no model is available,
-although it needs none (`menu.md` §8). Ask Your Library, Assistant and the three
-note actions open the panel, which on a phone is drawn over the AI place itself
-while no note is expanded (§2).
+although it needs none (`menu.md` §8). Ask Your Library and the Assistant open
+as tools, expanded over the places as a note is; the three note actions open the
+panel, which on a phone is drawn over the AI place itself while no note is
+expanded (§2).
 
 ---
 
@@ -258,14 +263,11 @@ while no note is expanded (§2).
 
 - **Tags filter the primary sidebar**: the two sidebars cooperate across the
   editor (L1).
-- **The editor's status bar repeats three panel views as popovers**: Properties,
-  Links (the References content, without suggestions) and Outline & statistics.
-  It also opens the Git pane as a popover and **Version History as a sheet**.
-  The popovers are routes for a note window, which has no panel. In a note
-  window, though, Links always says "No References", because the window passes
-  no references, and the mind-map button does nothing (`toolbars.md` §14). The
-  History sheet is a modal over the note, which §1 rules out; the panel's
-  History view is the same content without it.
+- **A note window's bottom bar repeats three panel views as popovers** —
+  Properties, Links (without suggestions) and Outline & statistics — and opens
+  the Git pane as a popover and **Version History as a sheet**, because a note
+  window has no panel. The main window's bottom bar holds none of them (D13):
+  the panel is beside it.
 - **Menu commands land here.** Summarise, Suggest Tags and Suggest Links are
   meant to run in the view that owns the answer (`InspectorRequest`), so the
   command is found in one fixed place (the Note menu) and its answer is where
@@ -296,25 +298,24 @@ while no note is expanded (§2).
    Suggest buttons are always drawn, because the shell always passes the model
    calls; with no model, pressing one shows an error. `NoteInspector` was written
    for `nil` to hide them, and the Note menu already greys them out. *Fixed (implemented.md §51.36).*
-4. **Most of the panel has no menu item.** Show/Hide Panel, Outline, Tags,
-   References, Properties, History and Mind Map have none. Outline, Tags and
-   References are reachable from the menu bar only indirectly, through Note ▸
-   Summarise Note, Suggest Tags and Suggest Links. Only Graph, Ask Library and
-   Assistant are in the View menu. See [menu.md](menu.md) §8.
+4. **Most of the panel has no menu item.** Show/Hide Panel, Summary & Outline,
+   Tags, Links, Properties and History have none. Summary & Outline, Tags and
+   Links are reachable from the menu bar only indirectly, through Note ▸
+   Summarise Note, Suggest Tags and Suggest Links. Only the Graph is in the View
+   menu (with the collection's Mind Map, Ask Your Library and Assistant beside it).
+   See [menu.md](menu.md) §8.
 5. ✅ ~~**The outline's headings are capped at 320pt high**~~, a leftover from when it
    was a popover. In a tall panel, a long outline scrolls inside a short box. *Fixed (implemented.md §51.36).*
 6. ✅ ~~**The panel's cap is not applied.**~~ `ShellMetrics.panelCap` (560) is
    declared and read by nothing. The panel can be dragged to whatever leaves the
    editor 320pt: 1,000pt or more on a large display. Decide: apply the cap, or
    delete it and say that the only limit is the editor's floor. *Fixed (implemented.md §51.36).*
-7. **Three views add rows of their own.** Graph adds two (its pop-up strip and
-   its counts-and-zoom row), and the Mind Map and the Assistant one each, under
-   the panel's own header: four extra rows of chrome, which D1 forbids, drawn
-   four different ways.
+7. **The Graph adds two rows of its own** (its distance strip and its
+   counts-and-zoom row) under the panel's own header, which D1 forbids.
 8. ✅ ~~**Escape has three owners inside the panel's reach.**~~ The panel's Close, the
    find bar's Done and the Assistant approval card's Deny are all
    `.cancelAction`. During an approval, Escape may close the panel instead of
    denying the edit. *Fixed (implemented.md §51.36).*
 9. **What the panel shows is app-wide; whether it shows is per window.** Two
-   windows cannot show two different views: choosing Graph in one switches the
-   other. This follows L10 as written; it is recorded because it surprises.
+   windows cannot show two different views: choosing the Graph in one switches
+   the other. This follows L10 as written; it is recorded because it surprises.

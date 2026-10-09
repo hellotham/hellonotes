@@ -8416,6 +8416,211 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.37 The collection on the left, the note on the right, each command in one place (2026-10-09)
+
+Testing build 27 on the Mac, the person found the bars confusing and duplicated:
+the More menu, Note Actions and the bottom bar carried the same commands three
+times, and the collection's commands were in none of them that was the
+collection's. The Graph and the Mind Map were also the wrong way round. They set
+the arrangement themselves, and `shell-chrome.md` D13 records it. It amends D8
+(no command in the sidebar) and D6 (nine views in the right panel).
+
+**Where everything is now.**
+
+- **The sidebar is the collection.**
+  - Above the tree, named rows for its tools: **Mind Map**, **Assistant**, **Ask
+    Your Library** and **Git** (its branch, a dot for changes, and the Git pane
+    in a popover).
+  - Below the tree: **New Folder…**, **New Collection** ⌄, **Open Collection** ⌄
+    (with Open Recent…) and **Open Default Collection**.
+  - These are rows in the column and a strip across the top of the tall shell's
+    band, from one definition (`SidebarCommands.swift`). The header's `+` became
+    the two collection rows.
+- **The bar over the editor is the notes.**
+  - Search · Sidebar · New Note · **Today's Note** · **Find & Replace** · More ⋯
+    | tabs | Note Actions ⌄ · Panel.
+  - More ⋯ went from seventeen items to five: Quick Capture, Open Quickly, New
+    Note from a Prompt, Open Note in New Window and Settings.
+  - Note Actions lost its view-mode picker, Show Panel and Mind Map, which each
+    have a place already.
+- **The right panel is the open note.** Summary & Outline, Tags, Links,
+  Properties, History and **Graph**. A view stored as one of the old three reads
+  as the outline.
+- **The collection's tools are tabs** (`CollectionTool`, `ToolTabs`). The Mind
+  Map, the Assistant and Ask Your Library open after the notes' tabs. Choosing a
+  note puts them behind it, and they are not remembered across launches. On a
+  phone a tool opens as the expanded front, as a note does.
+  - Ask Your Library now takes a question asked while its tab is already in
+    front (Explain, from a selection). As a panel view it was rebuilt each time.
+- **The bottom bar is how the note is shown**: the save status and the four
+  modes. Eleven buttons went, each to a place it already had.
+  - A note window, with no panel and no command bar, keeps them
+    (`NoteEditorView.commandsInBottomBar`).
+  - The bottom bar's AI menu went altogether, because no note window ever
+    passed it a model.
+  - The no-note status bar keeps the collection's status and loses its six
+    buttons.
+- **Menus.** View ▸ **Graph** (⇧⌘G, which needs a note) and **Mind Map** (⇧⌘M,
+  new). Ask Library and the Assistant open as tabs. The palette gains Mind Map.
+- **The search field's minimum** came down from 120pt to 72pt, so the seven
+  buttons fit: the bar's fixed part is 320pt (`toolbars.md` §3.1).
+
+**The Graph and the Mind Map, the right way round.**
+
+- **The Graph is the open note's links in and out**
+  (`GraphData.build(around:in:depth:)`).
+  - Direct links by default, or within two or three links.
+  - It is built from the collection the note is in. The pane read
+    `library.focused`, which with two collections open could be the other one.
+  - The "Whole Collection" scope is gone: the Mind Map is the collection's.
+- **The Mind Map is the links across the collection, drawn as a mind map**
+  (`CollectionMindMap`).
+  - The collection is at the centre.
+  - Branches are headed by each group of linked notes' best-connected note,
+    plus any note with three or more links of its own besides those to other
+    heads.
+  - The first version forbade a head to be linked to another head, and drew the
+    sample collection, whose Start Here links to Index, as one branch.
+  - Every other note goes on the branch that reaches it first. Every link the
+    tree leaves out is drawn as a faint dashed cross-link, so all of them are on
+    the map.
+  - It keeps the 160 most-connected notes, and the header counts the notes that
+    have no links.
+  - It is built off the main actor from a snapshot of the link graph's
+    backlinks, which already hold every link resolved.
+- **The per-note map is gone.** It drew one note's headings and links: the
+  Outline has the headings and the Graph has the links. Its pane, its panel and
+  its text parser went with it, and so did `LiveBuffer`. The map was
+  `LiveBuffer`'s only reader, yet the editor published the whole note into it
+  after every pause in typing.
+
+**Found by looking: the Graph's labels were in a pile.**
+
+- The window root makes every line its size plus three
+  (`chromeDefaults`, `.lineHeight`). That reaches text drawn into a `Canvas`,
+  where `GraphicsContext.draw(_:at:)` then ignores the point. Every node's label
+  landed at the canvas's origin, on both platforms, build 27 included.
+- The fix is `.lineHeight(nil)` on the canvas.
+- A first probe rendered the graph without the root's defaults and drew it
+  correctly. With them added, it reproduced the pile on the Mac.
+- `GraphLabelTests` renders the graph under the root's defaults on whichever
+  platform it runs, and checks that the labels' ink spreads across the canvas.
+  With the fix removed it fails.
+
+**Found by checking the rules against the code: New Note on the Mac went to the
+root.**
+
+- "New Note in the current folder" held only on the tall shell, whose band
+  picks a folder. A column's sidebar selects notes and never folders — a
+  folder row only opens and closes — and `newNoteFolder` returned no folder
+  there. So New Note (the bar's, and ⌘N) from a note three folders down made
+  the new note at the collection's root, somewhere else in the tree.
+- In a column, the folder you are in is now the selected note's
+  (`ShellActions.newNoteFolder(band:bandShowing:selected:collectionIDs:)`),
+  opened first like the band's. The band still wins while it shows, and a note
+  outside every open collection names no folder.
+- `NewNoteFolderTests.theSelectedNotesFolderInAColumn` failed all three of its
+  expectations against the old rule, run first as the control.
+
+**Found by the manual's fact-check** (the `docs-fact-checker` agent, over the
+seven bundled pages this change rewrote: 53 claims true, three false, and one
+wrong shortcut beside them). Each was read in the source before it was changed.
+
+- **The phone lost its route to the Mind Map.** The panel had been the phone's
+  only visible route to the collection's map. The Library place lists the tools
+  only while no collection is chosen, so once the Mind Map left the panel, a
+  phone with a collection open had no route at all. This section's own first
+  draft said the AI place and the Notes place's ⋯ held it; neither did. The
+  Notes place is the phone's sidebar now, with the sidebar's rows from the same
+  definitions — the tools above its collections, making and opening
+  collections below — and its ⋯ keeps New Note and Settings…. The Library
+  place keeps the bar's commands: New Note, New Note from a Prompt…, Quick
+  Capture… and Settings…. `addCollectionItems`, the menu the rows replace, is
+  deleted. `ShellComplianceTests.thePhonesNotesPlaceIsItsSidebar` failed five
+  times against the old arrangement.
+- **The Mind Map said what it leaves out only in a hover.** The notes with no
+  links, and the notes past the cap, were a `.help` tooltip, which an iPad and
+  a phone cannot show. The counts and what the map leaves out are now a line
+  under the title. Beside the title, a phone's width had cut the counts off
+  mid-word ("16 notes · 19 lin…") and wrapped "Mind Map" onto two lines. Seen
+  in the iPhone simulator, before and after.
+- **There is no pull.** The Git pane offers Commit, then Push and Fetch;
+  SwiftGitX cannot merge. `Syncing.md` said "push and pull", and so did the
+  empty account list in Git settings. Both say fetch now.
+- **One command, one name.** The View menu and the AI settings said "Ask
+  Library", and everything else said "Ask Your Library". They all say "Ask Your
+  Library" now.
+- **The shortcut index** gave ⌃⌘D as Move to Trash. Move to Trash is ⌘⌫, and
+  ⌃⌘D is Dictate to Daily Note. The index also lacked ⌘1–⌘4, the view modes,
+  which are now the bottom bar's only content.
+- **Four tips nothing attached are deleted.** One was Open Quickly's, which
+  named ⌘O for a ⇧⌘O command. The others were wiki links, embeds and Rescan.
+- **The interface tests launch with `-HNHideTips`.** On a fresh device the
+  Mind Map row's tip comes up over the phone's Notes place and takes the first
+  tap.
+- **A second pass over the corrected lines** found two more mistakes, in this
+  change's own wording:
+  - The sidebar has *one* Git row, for the selected collection, not one per
+    collection, and Push and Fetch appear only once there is a remote.
+  - The iPad sentence left out the views at the foot of the note. It also
+    left out that three commands are only in the menu bar: the Command
+    Palette, New Window and Dictate to Daily Note.
+
+  Both are fixed. The same pass found two things outside the app. The
+  repository's screenshots skill clicked `View ▸ Graph View` and `View ▸ Ask
+  Library` by name, and both items are renamed. The README still described
+  the old Graph and Mind Map. Both are updated.
+
+**Tests.**
+
+- `MapAndGraphTests`:
+  - The Mind Map: every linked note once, every link a line or a cross-link,
+    each group a branch, a cluster beside the first its own branch, the cap,
+    the same map twice, every node placed, no links.
+  - The panel is the note's.
+  - The tool tabs.
+  - The Graph's links in and out, one link deep and two.
+- `GraphLabelTests`, with a negative control.
+- `ShellComplianceTests`: presented one way; the panel is the note's; **each
+  command is in one place**. Checked against the committed arrangement, which
+  fails every part of it. And **the phone's Notes place is its sidebar**, which
+  fails against the arrangement before the fact-check.
+- `NewNoteFolderTests`: the selected note's folder in a column; a note outside
+  the open collections names none.
+- `CommandPaletteTests`: the Mind Map entry.
+- Removed: the note map's parser tests, its escaped-alias test and the
+  live-buffer test, whose subjects are gone.
+
+**Seen, not inferred.** In the iPhone simulator: the Notes place's rows, the
+Mind Map's first-run tip over them, and the Mind Map opened from its row with a
+collection open, which is the route the phone had lost. In the iPad simulator in
+landscape, which uses the same shell as the Mac:
+- the sidebar's rows;
+- the bar;
+- the Mind Map tab, with two branches and their cross-links;
+- a note chosen in front of it, with the tab kept behind;
+- the panel's six views;
+- the Graph, before and after the label fix.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| App suite (`run-tests.sh`) | 843 tests in 128 suites, pass. One full run in between failed `AdaptiveSplitTests`' real-mouse drag twice; it passed 3 of 3 on its own and in the full runs either side, and nothing it covers changed |
+| The new and changed suites, on iOS | 44 in 8, pass; `NewNoteFolderTests` 5 of 5 |
+| iOS interface tests | 12 pass, and the opt-in window-parity capture skips — run again after the phone's Notes place changed |
+| `chrome-parity.sh` | 16 scenes ok; the panel header now Δ1 (it was Δ6) |
+| Swift 6 type-check | 0 errors, no new warnings; a planted error in `CollectionMindMap.swift` reported |
+| Release builds (macOS, iOS device) | both succeed; no warnings in any changed file |
+
+**Left.**
+
+- The note window keeps the note's commands in its bottom bar. Giving it the
+  main window's bar and panel would let its bottom bar be the modes alone too.
+- The listing's "graph view of your whole vault" bullet is rewritten in
+  `docs/app-store-listing.md`. The field in App Store Connect still has the old
+  text. The website's 1.3.3 manual is not updated.
+
 ## 23. Edit and Preview render the same document
 
 > **The problem, stated as the user did:** *"Edit and Preview must render Markdown

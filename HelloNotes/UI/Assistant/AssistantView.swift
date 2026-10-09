@@ -43,8 +43,8 @@ struct AssistantView: View {
     // MARK: - Header
 
     private var header: some View {
-        // No title and no Done: the right panel's header (`SidePanelHeader`)
-        // names the panel and closes it, on both platforms.
+        // No title and no Done: its tab beside the notes (`EditorTabBar`)
+        // names it and closes it, on both platforms.
         HStack(spacing: 10) {
             Spacer()
             Toggle(isOn: $model.agentMode) {

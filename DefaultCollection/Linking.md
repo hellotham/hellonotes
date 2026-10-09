@@ -19,16 +19,21 @@ and that still follows the note if the rest of the path changes.
 
 ## Backlinks
 
-Open the **Links** inspector on any note and you will see what points *at* it —
+Open **Links** in the panel on any note and you will see what points *at* it —
 including **unlinked mentions**, places where a note's title appears as plain
 text and could become a link. This note is linked from [[Start Here]], which is
-why that inspector is not empty.
+why its Links are not empty.
 
-## The graph
+## The graph and the mind map
 
-**⇧⌘G** opens the graph: notes as nodes, links as arrows. It is most useful for
-noticing what *isn't* connected — an orphan usually means a note you forgot to
-file rather than one nobody needs.
+**⇧⌘G** shows this note's **Graph** in the panel beside it: what links to it and
+what it links to, as nodes and arrows — and, if you like, what those connect to
+a link or two further on.
+
+**⇧⌘M**, or **Mind Map** at the top of the sidebar, draws the links across the
+whole collection as a mind map, in a tab of its own. Under its title it says how
+many notes have no links at all — usually a note you forgot to link rather than
+one nobody needs.
 
 ## Aliases
 

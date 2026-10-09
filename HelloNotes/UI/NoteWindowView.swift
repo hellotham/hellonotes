@@ -122,7 +122,10 @@ struct NoteWindowView: View {
                 linkCandidates: notes.map(\.title),
                 tagCandidates: collection?.search.allTags() ?? [],
                 onOpenWikiLink: openWikiLink,
-                onOpenNote: { openWindow(value: NoteRef($0.fileURL)) })
+                onOpenNote: { openWindow(value: NoteRef($0.fileURL)) },
+                // A note window has no panel and no command bar, so the note's
+                // commands stay in its bottom bar.
+                commandsInBottomBar: true)
         } else {
             ChromeEmptyState("Note Unavailable", systemImage: "doc.text",
                              description: Text("This note could not be opened."))
@@ -132,7 +135,8 @@ struct NoteWindowView: View {
     /// The window's bar: the main window's bar row (`shellBar`), drawn by the
     /// app — 40pt, the chrome grey, a rule below, and the window dragged by its
     /// background. It carries only the title; the note's commands are in the
-    /// editor's bottom bar, as they are in the main window. The title is
+    /// editor's bottom bar, which in the main window holds only the view modes
+    /// (`NoteEditorView.commandsInBottomBar`). The title is
     /// centred on the window, as a title bar's is, and kept clear of the Mac's
     /// window buttons on both sides so it stays centred.
     private var windowBar: some View {

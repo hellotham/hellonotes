@@ -181,11 +181,13 @@ decisions are not:
   retracts when the note is expanded, not in response to scroll direction.
 - 🟡 **A keyboard accessory bar** for touch editing (Part 3) — not built.
 - 🟡 **What the UI registers still hold is design** — each UI design document ends with the defects and gaps its fact-checks found ([ui.md](ui.md) §12, [primary.md](primary.md) §12, [secondary.md](secondary.md) §9, [toolbars.md](toolbars.md) §14, [menu.md](menu.md) §8, [tabs.md](tabs.md) §2.5), and those lists stay the register. Their defects are fixed and marked there (implemented.md §51.36); what is left is design and new work — the tabs redesign proposed in [tabs.md](tabs.md) §3–§9 above all.
+- 🟡 **A note window has no panel and no command bar** (D13, implemented.md §51.37). The main window's bottom bar is the view modes alone now; a note window's still carries the note's commands — Find, its properties, links and outline as popovers, slides, a diagram, version history, export, a new window — because it has nowhere else for them (`NoteEditorView.commandsInBottomBar`). Giving it the main window's bar (Find & Replace, Note Actions, Panel) and the note's panel would let its bottom bar be the modes too, and retire the popovers.
 
 ---
 
 ## 7 · iOS / iPadOS parity
 
+*Resolved and moved to implemented.md §51.37 (2026-10-09): with the Mind Map out of the panel, a phone with a collection open had no visible route to it (this list said it had two; neither held it). The Notes place is the phone's sidebar now, with the sidebar's rows — the collection's tools above its list, making and opening collections below.*
 *Resolved and moved to implemented.md §51.9–§51.10 (2026-09-24): the tapped line scrolled above the top of the editor when the keyboard came up (scroll-past-end was a covered inset; the Mac had the same shape); the diagram zoom opening on the first diagram in Markdown and Split (a View diagram button on every diagram's fence now).*
 *Resolved and moved to implemented.md §51.29 (2026-09-29): Split mode lost the keyboard when it changed from stacked to side by side — on an iPad in portrait the keyboard itself made that change — because its two arrangements were two branches of an `if`; one `AnyLayout` keeps the panes now, with a rule of the app's own that drags on both platforms. Every rule that drags, `ResizableDivider` included, followed the pointer at half speed; each drag is measured in a space that does not move.*
 

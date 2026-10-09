@@ -35,14 +35,6 @@ struct EscapedAliasLinkTests {
         #expect(resolved.dropped == ["Gone"])
     }
 
-    /// The mind map: a table's aliased link drew no leaf.
-    @Test func theMindMapDrawsTheNote() {
-        let url = URL(fileURLWithPath: "/tmp/Other.md")
-        let model = MindMapModel(rootTitle: "Root", text: #"Intro mentioning [[Other\|the other one]]."#,
-                                 resolveLink: { $0 == "Other" ? (url, "Other") : nil })
-        #expect(model.nodes.contains { $0.title == "Other" }, "no leaf for the linked note: \(model.nodes.map(\.title))")
-    }
-
     /// A rename rewrites a table's aliased links to the note, keeping their
     /// escape. It looked for the old name followed by `#`, `|` or `]]`, so
     /// `[[Old\|alias]]` kept the old name and broke.

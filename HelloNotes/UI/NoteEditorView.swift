@@ -66,14 +66,17 @@ struct NoteEditorView: View {
     /// renaming is a *collection* operation — it moves the file and rewrites
     /// every `[[wiki-link]]` pointing at it.
     var onRenameNote: (String) -> Void = { _ in }
-    /// Show the note's mind map — `nil` where nothing can (a note window has
-    /// no panel), which hides the button: it was there, and did nothing
-    /// (toolbars.md §14, item 5).
-    var onShowMindMap: (() -> Void)? = nil
-
-    /// The window's AI commands, so the bottom bar can offer them where a
-    /// writer's eyes already are. `nil` when there is no working model.
-    var ai: AIActions? = nil
+    /// Whether the note's commands — Find, its properties, links, outline and
+    /// history, slides, a diagram, export, a new window — are in the bottom
+    /// bar, beside the view modes.
+    ///
+    /// Only in a note window, which has no panel and no command bar, so the
+    /// bottom bar is the one place they can be. In the main window each has a
+    /// place already — the note's views in the panel, its commands in the bar
+    /// over the editor — and the bottom bar is how the note is shown: the
+    /// modes, and whether it is saved. It carried all of them as well, a third
+    /// copy of most.
+    var commandsInBottomBar = false
 
     /// What the collection can do with a selected phrase — items in the
     /// editor's selection menu (`SelectionActions`).
@@ -84,11 +87,6 @@ struct NoteEditorView: View {
     @Environment(AppearanceSettings.self) private var appearance
     /// The pane this editor was given — the width rules resolve against it.
     @Environment(\.shell) private var shell
-    /// Published so a surface in another scene — the mind map — can show what
-    /// is being typed rather than what was last saved. Here rather than in each
-    /// shell because this view is the one both platforms put in the editor
-    /// column, so there is exactly one place the buffer is known.
-    @Environment(LiveBuffer.self) private var liveBuffer
     @State private var showGitPane = false
 
     /// Folder (relative to the note) where pasted images are saved; empty means
@@ -334,13 +332,6 @@ struct NoteEditorView: View {
                 // version, not the buffer's: reading the buffer's here made this
                 // whole column — and the pane inside it, whose closures SwiftUI
                 // cannot compare — redraw on every keystroke there.
-                .onChange(of: editor.settledText.version, initial: true) { _, _ in
-                    // Another scene's mirror of this buffer. Nothing is looking
-                    // at it mid-keystroke, and publishing hands a whole-document
-                    // string across, so it waits for the burst to end like
-                    // everything else.
-                    liveBuffer.publish(url: editor.note?.fileURL, text: editor.settledText.text)
-                }
                 // Keyed on the note, its load and its saves — never its text,
                 // so typing does not re-ask, and the answer follows the note
                 // within an autosave: the same key as the note menu's
@@ -690,7 +681,9 @@ struct NoteEditorView: View {
         // The threshold is measured, not guessed: the row's minimum is 512.67pt
         // (see the note on `barRow`), rounded up for the horizontal padding.
         GeometryReader { geo in
-            let fits = geo.size.width >= 533
+            // Without the commands the row is the save status, which truncates,
+            // and the mode switcher: it fits any width a note is shown at.
+            let fits = !commandsInBottomBar || geo.size.width >= 533
             Group {
                 if fits {
                     barRow
@@ -733,11 +726,10 @@ struct NoteEditorView: View {
             // Status (left). Single-line and truncating, so a narrow window
             // shortens the text instead of wrapping it vertically.
             saveStatus.labelStyle(.titleAndIcon).lineLimit(1)
-            // The change count is a *button*: it is the only place on iPad
-            // that names Git at all, and naming a thing you cannot open is
-            // worse than not naming it. The Mac has a second route from its
-            // status bar; this is the one both platforms share.
-            if git.status.isRepository {
+            // The change count is a *button*, opening the Git pane — in a note
+            // window. The main window's Git is the sidebar's, with its
+            // collection.
+            if commandsInBottomBar, git.status.isRepository {
                 ChromeStatusSeparator()
                 Button {
                     showGitPane = true
@@ -763,76 +755,62 @@ struct NoteEditorView: View {
 
             modePicker
 
-            ChromeStatusSeparator()
+            if commandsInBottomBar { noteCommands }
+        }
+    }
 
-            // Actions (right) — dynamic per context
-            barButton("Find & replace (⌘F)", "magnifyingglass", action: toggleFindBar)
-                .disabled(mode != .edit)
-            barButton("Edit front-matter properties", "list.bullet.rectangle") {
-                // Seed from the buffer as the popover opens, so this can never
-                // show values the inspector has since changed.
-                properties = FrontMatter.properties(in: editor.text)
-                showProperties = true
-            }
-            .popover(isPresented: $showProperties, arrowEdge: .bottom) {
-                PropertiesEditor(properties: $properties, onChange: applyProperties)
-                    .padding(12)
-                    .frame(width: 320)
+    /// The note's commands, for a note window's bottom bar (see
+    /// `commandsInBottomBar`).
+    @ViewBuilder
+    private var noteCommands: some View {
+        ChromeStatusSeparator()
+        barButton("Find & replace (⌘F)", "text.magnifyingglass", action: toggleFindBar)
+            .disabled(mode != .edit)
+        barButton("Edit front-matter properties", "list.bullet.rectangle") {
+            // Seed from the buffer as the popover opens, so this can never
+            // show values the inspector has since changed.
+            properties = FrontMatter.properties(in: editor.text)
+            showProperties = true
+        }
+        .popover(isPresented: $showProperties, arrowEdge: .bottom) {
+            PropertiesEditor(properties: $properties, onChange: applyProperties)
+                .padding(12)
+                .frame(width: 320)
+                .presentationCompactAdaptation(.popover)
+        }
+        barButton("Links to and from this note", "link") { showReferences = true }
+            .popover(isPresented: $showReferences, arrowEdge: .bottom) {
+                referencesPopover
                     .presentationCompactAdaptation(.popover)
             }
-            barButton("Links to and from this note", "link") { showReferences = true }
-                .popover(isPresented: $showReferences, arrowEdge: .bottom) {
-                    referencesPopover
-                        .presentationCompactAdaptation(.popover)
-                }
-            barButton("Outline & statistics", "list.bullet.indent") { showOutline = true }
-                .popover(isPresented: $showOutline, arrowEdge: .bottom) {
-                    OutlineView(content: editor.settledText, onSelectHeading: jumpToHeading)
-                        .presentationCompactAdaptation(.popover)
-                }
-            if let onShowMindMap {
-                barButton("Mind map of this note's ideas", "brain", action: onShowMindMap)
+        barButton("Outline & statistics", "list.bullet.indent") { showOutline = true }
+            .popover(isPresented: $showOutline, arrowEdge: .bottom) {
+                OutlineView(content: editor.settledText, onSelectHeading: jumpToHeading)
+                    .presentationCompactAdaptation(.popover)
             }
-            if noteKind.isMarp {
-                barButton("Present as slides (Marp)", "rectangle.on.rectangle") { showSlides = true }
-            }
-            if noteKind.hasMermaid {
-                barButton("View diagram", "chart.xyaxis.line") { openDiagramZoom() }
-            }
-            // The AI actions, as a menu rather than a panel. Every item names
-            // where its answer will appear, so pressing one teaches the rail
-            // instead of replacing it — which is what the old Intelligence
-            // sheet did, and why nobody found their way back to it.
-            if let ai {
-                ChromeStatusMenu(help: "Summarise, suggest and rewrite with \(ai.modelName)",
-                                 systemImage: "sparkles") {
-                    Button("Summarise Note", systemImage: "text.append", action: ai.summarize)
-                    Button("Suggest Tags", systemImage: "number", action: ai.suggestTags)
-                    Button("Suggest Links", systemImage: "link.badge.plus", action: ai.suggestLinks)
-                    Divider()
-                    Button("Rewrite or Expand Note…", systemImage: "wand.and.stars", action: ai.rewriteNote)
-                    Divider()
-                    Text("via \(ai.modelName)")
+        if noteKind.isMarp {
+            barButton("Present as slides (Marp)", "rectangle.on.rectangle") { showSlides = true }
+        }
+        if noteKind.hasMermaid {
+            barButton("View diagram", "chart.xyaxis.line") { openDiagramZoom() }
+        }
+        if git.status.isRepository {
+            barButton("Version history (Git)", "clock.arrow.circlepath") { showHistory = true }
+        }
+        ChromeStatusMenu(help: "Export", systemImage: "square.and.arrow.up") {
+            Button("Export as HTML…") {
+                if let note = editor.note {
+                    EditorExport.exportHTML(markdown: editor.text, title: note.title)
                 }
             }
-            if git.status.isRepository {
-                barButton("Version history (Git)", "clock.arrow.circlepath") { showHistory = true }
-            }
-            ChromeStatusMenu(help: "Export", systemImage: "square.and.arrow.up") {
-                Button("Export as HTML…") {
-                    if let note = editor.note {
-                        EditorExport.exportHTML(markdown: editor.text, title: note.title)
-                    }
-                }
-                Button("Export as PDF…") {
-                    if let note = editor.note {
-                        EditorExport.exportPDF(markdown: editor.text, title: note.title)
-                    }
+            Button("Export as PDF…") {
+                if let note = editor.note {
+                    EditorExport.exportPDF(markdown: editor.text, title: note.title)
                 }
             }
-            barButton("Open this note in a new window", "macwindow.badge.plus") {
-                if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
-            }
+        }
+        barButton("Open this note in a new window", "macwindow.badge.plus") {
+            if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
         }
     }
 

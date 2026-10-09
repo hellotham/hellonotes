@@ -29,7 +29,9 @@ The [[Start Here|tour]] shows you the app. This is the reference.
 | ⌥⌘R | Rescan Collection |
 | ⇧⌘R | Rename… |
 | ⌘D | Duplicate |
-| ⌃⌘D | Move to Trash |
+| ⇧⌘D | Add or Remove Bookmark |
+| ⌘⌫ | Move to Trash |
+| ⌃⌘D | Dictate to Daily Note |
 | ⌘P | Print… |
 
 ### Editing
@@ -38,6 +40,7 @@ The [[Start Here|tour]] shows you the app. This is the reference.
 |---|---|
 | ⌘B | Bold |
 | ⌘I | Italic |
+| ⌥⌘1 – ⌥⌘3 | Heading 1 – 3 |
 | ⇧⌘7 | Bulleted List |
 | ⇧⌘9 | Numbered List |
 | ⌘F | Find… |
@@ -47,14 +50,22 @@ The [[Start Here|tour]] shows you the app. This is the reference.
 
 | | |
 |---|---|
+| ⌘1 – ⌘4 | Edit, Preview, Markdown, Split |
 | ⇧⌘P | Command Palette… |
-| ⇧⌘G | Graph View |
-| ⇧⌘J | Ask Library |
+| ⇧⌘G | Graph — this note's links |
+| ⇧⌘M | Mind Map — the collection's links |
+| ⇧⌘J | Ask Your Library |
 | ⇧⌘A | Assistant |
 | ⇧⌘L | Review Links… |
 
 > [!note] On iPhone and iPad
-> The same commands live in the toolbar and the ⋯ menu. A hardware keyboard
-> gets the shortcuts above. Formatting is on the bar above the keyboard — the
+> On iPad the commands are where this manual says they are — the sidebar, the bar
+> over the note (its ⋯ menu, and **Note Actions** for the note itself), the panel,
+> and the four views at the foot of the note. The menu bar at the top of the screen
+> has the menus a Mac has; the Command Palette, New Window and Dictate to Daily Note
+> are only there. On iPhone, and in a narrow iPad window, the collection's commands
+> are rows in the **Notes** tab, the AI commands have a tab of their own, and an
+> open note's are in its **Note Actions**. A hardware keyboard gets the shortcuts
+> above. Formatting is on the bar above the keyboard — the
 > floating shortcuts row on iPad, its own bar on iPhone — and appears whenever
 > there is a cursor, in any editing view.

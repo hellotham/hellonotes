@@ -1,9 +1,9 @@
 ---
-status: CURRENT (2026-09-24). The top-level UI design. It incorporates
+status: CURRENT (2026-10-09). The top-level UI design. It incorporates
 `layout-architecture.md` (2026-08-11), whose sizing contract, personas and
 decisions live here now, renumbered only where noted, and corrected to what is
 built. The component documents below carry the detail. `shell-chrome.md` stays
-the decision record for the chrome (D1–D12).
+the decision record for the chrome (D1–D13).
 ---
 
 # HelloNotes UI: the responsive design
@@ -77,11 +77,15 @@ here first.
    which has room for one of them, shows the editor as the screen and the rest
    as places.
 3. **One row of chrome, ever** (D1). No panel adds a row beneath the bar.
-4. **No command lives in the collapsible sidebar** (D8). People collapse it
-   *while working*, so a command inside it disappears exactly when it is wanted.
-   Commands live in the bar and in the menu bar. The exceptions are actions
-   whose subject *is* the sidebar's content: Add Collection, and a row's own
-   `…` menu.
+4. **Each command is in one place, and the place says what it is about** (D13,
+   amending D8's "no command in the sidebar"). The collection's commands are
+   named rows in the sidebar — its tools (Mind Map, Assistant, Ask Your
+   Library, Git) above the tree, making and opening (New Folder, New Collection,
+   Open Collection, Open Default Collection) below it; the notes' are in the
+   bar over the editor; the note's own in Note Actions; and how the note is
+   shown in the bottom bar. People collapse the sidebar while working on a
+   note, and nothing in it is a note's command; its toggle is always in the
+   bar, and every command is in the menu bar too.
 5. **Every command has a menu-bar item and a visible touch route.** The bar is
    a shortcut and never the only way. Nothing is reachable only through a
    long-press, right-click or swipe (HIG, Context menus). iPhone has no menu
@@ -573,7 +577,10 @@ uses has not been checked.) A note window's bar draws its note's title.
 **The app opens no other window** (principle 9). Graph, Mind Map, Ask Library
 and the Assistant used to be windows on the Mac and sheets on iOS. On iPadOS a
 scene *replaces* the notes in full screen and in Split View, and closing one
-left the app. They are views of the right panel now.
+left the app. The Graph is a view of the right panel — the open note's links in
+and out — and the Mind Map, Ask Your Library and the Assistant are the
+collection's, opened from the sidebar (on a phone, the Notes place's rows) as
+tabs beside the notes (D13).
 
 ### 9.2 Presentations
 
@@ -647,9 +654,9 @@ Numbered as in `layout-architecture.md`, prefixed L, so code comments that cite
 | L10 | **The panel reopens on the view last used**, remembered globally | ✅ `sidePanel` |
 | L11 | Compact chrome retracts on scroll-down and returns on scroll-up | 🟡 The expanded note covers the chrome; nothing is linked to scrolling |
 | L12, L13 | A 64pt rail of places; the library retracting below 960pt | ✗ Superseded by L14 |
-| L14 | **Collections and folders are one collapsible sidebar**, Recents and Bookmarks pinned above them; commands in the bar | ✅ (`shell-chrome.md` D2, D4, D8) |
+| L14 | **Collections and folders are one collapsible sidebar**, Recents and Bookmarks pinned above them; the notes' commands in the bar, and from D13 the collection's own as named rows in the sidebar | ✅ (`shell-chrome.md` D2, D4, D8, D13) |
 | L15 | **In the tall shell the sidebar is two panes** | ✅ (D2a) |
-| L16 | **The right panel holds nine views**, one panel, one state, one width; a column wherever the editor keeps its floor | ✅ (D6, D6a) |
+| L16 | **The right panel holds the open note's six views**, one panel, one state, one width; a column wherever the editor keeps its floor. It held nine until D13 moved the collection's three to tabs | ✅ (D6, D6a, D13) |
 | L17 | **The app opens no window of its own accord** | ✅ (principle 9) |
 | L18 | **The chrome is the app's drawing; the Mac and the iPad are the same pixels** | ✅ (D12) |
 | L19 | **One shell implementation**, `ContentView`, for both platforms | ✅ (2026-08-22) |
@@ -694,10 +701,9 @@ The component documents list their own. These cut across them.
      `Chrome.Colour.orange` is meant.
    - *Multicolor* resolves to each platform's own accent, so it is the one
      accent that differs between the Mac and the iPad (§7.2).
-   - *Rows inside the panel:* Graph adds two (its controls strip and its
-     counts-and-zoom row), and the Mind Map's header (a title, zoom and Open)
-     and the Assistant's header (agent mode, model, New conversation, AI
-     settings) one each, under the panel's own header
+   - *Rows inside the panel:* the Graph adds two (its distance strip and its
+     counts-and-zoom row) under the panel's own header; the Mind Map and the
+     Assistant draw a header at the top of their tabs
      ([toolbars.md](toolbars.md) §11).
    - *Sizes written in views:* the editor status bar's 34pt row and the
      segmented control's 20/24pt, instead of tokens. *The system orange is gone from the rows and the status bar, and a rule keeps it out (`ShellComplianceTests`, implemented.md §51.36); multicolour, the panel's extra rows and sizes as tokens are design and stay.*
@@ -756,7 +762,8 @@ The component documents list their own. These cut across them.
 | **Place** | A row that is not a folder on disk: Recents and Bookmarks in the sidebar; Notes, Search, Tags and AI in the compact shell |
 | **Primary sidebar** | The left column, or the band in the tall shell ([primary.md](primary.md)) |
 | **Band** | The primary sidebar laid across the top of a tall window, in two panes |
-| **Panel** / **secondary sidebar** | The right column that shows one of nine views ([secondary.md](secondary.md)). Called the inspector in older code |
+| **Panel** / **secondary sidebar** | The right column that shows one of the open note's six views ([secondary.md](secondary.md)). Called the inspector in older code |
+| **Tool tab** | One of the collection's tools — the Mind Map, the Assistant, Ask Your Library — open as a tab beside the notes (`CollectionTool`) |
 | **Pane** | The editor's column. There is one; L2 would allow more |
 | **Bar** | A 40pt row the app draws. *The* bar, or shell bar, is the one over the editor ([toolbars.md](toolbars.md)) |
 | **Status bar** | The 44pt strip under the editor, or under the empty editor |

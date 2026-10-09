@@ -211,24 +211,6 @@ struct SaveOffMainTests {
         await editor.save()
         #expect(try String(contentsOf: note.fileURL, encoding: .utf8) == "# Log\n\nAs it was.\nAppended.\n")
     }
-
-    /// Publishing the buffer to the other scenes after a save — a note, then
-    /// the same note again once the burst ends — reads neither text on the main
-    /// actor. `@Observable`'s own setter compared the old with the new.
-    @Test func publishingTheBufferReadsNothingOnTheMainActor() async throws {
-        let live = LiveBuffer()
-        let url = URL(fileURLWithPath: "/tmp/Log.md")
-        let first = MainThreadReads(text: Self.typed)
-        let second = MainThreadReads(text: Self.typed + "More.\n")
-        live.publish(url: url, text: first as String)
-        live.publish(url: url, text: second as String)
-        for _ in 0..<100 where live.text(for: url).map({ ($0 as NSString) !== second }) ?? true {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(live.text(for: url).map { ($0 as NSString) === second } == true, "the second text was never published")
-        #expect(first.onMain == 0 && second.onMain == 0,
-                "publishing read the note on the main actor \(first.onMain + second.onMain) times")
-    }
 }
 
 /// What a settle carries from the editor's document into the buffer, decided

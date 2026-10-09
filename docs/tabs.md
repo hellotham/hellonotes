@@ -91,10 +91,15 @@ disappearing (§2.3).
 
 - The strip sits in the middle of the bar over the editor (`toolbars.md` §3).
   Tabs are 28pt tall and up to 200pt wide; the active one is semibold on the
-  accent at 30%; every tab has a ×. When they do not fit, the strip scrolls
+  accent at 30%; every tab has a ×. After the notes come the collection's
+  tools that are open (D13) — the Mind Map, the Assistant, Ask Your Library,
+  each with its symbol before its title (`ToolTabs`). A tool's tab in front
+  puts the notes behind it; choosing a note, or a note's tab, puts the tool
+  behind; closing the tool in front shows the note again. Tool tabs are not
+  remembered across launches. When they do not fit, the strip scrolls
   sideways (`ContentView.shellBar`).
-- **The strip is drawn only while the selected note has an editor.** With no
-  selection it is replaced by empty space, even if tabs are open.
+- **The strip is drawn while the selected note has an editor, or a tool is
+  open.** With neither it is replaced by empty space, even if tabs are open.
 - Tabs belong to one main window (`ContentView`'s `@State private var tabs`). A
   note window (Open in New Window) has none.
 - **A relaunch restores only the active note** (`@SceneStorage`

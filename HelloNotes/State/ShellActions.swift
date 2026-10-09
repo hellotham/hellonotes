@@ -263,22 +263,26 @@ struct ShellActions {
         library.collections.first { id == $0.id || id.hasPrefix($0.id + "/") }
     }
 
-    /// The folder New Note goes into: the band's container, while the band
-    /// is on screen and that container is a folder of an open collection —
-    /// otherwise none, which is the collection's root.
+    /// The folder New Note goes into — the one you are looking at. While the
+    /// band is on screen, the container it shows; in a column, whose sidebar
+    /// selects notes and never folders (a folder row only opens and closes),
+    /// the selected note's folder. Either only when it is a folder of an open
+    /// collection — otherwise none, which is the collection's root.
     ///
     /// The container outlived the band: a window that was once tall — an iPad
     /// rotated, a Mac window resized — kept the folder last chosen there, and
     /// New Note in its column landed in that folder; and with Recents chosen,
     /// which is a place and not a folder, it was written into the open
     /// folders, so the tree showed Recents open (primary.md §12, item 14;
-    /// implemented.md §51.36).
+    /// implemented.md §51.36). And a column had no folder at all: New Note on
+    /// the Mac went to the root from a note three folders down (§51.37).
     nonisolated static func newNoteFolder(band containerID: String?, bandShowing: Bool,
-                              collectionIDs: [String]) -> String? {
-        guard bandShowing, let containerID,
-              collectionIDs.contains(where: { containerID == $0 || containerID.hasPrefix($0 + "/") })
+                              selected: URL?, collectionIDs: [String]) -> String? {
+        let folder = bandShowing ? containerID : selected?.deletingLastPathComponent().path
+        guard let folder,
+              collectionIDs.contains(where: { folder == $0 || folder.hasPrefix($0 + "/") })
         else { return nil }
-        return containerID
+        return folder
     }
 
     /// Open a folder in the sidebar, so something created inside it is not

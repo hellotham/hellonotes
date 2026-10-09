@@ -13,44 +13,44 @@
 
 import Foundation
 
-/// What the graph should show.
-enum GraphScope: Hashable {
-    /// Every note in the collection, subject to `GraphData.maxNodes`.
-    case collection
-    /// Only notes within `depth` links of a focused note.
-    case aroundFocus
-}
-
 nonisolated enum GraphData {
 
-    /// A force-directed layout of every note is O(N²); past this many nodes the
-    /// whole-collection view keeps only the most-connected notes (and says so),
-    /// so the graph stays legible and fast instead of an unreadable hairball.
+    /// A force-directed layout is O(N²); past this many nodes the graph keeps
+    /// only the most-connected notes (and says so), so it stays legible and
+    /// fast instead of an unreadable hairball. A neighbourhood three links
+    /// deep in a well-linked collection can reach it.
     static let maxNodes = 250
 
-    /// Nodes and resolved edges for `scope`, plus how many notes the cap
-    /// dropped (0 when nothing was dropped).
+    /// The note at `url` and every note within `depth` links of it, in either
+    /// direction — what links to it and what it links to — with the links among
+    /// them, plus how many notes the cap dropped (0 when nothing was dropped).
+    ///
+    /// This is the Graph: one note's links in and out. The whole collection's
+    /// links are the Mind Map's (`CollectionMindMap`), drawn as a mind map
+    /// rather than as a graph. The graph used to offer both, a scope picker
+    /// choosing between "Whole Collection" and "Around Focused Note", which is
+    /// how the two views came to be confused with each other.
     @MainActor
-    static func build(for collection: Collection?,
-                      scope: GraphScope = .collection,
-                      focusedURL: URL? = nil,
+    static func build(around url: URL, in collection: Collection?,
                       depth: Int = 1) -> (nodes: [GraphNode], edges: [GraphEdge], dropped: Int) {
         guard let c = collection else { return ([], [], 0) }
 
-        var notes = c.notes
-        if scope == .aroundFocus, let focusedURL {
-            let keep = neighbourhood(of: focusedURL, in: c, depth: depth)
-            notes = notes.filter { keep.contains($0.fileURL) }
-        }
+        let keep = neighbourhood(of: url, in: c, depth: depth)
+        var notes = c.notes.filter { keep.contains($0.fileURL) }
 
         var dropped = 0
         if notes.count > maxNodes {
-            // Rank by degree (outgoing + backlinks) and keep the top slice.
-            let degree: (URL) -> Int = { url in
-                (c.linkGraph.outgoingByURL[url]?.count ?? 0) + (c.linkGraph.backlinksByURL[url]?.count ?? 0)
+            // Rank by degree (outgoing + backlinks) and keep the top slice —
+            // always with the note itself, which is what the graph is about.
+            let degree: (URL) -> Int = { u in
+                (c.linkGraph.outgoingByURL[u]?.count ?? 0) + (c.linkGraph.backlinksByURL[u]?.count ?? 0)
             }
             dropped = notes.count - maxNodes
-            notes = Array(notes.sorted { degree($0.fileURL) > degree($1.fileURL) }.prefix(maxNodes))
+            let ranked = notes.sorted { a, b in
+                if (a.fileURL == url) != (b.fileURL == url) { return a.fileURL == url }
+                return degree(a.fileURL) > degree(b.fileURL)
+            }
+            notes = Array(ranked.prefix(maxNodes))
         }
 
         let indexByURL = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.fileURL, $0) })

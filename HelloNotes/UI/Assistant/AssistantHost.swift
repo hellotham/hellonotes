@@ -8,9 +8,10 @@
 //  whichever collection is focused.
 //
 //  Extracted from `AuxiliaryWindows` when the assistant came to iOS, where it
-//  lived in a `Window` scene on the Mac and a sheet on iOS. It is one of the
-//  right panel's views on both now (`SidePanel.assistant`), and the ownership
-//  stays here.
+//  lived in a `Window` scene on the Mac and a sheet on iOS. It was one of the
+//  right panel's views for a while; it is one of the collection's tools now,
+//  opened from the sidebar as a tab beside the notes (`CollectionTool`), and
+//  the ownership stays here.
 //
 
 import SwiftUI

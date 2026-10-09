@@ -2,7 +2,8 @@
 //  EditorTabBar.swift
 //  HelloNotes
 //
-//  The strip of open notes — one view, both platforms.
+//  The strip of open notes, and of the collection's tools open beside them —
+//  one view, both platforms.
 //
 //  There were two: this file, gated to macOS, and `tabStrip` written inline in
 //  `iOSContentView`. Same job, and they had drifted in three ways.
@@ -34,22 +35,41 @@ struct EditorTabBar: View {
     /// Closing goes through the caller so a *background* tab closing cannot
     /// move the selection off the note being read.
     let onClose: (Note.ID) -> Void
+    /// The collection's tools open beside the notes (`ToolTabs`), after them.
+    /// While one is showing, no note's tab is the active one.
+    var tools: [CollectionTool] = []
+    var activeTool: CollectionTool? = nil
+    var onSelectTool: (CollectionTool) -> Void = { _ in }
+    var onCloseTool: (CollectionTool) -> Void = { _ in }
     var accent: Color = .accentColor
 
     var body: some View {
         HStack(spacing: Chrome.Metric.barSpacing) {
-            ForEach(notes) { tab($0) }
+            ForEach(notes) { note in
+                tab(note.title, systemImage: nil, isActive: activeTool == nil && note.id == activeID,
+                    select: { onSelect(note.id) }, close: { onClose(note.id) })
+            }
+            ForEach(tools) { tool in
+                tab(tool.title, systemImage: tool.systemImage, isActive: tool == activeTool,
+                    select: { onSelectTool(tool) }, close: { onCloseTool(tool) })
+            }
         }
         .frame(height: Chrome.Metric.control)
     }
 
-    private func tab(_ note: Note) -> some View {
-        let isActive = note.id == activeID
-        return HStack(spacing: 4) {
-            ChromeLine(note.title, size: 13, weight: isActive ? .semibold : .regular,
+    /// One tab — a note's, or a tool's with its symbol before the title.
+    private func tab(_ title: String, systemImage: String?, isActive: Bool,
+                     select: @escaping () -> Void, close: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isActive ? Chrome.Colour.label : Chrome.Colour.secondaryLabel)
+            }
+            ChromeLine(title, size: 13, weight: isActive ? .semibold : .regular,
                        colour: isActive ? Chrome.Colour.label : Chrome.Colour.secondaryLabel)
 
-            Button { onClose(note.id) } label: {
+            Button(action: close) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Chrome.Colour.tertiaryLabel)
@@ -57,7 +77,7 @@ struct EditorTabBar: View {
                     .contentShape(.rect.inset(by: -6))
             }
             .buttonStyle(ChromePlainStyle())
-            .accessibilityLabel("Close \(note.title)")
+            .accessibilityLabel("Close \(title)")
         }
         .padding(.horizontal, 10)
         .frame(maxWidth: Chrome.Metric.tabMaxWidth)
@@ -77,7 +97,7 @@ struct EditorTabBar: View {
         // recogniser carries no button trait and offers VoiceOver nothing to
         // activate, so the tab could be read aloud but never selected.
         .contentShape(.rect)
-        .onTapGesture { onSelect(note.id) }
+        .onTapGesture(perform: select)
         // `.combine` first, and that is the load-bearing line: this HStack holds
         // a Text and the close `Button`, so without it there is no element whose
         // frame is the tab — the trait and the action below would either be
@@ -95,7 +115,7 @@ struct EditorTabBar: View {
         .accessibilityElement(children: .combine)
         // Combining merges the children's labels, so name it explicitly or it
         // announces "«Title» Close «Title»".
-        .accessibilityLabel(note.title)
+        .accessibilityLabel(title)
         // Which note is open was carried only by weight, tint and a `.selection`
         // fill — three visual signals, none of which reaches VoiceOver. The app's
         // other tab strip already says it: `InspectorOverlay:126`, which adds
@@ -105,10 +125,10 @@ struct EditorTabBar: View {
         // tab strip, and being buttons already they do not need the `.isButton`
         // half either. This HStack is not a button, so here it is load-bearing.)
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { onSelect(note.id) }
+        .accessibilityAction { select() }
         // Re-exposed by hand, and named with the title because the merged
         // element's label is the bare tab name: the close control's own
-        // `.accessibilityLabel("Close \(note.title)")` above is absorbed by
+        // `.accessibilityLabel("Close \(title)")` above is absorbed by
         // `.combine` and no longer reaches anyone.
         //
         // **This is a trade, not a free fix.** `.combine` stops the close
@@ -119,6 +139,6 @@ struct EditorTabBar: View {
         // Verify with VoiceOver before shipping — if `.combine` turns out to
         // promote the merged child's own action as well, this line is a second,
         // duplicate "Close" in the same rotor and should go.
-        .accessibilityAction(named: "Close \(note.title)") { onClose(note.id) }
+        .accessibilityAction(named: "Close \(title)", close)
     }
 }

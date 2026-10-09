@@ -81,6 +81,10 @@ final class HelloNotesUITests: XCTestCase {
         #endif
 
         let app = XCUIApplication()
+        // A first-run tip is history, not drawing — `window-parity.sh` hides
+        // them for the same reason — and one takes the first tap: the Mind
+        // Map row's comes up over the phone's Notes place on a fresh device.
+        app.launchArguments += ["-HNHideTips"]
         app.launch()
         let splash = app.staticTexts["Where every idea says hello."]
         if splash.waitForExistence(timeout: 5) {

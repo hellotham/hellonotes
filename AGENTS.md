@@ -11,7 +11,12 @@
   `LanguageModel` protocol MLX plugs into, dynamic profiles, Private Cloud Compute), and an app
   cannot promise an OS its own embedded extensions refuse to run on.
 - Multiplatform: One shell, `AdaptiveShell`, chosen by the *axis of abundance* (width/height), never by device — a Mac window and an iPad of the same size get the same layout. See `docs/ui.md`, and for each part of the window `docs/primary.md`, `docs/secondary.md`, `docs/toolbars.md`, `docs/tabs.md` and `docs/menu.md`.
-- The window has **exactly one collapsible column**: a sidebar holding a *single tree* — Recents and Bookmarks pinned at the top, then one root per open collection, expanding into that collection's folders. Everything navigational lives there and **no command may live inside it** (a hidden command is an unreachable command). Commands go in the bar over the editor, which the app draws — the same pixels on both platforms: Search · Sidebar · New Note · More ⋯ | the open notes' tabs | Note Actions ⌄ · Panel (the right panel's own header picks what it shows). See `docs/shell-chrome.md` (D12).
+- The window is three regions, each about one thing: **the collection on the left, the note in the middle, what the note is on the right** — and each command is in one place (after 1.3.3 build 27, at the person's direction; `docs/shell-chrome.md` D12 and D13).
+  - **The sidebar** — the one collapsible column — is the collection: a *single tree* (Recents and Bookmarks pinned at the top, then one root per open collection, expanding into its folders), with the collection's commands as named rows (`SidebarCommands.swift`): its tools above the tree — **Mind Map**, **Assistant**, **Ask Your Library**, **Git** — and **New Folder**, **New Collection**, **Open Collection**, **Open Default Collection** below it. One definition: rows in the column and in the phone's Notes place (the phone's sidebar — the panel was its only route to the collection's map, so moving the Mind Map out left it none until the rows came), a strip in the tall shell's band. It used to hold no command at all ("a hidden command is an unreachable command"); its toggle is always in the bar, and every one of these is in the menu bar too.
+  - **The bar over the editor** is the notes of the collection: Search · Sidebar · New Note · Today's Note · Find & Replace · More ⋯ (Quick Capture, Open Quickly, New Note from a Prompt, Open Note in New Window, Settings) | tabs | Note Actions ⌄ (the note's own commands) · Panel.
+  - **The right panel** is the open note's views (`SidePanel`): Summary & Outline, Tags, Links, Properties, History, Graph.
+  - **The bottom bar** is how the note is shown — save status and the four view modes — in the main window. A note window, which has no panel and no command bar, keeps the note's commands there too (`NoteEditorView.commandsInBottomBar`).
+  - The collection's tools open in the middle as **tabs** beside the notes (`CollectionTool`, `ToolTabs`); choosing a note puts them behind it. `ShellComplianceTests.eachCommandIsInOnePlace` holds the arrangement.
 - Anything keyed on a collection (the outline cache key, drop targets, "New Note" at a root) reads the sidebar's selection. **A cache key must name everything the cached value depends on** — keying the outline on one collection made opening or closing another invisible.
 - State: Use the `@Observable` macro exclusively. DO NOT use legacy `@ObservableObject` or `@StateObject`.
 - Data Source: No CoreData. The local file system directory is the absolute source of truth.
@@ -48,7 +53,7 @@
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 830 tests in 124 suites, ~25s (2026-10-09).
+  afterwards whatever the result. 843 tests in 128 suites, ~25s (2026-10-09).
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **60 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
@@ -238,8 +243,8 @@
   made re-shooting the screenshots look impossible when it was not. Opening a
   collection is the one step genuinely unscriptable: the picker is a separate
   XPC process (`com.apple.appkit.xpc.openAndSavePanelService`), and keystrokes
-  aimed at it land on the app instead — where `⌘⇧G` is **Graph View**, so a
-  mistimed "go to folder" silently opens a graph window over the user's vault.
+  aimed at it land on the app instead — where `⌘⇧G` is **Graph**, so a
+  mistimed "go to folder" silently opens the panel over the user's vault.
 - **One directory, two names — and Foundation only ever offers you one.**
   `/var/x` and `/private/var/x` are the same folder; `standardizedFileURL` does
   **not** unify them (it resolves `.` and `..` and stops), and
@@ -557,16 +562,29 @@
   flipped to side by side when it came up, made the source's text view again
   without it, and so sent it away (§51.29). `AnyLayout` changes the layout and
   keeps the children (`AdaptiveSplit`).
-- **Collections on the left, the editor in the middle, anything else on the
-  right — one panel, one state, one width.** Outline, Tags, References,
-  Properties, History, Mind Map, Graph, Ask Library and the Assistant are not
-  two kinds of thing; they are nine views of the right panel (`SidePanel`), and
-  treating them as two cost two enums, two chromes and two widths. The band has
-  one toggle; the panel's own header picks what it shows, the same way on both
-  platforms. The panel is a **column** wherever the editor keeps its floor
-  beside it (`ShellMetrics.hasPanelColumn`) — *an editor never blocks editing*,
-  so it is never a modal over the note — and only a phone, with no room for a
-  column, carries it over the note.
+- **The right panel is the open note's; the collection's tools are tabs.**
+  Summary & Outline, Tags, Links, Properties, History and Graph are views of the
+  one panel (`SidePanel`), with one state, one width and one header that picks
+  what it shows, the same way on both platforms. The Mind Map, the Assistant and
+  Ask Your Library were views of it too — nine, "not two kinds of thing" — and
+  that is how a map of one note's ideas came to be called the Mind Map while the
+  collection's links were the Graph: the panel did not say what it was about,
+  so neither did its views. **The Graph is one note's links in and out; the
+  Mind Map is the links across the collection, drawn as a mind map**
+  (`CollectionMindMap`), and it, the Assistant and Ask Your Library open from
+  the sidebar as tabs. The panel is a **column** wherever the editor keeps its
+  floor beside it (`ShellMetrics.hasPanelColumn`) — *an editor never blocks
+  editing*, so it is never a modal over the note — and only a phone, with no
+  room for a column, carries it over the note.
+- **The window root's line height reaches text drawn into a `Canvas`, and there
+  `draw(_:at:)` ignores the point.** `chromeDefaults()` makes every line its
+  size plus three (`.lineHeight(Chrome.lineHeight)`); a `GraphicsContext` text
+  draw under it lands at the canvas's origin, so every Graph label was drawn in
+  one pile in the corner on both platforms, and no orb had a name. A canvas
+  that draws text takes the default back with `.lineHeight(nil)`. A render
+  without the root's defaults draws correctly, so a check of it must apply
+  `chromeDefaults()` — the first probe left them out and saw nothing wrong
+  (`GraphLabelTests`, with a negative control).
 - **The app opens no window of its own, on either platform.** `openWindow` on
   iPadOS makes a scene that *replaces* the notes in full-screen apps and in
   Split View, and closing it left the app — Done in the Assistant showed the

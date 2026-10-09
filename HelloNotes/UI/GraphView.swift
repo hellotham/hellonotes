@@ -352,6 +352,13 @@ struct GraphView: View {
                 )
             }
         }
+        // The window root's line height (`chromeDefaults`, every line its size
+        // plus three) reaches text drawn into a Canvas too, and there
+        // `draw(_:at:)` ignores the point it is given: every node's label was
+        // drawn in one pile at the canvas's top-left corner, on both
+        // platforms, and no orb had a name. A label is one line, so the
+        // canvas takes the default line height back (`GraphLabelTests`).
+        .lineHeight(nil)
         .contentShape(.rect)
         // The graph is drawn into a Canvas, so expose a VoiceOver-navigable list
         // of the notes (otherwise it's an opaque rectangle). Activating a node

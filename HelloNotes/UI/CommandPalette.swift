@@ -283,8 +283,10 @@ extension AppActions {
                 setEditorMode(mode)
             }
         }
-        add("graph", "View", "Graph View", "point.3.connected.trianglepath.dotted",
+        add("graph", "View", "Graph", "point.3.connected.trianglepath.dotted",
             shortcut: "⇧⌘G", enabled: canGraph, run: graphView)
+        add("mind-map", "View", "Mind Map", "brain",
+            shortcut: "⇧⌘M", enabled: canMindMap, run: mindMap)
         if let showsNonNoteFiles, let setShowsNonNoteFiles {
             add("toggle-files", "View",
                 showsNonNoteFiles ? "Hide Non-Note Files" : "Show Non-Note Files",

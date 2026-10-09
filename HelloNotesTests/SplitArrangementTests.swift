@@ -200,7 +200,6 @@ struct SplitArrangementTests {
         let hosting = NSHostingView(rootView: view
             .environment(IntelligenceSettings())
             .environment(AppearanceSettings())
-            .environment(LiveBuffer())
             .environment(EditorDocumentStore())
             .defaultAppStorage(defaults()))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -266,7 +265,6 @@ struct SplitArrangementTests {
         let controller = UIHostingController(rootView: AnyView(view
             .environment(IntelligenceSettings())
             .environment(AppearanceSettings())
-            .environment(LiveBuffer())
             .environment(EditorDocumentStore())
             .defaultAppStorage(defaults())))
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first

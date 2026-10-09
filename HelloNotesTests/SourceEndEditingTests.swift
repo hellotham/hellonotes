@@ -149,7 +149,6 @@ struct SourceEndEditingTests {
         let hosting = NSHostingView(rootView: view
             .environment(IntelligenceSettings())
             .environment(AppearanceSettings())
-            .environment(LiveBuffer())
             // Edit mode's host keeps its documents here; without one, SwiftUI
             // stops the process — the test host with it.
             .environment(EditorDocumentStore())
@@ -220,7 +219,6 @@ struct SourceEndEditingTests {
         let controller = UIHostingController(rootView: AnyView(view
             .environment(IntelligenceSettings())
             .environment(AppearanceSettings())
-            .environment(LiveBuffer())
             // Edit mode's host keeps its documents here; without one, SwiftUI
             // stops the process — the test host with it.
             .environment(EditorDocumentStore())

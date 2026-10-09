@@ -1,33 +1,44 @@
 ---
-status: CURRENT (2026-09-24). Describes the primary sidebar as built, the rules
+status: CURRENT (2026-10-09). Describes the primary sidebar as built, the rules
 it follows and its open defects (§12). Decision record: `shell-chrome.md` D2,
-D2a, D3, D4, D5, D8, D11. Overview: `ui.md`.
+D2a, D3, D4, D5, D8, D11, D13. Overview: `ui.md`.
 ---
 
 # The primary sidebar
 
-The left of the window (or the top, in a tall one): the **collections**, their
-folders and notes, and the two places pinned above them. It answers one question,
-**"where is it?"**, and nothing else.
+The left of the window (or the top, in a tall one): the **collection** — the
+collections, their folders and notes, the two places pinned above them, and the
+collection's commands. It answers **"where is it, and what is the collection?"**
 
 ---
 
 ## 1. Its job, and what it may not hold
 
-- **Places only.** Collections, folders, notes, attachments, and the two pinned
-  places, Recents and Bookmarks. Nothing about *what a note is* lives here:
-  tags, outline, links and properties are the right panel's
-  ([secondary.md](secondary.md), decision L1).
-- **No commands** (`shell-chrome.md` D8, the P2 corollary). People collapse the
-  sidebar while they work, so anything inside it vanishes exactly when it is
-  wanted. New Note, search, Open Quickly and the rest are in the bar over the
-  editor and in the menu bar.
-- **The exceptions are actions whose whole subject is the sidebar's own
-  content**, which Apple's apps put at the sidebar's edge or on its rows: the
-  **Add Collection** menu in the sidebar's header; each row's own menu (its `…`
-  button and its context menu); the menu on the empty space below the rows;
-  the buttons in the sidebar's empty states (§3.5); and **Download and Search**
-  in the search strip (§3.2).
+- **The collection, not the note.** Collections, folders, notes, attachments,
+  and the two pinned places, Recents and Bookmarks. Nothing about *what a note
+  is* lives here: tags, outline, links, properties, history and the note's graph
+  are the right panel's ([secondary.md](secondary.md), decision L1).
+- **The collection's commands, as named rows** (D13, which amends D8's "no
+  commands"). Above the tree, its tools: **Mind Map** (the links across it, a
+  tab), **Assistant** and **Ask Your Library** (tabs), and **Git** — its branch,
+  a dot for uncommitted changes, and the Git pane as a popover (none for a
+  direct-API collection). Below the tree, making and opening: **New Folder…**,
+  **New Collection** ⌄ (Empty Folder… · Git Repository…), **Open Collection** ⌄
+  (from Folder… · from iCloud Drive… · from Obsidian Vault… · from Cloud… · from
+  Repository… · — · Open Recent…) and **Open Default Collection**. Each acts on
+  the sidebar's selection. Rows in the column (22pt, a 12pt glyph in the accent
+  and a 12pt name, `SidebarCommandSection`); in the band a strip of the same
+  commands across its top (`SidebarCommandStrip`). The worry D8 answered — that
+  people collapse the sidebar while they work — is answered differently: what
+  they work on then is a note, and nothing here is a note's command; the
+  sidebar's toggle is always in the bar, and every row is in the menu bar and
+  the command palette as well.
+- **The notes' commands are not here**: New Note, Today's Note, search, Find,
+  Open Quickly and the rest are in the bar over the editor and in the menu bar.
+- **Actions whose whole subject is a row** stay on the rows, as Apple's apps put
+  them: each row's own menu (its `…` button and its context menu); the menu on
+  the empty space below the rows; the buttons in the sidebar's empty states
+  (§3.5); and **Download and Search** in the search strip (§3.2).
 
 ---
 
@@ -238,7 +249,7 @@ you cannot see.
 
 ```
 ┌──────────────────────────────┐
-│ ●●●                        + │  40pt · chrome grey · 1pt rule below
+│ ●●●                          │  40pt · chrome grey · 1pt rule below
 └──────────────────────────────┘
 ```
 
@@ -246,18 +257,10 @@ you cannot see.
   edge (D11). The window drags by its background.
 - On the Mac the **traffic lights** sit over its leading end, as in Apple
   Notes. On iPad the leading end is empty.
-- At the trailing end is **Add Collection** (`+`), a menu:
-  - **New Collection ▸** Empty Folder… · Git Repository…
-  - **Open Collection ▸** from Folder… · from iCloud Drive… · from Obsidian
-    Vault… · from Cloud… · from Repository…
-  - —
-  - **Open Recent…** (the launcher: recent collections and saved libraries)
-  - **Open Default Collection** (the tour and manual that ship with the app,
-    restored if deleted)
-
-  The same set (`AddCollectionActions.options`) is drawn by the File menu, the
-  bar's More ⋯ menu, the compact Library's More ⋯, the command palette and the
-  Welcome and launcher screens.
+- Nothing else. Its **Add Collection** `+` became the **New Collection** and
+  **Open Collection** rows below the tree (§1), which draw the same set
+  (`AddCollectionActions.options`) by group — as do the File menu, the compact
+  Library's More ⋯, the command palette and the Welcome and launcher screens.
 
 ---
 
@@ -346,14 +349,20 @@ place is remembered per window.
   clears the search, the tag filter and the selected note.
 - **Tapping a note** selects it. It shows in the mini strip above the tab bar,
   and tapping the strip shows the note full screen.
-- **The Notes place's More ⋯**: New Note (when a collection is open), the Add
-  Collection set (§7), —, Settings…. On iPhone, with no menu bar, it is the one
-  route to adding a collection that is always there.
+- **The Notes place is the phone's sidebar**, so the collection's commands are
+  rows in it, from the sidebar's own definitions: its tools (Mind Map,
+  Assistant, Ask Your Library, Git) above the Collections list, and New
+  Folder…, New Collection ⌄, Open Collection ⌄ (with Open Recent…) and Open
+  Default Collection below it — with no collection open, those last rows are
+  the place. On iPhone, with no menu bar, they are the one route to adding a
+  collection that is always there. Its **More ⋯** holds New Note (when a
+  collection is open), —, Settings… (implemented.md §51.37).
 - Note rows are the sidebar's own note rows, with the tree's menu on a
   long-press. **Collection rows are drawn separately** from the sidebar's: they
   show no unavailable warning, scanning spinner or Git dot (§12).
-- The **Library place** (quick actions, recent notes and bookmarks across every
-  collection, `LibraryPlace`) takes the Search place's list when no collection
+- The **Library place** (quick actions — New Note, New Note from a Prompt…,
+  Quick Capture…, Settings…, the phone's stand-in for the bar's More ⋯ — then
+  recent notes and bookmarks across every collection, `LibraryPlace`) takes the Search place's list when no collection
   is open, or when the sidebar's scope is the whole library (§11) and the search
   field is empty and no tag filter is on.
 
@@ -366,8 +375,8 @@ Three pieces of state answer "which collection?" and it helps to name them:
 | Name | What it is | Set by |
 |---|---|---|
 | **Focused collection** (`library.focusedID`) | the collection the window's commands act on; semibold in the tree | opening a note (its collection), **Focus Collection**, tapping a collection in the compact Notes place, adding a collection |
-| **Sidebar scope** (`railPlaceID`, per window) | "the sidebar's selection" in `AGENTS.md`'s rule: what New Note, Today's Note, Rescan, a tag filter and New Note from a Prompt act on, and what enables Open Quickly and Graph (which then work on the focused collection) | follows the focused collection. It stands on the whole library ("Library") when no collection was focused the first time the window opened, or when the collection it named is closed. It then **stays** on Library through focus changes, and leaves only when the library goes from empty to non-empty, when a collection from a cloud account is added, or when a collection is tapped in the compact Notes place (§12) |
-| **Band container** (`bandContainerID`) | the folder New Note lands in | the band's left pane. It is `@State` and never cleared, so a column window that was once tall keeps using it (§12) |
+| **Sidebar scope** (`railPlaceID`, per window) | "the sidebar's selection" in `AGENTS.md`'s rule: what New Note, Today's Note, Rescan, a tag filter, New Note from a Prompt and the Mind Map act on, and what enables Open Quickly (which then works on the focused collection). The Assistant works on the focused collection; Graph is the open note's, and needs only a note (implemented.md §51.37) | follows the focused collection. It stands on the whole library ("Library") when no collection was focused the first time the window opened, or when the collection it named is closed. It then **stays** on Library through focus changes, and leaves only when the library goes from empty to non-empty, when a collection from a cloud account is added, or when a collection is tapped in the compact Notes place (§12) |
+| **Band container** (`bandContainerID`) | the folder New Note lands in while the band shows; in a column, whose sidebar selects notes and never folders, New Note goes into the **selected note's folder** instead (`ShellActions.newNoteFolder`, implemented.md §51.37) | the band's left pane. It is `@State` and never cleared, so a column window that was once tall keeps it — and ignores it (§12) |
 
 The scope a command uses is `railCollection ?? focused`: the sidebar scope,
 falling back to the focused collection. The window's title (for the Window menu

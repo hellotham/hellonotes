@@ -11,15 +11,15 @@ sidecar directories.
 
 ## Opening one
 
-**File ▸ Open…** (**⌘O**) and pick a folder. Several can be open at once; each
-gets a root in the sidebar.
+**Open Collection** at the foot of the sidebar, or **File ▸ Open…** (**⌘O**),
+and pick a folder. Several can be open at once; each gets a root in the sidebar.
 
 ## This collection
 
 The one you are reading ships with the app so there is something to explore on
 first launch. **You can close it** from the sidebar like any other, and reopen
-it later with **File ▸ Open Default Collection**, which restores it if the files
-are gone.
+it later with **Open Default Collection** at the foot of the sidebar (or **File ▸
+Open Default Collection**), which restores it if the files are gone.
 
 ## Closing one
 

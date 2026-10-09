@@ -18,7 +18,9 @@ Every AI feature runs on Apple's **Foundation Models**, on one of two models:
 
 Pick one in **Settings**, under **AI**. It is one choice for everything — the Assistant,
 the writing tools and Research — because the app is either using Apple's model or using
-yours. The Assistant, Rewrite and the editor's AI menu name the model doing the work.
+yours. The Assistant, Rewrite and the AI commands in **Note Actions** name the model
+doing the work. The Assistant and **Ask Your Library** are at the top of the sidebar,
+and open as tabs beside your notes.
 The Assistant can also look things up on the web — on its own, when a question
 needs it — and so can Research in New Note from a Prompt. What they search for
 goes to DuckDuckGo, and a page they read is fetched from its website.
@@ -47,7 +49,7 @@ rewriting wants determinism whatever you chose for conversation.
 | Suggest Links | links you tap to add to `related:` |
 | Rewrite or Expand Note… | proposes a change you accept or reject |
 | New Note from a Prompt (**⌃⌘N**) | writes or researches a note you read before it is created |
-| Ask Library (**⇧⌘J**) | answers from your notes, with citations |
+| Ask Your Library (**⇧⌘J**) | answers from your notes, with citations |
 | Assistant (**⇧⌘A**) | a conversation about your collection |
 
 Nothing is written until you say so: a summary when you choose **Save to Properties**,

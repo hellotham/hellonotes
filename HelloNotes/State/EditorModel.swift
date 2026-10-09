@@ -138,8 +138,8 @@ final class EditorModel {
     var textVersion: TextVersion { TextVersion(editor: editorID, generation: textGeneration) }
 
     /// The text as of the last pause in typing, with its version — what
-    /// follows the note without editing it keys on this: Preview, the
-    /// inspector, another scene's mirror (`LiveBuffer`).
+    /// follows the note without editing it keys on this: Preview and the
+    /// inspector.
     ///
     /// They keyed on the buffer, and the Markdown pane writes the buffer on
     /// every keystroke — so in Split mode each key rendered the whole page

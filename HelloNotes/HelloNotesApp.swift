@@ -37,7 +37,6 @@ struct HelloNotesApp: App {
     /// switches and shell rearrangements don't re-parse the note or lose the
     /// caret. See EditorDocumentStore.
     @State private var documents = EditorDocumentStore()
-    @State private var liveBuffer = LiveBuffer()
     /// Drains pending editor autosaves before the app goes away — ⌘Q on the
     /// Mac, resigning active on iOS.
     ///
@@ -86,7 +85,6 @@ struct HelloNotesApp: App {
             .environment(gitAccounts)
             .environment(store)
             .environment(documents)
-            .environment(liveBuffer)
             .themedRoot(appearance)
     }
 

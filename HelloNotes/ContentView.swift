@@ -315,6 +315,10 @@ struct ContentView: View {
         nonmutating set { panelRaw = newValue.rawValue }
     }
 
+    /// The collection's tools open as tabs beside the notes — the Mind Map, the
+    /// Assistant, Ask Your Library — and which of them is in front.
+    @State private var toolTabs = ToolTabs()
+
     /// The last AI request sent to the inspector from a menu command or the
     /// palette. See `InspectorRequest` — the counter inside it is what lets the
     /// same command run twice.
@@ -362,9 +366,10 @@ struct ContentView: View {
     /// and so sits outside the context the shell publishes.
     @State private var shellSize: CGSize = .zero
 
-    /// Show something in the right panel. Every command that produces
-    /// something ancillary — the graph, a conversation, the note's own facts —
-    /// ends here, because that is the one place ancillary things go.
+    /// Show something in the right panel — about the open note: its facts,
+    /// its links, its history, its graph, and the model's answers about it
+    /// (a summary, tags, links). What is about the collection opens as a tab
+    /// (`showTool(_:)`) instead.
     private func showPanel(_ choice: SidePanel) {
         withAnimation(.easeInOut(duration: 0.18)) {
             panel = choice
@@ -374,6 +379,15 @@ struct ContentView: View {
 
     private func togglePanel() {
         withAnimation(.easeInOut(duration: 0.18)) { inspectorPresented.toggle() }
+    }
+
+    /// Open one of the collection's tools as a tab beside the notes, and bring
+    /// it to the front. On the phone the front of the window shows only while
+    /// it is expanded, so it expands — as the mini strip does for a note.
+    private func showTool(_ tool: CollectionTool) {
+        showOpenQuickly = false
+        toolTabs.show(tool)
+        noteIsExpanded = true
     }
 
     /// The right panel: its own header — what it is showing, a way to change
@@ -398,20 +412,15 @@ struct ContentView: View {
     private var panelContent: some View {
         switch panel {
         case .graph:
-            GraphPanel()
-        case .askLibrary:
-            LibraryChatPanel()
-        case .assistant:
-            AssistantPanel()
-        case .mindMap:
-            if let editor = activeEditor, let url = editor.note?.fileURL {
-                MindMapPanel(rootURL: url, editorID: editor.editorID)
+            if let url = activeEditor?.note?.fileURL {
+                NoteGraphPanel(noteURL: url)
             } else {
-                ChromeEmptyState("No Note", systemImage: "doc.text",
-                                       description: Text("Open a note to map it."))
+                ChromeEmptyState("No Note", systemImage: "point.3.connected.trianglepath.dotted",
+                                 description: Text("Open a note to see its links in and out."))
             }
         default:
-            // The five that are facts about the open note.
+            // The rest are the inspector's: summary and outline, tags, links,
+            // properties and history.
             inspector
         }
     }
@@ -773,6 +782,9 @@ struct ContentView: View {
         }
         .onChange(of: selectedNoteID) { _, newID in
             restoredNotePath = newID?.path ?? ""
+            // A note chosen — in the sidebar, a tab, a search — comes out in
+            // front of whatever tool was showing.
+            if newID != nil { toolTabs.showNotes() }
             openSelectedNote(newID)
         }
         .onChange(of: library.focusedID) { _, newID in
@@ -810,7 +822,7 @@ struct ContentView: View {
         .onAppear { takeWindowRequest() }
         .onChange(of: WindowRequest.shared.pending) { _, _ in takeWindowRequest() }
         .onChange(of: library.pendingOpenNoteID) { _, id in
-            // A right-panel view (graph, mind map, Ask Library) or
+            // The Graph, a tool (the Mind Map, Ask Library) or
             // `NavigationRouter` asked us to show a note.
             guard let id else { return }
             // Same rule as the menu commands: nothing changes the selection
@@ -820,6 +832,9 @@ struct ContentView: View {
             selectedTag = nil
             searchText = ""
             selectedNoteID = id
+            // Even the note already selected: a note opened from the Mind Map
+            // comes out in front of it, whichever note it is.
+            toolTabs.showNotes()
             library.pendingOpenNoteID = nil
         }
         .onChange(of: library.allNotes) { _, notes in
@@ -1239,13 +1254,17 @@ struct ContentView: View {
             openDefaultCollection: closingOpenQuickly { openDefaultCollection() },
             canOpenQuickly: !(scope?.notes.isEmpty ?? true),
             openQuickly: { showOpenQuickly = true },
-            canGraph: !(scope?.notes.isEmpty ?? true),
+            // The Graph is one note's links, in the panel; the Mind Map is the
+            // collection's, as a tab.
+            canGraph: activeEditor?.note != nil,
             graphView: closingOpenQuickly { showPanel(.graph) },
+            canMindMap: !(scope?.notes.isEmpty ?? true),
+            mindMap: closingOpenQuickly { showTool(.mindMap) },
             // Asking the library needs notes to ask *about*, not a collection
             // to stand in.
             canAsk: !library.allNotes.isEmpty,
-            askLibrary: closingOpenQuickly { showPanel(.askLibrary) },
-            assistant: closingOpenQuickly { showPanel(.assistant) },
+            askLibrary: closingOpenQuickly { showTool(.askLibrary) },
+            assistant: closingOpenQuickly { showTool(.assistant) },
             canCloseTab: tabs.openNotes.count > 1 && activeEditor != nil,
             closeTab: closingOpenQuickly { if let id = selectedNoteID { closeTab(id) } },
             // Format and Note commands target the note *behind* the palette
@@ -1421,7 +1440,7 @@ struct ContentView: View {
             },
             explain: { phrase in
                 library.askAboutSelection(phrase)
-                showPanel(.askLibrary)
+                showTool(.askLibrary)
             }
         )
     }
@@ -1514,7 +1533,7 @@ struct ContentView: View {
     private var compactShell: some View {
         CompactShell(
             place: compactPlace,
-            openNoteTitle: activeEditor?.note?.title,
+            openNoteTitle: toolTabs.showing?.title ?? activeEditor?.note?.title,
             // Putting the note away puts its panel away with it, in the same
             // transaction. The panel over an expanded note sits below the
             // note's own bar, so Back is in reach while it is up — and the
@@ -1536,9 +1555,9 @@ struct ContentView: View {
                 case .search: noteList
                 case .tags:   tagList
                 // Decision 7's AI place. A destination rather than a sheet,
-                // because on a phone the sheets are reached from the
-                // Library actions inside the Notes tab — two taps deep in
-                // the one place a phone user is least likely to look.
+                // because otherwise a phone reached the AI from a list two
+                // taps deep, in the one place a phone user is least likely
+                // to look.
                 case .ai:     aiPlace
                 }
             },
@@ -1605,7 +1624,11 @@ struct ContentView: View {
         .padding(.horizontal, 8)
         // A range, so a narrow bar squeezes the field before it squeezes any
         // button; drawn at the same height as every other control in the bar.
-        .frame(minWidth: 120, maxWidth: maxWidth)
+        // 72 is the glyph, "Search" and the padding: the bar's buttons are
+        // seven since Today's Note and Find & Replace joined them, and at 120
+        // the bar's fixed part outgrew the editor at the Mac's minimum window
+        // with both columns open (toolbars.md §3.1).
+        .frame(minWidth: 72, maxWidth: maxWidth)
         .frame(height: Chrome.Metric.control)
         .background(Chrome.Colour.fill, in: RoundedRectangle(cornerRadius: Chrome.Metric.radius))
     }
@@ -1629,55 +1652,71 @@ struct ContentView: View {
             // and 320pt tall, where a single list runs out of height in eight
             // rows and spends its width on nothing. See `BandTwoPane`.
             SidebarLayout {
-                outlineList
+                VStack(spacing: 0) {
+                    SidebarCommandSection { collectionToolCommands }
+                    ChromeDivider()
+                    outlineList
+                        .overlay { sidebarEmptyState }
+                    ChromeDivider()
+                    SidebarCommandSection { collectionManageCommands }
+                }
             } band: {
-                BandTwoPane(
-                    roots: sidebarTree.roots,
-                    containerID: $bandContainerID,
-                    selection: $selectedNoteID,
-                    expandedFolders: expandedFolders,
-                    collapsedCollections: $collapsedCollections,
-                    focusedCollectionID: library.focusedID,
-                    accent: appearance.resolvedAccent,
-                    actions: actions.sidebarMenu,
-                    onCloseCollection: { actions.closeCollection($0) },
-                    row: { note, snippet in
-                        // Always the wide layout: the band's right pane is
-                        // never narrow, which is the whole reason for splitting
-                        // it.
-                        AnyView(noteRow(note, snippet: snippet, wide: true))
-                    },
-                    onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) })
-                    .onAppear { bandIsShowing = true }
-                    .onDisappear { bandIsShowing = false }
+                VStack(spacing: 0) {
+                    SidebarCommandStrip {
+                        collectionToolCommands
+                        collectionManageCommands
+                    }
+                    ChromeDivider()
+                    BandTwoPane(
+                        roots: sidebarTree.roots,
+                        containerID: $bandContainerID,
+                        selection: $selectedNoteID,
+                        expandedFolders: expandedFolders,
+                        collapsedCollections: $collapsedCollections,
+                        focusedCollectionID: library.focusedID,
+                        accent: appearance.resolvedAccent,
+                        actions: actions.sidebarMenu,
+                        onCloseCollection: { actions.closeCollection($0) },
+                        row: { note, snippet in
+                            // Always the wide layout: the band's right pane is
+                            // never narrow, which is the whole reason for splitting
+                            // it.
+                            AnyView(noteRow(note, snippet: snippet, wide: true))
+                        },
+                        onDropIntoFolder: { id, urls in actions.move(urls, intoFolderWithID: id) })
+                        .onAppear { bandIsShowing = true }
+                        .onDisappear { bandIsShowing = false }
+                        .overlay { sidebarEmptyState }
+                }
             }
         }
-        .overlay { SidebarEmptyState(
+        // The sidebar's own header row, at the bar's height, so the columns
+        // share one top edge. It was a navigation bar — a title and a toolbar
+        // item the OS drew at each platform's own size — and the band's large
+        // "Collections" title spent 52pt saying what the list already shows.
+        .safeAreaInset(edge: .top, spacing: 0) { sidebarHeader }
+        .background(Chrome.Colour.chrome)
+    }
+
+    /// What the tree says when there is nothing in it. Over the tree alone,
+    /// not the whole sidebar, so it never covers the commands above and below.
+    private var sidebarEmptyState: some View {
+        SidebarEmptyState(
             library: library, search: search, searchText: searchText,
             selectedTag: selectedTag, scope: railCollection ?? focused,
             hasRecents: !(recents.entries.isEmpty && libraries.libraries.isEmpty),
             openCollection: { library.requestOpenFolder() },
             openRecent: { showLauncher = true },
-            newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) }) }
-        // The sidebar's own header row, at the bar's height, so the columns
-        // share one top edge. It was a navigation bar — a title and a toolbar
-        // item the OS drew at each platform's own size — and the band's large
-        // "Collections" title spent 52pt saying what the list already shows.
-        // The `+` is the contract's one exception to "no command in the
-        // sidebar": everything in it adds a source of notes to this list.
-        .safeAreaInset(edge: .top, spacing: 0) { sidebarHeader }
-        .background(Chrome.Colour.chrome)
+            newNote: { actions.createNote(in: railCollection ?? focused, folderID: nil) })
     }
 
-    /// The top of the sidebar: empty at the leading end — where the Mac's
-    /// window buttons sit — and the Add Collection menu at the trailing end.
+    /// The top of the sidebar, at the bar's height: where the Mac's window
+    /// buttons sit, and a place to drag the window by. It held an Add
+    /// Collection `+`, which is New Collection and Open Collection below the
+    /// tree now, named.
     private var sidebarHeader: some View {
         HStack(spacing: Chrome.Metric.barSpacing) {
             Spacer(minLength: 0)
-            ChromeMenuButton(title: "Add Collection", systemImage: "plus",
-                             accent: appearance.resolvedAccent) {
-                addCollectionItems
-            }
         }
         .padding(.horizontal, Chrome.Metric.barPadding)
         .frame(height: Chrome.Metric.barHeight)
@@ -1687,47 +1726,108 @@ struct ContentView: View {
         }
     }
 
-    /// Every way to add a collection, rendered as menu items.
+    /// The collection's tools, above its tree: the Mind Map of its links, the
+    /// Assistant, Ask Your Library, and its Git. Each acts on the collection
+    /// the sidebar has selected.
+    @ViewBuilder
+    private var collectionToolCommands: some View {
+        let scope = railCollection ?? focused
+        let accent = appearance.resolvedAccent
+        SidebarCommandRow("Mind Map", systemImage: CollectionTool.mindMap.systemImage, accent: accent) {
+            showTool(.mindMap)
+        }
+        .disabled(scope?.notes.isEmpty ?? true)
+        .help("The links across this collection, as a mind map")
+        .popoverTip(MindMapTip())
+        SidebarCommandRow("Assistant", systemImage: CollectionTool.assistant.systemImage, accent: accent) {
+            showTool(.assistant)
+        }
+        .disabled(scope == nil)
+        SidebarCommandRow("Ask Your Library", systemImage: CollectionTool.askLibrary.systemImage,
+                          accent: accent) {
+            showTool(.askLibrary)
+        }
+        .disabled(library.allNotes.isEmpty)
+        gitCommand
+    }
+
+    /// Git, for the collection the sidebar has selected: its branch, a dot for
+    /// uncommitted changes, and the Git panel — commit, push, fetch, history
+    /// (there is no pull: SwiftGitX cannot merge).
+    /// A cloud collection is the provider's to version, so it has none.
+    @ViewBuilder
+    private var gitCommand: some View {
+        if let collection = gitCollection, !collection.isRemote {
+            let status = collection.git.status
+            SidebarCommandRow("Git", systemImage: "arrow.triangle.branch",
+                              detail: status.isRepository ? status.branch : "not a repository",
+                              showsDot: status.isRepository && !status.isClean,
+                              accent: appearance.resolvedAccent) {
+                showGitPanel = true
+            }
+            .help("Git — branch, status, commit and sync for “\(collection.name)”")
+            .popover(isPresented: $showGitPanel, arrowEdge: .trailing) {
+                VStack(alignment: .leading, spacing: 8) {
+                    GitPane(collection: gitCollection) { showGitSettings = true }
+                }
+                .padding(12)
+                .frame(width: 300)
+                // Without this a compact width turns the popover into a sheet
+                // and centres a 300pt panel in it.
+                .presentationCompactAdaptation(.popover)
+            }
+        }
+    }
+
+    /// Making and opening collections and folders, below the tree.
+    @ViewBuilder
+    private var collectionManageCommands: some View {
+        let scope = railCollection ?? focused
+        let accent = appearance.resolvedAccent
+        SidebarCommandRow("New Folder…", systemImage: "folder.badge.plus", accent: accent) {
+            actions.beginNewFolder(in: scope, folderID: nil)
+        }
+        .disabled(scope == nil)
+        SidebarCommandMenuRow(AddCollectionGroup.new.title, systemImage: "rectangle.stack.badge.plus",
+                              accent: accent) {
+            addCollectionOptions(in: .new)
+        }
+        SidebarCommandMenuRow(AddCollectionGroup.open.title, systemImage: AddCollectionGroup.open.symbol,
+                              accent: accent) {
+            addCollectionOptions(in: .open)
+            Divider()
+            Button {
+                showLauncher = true
+            } label: {
+                Label("Open Recent…", systemImage: "clock.arrow.circlepath")
+            }
+        }
+        SidebarCommandRow("Open Default Collection", systemImage: "books.vertical", accent: accent) {
+            openDefaultCollection()
+        }
+    }
+
+    /// One group's ways to add a collection, as menu items — the sidebar's New
+    /// Collection and Open Collection rows, in the column, the band and the
+    /// phone's Notes place.
     ///
-    /// The *set* lives in `AddCollectionActions.options`, not here: four menus
-    /// draw it (the sidebar's `+`, the File menu — which iPadOS builds into a
-    /// real menu bar too — the compact shell's `…` and the command palette)
-    /// and two onboarding surfaces draw the same set as cards. Describing it
+    /// The *set* lives in `AddCollectionActions.options`, not here: the File
+    /// menu — which iPadOS builds into a real menu bar too — the command
+    /// palette and two onboarding surfaces draw the same set. Describing it
     /// once and rendering it several ways is what keeps them from drifting,
     /// which they had: the welcome screen offered two ways in while the
     /// toolbar offered eight.
     @ViewBuilder
-    private var addCollectionItems: some View {
-        ForEach(AddCollectionGroup.allCases, id: \.self) { group in
-            Menu {
-                ForEach(addCollectionActions.options(in: group)) { option in
-                    Button {
-                        option.run()
-                    } label: {
-                        Label("\(option.menuTitle)…", systemImage: option.symbol)
-                    }
-                }
+    private func addCollectionOptions(in group: AddCollectionGroup) -> some View {
+        ForEach(addCollectionActions.options(in: group)) { option in
+            Button {
+                option.run()
             } label: {
-                Label(group.title, systemImage: group.symbol)
+                Label("\(option.menuTitle)…", systemImage: option.symbol)
             }
         }
-        Divider()
-        Button {
-            showLauncher = true
-        } label: {
-            Label("Open Recent…", systemImage: "clock.arrow.circlepath")
-        }
-        // Also `File ▸ Open Default Collection`, which iPadOS builds from
-        // `.commands` — but a menu bar needs a hardware keyboard to reach, so
-        // on a bare iPad that route does not exist. This is the touch one, and
-        // `addCollectionItems` is used by all three menus (sidebar +, compact
-        // overflow, New Note) so adding it here adds it everywhere at once.
-        Button {
-            openDefaultCollection()
-        } label: {
-            Label("Open Default Collection", systemImage: "books.vertical")
-        }
     }
+
 
     /// The one definition of what "add a collection" can mean.
     var addCollectionActions: AddCollectionActions {
@@ -1964,18 +2064,10 @@ struct ContentView: View {
             }
 
             Spacer(minLength: 12)
-
-            gitStatusButton
-            statusBarButton("New note", "square.and.pencil") { newNote() }
-            statusBarButton("Today's note", "calendar") { openTodaysNote() }
-            statusBarButton("Graph view", "point.3.connected.trianglepath.dotted") { showPanel(.graph) }
-                .disabled(focused?.notes.isEmpty ?? true)
-                // The tip used to hang off the sidebar's Graph button; the
-                // status bar is where that command still lives on screen.
-                .popoverTip(GraphTip())
-            statusBarButton("Ask your library", "sparkles.rectangle.stack") { showPanel(.askLibrary) }
-                .disabled(library.allNotes.isEmpty)
-            statusBarButton("Assistant", "sparkles") { showPanel(.assistant) }
+            // No commands: New Note and Today's Note are the bar's, Git and the
+            // collection's tools the sidebar's. This strip says what the
+            // collection is; it carried five buttons that were each somewhere
+            // else as well.
         }
         // The same strip as the editor's bottom bar, from the same tokens:
         // it was `.callout` over `.bar`, both resolved per OS.
@@ -1985,47 +2077,6 @@ struct ContentView: View {
         .frame(height: Chrome.Metric.statusRow)
         .padding(.vertical, 5)
         .background(Chrome.Colour.chrome)
-    }
-
-    /// Git, in the status bar rather than at the foot of the rail — the branch
-    /// and a dirty pip, opening the full panel.
-    @ViewBuilder
-    private var gitStatusButton: some View {
-        if let collection = gitCollection, !collection.isRemote {
-            Button {
-                showGitPanel = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.branch")
-                    if let branch = collection.git.status.branch {
-                        Text(branch).lineLimit(1)
-                    }
-                    if collection.git.status.isRepository && !collection.git.status.isClean {
-                        Circle().fill(Chrome.Colour.orange).frame(width: 6, height: 6)
-                    }
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(ChromePlainStyle())
-            .foregroundStyle(Chrome.Colour.secondaryLabel)
-            .help("Git — branch, status, commit and sync for “\(collection.name)”")
-            .popover(isPresented: $showGitPanel, arrowEdge: .top) {
-                VStack(alignment: .leading, spacing: 8) {
-                    GitPane(collection: gitCollection) { showGitSettings = true }
-                }
-                    .padding(12)
-                    .frame(width: 300)
-                    // See `NoteEditorView.bottomBar`: without this a compact
-                    // width turns the popover into a sheet and centres a
-                    // 300pt panel in it.
-                    .presentationCompactAdaptation(.popover)
-            }
-            ChromeStatusSeparator()
-        }
-    }
-
-    private func statusBarButton(_ help: String, _ systemImage: String, action: @escaping () -> Void) -> some View {
-        ChromeStatusButton(help: help, systemImage: systemImage, action: action)
     }
 
     private func closeTab(_ id: Note.ID) {
@@ -2108,12 +2159,14 @@ struct ContentView: View {
     /// it where you made it, and it is not there.
     ///
     /// `bandContainerID` is the container that pane is showing, and it is the
-    /// same identifier the folder row's own **New Note Here** passes; the
-    /// column shells set none, so `nil` keeps their behaviour. The folder is
-    /// expanded first for the reason `ShellActions.expand` gives — a note
-    /// created into a closed folder is a selection you cannot see.
+    /// same identifier the folder row's own **New Note Here** passes. A
+    /// column's sidebar selects notes, not folders, so there the folder you
+    /// are in is the selected note's (`ShellActions.newNoteFolder`). The
+    /// folder is expanded first for the reason `ShellActions.expand` gives — a
+    /// note created into a closed folder is a selection you cannot see.
     private func newNote() {
         let folderID = ShellActions.newNoteFolder(band: bandContainerID, bandShowing: bandIsShowing,
+                                                  selected: selectedNoteID,
                                                   collectionIDs: library.collections.map(\.id))
         if let folderID { actions.expand(folderID) }
         actions.createNote(in: railCollection ?? focused, folderID: folderID)
@@ -2147,8 +2200,6 @@ struct ContentView: View {
     }
 
     private var mode: EditorMode { EditorMode.mode(storedMode) }
-
-    private var modeBinding: Binding<EditorMode> { EditorMode.binding($storedMode) }
 
     /// Stands in when no note is open, so the 30-odd `editor.` call sites do
     /// not each have to answer "and if there is nothing open?". The detail
@@ -2324,6 +2375,16 @@ struct ContentView: View {
 
     // MARK: - Compact: the collection list as its own place
 
+    /// The phone's sidebar: its collections, with the collection's commands
+    /// as the sidebar has them — the tools above the list, making and opening
+    /// collections below it. One definition (`collectionToolCommands`,
+    /// `collectionManageCommands`), so the phone cannot fall behind.
+    ///
+    /// These were a menu here, and the tools were reached from the panel; when
+    /// the Mind Map left the panel for the sidebar, a phone with a collection
+    /// open had no visible route to it (implemented.md §51.37). On **iPhone**
+    /// there is no menu bar either, so these rows are the only route to adding
+    /// a source.
     private var collectionsList: some View {
         VStack(spacing: 0) {
             CompactPlaceBar("Library") {
@@ -2336,15 +2397,8 @@ struct ContentView: View {
                         } label: {
                             Label("New Note", systemImage: "square.and.pencil")
                         }
+                        Divider()
                     }
-                    // The compact shell has no sidebar, so no `+`. On a narrow
-                    // Mac window or a narrowed iPad the menu bar is still
-                    // there behind it; on **iPhone** there is no menu bar at
-                    // all, and this menu is the only route to adding a source.
-                    // The same items, from the same place, so it cannot fall
-                    // behind the other three.
-                    addCollectionItems
-                    Divider()
                     Button {
                         showSettings = true
                     } label: {
@@ -2354,11 +2408,8 @@ struct ContentView: View {
             }
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if library.isEmpty {
-                        Button("Open Folder…") { library.requestOpenFolder() }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                    } else {
+                    if !library.isEmpty {
+                        SidebarCommandSection { collectionToolCommands }
                         compactHeader("Collections")
                         ForEach(library.collections) { collection in
                             collectionRow(collection)
@@ -2370,7 +2421,11 @@ struct ContentView: View {
                         // Tags are not here. The library rail answers "where is it?";
                         // tags are cross-cutting and belong to the inspector, or to
                         // their own place in the compact tab bar (decision 1).
+                        compactHeader(nil)
                     }
+                    // With no collection open, these are the whole place: the
+                    // ways to add one.
+                    SidebarCommandSection { collectionManageCommands }
                 }
                 .padding(.bottom, 8)
             }
@@ -2572,11 +2627,11 @@ struct ContentView: View {
 
     /// Library-wide commands, shown in the Library place: the compact shell's
     /// stand-in for the bar's More menu, which the phone does not draw (see
-    /// `detail(showsShellCommands:)`). A command in neither has no route on a
-    /// phone at all, and Graph View was one. The list began as the iPad's
-    /// short one, when Graph, Ask Library and the Assistant were Mac windows;
-    /// the two AI entries were added because iOS had no way to them at all,
-    /// and the graph, which had an iPad sheet of its own then, was not.
+    /// `detail(showsShellCommands:)`) — making notes, not collections. A
+    /// command in neither has no route on a phone at all, and Graph View was
+    /// one. Opening a collection, the Mind Map, the Assistant and Ask Your
+    /// Library were here too, until the phone's Notes place carried the
+    /// sidebar's rows; each has one place now (implemented.md §51.37).
     private var libraryActions: [LibraryPlace.Action] {
         let scope = railCollection ?? focused
         return [
@@ -2586,30 +2641,11 @@ struct ContentView: View {
             },
             .init(title: "New Note from a Prompt…", symbol: "sparkles.square.filled.on.square",
                   isEnabled: scope != nil) { showCompose = true },
-            .init(title: "Open Folder", symbol: "folder.badge.plus") { library.requestOpenFolder() },
-            // The launcher, by touch. `openLauncher` reaches it from a hardware
-            // keyboard's ⌘O, which is not a route a keyboard-less iPad has —
-            // and recents and saved libraries are the only way back to a vault
-            // without navigating the Files picker to it again.
-            .init(title: "Open Recent…", symbol: "clock.arrow.circlepath") { showLauncher = true },
             // The Mac reaches this from the menu bar without switching apps.
             // iOS has no such chrome, so the capture lives where the rest of
             // the library-wide commands do.
             .init(title: "Quick Capture…", symbol: "square.and.pencil.circle",
                   isEnabled: !library.isEmpty) { showQuickCapture = true },
-            .init(title: "Graph View", symbol: "point.3.connected.trianglepath.dotted",
-                  isEnabled: !(scope?.notes.isEmpty ?? true)) {
-                showPanel(.graph)
-            },
-            // Reachable deliberately, not only by selecting a phrase — the
-            // question you want to ask your notes usually isn't already in one.
-            .init(title: "Ask Your Library", symbol: "sparkles.rectangle.stack",
-                  isEnabled: !library.allNotes.isEmpty) {
-                showPanel(.askLibrary)
-            },
-            .init(title: "Assistant", symbol: "sparkles", isEnabled: scope != nil) {
-                showPanel(.assistant)
-            },
             .init(title: "Settings…", symbol: "gearshape") { showSettings = true },
         ]
     }
@@ -2671,10 +2707,10 @@ struct ContentView: View {
         AIPlaceList(
             ai: aiActions,
             canAsk: !library.allNotes.isEmpty,
-            askLibrary: { showPanel(.askLibrary) },
+            askLibrary: { showTool(.askLibrary) },
             reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
             compose: scope == nil ? nil : { showCompose = true },
-            assistant: { showPanel(.assistant) },
+            assistant: { showTool(.assistant) },
             aiSettings: { openAISettings() },
             hasOpenNote: editor.note != nil)
     }
@@ -2698,7 +2734,14 @@ struct ContentView: View {
     }
 
     /// The bar over the editor — **the same pixels on both platforms**:
-    /// Search · Sidebar · New Note · More ⋯ | tabs | Note Actions ⌄ · Panel.
+    /// Search · Sidebar · New Note · Today's Note · Find & Replace · More ⋯ |
+    /// tabs | Note Actions ⌄ · Panel.
+    ///
+    /// Its leading half is the notes of the collection: finding them, making
+    /// them, opening them. The collection itself — its tools, its folders, its
+    /// Git, opening another — is the sidebar's, where the collection is; the
+    /// note's own views are the panel's, and how the note is shown is the
+    /// bottom bar's. Each command is in one of them, not several.
     ///
     /// It was a system toolbar, and a system toolbar is the platform's drawing:
     /// NSToolbar at the Mac's metrics, UINavigationBar at iPadOS's, and a
@@ -2720,10 +2763,16 @@ struct ContentView: View {
                     .accessibilityIdentifier("shell.bandToggle")
                 ChromeButton(title: "New Note", systemImage: "square.and.pencil", accent: accent) { newNote() }
                     .disabled((railCollection ?? focused) == nil)
+                ChromeButton(title: "Today's Note", systemImage: "calendar", accent: accent) { openTodaysNote() }
+                    .disabled((railCollection ?? focused) == nil)
+                ChromeButton(title: "Find & Replace", systemImage: "text.magnifyingglass", accent: accent) {
+                    findInNote()
+                }
+                .disabled(!noteIsInFront)
                 shellCommandMenu
             }
             Group {
-                if editor.note != nil {
+                if editor.note != nil || !toolTabs.open.isEmpty {
                     ViewThatFits(in: .horizontal) {
                         tabStrip.fixedSize()
                         ScrollView(.horizontal, showsIndicators: false) { tabStrip.fixedSize() }
@@ -2733,7 +2782,7 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            if editor.note != nil { noteMenu }
+            if noteIsInFront { noteMenu }
             ChromeButton(title: inspectorPresented ? "Hide Panel" : "Show Panel",
                          systemImage: "sidebar.trailing", isOn: inspectorPresented, accent: accent) {
                 togglePanel()
@@ -2748,6 +2797,17 @@ struct ContentView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
         }
+    }
+
+    /// Whether the open note is what the middle of the window shows — not a
+    /// tool in front of it, and not nothing.
+    private var noteIsInFront: Bool { editor.note != nil && toolTabs.showing == nil }
+
+    /// Edit ▸ Find (⌘F), from the bar: the open note's find bar, switching to
+    /// Edit first, which is what `NoteEditorView` does with the notification.
+    private func findInNote() {
+        guard noteIsInFront, let editor = activeEditor else { return }
+        NotificationCenter.default.post(name: .hnEditorToggleFind(editor: editor.editorID), object: nil)
     }
 
     /// Whether the left region is put away — the band on the tall shell, the
@@ -2772,7 +2832,13 @@ struct ContentView: View {
                                hasSelection: selectedNoteID != nil,
                                onRetry: { c in Task { await library.retry(c) } },
                                onLocate: { c in library.requestRelocate(c) })
-        if let file = selectedFile {
+        if let tool = toolTabs.showing {
+            // A tool of the collection the sidebar has selected, in front of
+            // the notes until a note is chosen or its tab is closed.
+            CollectionToolView(tool: tool, collection: railCollection ?? focused,
+                               accent: appearance.resolvedAccent)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let file = selectedFile {
             // The same viewer the Mac uses, and handed the same hydration
             // callbacks — so a direct-API collection fetches through its
             // provider here too rather than falling back to the iCloud watch.
@@ -2825,11 +2891,6 @@ struct ContentView: View {
                     guard let current = editor.note else { return }
                     actions.rename(current, to: title)
                 },
-                onShowMindMap: {
-                    guard editor.note != nil else { return }
-                    showPanel(.mindMap)
-                },
-                ai: aiActions,
                 selectionActions: selectionActions(in: c)
             )
             // S3: the detail column is a viewport, whatever mode it is in.
@@ -2873,16 +2934,15 @@ struct ContentView: View {
 
 
 
+    /// The rest of the bar's commands: the notes of the collection, the open
+    /// note in a window of its own, and Settings. What it no longer holds is
+    /// in one other place each: Today's Note and Find are buttons beside it;
+    /// the Mind Map, the Assistant, Ask Your Library, New Folder and opening a
+    /// collection are the sidebar's, because they are the collection's.
     private var shellCommandMenu: some View {
         let scope = railCollection ?? focused
         return ChromeMenuButton(title: "More", systemImage: "ellipsis.circle",
                                 accent: appearance.resolvedAccent, spokenName: "More actions") {
-            Button {
-                openTodaysNote()
-            } label: {
-                Label("Today's Note", systemImage: "calendar")
-            }
-            .disabled(scope == nil)
             Button {
                 showQuickCapture = true
             } label: {
@@ -2895,63 +2955,26 @@ struct ContentView: View {
                 Label("Open Quickly…", systemImage: "arrow.forward.square")
             }
             .disabled(scope?.notes.isEmpty ?? true)
-            Divider()
-            // What the Mac's status bar and the phone's AI place carry. On iPad
-            // they were in the menu bar and the palette only — both out of
-            // sight — so the Assistant had no button at all.
-            Button {
-                showPanel(.assistant)
-            } label: {
-                Label("Assistant", systemImage: "sparkles")
-            }
-            .disabled(scope == nil)
-            Button {
-                showPanel(.askLibrary)
-            } label: {
-                Label("Ask Your Library", systemImage: "sparkles.rectangle.stack")
-            }
-            .disabled(library.allNotes.isEmpty)
             Button {
                 showCompose = true
             } label: {
                 Label("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square")
             }
             .disabled(scope == nil)
-            Button {
-                showPanel(.graph)
-            } label: {
-                Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
-            }
-            .disabled(scope?.notes.isEmpty ?? true)
             Divider()
-            // One Settings — AI is a page of it. Above the folder and collection
-            // commands, not after them: a menu from a toolbar in the middle of
-            // a portrait iPad is capped at about 520pt, and last place put
-            // Settings below the fold, which is where this menu came in to get
-            // it out of. Those commands also have visible homes of their own,
-            // the band's `+` and each collection's `…`.
+            Button {
+                if let url = editor.note?.fileURL { openWindow(value: NoteRef(url)) }
+            } label: {
+                Label("Open Note in New Window", systemImage: "macwindow.badge.plus")
+            }
+            .disabled(!noteIsInFront)
+            Divider()
+            // One Settings — AI is a page of it.
             Button {
                 showSettings = true
             } label: {
                 Label("Settings…", systemImage: "gearshape")
             }
-            Divider()
-            Button {
-                actions.beginNewFolder(in: scope, folderID: nil)
-            } label: {
-                Label("New Folder…", systemImage: "folder.badge.plus")
-            }
-            .disabled(scope == nil)
-            // The same items the sidebar's `+`, the File menu and the compact
-            // shell offer, from the same definition.
-            //
-            // This is **not** the iPad's menu bar: iPadOS 26 builds a real one
-            // from the scene's own `.commands`, ungated, so these commands are
-            // already there on both platforms (see `HelloNotesApp`). This is
-            // the touch-reachable duplicate of it, one caret from the note
-            // being edited rather than a swipe to the top of the screen. A
-            // duplicate is fine; a duplicate that has drifted is not.
-            addCollectionItems
         }
     }
 
@@ -2982,46 +3005,31 @@ struct ContentView: View {
         EditorTabBar(
             notes: tabs.openNotes,
             activeID: selectedNoteID,
-            onSelect: { selectedNoteID = $0 },
+            // Choosing the tab of the note already selected changes nothing,
+            // so the tools are put behind it here as well as on a change.
+            onSelect: { selectedNoteID = $0; toolTabs.showNotes() },
             // Through the same path as File ▸ Close Tab and ⌘W, so closing a
             // *background* tab doesn't move the selection off the note you are
             // reading.
             onClose: { closeTab($0) },
+            tools: toolTabs.open,
+            activeTool: toolTabs.showing,
+            onSelectTool: { showTool($0) },
+            onCloseTool: { toolTabs.close($0) },
             accent: appearance.resolvedAccent)
     }
 
-    /// Everything the top bar used to spread across four controls.
+    /// What can be done *to* the open note: present it, its diagrams, the
+    /// model's work on it, and what a long-press on its row offers.
     ///
     /// One caret, because tabs need the width and because every command here is
-    /// also in the menu bar now — this is the touch route to the same set, not
-    /// a second vocabulary.
+    /// also in the menu bar — this is the touch route to the same set, not a
+    /// second vocabulary. It held the view mode and Show Panel too, which have
+    /// a place each already: the bottom bar's modes and the bar's panel button.
     private var noteMenu: some View {
         ChromeMenuButton(title: "Note Actions", systemImage: "chevron.down.circle",
                          accent: appearance.resolvedAccent) {
-            Picker("View", selection: modeBinding) {
-                ForEach(EditorMode.platformCases) { m in
-                    Label(m.label, systemImage: m.symbol).tag(m)
-                }
-            }
-            .pickerStyle(.inline)
-            Divider()
-            Button {
-                togglePanel()
-            } label: {
-                Label(inspectorPresented ? "Hide Panel" : "Show Panel",
-                      systemImage: "sidebar.right")
-            }
             if editor.note != nil {
-                Divider()
-                // **The way in to the mind map.** It was bound into a sheet and
-                // never once
-                // set to `true` anywhere in the codebase — every write was a
-                // dismissal — so the whole surface was dead code on iOS. The Mac
-                // reaches it from the editor's bottom bar; the bar's iPad
-                // equivalent is this menu.
-                Button { showPanel(.mindMap) } label: {
-                    Label("Mind Map", systemImage: "brain")
-                }
                 // Read from the memoized, off-main scan rather than computed
                 // here: `Menu(content:label:)` takes a *non-escaping*
                 // ViewBuilder, so anything in this closure runs at construction

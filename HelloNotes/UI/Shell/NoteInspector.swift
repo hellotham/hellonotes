@@ -178,8 +178,8 @@ struct NoteInspector: View {
         .onChange(of: request) { _, new in run(new) }
         // **And when it appears holding one.** The command sets the view,
         // shows the panel and sets the request in one update: a closed panel
-        // is not in the window, and Graph, Ask Library, the Assistant and the
-        // Mind Map are not this view, so it was made already holding the
+        // is not in the window, and the Graph is not this view, so it was
+        // made already holding the
         // request — and a request that never changes is never run. The
         // commands did nothing unless one of the note's views was already
         // showing (secondary.md §9, item 1; implemented.md §51.36).
@@ -232,9 +232,8 @@ struct NoteInspector: View {
         case .history:
             historyTab
         default:
-            // The panel's other views are not this one's business — the shell
-            // draws `SidePanel`'s graph, Ask Library, Assistant and mind map
-            // itself, and never hands them here.
+            // The panel's other view is not this one's business — the shell
+            // draws `SidePanel`'s graph itself, and never hands it here.
             EmptyView()
         }
     }

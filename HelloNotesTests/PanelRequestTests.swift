@@ -7,9 +7,9 @@
 //
 //  The command sets the panel's view, shows the panel and sets the request in
 //  one update, and the panel ran a request only when it *changed*. A closed
-//  panel is not in the window, and Graph, Ask Library, the Assistant and the
-//  Mind Map are not this view — so the view was made already holding the
-//  request, and nothing ran. It runs a request it appears holding now; and
+//  panel is not in the window, and the panel's other views (the Graph, and in
+//  §51.36 Ask Library, the Assistant and a mind map too) are not this view —
+//  so the view was made already holding the request, and nothing ran. It runs a request it appears holding now; and
 //  the host clears one once it has run, or every note view that appeared
 //  again would run the last one again.
 //
@@ -97,7 +97,6 @@ struct PanelRequestTests {
         let close = show(Panel(host: host, editor: editor)
             .environment(IntelligenceSettings())
             .environment(AppearanceSettings())
-            .environment(LiveBuffer())
             .environment(EditorDocumentStore())
             .defaultAppStorage(ScratchDefaults.suite("panel-request")))
         defer { close() }

@@ -4,69 +4,66 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  A radial mind map of a note's *ideas*: the note title at the centre, its
-//  heading hierarchy as branches, top-level bullets as sub-ideas, and the
-//  `[[wiki-links]]` inside each section attached as linked-note leaves — the
-//  bridge from ideas to files. (The file-to-file link view lives in Graph.)
-//  Each top-level branch takes its own palette colour; ideas render as solid
-//  chips, linked notes as outlined ones. Click an idea to show it in the
-//  note; click a linked note to open it. The canvas scrolls and zooms.
+//  The Mind Map: the links across a whole collection, drawn as a radial mind
+//  map — the collection at the centre, its most-connected notes heading the
+//  branches, every other note on the branch that reaches it first, and the
+//  links the tree leaves out drawn as faint cross-links (`CollectionMindMap`
+//  chooses the tree). Each branch takes its own palette colour; a branch's
+//  head is a solid chip, the notes on it outlined ones. Click a note to open
+//  it. The canvas scrolls and zooms.
+//
+//  Until 1.3.3 this drew *one* note's ideas — its headings as branches and the
+//  links inside each section as leaves — and lived in the right panel beside
+//  the note, while the collection's links were the Graph's. That put "a map of
+//  links" in two places under two names, the wrong way round: the Graph is one
+//  note's links in and out now, in the panel, and the map of the collection's
+//  links is this, a tab of its own. The note's headings are the Outline's.
 //
 
 // **Not macOS-only.** This file was `#if os(macOS)` and used no AppKit and
 // no Mac-only API — the gate was the only thing keeping it off iPad.
 import SwiftUI
-import MarkdownCore
 
 struct MindMapView: View {
-    /// The note whose ideas are mapped.
-    let rootTitle: String
-    let rootURL: URL
-    /// The note's Markdown source.
-    let text: String
-    /// Resolves a `[[wiki-link]]` target to an existing note, if any.
-    var resolveLink: (String) -> (url: URL, title: String)?
+    /// The collection whose links are mapped.
+    let collection: Collection
     /// Root-chip colour — the app's resolved accent. Given, because
     /// `Color.accentColor` is not the person's choice.
     var accent: Color
+    /// Open a note in the editor.
+    var onOpenNote: (URL) -> Void
+
     /// Chip text used to scale by canvas zoom alone, ignoring the text size.
     /// The *same* factor feeds `estimatedChipSize`, so the chips grow with
     /// their labels — scaling only the font would clip every title. It is the
     /// chrome's own factor (`ChromeTextScale`), one table on both platforms,
     /// where `@ScaledMetric` scaled by each platform's.
     private var typeScale: CGFloat { ChromeTextScale.shared.factor }
-    /// Open a linked note in the editor.
-    var onOpenNote: (URL) -> Void = { _ in }
-    /// Reveal a section in the note (`nil` = just open the note).
-    var onShowSection: (String?) -> Void = { _ in }
 
     @State private var zoom: CGFloat = 1
     @State private var gestureBaseZoom: CGFloat?
     @State private var viewportSize: CGSize = .zero
     @State private var didInitialFit = false
-    /// The map and its layout, built once per text and text size — the model
-    /// on the main actor, where its links are resolved, and the layout, the
-    /// O(N²) collision relaxation, off it (`build`). The model was a computed
-    /// property, so every body evaluation and every zoom frame parsed the
-    /// note again, and the first layout ran in `body` (implemented.md §51.36).
+    /// The map and its layout, built once per state of the collection's links
+    /// and text size — snapshotted on the main actor, worked out off it.
     @State private var built: Built?
 
     private struct Built {
-        let model: MindMapModel
+        let map: CollectionMindMap.Map
         let layout: MindMapModel.Layout
     }
 
-    /// What the map is built from. The text itself, compared as SwiftUI
-    /// compares a task's id: the same string handed again is the same storage,
-    /// which compares at once. The key was a string interpolating the whole
-    /// note, made again at every body evaluation.
+    /// What the map is built from: the collection, its index's revision (which
+    /// moves whenever a note's links do), how many notes it has, and the text
+    /// size.
     private struct BuildKey: Equatable {
-        let text: String
-        let rootTitle: String
+        let collectionID: Collection.ID
+        let revision: Int
+        let noteCount: Int
         let scale: CGFloat
     }
 
-    private static let zoomRange: ClosedRange<CGFloat> = 0.4...3
+    private static let zoomRange: ClosedRange<CGFloat> = 0.25...3
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,22 +71,50 @@ struct MindMapView: View {
             ChromeDivider()
             scrollingMap
         }
-        // No minimum — a pane gives it the width it has; the map scrolls and
-        // zooms inside it (see `GraphView`).
+        .onChange(of: collection.id) { _, _ in didInitialFit = false }
     }
 
     private var header: some View {
-        HStack {
-            Label("Mind Map", systemImage: "brain").font(Chrome.Style.headline)
-            Spacer()
-            ZoomControls(zoom: $zoom, range: Self.zoomRange, fitZoom: fitZoom)
-            Button {
-                onShowSection(nil)
-            } label: { Label("Open “\(rootTitle)”", systemImage: "arrow.up.forward.square") }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Label("Mind Map", systemImage: "brain")
+                    .font(Chrome.Style.headline)
+                    .fixedSize()
+                Text(collection.name)
+                    .font(Chrome.Typeface.body)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                ZoomControls(zoom: $zoom, range: Self.zoomRange, fitZoom: fitZoom)
+            }
+            // What the map shows and what it leaves out, on a line of its own:
+            // beside the title, a phone's width cut the counts off mid-word.
+            // What it leaves out was a `.help` tooltip — a hover, which an
+            // iPad and a phone do not have. With nothing linked, the empty
+            // state says so instead.
+            if let built, built.map.shown > 0 {
+                Text(facts(built.map))
+                    .font(Chrome.Typeface.status)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         // 16 is the Mac's `.padding()`, said rather than asked for: the
         // default amount is platform-specific.
         .padding(16)
+    }
+
+    /// What the map shows, then the notes it does not: those past the cap,
+    /// and those with no links at all.
+    private func facts(_ map: CollectionMindMap.Map) -> String {
+        var parts = ["\(map.shown) note\(map.shown == 1 ? "" : "s") · \(map.links) link\(map.links == 1 ? "" : "s")"]
+        if map.dropped > 0 {
+            parts.append("\(map.dropped) more linked note\(map.dropped == 1 ? "" : "s") left off — the map keeps the \(CollectionMindMap.maxNotes) most-connected")
+        }
+        if map.unlinked > 0 {
+            parts.append("\(map.unlinked) note\(map.unlinked == 1 ? " has" : "s have") no links, so \(map.unlinked == 1 ? "it is" : "they are") not on the map")
+        }
+        return parts.joined(separator: ". ") + "."
     }
 
     // MARK: - Map canvas
@@ -97,7 +122,12 @@ struct MindMapView: View {
     private var scrollingMap: some View {
         Group {
             if let built {
-                map(built.model, built.layout)
+                if built.map.shown == 0 {
+                    ChromeEmptyState("No Links Yet", systemImage: "brain",
+                                     description: Text("Link notes to each other with [[wiki links]], and the map draws how they connect."))
+                } else {
+                    map(built.map.model, built.layout)
+                }
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -105,16 +135,29 @@ struct MindMapView: View {
         }
         // On the container, which outlives the switch from the spinner to the
         // map: on either branch, it would build once more when it appeared.
-        .task(id: BuildKey(text: text, rootTitle: rootTitle, scale: typeScale)) { await build() }
+        .task(id: BuildKey(collectionID: collection.id, revision: collection.derivedRevision,
+                           noteCount: collection.notes.count, scale: typeScale)) { await build() }
     }
 
-    /// Build the map for the text and text size on screen.
+    /// Build the map for the collection and text size on screen. The snapshot
+    /// is a copy of two values the collection already holds; the tree, the
+    /// cross-links and the O(N²) layout are worked out off the main actor.
     private func build() async {
-        let model = MindMapModel(rootTitle: rootTitle, text: text, resolveLink: resolveLink)
+        let input = CollectionMindMap.Input(
+            name: collection.name,
+            notes: collection.notes.map { CollectionMindMap.NoteInfo(url: $0.fileURL, title: $0.title) },
+            backlinks: collection.linkGraph.backlinksByURL)
         let scale = typeScale
-        let layout = await offMain { model.layout(textScale: scale) }
+        let result = await offMain { () -> (CollectionMindMap.Map, MindMapModel.Layout) in
+            let map = CollectionMindMap.build(input)
+            return (map, map.model.layout(textScale: scale))
+        }
         guard !Task.isCancelled else { return }
-        built = Built(model: model, layout: layout)
+        built = Built(map: result.0, layout: result.1)
+        if !didInitialFit, viewportSize.width > 0 {
+            didInitialFit = true
+            zoom = min(max(fitZoom(), Self.zoomRange.lowerBound), 1.1)
+        }
     }
 
     private func map(_ model: MindMapModel, _ layout: MindMapModel.Layout) -> some View {
@@ -156,9 +199,21 @@ struct MindMapView: View {
         )
     }
 
+    /// The tree's lines, in their branches' colours, and the cross-links under
+    /// them: thinner, dashed and neutral, so the tree stays readable and every
+    /// link is still there.
     private func edgeCanvas(model: MindMapModel, positions: [String: CGPoint]) -> some View {
         let colorOf = Dictionary(uniqueKeysWithValues: model.nodes.map { ($0.id, branchColor($0)) })
         return Canvas { ctx, _ in
+            for edge in model.crossLinks {
+                guard let a0 = positions[edge.from], let b0 = positions[edge.to] else { continue }
+                var path = Path()
+                path.move(to: CGPoint(x: a0.x * zoom, y: a0.y * zoom))
+                path.addLine(to: CGPoint(x: b0.x * zoom, y: b0.y * zoom))
+                ctx.stroke(path, with: .color(Chrome.Colour.tertiaryLabel.opacity(0.55)),
+                           style: StrokeStyle(lineWidth: max(0.75, 0.9 * zoom),
+                                              dash: [4 * zoom, 4 * zoom]))
+            }
             for edge in model.edges {
                 guard let a0 = positions[edge.from], let b0 = positions[edge.to] else { continue }
                 let a = CGPoint(x: a0.x * zoom, y: a0.y * zoom)
@@ -190,80 +245,61 @@ struct MindMapView: View {
         let isRoot = node.depth == 0
         let fontSize = (isRoot ? 15.0 : node.depth == 1 ? 13.0 : 11.5) * typeScale * zoom
 
-        Button {
-            switch node.kind {
-            case .linkedNote(let url): onOpenNote(url)
-            case .root: onShowSection(nil)
-            case .section: onShowSection(node.title)
-            case .bullet: onShowSection(nil)
+        // `fixedSize` makes the chip hug its text (a plain `maxWidth` frame
+        // would *expand* to it); long titles are pre-truncated so chips stay
+        // bounded — and match the collision-pass estimates.
+        let chip = HStack(spacing: 4 * zoom) {
+            if case .note = node.kind {
+                Image(systemName: "doc.text")
+                    .font(.system(size: fontSize * 0.85))
             }
-        } label: {
-            // `fixedSize` makes the chip hug its text (a plain `maxWidth`
-            // frame would *expand* to it); long titles are pre-truncated so
-            // chips stay bounded — and match the collision-pass estimates.
-            HStack(spacing: 4 * zoom) {
-                if case .linkedNote = node.kind {
-                    Image(systemName: "doc.text")
-                        .font(.system(size: fontSize * 0.85))
-                }
-                Text(MindMapModel.displayTitle(node.title))
-                    .font(.system(size: fontSize, weight: isRoot ? .semibold : .medium))
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            .padding(.horizontal, (isRoot ? 13 : 10) * zoom)
-            .padding(.vertical, (isRoot ? 8 : 5.5) * zoom)
-            .background(chipBackground(node, color: color), in: Capsule())
-            .overlay(chipBorder(node, color: color))
-            .foregroundStyle(chipForeground(node, color: color))
-            .shadow(color: .black.opacity(0.25), radius: 2.5 * zoom, y: 1.5 * zoom)
+            Text(MindMapModel.displayTitle(node.title))
+                .font(.system(size: fontSize, weight: isRoot ? .semibold : .medium))
+                .lineLimit(1)
+                .fixedSize()
         }
-        .buttonStyle(ChromePlainStyle())
-        .contextMenu {
-            switch node.kind {
-            case .linkedNote(let url):
-                Button("Open Note") { onOpenNote(url) }
-            case .section:
-                Button("Show in Note") { onShowSection(node.title) }
-            case .root, .bullet:
-                Button("Open Note") { onShowSection(nil) }
-            }
+        .padding(.horizontal, (isRoot ? 13 : 10) * zoom)
+        .padding(.vertical, (isRoot ? 8 : 5.5) * zoom)
+        .background(chipBackground(node, color: color), in: Capsule())
+        .overlay(chipBorder(node, color: color))
+        .foregroundStyle(chipForeground(node, color: color))
+        .shadow(color: .black.opacity(0.25), radius: 2.5 * zoom, y: 1.5 * zoom)
+
+        if let url = node.url {
+            Button { onOpenNote(url) } label: { chip }
+                .buttonStyle(ChromePlainStyle())
+                .contextMenu { Button("Open Note") { onOpenNote(url) } }
+                .help(node.kind == .hub(url)
+                      ? "“\(node.title)” — the most-connected note on this branch. Click to open it."
+                      : "“\(node.title)” — click to open it")
+        } else {
+            chip
+                .accessibilityAddTraits(.isHeader)
+                .help("The collection “\(node.title)”")
         }
-        .help(chipHelp(node))
     }
 
     private func chipBackground(_ node: MindMapModel.Node, color: Color) -> Color {
         switch node.kind {
-        case .root, .section: color
-        case .bullet: color.opacity(0.22)
-        case .linkedNote: Color.clear
+        case .root, .hub: color
+        case .note: Color.clear
         }
     }
 
     @ViewBuilder
     private func chipBorder(_ node: MindMapModel.Node, color: Color) -> some View {
         switch node.kind {
-        case .linkedNote:
+        case .note:
             Capsule().strokeBorder(color, lineWidth: max(1, 1.3 * zoom))
-        default:
+        case .root, .hub:
             Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 1)
         }
     }
 
     private func chipForeground(_ node: MindMapModel.Node, color: Color) -> AnyShapeStyle {
         switch node.kind {
-        case .root, .section: AnyShapeStyle(.white)
-        case .bullet: AnyShapeStyle(Chrome.Colour.label)
-        case .linkedNote: AnyShapeStyle(color)
-        }
-    }
-
-    private func chipHelp(_ node: MindMapModel.Node) -> String {
-        switch node.kind {
-        case .root: "The note — click to open it"
-        case .section: "Section — click to show it in the note"
-        case .bullet: "Idea — click to open the note"
-        case .linkedNote: "Linked note — click to open “\(node.title)”"
+        case .root, .hub: AnyShapeStyle(.white)
+        case .note: AnyShapeStyle(color)
         }
     }
 
@@ -276,16 +312,17 @@ struct MindMapView: View {
 
 // MARK: - Model
 
-/// Builds a note's idea tree from its Markdown: headings nest as sections,
-/// top-level bullets become sub-ideas, and `[[wiki-links]]` attach to the
-/// section they appear in as linked-note leaves. Pure parsing — testable
-/// without a view.
+/// A mind map as nodes on rings: built from a tree (`Branch`), with the
+/// cross-links the tree has no line for, and laid out radially. What the tree
+/// is — which note heads which branch — is `CollectionMindMap`'s business.
 nonisolated struct MindMapModel: Sendable {
     enum Kind: Hashable, Sendable {
+        /// The centre: the collection.
         case root
-        case section
-        case bullet
-        case linkedNote(URL)
+        /// A note heading a branch.
+        case hub(URL)
+        /// Any other note.
+        case note(URL)
     }
 
     struct Node: Identifiable, Hashable, Sendable {
@@ -297,6 +334,14 @@ nonisolated struct MindMapModel: Sendable {
         /// -1 for the root itself.
         let branch: Int
         let kind: Kind
+
+        /// The note the node is, if it is one.
+        var url: URL? {
+            switch kind {
+            case .root: nil
+            case .hub(let url), .note(let url): url
+            }
+        }
     }
 
     struct Edge: Hashable, Sendable {
@@ -304,12 +349,16 @@ nonisolated struct MindMapModel: Sendable {
         let to: String
     }
 
+    /// A node and what hangs from it, in the order they are drawn round.
+    struct Branch: Sendable {
+        var id: String
+        var title: String
+        var kind: Kind
+        var children: [Branch] = []
+    }
+
     /// Distance between rings, in world points.
     static let ringStep: CGFloat = 150
-    /// Bullets kept per section, and a ceiling on total ideas, so a huge note
-    /// stays a readable map rather than a starburst.
-    static let maxBulletsPerSection = 6
-    static let maxNodes = 70
 
     /// The final node placement: positions in world coordinates plus the world
     /// size that contains every chip.
@@ -319,215 +368,51 @@ nonisolated struct MindMapModel: Sendable {
     }
 
     private(set) var nodes: [Node] = []
+    /// The tree's own lines: each node to the one it hangs from.
     private(set) var edges: [Edge] = []
-    private var maxUsedDepth = 0
+    /// Lines between nodes the tree does not connect directly.
+    private(set) var crossLinks: [Edge] = []
 
-    // MARK: Parsing
-
-    private final class Item {
-        let title: String
-        let kind: Kind
-        var children: [Item] = []
-        var bulletCount = 0
-        var linkedTargets = Set<String>()
-
-        init(title: String, kind: Kind) {
-            self.title = title
-            self.kind = kind
-        }
-    }
-
-    init(rootTitle: String, text: String, resolveLink: (String) -> (url: URL, title: String)?) {
-        let root = Item(title: rootTitle, kind: .root)
-
-        // (heading level, section) — bullets and links attach to the last one.
-        var stack: [(level: Int, item: Item)] = [(0, root)]
-        var inCodeFence = false
-        var totalItems = 0
-
-        func attach(_ item: Item, to parent: Item) -> Bool {
-            guard totalItems < Self.maxNodes else { return false }
-            parent.children.append(item)
-            totalItems += 1
-            return true
-        }
-
-        for rawLine in FrontMatter.body(of: text).components(separatedBy: "\n") {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("```") { inCodeFence.toggle(); continue }
-            if inCodeFence || line.isEmpty { continue }
-
-            // Headings nest by level.
-            if let (level, title) = Self.heading(line) {
-                // The customary `# Note Title` first heading *is* the root.
-                if level == 1, title.compare(rootTitle, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame {
-                    stack = [(1, root)]
-                    continue
-                }
-                // `stack` starts at [root] and only pops while `count > 1`, so
-                // it is never empty — but that invariant was being asserted by
-                // three separate `stack.last!`s. Fall back to the root instead:
-                // unreachable today, and no longer a crash if the invariant
-                // ever moves.
-                while stack.count > 1, let last = stack.last, last.level >= level { stack.removeLast() }
-                let section = Item(title: Self.cleanInline(title), kind: .section)
-                if attach(section, to: stack.last?.item ?? root) {
-                    stack.append((level, section))
-                }
-                continue
-            }
-
-            let current = stack.last?.item ?? root
-
-            // Wiki links anywhere in the line become linked-note leaves of the
-            // current section (embeds `![[…]]` excluded).
-            for target in Self.wikiTargets(line) {
-                guard let resolved = resolveLink(target),
-                      resolved.title.compare(rootTitle, options: .caseInsensitive) != .orderedSame,
-                      current.linkedTargets.insert(resolved.title.lowercased()).inserted
-                else { continue }
-                _ = attach(Item(title: resolved.title, kind: .linkedNote(resolved.url)), to: current)
-            }
-
-            // Top-level bullets become sub-ideas (skip ones that were nothing
-            // but a wiki link — the leaf above already represents them).
-            if !rawLine.hasPrefix(" "), !rawLine.hasPrefix("\t"),
-               let content = Self.bullet(line) {
-                let cleaned = Self.cleanInline(content)
-                guard !cleaned.isEmpty, current.bulletCount < Self.maxBulletsPerSection else { continue }
-                current.bulletCount += 1
-                _ = attach(Item(title: cleaned, kind: .bullet), to: current)
-            }
-        }
-
-        // Flatten: each leaf gets an even slice of the circle; internal nodes
-        // average their children. Each depth-1 subtree is one colour branch.
+    init(root: Branch, crossLinks: [Edge] = []) {
+        // Each leaf gets an even slice of the circle; a node with children sits
+        // at the average of theirs. Each depth-1 subtree is one colour branch.
         let leafCount = max(1, Self.countLeaves(root))
         var nextLeaf = 0
-        var nextID = 0
         var built: [Node] = []
         var edgeList: [Edge] = []
-        var deepest = 0
 
         @discardableResult
-        func walk(_ item: Item, depth: Int, branch: Int, id: String) -> Double {
+        func walk(_ item: Branch, depth: Int, branch: Int) -> Double {
             let angle: Double
             if item.children.isEmpty {
                 angle = (Double(nextLeaf) + 0.5) / Double(leafCount) * 2 * .pi
                 nextLeaf += 1
             } else {
                 let childAngles = item.children.enumerated().map { index, child -> Double in
-                    nextID += 1
-                    let childID = "n\(nextID)"
-                    edgeList.append(Edge(from: id, to: childID))
-                    return walk(child, depth: depth + 1,
-                                branch: depth == 0 ? index : branch, id: childID)
+                    edgeList.append(Edge(from: item.id, to: child.id))
+                    return walk(child, depth: depth + 1, branch: depth == 0 ? index : branch)
                 }
                 angle = childAngles.reduce(0, +) / Double(childAngles.count)
             }
-            built.append(Node(id: id, title: item.title, depth: depth,
+            built.append(Node(id: item.id, title: item.title, depth: depth,
                               angle: angle, branch: branch, kind: item.kind))
-            deepest = max(deepest, depth)
             return angle
         }
-        walk(root, depth: 0, branch: -1, id: "root")
+        walk(root, depth: 0, branch: -1)
 
         nodes = built
         edges = edgeList
-        maxUsedDepth = deepest
+        self.crossLinks = crossLinks
     }
 
-    // MARK: Line parsing helpers
-
-    /// `## Title` → (2, "Title").
-    private static func heading(_ line: String) -> (level: Int, title: String)? {
-        guard line.hasPrefix("#") else { return nil }
-        let hashes = line.prefix(while: { $0 == "#" })
-        guard hashes.count <= 6 else { return nil }
-        let rest = line.dropFirst(hashes.count)
-        guard rest.first == " " else { return nil }
-        let title = rest.trimmingCharacters(in: .whitespaces)
-        return title.isEmpty ? nil : (hashes.count, title)
-    }
-
-    /// `- idea` / `* idea` / `1. idea` → "idea"; nil when the bullet is
-    /// nothing but a wiki link (the linked-note leaf covers it).
-    private static func bullet(_ line: String) -> String? {
-        var content: String?
-        for prefix in ["- ", "* ", "+ "] where line.hasPrefix(prefix) {
-            content = String(line.dropFirst(prefix.count))
-        }
-        if content == nil,
-           let dot = line.firstIndex(where: { $0 == "." || $0 == ")" }),
-           line[..<dot].allSatisfy(\.isNumber), !line[..<dot].isEmpty,
-           line.index(after: dot) < line.endIndex, line[line.index(after: dot)] == " " {
-            content = String(line[line.index(dot, offsetBy: 2)...])
-        }
-        guard var text = content?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
-        // Task checkboxes: `- [ ] thing` / `- [x] thing`.
-        for box in ["[ ] ", "[x] ", "[X] "] where text.hasPrefix(box) {
-            text = String(text.dropFirst(box.count))
-        }
-        // A bullet that is exactly one wiki link is represented by its leaf.
-        let bare = text.trimmingCharacters(in: .whitespaces)
-        if bare.hasPrefix("[["), bare.hasSuffix("]]"),
-           !bare.dropFirst(2).dropLast(2).contains("]") {
-            return nil
-        }
-        return text
-    }
-
-    /// `[[Target]]`, `[[Target#h]]`, `[[Target|alias]]` → "Target"
-    /// (embeds `![[…]]` excluded).
-    /// `try!`, matching every other constant pattern in the app: the pattern is
-    /// a literal, so a failure is a programming error that shows up on the
-    /// first run. `try?` here meant a broken pattern would silently render
-    /// every mind map with no links at all, and never say why.
-    private static let wikiLinkRegex = try! NSRegularExpression(
-        pattern: #"(?<!\!)\[\[([^\]\|#\n]+)(#[^\]\|\n]*)?(\|[^\]\n]*)?\]\]"#
-    )
-
-    /// Read by the rule every reader of a link shares (`WikiLinkSyntax`): a
-    /// table's aliased link, `[[Note\|alias]]`, names `Note`. Read up to the
-    /// pipe, it named `Note\` and drew no leaf (implemented.md §51.36). The
-    /// pipe's escape ends the target only when no heading came between them.
-    private static func wikiTargets(_ line: String) -> [String] {
-        let regex = wikiLinkRegex
-        let range = NSRange(line.startIndex..., in: line)
-        return regex.matches(in: line, range: range).compactMap { match in
-            guard match.numberOfRanges > 3, let r = Range(match.range(at: 1), in: line) else { return nil }
-            let aliased = match.range(at: 2).location == NSNotFound && match.range(at: 3).location != NSNotFound
-            let target = WikiLinkSyntax.target(written: line[r], aliased: aliased)
-                .trimmingCharacters(in: .whitespaces)
-            return target.isEmpty ? nil : target
-        }
-    }
-
-    /// Strip inline Markdown down to readable idea text.
-    static func cleanInline(_ text: String) -> String {
-        var s = text
-        // `[[a|b]]` → b, `[[a#h]]` → a, `[[a]]` → a; embeds vanish.
-        s = s.replacingOccurrences(of: #"!\[\[[^\]]*\]\]"#, with: "", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"\[\[([^\]\|#]+)(?:#[^\]\|]*)?\|([^\]]+)\]\]"#,
-                                   with: "$2", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"\[\[([^\]\|#]+)(?:#[^\]\|]*)?\]\]"#,
-                                   with: "$1", options: .regularExpression)
-        // `[text](url)` → text.
-        s = s.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
-        for token in ["**", "__", "==", "~~", "`", "*"] {
-            s = s.replacingOccurrences(of: token, with: "")
-        }
-        return s.trimmingCharacters(in: .whitespaces)
+    private static func countLeaves(_ item: Branch) -> Int {
+        item.children.isEmpty ? 1 : item.children.reduce(0) { $0 + countLeaves($1) }
     }
 
     /// Chip text, truncated at the string level so chips stay bounded and the
     /// collision estimates share the exact character count the view renders.
     nonisolated static func displayTitle(_ title: String) -> String {
         title.count > 32 ? String(title.prefix(31)) + "…" : title
-    }
-
-    private static func countLeaves(_ item: Item) -> Int {
-        item.children.isEmpty ? 1 : item.children.reduce(0) { $0 + countLeaves($1) }
     }
 
     // MARK: Layout
@@ -564,7 +449,7 @@ nonisolated struct MindMapModel: Sendable {
         let vPad: CGFloat = node.depth == 0 ? 8 : 5.5
         var textWidth = LayoutRelaxation.estimatedTextWidth(
             displayTitle(node.title), fontSize: fontSize, maxWidth: .greatestFiniteMagnitude)
-        if case .linkedNote = node.kind { textWidth += fontSize }   // leading icon
+        if case .note = node.kind { textWidth += fontSize }   // leading icon
         return CGSize(width: textWidth + hPad * 2, height: fontSize * 1.25 + vPad * 2)
     }
 }

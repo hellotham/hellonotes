@@ -1,5 +1,5 @@
 ---
-status: CURRENT (2026-09-24). The menu bar as built on macOS and iPadOS, the
+status: CURRENT (2026-10-09; View's Graph and Mind Map from source, D13). The menu bar as built on macOS and iPadOS, the
 command palette, every keyboard shortcut, and the gaps (§8). The macOS menus in
 §3 were read from the running app through the accessibility API on 2026-09-24
 (Debug build, no window key, which is why the collection submenus are absent
@@ -36,8 +36,8 @@ generated from the same commands. Where that is not yet true, §8 says so.
   invisible there. A fact-check once found eight that had. Two still bypass it:
   HelloNotes Help and Dictate to Daily Note (§8).
 - **While Open Quickly is up**, some commands dismiss it first and then run
-  (`closingOpenQuickly`): New Note, Today's Note, Open…, Graph View, Ask Library,
-  Assistant, Close Tab (and ⌘W), New Note from a Prompt and Search All
+  (`closingOpenQuickly`): New Note, Today's Note, Open…, Graph, Mind Map, Ask
+  Library, Assistant, Close Tab (and ⌘W), New Note from a Prompt and Search All
   Collections. The note, format, AI, Review Links and Find commands grey out
   instead, so they cannot act on the note behind it. Everything else does
   neither (§8, item 4).
@@ -135,9 +135,10 @@ visible, clickable twin.
 | — | | |
 | Edit · Preview · Markdown · Split | ⌘1 · ⌘2 · ⌘3 · ⌘4 | a window; the current mode is ticked |
 | — | | |
-| Graph View | ⇧⌘G | the scope collection has notes. Opens the panel on Graph |
-| Ask Library | ⇧⌘J | there are notes. Opens the panel on Ask Library |
-| Assistant | ⇧⌘A | a window. Opens the panel on the Assistant |
+| Graph | ⇧⌘G | a note is open. Opens the panel on the note's Graph — its links in and out (it was "Graph View", the whole collection's, until D13) |
+| Mind Map | ⇧⌘M | the scope collection has notes. Opens the Mind Map — the links across the collection — as a tab |
+| Ask Your Library | ⇧⌘J | there are notes. Opens it as a tab |
+| Assistant | ⇧⌘A | a window. Opens the Assistant as a tab |
 | — | | |
 | Show Non-Note Files | | a collection is in scope; a toggle |
 | — Enter Full Screen | | *(system)* |
@@ -277,8 +278,9 @@ or extend another app's menus.
 | ⌃⌘D | Dictate to Daily Note | Note |
 | ⌘F | Find… | Edit |
 | ⌥⌘F | Search All Collections | Edit |
-| ⇧⌘G | Graph View | View |
-| ⇧⌘J | Ask Library | View |
+| ⇧⌘G | Graph | View |
+| ⇧⌘J | Ask Your Library | View |
+| ⇧⌘M | Mind Map | View |
 | ⌃⌘K | Quick Capture… | File |
 | ⇧⌘L | Review Links… | Note |
 | ⌘N | New Note | File |
@@ -315,10 +317,9 @@ or extend another app's menus.
    These have none:
    - **Show / Hide Sidebar.** Proposed: View ▸ Show Sidebar / Hide Sidebar, ⌃⌘S
      (the macOS convention).
-   - **Show / Hide Panel**, and the panel's **Outline, Tags, References,
-     Properties, History** and **Mind Map**. Proposed: View ▸ Show Panel /
-     Hide Panel (⌥⌘I), and View ▸ Panel ▸ with all nine views, the three that
-     already have shortcuts keeping them.
+   - **Show / Hide Panel**, and the panel's **Summary & Outline, Tags, Links,
+     Properties** and **History**. Proposed: View ▸ Show Panel / Hide Panel
+     (⌥⌘I), and View ▸ Panel ▸ with all six views, the Graph keeping ⇧⌘G.
    - **Present as Slides** and **View Diagram** (Note Actions and the status
      bar only — and, for the diagram zoom, the View diagram button on each
      diagram).

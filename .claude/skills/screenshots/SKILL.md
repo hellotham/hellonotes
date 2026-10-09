@@ -113,11 +113,12 @@ System Events' `entire contents` returned 96 elements with no titles and its
 Two things they cannot do, both of which have a workaround:
 
 - **A menu-presenting control is refused** in the background (opening it would
-  front the app). Use the menu bar: `View ▸ Graph View`, `View ▸ Ask Library`,
-  `File ▸ New Window` all work through System Events' `click menu item`.
+  front the app). Use the menu bar: `View ▸ Graph` (the open note's, in the
+  panel), `View ▸ Mind Map` and `View ▸ Ask Your Library` (the collection's, as
+  tabs), `File ▸ New Window` all work through System Events' `click menu item`.
 - **Scrolling is unreliable** — the scroll action sets the scrollbar's `AXValue`
-  and lands on 0. Navigate instead: the editor's **Outline & statistics**
-  popover lists every heading and clicking one scrolls to it exactly.
+  and lands on 0. Navigate instead: the panel's **Summary & Outline** lists
+  every heading and clicking one scrolls to it exactly.
 
 Two editor details that decide whether a capture looks right, both caused by the
 same thing — **the caret reveals the syntax it is inside**:
@@ -132,7 +133,7 @@ same thing — **the caret reveals the syntax it is inside**:
 `click (first button of toolbar 1 of window 1 whose description is "Outline")`
 — but the background tools are faster and do not disturb the user's frontmost
 app. Notes are reachable by clicking a sidebar row; views via the **View** menu
-(Edit, Preview, Markdown, Split, Graph View, Ask Library).
+(Edit, Preview, Markdown, Split; Graph, Mind Map, Ask Your Library, Assistant).
 
 **Capture with the app active, from inside the same AppleScript.** `activate`
 from one shell command and `screencapture` from the next captures an
@@ -147,9 +148,9 @@ do shell script "screencapture -l<id> -o -x /path/out.png"'
 
 **Opening a collection is the one step nothing exposes to scripting.** The
 picker is a separate XPC process (`com.apple.appkit.xpc.openAndSavePanelService`),
-and keystrokes meant for it land on the app instead — where `⌘⇧G` is *Graph
-View*, so a mistimed "go to folder" silently opens a graph window over whatever
-vault is loaded. **Ask the user to open SampleVault**; it takes them twenty
+and keystrokes meant for it land on the app instead — where `⌘⇧G` is *Graph*,
+so a mistimed "go to folder" silently opens the panel over whatever vault is
+loaded. **Ask the user to open SampleVault**; it takes them twenty
 seconds and no amount of cleverness beats it.
 
 `screencapture -l<windowID>` is the only truthful capture — it renders

@@ -82,7 +82,7 @@ CONNECT YOUR IDEAS
 • Backlinks and unlinked mentions, with one-click linking
 • #tags (nested) with autocomplete, searchable from the inspector
 • Note transclusion — embed a whole note or a single section
-• An interactive graph view of your whole vault
+• A mind map of the links across your whole vault, and a graph of each note's links in and out
 
 FIND ANYTHING
 • Full-text search and "Open Quickly" across notes and headings
@@ -127,7 +127,7 @@ CONNECT YOUR IDEAS
 • Backlinks and unlinked mentions, with one-click linking
 • #tags (nested) with autocomplete, searchable from the inspector
 • Note transclusion — embed a whole note or a single section
-• An interactive graph view of your whole vault
+• A mind map of the links across your whole vault, and a graph of each note's links in and out
 
 FIND ANYTHING
 • Full-text search and "Open Quickly" across notes and headings

@@ -198,8 +198,9 @@ struct ShellComplianceTests {
 
     /// The body of a `private var name: some View { … }`, for following the one
     /// hop each shell puts between the slot and the view.
-    private static func propertyBody(named name: String, in source: String) -> String? {
-        guard let start = source.range(of: "var \(name): some View {") else { return nil }
+    private static func propertyBody(named name: String, ofType type: String = "some View",
+                                     in source: String) -> String? {
+        guard let start = source.range(of: "var \(name): \(type) {") else { return nil }
         var depth = 0
         var index = start.upperBound
         var body = ""
@@ -316,22 +317,26 @@ struct ShellComplianceTests {
     /// scene the system places cannot be relied on to sit beside the notes, and
     /// on iPadOS closing one left the app.
     ///
-    /// So there is one panel and one enum of what it can show (`SidePanel`),
-    /// one piece of state for which of them it is showing, and one header
-    /// inside the panel to choose and to close. The shell is collections on the
-    /// left, the editor in the middle, anything else on the right — and an
-    /// editor never blocks editing, so the panel is a column wherever one fits
-    /// and only a canvas with no room for one carries it over the note.
-    /// Neither shell holds presentation state of its own for these surfaces,
-    /// and neither opens a scene for one: the only windows the app opens are
-    /// the two someone asks for by name, New Window and Open in New Window,
-    /// which are on both platforms.
+    /// So there is one panel for the open note's views (`SidePanel`), one
+    /// piece of state for which of them it is showing, and one header inside
+    /// the panel to choose and to close; and one list of tabs for the
+    /// collection's tools (`CollectionTool`, `ToolTabs`), which open beside the
+    /// notes. The window is the collection on the left, the note in the
+    /// middle, and what the note is on the right — and an editor never blocks
+    /// editing, so the panel is a column wherever one fits and only a canvas
+    /// with no room for one carries it over the note. Neither shell holds
+    /// presentation state of its own for these surfaces, and neither opens a
+    /// scene for one: the only windows the app opens are the two someone asks
+    /// for by name, New Window and Open in New Window, which are on both
+    /// platforms.
     @Test("Neither shell decides how an auxiliary surface is presented")
     func auxiliarySurfacesArePresentedTheSameWay() throws {
         let file = "ContentView.swift"
         let source = try Self.source(file)
         #expect(source.contains("private func showPanel(_ choice: SidePanel)"),
-                "\(file) does not route ancillary views through one panel")
+                "\(file) does not route the note's views through one panel")
+        #expect(source.contains("private func showTool(_ tool: CollectionTool)"),
+                "\(file) does not open the collection's tools through one list of tabs")
         #expect(source.contains("inspector: { trailingPanel }"),
                 "\(file) does not give the shell's trailing slot the panel")
         #expect(source.contains("SidePanelHeader("),
@@ -353,22 +358,78 @@ struct ShellComplianceTests {
         }
     }
 
-    /// The mind map shows what you are typing, not what was last saved.
+    /// The panel is the open note's. The collection's tools left it for tabs,
+    /// so none of them is opened as a view of the panel — and a choice stored
+    /// while they were its views is read leniently, as the outline, rather
+    /// than failing to decode.
+    @Test("The panel is the open note's")
+    func thePanelIsTheOpenNotes() throws {
+        let source = try Self.source("ContentView.swift")
+        #expect(source.contains("SidePanel(rawValue: panelRaw) ?? .outline"),
+                "the stored panel is no longer read leniently")
+        for tool in ["showPanel(.mindMap)", "showPanel(.assistant)", "showPanel(.askLibrary)"] {
+            #expect(!source.contains(tool), "a collection's tool is a view of the panel again (\(tool))")
+        }
+    }
+
+    /// Each command is in one place: the collection's in the sidebar, the
+    /// notes' in the bar over the editor, the note's own in Note Actions, and
+    /// in the main window's bottom bar only how the note is shown. The same
+    /// command used to be in three — the bar's More menu, Note Actions and the
+    /// bottom bar — and the collection's commands were in none of them that
+    /// was the collection's.
+    @Test("Each command is in one place")
+    func eachCommandIsInOnePlace() throws {
+        let source = try Self.source("ContentView.swift")
+        let more = try #require(Self.propertyBody(named: "shellCommandMenu", in: source))
+        for command in ["showTool(", "beginNewFolder", "addCollectionItems", "openDefaultCollection",
+                        "openTodaysNote", "showPanel("] {
+            #expect(!more.contains(command), "the bar's More menu holds \(command) again")
+        }
+        let tools = try #require(Self.propertyBody(named: "collectionToolCommands", in: source))
+        for command in ["showTool(.mindMap)", "showTool(.assistant)", "showTool(.askLibrary)", "gitCommand"] {
+            #expect(tools.contains(command), "the sidebar's tools lost \(command)")
+        }
+        let manage = try #require(Self.propertyBody(named: "collectionManageCommands", in: source))
+        for command in ["beginNewFolder", "AddCollectionGroup.new", "AddCollectionGroup.open",
+                        "openDefaultCollection()"] {
+            #expect(manage.contains(command), "the sidebar's collection commands lost \(command)")
+        }
+        let noteMenu = try #require(Self.propertyBody(named: "noteMenu", in: source))
+        for duplicate in ["Picker(\"View\"", "togglePanel()", ".mindMap"] {
+            #expect(!noteMenu.contains(duplicate), "Note Actions holds \(duplicate) again — it has a place already")
+        }
+        // The bottom bar: the view modes in the main window, and the note's
+        // commands only in a note window, which has nowhere else for them.
+        let editor = try Self.source("UI/NoteEditorView.swift")
+        #expect(editor.contains("var commandsInBottomBar = false"),
+                "the editor's bottom bar carries the note's commands by default")
+        #expect(!source.contains("commandsInBottomBar: true"),
+                "the main window's bottom bar carries the note's commands again")
+        let window = try Self.source("UI/NoteWindowView.swift")
+        #expect(window.contains("commandsInBottomBar: true"),
+                "a note window lost the one place its note's commands are")
+    }
+
+    /// The phone's Notes place is its sidebar, so it carries the sidebar's
+    /// commands, as rows, and the phone's other lists do not repeat them.
     ///
-    /// It read the note's file unconditionally, which was invisible while it
-    /// was a sheet on iPad — a sheet lives in the editor's own scene and was
-    /// handed the buffer directly. Once both platforms opened a window, that
-    /// read became the only source, and unifying the two presentations would
-    /// have settled the difference by taking the worse of them.
-    @Test("An auxiliary surface prefers the live buffer to the file")
-    func mindMapReadsTheLiveBuffer() throws {
-        let source = try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/UI/SidePanel.swift"), encoding: .utf8)
-        #expect(source.contains("liveBuffer.text(for: rootURL) ?? fileText"),
-                "MindMapPanel no longer prefers the editor's buffer")
-        #expect(source.contains("guard liveBuffer.text(for: rootURL) == nil else { return }"),
-                "MindMapPanel reads the file even when the buffer has the note")
+    /// When the Mind Map moved out of the panel, the panel had been the phone's
+    /// only visible route to the collection's map: the Library place lists it
+    /// only while no collection is chosen, so with one open it had no route on
+    /// a phone at all (implemented.md §51.37).
+    @Test func thePhonesNotesPlaceIsItsSidebar() throws {
+        let source = try Self.source("ContentView.swift")
+        let notes = try #require(Self.propertyBody(named: "collectionsList", in: source))
+        for rows in ["collectionToolCommands", "collectionManageCommands"] {
+            #expect(notes.contains(rows), "the phone's Notes place lost \(rows)")
+        }
+        let library = try #require(Self.propertyBody(named: "libraryActions",
+                                                     ofType: "[LibraryPlace.Action]", in: source))
+        for duplicate in ["showTool(", "requestOpenFolder", "showLauncher"] {
+            #expect(!library.contains(duplicate),
+                    "the Library place repeats \(duplicate), which the Notes place has a row for")
+        }
     }
 
     /// A folder-pick request is answered with what it asked for.

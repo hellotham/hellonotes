@@ -10,24 +10,6 @@
 
 import TipKit
 
-struct OpenQuicklyTip: Tip {
-    var title: Text { Text("Open Quickly") }
-    var message: Text? { Text("Press ⌘O to jump to any note by name, alias, or heading.") }
-    var image: Image? { Image(systemName: "magnifyingglass") }
-}
-
-struct WikiLinkTip: Tip {
-    var title: Text { Text("Link notes") }
-    var message: Text? { Text("Type `[[` to autocomplete a link to another note.") }
-    var image: Image? { Image(systemName: "link") }
-}
-
-struct TransclusionTip: Tip {
-    var title: Text { Text("Embed a note") }
-    var message: Text? { Text("Use `![[Note]]` to embed another note inline as a card.") }
-    var image: Image? { Image(systemName: "doc.on.doc") }
-}
-
 /// The one tip aimed at a *disappearance*: the Intelligence panel is gone and
 /// its actions moved next to what they act on, so the first time a note has
 /// somewhere to link to, say where linking now lives.
@@ -37,16 +19,10 @@ struct SuggestLinksTip: Tip {
     var image: Image? { Image(systemName: "link.badge.plus") }
 }
 
-struct GraphTip: Tip {
-    var title: Text { Text("See the graph") }
-    var message: Text? { Text("Open the Graph to explore how your notes link together.") }
-    var image: Image? { Image(systemName: "point.3.connected.trianglepath.dotted") }
-}
-
-struct RescanTip: Tip {
-    var title: Text { Text("Rescan the vault") }
-    var message: Text? { Text("Changed files outside HelloNotes? Rescan to pick them up.") }
-    var image: Image? { Image(systemName: "arrow.clockwise") }
+struct MindMapTip: Tip {
+    var title: Text { Text("See how your notes connect") }
+    var message: Text? { Text("The Mind Map draws the links across this collection. A note's own links in and out are its Graph, in the panel.") }
+    var image: Image? { Image(systemName: "brain") }
 }
 
 enum HelloNotesTips {

@@ -37,7 +37,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 
 **Knowledge graph**
 - `[[wiki-links]]` with autocomplete, **aliases**, link-to-heading, backlinks, outgoing links, and unlinked mentions with one-click linking.
-- A directional **Graph** view (arrows, focus tracing, whole-collection or N-links-around-a-note scope) and a content-based **Mind Map** of a note's ideas (sections → branches, bullets → leaves, linked notes → jump-off chips).
+- A **Graph** of each note's links in and out (arrows, focus tracing, and a link or two further if you like), in the panel beside the note, and a **Mind Map** of the links across the whole collection — its most-connected notes as branches, every other linked note under the branch it is closest to, the links the tree has no line for dashed across it — in a tab of its own.
 
 **Organise & find**
 - One collapsible **sidebar** holding every place: **Recents** and **Bookmarks** pinned above each open collection, which expands into its own folder tree. Apple Notes' account-then-folders arrangement, and the reason the window has exactly one show/hide control. Where the window is *taller than it is wide* — an iPad in portrait — that navigation becomes a band across the top and splits into two panes, Finder-style: folders on the left, the notes inside the selected one on the right. Both are the same tree; the band is simply too wide and too short for one list. See [docs/shell-chrome.md](docs/shell-chrome.md).
@@ -46,11 +46,11 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - Full-text search with snippets (cross-collection by design, from an always-expanded field beside the sidebar — ⌥⌘F), Open Quickly (⇧⌘O), nested `#tags` (with autocomplete) **and front-matter `tags:` — both spellings count, so an Obsidian vault's tags are visible here**, bookmarks, daily notes, and templates.
 
 **AI, on your terms — and where you'd look for it**
-- **Filed by what it acts on, not by the fact a model made it.** Summarise Note, Suggest Tags, Suggest Links and Rewrite live in the **Note** menu beside Rename and Duplicate, and each answer lands in the inspector tab that already owns that kind of information — summary in Outline, tags in Tags, links in References. **Accepting one writes a property, never your prose** — `tags:`, `related:`, `summary:` — so it is visible in Properties and removable there, and a `related:` link is still a real link the graph sees. A **command palette** (⇧⌘P) runs anything by name, generated from the same command surface the menu bar is, so a command that goes missing from it is a test failure.
+- **Filed by what it acts on, not by the fact a model made it.** Summarise Note, Suggest Tags, Suggest Links and Rewrite live in the **Note** menu beside Rename and Duplicate, and each answer lands in the panel view that already owns that kind of information — summary in Summary & Outline, tags in Tags, links in Links. **Accepting one writes a property, never your prose** — `tags:`, `related:`, `summary:` — so it is visible in Properties and removable there, and a `related:` link is still a real link the graph sees. A **command palette** (⇧⌘P) runs anything by name, generated from the same command surface the menu bar is, so a command that goes missing from it is a test failure.
 - **Review Links** (⇧⌘L) walks a note's unmade links one at a time — **Link / Skip / Never** — showing the phrase in its sentence and the target's opening lines. "Never" persists per collection, stored outside the vault so it never reaches a shared repo. Needs no AI at all: it is an exact scan of your own text.
 - **New Note from a Prompt** (⌃⌘N) writes a note, or researches a question on the web and lands the cited synthesis *as a note* — connected to what you already have, since every `[[link]]` the model returns is verified against the collection and the invented ones are unwrapped to plain text. You read the whole draft before the file exists.
 - **Suggest as I type** *(off by default)* — ghost text after the cursor, ⌥⇥ to accept (or tap it, on iPhone and iPad). On-device only, and never part of the note until accepted: it is drawn, never stored, so it cannot reach a save, the index or a Git diff.
-- **Ask Library** — retrieval chat grounded in your notes, with citations you can jump to. An agentic **Assistant** with tools (search, read, edit-with-approval, web search — and, on a model with a 16K window, web fetch and deep research) and skills.
+- **Ask Your Library** — retrieval chat grounded in your notes, with citations you can jump to. An agentic **Assistant** with tools (search, read, edit-with-approval, web search — and, on a model with a 16K window, web fetch and deep research) and skills.
 - **All of the above run on iPhone and iPad too**, except the palette.
   iPad carries the menu bar and its shortcuts, file tabs, and the inspector over the note
   rather than beside it — an iPad is never wide enough for a third column, and a threshold
@@ -80,7 +80,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - Services menu ("New Note from Selection"), state restoration, TipKit hints, and an Icon Composer app icon.
 
 **Native app polish**
-- Full menu bar with keyboard shortcuts, a native source-list note tree, windowed Graph/Mind Map/Assistant/Ask Library surfaces, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, a **first-run welcome**, and an adaptive iOS/iPadOS companion.
+- Full menu bar with keyboard shortcuts, a native source-list note tree with the collection's commands beside it, the Mind Map, the Assistant and Ask Your Library as tabs beside your notes, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, a **first-run welcome**, and an adaptive iOS/iPadOS companion.
 - Accessibility: VoiceOver labels throughout, a **headings rotor** in the editor on both platforms, and Reduce Motion support.
 
 > WebView policy: the *editing path is 100% native TextKit 2*. A `WKWebView` appears only in read-only rendering surfaces — the macOS/iOS GFM **Preview** and the **Marp slides** preview — never in the editor itself.
