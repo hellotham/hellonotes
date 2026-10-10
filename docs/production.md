@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 28` — uploaded to TestFlight (both platforms) on 2026-10-09. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), and 28 the rearrangement asked for after testing 27 (§10g). 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 29` — uploaded to TestFlight (both platforms) on 2026-10-10. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), 28 the rearrangement asked for after testing 27 (§10g), and 29 the two `+` menus, the three-button bar and regular expressions in find (§10h). 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -725,6 +725,43 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10h · 1.3.3 build 29 — uploaded to TestFlight, 2026-10-10
+
+From `3a95fe2`. Both exports printed `Progress 100%: Upload succeeded` and
+`** EXPORT SUCCEEDED **`: iOS at 18:27 and macOS at 18:44. Both builds then
+appeared under Version 1.3.3 in TestFlight, processed and in the internal group
+HelloNotes testers, within minutes.
+
+**Xcode's sign-in had lapsed again**, a day after it was renewed for 28. Both
+first attempts sent nothing (`Failed to Use Accounts`):
+- iOS went with the team's API key (§9).
+- macOS waited for the Xcode account to be signed in again. Signing in to App
+  Store Connect in a browser is not that, and does not help `xcodebuild`.
+
+Read back from each archive, not from the project:
+- Both archives read 1.3.3 (29), as do all six extensions.
+- Both apps are arm64 only. The minimums are macOS 27.0 and iOS 27.0.
+- Neither app nor any extension carries a temporary-exception entitlement.
+- All five cloud-provider keys are present (checked by length).
+- `ITSAppUsesNonExemptEncryption` is false.
+- The bundled manual has the new Patterns section.
+- The archives' one warning in the editor package (`traitCollectionDidChange`)
+  was in 28's too.
+
+29 carries two changes, asked for after testing 28 (implemented.md §51.38 and
+§51.39):
+- **Two `+` menus.** The sidebar's header holds its toggle and a `+` for
+  folders and collections.
+- **Three buttons in the bar:** `+` (every way to make a note), 🔍 (search,
+  Open Quickly, find) and ⚙.
+- **Regular expressions in find and replace:** `.*`, groups in the
+  replacement, and a half-second limit on every search.
+
+Before archiving, on the committed tree:
+- 843 app tests, and the iOS interface suite.
+- The editor package: 523 tests (macOS) and 504 (iOS).
+- A Swift 6 type-check, 0 errors, with a planted error caught.
 
 ## 10g · 1.3.3 build 28 — uploaded to TestFlight, 2026-10-09
 
