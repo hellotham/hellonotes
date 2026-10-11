@@ -729,7 +729,10 @@ resubmission to the 7 September release. Status changes arrive by email.
 ## 10i · 1.3.3 build 30 — uploaded to TestFlight, 2026-10-11
 
 From `85a4a6f`. Both exports printed `Progress 100%: Upload succeeded` and
-`** EXPORT SUCCEEDED **`: iOS at 15:34 and macOS at 15:37.
+`** EXPORT SUCCEEDED **`: iOS at 15:34 and macOS at 15:37. Both builds then
+appeared under Version 1.3.3 in TestFlight, processed (Ready to Submit) and in
+the internal group HelloNotes testers — iOS within a minute, macOS in about
+five.
 
 **Xcode's sign-in had not lapsed this time**, so the macOS export went through
 on the account at the first attempt. iOS went with the team's API key (§9), as
@@ -764,6 +767,8 @@ Read back from each archive, not from the project:
 without its `+` menus; `/Applications/HelloNotes.app` read 1.3.3 (28),
 reinstalled that morning — TestFlight keeps the builds and can put an older one
 back. Read the installed app's `CFBundleVersion` before looking at the code.
+TestFlight's own table said the same: macOS build 29, one install and no
+sessions; build 28, thirty-four.
 
 Before archiving, on the committed tree:
 - 849 app tests, and the iOS interface suite.
