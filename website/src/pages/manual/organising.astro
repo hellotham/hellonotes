@@ -7,8 +7,17 @@ import { href } from '../../lib/paths';
   <h2 id="collections">Collections and libraries</h2>
   <p>
     A <strong>collection</strong> is one folder of notes. You can have several open at once — work,
-    personal, a project — and the set of open collections is a <strong>library</strong> you can save
-    and reopen from the launcher. Recently opened folders are remembered there too.
+    personal, a project — each with a row of its own in the sidebar, and the set of open
+    collections is a <strong>library</strong> you can save and reopen from{' '}
+    <strong>File ▸ Open…</strong> (<kbd>⌘O</kbd>). Recently opened collections are listed there
+    too.
+  </p>
+  <p>
+    Collections are opened, created and closed from the sidebar: the <strong>+</strong> in its
+    header has <strong>New Folder…</strong>, <strong>New Collection</strong>,{' '}
+    <strong>Open Collection</strong>, <strong>Open Recent…</strong> and{' '}
+    <strong>Open Default Collection</strong>, and a collection’s own <strong>…</strong> menu has{' '}
+    <strong>Close Collection</strong>. Closing one removes it from the sidebar and deletes nothing.
   </p>
   <p>
     Each collection keeps its own folder tree, tags and bookmarks. Search spans all of them.
@@ -16,16 +25,24 @@ import { href } from '../../lib/paths';
 
   <h2 id="search">Search</h2>
   <p>
-    The search field above the note list searches titles first (instantly, from the index) and then
-    note contents, showing a snippet of the matching text. Results are grouped by collection, and
-    matching attachments such as PDFs appear alongside notes.
+    <strong>Search Notes</strong>, under the magnifying glass in the bar over the note — or{' '}
+    <kbd>⌥⌘F</kbd> — opens a search field in the bar. It searches titles first (instantly, from the
+    index) and then, from the third character you type, note contents, showing a snippet of the
+    matching text. The results take the
+    tree’s place in the sidebar, grouped by collection, and matching attachments such as PDFs
+    appear alongside notes. Clear the field and the tree comes back.
+  </p>
+  <p>
+    On iPhone, the <strong>Search</strong> tab searches the collection you are in. To find and
+    replace inside one note — with regular expressions if you like — see{' '}
+    <a href={href('/manual/editor')}>The editor</a>.
   </p>
 
   <h2 id="open-quickly">Open Quickly</h2>
   <p>
-    <kbd>⇧⌘O</kbd> opens a fuzzy finder over note titles, aliases and headings. Type a few letters,
-    press <kbd>↩</kbd>. It is the fastest way to move around a large collection without touching the
-    mouse.
+    <kbd>⇧⌘O</kbd> — or <strong>Open Quickly…</strong> under the same magnifying glass — opens a
+    fuzzy finder over note titles, aliases and headings. Type a few letters, press <kbd>↩</kbd>. It
+    is the fastest way to move around a large collection without touching the mouse.
   </p>
 
   <h2 id="tags">Tags</h2>
@@ -49,16 +66,18 @@ tags:
   <p>
     Tags nest with slashes — <code>#project/website</code>, <code>#project/app</code>. They live in
     the panel’s <strong>Tags</strong> view, which opens on <em>this note’s</em> tags as chips,
-    because the usual reason to look at a tag is to find what else shares it. Below that, every tag
-    in the collection is listed with how many notes carry it, most-used first — a count of 1 means
-    following it leads back here — and the field above filters the list. Selecting a tag filters the
-    note list. On iPhone and iPad the same list is the <strong>Tags</strong> tab.
+    because the usual reason to look at a tag is to find what else shares it. Below that are the
+    collection’s tags with how many notes carry each, most-used first — a count of 1 means
+    following it leads back here. The forty most-used are listed; type in the field above to find
+    any of the rest. Selecting a tag filters the notes in the sidebar. On iPhone the{' '}
+    <strong>Tags</strong> tab lists every tag in the collection by name, and choosing one shows its
+    notes in Search.
   </p>
 
   <h2 id="suggestions">What accepted suggestions write</h2>
   <p>
-    <strong>Suggest Tags</strong>, <strong>Suggest Links</strong> and <strong>Summarize</strong> all
-    write to the note’s properties, never into your text:
+    <strong>Suggest Tags</strong>, <strong>Suggest Links</strong> and{' '}
+    <strong>Summarise Note</strong> all write to the note’s properties, never into your text:
   </p>
   <ul>
     <li>a tag is added to <code>tags:</code></li>
@@ -67,24 +86,25 @@ tags:
     <li>a summary is saved to <code>summary:</code></li>
   </ul>
   <p>
-    Each is visible in the panel’s <strong>Properties</strong> tab and can be removed there.
-    Earlier versions appended tags after your last paragraph, added links under a
+    Each is visible in the panel’s <strong>Properties</strong> view and can be removed there.
+    Earlier versions appended tags after your last paragraph, added links under a{' '}
     <code>## Related</code> heading the app created, and pushed summaries in above your first line —
     edits to your prose that you then had to undo by hand.
   </p>
 
   <h2 id="bookmarks">Bookmarks</h2>
   <p>
-    <kbd>⇧⌘D</kbd> bookmarks the current note; bookmarks appear on the <strong>Library</strong>{' '}
-    place for one-click access. They are stored per collection, so each project keeps its own
-    shortlist, and the Library place shows them across every open collection at once.
+    <kbd>⇧⌘D</kbd> — <strong>Note ▸ Add Bookmark</strong> — bookmarks the current note. Bookmarks
+    are pinned at the top of the sidebar, under <strong>Bookmarks</strong>, beside{' '}
+    <strong>Recents</strong>. They are stored per collection, so each project keeps its own
+    shortlist, and the sidebar shows them across every open collection at once.
   </p>
 
   <h2 id="daily">Daily notes</h2>
   <p>
-    <strong>Today’s Note</strong> on the <strong>Library</strong> place opens (or creates) a note for
-    today. Configure in{' '}
-    <strong>Settings ▸ General</strong>:
+    <strong>Today’s Note</strong> — under the <strong>+</strong> in the bar over the note, or{' '}
+    <kbd>⇧⌘T</kbd> — opens (or creates) a note for today. Configure it in{' '}
+    <strong>Settings ▸ General</strong>, under <strong>Daily notes</strong>:
   </p>
   <ul>
     <li><strong>Folder</strong> — where daily notes live; blank means the collection root.</li>
@@ -94,15 +114,19 @@ tags:
     </li>
   </ul>
   <p>
-    You can also capture into today’s note without opening the app at all — see the menu-bar item
-    and global hotkey in <a href={href('/manual/shortcuts')}>Keyboard shortcuts</a>.
+    <strong>Quick Capture…</strong> (<kbd>⌃⌘K</kbd>, and under the same <strong>+</strong>) appends
+    a thought to today’s note, and <strong>Dictate to Daily Note</strong> (<kbd>⌃⌘D</kbd>) does
+    the same by voice. On the Mac, the HelloNotes item in the menu bar captures into today’s note
+    without switching apps.
   </p>
 
   <h2 id="templates">Templates</h2>
   <p>
     Put Markdown files in your templates folder (<strong>Settings ▸ General</strong>, default{' '}
-    <code>Templates</code>) and insert one into the current note from the toolbar. Templates expand
-    date and title tokens as they are inserted:
+    <code>Templates</code>) and add one to the open note with{' '}
+    <strong>Note ▸ Insert Template</strong>, or from the command palette (<kbd>⇧⌘P</kbd>). The
+    template is appended to the end of the note, and its date and title tokens are expanded as it
+    goes in:
   </p>
   <table>
     <thead><tr><th>Token</th><th>Becomes</th></tr></thead>
@@ -115,12 +139,21 @@ tags:
 
   <h2 id="files">Folders, moving and attachments</h2>
   <ul>
-    <li>Create folders in the tree and drag notes between them — the files really move on disk.</li>
-    <li>Renaming a note rewrites links to it across the collection.</li>
-    <li>Deleting moves the file to the Trash; it is never a hard delete.</li>
     <li>
-      Non-Markdown files show in the tree and open in a native viewer (PDFKit / Quick Look), so a
-      collection can hold its own reference material.
+      Create a folder with <strong>New Folder…</strong>, under the <strong>+</strong> at the top of
+      the sidebar, or <strong>New Folder Here…</strong> in a folder’s own <strong>…</strong> menu,
+      and drag notes between folders — the files really move on disk.
+    </li>
+    <li>Renaming a note rewrites links to it across the collection.</li>
+    <li>
+      <strong>Move to Trash</strong> (<kbd>⌘⌫</kbd>) puts the file in the Trash on the Mac, where
+      you can get it back. On iPhone and iPad a folder may have no Trash to move it to, and the
+      note is then deleted.
+    </li>
+    <li>
+      Non-Markdown files show in the tree when <strong>View ▸ Show Non-Note Files</strong> is on,
+      and open in a native viewer (PDFKit / Quick Look), so a collection can hold its own reference
+      material.
     </li>
   </ul>
 </ManualLayout>

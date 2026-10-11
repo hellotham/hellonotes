@@ -23,8 +23,9 @@ import { href } from '../../lib/paths';
     Box, Dropbox, OneDrive (personal and business), Google Drive and iCloud Drive all present their
     storage to macOS as ordinary folders. If you have the provider’s app installed, choose{' '}
     <strong>From a Synced Cloud Folder…</strong> and pick the folder you want — no sign-in, because
-    the files are already on your Mac. The row names the providers it can see set up here, so you
-    can tell at a glance whether this applies to you. Everything works exactly as it does locally,
+    the files are already on your Mac. On the Mac the row names the providers it can see set up
+    here, so you can tell at a glance whether this applies to you. For iCloud Drive there is a
+    command of its own: <strong>Open Collection ▸ from iCloud Drive…</strong> Everything works exactly as it does locally,
     and syncing between your devices is handled by the provider.
   </p>
   <p>
@@ -34,16 +35,18 @@ import { href } from '../../lib/paths';
   <ul>
     <li>Online-only notes appear in the list with a cloud badge, so you can see what is not local.</li>
     <li>
-      Opening one downloads it on demand, with a “Downloading from the cloud…” indicator while it
-      arrives.
+      Opening one downloads it on demand, with a line saying it is downloading from the cloud
+      while it arrives.
     </li>
     <li>
       Indexing <strong>skips</strong> notes that are not downloaded, so opening a large collection
       does not silently pull your entire library onto the disk. They are indexed once opened.
     </li>
     <li>
-      The status bar shows how many notes are still online-only, and each note has{' '}
-      <strong>Download</strong> (when it isn't local) or <strong>Remove Download</strong> (when it is) in its context menu.
+      With no note open, the bar along the bottom of the window shows how many notes are still
+      online-only. Each note has <strong>Download</strong> (when it isn’t local) or{' '}
+      <strong>Remove Download</strong> (when it is) in its context menu and in{' '}
+      <strong>Note Actions</strong>.
     </li>
   </ul>
   <p>
@@ -75,7 +78,8 @@ import { href } from '../../lib/paths';
   <p>
     The folder’s structure appears straight away; each note’s contents download the first time you
     open it, so adding a large account does not mean waiting for a large download. Use{' '}
-    <strong>Refresh</strong> in the status bar to ask the provider what has changed.
+    <strong>File ▸ Refresh Cloud Collection</strong> — also in the collection’s <strong>…</strong>{' '}
+    menu in the sidebar — to ask the provider what has changed.
   </p>
 
   <h2 id="accounts">More than one account on a service</h2>
@@ -96,7 +100,8 @@ import { href } from '../../lib/paths';
     credentials pass through us. Signing an account out removes its credentials with it.
   </p>
   <p>
-    All of this is the same on iPhone and iPad, in the same screen and under the same names.
+    All of this is the same on iPhone and iPad, in the same screen and under the same names —
+    there a synced folder is chosen in the Files picker.
   </p>
 
   <h2 id="removing">Removing a cloud collection</h2>
@@ -123,7 +128,9 @@ import { href } from '../../lib/paths';
     Git and cloud-sync clients do not always get along: Git needs its object files present locally,
     and a sync client may keep them online-only or rewrite them mid-operation. HelloNotes therefore
     disables <strong>auto-commit</strong> for collections inside a cloud folder and shows a caution
-    in the Git panel. Manual commits remain available when the folder is fully downloaded.
+    in the Git pane. Manual commits remain available when the folder is fully downloaded. A
+    collection opened directly from a cloud account has no Git at all: it is the provider’s to
+    keep.
   </p>
   <p>
     For version history, a local folder plus a Git remote is the more reliable arrangement — see{' '}

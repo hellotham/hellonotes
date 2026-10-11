@@ -2,14 +2,26 @@
 import PageLayout from '../layouts/PageLayout.astro';
 import Prose from '../components/Prose.astro';
 import { href } from '../lib/paths';
-import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
+import StoreNotice from '../components/StoreNotice.astro';
+import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO, STORE_IS_PENDING } from '../lib/site';
+
+// While Apple is reviewing a version the two channels carry different ones, so
+// the page cannot say "version X on the App Store" from `APP.version` alone:
+// the App Store card names what the store serves, the direct download names
+// what the DMG is. Once approved the two are the same string again.
+const description = STORE_IS_PENDING
+  ? `Get ${APP.name} free on the App Store for iPhone, iPad and Mac, or version ${APP.version} as a signed and notarised direct download for macOS. ${APP.name} ${APP.version} requires ${APP.platforms}.`
+  : `Get ${APP.name} ${APP.version} free on the App Store for iPhone, iPad and Mac, or as a signed and notarised direct download for macOS. Requires ${APP.platforms}.`;
+const intro = STORE_IS_PENDING
+  ? `Version ${APP.version} is a direct download for Mac today, and on the App Store as soon as Apple approves it.`
+  : `Version ${APP.version} — free on the App Store, or as a direct download for Mac.`;
 ---
 
 <PageLayout
   title="Download — HelloNotes for Mac, iPhone & iPad"
-  description={`Get HelloNotes ${APP.version} free on the App Store for iPhone, iPad and Mac, or as a signed and notarised direct download for macOS. Requires ${APP.platforms}.`}
+  description={description}
   heading={`Download ${APP.name}`}
-  intro={`Version ${APP.version} — free on the App Store, or as a direct download for Mac.`}
+  intro={intro}
   appSchema
 >
   <div class="mx-auto max-w-[1120px] px-6 py-12">
@@ -35,7 +47,7 @@ import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
             />
             <div class="min-w-[220px] flex-1">
               <h2 class="text-2xl font-extrabold tracking-[-0.02em]">
-                {APP.name} {APP.version}
+                {APP.name} {APP_STORE.liveVersion}
               </h2>
               <p class="mt-1 text-muted">
               On the App Store for iPhone, iPad and Mac · Free · Updates automatically
@@ -50,10 +62,12 @@ import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
             View on the App Store
           </a>
 
+          <StoreNotice download="here" class="mt-5" />
+
           <p class="mt-4 text-center text-sm text-muted">
-            Requires {APP.platforms}. Free on every device you own. The optional in-app
-            purchases back the work and add an in-app support request; every feature of the app
-            is included either way.
+            Free on every device you own. {APP.name} {APP.version} requires {APP.platforms}. The
+            optional in-app purchases back the work and add an in-app support request; every
+            feature of the app is included either way.
           </p>
         </div>
 
@@ -61,7 +75,7 @@ import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
         <div class="mt-5 rounded-card border border-line bg-card p-8">
           <h2 class="text-xl font-extrabold tracking-[-0.02em]">Direct download for Mac</h2>
           <p class="mt-1 text-muted">
-            {DOWNLOAD.fileName} · {DOWNLOAD.size} · {APP.architectures}
+            Version {APP.version} · {DOWNLOAD.fileName} · {DOWNLOAD.size} · {APP.architectures}
           </p>
 
           <a
@@ -72,7 +86,8 @@ import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
           </a>
 
           <p class="mt-4 text-center text-sm text-muted">
-            Requires {APP.minMacOS}. No Apple account needed. Also on the{' '}
+            Requires {APP.minMacOS} on a Mac with {APP.architectures}. No Apple account needed.
+            Also on the{' '}
             <a href={DOWNLOAD.releasesPage} class="text-link hover:text-emphasis">releases page</a>.
           </p>
         </div>
@@ -87,7 +102,7 @@ import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
           <ol>
             <li>Download <code>{DOWNLOAD.fileName}</code> and open it — a disk image window appears.</li>
             <li>Drag the <strong>{APP.name}</strong> icon onto the <strong>Applications</strong> folder shown beside it.</li>
-            <li>Eject the disk image, then open {APP.name} from Applications or Launchpad.</li>
+            <li>Eject the disk image, then open {APP.name} from Applications.</li>
           </ol>
 
           <h2 id="first-launch">The first launch</h2>
@@ -95,15 +110,15 @@ import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
             Either way, {APP.name} opens with something in it. A collection called{' '}
             <strong>DefaultCollection</strong> ships inside the app — a short guided tour plus the
             user manual, written in {APP.name} and demonstrating the features it describes — and it
-            is copied into your documents and opened for you the first time you launch. Nothing to
-            choose, download or sign in to.
+            is copied into {APP.name}’s own Documents folder and opened for you the first time you
+            launch. Nothing to choose, download or sign in to.
           </p>
           <p>
-            When you want your own notes, use <strong>Open…</strong> and pick any folder of Markdown
+            When you want your own notes, choose <strong>Open Collection ▸ from Folder…</strong>{' '}
+            under the <strong>+</strong> at the top of the sidebar and pick any folder of Markdown
             files — an existing vault, or an empty folder to start fresh. If you ever close the
-            default collection you can bring it back from{' '}
-            <strong>File ▸ Open Default Collection</strong>, or the <strong>+</strong> button at the
-            top of the sidebar.
+            default collection you can bring it back with <strong>Open Default Collection</strong>,
+            under the same <strong>+</strong> or in the <strong>File</strong> menu.
           </p>
 
           <p>
@@ -154,7 +169,9 @@ import { APP, APP_STORE, DOWNLOAD, PUBLISHER, REPO } from '../lib/site';
       <!-- Sidebar -->
       <aside aria-label="Requirements" class="lg:sticky lg:top-[86px] lg:self-start">
         <div class="rounded-card border border-line bg-card p-6">
-          <h2 class="text-sm font-bold tracking-wider text-muted uppercase">Requirements</h2>
+          <h2 class="text-sm font-bold tracking-wider text-muted uppercase">
+            Requirements for {APP.version}
+          </h2>
           <dl class="mt-4 space-y-3 text-[15px]">
             <div>
               <dt class="text-muted">Mac</dt>

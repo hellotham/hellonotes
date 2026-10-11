@@ -14,24 +14,40 @@ import { href } from '../../lib/paths';
 
   <h2 id="init">Initialising a repository</h2>
   <p>
-    Git lives in the status bar along the bottom of the editor, showing the current branch, with an
-    orange pip beside it when there are uncommitted changes. Clicking it opens the panel for the
-    collection you are in. For a collection that is not yet a repository it offers{' '}
-    <strong>Initialize Repository</strong>. After that the panel shows the current branch and how
-    many files have changed.
+    Git is one of the collection’s rows at the top of the sidebar. The <strong>Git</strong> row is
+    for the collection you have selected: it shows the current branch, with a dot beside it when
+    there are uncommitted changes, and clicking it opens the Git pane. For a collection that is not
+    yet a repository the row says so, and the pane offers <strong>Initialize Repository</strong>.
+    After that the pane shows the current branch and how many files have changed. A collection
+    opened directly from a cloud account is the provider’s to keep, so with one selected there is
+    no Git row.
+  </p>
+  <p>
+    To start a new collection as a repository, choose{' '}
+    <strong>New Collection ▸ Git Repository…</strong> under the <strong>+</strong> at the top of
+    the sidebar.
   </p>
 
   <h2 id="identity">Setting your identity</h2>
   <p>
-    Commits need a name and email. Open the gear icon in the Git panel to set them for HelloNotes;
-    if you already have a global Git identity it is used automatically.
+    Commits need a name and email. Open the gear icon in the Git pane — or the{' '}
+    <strong>Git</strong> tab of Settings — to set them for HelloNotes. If you set none, HelloNotes
+    uses the repository’s own identity or your global one where it can read it, and otherwise your
+    account’s name — which then travels with anything you push.
   </p>
 
   <h2 id="commit">Committing</h2>
   <ul>
-    <li><strong>Commit</strong> stages everything that changed and records it with a message.</li>
     <li>
-      <strong>Auto-commit</strong> (a checkbox in the panel) commits quietly in the background a
+      <strong>Commit</strong> stages everything that changed and records it, under a message
+      HelloNotes writes — “Update notes” and the date.
+    </li>
+    <li>
+      A change you approve from the <a href={href('/manual/ai')}>Assistant</a> is committed too,
+      whatever Auto-commit is set to — with everything else then uncommitted.
+    </li>
+    <li>
+      <strong>Auto-commit</strong> (an option in the pane) commits quietly in the background a
       little after you stop editing. It is off by default, and it <strong>never pushes</strong> —
       publishing is always something you do deliberately.
     </li>
@@ -39,9 +55,11 @@ import { href } from '../../lib/paths';
 
   <h2 id="history">Browsing and restoring history</h2>
   <p>
-    Every note has a <strong>History</strong> view listing the commits that touched it. Select one
-    to read that version, and restore it if you want it back. Restoring writes the old content as a
-    new change, so nothing in the history is lost.
+    <strong>History</strong>, in the right panel, lists the commits that touched the open note.
+    Select one to read that version, and restore it if you want it back. Restoring writes the old
+    content as a new change, so nothing in the history is lost — but it replaces the note as it
+    stands, at once and without asking, so commit first if you have edits since the last commit
+    that you want to keep. History looks back over the last 300 commits.
   </p>
 
   <h2 id="remote">Syncing with a remote</h2>
@@ -49,14 +67,22 @@ import { href } from '../../lib/paths';
     To back up or sync between machines, connect a remote — GitHub, GitLab, or any Git host.
   </p>
   <ol>
-    <li>Open Git settings (the gear in the Git panel) and add an account with a personal access token.</li>
-    <li>Use <strong>Connect Remote</strong>, or <strong>Clone</strong> an existing repository into a new collection.</li>
-    <li><strong>Sync ▸ Push</strong> uploads your commits; <strong>Sync ▸ Fetch</strong> retrieves what is on the remote.</li>
+    <li>Open Git settings (the gear in the Git pane) and add an account with a personal access token.</li>
+    <li>
+      Use <strong>Connect Remote</strong> in the pane, or clone an existing repository into a new
+      collection with <strong>Open Collection ▸ from Repository…</strong> under the sidebar’s{' '}
+      <strong>+</strong>.
+    </li>
+    <li>
+      Once there is a remote, the pane’s <strong>Sync</strong> menu has <strong>Push</strong>,
+      which uploads your commits, and <strong>Fetch</strong>, which retrieves what is on the
+      remote.
+    </li>
   </ol>
   <blockquote>
     <p>
       Use an <strong>HTTPS</strong> remote with a personal access token. Tokens are stored in the
-      macOS Keychain. SSH remotes rely on an agent that a sandboxed app cannot reliably reach.
+      Keychain.
     </p>
   </blockquote>
   <p>
@@ -72,8 +98,9 @@ import { href } from '../../lib/paths';
       command line.
     </li>
     <li>
-      <strong>Auto-commit is disabled in cloud folders.</strong> See{' '}
-      <a href={href('/manual/cloud')}>Cloud storage</a> for why.
+      <strong>Auto-commit is disabled in cloud folders</strong> — see{' '}
+      <a href={href('/manual/cloud')}>Cloud storage</a> for why — and in a collection that is a
+      folder inside a larger repository.
     </li>
   </ul>
 

@@ -1,7 +1,11 @@
 ---
 import ManualLayout from '../../layouts/ManualLayout.astro';
 
-/** Taken from the app's menu definitions, not from memory. */
+/**
+ * Taken from the app's menu definitions (`HelloNotes/UI/AppCommands.swift`,
+ * tabulated in docs/menu.md §7), not from memory. Every menu shortcut the app
+ * defines has a row here; add one only after finding its `.keyboardShortcut`.
+ */
 const groups = [
   {
     title: 'Notes & files',
@@ -9,17 +13,18 @@ const groups = [
       ['⌘N', 'New note'],
       ['⌥⌘N', 'New window'],
       ['⇧⌘T', 'Today’s note'],
-      ['⌘O', 'Open a collection…'],
-      ['⇧⌘O', 'Open Quickly'],
       ['⌃⌘N', 'New note from a prompt…'],
-      ['⇧⌘P', 'Command palette'],
+      ['⌘O', 'Open… — recent collections, and every way to open one'],
+      ['⌃⌘K', 'Quick Capture… — append a thought to today’s note'],
+      ['⇧⌘O', 'Open Quickly…'],
+      ['⌥⌘R', 'Rescan collection'],
       ['⇧⌘R', 'Rename note…'],
       ['⌘D', 'Duplicate note'],
       ['⇧⌘D', 'Add / remove bookmark'],
       ['⇧⌘L', 'Review links…'],
       ['⌘⌫', 'Move note to Trash'],
       ['⌃⌘D', 'Dictate to daily note'],
-      ['⌥⌘R', 'Rescan collection'],
+      ['⇧⌘P', 'Command palette…'],
       ['⌘P', 'Print…'],
     ],
   },
@@ -36,17 +41,18 @@ const groups = [
     ],
   },
   {
-    title: 'Windows & views',
+    title: 'Views & tools',
     rows: [
-      ['⌘1 … ⌘4', 'Editor mode: Edit / Preview / Markdown / Split'],
-      ['⇧⌘G', 'Graph view'],
-      ['⇧⌘J', 'Ask Library'],
-      ['⇧⌘A', 'Assistant'],
-      ['⌘,', 'Settings'],
+      ['⌘1 … ⌘4', 'View: Edit / Preview / Markdown / Split'],
+      ['⇧⌘G', 'Graph — the open note’s links, in the right panel'],
+      ['⇧⌘M', 'Mind Map — the collection’s links, in a tab'],
+      ['⇧⌘J', 'Ask Your Library, in a tab'],
+      ['⇧⌘A', 'Assistant, in a tab'],
+      ['⌘,', 'Settings…'],
     ],
   },
   {
-    title: 'System-wide',
+    title: 'System-wide, on the Mac',
     rows: [
       ['⌃⌥⌘N', 'Bring HelloNotes forward and start a new note'],
     ],
@@ -62,13 +68,13 @@ const groups = [
   <p>
     <strong>These work on iPad too</strong>, with a hardware keyboard — iPadOS shows the same menu
     bar as macOS, and both platforms drive one set of commands rather than two. There is no
-    iPad-only exception list: every command below is wired on both, including <kbd>⌥⌘N</kbd> New
+    iPad-only exception list: every menu command below is wired on both, including <kbd>⌥⌘N</kbd> New
     Window, Close Tab, Open in New Window, Open Collection, the command palette (<kbd>⇧⌘P</kbd>)
-    and Graph (<kbd>⇧⌘G</kbd>). Two commands are simply named for the file manager they open —
+    and Graph (<kbd>⇧⌘G</kbd>). One command is simply named for the file manager it opens —
     “Reveal in Finder” on macOS reads “Reveal in Files” on iPad. HelloNotes opens no window of its
-    own on either platform: the Graph, Assistant, Ask Library and Mind Map open in the panel beside
-    your note — you can keep typing while they are open — and a window happens when you ask for one
-    by name.
+    own on either platform: the Graph opens in the panel beside your note, and the Mind Map, the
+    Assistant and Ask Your Library open as tabs beside your notes. A window happens when you ask
+    for one by name.
   </p>
 
   {
@@ -97,7 +103,7 @@ const groups = [
     ))
   }
 
-  <h2 id="elsewhere">Inside particular windows</h2>
+  <h2 id="elsewhere">Inside particular views</h2>
   <table>
     <thead>
       <tr>
@@ -110,8 +116,45 @@ const groups = [
         <td><kbd>⌘W</kbd></td>
         <td>Close the editor tab, when more than one is open — otherwise ⌘W closes the window</td>
       </tr>
-      <tr><td><kbd>⌘⏎</kbd></td><td>Append, in the menu-bar quick-capture popover</td></tr>
+      <tr><td><kbd>⌘⏎</kbd></td><td>Append, in Quick Capture</td></tr>
+      <tr>
+        <td><kbd>Return</kbd></td>
+        <td>
+          Next match, in the find bar; open the selected row, in Open Quickly and the command
+          palette; send, in the Assistant; ask, in Ask Your Library
+        </td>
+      </tr>
+      <tr>
+        <td><kbd>Return</kbd> / <kbd>Esc</kbd></td>
+        <td>Approve / deny a change the Assistant is waiting to make</td>
+      </tr>
+      <tr>
+        <td><kbd>Esc</kbd></td>
+        <td>
+          Close the find bar or a sheet; dismiss Open Quickly and the palette. On iPhone, where the
+          right panel covers the note, it closes the panel too
+        </td>
+      </tr>
+      <tr>
+        <td><kbd>↑</kbd> / <kbd>↓</kbd></td>
+        <td>
+          Move through notes in the sidebar (when it has the focus), results in Open Quickly,
+          commands in the palette, and versions in History
+        </td>
+      </tr>
+      <tr>
+        <td><kbd>↑</kbd> or <kbd>←</kbd></td>
+        <td>At the very top of a note, move the caret up into its title</td>
+      </tr>
+      <tr>
+        <td><kbd>↓</kbd>, <kbd>Return</kbd> or <kbd>Tab</kbd></td>
+        <td>In the title, move the caret into the note’s body (on iPad, <kbd>Return</kbd>)</td>
+      </tr>
       <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Previous / next slide, in Slides</td></tr>
+      <tr>
+        <td><kbd>←</kbd> / <kbd>→</kbd></td>
+        <td>Previous / next diagram, in the diagram viewer, when a note has more than one</td>
+      </tr>
     </tbody>
   </table>
 
@@ -120,7 +163,8 @@ const groups = [
     These need <strong>Suggest as I type</strong> switched on. The first three act on suggestion
     text that is already visible and do nothing when none is — so <kbd>Esc</kbd> still belongs to
     whatever else is open. <kbd>⌥Esc</kbd> and <kbd>F5</kbd> are the opposite: they ask for a
-    suggestion when none is showing.
+    suggestion when none is showing. <kbd>→</kbd>, <kbd>⌥Esc</kbd> and <kbd>F5</kbd> are the Mac’s;
+    on iPad, tapping the suggestion accepts it.
   </p>
   <table>
     <thead>
@@ -131,9 +175,9 @@ const groups = [
     </thead>
     <tbody>
       <tr><td><kbd>⌥⇥</kbd></td><td>Accept the suggestion</td></tr>
-      <tr><td><kbd>→</kbd></td><td>Accept the suggestion</td></tr>
+      <tr><td><kbd>→</kbd></td><td>Accept the suggestion (Mac)</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Dismiss it</td></tr>
-      <tr><td><kbd>⌥Esc</kbd> / <kbd>F5</kbd></td><td>Ask for a suggestion now</td></tr>
+      <tr><td><kbd>⌥Esc</kbd> / <kbd>F5</kbd></td><td>Ask for a suggestion now (Mac)</td></tr>
     </tbody>
   </table>
 
@@ -145,7 +189,7 @@ const groups = [
     control bindings.
   </p>
   <p>
-    Writing Tools, dictation, Emoji &amp; Symbols and the system spell checker are all available
-    from the Edit menu.
+    The Edit menu also carries what the system puts there — Writing Tools, dictation and Emoji
+    &amp; Symbols, where your device offers them.
   </p>
 </ManualLayout>

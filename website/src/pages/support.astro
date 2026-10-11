@@ -47,17 +47,20 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
 
         <h3>Do I need an account or an internet connection?</h3>
         <p>
-          No. {APP.name} works entirely offline and has no account. Nothing is uploaded anywhere
-          unless you deliberately configure Git syncing or a cloud storage account. Downloading an
-          MLX model, and asking the Assistant to search the web, need a connection.
+          No. {APP.name} works entirely offline and has no account. Your notes are not uploaded
+          anywhere unless you set up Git syncing or a cloud storage account. A few settings —
+          appearance, the view you last used, the names of your daily-note and template folders —
+          follow you between your devices through your own iCloud account. Downloading an MLX
+          model, and a web search by the Assistant or by Research, need a connection.
         </p>
 
         <h3>Why don’t I see the intelligence features?</h3>
         <p>
-          Summarise, Suggest and “Ask your library” use <strong>Apple Intelligence</strong>, which
-          needs a device that supports it — an Apple silicon Mac, or a recent iPhone or iPad — with
-          it turned on in Settings. Everything else in {APP.name} works without it. Or download an
-          open model and run it on your device with MLX — see{' '}
+          Summarise, Suggest Tags and Links, Ask Your Library and the Assistant use{' '}
+          <strong>Apple Intelligence</strong> by default, which needs a Mac, iPhone or iPad that
+          supports it, with Apple Intelligence turned on — in System Settings on the Mac, Settings on
+          iPhone and iPad. Everything else in {APP.name} works without it. Or run an open model on
+          your device with MLX instead — see{' '}
           <a href={href('/manual/ai')}>AI &amp; intelligence</a>.
         </p>
 
@@ -84,7 +87,10 @@ import { APP, PUBLISHER, REPO, MANUAL } from '../lib/site';
         </p>
 
         <h3>What are the system requirements?</h3>
-        <p>{APP.minMacOS}, on Apple silicon or Intel — or {APP.minIOS}.</p>
+        <p>
+          {APP.name} {APP.version} needs {APP.minMacOS} on a Mac with {APP.architectures}, or{' '}
+          {APP.minIOS}.
+        </p>
 
         <h3>How do I uninstall it?</h3>
         <p>

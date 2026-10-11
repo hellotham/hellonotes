@@ -6,10 +6,14 @@
 export const APP = {
   name: 'HelloNotes',
   tagline: 'Think in plain Markdown.',
-  version: '1.3.2',
+  /**
+   * The current release — what the direct download for Mac is. The App Store
+   * can be a version behind while Apple reviews it: see `APP_STORE` below.
+   */
+  version: '1.3.3',
   /** The Mac floor. Also the DMG's requirement — that channel is Mac-only. */
-  minMacOS: 'macOS 26.5 or later',
-  minIOS: 'iOS & iPadOS 26.5 or later',
+  minMacOS: 'macOS 27 or later',
+  minIOS: 'iOS & iPadOS 27 or later',
   /**
    * Both floors in one phrase, for the places that name the requirement once.
    * `minOS` used to be the single Mac string and is deliberately gone rather
@@ -17,9 +21,13 @@ export const APP = {
    * a Mac-only sentence on a page that now also sells an iPhone app is wrong in
    * a way no build catches.
    */
-  platforms: 'macOS, iOS & iPadOS 26.5 or later',
-  /** Universal binary — verified with `lipo -info` on the shipped DMG. */
-  architectures: 'Apple silicon & Intel',
+  platforms: 'macOS, iOS & iPadOS 27 or later',
+  /**
+   * 1.3.3 is arm64 only — `lipo -archs` on the shipped app says `arm64`.
+   * Versions up to 1.3.2 were universal, so any sentence that reads this must
+   * not go on to mention Intel.
+   */
+  architectures: 'Apple silicon',
 } as const;
 
 /**
@@ -39,7 +47,29 @@ export const APP = {
 export const APP_STORE = {
   id: '6803259848',
   url: 'https://apps.apple.com/app/id6803259848',
+  /**
+   * What the App Store serves today, and the version waiting with App Review.
+   *
+   * The two channels do not move together: the DMG is published the day it is
+   * notarised, and the App Store — the only route to iPhone and iPad — changes
+   * when Apple approves the build. While `pendingVersion` is set and differs
+   * from `liveVersion`, `StoreNotice.astro` says so beside every App Store
+   * link, and the pages name `liveVersion` wherever they say what the store
+   * has.
+   *
+   * **When Apple approves 1.3.3:** set `liveVersion` to '1.3.3' and
+   * `pendingVersion` to null. The notice disappears by itself, and so does
+   * the line on the screenshots page saying the iPhone and iPad pictures are
+   * of a version still in review. `scripts/check-download-page.sh` fails from
+   * the day the store has the new version until this is done.
+   */
+  liveVersion: '1.3.2',
+  pendingVersion: '1.3.3' as string | null,
 } as const;
+
+/** Whether the App Store is a version behind the direct download. */
+export const STORE_IS_PENDING =
+  APP_STORE.pendingVersion !== null && APP_STORE.pendingVersion !== APP_STORE.liveVersion;
 
 export const PUBLISHER = {
   name: 'Hello Tham',
@@ -51,13 +81,13 @@ export const PUBLISHER = {
 export const REPO = 'https://github.com/hellotham/hellonotes';
 
 export const DOWNLOAD = {
-  /** Release assets live on GitHub Releases — a 35 MB binary does not belong in
+  /** Release assets live on GitHub Releases — a disk image does not belong in
    *  the site repo, where it would bloat every clone forever. */
   url: `${REPO}/releases/latest/download/HelloNotes.dmg`,
   releasesPage: `${REPO}/releases/latest`,
   fileName: 'HelloNotes.dmg',
-  size: '40.0 MB',
-  sha256: '0c70b7b06f5b048406c670ab4cc53d237291f4b4a6c14aa9ce3a50ccec6900e4',
+  size: '29.0 MB',
+  sha256: '2943a79d455bee15dce53a636f4d5371ddcf4756f81a858e2ee9f9a57d2533d1',
 } as const;
 
 /** Primary nav. Secondary/legal links live in the footer. */
@@ -72,10 +102,10 @@ export const NAV = [
 /** Manual sections — drives the manual index, the in-page sidebar, and prev/next. */
 export const MANUAL = [
   { slug: 'getting-started', title: 'Getting started', blurb: 'Open a collection, create your first note, and learn the layout.' },
-  { slug: 'editor', title: 'The editor', blurb: 'Live Markdown, view modes, maths, diagrams, callouts and properties.' },
+  { slug: 'editor', title: 'The editor', blurb: 'Live Markdown, view modes, lists, find and replace, maths, diagrams, callouts and properties.' },
   { slug: 'links-and-graph', title: 'Links & the graph', blurb: 'Wiki-links, aliases, backlinks, transclusion, graph and mind map.' },
   { slug: 'organising', title: 'Organising notes', blurb: 'Search, Open Quickly, tags, bookmarks, daily notes and templates.' },
-  { slug: 'ai', title: 'AI & intelligence', blurb: 'Where each AI action lives, Review Links, New Note from a Prompt, typing suggestions, Ask Library, and choosing an on-device or MLX model.' },
+  { slug: 'ai', title: 'AI & intelligence', blurb: 'Where each AI action lives, Review Links, New Note from a Prompt, typing suggestions, Ask Your Library, the Assistant, and choosing the System model or an MLX model.' },
   { slug: 'cloud', title: 'Cloud storage', blurb: 'Use iCloud, Dropbox, Box, OneDrive or Google Drive — two ways.' },
   { slug: 'git', title: 'Version history with Git', blurb: 'Initialise a repo, commit, sync to a remote, browse and restore.' },
   { slug: 'shortcuts', title: 'Keyboard shortcuts', blurb: 'The full shortcut reference.' },

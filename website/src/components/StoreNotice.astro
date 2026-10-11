@@ -1,0 +1,54 @@
+---
+import { href } from '../lib/paths';
+import { APP_STORE, STORE_IS_PENDING } from '../lib/site';
+
+interface Props {
+  /**
+   * Where the direct download is from here: on this page (the download page),
+   * or a link away (everywhere else).
+   */
+  download?: 'here' | 'linked';
+  class?: string;
+}
+
+const { download = 'linked', class: className = '' } = Astro.props;
+
+/**
+ * Said beside every App Store link while the store is a version behind.
+ *
+ * The DMG is published the day it is notarised; the App Store changes when
+ * Apple approves the build, and it is the only route to iPhone and iPad. For
+ * the days between, "Version 1.3.3" beside an App Store button is a claim the
+ * button does not keep. This renders nothing once `APP_STORE.pendingVersion`
+ * is null — see site.ts for the two lines to change on approval.
+ */
+---
+
+{
+  STORE_IS_PENDING && (
+    <p
+      role="note"
+      class:list={[
+        'rounded-card border border-line bg-chip px-4 py-3 text-sm text-body',
+        className,
+      ]}
+    >
+      <strong class="font-semibold text-ink">
+        Version {APP_STORE.pendingVersion} is with Apple for review.
+      </strong>{' '}
+      Until it is approved the App Store has {APP_STORE.liveVersion};{' '}
+      {download === 'here' ? (
+        <>the direct download for Mac on this page</>
+      ) : (
+        <>
+          the{' '}
+          <a href={href('/download')} class="font-semibold text-link hover:text-emphasis">
+            direct download for Mac
+          </a>
+        </>
+      )}{' '}
+      is {APP_STORE.pendingVersion} today. iPhone and iPad get {APP_STORE.pendingVersion} through
+      the App Store as soon as it is approved.
+    </p>
+  )
+}

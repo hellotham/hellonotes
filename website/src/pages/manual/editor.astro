@@ -16,6 +16,13 @@ import { href } from '../../lib/paths';
     keeps its formatting while you work inside it. This is the “caret-driven concealment” you may
     know from Obsidian or Bear.
   </p>
+  <p>
+    Formatting commands are in the <strong>Format</strong> menu, with the shortcuts you would
+    expect — see <a href={href('/manual/shortcuts')}>Keyboard shortcuts</a>. They act in Edit; in
+    Preview, Markdown and Split they are dimmed. On iPad they are also
+    on the row iPadOS floats over the keyboard, and on iPhone on a bar of their own directly above
+    the keys.
+  </p>
 
   <h2 id="modes">View modes</h2>
   <table>
@@ -26,12 +33,65 @@ import { href } from '../../lib/paths';
       <tr><td><strong>Edit</strong></td><td>The live editor. This is where you write.</td></tr>
       <tr><td><strong>Preview</strong></td><td>Read-only, rendered exactly as GitHub would render it.</td></tr>
       <tr><td><strong>Markdown</strong></td><td>The raw source, unstyled.</td></tr>
-      <tr><td><strong>Split</strong></td><td>Editor and preview side by side.</td></tr>
+      <tr><td><strong>Split</strong></td><td>Source and rendered page side by side — or one above the other, where the pane is taller than it is wide.</td></tr>
     </tbody>
   </table>
   <p>
+    The four buttons at the bottom of the note switch between them, as do <kbd>⌘1</kbd> to{' '}
+    <kbd>⌘4</kbd> and the <strong>View</strong> menu.
+  </p>
+  <p>
     The Preview is rendered with <strong>cmark-gfm</strong>, the same engine GitHub uses, so a note
     that looks right here looks right in a README.
+  </p>
+
+  <h2 id="lists">Lists, blank lines and room to write</h2>
+  <ul>
+    <li>
+      <strong>Return continues a list.</strong> The next bullet appears — the next number in a
+      numbered list, and an empty box after a task. It works in Edit and Markdown alike, inside a
+      quote too, and never in code.
+    </li>
+    <li>
+      <strong>Return on an empty item ends the list.</strong> A nested item moves out a level; one
+      at the list’s own level leaves a blank line with the caret below it, ready for a paragraph.
+    </li>
+    <li><strong>Tasks</strong> can be ticked in Edit.</li>
+    <li>
+      <strong>Every blank line you type shows in Edit.</strong> One between two paragraphs is the
+      usual gap, and each one after it is an empty line. Preview closes a run of them up to that
+      one gap, as GitHub does.
+    </li>
+    <li>
+      <strong>A long note scrolls on past its end</strong>, in every view, until its last line is
+      about halfway up — so the line you are writing need not sit at the bottom edge of the window.
+    </li>
+  </ul>
+
+  <h2 id="column">The text column</h2>
+  <p>
+    How wide the text runs is a setting, and it applies in every view — Edit, Preview and Markdown
+    lay the note out in the same column, so switching between them does not move the text
+    sideways. The controls are in <strong>Settings ▸ Appearance</strong>, under{' '}
+    <strong>Text width</strong>:
+  </p>
+  <ul>
+    <li>
+      <strong>Reading width</strong> — the longest a line of text gets: Narrow (60 characters),
+      Normal (80), Wide (90), or Full width. A column held to one of these is centred in the pane.
+    </li>
+    <li>
+      <strong>Editor width</strong> — how much of the pane you write in: Full pane, 90%, 75% or
+      50%, left-aligned.
+    </li>
+    <li>
+      <strong>Wrap guide</strong> — a line drawn at 72, 80 or 100 characters while you edit. It is
+      a guide you can see, not a wrap point.
+    </li>
+  </ul>
+  <p>
+    Whatever the column, the note fills its pane: the scroll bar stays at the pane’s edge, and
+    scrolling over the margin scrolls the note.
   </p>
 
   <h2 id="rich">Code, maths and diagrams</h2>
@@ -44,10 +104,13 @@ import { href } from '../../lib/paths';
     </li>
     <li>
       <strong>Mermaid diagrams</strong> in a <code>```mermaid</code> block are drawn inline, natively.
+      The <strong>View diagram</strong> button in a diagram’s corner shows it larger, with zoom; in
+      Edit, clicking the diagram itself opens its source.
     </li>
   </ul>
   <p>
-    None of these use a browser engine, so they scroll and type as smoothly as plain text.
+    In Edit none of these is a web view, so they scroll and type as smoothly as plain text.
+    Preview — and the page half of Split — is one, rendering through the same engine GitHub uses.
   </p>
 
   <h2 id="callouts">Callouts, comments and properties</h2>
@@ -59,23 +122,54 @@ import { href } from '../../lib/paths';
 &gt; The body of the callout goes here.</code></pre>
   <p>
     Text wrapped in <code>%%double percent signs%%</code> is dimmed as a comment. YAML front matter
-    at the top of a note is hidden from the prose and presented in a typed, editable{' '}
-    <strong>Properties</strong> panel — text, number, checkbox, date and list fields, rather than
-    raw YAML.
+    at the top of a note is presented in the right panel’s <strong>Properties</strong> view as
+    typed, editable fields — text, number, checkbox, date and list — rather than raw YAML.
   </p>
 
   <h2 id="finding">Finding and replacing</h2>
   <p>
-    <kbd>⌘F</kbd> opens the find bar for the current note, with replace and replace-all. To search
-    across the whole collection instead, use the search field above the note list — see{' '}
+    <kbd>⌘F</kbd> — or <strong>Find &amp; Replace in Note</strong>, under the magnifying glass in
+    the bar — opens the find bar over the current note, with <strong>Replace</strong> and{' '}
+    <strong>Replace All</strong>. <kbd>Return</kbd> goes to the next match, the arrows step back and
+    forward, and <strong>Done</strong> or <kbd>Esc</kbd> closes it. Finding works in the Edit view,
+    so from another view <kbd>⌘F</kbd> switches to Edit first.
+  </p>
+  <p>
+    The <strong><code>.*</code></strong> button makes the search a <strong>regular
+    expression</strong>, and stays on until you turn it off:
+  </p>
+  <ul>
+    <li>
+      <code>\d+</code> finds numbers; <code>^</code> and <code>$</code> match at the start and end
+      of every line.
+    </li>
+    <li>
+      A pattern ignores case, as a plain search does, unless it starts with <code>(?-i)</code>.
+    </li>
+    <li>
+      In the replacement, <code>$1</code> is the first group in brackets (<code>$0</code> is the
+      whole match), and <code>\n</code> and <code>\t</code> are a new line and a tab. Finding{' '}
+      <code>(\w+)@(\w+)</code> and replacing with <code>$2 for $1</code> turns <em>me@home</em> into{' '}
+      <em>home for me</em>.
+    </li>
+    <li>
+      A pattern that cannot be read shows <strong>Invalid pattern</strong> where the count goes,
+      and one that runs for more than half a second shows <strong>Too slow</strong> and stops
+      rather than holding up your typing.
+    </li>
+  </ul>
+  <p>
+    To search across every open collection instead, choose <strong>Search Notes</strong> under the
+    same magnifying glass, or press <kbd>⌥⌘F</kbd> — see{' '}
     <a href={href('/manual/organising')}>Organising notes</a>.
   </p>
 
   <h2 id="images">Images and attachments</h2>
   <p>
     Paste an image and it is written into your collection as a PNG with a relative Markdown link —
-    by default into an <code>assets</code> folder beside the note, which you can change in Settings.
-    Non-Markdown files in the folder (PDFs, images, CSVs) appear in the tree and open in a native
+    by default into an <code>assets</code> folder beside the note, which you can change in{' '}
+    <strong>Settings ▸ General</strong>. Non-Markdown files in the folder (PDFs, images, CSVs)
+    appear in the tree when <strong>View ▸ Show Non-Note Files</strong> is on, and open in a native
     viewer.
   </p>
   <p>
@@ -84,15 +178,22 @@ import { href } from '../../lib/paths';
 
   <h2 id="windows">Tabs, windows and export</h2>
   <ul>
-    <li>Notes open in tabs along the top of the editor.</li>
-    <li><strong>Open in New Window</strong> puts a note in its own window for side-by-side work.</li>
+    <li>Notes open in tabs in the bar over the editor.</li>
+    <li>
+      <strong>Open in New Window</strong> — in the <strong>Note</strong> menu and in{' '}
+      <strong>Note Actions</strong> — puts a note in its own window for side-by-side work.
+    </li>
     <li><strong>File ▸ Export as HTML…</strong> and <strong>File ▸ Export as PDF…</strong> write the current note out.</li>
-    <li>A note with Marp front matter gains a native slide-deck preview.</li>
+    <li>
+      A note with Marp front matter gains <strong>Present as Slides</strong> in{' '}
+      <strong>Note Actions</strong>: a slide-deck preview.
+    </li>
   </ul>
 
   <h2 id="stats">Statistics and outline</h2>
   <p>
-    The status bar shows a live word count. The outline popover lists the note’s headings — click
-    one to jump straight to that section — alongside character, paragraph and reading-time figures.
+    <strong>Summary &amp; Outline</strong>, the first view of the right panel, shows the note’s
+    word, character and paragraph counts and its reading time, and lists its headings — click one
+    to jump straight to that section.
   </p>
 </ManualLayout>
