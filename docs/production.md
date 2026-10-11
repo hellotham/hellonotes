@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 30` — uploaded to TestFlight (both platforms) on 2026-10-11. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), 28 the rearrangement asked for after testing 27 (§10g), 29 the two `+` menus, the three-button bar and regular expressions in find (§10h), and 30 the seven editor fixes reported from a day on 28 (§10i). 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 31` — **submitted for review on both platforms on 2026-10-12** (§10j). **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), 28 the rearrangement asked for after testing 27 (§10g), 29 the two `+` menus, the three-button bar and regular expressions in find (§10h), 30 the seven editor fixes reported from a day on 28 (§10i), and 31 what shooting the store's screenshots found — a note could not be typed in on an iPad held upright (§10j). 1.3.2 build 21 is what is live until Apple approves. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -725,6 +725,71 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10j · 1.3.3 build 31 — submitted for review, both platforms, 2026-10-12
+
+From `6e55e2e`. Both exports printed `Upload succeeded` and `** EXPORT
+SUCCEEDED **` — macOS at 08:38 on the Xcode account, iOS at 08:42 with the
+team's API key — and both builds were processed (`VALID`) within twenty
+minutes.
+
+**What 31 is for** (implemented.md §51.41). Build 30 had passed every gate,
+and shooting the store's screenshots was the first time anything brought a
+keyboard up on an iPad in portrait: it changed the shell, the new shell made
+the text view again without the keyboard, and a note could not be typed in.
+The same walk found that every link opened another main window on the Mac,
+that the four view modes were each named "View mode", and that the phone's AI
+and Tags places had a bar as wide as their title. 30 must not be the build
+that ships.
+
+Read back from each archive: 1.3.3 (31) in both and in all six extensions;
+arm64 only; macOS 27.0 and iOS 27.0; no temporary-exception entitlement; all
+five cloud-provider keys present (by length); `ITSAppUsesNonExemptEncryption`
+false.
+
+**The submission was made through the App Store Connect API**, with the same
+team key the iOS upload uses, not through the web pages — twenty-one
+screenshots and two descriptions are checked more surely by reading them back
+than by looking. It is `scripts/asc-listing.py` now (`status`, `text`, `build`,
+`screenshots`, `submit`; the key's identifiers come from the environment,
+because this repository is public), and `status` is the inventory to run
+before any submission. For each platform's 1.3.3 version:
+- **Text.** The live copy differed from `docs/app-store-listing.md` in exactly
+  the lines meant to change: What's New (the window, find and replace, the
+  editor, the iPad's keyboard), the tags line, and "An interactive graph view
+  of your whole vault", which 1.3.3 does not have. Written, and read back
+  equal. Promotional text, keywords and the reviewer notes already matched.
+- **Build.** 22 was attached; 31 is.
+- **Screenshots, every surface, counted** as Apple reports them:
+
+  | Platform | Set | Size | Count | State |
+  |---|---|---|---|---|
+  | iOS | iPad 13″ (`APP_IPAD_PRO_3GEN_129`) | 2064×2752 | 5 | all `COMPLETE` |
+  | iOS | iPhone 6.5″ (`APP_IPHONE_65`) | 1284×2778 | 6 | all `COMPLETE` |
+  | macOS | Mac (`APP_DESKTOP`) | 2560×1600 | 10 | all `COMPLETE` |
+
+- **Submitted**: one review submission a platform, each holding its version.
+  Both read `WAITING_FOR_REVIEW`. Release is automatic on approval
+  (`AFTER_APPROVAL`), as it was.
+
+**The download went out the same day, and the site says the store is behind**
+— at the person's direction: "publish 1.3.3 on the web as a release and say
+App Store approval pending". GitHub release `v1.3.3` carries the notarised
+DMG (29.0 MB, SHA-256 `2943a79d…2533d1`, build 31). `site.ts` has
+`APP_STORE.liveVersion` (what the store serves) and `pendingVersion` (what is
+in review), the home and download pages say so, and
+`scripts/check-download-page.sh` checks that account against the store rather
+than requiring the two versions to be equal. The release was held as a
+pre-release until the site was ready to deploy, so `releases/latest` — which
+the download button follows — never served a file the page's checksum did not
+describe.
+
+**When Apple approves**, in this order:
+1. `site.ts`: `liveVersion: '1.3.3'`, `pendingVersion: null`; push; then
+   `scripts/check-download-page.sh` — which fails until this is done, saying so.
+2. China mainland back on, in Pricing and Availability. Availability is the
+   app's, not a version's, and takes effect within a day: on before 1.3.3 is
+   live, it would publish 1.3.2 there.
 
 ## 10i · 1.3.3 build 30 — uploaded to TestFlight, 2026-10-11
 

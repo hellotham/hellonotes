@@ -132,10 +132,33 @@ scripts/check-download-page.sh --local  # site.ts vs dist/ before publishing
 It downloads the DMG the button serves, mounts it, and compares the **version
 inside the image**, its size and its SHA-256 against what the page claims —
 size and hash alone would not have caught the eleven-day version divergence. It
-also checks the App Store's public version where there is one: **the site must
-never advertise a version newer than the App Store's.** Until the app is
-publicly released the lookup returns nothing, which is reported and not a
-failure.
+also checks the App Store's public version where there is one: **the page must
+say what the App Store serves.** Until the app is publicly released the lookup
+returns nothing, which is reported and not a failure.
+
+### The App Store is usually a few days behind — say so
+
+From 1.3.3 the download is published the day it is submitted, not held for
+Apple's approval (the person's decision, 2026-10-12: "publish 1.3.3 on the web
+as a release and say App Store approval pending"). `site.ts` carries both
+facts: `APP_STORE.liveVersion` is what the store serves and `pendingVersion`
+what is in review, and `StoreNotice.astro` says so beside every App Store link.
+The check compares the store with `liveVersion`, and fails if the site is ahead
+without saying a version is pending.
+
+- **At submission:** `APP.version` is the new version, `liveVersion` the old,
+  `pendingVersion` the new.
+- **At approval:** `liveVersion` the new, `pendingVersion: null`, push. The
+  check fails from the day the store changes until this is done, and says what
+  to set. Then anything else that waited for the version to be live — China
+  mainland's availability, for 1.3.3.
+
+**Publish and deploy together.** `gh release create` moves `releases/latest`
+at once, and the page's checksum is wrong from that second until the site
+deploys. If the site is not ready to push, create the release with
+`--prerelease --latest=false` and flip it (`gh release edit vX --prerelease=false
+--latest`) in the same minute as the push: `latest` then never serves a file
+the page does not describe.
 
 ## App Store screenshots — inventory every surface, every time
 
@@ -156,6 +179,14 @@ Before submitting, walk the whole grid and count:
 Every row, or the submission is incomplete. `0 of 10 Screenshots` and `1 of 10`
 both read as "there is something there" in a glance at the page; only the count
 distinguishes them.
+
+**Count them by asking, not by looking**: `scripts/asc-listing.py status
+<version>` prints every set as Apple reports it — how many, how many finished
+processing, and their pixel size — with the attached build and whether the text
+matches `docs/app-store-listing.md`. The same script writes the text, attaches
+the build, replaces the screenshots from `dist/Screenshots-*` and submits; it
+refuses to submit unless `status` is clean (1.3.3 build 31 went in this way,
+`docs/production.md` §10j).
 
 **Screenshots cannot be edited while a version is *Waiting for Review*** — the
 file input and Delete All simply are not in the DOM. Getting one wrong therefore

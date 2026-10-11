@@ -81,15 +81,31 @@ fi
 
 # The App Store copy, when there is one. Absent until the app is publicly
 # released — a lookup returning nothing is not a failure, it is "not shipped
-# yet". Once it is live the two must not drift: someone comparing the website's
-# version against the App Store's should never see the site claim the newer one.
+# yet". Once it is live the page must say what the App Store serves.
+#
+# That used to mean the two versions had to be equal, which holds a release's
+# download back until Apple has approved it. From 1.3.3 the download goes out
+# with the submission and the page *says* the App Store is behind:
+# `APP_STORE.liveVersion` is what the store serves and `pendingVersion` what is
+# in review. So the check is that the page's account of the store is true —
+# and that it stops saying "pending" the day it is not.
 store=$(curl -s --max-time 20 \
   "https://itunes.apple.com/lookup?bundleId=com.hellotham.HelloNotes&country=au" \
   | /usr/bin/python3 -c 'import json,sys; r=json.load(sys.stdin).get("results") or []; print(r[0]["version"] if r else "")' 2>/dev/null || true)
+says_live=$(field liveVersion || true)
+says_pending=$(field pendingVersion || true)
+[[ -z "$says_live" ]] && says_live=$want_version
 if [[ -n "$store" ]]; then
-  echo "App Store serves:    $store"
-  if [[ "$store" != "$want_version" ]]; then
-    echo "✗ the site advertises $want_version while the App Store has $store" >&2
+  echo "App Store serves:    $store   (the page says $says_live${says_pending:+, with $says_pending pending})"
+  if [[ "$store" != "$says_live" ]]; then
+    if [[ "$store" == "$want_version" && -n "$says_pending" ]]; then
+      echo "✗ the App Store has $store now — set APP_STORE.liveVersion to it and pendingVersion to null" >&2
+    else
+      echo "✗ the page says the App Store has $says_live; it has $store" >&2
+    fi
+    fail=1
+  elif [[ "$says_live" != "$want_version" && "$says_pending" != "$want_version" ]]; then
+    echo "✗ the site advertises $want_version while the App Store has $store, and does not say $want_version is pending" >&2
     fail=1
   fi
 else
@@ -97,4 +113,4 @@ else
 fi
 
 (( fail )) && exit 1
-echo "✓ download page, artefact and App Store agree"
+echo "✓ the download page tells the truth about the artefact and the App Store"
