@@ -154,9 +154,9 @@ manual page there and the navigation follows automatically.
 | `/manual` | `manual/index.astro` | Manual contents — one card per section |
 | `/manual/getting-started` | | Opening a collection, the layout, first note, saving |
 | `/manual/editor` | | Live Markdown, view modes, maths, diagrams, callouts, find, images, export |
-| `/manual/links-and-graph` | | Wiki-links, aliases, backlinks, transclusion, graph, mind map |
+| `/manual/links-and-graph` | | Wiki-links, aliases, backlinks, transclusion, a note's Graph, the collection's Mind Map |
 | `/manual/organising` | | Search, Open Quickly, tags, bookmarks, daily notes, templates |
-| `/manual/ai` | | Apple Intelligence, Ask Library, the Assistant, bring-your-own-model |
+| `/manual/ai` | | The System model, Ask Your Library, the Assistant, open models with MLX |
 | `/manual/cloud` | | iCloud / Dropbox / Box / OneDrive / Google Drive, and the two ways to use them |
 | `/manual/git` | | Init, identity, commits, history, remotes, current limits |
 | `/manual/shortcuts` | | Keyboard reference |
@@ -194,6 +194,18 @@ gh release create v1.3 dist/HelloNotes.dmg --title "HelloNotes 1.3" --notes-file
 `APP.version`, `DOWNLOAD.size` and `DOWNLOAD.sha256` in `src/lib/site.ts` are
 what the download page prints for people verifying the file by hand — they must
 match the artefact actually attached to the release.
+
+**The App Store is a second channel and can be a version behind.** The DMG is
+live the day it is notarised; the App Store — the only route to iPhone and
+iPad — changes when Apple approves the build. `APP_STORE.liveVersion` is what
+the store serves and `APP_STORE.pendingVersion` the version in review (`null`
+when there is none). While they differ, `StoreNotice.astro` says so beside the
+App Store links on the home and download pages, the download page's App Store
+card names `liveVersion`, and the screenshots page says its iPhone and iPad
+captures are of the version in review and that the store has `liveVersion`
+until then. On approval: set `liveVersion`, set `pendingVersion` to `null`.
+`scripts/check-download-page.sh` checks that account against the store, and
+fails from the day the store changes until the two lines are.
 
 ---
 
@@ -263,15 +275,27 @@ Traps, each one paid for:
 3. **Synthetic `click at` events do not register in this SwiftUI app.** Drive it
    with real clicks. The ⊗ on a collection's group row ignores them too; its
    right-click menu ▸ Close Collection works.
-4. **Raw files are `light_1.png` … `dark_5.png`** — single digit, no zero
-   padding. The script skips anything else silently and still writes `og.png`,
-   so a run that "succeeded" can have composited nothing.
+4. **Raw files are `light_01.png` … `dark_05.png`** (`light_1.png` is accepted
+   too). The script prints `! missing` for a scene it cannot find and still
+   writes `og.png`, so a run that "succeeded" can have composited nothing —
+   read its output for ten frame lines.
 
 **Shoot at 1470×852**, not 1470×923: 923 only fits with the Dock hidden, and the
 compositor scales to fit, so any *consistent* size works.
 
-**Scene 5 (Ask Library) needs nothing set up.** On-Device (Apple Intelligence) is
-the default writing-tools model, so the answer is generated on the Mac — and from
+**The five scenes, from 1.3.3** (the three-region window; captions in `SCENES`
+in the script, descriptions in `screens.ts`, and the two must agree):
+
+| # | Scene | Caption burnt into the frame |
+|---|---|---|
+| 01 | *Start Here* open, the sidebar tree on the left, Summary & Outline in the right panel | The collection, the note, and what the note is |
+| 02 | *Rich Content* in Split — source beside the rendered page | Markdown source beside the rendered page |
+| 03 | *Linking* with the right panel on its Graph | A graph of each note’s links, beside the note |
+| 04 | the Mind Map tab | A mind map of the links across your collection |
+| 05 | the Assistant tab answering from the notes, on the System model | The Assistant reads your notes — on your device |
+
+**Scene 5 (the Assistant — it was Ask Library until 1.3.3) needs no setup.** The
+System model is the default, so the answer is generated on-device — and from
 1.3.3 there are no API keys to configure at all. Two things to know:
 
 - The on-device model is **not deterministic and not always right**. Across four
@@ -415,6 +439,7 @@ website/
       Footer.astro      publisher line, link columns, © year
       Prose.astro       the one place long-form typography is styled
       Shot.astro        screenshot pair; CSS reveals the one matching the theme
+      StoreNotice.astro the App Store is a version behind the DMG — shown only while it is
       ThemeScript.astro pre-paint appearance script (inline, in <head>)
       ThemeToggle.astro Auto / Light / Dark radiogroup
     pages/

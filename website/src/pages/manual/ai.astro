@@ -4,12 +4,23 @@ import { href } from '../../lib/paths';
 ---
 
 <ManualLayout slug="ai">
-  <h2 id="on-device">On-device by default</h2>
+  <h2 id="on-device">On your device</h2>
   <p>
-    The intelligence features use <strong>Apple Intelligence</strong>, running on your own device —
-    Mac, iPhone or iPad. Your notes are processed locally and are not sent to us or to any third
-    party. These features appear only on hardware where Apple Intelligence is available and enabled
-    in System Settings.
+    Every AI feature runs on Apple’s <strong>Foundation Models</strong>, on your own Mac, iPhone or
+    iPad: <strong>Apple Intelligence</strong> by default — the model the app calls{' '}
+    <strong>System</strong> — or an open model you download and run on your device with{' '}
+    <a href="#mlx">MLX</a>. Your notes are processed on the device and are not sent to us or to any
+    AI service. There are no third-party AI services and no API keys. What does leave the device
+    is a web search, when <a href="#assistant">the Assistant</a> or Research looks something up:
+    the search terms go to DuckDuckGo — and the model writes them after reading your question and,
+    often, your notes — and a page it then reads is fetched from that page’s site. Downloading an
+    MLX model fetches its files from Hugging Face.
+  </p>
+  <p>
+    The AI features are available when the model you have chosen can run. Apple Intelligence needs
+    a device that supports it, with Apple Intelligence turned on — in System Settings on the Mac,
+    Settings on iPhone and iPad. An MLX model needs to be downloaded, or its folder chosen.
+    Otherwise the AI commands are unavailable, and the AI settings say why.
   </p>
   <p>
     Everything else in HelloNotes works without them — the AI is an addition, never a requirement.
@@ -18,38 +29,45 @@ import { href } from '../../lib/paths';
   <h2 id="note-actions">Note actions</h2>
   <p>
     These live in the <strong>Note</strong> menu, beside Rename and Duplicate — not in a panel of
-    their own. Each answer appears in the inspector tab that already holds that kind of
-    information, so you find it where you would have gone looking anyway. On iPhone and iPad they
-    are in the <span aria-hidden="true">✨</span> menu in the toolbar above the note.
+    their own — and in <strong>Note Actions</strong>, the menu at the right of the bar over the
+    open note, under the name of the model that will do the work. On iPhone they are also gathered
+    in the <strong>AI</strong> tab. A suggestion appears in the right panel’s view that already
+    holds that kind of information, so you find it where you would have gone looking anyway.
   </p>
   <ul>
     <li>
       <strong>Summarise Note</strong> — a short summary of the current note, shown at the top of
-      the <strong>Outline</strong> tab. A summary is an outline at a different resolution.
+      the <strong>Summary &amp; Outline</strong> view. A summary is an outline at a different
+      resolution. <strong>Save to Properties</strong> keeps it in the note’s{' '}
+      <code>summary:</code> property.
     </li>
     <li>
       <strong>Suggest Tags</strong> — proposes tags based on the content, in the{' '}
-      <strong>Tags</strong> tab; you choose which to keep.
+      <strong>Tags</strong> view; you choose which to keep.
     </li>
     <li>
       <strong>Suggest Links</strong> — finds notes that are plausibly related, in the{' '}
-      <strong>References</strong> tab beside the backlinks they would join.
+      <strong>Links</strong> view beside the links the note already has.
     </li>
     <li>
-      <strong>Rewrite or Expand Note…</strong> — improve, shorten, simplify, restructure or flesh
-      out the note. You see the result and choose <em>Replace Note</em> or <em>Insert Below</em>;
-      nothing changes until you do.
+      <strong>Rewrite or Expand Note…</strong> (“Rewrite or Expand…” in Note Actions and the AI
+      tab) — improve the writing, fix the grammar, make it
+      concise, elaborate, simplify, turn it into bullet points or expand it — or describe the
+      rewrite yourself. You see the result and choose <em>Replace Note</em> or{' '}
+      <em>Insert Below</em>; nothing changes until you do.
     </li>
   </ul>
   <p>
-    Selecting text gives you the actions that need your notes to make sense — link the phrase, find
-    related notes, explain it using what you have written. On the Mac they appear in a small
-    floating bar; on iPhone and iPad they join the standard selection menu. General rewriting is
-    left to <strong>Writing Tools</strong>, which the system already puts in every text view.
+    Selecting text adds the actions that need your notes to make sense to the editor’s own
+    selection menu — a right-click on the Mac, the standard selection menu on iPhone and iPad:{' '}
+    <strong>Rewrite with AI…</strong>, <strong>Link to “<em>note</em>”</strong> when the phrase
+    names a note you have, <strong>Find Related</strong> and <strong>Ask Your Library</strong>.
+    They sit beside <strong>Writing Tools</strong>, which the system already puts in every text
+    view.
   </p>
   <p>
-    Can’t remember where a command lives? On the Mac, <kbd>⇧⌘P</kbd> opens a
-    <strong>command palette</strong>: type a command’s name to run it.
+    Can’t remember where a command lives? <kbd>⇧⌘P</kbd> — <strong>File ▸ Command Palette…</strong>{' '}
+    — opens a <strong>command palette</strong>: type a command’s name to run it.
   </p>
 
   <h2 id="review-links">Review links</h2>
@@ -70,22 +88,28 @@ import { href } from '../../lib/paths';
       coming back. It is kept on your device rather than in your notes — a decision you made is not
       something to commit to a shared repository.
     </li>
-    <li>Nothing is written until you finish, and the whole set undoes in one step.</li>
+    <li>Nothing is written until you finish.</li>
   </ul>
   <p>
-    This one needs no AI provider at all: it is an exact scan of your own text.
+    This one needs no model at all: it is an exact scan of your own text.
   </p>
 
   <h2 id="compose">New note from a prompt</h2>
   <p>
-    <strong>File ▸ New Note from a Prompt…</strong> (<kbd>⌃⌘N</kbd>) writes a new note, in two
-    modes. <strong>Write</strong> composes one from a description.{' '}
+    <strong>File ▸ New Note from a Prompt…</strong> (<kbd>⌃⌘N</kbd>) — also under the{' '}
+    <strong>+</strong> in the bar over the note — writes a new note, in two modes. <strong>Write</strong> composes one from a description.{' '}
     <strong>Research</strong> investigates a question on the web across several angles and lands the answer as a note, with
     its sources gathered at the end and a record of the question it came from.
   </p>
   <p>
+    <strong>Research needs a model with room to read web pages</strong> — at least 8,000 tokens.
+    MLX models have that, and so does the System model where Apple Intelligence gives it 8,192
+    tokens. Research uses the model chosen in <strong>Settings ▸ AI</strong>, and if that one
+    can’t hold enough, the sheet says so rather than starting a run that cannot finish.
+  </p>
+  <p>
     Either way the draft is connected to what you already have: notes you own on the topic are
-    offered as link targets, and <strong>every link that comes back is checked against your
+    offered as link targets — Research can search and read them as well — and <strong>every link that comes back is checked against your
     collection</strong>. Anything naming a note that does not exist is turned back into ordinary
     text, and the draft says so. A link that looks real but points nowhere is worse than no link.
   </p>
@@ -96,8 +120,9 @@ import { href } from '../../lib/paths';
 
   <h2 id="ghost-text">Suggest as I type</h2>
   <p>
-    Grey text appears after the cursor when you pause at the end of a line. <kbd>⌥⇥</kbd> or{' '}
-    <kbd>→</kbd> accepts it; <kbd>Esc</kbd> dismisses it.
+    Grey text appears after the cursor when you pause at the end of a line in the{' '}
+    <strong>Edit</strong> view. On the Mac, <kbd>⌥⇥</kbd> or <kbd>→</kbd> accepts it and{' '}
+    <kbd>Esc</kbd> dismisses it; <kbd>⌥Esc</kbd> or <kbd>F5</kbd> asks for one without waiting.
   </p>
   <blockquote>
     <p>
@@ -106,121 +131,172 @@ import { href } from '../../lib/paths';
     </p>
   </blockquote>
   <p>
-    It runs <strong>on your device only</strong>: a suggestion that has to cross the network arrives
-    after you have already typed past it. Off until you turn it on, in{' '}
-    <strong>Assistant Settings ▸ Inline completion</strong>. Mac only for now.
+    On iPhone and iPad, tap the suggestion to accept it — or press <kbd>⌥⇥</kbd> with a keyboard
+    attached; <kbd>Esc</kbd> dismisses it. Suggestions come from the model chosen in{' '}
+    <strong>Settings ▸ AI</strong>. They are off until you turn on{' '}
+    <strong>Suggest as I type</strong>, in the <strong>Inline Completion</strong> section of the
+    AI settings.
   </p>
 
   <h2 id="ask">Ask your library</h2>
   <p>
-    <strong>Ask Library</strong> answers questions using your own notes as the source. It finds the
-    relevant ones, reads them, and answers with <strong>citations</strong> back to the notes it drew
-    on so you can check the reasoning and jump to the original.
+    <strong>Ask Your Library</strong> answers questions using your own notes as the source. It
+    finds the relevant ones, reads them, and answers with its <strong>sources</strong> listed
+    beneath — the notes it drew on — so you can check the reasoning and jump to the original.
   </p>
   <p>
     It is most useful for questions you know you have written about but cannot place — “what did I
-    decide about the pricing model?” rather than general knowledge.
+    decide about the pricing model?” rather than general knowledge. Open it from{' '}
+    <strong>Ask Your Library</strong> at the top of the sidebar, or with{' '}
+    <strong>View ▸ Ask Your Library</strong> (<kbd>⇧⌘J</kbd>); it opens as a tab beside your notes.
+    On iPhone it is in the <strong>Notes</strong> and <strong>AI</strong> tabs.
   </p>
 
   <h2 id="assistant">The Assistant</h2>
   <p>
-    The Assistant is a chat window with tools: it can search your collection, read notes, propose
-    edits, and — if you enable them — search and fetch from the web.
+    The Assistant is a conversation about your collection, with tools: it can search your
+    collection, read notes, propose edits and search the web. Open it from{' '}
+    <strong>Assistant</strong> at the top of the sidebar, or with{' '}
+    <strong>View ▸ Assistant</strong> (<kbd>⇧⌘A</kbd>). It opens as a tab beside your notes rather
+    than a window, so a note and the Assistant are a tab apart.
+    It looks at your notes before it answers a question about them, and says what it is doing while
+    it works — searching your notes, reading a note, waiting for your approval. The wrench and
+    screwdriver button at the top turns its tools off, for a conversation that neither reads nor
+    changes your notes.
   </p>
   <blockquote>
     <p>
-      <strong>Edits always require your approval.</strong> When the Assistant wants to change a
-      note, it shows you the exact change first and waits. Nothing is written to disk until you
-      approve it.
+      <strong>Changes wait for your approval.</strong> When the Assistant wants to change a note, it
+      shows you the exact change first and waits; nothing is written until you approve it. If you
+      choose <strong>Allow all this session</strong>, the rest of that conversation’s changes are
+      made without asking — except deleting a note, which always asks. In a collection that is a
+      Git repository, each change you approve is committed straight away — together with anything
+      else in the collection not yet committed, and whatever Auto-commit is set to.
     </p>
   </blockquote>
   <p>
-    <strong>Skills</strong> let you save reusable instructions for repeated jobs, and{' '}
-    <strong>deep research</strong> runs a longer multi-step investigation across your notes and,
-    optionally, the web.
+    If it proposes several changes at once, they wait their turn, one card at a time. A change is
+    made only to the text you approved: if the note was edited while the card was waiting, the
+    Assistant is told to read it again instead. <strong>Skills</strong> hold reusable instructions
+    for repeated jobs — a note named <code>SKILL.md</code>, with a <code>name:</code> and a{' '}
+    <code>description:</code> in its front matter — and the Assistant loads the one a request
+    matches.
+  </p>
+  <p>
+    On a model with a window of at least 16,000 tokens — in this version, an MLX model on a Mac —
+    the Assistant can also read whole web pages and run <strong>deep research</strong>, a longer
+    multi-step investigation across your notes and the web. With a smaller window it searches the
+    web and works from the results. The model it is using is always shown at the top of its tab.
   </p>
 
-  <h2 id="providers">Using your own model</h2>
+  <h2 id="settings">Choosing a model</h2>
   <p>
-    If you would rather not use Apple Intelligence — or your Mac does not support it — you can
-    configure a different model in <strong>Settings ▸ AI</strong>.
+    <strong>Settings ▸ AI</strong> has one choice, for everything the app does with AI — the
+    Assistant, the research behind New Note from a Prompt, Summarise, Suggest Tags and Links,
+    Rewrite, Compose, Ask Your Library and the suggestions as you type. It can be:
   </p>
-  <p><strong>Local</strong>, nothing leaves your machine:</p>
-  <ul>
-    <li><strong>Ollama</strong> — run <code>ollama serve</code>; no key needed.</li>
-    <li><strong>LM Studio</strong> — start its local server; no key needed.</li>
-    <li><strong>MLX</strong> — runs a downloaded model on Apple silicon.</li>
-  </ul>
-  <p><strong>Cloud</strong>, using your own API key:</p>
-  <p>
-    Anthropic, OpenAI, Gemini, Mistral, Groq, OpenRouter, xAI, DeepSeek, Cerebras, Together AI,
-    Perplexity and Ollama Cloud are supported. Paste your key in Settings; it is stored in the macOS
-    Keychain and never sent to us.
-  </p>
-  <blockquote>
-    <p>
-      Cloud providers are <strong>off until you configure one</strong>. When you use one, the text
-      for that action goes to that provider under your own account and their privacy policy — see
-      the <a href={href('/privacy')}>privacy policy</a>.
-    </p>
-  </blockquote>
-
-  <h2 id="settings">Choosing where each feature runs</h2>
-  <p>
-    Settings ▸ AI has two separate choices: the <strong>chat provider</strong> (the Assistant, and
-    the research behind New Note from a Prompt) and the <strong>intelligence provider</strong>
-    (Summarise, Suggest Tags/Links, Rewrite, Ask Library and typing suggestions). The intelligence
-    provider defaults to on-device Apple Intelligence. The chat provider is set to OpenAI, but like
-    every cloud provider it stays switched off until you enable it and add a key — so no note text is
-    sent to a model until you choose a cloud provider and set it up. <strong>Creativity</strong> controls how varied
-    the output is — lower is more focused and predictable.
-  </p>
-  <p>
-    The same settings say what your chosen model can actually do: whether it runs on your device or
-    in the cloud, roughly how much of a note it can read at once, and which features would work
-    better on a model with more room. An on-device model reads a few thousand characters, so Ask
-    Library over a long note is a different experience there than on a large cloud model — worth
-    knowing before concluding the feature is poor.
-  </p>
-
-  <h2 id="models">Picking a model, and its limits</h2>
-  <p>
-    Each provider has a <strong>Refresh</strong> button beside its model field. It asks the provider
-    which models your key can actually reach, so the list is the current one rather than whatever
-    was current when the app was built. <strong>Available models</strong> then lists them, with each
-    one’s context size where the provider reports it.
-  </p>
-  <p>
-    You can still type any model ID by hand. A fine-tune or a deployment alias that the listing
-    doesn’t mention works exactly as before — refreshing never overwrites a model you chose.
-  </p>
-  <p>
-    Eight providers — Gemini, Anthropic, OpenRouter, Mistral, Groq, Together AI, Ollama and LM Studio
-    — also report how much each model can hold, and HelloNotes uses that number directly. So a model
-    with a million-token window is read as a model with a million-token window, rather than being
-    held to a cautious default. OpenAI, xAI, DeepSeek, Cerebras and Perplexity publish model names
-    but not limits; for those the app keeps a conservative default and says so rather than guessing.
-  </p>
-
-  <h3 id="parameters">Setting the limits yourself</h3>
-  <p>Below the model, three settings that apply to that provider alone:</p>
   <ul>
     <li>
-      <strong>Temperature</strong> — the same idea as Creativity, but per provider and over the range
-      that provider genuinely accepts. Anthropic stops at 1.0; most others go to 2.0. Leave it and
-      the Creativity slider applies.
+      <strong>System</strong> — Apple’s model on your device, whichever one Apple Intelligence runs
+      on your hardware. The name is Apple’s own. The default.
     </li>
     <li>
-      <strong>Context budget</strong> — how much note text is sent per request, in characters. Blank
-      uses the model’s reported limit. Lower it to spend less.
-    </li>
-    <li>
-      <strong>Max reply length</strong> — a cap on the generated answer, in tokens. Blank lets the
-      provider decide.
+      <strong>MLX · <em>model name</em></strong> — an open model from your models folder, run on
+      your device. Every model in the folder that HelloNotes can run is listed here, one entry
+      each, so choosing a model and choosing MLX are the same act. A folder with nothing runnable
+      in it leaves the picker offering System — and, if MLX was your choice, a line saying the
+      folder has no model.
     </li>
   </ul>
   <p>
-    All of this is in one place on both platforms: <strong>Settings ▸ AI</strong> on the Mac, and{' '}
-    <strong>Settings ▸ AI ▸ Providers &amp; API Keys</strong> on iPad and iPhone.
+    Under the picker is what the model is used for, one line saying where your text goes, and — if
+    it can’t run right now — why not.
   </p>
+  <p>
+    Under <strong>Assistant</strong> are the model’s own settings, as the Foundation Models
+    framework has them and no further: <strong>Creativity</strong> (0–2) and{' '}
+    <strong>Sampling</strong> — Automatic, Greedy, <strong>Top-k</strong> (which adds{' '}
+    <strong>Words to sample from</strong>) or <strong>Top-p</strong> (which adds{' '}
+    <strong>Probability</strong>), the last two also offering a <strong>Seed</strong> so a run can
+    be repeated — plus a <strong>Maximum reply</strong> length and, on a model that reasons,{' '}
+    <strong>Thinking</strong>. They apply to the Assistant; each writing tool asks for what its own
+    task needs.
+  </p>
+  <p>
+    This is the <strong>AI</strong> tab of Settings, the same on every device. Settings opens with{' '}
+    <kbd>⌘,</kbd> or the gear in the bar over the note; on iPhone, from the <strong>⋯</strong> in
+    the <strong>Notes</strong> tab. It is the only AI settings screen: the Assistant’s gear button
+    and every <strong>AI Settings…</strong> button open Settings on this page.
+  </p>
+
+  <h2 id="mlx">Open models with MLX</h2>
+  <p>
+    <strong>HelloNotes suggests no models.</strong> Choosing one is the advanced end of the app: a
+    recommended list is a generation out of date within months, and whether a model is any good at
+    your work is between you and the model.
+  </p>
+  <p>
+    MLX models live in one place, the <strong>models folder</strong>. Until you say otherwise that
+    is HelloNotes’ own storage.
+  </p>
+  <p>
+    On a Mac your models are probably already here, in the Hugging Face cache{' '}
+    <code>~/.cache/huggingface/hub</code> that <code>mlx_lm</code> and the other MLX tools share —
+    but macOS keeps HelloNotes out of that folder until you allow it.{' '}
+    <strong>Access MLX Models…</strong> opens it, and one click on <strong>Open</strong> allows it
+    for good: everything in it HelloNotes can run is listed, and downloads join it rather than
+    making a second copy of a multi-gigabyte model. <strong>Change…</strong> points the folder
+    somewhere else afterwards. On iPhone and iPad the button is{' '}
+    <strong>Choose Folder…</strong>, for a folder in Files or on an external drive.
+  </p>
+  <ul>
+    <li>
+      <strong>Use</strong> a model in the folder, or <strong>Remove…</strong> it. Removing deletes it
+      from the folder, for every tool that shares it, so HelloNotes asks first.
+    </li>
+    <li>
+      <strong>Download</strong> an MLX language model from Hugging Face by typing its name in the form{' '}
+      <code>organisation/model</code>. It goes into the models folder, and a download can be
+      cancelled. The settings link through to the <code>mlx-community</code> organisation, which
+      converts most models to MLX.
+    </li>
+    <li>
+      If Hugging Face isn’t reachable where you are, put a model into the models folder another way.
+      Once a model is on your device it works offline.
+    </li>
+  </ul>
+  <p>
+    One MLX model runs at a time, so the one you pick is the one everything uses: the Assistant and
+    the writing tools share it. Pick it in the <strong>Model</strong> picker, or with{' '}
+    <strong>Use</strong> beside it in the models list — they are the same choice.
+  </p>
+  <p>
+    Not every open model can use tools — Gemma 3, for one, has no way to be shown them. With such a
+    model the AI settings say so, the Assistant chats without reading or changing your notes, and
+    Research isn’t available; the writing tools work as usual. HelloNotes also says when a model’s
+    weights are large for the device it is on.
+  </p>
+
+  <h2 id="limits">How much a model can read</h2>
+  <p>
+    Every model has a window — how much text it can hold at once. HelloNotes asks Apple
+    Intelligence how large the System model’s window is rather than assuming one. An
+    MLX model is given 16,384 tokens on a Mac and 8,192 on iPhone and iPad, because a larger window
+    costs memory. Text in Chinese, Japanese or Korean takes about a token a character, so the same
+    window holds fewer characters of it.
+  </p>
+  <ul>
+    <li>
+      <strong>A long note is summarised whole</strong> — in parts, then the parts — rather than by
+      its opening. One too long even for that is refused, not cut short.
+    </li>
+    <li>
+      <strong>Rewrite asks for a shorter passage</strong> if a selection is more than the model can
+      rewrite in one go, instead of rewriting only the part that fits and replacing all of it.
+    </li>
+    <li>
+      <strong>Tags and links read a note’s opening</strong> if it is very long — they are
+      suggestions — and tags come back in the note’s own language.
+    </li>
+  </ul>
 </ManualLayout>

@@ -2,7 +2,7 @@
 """
 Composite the marketing screenshot frames used by the website.
 
-Input  : raw window captures (screencapture -R of the HelloNotes window)
+Input  : raw window captures (screencapture -l of the HelloNotes window)
 Output : website/src/assets/screens/{light,dark}_0N.png
 
 Each frame is the brand gradient, a caption, and the window shot with rounded
@@ -51,12 +51,22 @@ SHADOW_BLUR = 40
 SHADOW_OFFSET = 26
 SHADOW_ALPHA = 115
 
+# One caption per scene, composited INTO the image — so each has to be true of
+# the capture it is drawn over, and of `SCREENS` in website/src/lib/screens.ts,
+# which describes the same five. Re-shot for 1.3.3 (the three-region window):
+#   01  a note open, the sidebar tree on the left, Summary & Outline on the right
+#   02  a note in Split: Markdown source beside the rendered page
+#   03  a note with the right panel on its Graph — that note's links in and out
+#   04  the Mind Map tab — the links across the collection
+#   05  the Assistant tab answering from the notes, on the System model
+# Scene 05 was "Ask your library" until 1.3.3; that caption over this capture
+# would be a false claim on a public page.
 SCENES = [
-    ("01", "Your notes. Your files. Local and private."),
-    ("02", "LaTeX maths & Mermaid diagrams, inline"),
-    ("03", "Callouts, properties & rich Markdown"),
-    ("04", "See how your thinking connects"),
-    ("05", "Ask your library — answers with citations"),
+    ("01", "The collection, the note, and what the note is"),
+    ("02", "Markdown source beside the rendered page"),
+    ("03", "A graph of each note’s links, beside the note"),
+    ("04", "A mind map of the links across your collection"),
+    ("05", "The Assistant reads your notes — on your device"),
 ]
 
 

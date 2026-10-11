@@ -9,52 +9,95 @@ import { href } from '../../lib/paths';
     HelloNotes works on a <strong>collection</strong>: an ordinary folder of Markdown files. There
     is no import, no library format and no database — you simply point the app at a folder.
   </p>
+  <p>
+    The first time you launch it there is already one open: the collection that ships inside the
+    app, a short tour and the user manual, written in HelloNotes. It is a folder of notes like any
+    other, so you can edit it, close it, and bring it back later with{' '}
+    <strong>Open Default Collection</strong>.
+  </p>
+  <p>To open a folder of your own:</p>
   <ol>
-    <li>Launch HelloNotes. On a first run you are offered a welcome sheet.</li>
-    <li>Choose <strong>Open a Collection</strong> (or <kbd>⌘O</kbd> at any time).</li>
+    <li>
+      Click the <strong>+</strong> at the top of the sidebar and choose{' '}
+      <strong>Open Collection ▸ from Folder…</strong>
+    </li>
     <li>
       Pick any folder containing <code>.md</code> files — or an empty folder to start something new.
     </li>
   </ol>
   <p>
-    An existing <strong>Obsidian vault</strong> works as-is: choose the vault folder and it opens
-    directly, wiki-links, tags, aliases and front matter intact.
+    <strong>File ▸ Open…</strong> (<kbd>⌘O</kbd>) does the same from one screen that also lists the
+    collections you have opened recently. An existing <strong>Obsidian vault</strong> works as-is:
+    choose <strong>Open Collection ▸ from Obsidian Vault…</strong> or pick the vault’s folder, and
+    it opens directly, wiki-links, tags, aliases and front matter intact.
   </p>
 
   <h2 id="layout">The layout</h2>
-  <p>The window is one sidebar, the editor, and an inspector you can call up beside it:</p>
+  <p>
+    The window is three regions, each about one thing: the collection on the left, the note in the
+    middle, and what the note is on the right.
+  </p>
   <ul>
     <li>
-      <strong>Sidebar</strong> — everything you can navigate to, in a single tree.{' '}
-      <strong>Recents</strong> and <strong>Bookmarks</strong> are pinned at the top (each spans every
-      open collection, which is why neither is a folder), and below them sits one row per open
-      collection. Expand a collection and its folders hang beneath it, exactly as they do on disk.
-      It is the only part of the window that hides, which is why everything navigational lives here.
+      <strong>The sidebar</strong> is the collection. At its top are the collection’s tools as
+      named rows — <strong>Mind Map</strong>, <strong>Assistant</strong>,{' '}
+      <strong>Ask Your Library</strong> and <strong>Git</strong> (a collection connected straight
+      to a cloud account has no Git row) — and below them a single tree:{' '}
+      <strong>Recents</strong> and <strong>Bookmarks</strong> pinned first (each spans every open
+      collection, which is why neither is a folder), then one row per open collection, with its
+      folders and notes beneath it exactly as they are on disk. The <strong>+</strong> in its
+      header makes a folder and opens or creates collections. The header also holds the
+      sidebar’s own toggle; while the sidebar is hidden, that toggle is the first button of the
+      bar over the note, so the sidebar can always come back.
     </li>
-    <li><strong>Editor</strong> — the note itself, with a status bar along the bottom.</li>
     <li>
-      <strong>Inspector</strong> — the note’s outline, tags, references, properties and history.
-      Each has its own button at the right-hand end of the toolbar: click one to open that panel,
-      and click it again to close the inspector.
+      <strong>The note</strong> is in the middle. The bar over it has three buttons —{' '}
+      <strong>+</strong> for a new note, a magnifying glass for searching and finding, and a gear
+      for Settings — then the tabs of the notes you have open, then{' '}
+      <strong>Note Actions</strong>, the menu of the open note’s own commands. Along the
+      bottom are the four views: Edit, Preview, Markdown and Split.
+    </li>
+    <li>
+      <strong>The right panel</strong> is what the open note is: its{' '}
+      <strong>Summary &amp; Outline</strong>, <strong>Tags</strong>, <strong>Links</strong>,{' '}
+      <strong>Properties</strong>, <strong>History</strong> and <strong>Graph</strong>. The last
+      button in the bar shows or hides it, and the row of icons along its top chooses what it
+      shows. The note beside it stays live, so you can keep typing with the panel open.
     </li>
   </ul>
   <p>
-    Several collections can be open at once, and a place that is empty is left out rather than shown
-    empty. Searching is deliberately <em>library-wide</em>: the field at the left of the toolbar sits
-    next to the sidebar it searches, looks across every open collection, and groups results by
-    collection.
+    The Mind Map, the Assistant and Ask Your Library are about the whole collection rather than one
+    note, so they open as <strong>tabs</strong> beside your notes. Choosing a note puts them behind
+    it; their tab brings them back. HelloNotes opens no window of notes on its own — a second one
+    appears only when you ask for it, with <strong>New Window</strong> or{' '}
+    <strong>Open in New Window</strong>. (Settings, on the Mac, is the usual settings window.)
   </p>
   <p>
-    On a narrower window the sidebar collapses behind its toggle, and on an iPhone the editor takes
-    the whole screen with a bottom tab bar. The layout follows the space available, not the device.
+    Several collections can be open at once, and a pinned place that is empty is left out rather
+    than shown empty. Searching is deliberately <em>library-wide</em>:{' '}
+    <strong>Search Notes</strong>, under the magnifying glass (or <kbd>⌥⌘F</kbd>), opens a search
+    field in the bar, looks across every open collection, and shows the results in the sidebar,
+    grouped by collection.
+  </p>
+  <p>
+    The layout follows the space available, not the device. In a window taller than it is wide — an
+    iPad in portrait — the sidebar lies across the top instead, folders on the left and the notes
+    in the chosen folder on the right. In a narrow window, and on an iPhone, there is room for one
+    thing at a time: four tabs along the bottom — <strong>Notes</strong>, <strong>Search</strong>,{' '}
+    <strong>Tags</strong> and <strong>AI</strong> — with the open note in a strip above them that
+    brings it up full screen.
   </p>
 
   <h2 id="first-note">Creating your first note</h2>
   <ol>
     <li>
-      Press <kbd>⌘N</kbd>, or click <strong>New Note</strong> in the toolbar.
+      Press <kbd>⌘N</kbd>, or choose <strong>New Note</strong> from the <strong>+</strong> in the
+      bar.
     </li>
-    <li>A file is created in the collection selected in the sidebar, and opened for editing.</li>
+    <li>
+      A file is created where you are — in the folder of the note you have selected, or at the top
+      of the collection — and opened for editing.
+    </li>
     <li>
       Type as you would in any Markdown editor. Formatting appears as you type — see{' '}
       <a href={href('/manual/editor')}>The editor</a>.
@@ -69,14 +112,16 @@ import { href } from '../../lib/paths';
 
   <h2 id="saving">Saving</h2>
   <p>
-    There is no save command, because there is nothing to remember to do. Edits are written to disk
-    automatically a moment after you stop typing, and always when you switch notes, close a window
-    or quit. The status bar shows <strong>Saved</strong> when the file on disk matches what you see.
+    There is no save command, because there is nothing to remember to do. A note is written to disk
+    when you stop editing it — when you leave the text, switch to another note or another app,
+    close the window or quit. A save that works is never announced; the bottom bar says{' '}
+    <strong>Save failed</strong> only in the one case that matters, when your words are not on
+    disk.
   </p>
   <p>
     If a note changes on disk while you are editing it — a sync client, another app, another device
-    — HelloNotes tells you rather than silently picking a winner, and lets you reload or keep your
-    version.
+    — HelloNotes tells you rather than silently picking a winner, and offers{' '}
+    <strong>Reload</strong> or <strong>Keep Mine</strong>.
   </p>
 
   <h2 id="next">Where to go next</h2>

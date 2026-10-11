@@ -1,6 +1,7 @@
 ---
 import PageLayout from '../layouts/PageLayout.astro';
 import Shot from '../components/Shot.astro';
+import StoreNotice from '../components/StoreNotice.astro';
 import { href } from '../lib/paths';
 import { APP, APP_STORE, PUBLISHER, REPO } from '../lib/site';
 import { byId } from '../lib/screens';
@@ -19,17 +20,17 @@ const features = [
   {
     icon: '🔗',
     title: 'Connected thinking',
-    body: '<code>[[Wiki-links]]</code> with autocomplete and aliases, backlinks, unlinked mentions, note transclusion, and an interactive graph of how everything relates.',
+    body: '<code>[[Wiki-links]]</code> with autocomplete and aliases, backlinks, unlinked mentions, note transclusion, a graph of each note’s links, and a mind map of the links across the whole collection.',
   },
   {
     icon: '🔎',
     title: 'Find anything, fast',
-    body: 'Full-text search with snippets, Open Quickly, nested tags with autocomplete, bookmarks, daily notes and templates.',
+    body: 'Full-text search with snippets, Open Quickly, find and replace with regular expressions, nested tags with autocomplete, bookmarks, daily notes and templates.',
   },
   {
     icon: '✨',
     title: 'Intelligence on your device',
-    body: 'Summarise, suggest tags and links, find the links you meant to make, or ask questions across your whole library — on-device with Apple Intelligence, or your own model if you prefer.',
+    body: 'Summarise, suggest tags and links, find the links you meant to make, or ask questions across your whole library — on your device, with Apple Intelligence or an open model you run with MLX. No AI services, no API keys.',
   },
   {
     icon: '🕘',
@@ -38,17 +39,17 @@ const features = [
   },
 ];
 
-const hero = byId('maths');
+const hero = byId('window');
 const showcase = [
-  { screen: byId('callouts'), cap: 'Callouts & properties' },
-  { screen: byId('ask'), cap: 'Ask your library' },
-  { screen: byId('graph'), cap: 'Graph view' },
+  { screen: byId('split'), cap: 'Source beside the rendered page' },
+  { screen: byId('mind-map'), cap: 'The Mind Map' },
+  { screen: byId('assistant'), cap: 'The Assistant' },
 ];
 ---
 
 <PageLayout
   title="HelloNotes — a private, local-first Markdown knowledge base for Mac, iPhone & iPad"
-  description="HelloNotes is a fast, private, local-first Markdown knowledge base for Mac, iPhone and iPad. Wiki-links, backlinks, a graph view, diagrams, maths and on-device AI — over notes that stay plain files you own."
+  description="HelloNotes is a fast, private, local-first Markdown knowledge base for Mac, iPhone and iPad. Wiki-links, backlinks, a graph and a mind map, diagrams, maths and on-device AI — over notes that stay plain files you own."
   appSchema
 >
   <!-- Hero -->
@@ -76,8 +77,8 @@ const showcase = [
       </h1>
       <p class="mx-auto mt-4 max-w-[640px] text-[clamp(18px,2.4vw,23px)] text-muted">
         A fast, private, local-first knowledge base for Mac, iPhone and iPad. Wiki-links,
-        backlinks, a graph view, diagrams, maths and on-device AI — over notes that stay plain
-        files you own.
+        backlinks, a graph and a mind map, diagrams, maths and on-device AI — over notes that stay
+        plain files you own.
       </p>
 
       <div class="mt-8 flex flex-wrap justify-center gap-3.5">
@@ -104,6 +105,7 @@ const showcase = [
       <p class="mt-1 text-sm text-muted">
         Signed and notarised by Apple · No account · Nothing collected
       </p>
+      <StoreNotice class="mx-auto mt-5 max-w-[640px] text-left" />
     </div>
 
     <div class="relative mx-auto mt-14 max-w-[1000px]">
@@ -199,8 +201,9 @@ const showcase = [
       </h2>
       <p class="mx-auto mt-4 max-w-[640px] text-lg text-muted">
         {APP.name} collects nothing. There is no account, no analytics and no tracking, and we operate
-        no server that could receive your notes. On-device AI runs locally and never sends your
-        writing anywhere.
+        no server that could receive your notes. The AI runs on your device: your notes are not
+        sent to us or to any AI service. The exception is a web search the Assistant makes when a
+        question needs one — the privacy policy says exactly what that sends.
       </p>
       <p class="mt-5">
         <a href={href('/privacy')} class="font-semibold text-link hover:text-emphasis">
@@ -217,7 +220,7 @@ const showcase = [
         Start writing today
       </h2>
       <p class="mx-auto mt-3 max-w-[560px] text-muted">
-        {APP.name} {APP.version} is free on the App Store for iPhone, iPad and Mac.
+        {APP.name} is free on the App Store for iPhone, iPad and Mac.
       </p>
       {/* One button, because Apple serves one page. The record ships both
           platforms and `?mt=12` is dropped on redirect, so a second "Mac App
@@ -243,6 +246,7 @@ const showcase = [
         </a>{' '}
         for Mac is signed and notarised.
       </p>
+      <StoreNotice class="mx-auto mt-6 max-w-[640px] text-left" />
       <p class="mt-6 text-sm text-muted">
         Published by{' '}
         <a href={PUBLISHER.site} class="font-semibold text-link hover:text-emphasis">{PUBLISHER.name}</a>.

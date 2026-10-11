@@ -33,9 +33,15 @@ reference: `../docs/website.md`.
   before an inline tag eats the space — use `{' '}` (28 of these shipped once).
 - Screenshots pair via `src/lib/screens.ts` + `Shot.astro`; app metadata and the
   download checksum live in `src/lib/site.ts` and must match the shipped DMG.
+  The App Store can be a version behind the DMG while Apple reviews it:
+  `APP_STORE.liveVersion` / `pendingVersion` say so, `StoreNotice.astro` prints
+  it beside every App Store link, and on approval it is two lines in `site.ts`.
   **Captions are composited into the image**, so a capture must match its scene's
-  caption — scene 05 is "Ask your library", and pointing it at anything else puts
-  a false claim on a public page rather than a cosmetic mismatch. The raw
+  caption — and its entry in `screens.ts`, which describes the same picture. From
+  1.3.3 the five are the window's three regions, Split, a note's Graph, the Mind
+  Map and the Assistant (`SCENES` in `../scripts/make-screenshots.py`); scene 05
+  was "Ask your library" before, and a caption over the wrong capture puts a
+  false claim on a public page rather than a cosmetic mismatch. The raw
   captures live in `../assets/screenshots-raw/` and are committed; compositing is
   one-way. `make-screenshots.py` also writes `public/assets/og.png` *outside* its
   output directory, so there is no such thing as a dry run into a scratch dir.
