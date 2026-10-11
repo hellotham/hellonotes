@@ -493,7 +493,7 @@ public extension MarkdownFormatting where Self: NSTextView {
         let glyph = layoutManager.glyphRange(forCharacterRange: NSRange(location: offset, length: 0),
                                              actualCharacterRange: nil)
         let rect = layoutManager.boundingRect(forGlyphRange: glyph, in: container)
-        let top = rect.origin.y + textContainerInset.height
+        let top = rect.origin.y + textContainerOrigin.y
         enclosingScrollView?.contentView.scroll(to: NSPoint(x: 0, y: top))
         enclosingScrollView?.reflectScrolledClipView(enclosingScrollView!.contentView)
     }

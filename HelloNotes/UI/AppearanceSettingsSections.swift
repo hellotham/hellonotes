@@ -81,12 +81,14 @@ struct AppearanceSettingsSections: View {
             caption("Scales the note editor and preview.")
         }
 
-        // Reading and editing want different widths, so they get different
-        // settings (docs/layout-architecture.md, decision 5).
+        // Two settings for one column (docs/ui.md §6.1): Editor width is a
+        // proportion of the pane, Reading width a measure that caps it — in
+        // every view, not one each. (Decision 5 of layout-architecture.md gave
+        // reading one and editing the other; switching mode moved the text.)
         ChromeSection("Text width") {
             ChromePopUp("Reading width", selection: $settings.readingWidth,
                         options: ReadingWidth.allCases.map { ChromeOption(value: $0, title: $0.label) })
-            caption("How wide a line gets in Reading mode. A comfortable measure is about 80 characters; the column is centred in the pane.")
+            caption("The longest a line of text gets, in every view. A comfortable measure is about 80 characters; a column held to one is centred in the pane.")
 
             ChromePopUp("Editor width", selection: $settings.editorWidth,
                         options: EditorWidth.allCases.map { ChromeOption(value: $0, title: $0.label) })

@@ -100,10 +100,6 @@ struct NoteEditorPane: View {
                         .onChange(of: mode) { _, _ in logTitle(frame) }
                 })
             }
-            // The measure is the *pane's*, applied once, outside the mode
-            // switch. It used to be applied per mode — Preview at the reading
-            // measure, everything else at the editing one — so switching mode
-            // changed the column's width and re-broke every line in the note.
             Group {
                 switch mode {
                 case .edit:     liveEditor
@@ -112,9 +108,6 @@ struct NoteEditorPane: View {
                 default:        preview
                 }
             }
-            .measuredText(fontSize: appearance.editorFontSize,
-                          reading: appearance.readingWidth,
-                          editing: appearance.editorWidth)
             // Where the note's content actually starts, per mode, in window
             // coordinates. The geometry harness compares the two renderers to
             // each other and has no inline title at all, so an interaction
@@ -130,6 +123,16 @@ struct NoteEditorPane: View {
                     .onChange(of: mode) { _, _ in logContent(frame) }
             })
         }
+        // The column is the *pane's*, published once, outside the mode switch,
+        // to the title and whichever renderer is on screen — each lays its text
+        // out in it at its own width (`TextColumn`). It used to be applied per
+        // mode — Preview at the reading measure, everything else at the editing
+        // one — so switching mode changed the column's width and re-broke every
+        // line in the note. And it used to be a frame, so the scroller was the
+        // column's and not the pane's.
+        .measuredText(fontSize: appearance.editorFontSize,
+                      reading: appearance.readingWidth,
+                      editing: appearance.editorWidth)
         // The canvas is the *pane's*, painted once behind whichever renderer is
         // on screen. Neither owns it, so it cannot change when the mode does —
         // which it did: Preview painted GitHub's `#0d1117` and the editor

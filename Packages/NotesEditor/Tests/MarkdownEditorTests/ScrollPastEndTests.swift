@@ -14,8 +14,15 @@
 //  scroll-to-the-caret put the tapped line 94pt above the top edge. Measured
 //  with a probe; the numbers are in docs/implemented.md.
 //
-//  The last test holds the other side: a fix that simply removed the space
-//  would pass the rest.
+//  The last tests hold the other side: a fix that simply removed the space
+//  would pass the rest. And the room has to be part of the *document* — the
+//  text view's own frame reaching half the view below the last line — because
+//  that is the one thing every way of scrolling keeps to. Build 28 kept it as a
+//  wider limit on the Mac's clip view (`constrainBoundsRect`) instead: a wheel
+//  scrolled past the end, this suite passed, and on a trackpad the note
+//  stopped at its last line, drawn cut through the middle where the text
+//  view's frame ended under it. A trackpad's scrolling cannot be driven from a
+//  test, so the test asks for the room where every scroll finds it.
 //
 
 import Foundation
@@ -104,6 +111,18 @@ import UIKit
                 "the line ended at \(line.minY)…\(line.maxY), outside the \(top)…\(bottom) the keyboard leaves")
     }
 
+    @Test func theRoomIsPartOfTheDocument() throws {
+        let (textView, window) = try editor()
+        defer { window.isHidden = true }
+        place(try caret(at: "Paragraph 59", in: textView), at: 0.5, in: textView)
+        textView.setNeedsLayout()
+        textView.layoutIfNeeded()
+        let last = try caret(at: "Paragraph 59", in: textView)
+        let below = textView.contentSize.height - last.maxY
+        #expect(below >= textView.bounds.height / 2,
+                "the content ends \(below)pt below its last line in a \(textView.bounds.height)pt view")
+    }
+
     @Test func theLastLineCanStillBeScrolledToTheMiddle() throws {
         let (textView, window) = try editor()
         defer { window.isHidden = true }
@@ -165,6 +184,33 @@ import UIKit
         textView.scrollRangeToVisible(range)
         #expect(clip.bounds.origin == before,
                 "a line already on screen was scrolled from \(before.y) to \(clip.bounds.origin.y)")
+    }
+
+    @Test func theRoomIsPartOfTheDocument() throws {
+        let (textView, scrollView, window) = try editor()
+        defer { window.contentView = nil }
+        let (_, last) = try line(at: "Paragraph 59", in: textView)
+        let viewport = scrollView.contentView.bounds.height
+        let below = textView.frame.maxY - last.maxY
+        #expect(below >= viewport / 2,
+                "the text view ends \(below)pt below its last line in a \(viewport)pt view — the room is not in the document")
+        #expect(textView.roomPastEnd == (viewport / 2).rounded())
+    }
+
+    /// A note that fits gains no screenful of emptiness under it.
+    @Test func aShortNoteHasNoRoomPastItsEnd() throws {
+        let document = EditorDocument(text: "One line.\n\nAnother.")
+        let (scrollView, textView) = MarkdownTextView.scrollableEditor(document: document)
+        scrollView.frame = NSRect(origin: .zero, size: Self.size)
+        let window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(scrollView)
+        defer { window.contentView = nil }
+        window.contentView?.layoutSubtreeIfNeeded()
+        textView.layoutSubtreeIfNeeded()
+        #expect(textView.roomPastEnd == 0)
+        #expect(textView.frame.height <= scrollView.contentView.bounds.height)
     }
 
     @Test func theLastLineCanStillBeScrolledToTheMiddle() throws {

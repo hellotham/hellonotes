@@ -738,15 +738,54 @@ nonisolated enum BlockBoxes {
         } else {
             return (0, 0)
         }
-        // Everything between the two boxes shares the one gap — blank lines and
-        // any source the rendered document drops. Counted as a region rather
-        // than per block, or a reference definition with a blank line on each
-        // side would be handed the gap twice over.
+        // Everything between the two boxes shares the one gap — the first line
+        // of each blank run, and any source the rendered document drops.
+        // Counted as a region rather than per block, or a reference definition
+        // with a blank line on each side would be handed the gap twice over. A
+        // run's lines past its first are not in the gap at all: each is a line
+        // of its own (`extraBlankLines`).
         var regionLines = 0
-        for j in start..<next { regionLines += max(1, blocks[j].lineCount) }
+        for j in start..<next { regionLines += gapLines(blocks[j]) }
         let tailLines = prev.map { collapsedTail(blocks[$0], text: text, lines: lines) } ?? 0
         let each = gap / CGFloat(max(1, tailLines + regionLines))
-        return (each * CGFloat(tailLines), each * CGFloat(max(1, blocks[i].lineCount)))
+        return (each * CGFloat(tailLines), each * CGFloat(gapLines(blocks[i])))
+    }
+
+    /// How many of a block's lines hold part of the gap it sits in: one for a
+    /// blank run — the rest are lines of their own — and every line of source
+    /// the page drops.
+    private static func gapLines(_ block: Block) -> Int {
+        isBlank(block) ? 1 : max(1, block.lineCount)
+    }
+
+    /// The lines of a blank run past its first, which the editor shows as full
+    /// empty lines and the page does not show at all.
+    ///
+    /// GitHub swallows a run of blank lines — two paragraphs are 16pt apart
+    /// however many Returns were typed between them — and so did the editor,
+    /// sharing the gap out over the run: four Returns, and nothing on screen
+    /// moved, which reads as the editor ignoring what was typed (build 28). So
+    /// one blank line is the gap, as the page has it, and an ordinary note
+    /// looks exactly as it did; each line past it is a line, as typed. Edit is
+    /// taller than Preview by exactly these lines, and the parity harness takes
+    /// them out of its comparison by measuring them.
+    static func extraBlankLines(_ block: Block) -> Int {
+        isBlank(block) ? max(0, block.lineCount - 1) : 0
+    }
+
+    /// The height of the first line of a blank run that **ends the note**:
+    /// the gap a paragraph typed below it will have, so the caret there already
+    /// stands where that paragraph starts and the text does not drop as its
+    /// first character lands. `nil` for any other run. Only a run that is the
+    /// last block of all — one with source after it, a reference definition, is
+    /// still the space between two things the page has, and keeps its share.
+    static func endingRunGap(_ i: Int, in blocks: [Block], text: NSString,
+                             metrics: GFMBoxMetrics, unrendered: [NSRange]) -> CGFloat? {
+        guard i == blocks.count - 1, isBlank(blocks[i]),
+              let prev = previousPainted(before: i, in: blocks, text: text, unrendered: unrendered),
+              let box = box(at: prev, in: blocks, text: text, unrendered: unrendered)
+        else { return nil }
+        return metrics.gap(after: box, before: .paragraph)
     }
 
     /// Total height a blank run — or a run of dropped source — must occupy:

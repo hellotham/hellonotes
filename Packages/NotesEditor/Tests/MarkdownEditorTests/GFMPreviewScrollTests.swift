@@ -100,9 +100,10 @@ struct GFMPreviewScrollTests {
     // MARK: - What each load is told
 
     /// Each page is told, before it is parsed, which page it is and where it
-    /// opens — and still gets the enlarge buttons' script and the scroll
-    /// reports'. A page handed over again is not loaded again, and does not
-    /// take a new number: the page on screen keeps reporting for itself.
+    /// opens, and its text column's margins — and still gets the enlarge
+    /// buttons' script and the scroll reports'. A page handed over again is not
+    /// loaded again, and does not take a new number: the page on screen keeps
+    /// reporting for itself.
     @Test func eachPageIsToldWhereItOpens() throws {
         let web = WKWebView()
         let state = GFMWebLoadState()
@@ -111,9 +112,16 @@ struct GFMPreviewScrollTests {
 
         GFMWebView.load(web, "<p>one</p>", 1, nil, state, note: "A")
         #expect(opening() == PreviewScrollRelay.openingScript(page: 1, offset: 0))
+        #expect(scripts().contains { $0.source == GFMWebLoadState.marginScript((0, 0))
+                                     && $0.injectionTime == .atDocumentStart })
         #expect(scripts().contains { $0.source == DiagramZoomRelay.script && $0.injectionTime == .atDocumentEnd })
         #expect(scripts().contains { $0.source == PreviewScrollRelay.script && $0.injectionTime == .atDocumentEnd })
-        #expect(scripts().count == 3)
+        // The room past the end, and before the scroll relay — a page left
+        // scrolled into its room is put back there only once the room exists.
+        let ends = scripts().filter { $0.injectionTime == .atDocumentEnd }.map(\.source)
+        let room = try #require(ends.firstIndex(of: PreviewRoom.script), "the page has no room past its end")
+        #expect(room < (ends.firstIndex(of: PreviewScrollRelay.script) ?? -1))
+        #expect(scripts().count == 5)
 
         state.scroll.scrolled(to: 480, onPage: 1)
         GFMWebView.load(web, "<p>one</p>", 1, nil, state, note: "A")
@@ -121,7 +129,7 @@ struct GFMPreviewScrollTests {
         GFMWebView.load(web, "<p>two</p>", 2, nil, state, note: "A")
         #expect(opening() == PreviewScrollRelay.openingScript(page: 2, offset: 480),
                 "the next page of the note was not told where the last was left")
-        #expect(scripts().count == 3, "a load left the scripts of the one before")
+        #expect(scripts().count == 5, "a load left the scripts of the one before")
     }
 
     /// What a page posts is read as it was sent.

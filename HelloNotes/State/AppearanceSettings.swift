@@ -115,15 +115,17 @@ final class AppearanceSettings {
     /// Deepen the accent and raise the text-contrast target to WCAG AAA (7:1).
     var increaseContrast: Bool { didSet { UserDefaults.standard.set(increaseContrast, forKey: "increaseContrast") } }
 
-    // MARK: Text width (decision 5 — reading is not editing)
+    // MARK: Text width (docs/ui.md §6.1 — one column per pane)
 
-    /// The measure used when *reading*: a fixed character count, centred,
-    /// because line length is the whole point of reading comfortably.
+    /// The measure: the most characters a line may hold, in every view. A
+    /// column held to it is centred, because line length is the whole point of
+    /// reading comfortably. (It was the width of a Reading mode once; a pane
+    /// has one column now, whatever it is showing.)
     var readingWidth: ReadingWidth {
         didSet { UserDefaults.standard.set(readingWidth.rawValue, forKey: "readingWidth") }
     }
 
-    /// How much of the pane *editing* uses. Full by default: the pane is the
+    /// How much of the pane the column takes. Full by default: the pane is the
     /// workspace, and nobody would accept a Markdown file rendered as a narrow
     /// ribbon down the middle of a code editor.
     var editorWidth: EditorWidth {

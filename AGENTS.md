@@ -31,8 +31,8 @@
 
 # Commands
 - Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification. **Every app `xcodebuild` needs `-skipPackagePluginValidation`**: mlx-swift's `Cmlx` target carries a `CudaBuild` build-tool plugin (inert on Apple platforms), and without the flag the build fails at "Validate plug-in" before compiling a file. Xcode's GUI asks once to Trust & Enable instead. The Hugging Face bridges in `Intelligence/Models/MLXBridge.swift` are hand-written rather than mlx-swift-lm's macros for the same reason — a macro plugin would need `-skipMacroValidation` everywhere too.
-- Editor tests (macOS): `swift test --package-path Packages/NotesEditor` — **three bundles here too**: 294/32, 203/17, 26/4 — 523 tests in 53 suites, 2026-10-10 — and `tail` shows the smallest. A toolchain bump can stop this target *compiling*, which both editor suites share, so both die at once and silently: Xcode 27 made `TableEmbedTests.blankImage` unreachable from the `nonisolated` `BlockRenderer` witness beside it, and 408 + 387 tests had been building nothing for weeks. `error: Build failed` is a failing suite, not a missing one.
-- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 504 tests in 51 suites, verified 2026-10-10). It runs **three bundles** and prints a summary line for each — 275/30, 203/17, 26/4 — so the total is their *sum*; reading only the last one says "26 in 4" and looks like nearly all of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
+- Editor tests (macOS): `swift test --package-path Packages/NotesEditor` — **three bundles here too**: 312/37, 215/18, 26/4 — 553 tests in 59 suites, 2026-10-11 — and `tail` shows the smallest. A toolchain bump can stop this target *compiling*, which both editor suites share, so both die at once and silently: Xcode 27 made `TableEmbedTests.blankImage` unreachable from the `nonisolated` `BlockRenderer` witness beside it, and 408 + 387 tests had been building nothing for weeks. `error: Build failed` is a failing suite, not a missing one.
+- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 527 tests in 55 suites, verified 2026-10-11). It runs **three bundles** and prints a summary line for each — 286/33, 215/18, 26/4 — so the total is their *sum*; reading only the last one says "26 in 4" and looks like nearly all of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
 - **Look at the iOS app without the user's device**: `xcodebuild build -destination 'platform=iOS Simulator,name=HN-iPad'`, then `xcrun simctl install HN-iPad <app>`, `xcrun simctl launch HN-iPad com.hellotham.HelloNotes`, and `xcrun simctl io HN-iPad screenshot out.png` — which is readable. A whole iPad session was shipped blind (a keyboard bar that never rendered, a zero-width one, five inspector toggles that could not work at that width) because nobody looked. `simctl` has no tap injection, so driving the UI still needs the live panel — which needs `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` from the user.
 - Is it running on the device? `xcrun devicectl device info processes --device <id> | grep "HelloNotes.app/HelloNotes"` — **capital H**. A lower-cased pattern matches nothing and reads exactly like a crash-on-launch; an hour went into diagnosing a crash that never happened. Cross-check against `--domain-type systemCrashLogs`: no new `.ips` means no crash, whatever the process list appears to say.
 - Layout contract: `./scripts/run-tests.sh -only-testing:HelloNotesTests/ShellContractTests` (~2s — run it after any shell or representable change).
@@ -53,7 +53,7 @@
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 843 tests in 128 suites, ~25s (2026-10-09).
+  afterwards whatever the result. 849 tests in 129 suites, ~35s (2026-10-11).
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **60 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
@@ -723,5 +723,41 @@
   them, and the 3.1.2(c) guard failed on every run for a week, unread. The copy for
   the version in preparation now lives in `docs/app-store-listing.md`. When you
   restructure a file, grep the tests for its name first.
+- **Room to scroll past the end of a note is part of the document — never a
+  limit some way of scrolling has to ask about.** Build 28 moved it into the Mac
+  clip view's `constrainBoundsRect`. A wheel honours that, so every test passed;
+  a trackpad stopped at the last line, and that line, at the bottom edge, was
+  drawn cut through its middle where the text view's frame ended under it. Before
+  that it was a scroll-view content inset, which every scroll-to-visible counts
+  as *covered*. It is now the bottom of the text container's inset, the origin
+  pinned at the top (`TextPlacement`), on both platforms and in Markdown mode
+  too. A trackpad gesture cannot be driven from a test — synthesised phased
+  events scroll nothing, even sent through an ordered-in window — so the tests
+  assert the room where every scroll finds it: the text view's own frame,
+  half a viewport below the last line (`ScrollPastEndTests`,
+  `EditorScrollingTests`, implemented.md §51.40).
+- **The text column is a rule each scrolling view applies at its own width,
+  never a frame around the view.** `MeasuredText` framed the editor to the
+  column — so its scroller sat at the column's edge, and with the defaults 32pt
+  short of the pane, because the shell took 16pt off each side that the text
+  views inset by themselves. It publishes `TextColumn` now; the editors put it
+  in their container inset (`TextPlacement`), Preview in its page's margins,
+  the inline title through `TextColumnLayout`. On the Mac that means an
+  overridden `textContainerOrigin` — probed under TextKit 2 before relying on
+  it: ink and hit-testing both move with it. Anything that offsets by
+  `textContainerInset` as if it were the origin is now wrong; use
+  `textContainerOrigin`.
+- **A synchronous test that pumps the run loop never runs a main-actor task.**
+  `RunLoop.run(until:)` inside a test that is itself a main-actor job cannot
+  drain the main queue, so `Task { @MainActor in … }` work — the overlay
+  refresh, the background styling pass — simply never happens, and the test
+  measures an editor nobody uses. The first probe of the heading flicker saw
+  nothing wrong for exactly that reason. Make the test `async` and alternate a
+  short run-loop turn with `await Task.sleep` (`HeadingTypingTests.pump`).
+- **A hosted test's `AppearanceSettings()` is the person's own.** It reads
+  their preferences and *writes them on every set*, so a test may read a width
+  or a size to work out what to expect and must never assign one. Test the
+  rule below the settings instead (`TextColumnTests` sets the column on the
+  view).
 - Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts). **Read its reverse column too: a doc fact-check is also a source check.** Checking the AI page after the two model roles collapsed found three *strings in the app* still telling people to choose a model "for writing tools" and "for the Assistant" — a picker that no longer existed — and two file headers describing the design the file below them had replaced.
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.

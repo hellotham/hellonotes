@@ -18,10 +18,10 @@ GitHub-identical Preview + parity tests).
 All three are run **from the repository root**, not from this directory.
 
 ```bash
-swift test --package-path Packages/NotesEditor                 # 523 tests, 53 suites
+swift test --package-path Packages/NotesEditor                 # 553 tests, 59 suites
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'           # 504 tests — run these too
-# ^ prints THREE bundle summaries (275/30, 203/17, 26/4 on 2026-10-10). The total
+  -destination 'platform=iOS Simulator,name=HN-iPad'           # 527 tests — run these too
+# ^ prints THREE bundle summaries (286/33, 215/18, 26/4 on 2026-10-11). The total
 #   is their sum; reading only the last one says "26 in 4" and looks exactly like
 #   nearly all of the suite having silently stopped running.
 ./scripts/render-parity.sh                                     # Edit ≡ Preview: the gate
@@ -243,6 +243,38 @@ They apply to this package's sources and to `Tools/RenderParity`, which grades i
   SIGSEGV in `objc_release` on a corrupt pointer — which reads exactly like a
   logic bug and is not one. `rm -rf Packages/NotesEditor/.build/arm64-apple-macosx`
   and re-run before believing a crash of that shape.
+
+- **A restyle is a layout invalidation, so a restyle must be O(damage).**
+  `onRestyle` hands every restyled range to `invalidateLayout`, and TextKit 2,
+  its layout thrown away, re-estimates the heights of everything in the range —
+  above the screen as well, which moves the screen. The overlay refresh, 120ms
+  after a keystroke, repainted **every block** whenever cmark disagreed with the
+  shifted cache, which it always does when the edit touched a run; a heading's
+  text is one. So each keystroke in a heading restyled the whole note: the
+  scroll offset moved 1,470pt, the paragraph under the heading 200pt, with
+  frames where it had no position at all (build 28). It restyles the span
+  between the two run lists' common start and end now (`changedSpan`). The
+  same session found the pending-pass edit path resetting every styled bit and
+  restyling 30,000 characters per keystroke; it splices the bits now
+  (`splicedStyledBits`). `HeadingTypingTests` holds both, with the restyled
+  character count and the screen position measured per keystroke.
+- **TextKit 2 places the empty line after a final newline *its own height*
+  below the top of the line above it** — whatever that line's height. After a
+  16pt blank line a 24pt last line stood at 24, and after a 30pt one at 24 as
+  well (probed). So the caret there stands where the next paragraph starts only
+  when its typing attributes carry the height of the line above it
+  (`EditorDocument.typingAttributesAtEnd`), and a caret mapped to the line
+  *above* — `lineNumbers(coveringCharactersIn:)` used to clamp the end offset to
+  the last character — reopens that line under a caret that is not on it.
+- **One blank line is the gap; every line past it is a line.** GitHub swallows
+  a run of blank lines and so did Edit, until four Returns moved nothing on
+  screen (build 28). `BlockBoxes.extraBlankLines` are full body lines — between
+  two blocks *and inside a list item*, whose blank lines are styled by the
+  item's own pass and were missed the first time — so Edit is taller than
+  Preview by exactly them. The parity harness takes them out of its comparison
+  by asking the editor which they are (`extraBlankLineAttribute`) and
+  *measuring* them (`extraBlankLineHeight`): neither which lines nor how tall is
+  worked out there, which would be its own copy of the rule.
 
 - Never put a spacing number in a renderer — `RenderedBlockFragment.imageGap` was 6pt of
   padding around every rendered embed that `GFMBoxMetrics` knew nothing about, i.e. 12pt on

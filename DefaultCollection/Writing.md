@@ -37,7 +37,22 @@ specification, all 672 examples, so what you see is what GitHub would show.
 
 ## Lists that behave
 
-- Press Return in a list and the next bullet appears
-- Press Return on an empty bullet to end the list
+- Press Return in a list and the next bullet appears — the next number in a
+  numbered list, and an empty box after a task
+- Press Return on an empty bullet to end the list: a nested one moves out a
+  level, and one at the list's own level leaves a blank line with the caret
+  below it
 - [ ] Task lists work too
-- [x] And can be ticked in Edit or Preview
+- [x] And can be ticked in Edit
+
+This works in Edit and Markdown alike, inside a quote too, and never in code.
+
+## Space
+
+Every blank line you type shows in Edit: one between two paragraphs is the
+usual gap, and each one after it is an empty line. Preview closes a run of them
+up to that one gap, as GitHub does.
+
+A note longer than the window scrolls on past its end, in every view, until
+its last line is about halfway up — so the line you are writing need not sit at
+the bottom edge.

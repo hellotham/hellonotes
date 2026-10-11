@@ -130,7 +130,7 @@ struct EditorHost: View {
                     // own find bar and menus (`EditorModel.editorID`).
                     .commandBus(editorID: editor.editorID)
                     .editable(isEditable)
-                    // Reading mode has no ruler: the measure is the guide there.
+                    // Read-only, the editor has no ruler: the measure is the guide.
                     .wrapGuide(isEditable ? wrapGuide : 0)
                     .onLinkTap { tap in
                         switch tap {

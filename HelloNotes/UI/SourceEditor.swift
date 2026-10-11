@@ -35,7 +35,7 @@ import MarkdownEditor
 /// A plain `NSTextView` the formatting commands can act on — the Mac half of
 /// the same promise: the bar is shown in every editable mode, so every editable
 /// mode has to honour it. See `SourceTextView` in the UIKit branch.
-final class SourceTextView: NSTextView, MarkdownFormatting {
+final class SourceTextView: NSTextView, MarkdownFormatting, ViewportFollowing {
 
     /// No parsed model here — this view shows raw Markdown and highlights it.
     /// The jump falls back to a line scan off the main actor.
@@ -48,8 +48,40 @@ final class SourceTextView: NSTextView, MarkdownFormatting {
     /// it lays out. Owned by the coordinator.
     weak var diagramButtons: SourceDiagramButtons?
 
+    /// The source's own inset, before the column and the room past the end.
+    static let inset = NSSize(width: 4, height: 8)
+
+    /// The pane's column and room past the end, as Edit's text view has them
+    /// (`TextPlacement`). Markdown mode had neither: it stopped at its last
+    /// line, and it was framed to the column, scroller and all.
+    var placement = TextPlacement(base: SourceTextView.inset)
+
+    /// The pane's text column (`TextColumn`), laid out at this view's width.
+    var textColumn: TextColumn {
+        get { placement.column }
+        set {
+            guard newValue != placement.column else { return }
+            placement.column = newValue
+            TextPlacement.update(self, \.placement)
+        }
+    }
+
+    /// The room below the last line (`TextPlacement`).
+    var roomPastEnd: CGFloat { placement.room }
+
+    override var textContainerOrigin: NSPoint { placement.origin }
+
+    func viewportDidChange() { TextPlacement.update(self, \.placement) }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let width = frame.width
+        super.setFrameSize(newSize)
+        if newSize.width != width { TextPlacement.update(self, \.placement) }
+    }
+
     override func layout() {
         super.layout()
+        TextPlacement.update(self, \.placement)
         diagramButtons?.place()
     }
 
@@ -62,6 +94,20 @@ final class SourceTextView: NSTextView, MarkdownFormatting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         headingJumps.surfaceBecameReady()
+    }
+
+    /// Return in a list starts the next item, as it does in Edit
+    /// (`ListContinuation`).
+    override func insertNewline(_ sender: Any?) {
+        guard isEditable, !hasMarkedText(), selectedRange().length == 0,
+              let edit = ListContinuation.returnKey(parsing: string as NSString, at: selectedRange().location)
+        else {
+            super.insertNewline(sender)
+            return
+        }
+        performEdit(replacing: edit.range, with: edit.replacement)
+        setSelectedRange(NSRange(location: edit.caret, length: 0))
+        scrollRangeToVisible(selectedRange())
     }
 
     @discardableResult
@@ -117,12 +163,15 @@ struct SourceEditor: NSViewRepresentable {
             ours.isHorizontallyResizable = stock.isHorizontallyResizable
             ours.isEditable = true
             ours.allowsUndo = true
+            // The clip view that tells the text view its viewport's height,
+            // which its room past the end is half of (`EditorClipView`).
+            scroll.contentView = EditorClipView()
             scroll.documentView = ours
         }
         guard let tv = scroll.documentView as? NSTextView else { return scroll }
         tv.drawsBackground = false
         scroll.drawsBackground = false
-        tv.textContainerInset = NSSize(width: 4, height: 8)
+        tv.textContainerInset = SourceTextView.inset
         Self.makeSourceOnly(tv)
         tv.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         return scroll
@@ -131,6 +180,7 @@ struct SourceEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = Self.scrollableSourceView(fontSize: fontSize)
         guard let tv = scroll.documentView as? NSTextView else { return scroll }
+        (tv as? SourceTextView)?.textColumn = context.environment.textColumn
         tv.delegate = context.coordinator
         tv.string = text
         context.coordinator.shown = text
@@ -150,6 +200,7 @@ struct SourceEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         if let tv = scroll.documentView as? SourceTextView {
             context.coordinator.subscribe(editorID: editorID, view: tv)
+            tv.textColumn = context.environment.textColumn
         }
         // The coordinator is made once per view *identity*, and this view's
         // identity does not change when the active tab does — nothing between
@@ -340,8 +391,29 @@ final class SourceTextView: UITextView, MarkdownFormatting {
         headingJumps.surfaceBecameReady()
     }
 
+    /// The source's own inset, before the column and the room past the end.
+    static let inset = CGSize(width: 4, height: 8)
+
+    /// The pane's column and room past the end, as Edit's text view has them
+    /// (`TextPlacement`). Markdown mode had neither.
+    private var placement = TextPlacement(base: SourceTextView.inset)
+
+    /// The pane's text column (`TextColumn`), laid out at this view's width.
+    var textColumn: TextColumn {
+        get { placement.column }
+        set {
+            guard newValue != placement.column else { return }
+            placement.column = newValue
+            setNeedsLayout()
+        }
+    }
+
+    /// The room below the last line (`TextPlacement`).
+    var roomPastEnd: CGFloat { placement.room(of: self) }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        placement.apply(to: self)
         diagramButtons?.place()
     }
 
@@ -389,7 +461,8 @@ struct SourceEditor: UIViewRepresentable {
         let tv = SourceTextView()
         tv.backgroundColor = .clear
         tv.alwaysBounceVertical = true
-        tv.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
+        tv.textContainerInset = UIEdgeInsets(top: SourceTextView.inset.height, left: SourceTextView.inset.width,
+                                             bottom: SourceTextView.inset.height, right: SourceTextView.inset.width)
         SourceEditor.makeSourceOnly(tv)
         tv.keyboardDismissMode = .interactive
         // The same formatting affordances the live editor installs, so the
@@ -402,6 +475,7 @@ struct SourceEditor: UIViewRepresentable {
 
     func makeUIView(context: Context) -> SourceTextView {
         let tv = Self.sourceTextView(fontSize: fontSize)
+        tv.textColumn = context.environment.textColumn
         tv.delegate = context.coordinator
         tv.text = text
         context.coordinator.shown = text
@@ -416,6 +490,7 @@ struct SourceEditor: UIViewRepresentable {
 
     func updateUIView(_ tv: SourceTextView, context: Context) {
         context.coordinator.subscribe(editorID: editorID, view: tv)
+        tv.textColumn = context.environment.textColumn
         // The coordinator is made once per view *identity*, and this view's
         // identity does not change when the active tab does — nothing between
         // `ContentView` and here carries an `.id(…)`. The binding, however, is
@@ -486,6 +561,19 @@ struct SourceEditor: UIViewRepresentable {
             shown = typed
             text.wrappedValue = typed
             diagramButtons?.textDidChange()
+        }
+
+        /// Return in a list starts the next item, as it does in Edit
+        /// (`ListContinuation`).
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange,
+                      replacementText replacement: String) -> Bool {
+            guard replacement == "\n", range.length == 0, textView.markedTextRange == nil,
+                  let view = textView as? SourceTextView,
+                  let edit = ListContinuation.returnKey(parsing: (view.text ?? "") as NSString, at: range.location)
+            else { return true }
+            view.performEdit(replacing: edit.range, with: edit.replacement)
+            view.selectedRange = NSRange(location: edit.caret, length: 0)
+            return false
         }
 
         /// Re-seated by `updateUIView` with `text`, for the same reason.

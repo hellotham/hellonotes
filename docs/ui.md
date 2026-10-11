@@ -406,11 +406,15 @@ conventions are app-wide and also sync between devices (`CloudPrefs`).
 ### 6.1 One column per pane
 
 A pane has **one** text column, whatever mode it is showing
-(`TextWidth.resolve`, `MeasuredText`). Two settings answer two questions:
+(`TextWidth.column`, `TextColumn`, `MeasuredText`). Two settings answer two
+questions:
 
-- **Editor width** is a proportion of the pane, less its 16pt text inset on
-  each side: Full pane (the default), 90%, 75% or 50%, never below 320pt
-  unless the pane itself is narrower than 352pt.
+- **Editor width** is a proportion of the pane: Full pane (the default), 90%,
+  75% or 50%, never below 320pt unless the pane itself is narrower. Full pane is
+  the whole pane — each view insets its text by its own amount inside it: Edit
+  and Preview by 16pt (12pt on iOS), Markdown by 4pt. (It used to lose 16pt
+  each side first as well, all of it on the right, which is where the editor's
+  scroller sat: 32pt in from the window's edge, build 28.)
 - **Reading width** is a maximum measure in characters: Narrow (60), Normal
   (80), Wide (90), or **Full width (the default, no measure)**.
 
@@ -418,7 +422,16 @@ The column is the proportion capped by the measure. It is **centred only when
 the measure is what bit**; a column narrowed by Editor width alone stays
 left-aligned, VS Code style, because the pane *is* the workspace. The character
 width is always measured against the body font, never the monospaced one, so
-Source mode does not change the column's width.
+Markdown mode does not change the column's width.
+
+**The column is the text's, not the view's.** Every view that shows the note —
+Edit, Markdown, Preview — fills the pane, so its scroller is at the pane's edge
+and a wheel anywhere over the pane scrolls the note; each lays its text out in
+the column at its own width (`TextColumn`): the editors through their text
+container's inset (`TextPlacement`), Preview through its page's
+`--hn-column-*` margins, the inline title through `TextColumnLayout`. In Split
+each half applies the column to its own width. The column used to be a frame
+around the view, and the view's scroller went with it (implemented.md §51.40).
 
 > **What changed from `layout-architecture.md`.** Decision 5 gave Reading one
 > rule (80ch, centred) and Editing another (proportional, left-aligned). In

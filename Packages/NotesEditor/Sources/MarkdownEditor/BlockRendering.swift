@@ -133,6 +133,14 @@ nonisolated public let thematicBreakAttribute = NSAttributedString.Key("hn.thema
 /// Custom attribute (Int: 0 top, 1 middle, 2 bottom, 3 whole) on each line of a
 /// code block — the fragment paints `pre`'s rounded background behind it.
 nonisolated public let codeBandAttribute = NSAttributedString.Key("hn.codeBand")
+
+/// Marks a blank line the editor shows as a full empty line and the page does
+/// not show at all — every line of a run of blank lines past its first
+/// (`BlockBoxes.extraBlankLines`), between two blocks or inside a list item.
+/// Public so the parity harness can take exactly these lines out of its
+/// comparison by measuring them, rather than working out for itself which they
+/// are.
+nonisolated public let extraBlankLineAttribute = NSAttributedString.Key("hn.extraBlankLine")
 /// Custom attribute (CGFloat) on a code line that carries `pre`'s
 /// **padding-bottom**: space reserved below the line box, inside the box, which
 /// `drawCodeBand` paints over.

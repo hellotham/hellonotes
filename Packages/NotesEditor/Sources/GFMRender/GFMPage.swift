@@ -204,8 +204,11 @@ public extension GFMRenderer {
         // GitHub-mode: hard line breaks, matching api.github.com/markdown.
         let body = html(markdown, hardBreaks: true)
         func px(_ v: CGFloat) -> String { String(format: "%.4f", Double(v)) + "px" }
+        // A pane's page fills the pane, and its text sits in the pane's column:
+        // margins the preview sets as the pane's width changes
+        // (`GFMWebView`, `TextColumn`), none until it does.
         let measure = box.maxWidth.map { "max-width: \(px($0)); margin: 0 auto;" }
-            ?? "max-width: none; margin: 0;"
+            ?? "max-width: none; margin: 0 var(--hn-column-trailing, 0px) 0 var(--hn-column-leading, 0px);"
         return """
         <!DOCTYPE html>
         <html>

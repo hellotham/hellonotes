@@ -131,43 +131,56 @@ import UIKit
 
     // MARK: - Blank lines outside the painted content
 
-    /// Blank lines above the first painted box and below the last are not
-    /// margins: there is nothing on the other side of them for them to be the
-    /// space between. They used to keep a 0.5pt hairline each, which is 2pt of
-    /// page on the ordinary note that opens and closes with a blank line — and
-    /// the hairline never bought what it promised, because 0.5pt of line is
-    /// 0.5pt of insertion point.
-    @Test func blankLinesAtTheEdgesOfTheNoteTakeNoRoom() {
+    /// The first blank line above the first painted box is not a margin:
+    /// there is nothing on the other side of it for it to be the space between.
+    /// It used to keep a 0.5pt hairline, which is 2pt of page on the ordinary
+    /// note that opens with a blank line — and the hairline never bought what
+    /// it promised, because 0.5pt of line is 0.5pt of insertion point. Every
+    /// blank line past the first is a full line, as typed
+    /// (`BlockBoxes.extraBlankLines`) — at the edges as between two boxes.
+    ///
+    /// A run that *ends* the note is the one exception to the first rule: its
+    /// first line holds the gap the paragraph typed after it will have
+    /// (`BlockBoxes.endingRunGap`), so the caret below it stands where that
+    /// paragraph starts. The parity harness never sees it — it lays a note out
+    /// without its trailing newlines.
+    @Test func blankLinesAtTheEdgesOfTheNote() {
         // Written without a trailing newline, because TextKit puts a *caret
         // line* after the document's last one — a place to type, which the
         // page has no equivalent of and which no paragraph style here owns.
+        let m = metrics(16)
         let bare = height("Foo")
-        #expect(same(height("\n\nFoo"), bare + nothing(2)))
-        #expect(same(height("Foo\n \n "), bare + nothing(2)))
-        #expect(same(height("  \n\nFoo\n  "), bare + nothing(3)))
+        #expect(same(height("\nFoo"), bare + nothing(1)))
+        #expect(same(height("\n\nFoo"), bare + nothing(1) + m.bodyLineHeight))
+        #expect(same(height("Foo\n "), bare + m.blockGap))
+        #expect(same(height("Foo\n \n "), bare + m.blockGap + m.bodyLineHeight))
+        #expect(same(height("  \n\nFoo\n  "), bare + nothing(1) + m.bodyLineHeight + m.blockGap))
     }
 
-    /// …and a blank line *between* two boxes is still the margin between them,
-    /// undisturbed. This is the line the change must not touch.
+    /// …and one blank line *between* two boxes is still the margin between
+    /// them, undisturbed — the line the change must not touch, so an ordinary
+    /// note looks exactly as it did, and as the page. Each line past it is a
+    /// line: GitHub swallows them, and so did the editor, until four Returns
+    /// between two paragraphs moved nothing on screen (build 28).
     @Test func aBlankLineBetweenTwoBoxesIsStillTheMargin() {
         let m = metrics(16)
         #expect(same(height("Foo\n\nBar"), 2 * m.bodyLineHeight + m.blockGap))
-        #expect(same(height("Foo\n\n\n\nBar"), 2 * m.bodyLineHeight + m.blockGap))
+        #expect(same(height("Foo\n\n\n\nBar"), 2 * m.bodyLineHeight + m.blockGap + 2 * m.bodyLineHeight))
     }
 
     /// The caret's answer, which the hairline was pretending to be: the line
     /// the caret is actually on comes back to a full body line, so a note that
-    /// opens or closes with blank lines is still one you can type on. Exactly
-    /// what a reference definition does when the caret arrives.
+    /// opens with blank lines is still one you can type on. Exactly what a
+    /// reference definition does when the caret arrives.
     @Test func theBlankLineTheCaretIsOnComesBack() {
         let m = metrics(16)
         let text = "\n\nFoo"
         let closed = height(text)
         #expect(same(height(text, caret: NSRange(location: 0, length: 0)),
                      closed - BlockBoxes.collapsedLine + m.bodyLineHeight))
-        // …and only that line, not the run: the second blank stays collapsed.
-        #expect(same(height(text, caret: NSRange(location: 1, length: 0)),
-                     closed - BlockBoxes.collapsedLine + m.bodyLineHeight))
+        // …and only that line, not the run: on the second, already a full
+        // line, nothing moves.
+        #expect(same(height(text, caret: NSRange(location: 1, length: 0)), closed))
     }
 
     /// Concealed source the parser swept into a block — the blank tail of an
@@ -265,7 +278,9 @@ import UIKit
         let m = metrics(16)
         let run = String(repeating: "\n", count: 61)
         let one = "### ###\n\n## Heading"
-        #expect(same(height("### ###" + run + "## Heading"), height(one)))
+        // Sixty blank lines: the first holds the gap, exactly, and each of the
+        // other fifty-nine is a full line — not one hairline among them.
+        #expect(same(height("### ###" + run + "## Heading"), height(one) + 59 * m.bodyLineHeight))
         // …and the gap it is holding really is the heading's 24, not nothing —
         // which is the whole reason the two predicates cannot be folded into
         // one. To within the hairlines the two collapsed lines cost.

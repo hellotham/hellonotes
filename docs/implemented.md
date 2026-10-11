@@ -8416,6 +8416,212 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.40 Seven things wrong with the editor in build 28 (2026-10-11)
+
+The person used build 28 on the Mac for a day and reported seven things. Each
+is below, with what was measured, what changed, and what now holds it.
+
+**1 and 2. Scrolling past the end; the last line cut off at the bottom.**
+"Scrolling past end does not work anymore … This should be part of a test. We
+have regressed multiple times."
+- **What build 28 did.** The room past the end — half the viewport — moved from
+  a bottom content inset (which every scroll-to-visible counts as *covered*,
+  §51.36) into the Mac clip view: `PastEndClipView.constrainBoundsRect` let the
+  clip scroll past a document that ended at its last line.
+- **Why every test passed.** `ScrollPastEndTests` asked the clip view for its
+  limit directly. An app-hosted test written first (`EditorScrollingTests`,
+  `NoteEditorView` in a window) scrolled to the end with real wheel events, on a
+  long note, on one opened after a short one, and on one typed past the window:
+  the room was there every time, 394pt of a 789pt view. A wheel honours
+  `constrainBoundsRect`. A trackpad gesture — phases and momentum, elastic edge
+  — is what the person was using, and synthesised phased events scroll nothing
+  even through an ordered-in window, so that path cannot be driven from a test.
+- **The cut line.** With the clip allowed past the document, the line being
+  written at the bottom could be scrolled into view beyond the text view's
+  frame, which draws nothing outside itself: the line drawn through its middle.
+- **The fix: the room is part of the document.** The bottom of the text
+  container's inset holds it, and an overridden `textContainerOrigin` pins the
+  text to the top (`TextPlacement`) — the same thing iOS has always done with
+  its four-sided inset. Every way of scrolling reaches the bottom of a document,
+  and the frame always reaches half a viewport below the last line, so the line
+  being written is never outside it. `EditorClipView` only tells the text view
+  when the viewport's height changes. **Markdown mode had no room at all**; its
+  text view takes the same `TextPlacement` on both platforms.
+- **Probed before relying on it.** A TextKit 2 `NSTextView` with an overridden
+  origin: the ink moved by exactly the offset, and so did the character a click
+  found. `sizeToFit()` grows the frame by a new inset; nothing else does.
+- **A crash on the way.** A `mutating` method on the stored placement called
+  `sizeToFit()`, AppKit read `textContainerOrigin` in the middle of it, and the
+  read of the struct being mutated was an exclusivity violation (SIGABRT in the
+  package suite). The new placement is now stored before the view is touched.
+- **Tests.** `ScrollPastEndTests.theRoomIsPartOfTheDocument` asserts the text
+  view's own frame reaches half the view below the last line — what every
+  scroll finds — and its negative control (no room) failed with "the text view
+  ends 12.0pt below its last line". `aShortNoteHasNoRoomPastItsEnd` holds the
+  other side. The app-hosted `EditorScrollingTests` scroll by wheel in Edit and
+  Markdown, and assert the same frame.
+
+**3. The scrollbar not at the window's edge.**
+- **Cause.** `MeasuredText` framed the editor to the text column, so the scroller
+  was the column's. With the default widths the column was 32pt short of the
+  pane, all of it on the right: the shell took 16pt off each side that the text
+  views already inset their text by.
+- **The fix (and the person's suggestion, "make it fill out remaining width").**
+  Full pane is the whole pane. The column is a rule now (`TextColumn`), published
+  by `MeasuredText`, and every view that shows the note fills the pane and lays
+  its text out in the column at its own width: the editors through their
+  container inset (`TextPlacement`), Preview through its page's
+  `--hn-column-leading`/`--hn-column-trailing` margins (set before each page is
+  parsed and again as its width changes), the inline title through
+  `TextColumnLayout`. The scroller is at the pane's edge in every setting, and a
+  wheel over the margin scrolls the note. The title, outside the column before,
+  now sits over the text when a measure centres it.
+- **Tests.** `TextColumnTests`: a centred column moves the ink and the click
+  150pt and leaves the view its width; a proportion keeps the text at the
+  leading edge (UIKit: the left and right insets). `ShellContractTests` now
+  expect Full pane to be the pane. `EditorScrollingTests.everyModeFillsItsPane`
+  checks Edit, Markdown and Preview reach the window's edge, with the text where
+  the person's own settings put it — read, never set: `AppearanceSettings()`
+  writes the person's preferences on every assignment.
+
+**4. Layout shifts and a blank screen while typing in a heading.**
+- **Measured first.** A probe typed into a heading of a long note and sampled
+  the screen five times over 400ms after each key. 120ms after each keystroke
+  the **whole note** was restyled — "0+40365" — and with it invalidated: the
+  scroll offset moved 1,470pt, the paragraph under the heading 200pt on screen,
+  and between samples it had no laid-out position at all.
+- **Cause.** The overlay refresh re-reads the note with cmark after a pause and
+  repainted *every block* whenever it disagreed with the cache shifted across
+  the edit — which it always does when the edit touched a run, and a heading's
+  text is one. Plain paragraphs touch none, which is why headings.
+- **Fix.** `restyleAfterOverlayRefresh` restyles only the blocks between the two
+  run lists' common start and end (`changedSpan`), unrendered ranges likewise.
+  A keystroke in a heading now restyles ~150 characters.
+- **A second path, same shape.** While the background styling pass is still
+  running, each edit reset every styled bit and restyled the 30,000 characters
+  around it — invalidating their layout — and the pass, restarting after 400ms
+  of quiet, never finished under continuous typing. The bits are carried across
+  the splice now (`splicedStyledBits`).
+- **Why the first probe saw nothing.** It was synchronous: a test that is itself
+  a main-actor job cannot drain the main queue, so `Task { @MainActor … }` — the
+  refresh, the background pass — never ran. `HeadingTypingTests` is async and
+  alternates run-loop turns with `Task.sleep`.
+- **Tests.** `HeadingTypingTests` (an h2 and an h1, five keys each) asserts
+  under 2,000 characters restyled per key, no scroll movement, and the
+  paragraph below unmoved; its negative control (restyle everything) failed
+  with 40,485 characters and the paragraph at −11,469. `StyledBitsTests` holds
+  the splice.
+
+**5. Return in a list continues it.** It never did — no Return handling existed
+anywhere in the editor, although the tour note promised it.
+- `ListContinuation` (MarkdownCore) reads the caret's line: the same bullet, the
+  next number with the same delimiter, an unchecked box after a task, the same
+  indent, inside the same quote; Return in the middle of an item splits it; in
+  the marker it is a plain newline.
+- **An empty item ends the list**: nested, it moves out to its parent's level;
+  at the list's own level the marker goes and a blank line is left after the
+  list, so what is typed next is a paragraph — a line typed straight after an
+  item is, in Markdown, a lazy continuation of it.
+- Gated by the parse: only in a list item or a quote, never in code, front
+  matter or maths, never on a setext `-` underline. Edit asks its live parse;
+  the Markdown pane parses only when the line reads as an item.
+- **The block's kind was not the whole gate.** A fence written under an item,
+  or inside a quote, is part of that item's or quote's block, so a YAML listing
+  under a numbered step — every line of it reading `- name: x` — would have
+  continued as a list. The docs fact-check derived that from the parser, before
+  anyone met it; `isInsideFence` reads the block down to the caret's line, and
+  its negative control failed all three cases.
+- **The Markdown pane's parse is bounded.** It keeps no parse, so it parses the
+  whole note on Return — on the main actor, at about 4.5ms per MB (measured by
+  the concurrency review, release): fine for an ordinary note, and with nothing
+  to stop it. Past `ListContinuation.parseLimit` (200,000 units, the cap the
+  overlay refresh has) Return there is a plain newline. Edit, which has its
+  parse already, has no limit.
+- Wired into `insertNewline` (Mac, both editors) and `shouldChangeTextIn` (iOS,
+  both editors, where a hardware and a software Return both arrive); undo takes
+  a continued item back in one step.
+- **Tests.** `ListContinuationTests` (12, the rule, including the setext,
+  front-matter, maths, code and nested-fence cases, and the parse limit) and
+  `ListReturnTests` (through the text view, both platforms).
+
+**6. Blank lines did not show.** The person chose to show every extra line.
+- One blank line between two blocks is still the gap, exactly as the page has
+  it, so ordinary notes are unchanged. Each line past it is a full empty line
+  (`BlockBoxes.extraBlankLines`). Edit is taller than Preview by exactly those.
+- A blank line that *ends* the note holds the gap the next paragraph will have
+  (`endingRunGap`), so the caret below it stands where that paragraph starts.
+- `gapShares` counts one line per blank run toward the gap, so a setext
+  underline's share is unchanged by extra lines.
+- **Inside a list item too.** An item's blank lines are its own, styled by its
+  own pass, which still shared one margin over the run — Returns between an
+  item's paragraphs moved nothing while the same Returns between two paragraphs
+  did. Same rule now. (Found by the docs fact-check: the manual said "every
+  blank line you type shows".) Blank lines inside code are code lines, and show
+  in both views as they always did.
+- **The parity harness** takes the extra lines out of its comparison by asking
+  the editor which they are — it marks each (`extraBlankLineAttribute`) — and
+  measuring their fragments (`extraBlankLineHeight`), in `editorHeight` and in
+  the sample gate's per-block tops. Neither which lines nor how tall is worked
+  out in the harness, which would be its own copy of the rule.
+  `26-starts-with-blank.md` is the one gated document with a run; every gate
+  passes.
+- **Tests.** `BlankLineTests`; `DocumentEdgeTests` rewritten to the rule (four
+  blank lines are the gap and three lines; sixty under an unpainted first box
+  are the gap and fifty-nine lines, not a hairline among them).
+
+**7. The blank line after a list at the wrong indent.**
+- **Measured:** the caret on the empty line after a list stood at 41.6pt — under
+  the item's text — against 21pt after a paragraph.
+- **Cause.** That line has no character of its own, so TextKit draws it, and the
+  caret, from the typing attributes, which were the list item's paragraph.
+  `typingAttributesAtEnd` gives it a body paragraph at the margin when the note
+  ends in a blank line, refreshed on every selection change and restyle.
+- **And its height.** TextKit 2 places that line *its own height* below the top
+  of the line above, whatever that line's height (probed at 8, 16 and 30pt). So
+  its typing line height is the height of the line above it, or the caret stood
+  8pt below where the text typed there lands. The caret's line was also mapped
+  one line too high at the very end (`lineNumbers(coveringCharactersIn:)`
+  clamped to the last character), which opened the blank line above under a
+  caret not on it.
+- **Tests.** `ListReturnTests` (the caret at the margin after ending a list and
+  after a plain Return; its negative control stood at 41.58) and
+  `BlankLineTests` (the caret after one and two blank lines stands where
+  "Next" lands).
+
+**Preview scrolls past its end as well.** The person's rule is about the
+file, and the manual said "a note scrolls on past its end"; Preview did not.
+`PreviewRoom.script` pads the page's bottom by half the window once the page is
+taller than it — installed by the preview's own web view, before the scroll
+relay, so an exported page and the parity harness never have it. Probed in a
+web view: 200px under a long page in a 400px window, none under a short one,
+and there again once that one grew.
+
+**Docs, and what the fact-check found in the source.** `Writing.md` in the
+default collection described list continuation before it existed; it describes
+what it does now, and blank lines and scrolling past the end. It also said a
+task "can be ticked in Edit or Preview" — Preview has never had a way to tick
+one; it says Edit. `ui.md` §6.1. The Reading width caption in Settings still
+described a "Reading mode", which the one-column pane replaced in August; it
+says what the setting does now, and three comments beside it no longer describe
+decision 5. A comment claiming ⇥ indents lists (nothing does) is corrected.
+
+**Not reproduced, and said so.** The cut last line (1) and the trackpad's stop
+at the end (2) were never seen in a test: a wheel scrolled past the end on the
+build 28 code every time, and a trackpad gesture cannot be synthesised. What
+is established is that the room was a clip-view limit in 28 and a content inset
+before it, that the report began with 28, and that a document which holds its
+own room cannot show either symptom. It wants confirming by hand on a trackpad.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| Editor package, macOS | 312/37 + 215/18 + 26/4 = 553 tests, pass (was 523) |
+| Editor package, iOS | 286/33 + 215/18 + 26/4 = 527 tests, pass (was 504) |
+| App suite (`run-tests.sh`) | 849 tests in 129 suites, pass (was 843 in 128) |
+| iOS interface tests | 13 cases, 1 skipped by design, 0 failures |
+| `render-parity.sh` | sample ≤0.07pt at 5 sizes × 3 widths; documents 60/60 at 1200, 800 and 560; 420 names only its two; chrome ok |
+
 ### 51.39 Regular expressions in find and replace (2026-10-10)
 
 The person asked to "allow regex in find and replace".

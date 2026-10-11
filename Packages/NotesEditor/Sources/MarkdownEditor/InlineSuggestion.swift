@@ -205,7 +205,7 @@ extension MarkdownTextView {
         // Only a measured line can shorten it.
         guard caret != .zero, bounds.width > 0 else { return suggestion.text }
         let available = bounds.width - caret.maxX
-            - textContainerInset.width - (textContainer?.lineFragmentPadding ?? 0)
+            - trailingTextInset - (textContainer?.lineFragmentPadding ?? 0)
         guard available > 12 else { return nil }
         let drawn = suggestion.text.fitting(width: available, attributes: attributes)
         return drawn.isEmpty ? nil : drawn
@@ -240,7 +240,7 @@ extension MarkdownTextView {
             return false
         }
         guard rect != .zero else { return .zero }
-        return rect.offsetBy(dx: textContainerInset.width, dy: textContainerInset.height)
+        return rect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
     }
 
     // MARK: - Accepting

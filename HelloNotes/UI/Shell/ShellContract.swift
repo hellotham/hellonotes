@@ -114,9 +114,6 @@ enum ShellMetrics {
     /// past this, which would otherwise silently leave the Mac stacked forever.
     static let noteRowTwoColumn: CGFloat = 420
 
-    /// Horizontal padding inside a pane, per side.
-    static let insets: CGFloat = 16
-
     // Chrome — definite heights (S3)
     static let bottomTabBar: CGFloat = 49
     static let miniStrip: CGFloat = 56
@@ -252,6 +249,24 @@ enum EditorWidth: String, CaseIterable, Sendable {
 }
 
 enum TextWidth {
+    /// The pane's text column as a rule — the settings, in points — which each
+    /// view that scrolls text applies at its own width (`TextColumn`).
+    ///
+    /// Editor width is a proportion of the pane, with the floor from Part 3;
+    /// Reading width caps it as a measure in characters (`.full` has no
+    /// measure, the setting's own escape hatch). The pane is the whole pane: it
+    /// used to lose 16pt each side first, which the text views already inset
+    /// their text by — so the default column was 32pt short of the pane, all of
+    /// it on the right, and the editor's scroller sat 32pt in from the window's
+    /// edge (build 28).
+    static func column(characterWidth: CGFloat,
+                       reading: ReadingWidth,
+                       editing: EditorWidth) -> TextColumn {
+        TextColumn(proportion: editing.proportion,
+                   measure: reading.characters.map { $0 * characterWidth },
+                   floor: ShellMetrics.editorFloor)
+    }
+
     /// The pane's text column: one width, whatever mode the pane is showing.
     ///
     /// - Returns: the width the prose should occupy, and whether to centre it.
@@ -259,19 +274,9 @@ enum TextWidth {
                         characterWidth: CGFloat,
                         reading: ReadingWidth,
                         editing: EditorWidth) -> (width: CGFloat, centred: Bool) {
-        let available = max(1, paneWidth - 2 * ShellMetrics.insets)
-        // Editor width: proportional to the pane, with the floor from Part 3,
-        // and never wider than the pane itself.
-        let proportion = min(available, max(ShellMetrics.editorFloor,
-                                            available * editing.proportion))
-        // Reading width then caps it as a measure in characters. `.full` has no
-        // measure, which is the setting's own escape hatch.
-        guard let characters = reading.characters else { return (proportion, false) }
-        let measure = min(proportion, characters * characterWidth)
-        // Centre only when the measure is doing the work: a column narrowed by
-        // Editor width alone stays left-aligned, VS Code style, because the
-        // pane *is* the workspace.
-        return (measure, measure < proportion - 0.5)
+        let column = column(characterWidth: characterWidth, reading: reading, editing: editing)
+        let resolved = column.resolve(in: paneWidth)
+        return (resolved.width, resolved.centred)
     }
 
     /// Measured, not assumed — and always against the *body* font, whatever the
@@ -292,8 +297,16 @@ enum TextWidth {
     }
 }
 
-/// Constrains prose to the user's measure and centres it when the setting asks
-/// for a fixed one.
+/// Publishes the pane's text column to everything in the pane.
+///
+/// It used to *be* the column: a frame around the editor, the preview or the
+/// split, the column's width and wherever the column sat. So the view that
+/// scrolls was the column — its scroller at the column's edge rather than the
+/// pane's, a wheel over the margin beside it scrolling nothing — and with the
+/// default settings 32pt short of the pane. Now every view that scrolls text
+/// fills the pane and lays its text out in the column itself, at its own width
+/// (`TextColumn`), and chrome that is part of the page — the inline title —
+/// uses the same rule through `TextColumnLayout`.
 ///
 /// A modifier rather than a helper on one view, so both shells' editors are
 /// laid out by the same code — the Mac's `NoteEditorView` and the iPad's
@@ -304,31 +317,23 @@ struct MeasuredText: ViewModifier {
     let reading: ReadingWidth
     let editing: EditorWidth
 
-    /// Read here rather than passed in, so a caller cannot measure against a
-    /// width the shell disagrees with — the contract's own rule about never
-    /// re-deriving the pane width further down.
+    /// Read here only to log what the column comes to — the rule itself is
+    /// applied by each view at its own width.
     @Environment(\.shell) private var shell
 
     func body(content: Content) -> some View {
-        let resolved = TextWidth.resolve(
-            paneWidth: shell.paneWidth,
-            characterWidth: TextWidth.characterWidth(size: fontSize),
-            reading: reading,
-            editing: editing
-        )
+        let column = TextWidth.column(characterWidth: TextWidth.characterWidth(size: fontSize),
+                                      reading: reading, editing: editing)
         EditorProbe.log("measure pane=\(shell.paneWidth) kind=\(shell.kind) "
-                        + "reading=\(reading) editing=\(editing) -> \(resolved)")
-        return HStack(spacing: 0) {
-            if resolved.centred { Spacer(minLength: 0) }
-            content.frame(maxWidth: resolved.width)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        + "reading=\(reading) editing=\(editing) -> \(column.resolve(in: shell.paneWidth))")
+        return content
+            .environment(\.textColumn, column)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 extension View {
-    /// Lay this content out at the user's Reading / Editor width.
+    /// Lay this content's text out at the user's Reading / Editor width.
     func measuredText(fontSize: CGFloat,
                       reading: ReadingWidth,
                       editing: EditorWidth) -> some View {

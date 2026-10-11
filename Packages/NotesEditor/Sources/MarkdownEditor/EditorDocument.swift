@@ -133,6 +133,42 @@ public final class EditorDocument {
     /// The block structure (read-only; used for outline, caret context…).
     public var blocks: [Block] { parse.blocks }
 
+    /// What text typed at the very end of the note starts as, when the note
+    /// ends in a blank line: a body paragraph at the margin, which is what the
+    /// parser will make of it. `nil` when the last line holds something — what
+    /// is typed straight after it continues that block, and the platform's own
+    /// choice, the attributes before the caret, is right.
+    ///
+    /// The empty line at the end has no character of its own to be styled, so
+    /// TextKit draws it, and the caret on it, from the text view's typing
+    /// attributes — which are whatever was under the caret when Return was
+    /// pressed. After a list that was the list item's paragraph: the caret
+    /// stood under the item's text, 20pt in from where the next paragraph would
+    /// start, and only jumped back once something was typed.
+    ///
+    /// Its line height is the height of the line above it, because that is
+    /// what puts it where the paragraph will start. TextKit 2 places this line
+    /// **its own height** below the top of the line before it, whatever that
+    /// line's height is — probed: after a 16pt blank line, a 24pt last line
+    /// stood at 24, and after a 30pt one, at 24 as well. So after the one blank
+    /// line that holds the gap (16pt) a full-height caret stood 8pt below where
+    /// the text typed there lands, and the line jumped up as the first
+    /// character did. The caret on that one line is a little shorter instead.
+    func typingAttributesAtEnd() -> [NSAttributedString.Key: Any]? {
+        let text = storage.string as NSString
+        let length = text.length
+        guard length > 0, text.character(at: length - 1) == 0x0A,
+              let index = parse.blockIndex(at: length - 1), case .blank = parse.blocks[index].kind
+        else { return nil }
+        let above = (storage.attribute(.paragraphStyle, at: length - 1, effectiveRange: nil)
+                        as? NSParagraphStyle)?.maximumLineHeight ?? 0
+        let height = above >= 1 ? above : theme.metrics.bodyLineHeight
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = height
+        style.maximumLineHeight = height
+        return [.font: theme.body, .foregroundColor: theme.text, .paragraphStyle: style]
+    }
+
     /// Per-phase timings of the last keystroke cycle — permanent, cheap
     /// introspection so perf regressions are measurable in place.
     public struct EditMetrics: Sendable {
@@ -433,6 +469,7 @@ public final class EditorDocument {
 
         var t0 = DispatchTime.now()
         let hadPendingStyling = styledBlocks.contains(false)
+        let previous = parse
         parse = BlockParser.incremental(storage.mutableString, edit: edit, previous: parse)
         lastEditMetrics.parseMS = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
         t0 = DispatchTime.now()
@@ -446,18 +483,24 @@ public final class EditorDocument {
             for i in max(0, lo - 1)...min(parse.blocks.count - 1, hi + 1) { damaged.insert(i) }
         }
 
-        // The splice shifted block indices; the styled bitset is only
-        // trustworthy when the initial pass has already finished (then
-        // everything is styled and stays styled — edits restyle in place).
+        // The splice shifted block indices. With the initial pass finished,
+        // everything is styled and stays styled — edits restyle in place.
         if hadPendingStyling {
-            // A "sometimes" branch, and an expensive one: it throws away the
-            // styled bitset and restarts the whole background styling pass.
-            EditorProbe.logEdit("restarting background styling (pass had not finished)")
-            styledBlocks = Array(repeating: false, count: parse.blocks.count)
-            // Don't leave the visible area unstyled while the pass restarts.
-            ensureStyled(charactersIn: NSRange(
-                location: max(0, edit.newRange.location - Self.initialStyledPrefix / 2),
-                length: Self.initialStyledPrefix))
+            // With it still running, the styled bitset is carried across the
+            // splice: the blocks before the edit and after it are the same
+            // blocks, renumbered (`splicedStyledBits`).
+            //
+            // It used to be thrown away — every block unstyled — with the
+            // 30,000 characters around the edit restyled on the spot "so the
+            // visible area is not left unstyled", which it never was: a reset
+            // bit removes no attribute. Each such restyle invalidated the
+            // layout of all 30,000 characters, and the pass, restarting
+            // after 400ms of quiet, never finished while someone typed — so
+            // every keystroke of a note opened moments before paid for it
+            // again, and the screen shifted under the caret with it.
+            EditorProbe.logEdit("carrying styled bits across the splice (pass had not finished)")
+            styledBlocks = Self.splicedStyledBits(styledBlocks, old: previous, new: parse,
+                                                  oldRange: oldRange, delta: delta)
             scheduleBackgroundStyling(afterIdle: true)
         } else if styledBlocks.count != parse.blocks.count {
             styledBlocks = Array(repeating: true, count: parse.blocks.count)
@@ -533,8 +576,17 @@ public final class EditorDocument {
     /// The line numbers a character range touches (a caret touches one).
     private func lineNumbers(coveringCharactersIn range: NSRange) -> Set<Int> {
         guard storage.length > 0 else { return [0] }
-        let start = min(max(0, range.location), max(0, storage.length - 1))
-        let end = min(max(start, range.location + range.length), max(0, storage.length - 1))
+        // A caret is on the line it is at. At the very end, after a final
+        // newline, that is the empty line there, which holds nothing to reveal.
+        // Clamped to the last character, as this was, it was the line *above*:
+        // a blank line ending the note opened to a full line under a caret that
+        // was not on it, then closed as the first character typed below it
+        // landed — the new line jumping up 8pt (build 28).
+        let location = min(max(0, range.location), storage.length)
+        guard range.length > 0 else { return [parse.lines.lineNumber(at: location)] }
+        // A selection covers the lines of the characters in it.
+        let start = min(location, storage.length - 1)
+        let end = max(start, min(location + range.length, storage.length) - 1)
         let first = parse.lines.lineNumber(at: start)
         let last = parse.lines.lineNumber(at: end)
         guard first <= last else { return [first] }
@@ -869,20 +921,80 @@ public final class EditorDocument {
         overlayRefreshTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled, let self else { return }
-            let before = gfmRunsCache
+            let runsBefore = gfmRunsCache
+            let unrenderedBefore = unrenderedCache
             refreshGFMOverlay()
-            // Only repaint if cmark actually disagreed with the shifted cache;
-            // a refresh that changed nothing must not cost a restyle.
-            guard gfmRunsCache != before else { return }
-            restyleVisibleAfterOverlayRefresh()
+            restyleAfterOverlayRefresh(runsBefore: runsBefore, unrenderedBefore: unrenderedBefore)
         }
     }
 
-    /// Repaint whatever is styled now that the overlay is exact again.
-    private func restyleVisibleAfterOverlayRefresh() {
-        let all = Set(parse.blocks.indices)
-        guard !all.isEmpty else { return }
-        restyle(blockIndices: all, revealed: revealedBlocks, revealedLines: revealedLines)
+    /// Repaint the blocks whose overlay cmark changed — and only those.
+    ///
+    /// This repainted **every** block whenever anything had changed, and with
+    /// them invalidated the layout of the whole note. Something changes
+    /// whenever the edit touched a run, because the shift drops a run the edit
+    /// touches — and a heading's text is one. So 120ms after each keystroke in
+    /// a heading the whole note was restyled, TextKit 2 threw its layout away
+    /// and re-estimated every height above the screen, and the note jumped by
+    /// hundreds of points and drew blank frames while it found its place again
+    /// (build 28). A refresh that changed nothing still costs nothing.
+    private func restyleAfterOverlayRefresh(runsBefore: [StyleRun], unrenderedBefore: [NSRange]) {
+        var changed = Self.changedSpan(runsBefore, gfmRunsCache) { $0.range }
+        if let unrendered = Self.changedSpan(unrenderedBefore, unrenderedCache, range: { $0 }) {
+            changed = changed.map { NSUnionRange($0, unrendered) } ?? unrendered
+        }
+        guard let changed, !parse.blocks.isEmpty,
+              let lo = parse.blockIndex(at: min(changed.location, storage.length)),
+              let hi = parse.blockIndex(at: min(max(changed.location, NSMaxRange(changed) - 1), storage.length))
+        else { return }
+        restyle(blockIndices: Set(lo...max(lo, hi)), revealed: revealedBlocks, revealedLines: revealedLines)
+    }
+
+    /// The characters spanned by whatever differs between two lists in the
+    /// same order: everything between their common start and their common end,
+    /// in either. `nil` when they are the same.
+    nonisolated static func changedSpan<T: Equatable>(_ old: [T], _ new: [T], range: (T) -> NSRange) -> NSRange? {
+        var head = 0
+        while head < old.count, head < new.count, old[head] == new[head] { head += 1 }
+        var tail = 0
+        while tail < old.count - head, tail < new.count - head,
+              old[old.count - 1 - tail] == new[new.count - 1 - tail] { tail += 1 }
+        var span: NSRange?
+        for element in old[head..<(old.count - tail)] + new[head..<(new.count - tail)] {
+            let r = range(element)
+            span = span.map { NSUnionRange($0, r) } ?? r
+        }
+        return span
+    }
+
+    /// The styled bitset of `old`'s blocks, carried over to `new`'s: the
+    /// blocks wholly before the edit and wholly after it — one block of margin
+    /// either side, which is how far the incremental parse rebuilds — are the
+    /// same blocks, renumbered, and keep their bits; the ones between are
+    /// unstyled, and the edit restyles them now. When the two parses do not
+    /// line up that way, every bit goes, as it always did.
+    nonisolated static func splicedStyledBits(_ bits: [Bool], old: ParseResult, new: ParseResult,
+                                  oldRange: NSRange, delta: Int) -> [Bool] {
+        let reset = Array(repeating: false, count: new.blocks.count)
+        guard bits.count == old.blocks.count, !old.blocks.isEmpty,
+              let start = old.blockIndex(at: oldRange.location),
+              let end = old.blockIndex(at: NSMaxRange(oldRange))
+        else { return reset }
+        let first = max(0, start - 1)
+        let last = min(old.blocks.count - 1, max(start, end) + 1)
+        let head = first
+        let tail = old.blocks.count - 1 - last
+        let middle = new.blocks.count - head - tail
+        guard middle >= 0 else { return reset }
+        // The kept blocks must be where they were — the head unmoved, the tail
+        // moved by exactly the edit.
+        if head > 0, new.blocks[head - 1].range != old.blocks[head - 1].range { return reset }
+        if tail > 0 {
+            let was = old.blocks[last + 1].range
+            let now = new.blocks[new.blocks.count - tail].range
+            guard now.location == was.location + delta, now.length == was.length else { return reset }
+        }
+        return Array(bits[0..<head]) + Array(repeating: false, count: middle) + Array(bits[(last + 1)...])
     }
 
     /// Fill **both** overlay caches from a single cmark parse.

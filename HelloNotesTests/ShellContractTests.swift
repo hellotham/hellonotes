@@ -78,10 +78,13 @@ struct ShellContractTests {
         let characterWidth: CGFloat = 7      // ~14pt system font
         let pane: CGFloat = 3200             // a single pane on a 3840pt display
 
-        // No measure: the proportion alone, left-aligned, VS Code style.
+        // No measure: the proportion alone, left-aligned, VS Code style — and
+        // Full pane is the whole pane. It was 32pt short, which put the
+        // editor's scroller 32pt in from the window's edge (build 28): the text
+        // views inset their text themselves.
         let full = TextWidth.resolve(paneWidth: pane, characterWidth: characterWidth,
                                      reading: .full, editing: .full)
-        #expect(full.width == pane - 2 * ShellMetrics.insets)
+        #expect(full.width == pane)
         #expect(full.centred == false, "a full-width column is left-aligned")
 
         // A measure caps it, and a capped column is centred.
@@ -93,7 +96,7 @@ struct ShellContractTests {
         // Editor width alone narrows without centring.
         let half = TextWidth.resolve(paneWidth: pane, characterWidth: characterWidth,
                                      reading: .full, editing: .half)
-        #expect(half.width == (pane - 2 * ShellMetrics.insets) / 2)
+        #expect(half.width == pane / 2)
         #expect(half.centred == false)
     }
 
@@ -118,10 +121,9 @@ struct ShellContractTests {
     @Test("A narrow pane collapses the distinction — neither setting bites")
     func narrowPaneIgnoresBothSettings() {
         let pane: CGFloat = 375              // a phone
-        let available = pane - 2 * ShellMetrics.insets
         let resolved = TextWidth.resolve(paneWidth: pane, characterWidth: 7,
                                          reading: .normal, editing: .full)
-        #expect(resolved.width <= available, "the column must never exceed its pane")
+        #expect(resolved.width <= pane, "the column must never exceed its pane")
     }
 
     // MARK: - The sidebar

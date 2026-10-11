@@ -64,9 +64,17 @@ struct InlineNoteTitle: View {
 
     @State private var draft = ""
 
+    /// The pane's text column, which the title sits in as the text below it
+    /// does — at the same x whatever the Reading and Editor widths.
+    @Environment(\.textColumn) private var column
+
     var body: some View {
+        TextColumnLayout(column) { heading }
+    }
+
+    private var heading: some View {
         let metrics = theme.metrics
-        VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: 0) {
             field
                 // `h1 { line-height: 1.25 }`, and `> *:first-child` gets no
                 // margin above it — the pane's own top inset is that space.

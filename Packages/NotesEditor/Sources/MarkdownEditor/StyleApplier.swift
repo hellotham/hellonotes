@@ -257,8 +257,8 @@ nonisolated enum StyleApplier {
         }
 
         // A blank run is not a box: it is the gap between the two boxes it
-        // separates, and it gets exactly that much height, shared out over
-        // however many blank lines were typed.
+        // separates. Its first line holds exactly that much height, and each
+        // line typed past it is a line of its own (below).
         guard !isUnrendered,
               let box = BlockBoxes.box(at: index, in: blocks, text: text,
                                        unrendered: unrendered) else {
@@ -298,11 +298,35 @@ nonisolated enum StyleApplier {
             let holdsNoGap = outside || total <= 0
             let floor = (isUnrendered || holdsNoGap)
                 ? BlockBoxes.collapsedLine : BlockBoxes.minimumBlankLine
-            let each = max(floor, total / CGFloat(max(1, block.lineCount)))
-            let style = NSMutableParagraphStyle()
-            style.minimumLineHeight = each
-            style.maximumLineHeight = each
-            target.addAttribute(.paragraphStyle, value: style, range: block.range)
+            if !isUnrendered, BlockBoxes.extraBlankLines(block) > 0
+                || BlockBoxes.endingRunGap(index, in: blocks, text: text, metrics: m, unrendered: unrendered) != nil {
+                // **One blank line is the gap; every line past it is a line**
+                // (`BlockBoxes.extraBlankLines`). The first holds what the
+                // page has there — or, ending the note, the gap the paragraph
+                // typed next will have (`endingRunGap`).
+                let first = BlockBoxes.endingRunGap(index, in: blocks, text: text, metrics: m,
+                                                     unrendered: unrendered) ?? max(floor, total)
+                let firstLine = NSIntersectionRange(lines.lineRange(block.firstLine), block.range)
+                let held = NSMutableParagraphStyle()
+                held.minimumLineHeight = first
+                held.maximumLineHeight = first
+                target.addAttribute(.paragraphStyle, value: held, range: firstLine)
+                let rest = NSRange(location: NSMaxRange(firstLine),
+                                   length: NSMaxRange(block.range) - NSMaxRange(firstLine))
+                if rest.length > 0 {
+                    let line = NSMutableParagraphStyle()
+                    line.minimumLineHeight = m.bodyLineHeight
+                    line.maximumLineHeight = m.bodyLineHeight
+                    target.addAttribute(.paragraphStyle, value: line, range: rest)
+                    target.addAttribute(extraBlankLineAttribute, value: true, range: rest)
+                }
+            } else {
+                let each = max(floor, total / CGFloat(max(1, block.lineCount)))
+                let style = NSMutableParagraphStyle()
+                style.minimumLineHeight = each
+                style.maximumLineHeight = each
+                target.addAttribute(.paragraphStyle, value: style, range: block.range)
+            }
             // …and the line the caret is on comes back to full height, so a
             // blank run is still something you can type in.
             //
@@ -1068,14 +1092,19 @@ nonisolated enum StyleApplier {
                 // to the code box and keeps the code's own line height.
                 let bridgesCode = line > first && isCode(line - 1)
                     && line + run <= last && isCode(line + run)
-                // One margin, however many blank lines were typed to make it —
-                // the same rule a blank run between two blocks follows.
-                let each = bridgesCode
-                    ? m.codeLineHeight
-                    : max(BlockBoxes.minimumBlankLine, m.blockGap / CGFloat(run))
+                // The same rule a blank run between two blocks follows: its
+                // first line is the margin, and each line typed past it is a
+                // full empty line (`BlockBoxes.extraBlankLines`) — inside an
+                // item as anywhere else, or Returns between an item's
+                // paragraphs moved nothing while the same Returns between two
+                // paragraphs did.
                 for i in line..<(line + run) {
                     let range = lines.lineRange(i)
                     guard range.length > 0, range.location + range.length <= target.length else { continue }
+                    let isExtra = !bridgesCode && i > line
+                    let each = bridgesCode ? m.codeLineHeight
+                        : isExtra ? m.bodyLineHeight
+                        : max(BlockBoxes.minimumBlankLine, m.blockGap)
                     let para = NSMutableParagraphStyle()
                     para.minimumLineHeight = each
                     para.maximumLineHeight = each
@@ -1085,6 +1114,7 @@ nonisolated enum StyleApplier {
                         target.addAttribute(codeBandAttribute, value: 1, range: range)
                     }
                     target.addAttribute(.paragraphStyle, value: para, range: range)
+                    if isExtra { target.addAttribute(extraBlankLineAttribute, value: true, range: range) }
                 }
                 line += run
                 continue

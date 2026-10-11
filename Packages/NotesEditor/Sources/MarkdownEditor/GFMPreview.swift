@@ -201,6 +201,39 @@ extension GFMPreview {
     }
 }
 
+/// Room below the page's last line, as the editors have it (`TextPlacement`):
+/// half the window, once the page is taller than the window, so a note read in
+/// Preview comes up to the middle like the same note in Edit — and switching
+/// between the two at the end of a note does not move it.
+///
+/// A script rather than a rule in the page's stylesheet, because "taller than
+/// the window" is not something CSS can ask; and installed by the preview's own
+/// web view, so an exported page and the parity harness's never have it. The
+/// page is measured by its article, never by resetting the padding first: a
+/// reader scrolled into the room would be thrown back by the reset. Probed in a
+/// web view: 200px under a long page in a 400px window, none under a short
+/// one, and there again once that one grew.
+enum PreviewRoom {
+    static let script = """
+    (function () {
+      function room() {
+        var page = document.querySelector('.markdown-body');
+        if (!page) return;
+        var view = window.innerHeight;
+        var wanted = page.getBoundingClientRect().height > view ? Math.round(view / 2) + 'px' : '0px';
+        if (document.body.style.paddingBottom !== wanted) document.body.style.paddingBottom = wanted;
+      }
+      room();
+      window.addEventListener('load', room);
+      window.addEventListener('resize', room);
+      if (window.ResizeObserver) {
+        var page = document.querySelector('.markdown-body');
+        if (page) new ResizeObserver(room).observe(page);
+      }
+    })();
+    """
+}
+
 /// Keeps the reader's place across pages.
 ///
 /// Every page is a new document (`loadHTMLString`), and a new document starts
@@ -364,6 +397,37 @@ struct PreviewScrollMemory {
     /// starts (`GFMWebView.load`), set when it finishes (`PreviewLinkRelay`).
     var pageReady = false
 
+    /// The pane's text column, as the host last said (`TextColumn`).
+    var column = TextColumn.full
+    /// The margins the page was last given, so a width that changes nothing
+    /// sends nothing.
+    private var margins: (leading: CGFloat, trailing: CGFloat) = (0, 0)
+
+    /// The page's margins at the web view's width now — what a page about to
+    /// load is told before it is parsed (`GFMWebView.installScripts`), and so
+    /// what it has from then on.
+    func marginsForNewPage() -> (leading: CGFloat, trailing: CGFloat) {
+        if let web, web.bounds.width > 0 { margins = column.margins(in: web.bounds.width) }
+        return margins
+    }
+
+    /// The page's text in the pane's column, at the web view's width: the web
+    /// view fills the pane — its scroller at the pane's edge — and the page's
+    /// margins put the text where Edit has it. Sent only when they change.
+    func updateColumn() {
+        guard let web, web.bounds.width > 0 else { return }
+        let wanted = column.margins(in: web.bounds.width)
+        guard wanted != margins else { return }
+        margins = wanted
+        web.evaluateJavaScript(Self.marginScript(wanted))
+    }
+
+    /// Sets the page's column margins (`GFMPage`'s `--hn-column-…`).
+    static func marginScript(_ margins: (leading: CGFloat, trailing: CGFloat)) -> String {
+        "document.documentElement.style.setProperty('--hn-column-leading', '\(margins.leading)px');"
+            + "document.documentElement.style.setProperty('--hn-column-trailing', '\(margins.trailing)px');"
+    }
+
     /// Heading jumps addressed to this preview's editor, shown when the page is
     /// up — straight away, or when it finishes loading (`EditorBus`).
     lazy var headingJumps = HeadingJumpListener(
@@ -465,12 +529,15 @@ struct GFMWebView: NSViewRepresentable {
         context.coordinator.onDiagramZoom = onDiagramZoom
         context.coordinator.onLinkTap = onLinkTap
         context.coordinator.observeHeadingJumps(editorID: editorID)
+        context.coordinator.column = context.environment.textColumn
         return web
     }
     func updateNSView(_ web: WKWebView, context: Context) {
         context.coordinator.onDiagramZoom = onDiagramZoom
         context.coordinator.onLinkTap = onLinkTap
         context.coordinator.observeHeadingJumps(editorID: editorID)
+        context.coordinator.column = context.environment.textColumn
+        context.coordinator.updateColumn()
         Self.load(web, html, pageID, baseURL, context.coordinator, note: editorID)
     }
     // Viewport sizing — docs/layout-architecture.md S1.
@@ -501,12 +568,15 @@ struct GFMWebView: UIViewRepresentable {
         context.coordinator.onDiagramZoom = onDiagramZoom
         context.coordinator.onLinkTap = onLinkTap
         context.coordinator.observeHeadingJumps(editorID: editorID)
+        context.coordinator.column = context.environment.textColumn
         return web
     }
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.onDiagramZoom = onDiagramZoom
         context.coordinator.onLinkTap = onLinkTap
         context.coordinator.observeHeadingJumps(editorID: editorID)
+        context.coordinator.column = context.environment.textColumn
+        context.coordinator.updateColumn()
         Self.load(web, html, pageID, baseURL, context.coordinator, note: editorID)
     }
     // Viewport sizing — docs/layout-architecture.md S1.
@@ -514,6 +584,25 @@ struct GFMWebView: UIViewRepresentable {
                       context: Context) -> CGSize? { viewportSizeThatFits(proposal) }
 }
 #endif
+
+/// The preview's web view: it fills the pane and tells its state when its
+/// width changes, which moves the page's text column (`TextColumn`).
+final class PreviewWebView: WKWebView {
+    weak var state: GFMWebLoadState?
+
+    #if canImport(AppKit)
+    override func setFrameSize(_ newSize: NSSize) {
+        let width = frame.width
+        super.setFrameSize(newSize)
+        if newSize.width != width { state?.updateColumn() }
+    }
+    #else
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        state?.updateColumn()
+    }
+    #endif
+}
 
 extension GFMWebView {
     static func makeWebView(state: GFMWebLoadState) -> WKWebView {
@@ -527,8 +616,9 @@ extension GFMWebView {
         // page can be without them.
         config.userContentController.add(state.diagramZoomRelay, name: DiagramZoomRelay.name)
         config.userContentController.add(state.scrollRelay, name: PreviewScrollRelay.name)
-        installScripts(config.userContentController, page: 0, offset: 0)
-        let web = WKWebView(frame: .zero, configuration: config)
+        installScripts(config.userContentController, page: 0, offset: 0, margins: (0, 0))
+        let web = PreviewWebView(frame: .zero, configuration: config)
+        web.state = state
         web.navigationDelegate = state.linkRelay
         #if canImport(AppKit)
         web.setValue(false, forKey: "drawsBackground")
@@ -540,18 +630,28 @@ extension GFMWebView {
         return web
     }
 
-    /// The scripts every page gets — the enlarge buttons', and the scroll
-    /// reports' — and where the next page opens. A user script is fixed for
-    /// the document it is injected into, so where a page opens is written into
-    /// one just before it loads; `WKUserContentController` removes only all of
-    /// them at once, so all of them are put back.
-    static func installScripts(_ controller: WKUserContentController, page: Int, offset: Double) {
+    /// The scripts every page gets — the enlarge buttons', the room past its
+    /// end, and the scroll reports' — and where the next page opens, and its
+    /// column's margins at the width it opens at. A user script is fixed for
+    /// the document it is
+    /// injected into, so those are written into one just before it loads;
+    /// `WKUserContentController` removes only all of them at once, so all of
+    /// them are put back.
+    static func installScripts(_ controller: WKUserContentController, page: Int, offset: Double,
+                               margins: (leading: CGFloat, trailing: CGFloat)) {
         controller.removeAllUserScripts()
         controller.addUserScript(WKUserScript(
             source: PreviewScrollRelay.openingScript(page: page, offset: offset),
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
         controller.addUserScript(WKUserScript(
+            source: GFMWebLoadState.marginScript(margins),
+            injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(
             source: DiagramZoomRelay.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        // Before the scroll relay: a page left scrolled into its room can only
+        // be put back there once the room exists.
+        controller.addUserScript(WKUserScript(
+            source: PreviewRoom.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         controller.addUserScript(WKUserScript(
             source: PreviewScrollRelay.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
     }
@@ -571,7 +671,8 @@ extension GFMWebView {
         state.loaded = key
         state.pageReady = false
         let opening = state.scroll.load(note: note)
-        installScripts(web.configuration.userContentController, page: opening.page, offset: opening.offset)
+        installScripts(web.configuration.userContentController, page: opening.page, offset: opening.offset,
+                       margins: state.marginsForNewPage())
         log("load \(html.utf8.count) bytes, frame \(web.frame.size), opening at \(opening.offset)")
         web.loadHTMLString(html, baseURL: baseURL)
         guard EditorProbe.isEnabled else { return }

@@ -632,7 +632,10 @@ func editorTops() -> [(String, CGFloat)] {
         // it, above the first line. That is the same thing
         // `getBoundingClientRect()` reports on the other side — the border box,
         // padding included.
-        out.append((anchor, fragment.layoutFragmentFrame.minY))
+        // Less the blank lines above it that the editor shows on purpose and
+        // the page does not (`extraBlankLineHeight`).
+        out.append((anchor, fragment.layoutFragmentFrame.minY
+                            - extraBlankLineHeight(textView, tlm, before: range.location)))
     }
     // No PNG of the editor here, deliberately. `cacheDisplay` on an
     // `NSTextView` outside a real app process renders the coloured runs and
@@ -1443,7 +1446,7 @@ func editorHeight(_ markdown: String, base: CGFloat, width: CGFloat,
     }
     guard needsRender else {
         dumpPNG()
-        return laidOutHeight(tlm)
+        return laidOutHeight(tlm) - extraBlankLineHeight(textView, tlm)
     }
 
     // Block renders are asynchronous — WebKit has to lay the fragment out and
@@ -1492,7 +1495,43 @@ func editorHeight(_ markdown: String, base: CGFloat, width: CGFloat,
             "htmltrace \(startHeight) -> \(height)  \(text.prefix(30).debugDescription)\n"
                 .data(using: .utf8)!)
     }
-    return height
+    return height - extraBlankLineHeight(textView, tlm)
+}
+
+/// The height the editor gives the blank lines past the first in each run —
+/// full empty lines it shows on purpose, which the page does not show at all
+/// (`BlockBoxes.extraBlankLines`: one blank line is the gap, every line past
+/// it is a line, as typed). Taken out of the comparison, so the gate keeps
+/// grading everything else about a note that has them.
+///
+/// **Asked of the editor, and measured.** The lines are the ones the editor
+/// itself marked (`extraBlankLineAttribute`) — between two blocks and inside a
+/// list item alike — and what is taken out is the height its own fragments
+/// have for them. Neither which lines they are nor how tall is worked out
+/// here: that would be this harness's own copy of the rule.
+///
+/// `before`: only the lines above that offset — what a block there has been
+/// pushed down by, for the sample gate's per-block positions.
+@MainActor
+func extraBlankLineHeight(_ textView: NSTextView, _ tlm: NSTextLayoutManager,
+                          before limit: Int = .max) -> CGFloat {
+    guard let content = tlm.textContentManager, let storage = textView.textStorage else { return 0 }
+    let text = storage.string as NSString
+    var total: CGFloat = 0
+    storage.enumerateAttribute(extraBlankLineAttribute,
+                               in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+        guard value != nil else { return }
+        var cursor = range.location
+        while cursor < NSMaxRange(range), cursor < limit {
+            let line = text.lineRange(for: NSRange(location: cursor, length: 0))
+            if let location = content.location(content.documentRange.location, offsetBy: cursor),
+               let fragment = tlm.textLayoutFragment(for: location) {
+                total += fragment.layoutFragmentFrame.height
+            }
+            cursor = max(cursor + 1, NSMaxRange(line))
+        }
+    }
+    return total
 }
 
 /// Divergences the editor is not going to close, each with the reason it is

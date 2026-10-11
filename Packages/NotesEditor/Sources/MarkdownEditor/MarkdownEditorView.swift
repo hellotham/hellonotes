@@ -161,38 +161,7 @@ public final class EditorProxy {
     }
 }
 
-/// The Mac editor's clip view: it lets the note scroll up past its end by
-/// `pastEnd`, so the last line can be brought to the middle of the window.
-///
-/// Room to scroll *into* — nothing about the view is counted as covered, so
-/// `scrollRangeToVisible` and every other scroll-to-visible sees the whole
-/// view. The space was a bottom content inset, and an inset is exactly what
-/// those treat as hidden (`MarkdownTextView.updateScrollPastEnd`).
-final class PastEndClipView: NSClipView {
-    var pastEnd: CGFloat = 0 {
-        didSet {
-            guard pastEnd != oldValue else { return }
-            // Scrolled further than the new room allows: come back to it.
-            let allowed = constrainBoundsRect(bounds)
-            guard allowed.origin != bounds.origin else { return }
-            scroll(to: allowed.origin)
-            (superview as? NSScrollView)?.reflectScrolledClipView(self)
-        }
-    }
-
-    /// The system's limit, and `pastEnd` beyond it at the bottom. The editor's
-    /// document is flipped, so further down the note is a larger `y`.
-    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
-        var rect = super.constrainBoundsRect(proposedBounds)
-        guard pastEnd > 0, let document = documentView, document.isFlipped,
-              proposedBounds.origin.y > rect.origin.y else { return rect }
-        let furthest = document.frame.maxY - rect.height + contentInsets.bottom + pastEnd
-        rect.origin.y = min(proposedBounds.origin.y, max(rect.origin.y, furthest))
-        return rect
-    }
-}
-
-public final class MarkdownTextView: NSTextView {
+public final class MarkdownTextView: NSTextView, ViewportFollowing {
 
     /// Build the full scroll-view + TextKit 2 text-view assembly. Public so
     /// hosts (and offscreen fidelity-snapshot tests) can embed the exact same
@@ -244,9 +213,9 @@ public final class MarkdownTextView: NSTextView {
         }
 
         let scrollView = NSScrollView()
-        // Before anything else touches it: the clip view that gives the note
-        // room to scroll past its end (`PastEndClipView`).
-        scrollView.contentView = PastEndClipView()
+        // Before anything else touches it: the clip view that tells the text
+        // view its viewport's height (`EditorClipView`, `TextPlacement`).
+        scrollView.contentView = EditorClipView()
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         // Leave `automaticallyAdjustsContentInsets` at its default (true).
@@ -422,7 +391,7 @@ public final class MarkdownTextView: NSTextView {
         guard wrapGuideColumns > 0, let font = document?.theme.body else { return nil }
         let advance = ("0" as NSString).size(withAttributes: [.font: font]).width
         guard advance > 0 else { return nil }
-        let x = textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0)
+        let x = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0)
               + advance * CGFloat(wrapGuideColumns)
         return x < bounds.width - 1 ? x : nil
     }
@@ -483,6 +452,7 @@ public final class MarkdownTextView: NSTextView {
         // has to re-lay out that range or the old rendering stays on screen.
         document.onRestyle = { [weak self] range in
             self?.textLayoutManager?.invalidateLayout(charactersIn: range)
+            self?.refreshTypingAttributesAtEnd()
         }
         // Setting `font` applies it to the **whole text storage attached right
         // now**, so it must be done while no real document is in place. Two
@@ -563,34 +533,66 @@ public final class MarkdownTextView: NSTextView {
         document.isDarkAppearance = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
-    /// Room to scroll **past** the end of the note, so the last line can be
-    /// brought to the middle of the window rather than stopping at the bottom.
+    // MARK: - Where the text sits
+
+    /// The text's column and its room past the end (`TextPlacement`).
+    var placement = TextPlacement(base: EditorMetrics.textContainerInset)
+
+    /// The pane's text column (`TextColumn`), which the text is laid out in at
+    /// this view's own width. The view itself fills the pane, so its scroller
+    /// is at the pane's edge and a wheel anywhere over it scrolls the note.
+    public var textColumn: TextColumn {
+        get { placement.column }
+        set {
+            guard newValue != placement.column else { return }
+            placement.column = newValue
+            updateTextInsets()
+        }
+    }
+
+    /// Room below the note's last line — half the viewport once the note is
+    /// long enough to scroll, so the last line can be brought up to the middle
+    /// of the window rather than stopping at its bottom edge. The line you are
+    /// writing is usually the last one, and without this it is pinned to the
+    /// bottom edge: the least comfortable place on screen to look at for any
+    /// length of time.
     ///
-    /// The line you are writing is always the last one, and without this it is
-    /// pinned to the bottom edge — the least comfortable place on screen to
-    /// look at for any length of time.
-    ///
-    /// Half the viewport, once the note is long enough to scroll, handed to
-    /// the clip view as room to scroll *into* (`PastEndClipView`). It used to
-    /// be the scroll view's bottom content inset, which AppKit — like UIKit —
-    /// counts as covered: `scrollRangeToVisible` on a line in the lower half of
-    /// the view scrolled it up to the middle, so the first keystroke typed on
-    /// any line down there jumped the note (`ScrollPastEndTests`). Setting the
-    /// inset also meant turning `automaticallyAdjustsContentInsets` off, which
-    /// is what keeps the first lines of a note out from under a toolbar.
-    private func updateScrollPastEnd() {
-        guard let clip = enclosingScrollView?.contentView as? PastEndClipView else { return }
-        let viewport = clip.bounds.height - clip.contentInsets.top
-        guard viewport > 0 else { return }
-        let wanted = frame.height > viewport ? viewport / 2 : 0
-        guard abs(clip.pastEnd - wanted) > 0.5 else { return }
-        clip.pastEnd = wanted
+    /// Part of the **document** (`TextPlacement`), because that is the one place
+    /// every way of scrolling respects. It has been two other things. A bottom
+    /// content inset on the scroll view, which AppKit — like UIKit — counts as
+    /// covered: `scrollRangeToVisible` on a line in the lower half of the view
+    /// scrolled it up to the middle, so the first keystroke typed on any line
+    /// down there jumped the note (`ScrollPastEndTests`). Then a wider limit on
+    /// the clip view, which a trackpad did not keep to (`EditorClipView`).
+    public var roomPastEnd: CGFloat { placement.room }
+
+    public override var textContainerOrigin: NSPoint { placement.origin }
+
+    /// The text's inset from this view's trailing edge — the column's trailing
+    /// margin and the standard inset.
+    var trailingTextInset: CGFloat {
+        bounds.width - textContainerOrigin.x - (textContainer?.size.width ?? 0)
+    }
+
+    /// Lay the text out in its column, with its room past the end.
+    func updateTextInsets() {
+        let before = textContainerInset
+        TextPlacement.update(self, \.placement)
+        if textContainerInset != before { syncRenderMetrics() }
+    }
+
+    public func viewportDidChange() { updateTextInsets() }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        let width = frame.width
+        super.setFrameSize(newSize)
+        if newSize.width != width { updateTextInsets() }
     }
 
     public override func layout() {
         super.layout()
         syncRenderMetrics()
-        updateScrollPastEnd()
+        updateTextInsets()
     }
 
     /// Light ↔ Dark. `syncRenderMetrics()` runs from `layout()`, and switching
@@ -762,11 +764,42 @@ public final class MarkdownTextView: NSTextView {
     /// The user stopped editing. See the UIKit twin: the only save signal.
     var onEndEditing: (() -> Void)?
 
+    // MARK: - The empty line at the end
+
+    /// The empty line at the end of the note is drawn from the typing
+    /// attributes — see `EditorDocument.typingAttributesAtEnd`.
+    func refreshTypingAttributesAtEnd() {
+        guard let document, selectedRange().length == 0,
+              selectedRange().location == (string as NSString).length,
+              let attributes = document.typingAttributesAtEnd() else { return }
+        typingAttributes = attributes
+    }
+
+    // MARK: - Return in a list
+
+    /// Return in a list starts the next item, and in an empty item ends the
+    /// list (`ListContinuation`). Anywhere else, and while text is being
+    /// composed or a range is selected, it is AppKit's newline.
+    public override func insertNewline(_ sender: Any?) {
+        guard isEditable, !hasMarkedText(), selectedRange().length == 0, let document,
+              let edit = ListContinuation.returnKey(in: string as NSString, at: selectedRange().location,
+                                                    parse: document.parse)
+        else {
+            super.insertNewline(sender)
+            return
+        }
+        performEdit(replacing: edit.range, with: edit.replacement)
+        setSelectedRange(NSRange(location: edit.caret, length: 0))
+        refreshTypingAttributesAtEnd()
+        scrollRangeToVisible(selectedRange())
+    }
+
     // MARK: - Inline completion keys
 
     /// ⌥⇥ accepts.
     ///
-    /// Not ⇥, which indents and outdents lists; not ⌃⇥, which macOS uses for
+    /// Not ⇥, which types a tab — in a list, how an item is indented by hand;
+    /// not ⌃⇥, which macOS uses for
     /// tab cycling and this app has editor tabs. ⌥⇥ is bound nowhere else, is
     /// not a standard `NSTextView` binding, and — unlike ⌥+letter — produces no
     /// character, so intercepting it cannot swallow someone's typing.
@@ -892,6 +925,7 @@ public final class MarkdownTextView: NSTextView {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if !stillSelecting, let document {
             document.selectionDidChange(selectedRange())
+            refreshTypingAttributesAtEnd()
             reportInlineContext()
             // Moving the caret is not typing, so this clears without asking for
             // a new one — a suggestion that followed the caret around would be
@@ -1042,7 +1076,7 @@ public final class MarkdownTextView: NSTextView {
             rect = frame
             return false
         }
-        rect = rect.offsetBy(dx: textContainerInset.width, dy: textContainerInset.height)
+        rect = rect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
         guard let scrollView = enclosingScrollView else { return rect }
         return convert(rect, to: scrollView)
     }
@@ -1066,7 +1100,7 @@ public final class MarkdownTextView: NSTextView {
             return true
         }
         if let frame {
-            scrollToVisible(frame.insetBy(dx: 0, dy: -40).offsetBy(dx: textContainerInset.width, dy: textContainerInset.height))
+            scrollToVisible(frame.insetBy(dx: 0, dy: -40).offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y))
         } else {
             scrollRangeToVisible(range)
         }
@@ -1203,7 +1237,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
         context.coordinator.subscribeToBus(editorID: busEditorID)
-        applyProperties(textView)
+        applyProperties(textView, context: context)
         return scrollView
     }
 
@@ -1227,14 +1261,16 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.onInlineCompletionRequest = onInlineCompletionRequestHandler
         textView.onEndEditing = onEndEditingHandler
         editorProxy?.textView = textView
-        applyProperties(textView)
+        applyProperties(textView, context: context)
     }
 
-    private func applyProperties(_ textView: MarkdownTextView) {
+    private func applyProperties(_ textView: MarkdownTextView, context: Context) {
         if textView.isEditable != isEditable {
             textView.isEditable = isEditable
             textView.insertionPointColor = isEditable ? document.theme.text : .clear
         }
+        // The pane's column, from the shell (`TextColumn`).
+        textView.textColumn = context.environment.textColumn
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -1851,6 +1887,7 @@ public final class MarkdownUITextView: UITextView {
         document.onRestyle = { [weak self] range in
             self?.textLayoutManager?.invalidateLayout(charactersIn: range)
             self?.refreshChrome()
+            self?.refreshTypingAttributesAtEnd()
         }
         typingAttributes = [
             .font: document.theme.body,
@@ -1860,6 +1897,15 @@ public final class MarkdownUITextView: UITextView {
         // view built any other way from drawing without its chrome.
         textLayoutManager?.delegate = blockLayoutDelegate
         syncRenderMetrics()
+    }
+
+    /// The empty line at the end of the note is drawn from the typing
+    /// attributes — see `EditorDocument.typingAttributesAtEnd`.
+    func refreshTypingAttributesAtEnd() {
+        guard let document, selectedRange.length == 0,
+              selectedRange.location == ((text ?? "") as NSString).length,
+              let attributes = document.typingAttributesAtEnd() else { return }
+        typingAttributes = attributes
     }
 
     /// Throw away the undo stack UIKit is keeping for this text view.
@@ -1909,34 +1955,35 @@ public final class MarkdownUITextView: UITextView {
     /// hard against the chrome, and the line you are writing — always the last
     /// one — is the least comfortable place on the screen to look at. Every
     /// editor people write in for hours does this; it is the difference between
-    /// a text view and somewhere to think.
+    /// a text view and somewhere to think. Half the viewport, which is what
+    /// "about the middle" means, in the bottom of the text container's inset —
+    /// room to scroll into, never a covered band (`TextPlacement` says why).
     ///
-    /// Half the viewport, which is what "about the middle" means, and only once
-    /// the note is long enough to scroll at all — a short note in a tall window
-    /// gains nothing from a screenful of emptiness under it.
-    ///
-    /// **Room to scroll into, never a covered band.** It is the bottom of the
-    /// text container's inset — part of the content — and not a content inset.
-    /// A scroll view keeps what it scrolls to inside its bounds *less* its
-    /// insets, so as a content inset half the editor counted as hidden: a tap
-    /// on a line in the lower half scrolled it up to the middle, and with the
-    /// software keyboard's inset on top — 313pt of ours and 407pt of the
-    /// keyboard's against a 626pt view — the band UIKit keeps the caret in had
-    /// negative height, and its own scroll-to-the-caret put the tapped line
-    /// 94pt above the top edge (`ScrollPastEndTests`, docs/implemented.md).
-    private func updateScrollPastEnd() {
-        let base = EditorMetrics.textContainerInset.height
-        let viewport = bounds.height - adjustedContentInset.top
-        let text = contentSize.height - (textContainerInset.bottom - base)
-        let wanted = viewport > 0 && text > viewport ? viewport / 2 : 0
-        guard abs(textContainerInset.bottom - (base + wanted)) > 0.5 else { return }
-        textContainerInset.bottom = base + wanted
+    /// The left and right insets carry the pane's text column the same way
+    /// (`TextColumn`): the view fills the pane, so its scroll indicator is at
+    /// the pane's edge, and the text sits in the column inside it. Both are
+    /// `TextPlacement`'s, which the Markdown pane shares.
+    private func updateTextInsets() {
+        placement.apply(to: self)
+    }
+
+    /// The text's column and its room past the end (`TextPlacement`).
+    private var placement = TextPlacement(base: EditorMetrics.textContainerInset)
+
+    /// The pane's text column (`TextColumn`), laid out at this view's width.
+    public var textColumn: TextColumn {
+        get { placement.column }
+        set {
+            guard newValue != placement.column else { return }
+            placement.column = newValue
+            setNeedsLayout()
+        }
     }
 
     public override func layoutSubviews() {
         super.layoutSubviews()
         syncRenderMetrics()
-        updateScrollPastEnd()
+        updateTextInsets()
         // The counterpart of the Mac's bounds observer, which fires on the
         // scroll view's *first* layout as well as on every scroll. iOS only had
         // the scroll half (`scrollViewDidScroll`), so nothing styled the visible
@@ -2712,6 +2759,9 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         let tv = MarkdownUITextView.make(document: document)
         tv.isEditable = isEditable
         tv.wrapGuideColumns = wrapGuideColumns
+        tv.textColumn = context.environment.textColumn
+        // The pane's column, from the shell (`TextColumn`).
+        tv.textColumn = context.environment.textColumn
         tv.onCaretEscapeTop = onCaretEscapeTopHandler
         tv.onRewriteSelection = onRewriteSelectionHandler
         tv.onDiagramZoom = onDiagramZoomHandler
@@ -2768,6 +2818,8 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         // document cache, and the two closures kept whatever they captured on
         // first render.
         tv.wrapGuideColumns = wrapGuideColumns
+        // The pane's column, from the shell (`TextColumn`).
+        tv.textColumn = context.environment.textColumn
         tv.onCaretEscapeTop = onCaretEscapeTopHandler
         tv.onRewriteSelection = onRewriteSelectionHandler
         tv.onDiagramZoom = onDiagramZoomHandler
@@ -3035,8 +3087,26 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             (textView as? MarkdownUITextView)?.onEndEditing?()
         }
 
+        /// Return in a list starts the next item, and in an empty item ends
+        /// the list (`ListContinuation`) — from the software keyboard and a
+        /// hardware one alike, both of which arrive here as a newline. Not
+        /// while text is being composed, nor over a selection.
+        public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange,
+                             replacementText text: String) -> Bool {
+            guard text == "\n", range.length == 0, textView.markedTextRange == nil,
+                  let view = textView as? MarkdownUITextView, let document = view.document,
+                  let edit = ListContinuation.returnKey(in: (view.text ?? "") as NSString, at: range.location,
+                                                        parse: document.parse)
+            else { return true }
+            view.performEdit(replacing: edit.range, with: edit.replacement)
+            view.selectedRange = NSRange(location: edit.caret, length: 0)
+            view.refreshTypingAttributesAtEnd()
+            return false
+        }
+
         public func textViewDidChangeSelection(_ textView: UITextView) {
             document.selectionDidChange(textView.selectedRange)
+            (textView as? MarkdownUITextView)?.refreshTypingAttributesAtEnd()
             // Reveal flips which markers conceal / which chrome shows.
             (textView as? MarkdownUITextView)?.refreshChrome()
             (textView as? MarkdownUITextView)?.reportInlineContext()

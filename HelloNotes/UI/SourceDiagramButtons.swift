@@ -143,7 +143,11 @@ final class SourceDiagramButtons {
     #if canImport(AppKit)
     private static func text(of textView: NSTextView) -> String { textView.string }
     private static func containerOrigin(of textView: NSTextView) -> CGPoint { textView.textContainerOrigin }
-    private static func trailingInset(of textView: NSTextView) -> CGFloat { textView.textContainerInset.width + 4 }
+    /// From the container's own edge: the inset's width is the sum of both
+    /// sides once the text sits in a column (`TextPlacement`).
+    private static func trailingInset(of textView: NSTextView) -> CGFloat {
+        textView.bounds.width - textView.textContainerOrigin.x - (textView.textContainer?.size.width ?? 0) + 4
+    }
     #else
     private static func text(of textView: UITextView) -> String { textView.text ?? "" }
     private static func containerOrigin(of textView: UITextView) -> CGPoint {
