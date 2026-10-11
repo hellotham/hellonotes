@@ -369,6 +369,35 @@ What remains are **constraints of the providers and the platform**, not deferred
 - ✅ ~~The git tests would also be faster and more hermetic if they did not copy the whole
   `SampleVault` per test~~ — they run on a two-note vault (implemented.md §51.36).
 
+**Found releasing 1.3.3 build 31 and left (2026-10-12, implemented.md §51.41):**
+
+- 🟠 **A link that launches the app opens the window and not the note.**
+  `open -n <app> "hellonotes://note?collection=DefaultCollection&title=Writing"`
+  with the app not running: one window, no tab for the note; the same link to a
+  running app opens it. The widget's links are this kind, so a tap on the
+  widget with the app closed lands on an empty editor. `NavigationRouter.handle`
+  routes at once and `selectNote` finds no collection, because
+  `Library.restore()` has not finished; there is no restored signal and no
+  pending destination for a note (there is one for a search). Measured the same
+  with and without `takingLinksWhereOpen()`. Hold the destination until the
+  library has restored, then open it; drop it then if the collection is not
+  open. iOS very likely the same — check it.
+- 🟠 **`window-parity.sh` fails as it stands, and not on a defect.** It crops
+  the iPad's picture by a 24pt status bar and sizes the Mac window to 1210×790
+  on that basis; the simulator's top inset is 32pt now (the status bar carries
+  the app's name), so every row is 8pt out — 3.5% of the empty window. Cropped
+  at 32 by hand, the sidebar and the bar differ by 746 pixels, the sidebar
+  toggle beside the Mac's traffic lights. Measure the inset (the capture test
+  can attach it) and size both halves from it. And the note state compares the
+  editor column, whose type is 17pt on iOS and 16 on the Mac on purpose
+  (`AppearanceSettings.baseEditorFontSize`): compare the chrome there and
+  report the editor apart.
+- 🟡 **In Edit the Mac draws a link blue and underlined; the iPad draws it in
+  the accent.** `StyleApplier` sets `.link`, and nothing sets
+  `linkTextAttributes`, so `NSTextView` uses its own. Preview on the Mac uses
+  the accent, so Edit and Preview disagree there too — invisible to
+  `render-parity.sh`, which measures heights. Older than this release.
+
 ---
 
 ## Status
