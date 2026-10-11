@@ -8539,6 +8539,35 @@ their top-level folders); every capture kept reported one window and no match.
 | Archive, iOS | 1.3.3 (31), arm64, iOS 27.0, the same |
 | DMG | notarised Developer ID, stapled; 29.0 MB; SHA-256 `2943a79d455bee15dce53a636f4d5371ddcf4756f81a858e2ee9f9a57d2533d1` |
 
+**Released, the same day.**
+- *App Store.* 1.3.3 (31) submitted on both platforms and `WAITING_FOR_REVIEW`,
+  the listing set and read back through the App Store Connect API
+  (`scripts/asc-listing.py`; `docs/production.md` §10j has the counts).
+- *The download.* GitHub release `v1.3.3` with the notarised DMG. It was made
+  a pre-release and turned into *latest* as the site's deploy finished, so
+  `releases/latest` never served a file the page's checksum did not describe —
+  the gap that was open for twenty minutes on 29 August.
+- *The site.* 1.3.3, with the App Store said to be pending
+  (`APP_STORE.liveVersion` / `pendingVersion`, `StoreNotice.astro`) at the
+  person's direction: "publish 1.3.3 on the web as a release and say App Store
+  approval pending". `scripts/check-download-page.sh` checks the page's account
+  of the store against the store now, and passed against the live site:
+  1.3.3 · 29.0 MB · `2943a79d…`, the App Store 1.3.2 with 1.3.3 pending.
+- *The site was read four times against the source before it went out* — the
+  rewrite by one agent, then four fact-checkers who had not seen it written:
+  some 680 claims, no invented shortcut or menu path, and about twenty wrong or
+  overbroad, all corrected. The ones that mattered were not labels: "nothing is
+  uploaded anywhere" (a few settings follow the person through their own
+  iCloud account, with no switch), "the one thing that leaves the device is a
+  web search" (and the pages it then reads, and a model's download), Escape
+  closing a panel it only closes on a phone, "press Return to insert" for a
+  list that takes no keys, and a restore that "loses nothing" while replacing
+  uncommitted edits without asking. Its reverse column — what the *source*
+  gets wrong — is in `docs/unimplemented.md` §12: a mention found by an alias
+  that cannot be linked, three writes that clear undo under comments promising
+  it, an in-app privacy line that forgets the web search, and an Assistant
+  commit that takes everything pending.
+
 ### 51.40 Seven things wrong with the editor in build 28 (2026-10-11)
 
 The person used build 28 on the Mac for a day and reported seven things. Each
