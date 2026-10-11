@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 29` — uploaded to TestFlight (both platforms) on 2026-10-10. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), 28 the rearrangement asked for after testing 27 (§10g), and 29 the two `+` menus, the three-button bar and regular expressions in find (§10h). 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 30` — uploaded to TestFlight (both platforms) on 2026-10-11. **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), 28 the rearrangement asked for after testing 27 (§10g), 29 the two `+` menus, the three-button bar and regular expressions in find (§10h), and 30 the seven editor fixes reported from a day on 28 (§10i). 1.3.2 build 21 is what is live. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -725,6 +725,51 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10i · 1.3.3 build 30 — uploaded to TestFlight, 2026-10-11
+
+From `85a4a6f`. Both exports printed `Progress 100%: Upload succeeded` and
+`** EXPORT SUCCEEDED **`: iOS at 15:34 and macOS at 15:37.
+
+**Xcode's sign-in had not lapsed this time**, so the macOS export went through
+on the account at the first attempt. iOS went with the team's API key (§9), as
+it can whatever the account's state.
+
+Read back from each archive, not from the project:
+- Both archives read 1.3.3 (30), as do all six extensions.
+- Both apps are arm64 only. The minimums are macOS 27.0 and iOS 27.0.
+- Neither app nor any extension carries a temporary-exception entitlement.
+- All five cloud-provider keys are present (checked by length).
+- `ITSAppUsesNonExemptEncryption` is false.
+- The bundled manual has the new list, blank-line and scrolling text.
+- The archives' source warnings are 29's two and no more: `installTap`
+  (deprecated in 27.0) in the app, and `traitCollectionDidChange` in the editor
+  package on iOS.
+
+30 carries the seven things reported after a day on build 28
+(implemented.md §51.40):
+- **Scrolling past the end**, in Edit, Markdown and Preview: the room is part
+  of the document, so a trackpad reaches it as a wheel does, and the last line
+  is no longer cut off at the bottom edge. **Neither symptom was reproduced in
+  a test** — it wants checking by hand on a trackpad.
+- **The scrollbar at the window's edge**: Full pane is the whole pane, and a
+  narrower column sits inside a view that fills the pane.
+- **Typing in a heading** no longer restyles the whole note and throws its
+  layout away after each keystroke.
+- **Return in a list** starts the next item, and ends the list on an empty one.
+- **Blank lines** past the first show as lines in Edit.
+- **The line after a list** stands at the margin.
+
+**A build number is not what is installed.** The person reported build 29
+without its `+` menus; `/Applications/HelloNotes.app` read 1.3.3 (28),
+reinstalled that morning — TestFlight keeps the builds and can put an older one
+back. Read the installed app's `CFBundleVersion` before looking at the code.
+
+Before archiving, on the committed tree:
+- 849 app tests, and the iOS interface suite.
+- The editor package: 553 tests (macOS) and 527 (iOS).
+- `render-parity.sh`, every gate.
+- A Swift 6 type-check, 0 errors, with a planted error caught.
 
 ## 10h · 1.3.3 build 29 — uploaded to TestFlight, 2026-10-10
 
