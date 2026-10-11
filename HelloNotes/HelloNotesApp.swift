@@ -139,10 +139,10 @@ struct HelloNotesApp: App {
         // Its bar is the app's, as the main window's is.
         .appDrawnTitleBar()
 
-        // Graph, Ask Library, Assistant and Mind Map have **no scene**. They
-        // are views of the right panel (`SidePanel`), beside the editor, like
-        // the note's own outline and tags: the shell is collections on the
-        // left, the editor in the middle, anything else on the right. The app
+        // Graph, Ask Your Library, Assistant and Mind Map have **no scene**.
+        // The Graph is a view of the right panel (`SidePanel`), like the
+        // note's own outline and tags; the other three are the collection's
+        // and open as tabs beside the notes (`CollectionTool`). The app
         // opens no window of its own on either platform — a scene the system
         // places cannot be relied on to sit beside the notes, and on iPadOS
         // closing one leaves the app — so the only windows are the two someone

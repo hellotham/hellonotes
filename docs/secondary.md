@@ -94,9 +94,11 @@ open still draws.
   pull-down instead: the current view's glyph and **name** and a chevron,
   opening a menu of the six, with a check on the current view. `ViewThatFits` chooses, so the fallback is the
   layout's own answer rather than a width written down twice.
-- **Close panel** (`xmark.circle.fill`) at the trailing end. It is also the
-  window's **cancel action**, so Escape closes the panel when nothing else
-  consumes it (§9).
+- **Close panel** (`xmark.circle.fill`) at the trailing end. It is the
+  **cancel action** only where the panel is carried over the note — a phone's
+  width — so Escape closes it there; as a column it does not take Escape,
+  which belongs to the find bar's Done and the approval card's Deny (§9,
+  item 8; `SidePanel.escapeCloses`).
 
 ---
 
@@ -112,7 +114,7 @@ The routes that show a view go through `showPanel(_:)`, which sets the view and
 shows the panel. The three suggestion routes go through `askInspector(_:)`,
 which also sets the view and shows the panel, and then sets the request.
 **Choosing a view from the header** changes the view and leaves the panel open.
-**Close** (or Escape, or the scrim) hides it, and the view stays chosen. On the
+**Close** (or, where the panel covers the note, Escape or the scrim) hides it, and the view stays chosen. On the
 compact shell, **putting the note away** (its Back, or Find Related on a
 selection) hides it too, so a panel left showing does not follow you back to
 the list.

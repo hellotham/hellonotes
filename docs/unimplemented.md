@@ -392,6 +392,51 @@ What remains are **constraints of the providers and the platform**, not deferred
   editor column, whose type is 17pt on iOS and 16 on the Mac on purpose
   (`AppearanceSettings.baseEditorFontSize`): compare the chrome there and
   report the editor apart.
+- 🟠 **Found by fact-checking the 1.3.3 website against the source (the
+  "reverse column"), all in build 31:**
+  - *An unlinked mention found by an alias cannot be linked.* The Links view
+    finds mentions of the title **or an alias** (`NoteReferences.swift:41-43`)
+    and its Link button is handed the title alone (`ContentView.swift:480-483`,
+    `MentionScanner.swift:35-44`), so for a note listed because of an alias the
+    button changes nothing.
+  - *Three app writes clear undo while their own comments promise it.* Review
+    Links, a restored version and a whole-note rewrite go through
+    `EditorModel.applyEdit`, which replaces the document and resets the undo
+    stack (`EditorHost.swift:411-423`, `EditorDocument.swift:348`);
+    `ReviewLinksView.swift:17-19` says "a single undoable edit",
+    `NoteHistoryView.swift:15-17` "so it stays undoable". Restore has no
+    confirmation either, and replaces edits made since the last commit. Decide
+    which is meant — undo kept, or a confirmation — and make the comments say it.
+  - *"Runs on this device. Your notes never leave it."* (AI settings and the
+    Assistant's empty state; `LanguageModels.swift:243, 247`,
+    `AssistantView.swift:205`) is shown by the same Assistant that has
+    `web_search`, whose queries the model writes after reading notes. The
+    website's privacy page says so; the app's line does not.
+  - *An approved Assistant change commits everything.* `ToolContext.commit`
+    calls `git.commitAll`, so every pending change in the collection goes into
+    the Assistant's commit, whatever Auto-commit is set to and without the
+    cloud-folder guard Auto-commit has.
+  - *One command, three labels:* "Rewrite or Expand Note…" (Note menu, palette)
+    against "Rewrite or Expand…" (Note Actions, the phone's AI tab), and
+    "Summarise Note" against "Summarise" (`AIPlaceList.swift:60, 63`).
+  - *Wiki-link completion has no keyboard route* (`WikiLinkCompletionList.swift:23-26`):
+    a suggestion is clicked or tapped, never chosen with Return or the arrows.
+  - *Comments describing a replaced design:* `GraphPane.swift:23-24` ("the open
+    note at the centre" — nothing is pinned), `FindReplaceBar.swift:89-91`
+    ("Graph View"), `AppCommands.swift:566-569` (an orphaned comment over
+    Command Palette…), `NoteEdits.swift:104-105, 133-135` (the `## Related`
+    section and `[!summary]` callout, with `isRelatedHeading` uncalled),
+    `CollectionSearchModel.swift:395` (aliases are matched too),
+    `NoteComposer.swift:69-76` and `MLXModelStore.swift:63-75, 175` (two model
+    roles; the refused entitlement), `VoiceCapture.swift:5-9, 31` (macOS 26 and
+    15), `CloudCollectionsManager.swift:2, 221` (its old names),
+    `AssistantHost.swift:70-72`, `AssistantView.swift:7` and
+    `EditApprovalView.swift:8-9` (panel or window; they are tabs).
+  - *`docs/menu.md` still to reconcile:* §4 ("only thirteen rows show a
+    shortcut" — the palette shows fifteen), §8 item 3 (struck through as fixed;
+    the palette still says "Find in Note", "Rename Note", "<Mode> Mode"), §3.5
+    ("the panel's Outline", "the panel's References"), §3.1 (About with no
+    window).
 - 🟡 **In Edit the Mac draws a link blue and underlined; the iPad draws it in
   the accent.** `StyleApplier` sets `.link`, and nothing sets
   `linkTextAttributes`, so `NSTextView` uses its own. Preview on the Mac uses

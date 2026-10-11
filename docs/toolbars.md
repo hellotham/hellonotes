@@ -406,7 +406,7 @@ the right as the cancel action.
 | New Note from a Prompt | "New Note from a Prompt" and **Cancel** |
 | Review Links | "Review Links", "*n* of *m*" and **Close** |
 | Rewrite | "Rewrite Note" or "Rewrite Selection", the model's name, and **Close** (Replace Note or Replace Selection, and Insert Below, are its commits) |
-| Quick Capture | a leading "Quick Capture" title and a caption. No dismiss control: **Append** (⌘↩) is its only button |
+| Quick Capture | a leading "Quick Capture" title and a caption, then **Close** (Escape) and **Append** (⌘↩) |
 | Welcome | a centred header (the app icon, "Welcome to HelloNotes") and **Explore first** at the bottom, which has no shortcut |
 
 The two palettes (Command Palette, Open Quickly) open on their search field,

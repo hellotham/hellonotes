@@ -300,7 +300,7 @@ or extend another app's menus.
 
 | Key | Does | Where |
 |---|---|---|
-| Esc | closes the panel, the find bar, or a sheet (their cancel actions); dismisses Open Quickly, the palette and the splash; clears an inline suggestion; **denies** an Assistant edit awaiting approval | wherever it applies |
+| Esc | closes the find bar or a sheet (their cancel actions) — and the panel only where it is carried over the note, a phone's width (`SidePanel.escapeCloses`; as a column it took Escape from the find bar and the approval card); dismisses Open Quickly, the palette and the splash; clears an inline suggestion; **denies** an Assistant edit awaiting approval | wherever it applies |
 | Return | presses a sheet's default button; opens or runs the selected row in Open Quickly and the palette; sends in the Assistant; **approves** an Assistant edit awaiting approval; asks the question in Ask Library; goes to the next match in the find bar | wherever it applies |
 | ↑ · ↓ | moves the selection: through notes and attachments in the sidebar column (when focused), notes and headings in Open Quickly, commands in the palette, revisions in the History list | those lists |
 | ↑ or ← at the top of a note | moves the caret into the note's title | the editor |
