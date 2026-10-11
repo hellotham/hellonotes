@@ -76,6 +76,10 @@ import AppKit
     @Test func aRenderedEmbedIsAsWideAsThePagesContentBox() {
         let document = EditorDocument(text: "<table><tr><td>Hi</td></tr></table>\n")
         let (scrollView, _) = MarkdownTextView.scrollableEditor(document: document)
+        // The page's content box is the *text view's* width less its insets,
+        // and always-visible scroll bars (a machine with no trackpad) take
+        // 15pt of the pane from it. Pinned, so `width` below is the text view's.
+        scrollView.scrollerStyle = .overlay
         for width in [420.0, 800.0, 1200.0] as [CGFloat] {
             scrollView.frame = NSRect(x: 0, y: 0, width: width, height: 400)
             let window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],

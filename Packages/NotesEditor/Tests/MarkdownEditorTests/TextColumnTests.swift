@@ -73,6 +73,12 @@ import UIKit
         document.styleEverythingNow()
         let (scrollView, textView) = MarkdownTextView.scrollableEditor(document: document)
         scrollView.frame = NSRect(origin: .zero, size: Self.size)
+        // Pinned, like the appearance below: a machine with no trackpad — a CI
+        // runner — has scroll bars that are always there and take 15pt of the
+        // pane, so the text view is that much narrower than the 600 these
+        // tests reckon from. The first run of this suite on one failed on
+        // exactly that; the column itself was right.
+        scrollView.scrollerStyle = .overlay
         let window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

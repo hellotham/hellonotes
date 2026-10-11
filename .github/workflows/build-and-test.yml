@@ -95,6 +95,12 @@ jobs:
       # The direct-API cloud providers read their keys from a git-ignored
       # xcconfig. The app builds and runs without it — those providers just
       # report "not configured" — so CI uses the committed template.
+      # mlx-swift's Cmlx target compiles Metal shaders, and Xcode 27 ships the
+      # Metal toolchain as a component to download: without it every app build
+      # fails at "cannot execute tool 'metal' due to missing Metal Toolchain" —
+      # which is how the first runs on `main` to carry 1.3.3 went (2026-10-12).
+      - name: Install the Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
       - name: Provide the secrets template
         run: cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
 
@@ -163,6 +169,12 @@ jobs:
           path: ~/.cache/hellonotes-spm
           key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved', '**/project.pbxproj') }}
           restore-keys: spm-${{ runner.os }}-
+      # mlx-swift's Cmlx target compiles Metal shaders, and Xcode 27 ships the
+      # Metal toolchain as a component to download: without it every app build
+      # fails at "cannot execute tool 'metal' due to missing Metal Toolchain" —
+      # which is how the first runs on `main` to carry 1.3.3 went (2026-10-12).
+      - name: Install the Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
       - name: Provide the secrets template
         run: cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
       - name: Build (Release)
