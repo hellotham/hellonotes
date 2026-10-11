@@ -166,6 +166,11 @@ final class NavigationRouter {
     /// results that open nothing. Diff against the previous donation and
     /// explicitly retract what's gone.
     func donateNotesToSpotlight() async {
+        // A run launched to be captured opens the sample collection alone, and
+        // donated like any other launch it *retracted* every note the person
+        // has in Spotlight — the last donation, less the sample — for their
+        // next launch to donate again.
+        guard !CaptureSession.isActive else { return }
         let entities = openNotesForIntents().prefix(500).map {
             NoteEntity(collectionName: $0.collectionName, relativePath: $0.relativePath, title: $0.title)
         }

@@ -62,7 +62,11 @@ struct AdaptiveShell<Sidebar: View, Pane: View,
 
     var body: some View {
         GeometryReader { geo in
-            let kind = shellKind(width: geo.size.width, height: geo.size.height)
+            // To the scene's bottom edge, not the height offered: a keyboard
+            // takes from the one and gives to the other, and must not change
+            // which shell this is (`shellKind(width:offeredHeight:bottomInset:)`).
+            let kind = shellKind(width: geo.size.width, offeredHeight: geo.size.height,
+                                 bottomInset: geo.safeAreaInsets.bottom)
             let context = ShellContext(
                 kind: kind,
                 size: geo.size,

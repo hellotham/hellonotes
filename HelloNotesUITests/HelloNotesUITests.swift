@@ -84,7 +84,18 @@ final class HelloNotesUITests: XCTestCase {
         // A first-run tip is history, not drawing — `window-parity.sh` hides
         // them for the same reason — and one takes the first tap: the Mind
         // Map row's comes up over the phone's Notes place on a fresh device.
-        app.launchArguments += ["-HNHideTips"]
+        //
+        // The view mode is history too, and it outlives an uninstall: it is
+        // one of the settings that sync, so the device keeps it outside the
+        // app's container. Left on Preview by a capture run, a note opens with
+        // no text view in it and the test below waits for one.
+        //
+        // **`-HNHideTips` last.** It takes no value, and a launch argument is
+        // paired with whatever follows it: ahead of `-editorViewMode edit` it
+        // took `-editorViewMode` as its value and pinned nothing. On the Mac
+        // the word left over is a file to open, and an app launched to open a
+        // file shows no window of its own.
+        app.launchArguments += ["-editorViewMode", "edit", "-HNHideTips"]
         app.launch()
         let splash = app.staticTexts["Where every idea says hello."]
         if splash.waitForExistence(timeout: 5) {
@@ -259,6 +270,162 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
+    // MARK: - Store screenshots
+
+    /// The App Store's iPhone and iPad screenshots, shot by walking the app.
+    ///
+    /// Five scenes on whichever device this runs on, attached under the names
+    /// the sets are filed by (`assets/screenshots-raw/README.md`), and a few
+    /// more to choose from. Opt-in (`TEST_RUNNER_HN_STORE_SHOTS=1`), on the two
+    /// devices whose pixels the store takes: `HN-iPhone` (1284×2778) and
+    /// `HN-iPad13` (2064×2752). Set the clock first —
+    /// `xcrun simctl status_bar <device> override --time 9:41 …` — and export
+    /// with `xcrun xcresulttool export attachments`.
+    ///
+    /// A test rather than a list of taps to make by hand, because the 1.3.2 set
+    /// was made by hand and was still in App Store Connect five builds into
+    /// 1.3.3: a window that had since been rearranged, and an Intelligence note
+    /// offering "sixteen providers" and "your own API key" beside reviewer
+    /// notes saying the app has neither. A set that takes a command to remake
+    /// gets remade.
+    ///
+    /// It asserts nothing about what it shoots — look at every picture. It was
+    /// looking that found the AI place's bar drawn a third of the screen wide.
+    @MainActor
+    func testStoreScreenshots() throws {
+        #if os(iOS)
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["HN_STORE_SHOTS"] == "1",
+                          "Opt-in: the App Store's screenshots.")
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        // No `-editorViewMode`: an argument outranks what the app stores, so
+        // the mode buttons below would change nothing while it was there.
+        // `-HNHideTips` last, as it takes no value (`launchPastSplash`).
+        app.launchArguments += [
+            "-hasSeenWelcome", "YES", "-appearanceMode", "dark", "-accentChoice", "lavender",
+            "-increaseContrast", "NO", "-textScale", "1", "-sidePanel", "graph", "-HNHideTips",
+        ]
+        app.launch()
+        let splash = app.staticTexts["Where every idea says hello."]
+        if splash.waitForExistence(timeout: 5) {
+            XCTAssertTrue(splash.waitForNonExistence(timeout: 20), "splash never dismissed")
+        }
+        sleep(3)
+
+        func shoot(_ name: String) {
+            sleep(2)
+            keep(XCUIScreen.main.screenshot(), named: name)
+        }
+        /// Scroll the note up by `fraction` of the screen, slowly enough that
+        /// nothing coasts.
+        func scrollNote(by fraction: CGFloat, from start: CGFloat = 0.72) {
+            let window = app.windows.firstMatch
+            let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: start))
+            let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: start - fraction))
+            from.press(forDuration: 0.1, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        /// A missing button fails the run: a tap that quietly did nothing left
+        /// seven pictures of one screen and a test that passed.
+        func tap(_ label: String, timeout: TimeInterval = 8) {
+            let button = app.buttons[label].firstMatch
+            guard button.waitForExistence(timeout: timeout) else {
+                return XCTFail("no button named \(label)")
+            }
+            button.tap()
+        }
+
+        // The compact shell is the one with places in a tab bar.
+        if !app.buttons["AI"].waitForExistence(timeout: 8) {
+            // The tall shell: the collection in a band above the note.
+            func open(_ title: String) {
+                let row = app.staticTexts[title].firstMatch
+                if !row.waitForExistence(timeout: 5) || !row.isHittable {
+                    // Further down the band's list than it shows.
+                    let window = app.windows.firstMatch
+                    window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.19))
+                        .press(forDuration: 0.1,
+                               thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.09)),
+                               withVelocity: .slow, thenHoldForDuration: 0.3)
+                }
+                guard row.waitForExistence(timeout: 5) else { return XCTFail("no row for \(title)") }
+                row.tap()
+                sleep(2)
+            }
+            open("Rich Content")
+            // Preview, which draws the same page with no caret in it: a press
+            // on the editor puts one there, and the keyboard with it.
+            tap("Preview")
+            scrollNote(by: 0.22)
+            shoot("01-rich-content")
+            open("Transclusion")
+            shoot("02-transclusion")
+            open("Linking")
+            tap("Show Panel")
+            shoot("03-linking")
+            tap("Hide Panel")
+            open("Rich Content")
+            tap("Split")
+            // The page beside the source is a web view made for the purpose,
+            // and its first load takes longer than a fixed wait allowed: the
+            // first capture of this had the source and an empty half.
+            XCTAssertTrue(app.webViews.staticTexts["Callouts"].firstMatch.waitForExistence(timeout: 30),
+                          "Split never drew its page")
+            shoot("05-split-view")
+            tap("Preview")
+            tap("Ask Your Library")
+            shoot("04-ask-your-library")
+            tap("Mind Map")
+            sleep(3)
+            shoot("x-mind-map")
+            tap("Assistant")
+            shoot("x-assistant")
+        } else {
+            // The compact shell: places in a tab bar, the note over them.
+            // The note's Back button is named for where it goes back to.
+            let back = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Back to'")).firstMatch
+            func close() {
+                guard back.waitForExistence(timeout: 8) else { return XCTFail("the note has no Back button") }
+                back.tap()
+                sleep(1)
+            }
+            func open(_ title: String) {
+                tap("Search")
+                let row = app.staticTexts[title].firstMatch
+                guard row.waitForExistence(timeout: 8) else { return XCTFail("no row for \(title)") }
+                row.tap()
+                let strip = app.buttons["shell.miniStrip"].firstMatch
+                if !back.waitForExistence(timeout: 3), strip.exists { strip.tap() }
+                XCTAssertTrue(back.waitForExistence(timeout: 5), "\(title) did not open")
+                sleep(2)
+            }
+            open("Rich Content")
+            tap("Preview")
+            scrollNote(by: 0.30)
+            shoot("01-rich-content")
+            close()
+            open("Transclusion")
+            shoot("02-transclusion")
+            close()
+            open("Linking")
+            tap("Show Panel")
+            shoot("03-linking")
+            tap("Hide Panel")
+            close()
+            tap("AI")
+            shoot("04-intelligence")
+            tap("Search")
+            shoot("05-library")
+            tap("Notes")
+            shoot("x-library-place")
+            tap("Mind Map")
+            sleep(3)
+            shoot("x-mind-map")
+        }
+        #else
+        throw XCTSkip("iOS capture; the Mac's set is shot from the window (docs/website.md).")
+        #endif
+    }
+
     /// The settings both halves launch with — each one's default, stated, so
     /// neither device's history can make the two pictures differ.
     static let windowParityArguments = [
@@ -359,6 +526,103 @@ final class HelloNotesUITests: XCTestCase {
         }
         #else
         throw XCTSkip("iOS layout test.")
+        #endif
+    }
+
+    /// Each of the editor's view modes says which it is.
+    ///
+    /// The four are a row of glyphs, each named by the control that draws them
+    /// — and the editor then named the *row* "View mode", which SwiftUI hands
+    /// to every button in a row that is not a group of its own. So VoiceOver
+    /// read "View mode" four times, and nothing could ask for Preview by name.
+    /// It was found by a script that tapped "Preview", failed to, and was
+    /// written to carry on regardless.
+    @MainActor
+    func testEachViewModeSaysWhichItIs() throws {
+        #if os(iOS)
+        let app = launchPastSplash()
+        try XCTSkipUnless(app.buttons["Tags"].waitForExistence(timeout: 15),
+                          "Compact shell only.")
+        app.buttons["Notes"].tap()
+        let more = app.buttons["More actions"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 15), "the Notes place has no overflow menu")
+        more.tap()
+        let newNote = app.buttons["New Note"].firstMatch
+        XCTAssertTrue(newNote.waitForExistence(timeout: 10), "New Note is not in the overflow menu")
+        newNote.tap()
+        let strip = app.buttons["shell.miniStrip"].firstMatch
+        if strip.waitForExistence(timeout: 15) { strip.tap() }
+        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 15), "the editor never appeared")
+
+        for mode in ["Edit", "Preview", "Markdown", "Split"] {
+            XCTAssertTrue(app.buttons[mode].exists,
+                          "no view mode is named \(mode). Buttons: "
+                          + app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
+        }
+        #else
+        throw XCTSkip("iOS accessibility test.")
+        #endif
+    }
+
+    /// A note can be typed in on an iPad held upright, and the Assistant
+    /// opened, with the keyboard on screen.
+    ///
+    /// Neither could. The shell is the band across the top when the scene is
+    /// taller than wide and the columns when it is not, and it went by the
+    /// height the scene was offered — which the keyboard takes 383pt of on the
+    /// 13-inch, leaving 1032×941. So the keyboard coming up changed the shell,
+    /// the new shell made the text view again without the keyboard, the
+    /// keyboard went, and the scene was tall again: ten times round, ending
+    /// with no caret. The Assistant takes the keyboard as it appears and never
+    /// stopped — the whole main thread, 1.8 GB in two minutes.
+    ///
+    /// Every other test here is the phone's, whose shell goes by width alone.
+    /// **Run this one on an iPad** (`name=HN-iPad13`, or `HN-iPad`): it skips
+    /// on a phone. It needs the keyboard on screen, which a simulator driven
+    /// by `xcodebuild` shows unless a hardware keyboard has been connected to
+    /// it by hand.
+    @MainActor
+    func testTypingOnAnIPadHeldUpright() throws {
+        #if os(iOS)
+        let app = launchPastSplash()
+        let band = app.descendants(matching: .any)["shell.band"].firstMatch
+        // The phone's tab bar is the quick way to know there will be no band.
+        try XCTSkipIf(app.buttons["Tags"].waitForExistence(timeout: 5),
+                      "The band shell only — an iPad in portrait.")
+        try XCTSkipUnless(band.waitForExistence(timeout: 15),
+                          "The band shell only — an iPad in portrait.")
+        let row = app.staticTexts["Start Here"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the band lists no Start Here")
+        row.tap()
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 15), "the note did not open in Edit")
+        editor.tap()
+        // Long enough for the shell to have gone round, which took under a
+        // second a turn.
+        sleep(4)
+        // A failure, not a skip. This skipped at first when no keyboard was
+        // showing, to allow for a simulator with a hardware keyboard connected
+        // — and a keyboard that has come up and gone away is not showing
+        // either, so on the defect itself the test skipped and the run passed.
+        guard app.keyboards.firstMatch.exists else {
+            return XCTFail("no keyboard is on screen after tapping into the note: it came up and went away "
+                           + "again, or this simulator has a hardware keyboard connected "
+                           + "(I/O ▸ Keyboard ▸ Connect Hardware Keyboard), which this test cannot run with")
+        }
+        XCTAssertTrue(band.exists, "the keyboard changed the shell: the band is gone")
+        XCTAssertEqual(app.textViews.firstMatch.value(forKey: "hasKeyboardFocus") as? Bool, true,
+                       "the note lost the caret when the keyboard came up")
+
+        // The Assistant takes the keyboard as it opens. Going round, the app
+        // never came to rest and this tap alone took two minutes.
+        let started = Date()
+        app.buttons["Assistant"].firstMatch.tap()
+        XCTAssertTrue(band.waitForExistence(timeout: 10), "opening the Assistant changed the shell")
+        _ = app.staticTexts.count
+        XCTAssertLessThan(Date().timeIntervalSince(started), 30,
+                          "the app did not come to rest with the Assistant open")
+        #else
+        throw XCTSkip("iPad layout test.")
         #endif
     }
 

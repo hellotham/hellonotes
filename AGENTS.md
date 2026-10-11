@@ -41,9 +41,16 @@
 - **Model evaluations** (Apple's Evaluations framework, real on-device model, ~30s, opt-in — needs Apple Intelligence, so never CI): `TEST_RUNNER_HN_EVALUATIONS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/IntelligenceEvaluationTests`. Tags, links, rewrites, long-note summaries and Assistant tool trajectories. Add `TEST_RUNNER_HN_EVAL_MLX_FOLDER=<absolute path>` to run the same suite on an MLX model — a model folder, or a model's `models--org--name` folder in `~/.cache/huggingface/hub` (list what is there with `mlx_lm.manage --scan`; never download one without asking), loaded through the app's own folder path; a `~` would expand inside the test host's container. Two more suites run under the same flags and pick themselves by the model: `AssistantEditEvaluation` (a tool call, an approval, and the note on disk changes — the trajectory suite denies every approval, so nothing else ever writes) and `AssistantWithoutToolsEvaluation` (a model whose template has no tools must answer in words, not imitation calls). Add them with their own `-only-testing:` flags. Run after touching any prompt, schema, tool, `HistoryWindow` or `TokenBudget` — the unit tests prove plumbing and could not see the two defects this suite found in its first hour (below). Read per-sample results with `xcrun xcresulttool export attachments --path <xcresult> --output-path <dir>` (`.xcevalresult` JSON). Two more opt-in probes run inside the signed app: `TEST_RUNNER_HN_RESEARCH_PROBE=1 … -only-testing:HelloNotesTests/ResearchProbe` (a real deep-research run, ~30s, searches the web) and `TEST_RUNNER_HN_PCC_PROBE=1 … -only-testing:HelloNotesTests/PrivateCloudComputeProbe` (one PCC request; does nothing unless the build is entitled).
 - **iOS interface tests** — the only check that a screen actually *draws*:
   `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=iOS Simulator,name=HN-iPhone' -skipPackagePluginValidation -only-testing:HelloNotesUITests`
-  (~4 min, 13 cases — one, the window-parity capture, skips unless its script runs it —
-  headless). Run it after any change to a settings screen, the
-  shell, or the editor's chrome — **and actually run it**:
+  (~4 min, 16 cases, 2026-10-12 — three skip there: the window-parity capture
+  and the store's screenshots unless their own runs ask for them, and the
+  iPad's test — headless). **Then the iPad's, which a phone cannot run**:
+  the same command with `name=HN-iPad13` and
+  `-only-testing:HelloNotesUITests/HelloNotesUITests/testTypingOnAnIPadHeldUpright`
+  (~25s). Every other case is the phone's, whose shell is chosen by width
+  alone, so nothing here had ever brought a keyboard up on an iPad: a note
+  could not be typed in on one held upright, and no test, parity run or
+  review said so (implemented.md §51.41). Run both after any change to a
+  settings screen, the shell, or the editor's chrome — **and actually run them**:
   `testTheOpenNoteIsNotClippedOffTheScreen` waited for a word count that was
   removed from the status bar on 2 September and failed every run from that day
   to 16 September, because nothing ran this suite in between. A test naming a
@@ -53,7 +60,7 @@
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 849 tests in 129 suites, ~35s (2026-10-11).
+  afterwards whatever the result. 852 tests in 130 suites, ~35s (2026-10-12).
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **60 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
@@ -210,6 +217,22 @@
   on 24 September `collectionPaths` said DefaultCollection alone and the
   sidebar in the capture showed a OneDrive collection's folders. The capture
   was deleted; the check is both keys now.
+  **A capture session is the other way to take one, and it names all three
+  lists** — `collectionBookmarks`, `collectionPaths` and
+  `-remoteCollectionCaches "()"` in the argument domain, with
+  `-HNCaptureSession YES`: the app then opens the sample alone whatever the
+  person has open, and `window-parity.sh` left the third out until 12 October.
+  Three more things a launch with the sample replaced, each found by comparing
+  preference *key names* before and after, or by looking at what came out:
+  the notes donated to Spotlight were retracted and the widget's recent notes
+  republished from the sample (both hold back under `CaptureSession` now); the
+  window's saved frame became the capture's (the script writes that one key
+  back); and **the Assistant opens on the last conversation, which is the
+  person's** — one capture held it and was deleted, and the chats folder is
+  moved aside for a run now. Before each picture, read the window through
+  Accessibility for the names of the person's other collections and their
+  folders, printing a count and nothing else; a match takes no picture
+  (`assets/screenshots-raw/README.md`).
 - **A hosted test's defaults are `ScratchDefaults`, never
   `UserDefaults(suiteName:)`.** The tests run inside the app's sandbox, so a
   named suite is a plist in the person's own `Library/Preferences`, and
@@ -593,6 +616,55 @@
   without the root's defaults draws correctly, so a check of it must apply
   `chromeDefaults()` — the first probe left them out and saw nothing wrong
   (`GraphLabelTests`, with a negative control).
+- **A keyboard covers part of a scene; it does not make the scene shorter.**
+  The shell is the band when the scene is taller than wide and the columns
+  when it is not, and it went by the height the scene was *offered* — which a
+  keyboard takes from: 1032×1324 became 1032×941 on the 13-inch iPad in
+  portrait. So the keyboard coming up changed the shell; those are two
+  branches, every view was made again, the text view that asked for the
+  keyboard was gone, the keyboard with it, and the scene was tall again. A note
+  could not be typed in, and the Assistant, which takes the keyboard as it
+  appears, went round for good: the whole main thread, 1.8 GB in two minutes.
+  The shell goes by the scene's height to its bottom edge now
+  (`shellKind(width:offeredHeight:bottomInset:)`): what the keyboard takes from
+  the one it gives to the other. `ShellKeyboardTests` holds it on the Mac — a
+  keyboard is a bottom safe-area inset, and `safeAreaPadding` is one — and
+  `testTypingOnAnIPadHeldUpright` on the device. The same rule as the one about
+  a view whose arrangement follows its size, one level up: the shell itself was
+  the largest view that did.
+- **A launch argument with no value goes last, or is given one.** Every `-key`
+  is paired with the token after it, whatever that is. `-HNHideTips` ahead of
+  `-editorViewMode edit` took `-editorViewMode` as its value and pinned
+  nothing, on either platform, silently. On the Mac the word left over
+  (`edit`, `YES`) is a file to open, and an app launched to open a file shows
+  **no window of its own** — which read, for an hour, as the app launching
+  without one. `-HNHideTips YES` is as good; the app only asks whether the
+  argument is there.
+- **A script that presses a button fails when the button is not there, and a
+  test does not skip on the symptom of what it is for.** The store-screenshot
+  test's `tap` returned quietly when it found nothing, and the run passed with
+  seven pictures of one screen. The iPad typing test skipped when no keyboard
+  was showing, to allow for a simulator with a hardware keyboard connected —
+  and a keyboard that has come up and gone away again is not showing either,
+  so on the defect itself it skipped, and `xcodebuild` printed `TEST
+  SUCCEEDED`. Both were found by the negative control and not before it. A
+  skip is neither a pass nor a failure; read the count of them.
+- **A name given to a row that is not a group is given to everything in it.**
+  `ChromeSegmented` names each segment, and the editor then named the *control*
+  "View mode" — which SwiftUI hands to every element of a container that is
+  not an accessibility element itself, over the element's own. VoiceOver read
+  "View mode" four times, and nothing could ask for Preview by name. The
+  control is a group of its own now (`.accessibilityElement(children:
+  .contain)`), so a name given to it names the group;
+  `testEachViewModeSaysWhichItIs`.
+- **A link opens in the window that is open.** On the Mac a `WindowGroup`
+  answers an external event — a `hellonotes://` link, so every tap on the
+  widget — by making a new window unless an open one says it would rather
+  take it. None did: three links, four main windows, the note opened in all
+  of them (counted through Accessibility). `takingLinksWhereOpen()` says so
+  for the main window; with none open one is still made. Still open: a link
+  that *launches* the app arrives before the library has restored and opens
+  nothing (measured the same with and without this change).
 - **The app opens no window of its own, on either platform.** `openWindow` on
   iPadOS makes a scene that *replaces* the notes in full-screen apps and in
   Split View, and closing it left the app — Done in the Assistant showed the

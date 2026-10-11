@@ -49,6 +49,9 @@ extension Library {
     /// Publish a fresh recent-notes snapshot to the App Group + reload widgets.
     /// Cheap (metadata only) and debounced by the caller (`allNotes` change).
     func writeWidgetSnapshot() {
+        // Not from a run launched to be captured: its notes are the sample's,
+        // and the widget would show them until the next real launch.
+        guard !CaptureSession.isActive else { return }
         let items = collections
             .flatMap { coll in coll.notes.map { (coll, $0) } }
             .sorted { Note.newestFirst($0.1, $1.1) }

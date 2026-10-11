@@ -191,6 +191,26 @@ func shellKind(width: CGFloat, height: CGFloat) -> ShellKind {
     return width >= ShellMetrics.inspectorMin ? .wideInspector : .wide
 }
 
+/// The shell for a scene offered `offeredHeight` above a bottom inset — which
+/// is how a keyboard arrives: the height offered shrinks and the inset grows
+/// by the same amount.
+///
+/// **A keyboard covers part of a scene; it does not make the scene shorter.**
+/// Chosen by the height offered alone, an iPad in portrait stopped being tall
+/// the moment its keyboard came up — 1032×1324 became 1032×941 on the 13-inch
+/// — and the shell changed from the band to the columns. Those are two
+/// branches, so every view in the window was made again: the text view that
+/// had asked for the keyboard was gone, the keyboard went with it, the scene
+/// was tall again, and the note could not be typed in. The Assistant, which
+/// takes the keyboard when it appears, went round for good at 100% of the
+/// main thread, a gigabyte and a half in two minutes.
+///
+/// So the shell is chosen by the scene's height down to its bottom edge, which
+/// a keyboard does not move.
+func shellKind(width: CGFloat, offeredHeight: CGFloat, bottomInset: CGFloat) -> ShellKind {
+    shellKind(width: width, height: offeredHeight + bottomInset)
+}
+
 // MARK: - The pane's text column (Part 2, decision 5)
 
 //  There used to be a `TextIntent` here — `.reading` or `.editing` — and the

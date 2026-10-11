@@ -561,6 +561,11 @@ struct ChromeSegmented<Value: Hashable>: View {
         }
         .padding(2)
         .background(Chrome.Colour.fill, in: RoundedRectangle(cornerRadius: Chrome.Metric.radius))
+        // A group of its own, so a name a caller gives the control names the
+        // group. Without it a label on this row is handed to every segment in
+        // it, over the segment's own: the editor's four modes each read
+        // "View mode".
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder

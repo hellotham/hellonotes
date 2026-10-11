@@ -63,6 +63,13 @@ HelloNotes now runs its AI on Apple Foundation Models.
 • The Assistant looks through your notes before it answers, and changes nothing without your approval. Several changes proposed at once now wait their turn instead of failing.
 • Third-party AI services and API keys are gone. Any keys you had stored for them are deleted from this device.
 
+Also in this version:
+• A simpler window. Your collection is on the left, the note is in the middle, and what the note is — its outline, tags, links, properties, history and graph — is in one panel on the right. The Mind Map, the Assistant and Ask Your Library open as tabs beside your notes.
+• The Mind Map draws the links across a whole collection; the Graph shows one note's links in and out.
+• Find and Replace understands regular expressions.
+• Return continues a list, a note scrolls past its last line, and the blank lines you type are shown.
+• On an iPad held upright, the on-screen keyboard no longer rearranges the window.
+
 HelloNotes 1.3.3 requires iOS 27 or macOS 27.
 ```
 
@@ -80,7 +87,7 @@ WRITE IN LIVE MARKDOWN
 CONNECT YOUR IDEAS
 • [[Wiki-links]] with autocomplete, including links straight to a heading
 • Backlinks and unlinked mentions, with one-click linking
-• #tags (nested) with autocomplete, searchable from the inspector
+• #tags (nested) with autocomplete, and a Tags view of every tag in the collection
 • Note transclusion — embed a whole note or a single section
 • A mind map of the links across your whole vault, and a graph of each note's links in and out
 
@@ -125,7 +132,7 @@ WRITE IN LIVE MARKDOWN
 CONNECT YOUR IDEAS
 • [[Wiki-links]] with autocomplete, including links straight to a heading
 • Backlinks and unlinked mentions, with one-click linking
-• #tags (nested) with autocomplete, searchable from the inspector
+• #tags (nested) with autocomplete, and a Tags view of every tag in the collection
 • Note transclusion — embed a whole note or a single section
 • A mind map of the links across your whole vault, and a graph of each note's links in and out
 

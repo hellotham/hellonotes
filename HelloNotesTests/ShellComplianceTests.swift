@@ -884,6 +884,26 @@ struct ShellComplianceTests {
         #expect(source.contains(".fileDialogDefaultDirectory(Self.huggingFaceCache)"))
     }
 
+    /// A link into the app opens in the window that is open.
+    ///
+    /// On the Mac a `WindowGroup` makes a new window for every external event
+    /// unless an open one says it prefers to take it. The main window said
+    /// nothing, so each `hellonotes://` link — every tap on the widget —
+    /// opened another main window, and the note then opened in all of them:
+    /// four windows after three links, counted through Accessibility while
+    /// shooting the App Store's screenshots (docs/implemented.md §51.41).
+    /// Whether a link really arrives in one window cannot be asked from a
+    /// test — Launch Services delivers it — so this holds the declaration.
+    @Test("The main window takes links, so a link opens no window")
+    func theMainWindowTakesLinks() throws {
+        let source = try Self.source("HelloNotesApp.swift")
+        let main = try #require(source.range(of: "WindowGroup(id: \"main\")"))
+        let next = try #require(source.range(of: "WindowGroup(for: NoteRef.self)"))
+        #expect(source[main.upperBound..<next.lowerBound].contains(".takingLinksWhereOpen()"),
+                "the main window no longer says it takes links — each one opens a new window on the Mac")
+        #expect(source.contains("handlesExternalEvents(preferring: [\"*\"], allowing: [\"*\"])"))
+    }
+
     /// A control in a bar carries a **title**, not just a picture.
     ///
     /// When the bar runs out of room the system folds its items into an

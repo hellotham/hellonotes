@@ -8416,6 +8416,129 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.41 What shooting the store's screenshots found, and build 31 (2026-10-12)
+
+Releasing 1.3.3 meant new App Store screenshots: builds 27–29 rearranged the
+window, so every 1.3.2 picture showed an app that no longer exists, and the
+iPad's AI picture named services 1.3.3 does not have. Walking the app on all
+three devices to take them was the first time anything had brought a keyboard
+up on an iPad in portrait, sent the Mac a link, or read the phone's view modes
+by name — and each of those was broken. Build 30 had passed every gate.
+
+**1. A note could not be typed in on an iPad held upright.**
+- **Measured.** A probe logged the shell's choice on every pass. With the
+  keyboard down the scene is offered 1032×1324 above a 20pt bottom inset; with
+  it up, 1032×941 above 403. `shellKind` went by the offered height, so
+  `height > width` stopped being true and the band became the columns — two
+  branches of a `switch`, every view made again. The text view that had asked
+  for the keyboard was gone, the keyboard with it, the scene tall again: about
+  ten times round after a tap into a note, ending with no keyboard and no
+  caret (`keyboards=0`, `hasKeyboardFocus=0`). The Assistant takes the
+  keyboard as it appears and never stopped: a `sample` of the process showed
+  the main thread in all 1,307 of 1,307 samples, `tallShell` and `columnShell`
+  both on the stack with `-[UIView _didMoveFromWindow:toWindow:]`, 1.8 GB
+  resident after two minutes. `xcodebuild` had attached a spindump to the
+  capture run and reported success.
+- **Why nothing saw it.** The interface tests run on a phone, whose shell is
+  chosen by width alone; the window comparison holds the iPad in landscape;
+  and the 11-inch iPad's package tests host an editor, not the shell. The rule
+  itself is unchanged since 1.3.2.
+- **What changed.** `shellKind(width:offeredHeight:bottomInset:)`: the shell
+  is chosen by the scene's height to its bottom edge, which a keyboard does
+  not move — 1324 + 20 and 941 + 403 are both 1344. `AdaptiveShell` passes
+  `geo.safeAreaInsets.bottom`.
+- **What holds it.** `ShellKeyboardTests` (hosted, on the Mac, where a bottom
+  safe-area inset stands for the keyboard — `safeAreaPadding`): the shell stays
+  the band while 300pt of an 800×1000 scene is taken, and the pane appears
+  once. On the old rule it fails on both counts, and its own check that the
+  inset took the height passes, so the control proves the simulation.
+  `HelloNotesUITests.testTypingOnAnIPadHeldUpright` on the device: tap into a
+  note, and four seconds later the keyboard is up, the band is there and the
+  text view has the keyboard's focus; then the Assistant opens and the app
+  comes to rest. Its first version *skipped* when no keyboard was showing, to
+  allow for a hardware keyboard — which is also what the defect leaves, so on
+  the old rule it skipped and the run passed. It fails now, and says which two
+  things that can mean.
+
+**2. Every link opened another main window on the Mac.** A `WindowGroup`
+makes a new window for an external event unless an open one says it prefers to
+take it, and the main window said nothing: three `hellonotes://` links (the
+widget's kind) left four main windows, with the note open in all four, counted
+through Accessibility. `takingLinksWhereOpen()` —
+`handlesExternalEvents(preferring: ["*"], allowing: ["*"])`, on the Mac — and
+three links leave one window with the note in it. With no window open a link
+still makes one. `ShellComplianceTests.theMainWindowTakesLinks` holds the
+declaration; whether a link *arrives* in one window is Launch Services' to
+deliver and cannot be asked from a test.
+
+**3. The four view modes were each named "View mode".** `ChromeSegmented`
+names its segments, and the editor named the control — a name SwiftUI hands to
+every element of a row that is not a group of its own, over the element's.
+The control is `.accessibilityElement(children: .contain)` now, so a caller's
+name names the group. `testEachViewModeSaysWhichItIs`. Found because the
+capture test tapped "Preview" and could not.
+
+**4. The phone's AI and Tags places had a bar as wide as their title.**
+`CompactPlaceBar` with nothing trailing is a title over a spacer and an empty
+view, which claims no width; the bar's fill and its rule stopped at the title
+and the rest was the page's black. It says `maxWidth: .infinity` outright.
+
+**5. A capture session changed three things it promised not to.** Compared by
+preference *key name* before and after each run. With the sample collection
+alone open, `donateNotesToSpotlight` retracted every note the person had in
+Spotlight (the last donation less the sample) and `writeWidgetSnapshot`
+republished the widget's recent notes from the sample; both hold back under
+`CaptureSession` now. AppKit saved the capture's window frame as the person's;
+the scripts write that one key back. And `window-parity.sh` never named
+`remoteCollectionCaches`, so with a cloud collection connected its capture was
+not the sample's alone — it passes `-remoteCollectionCaches "()"` now. One
+capture taken here showed the Assistant's last conversation, which is the
+person's; it was deleted, and the chats folder is moved aside for a run.
+
+**6. Two things about the checks themselves.**
+- *A launch argument with no value takes the next one.* `-HNHideTips` ahead of
+  `-editorViewMode edit` took `-editorViewMode` as its value: the mode was
+  never pinned in the interface tests that asked for it. On the Mac the word
+  left over is a file to open, and the app then shows no window — an hour went
+  on a launch that appeared to have none. The flag is last everywhere now.
+- *The capture test's `tap` returned quietly when it found no button*, and its
+  first complete run was seven pictures of one screen and a pass. The Back
+  button reads "Back" and is *named* "Back to Search". It fails now.
+
+**The screenshots.** iPhone 6 (1284×2778) and iPad 5 (2064×2752) from
+`testStoreScreenshots`; Mac 10 (2560×1600, five scenes in light and dark) from
+the Debug build as a capture session — how, and what it must not show, in
+`assets/screenshots-raw/README.md`. Before each Mac capture the window was
+read through Accessibility for 107 names (the person's other collections and
+their top-level folders); every capture kept reported one window and no match.
+
+**Left, and said so.**
+- A link that *launches* the app opens the window and not the note: it arrives
+  before the library has restored. Measured the same with and without (2);
+  not from this change, and not fixed in it.
+- `window-parity.sh` fails as it stands — 3.5% of the empty window — because
+  the iPad's status bar is 32pt in the simulator now and the comparison crops
+  24. Cropped at 32, the sidebar and the bar differ by 746 pixels: the sidebar
+  toggle beside the Mac's traffic lights, which is the OS's. The editor column
+  differs by design (`baseEditorFontSize`: 17pt on iOS, 16 on the Mac). The
+  gate wants recalibrating to a measured inset.
+- In Edit the Mac draws links as `NSTextView` does, blue and underlined; the
+  iPad draws them in the accent. Older than this release.
+
+**Build 31, on the tree that shipped.**
+
+| | |
+|---|---|
+| App tests, macOS (`run-tests.sh`) | 852 in 130 suites |
+| iOS interface tests (`HN-iPhone`) | 16 cases: 13 pass, 3 skip (the two opt-in captures, and the iPad's) |
+| `testTypingOnAnIPadHeldUpright` (`HN-iPad13`) | passes; fails on the old rule |
+| `chrome-parity.sh` | 16 scenes, 0 px beyond noise |
+| `window-parity.sh` | fails — see above; chrome at parity when cropped at the real inset |
+| Editor package | not run: nothing under `Packages/` changed after build 30 |
+| Archive, macOS | 1.3.3 (31), arm64, macOS 27.0, no temporary-exception entitlement, provider keys present |
+| Archive, iOS | 1.3.3 (31), arm64, iOS 27.0, the same |
+| DMG | notarised Developer ID, stapled; 29.0 MB; SHA-256 `2943a79d455bee15dce53a636f4d5371ddcf4756f81a858e2ee9f9a57d2533d1` |
+
 ### 51.40 Seven things wrong with the editor in build 28 (2026-10-11)
 
 The person used build 28 on the Mac for a day and reported seven things. Each

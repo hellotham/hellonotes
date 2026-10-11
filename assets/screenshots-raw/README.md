@@ -41,16 +41,51 @@ the preferences plist rather than taking a screenshot to look.
 `dist/` is git-ignored, so those copies are not a backup of anything — these
 are.
 
-## State, 2026-09-03
+## State, 2026-10-12 (1.3.3)
 
-All three sets are complete and shot from `DefaultCollection`: 5 iPhone,
-5 iPad, 10 macOS (five scenes × light and dark). The previous SampleVault set
-is gone from the working tree — it is in git history if it is ever wanted, and
-leaving it beside the new one is how six stale files and four fresh ones come
-to look like ten.
+All three sets were shot again for 1.3.3, from `DefaultCollection` as the
+repository has it: the window was rearranged in builds 27–29 (the collection on
+the left, the note in the middle, what the note is on the right), so every
+1.3.2 picture showed an app that no longer exists, and the iPad's AI picture
+named services 1.3.3 does not have.
 
-Scenes are numbered to match `website/src/lib/screens.ts`: 01 files, 02 maths
-and diagrams, 03 callouts and properties, 04 graph, 05 Ask Library. A caption is
+| Set | Files | Scenes, in the order they are uploaded |
+|---|---|---|
+| `iPhone-6.5/` | 6 | rich content (maths, a diagram) · the Mind Map · a note's Graph · the AI place · transclusion · the note list |
+| `iPad-13/` | 5 | rich content · Split (source beside the page) · the Mind Map · a note's Graph · transclusion |
+| `macOS/` | 10 | `light_`/`dark_` 01 a note with Summary & Outline · 02 Split · 03 a note's Graph · 04 the Mind Map · 05 the Assistant answering from a note |
+
+**The iPhone and iPad sets are a test now**, not a walk by hand:
+`HelloNotesUITests.testStoreScreenshots`, opt-in, on `HN-iPhone` and
+`HN-iPad13` —
+
+    xcrun simctl status_bar HN-iPad13 override --time 9:41 --batteryState charged --batteryLevel 100
+    xcrun simctl ui HN-iPad13 appearance dark
+    xcrun simctl uninstall HN-iPad13 com.hellotham.HelloNotes   # the sample as shipped
+    TEST_RUNNER_HN_STORE_SHOTS=1 xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes \
+      -skipPackagePluginValidation -destination 'platform=iOS Simulator,name=HN-iPad13' \
+      -resultBundlePath shots.xcresult -only-testing:HelloNotesUITests/HelloNotesUITests/testStoreScreenshots
+    xcrun xcresulttool export attachments --path shots.xcresult --output-path shots
+
+It fails if a button it means to press is not there. Its first version carried
+on regardless, and returned seven pictures of one screen with a green tick.
+
+**The Mac set** is the Debug build launched as a capture session with the
+sample collection alone — `collectionBookmarks`, `collectionPaths` **and**
+`remoteCollectionCaches "()"` named in the argument domain, since a cloud
+collection comes back from the third alone — in a 1280×800pt window, each scene
+its own launch with the mode and the panel as arguments (nothing is then
+written to the person's settings), notes opened by `hellonotes://` link, the
+panel and the tabs by Accessibility and the View menu. Before every capture the
+window is read through Accessibility for the name of any other collection or
+its folders; a match takes no picture. For the run the container's copy of the
+sample is replaced by the repository's and the Assistant's saved conversations
+are moved aside — the Assistant opens on the last one, which is the person's —
+and both are put back after. Scene 05 asks the on-device model one question
+about a sample note; the dark scene opens on the same saved answer, so the pair
+differs only in the theme.
+
+Scenes are numbered to match `website/src/lib/screens.ts`. A caption is
 composited into the website frame, so a capture must match its scene.
 
 **A light/dark pair must differ only in the theme.** Same note, same tabs, same

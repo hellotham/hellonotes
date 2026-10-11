@@ -18,7 +18,13 @@ import AppKit
 /// aggregates them for library-wide search and reopening.
 /// A run launched only to be captured (`scripts/window-parity.sh`, with
 /// `-HNCaptureSession YES`): it changes nothing the person keeps — not the
-/// open collections, not the recents.
+/// open collections, not the recents, and not what the system holds for them:
+/// the notes donated to Spotlight and the widget's recent notes, both of which
+/// a capture of the sample collection replaced with the sample's until 1.3.3
+/// build 31. The launch names its collections in the argument domain, and must
+/// name all three lists — `collectionBookmarks`, `collectionPaths` and
+/// `remoteCollectionCaches`, the last as `()`: a cloud collection comes back
+/// from that one alone.
 enum CaptureSession {
     static var isActive: Bool { UserDefaults.standard.bool(forKey: "HNCaptureSession") }
 }

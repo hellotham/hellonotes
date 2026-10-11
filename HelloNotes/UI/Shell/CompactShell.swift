@@ -244,6 +244,12 @@ struct CompactPlaceBar<Trailing: View>: View {
             }
         }
         .padding(.horizontal, Chrome.Metric.barPadding)
+        // The whole width, said outright. With nothing trailing, the row of
+        // buttons is a spacer and an empty view, which took no width at all:
+        // the bar was as wide as its title, so the AI place showed black
+        // either side of it under the status bar, and Tags a divider a third
+        // of the screen long (seen shooting the 1.3.3 store screenshots).
+        .frame(maxWidth: .infinity)
         .frame(height: Chrome.Metric.barHeight)
         .background(Chrome.Colour.chrome)
         .overlay(alignment: .bottom) { ChromeDivider() }

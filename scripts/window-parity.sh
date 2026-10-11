@@ -111,6 +111,16 @@ restore() {
   osascript -e 'tell application id "com.hellotham.HelloNotes" to quit' > /dev/null 2>&1
   for _ in {1..100}; do [[ -z "$(running)" ]] && break; sleep 0.2; done
   rm -rf "$saved"; [[ -d "$work/saved-backup" ]] && ditto "$work/saved-backup" "$saved"
+  # The window's frame is the one key written back: AppKit saves the capture's
+  # 1210×790 as the main window's, and the person's next launch opened at it.
+  # One key, through the preferences daemon, after the app has gone — not the
+  # import of a whole backup that lost its race.
+  python3 - "$work/prefs-backup.plist" "$prefs" <<'FRAME'
+import plistlib, subprocess, sys
+key = "NSWindow Frame main-AppWindow-1"
+frame = plistlib.load(open(sys.argv[1], "rb")).get(key)
+if isinstance(frame, str): subprocess.run(["defaults", "write", sys.argv[2], key, frame], check=False)
+FRAME
   # **Checked, never written.** A capture session saves no collection list
   # (`CaptureSession`), so the list should be exactly as it was. An earlier
   # version imported the backup here instead, and lost the race with the
@@ -140,11 +150,15 @@ PY
 ) || { echo "the sample collection is not among the Mac's open collections"; exit 1; }
 
 echo "Mac: launching with the sample collection only, at 1210×790…"
+# All three lists, or a collection comes back: a cloud collection is restored
+# from `remoteCollectionCaches` alone, which this left as the person had it —
+# so with one connected, the sidebar in the capture was not the sample's only.
+#
 # The frame AppKit saved for the main window outranks the scene's default
 # size, so it is overridden too — in the argument domain, like the rest.
 open -n -F -a "$mac_app" --args "${settings[@]}" -ApplePersistenceIgnoreState YES -HNCaptureSession YES \
   -HNWindowWidth 1210 -HNWindowHeight 790 "-NSWindow Frame main-AppWindow-1" "100 60 1210 790 0 0 1512 949 " \
-  -collectionBookmarks "(<$only_sample>)" -collectionPaths "(\"$sample\")" -HNHideTips
+  -collectionBookmarks "(<$only_sample>)" -collectionPaths "(\"$sample\")" -remoteCollectionCaches "()" -HNHideTips
 sleep 5
 # In front, or not captured: a window of an app that is not frontmost is drawn
 # at 90% — Stage Manager's set — and `screencapture -l` cannot take it. Every

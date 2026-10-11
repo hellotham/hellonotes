@@ -109,6 +109,7 @@ struct HelloNotesApp: App {
                 .contentUnderTitleBar()
                 .capturedWindowSize()
                 .onOpenURL { router.handle($0) }
+                .takingLinksWhereOpen()
         }
         // Both platforms: iPadOS 26 gives a scene a resizable window too, so
         // gating this meant the iPad's first window opened at whatever the
@@ -186,6 +187,27 @@ struct HelloNotesApp: App {
         // command in `HelloNotesCommands` and the palette, ⌃⌘K, on both. The
         // menu-bar item is an extra *route* on the platform that has the
         // concept, not a feature the other one lacks.
+        #endif
+    }
+}
+
+extension View {
+    /// A link into the app opens in the window that is already open.
+    ///
+    /// On the Mac a `WindowGroup` answers an external event — a
+    /// `hellonotes://` link from the widget, Handoff — by making a **new**
+    /// window, unless one that is open says it would rather take it. None
+    /// did: every link opened another main window, and the note it named then
+    /// opened in all of them, since they answer the same library — four
+    /// windows after three links, counted through Accessibility. The app
+    /// opens no window of its own; a link is not someone asking for one.
+    /// With no main window open there is nothing to prefer, and one is made.
+    /// iPadOS hands a link to the scene in front already.
+    func takingLinksWhereOpen() -> some View {
+        #if os(macOS)
+        handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+        #else
+        self
         #endif
     }
 }
