@@ -124,25 +124,41 @@ struct GraphLabelTests {
         let width = image.width, height = image.height
         guard let pixels = pixels(of: image) else { return (765, nil) }
         let rows = Int(Double(height) * 0.15)..<Int(Double(height) * 0.88)
+        // Plain counters, on purpose. Written as `for x in 0..<width`, the
+        // first picture of a run took twelve seconds of the main actor in a
+        // debug build (a later one a tenth of a second): sampled, the time
+        // was in the range's iterator and the generic-metadata lookups under
+        // it, while the host was still starting. Every test in the suite
+        // shares that actor (implemented.md §51.49).
         return pixels.withUnsafeBufferPointer { pixels -> (Int, CGRect?) in
             /// The sum of a grey pixel's channels; the page's for a coloured
             /// one or a clear one.
-            @inline(__always) func grey(_ i: Int) -> Int {
-                let (r, g, b) = (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
-                guard pixels[i + 3] > 200, max(r, g, b) - min(r, g, b) <= 24 else { return 765 }
-                return r + g + b
+            func grey(_ i: Int) -> Int {
+                let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                var low = r, high = r
+                if g < low { low = g }; if b < low { low = b }
+                if g > high { high = g }; if b > high { high = b }
+                return pixels[i + 3] > 200 && high - low <= 24 ? r + g + b : 765
             }
+            let first = rows.lowerBound * width * 4, end = rows.upperBound * width * 4
             var darkest = 765
-            for i in stride(from: rows.lowerBound * width * 4, to: rows.upperBound * width * 4, by: 4) {
-                darkest = min(darkest, grey(i))
+            var i = first
+            while i < end {
+                let sum = grey(i)
+                if sum < darkest { darkest = sum }
+                i += 4
             }
             guard darkest < 450 else { return (darkest, nil) }
             var minX = width, minY = height, maxX = -1, maxY = -1
-            for y in rows {
-                for x in 0..<width where grey((y * width + x) * 4) <= darkest + 80 {
-                    minX = min(minX, x); maxX = max(maxX, x)
-                    minY = min(minY, y); maxY = max(maxY, y)
+            var x = 0, y = rows.lowerBound
+            i = first
+            while i < end {
+                if grey(i) <= darkest + 80 {
+                    if x < minX { minX = x }; if x > maxX { maxX = x }
+                    if y < minY { minY = y }; if y > maxY { maxY = y }
                 }
+                i += 4; x += 1
+                if x == width { x = 0; y += 1 }
             }
             return (darkest, CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1))
         }
@@ -186,14 +202,16 @@ struct GraphLabelTests {
     private static func drawn(in image: CGImage) -> Int {
         let width = image.width, height = image.height
         guard let pixels = pixels(of: image) else { return 0 }
-        var count = 0
-        for y in Int(Double(height) * 0.15)..<Int(Double(height) * 0.88) {
-            for x in 0..<width {
-                let i = (y * width + x) * 4
+        return pixels.withUnsafeBufferPointer { pixels -> Int in
+            var count = 0
+            var i = Int(Double(height) * 0.15) * width * 4
+            let end = Int(Double(height) * 0.88) * width * 4
+            while i < end {
                 if pixels[i + 3] > 200, Int(pixels[i]) + Int(pixels[i + 1]) + Int(pixels[i + 2]) < 700 { count += 1 }
+                i += 4
             }
+            return count
         }
-        return count
     }
 
     /// The five labels are spread across the graph, under their orbs — not in

@@ -187,11 +187,14 @@ struct SplitArrangementTests {
     /// Turn the main run loop for `seconds`, in small steps, so the hosted
     /// views lay out and their tasks run.
     private func pump(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
+        // For its seconds, for no fewer looks than a crowded main actor
+        // leaves it, and with the run loop last (`Waits.Pump`).
+        var pump = Waits.Pump(seconds)
         repeat {
             RunLoop.current.run(until: Date().addingTimeInterval(0.004))
             try? await Task.sleep(for: .milliseconds(1))
-        } while Date() < deadline
+        } while pump.goesOn
+        RunLoop.current.run(until: Date().addingTimeInterval(0.004))
     }
 
     // MARK: - Hosting

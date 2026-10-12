@@ -188,6 +188,13 @@ final class EditorModel {
     /// not unlocked when the first finishes.
     @ObservationIgnored private var loadsInFlight = 0
 
+    /// Reconciles with the disk under way. A reconcile reads the file off
+    /// the main actor, so one begun before a change on disk can land after
+    /// it; this is how a test knows none is still to land before it makes
+    /// the change it means to watch (`ExternalChangeTests`). Nothing in the
+    /// app reads it.
+    @ObservationIgnored private(set) var reconcilesInFlight = 0
+
     /// Increments after every successful write. Observers (e.g. the link graph)
     /// use it to know a note's contents changed on disk.
     private(set) var savedRevision = 0
@@ -625,6 +632,8 @@ final class EditorModel {
     /// externally and our buffer is clean, silently reload it. If the buffer
     /// has unsaved edits, raise a conflict for the user to resolve.
     func reconcileWithDisk() async {
+        reconcilesInFlight += 1
+        defer { reconcilesInFlight -= 1 }
         guard let url = note?.fileURL else { return }
         // A load under way reads the file itself. Checked now, it would be
         // compared with the baseline of whatever the buffer held before — the

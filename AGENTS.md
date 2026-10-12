@@ -870,7 +870,8 @@
   view's layout pass; `HeadingTypingTests` read between the two on CI's
   runner, and reported a paragraph "moved" by exactly the scroll offset. Its
   wait ended on a sleep, by a deadline. End a pump on a turn of the run loop,
-  count its looks, and take a fragment's place only when its `state` is
+  count its looks (`Waits.Pump` in the app's tests: its seconds, and no
+  fewer than twenty looks), and take a fragment's place only when its `state` is
   `.layoutAvailable` — no place, with the run loop turned, is a failure of its
   own: the blank frames of build 28 (implemented.md §51.49).
 - **A hosted test's `AppearanceSettings()` is the person's own.** It reads
@@ -1014,6 +1015,18 @@
   three. When a test fails once in a while, **count what failed**: this one
   recorded one issue where a real cancellation records three, which said the
   walk had not been cancelled before any code was read.
+- **A test asks what happened — never how long it took, and never whether
+  it is over by now.** `#expect(elapsed < .seconds(5))` after a cancel failed
+  on CI's runner with the cancel honoured at once: the five seconds were the
+  rest of the suite's. And "its catch-up done", as a sleep of 100ms, was a
+  read still on its way that then landed after the test had moved on. Have
+  the double say what was done to it (`SlowRoot.finished`), and have the app
+  say what is under way (`EditorModel.reconcilesInFlight`,
+  `Collection.savesBeingIndexed`) — then wait for *that*, after one sleep so
+  a task made a moment ago has started. Run `-only-testing:` on a **suite**:
+  named down to a function, xcodebuild "Executed 0 tests" and exits 0, and a
+  control that ran nothing reads as a control that passed (implemented.md
+  §51.49).
 - **A test of a tool that deletes must answer the question.** A deletion is
   asked about every time, whatever "Allow all" was given, so a test that calls
   `deleteNote` with an approving broker waits for ever — and a hosted run that

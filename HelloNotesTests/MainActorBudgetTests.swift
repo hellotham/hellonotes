@@ -626,11 +626,14 @@ struct MainActorBudgetTests {
     /// did and nothing its tasks did. So: a turn, then an `await`, in small
     /// steps.
     private func pump(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
+        // For its seconds, for no fewer looks than a crowded main actor
+        // leaves it, and with the run loop last (`Waits.Pump`).
+        var pump = Waits.Pump(seconds)
         repeat {
             turnRunLoop(for: 0.004)
             try? await Task.sleep(for: .milliseconds(1))
-        } while Date() < deadline
+        } while pump.goesOn
+        turnRunLoop(for: 0.004)
     }
 
     /// One turn of the main run loop — synchronous, as a run loop is: it may

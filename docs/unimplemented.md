@@ -400,7 +400,11 @@ What remains are **constraints of the providers and the platform**, not deferred
     iPhone's containers can meet — two were waits that gave up by the clock
     (implemented.md §51.48, seven confirmed by a run on GitHub), and the
     eighth read a picture in a way that holds only at two pixels a point
-    (§51.49). **The eighth to be confirmed by a run on GitHub.**
+    (§51.49) — all eight confirmed by runs on GitHub.
+  - ✅ ~~*CI, the macOS app: two more kept time* — a cancelled walk expected
+    back within five seconds, and a window's catch-up slept past.~~ Each asks
+    what happened now (implemented.md §51.49). **To be confirmed by a run on
+    GitHub.**
   - 🟡 *A one-thread pool still fails six tests*
     (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`): the three
     `SaveIndexingTests` that stage a save still parsing, and
@@ -408,7 +412,11 @@ What remains are **constraints of the providers and the platform**, not deferred
     nothing" there; `aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt`, which
     waits on the app's own timer while holding the only thread; and
     `aLookThatLandsAfterClosingSaysNothing`, not woken while its look holds
-    it, for a reason not found (§51.48). Not the runner's conditions.
+    it, for a reason not found (§51.48). Not the runner's conditions — but
+    the three that stage a save still parsing do it by the size of a note,
+    and nothing stops the runner finding that race over before it is looked
+    at. A way to hold one save's parse, as `availabilityProbes` holds a look
+    at a folder, would make them exact.
   - 🟡 *Has the two-names defect been biting on devices?* §51.48 fixed a
     collection holding one note under `/var/…` and `/private/var/…`. Nothing
     here can run on a device to say whether a closed tab or an unselected note
@@ -417,7 +425,7 @@ What remains are **constraints of the providers and the platform**, not deferred
     two runs in five.~~ It read the paragraph's place between the overlay
     refresh and the layout pass that follows it, where the fragment has no
     frame; the wait ends on a turn of the run loop now (implemented.md
-    §51.49). **To be confirmed by a run on GitHub.**
+    §51.49). It passed the one run since; two in five is not settled by one.
   - *Dictation has nowhere to say it failed.* `DictationController` records
     why a transcript reached no note (`lastError`) and keeps the transcript
     until the next recording, and no view reads either — the collection's own

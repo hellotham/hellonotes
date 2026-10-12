@@ -8450,6 +8450,15 @@ label drawn perfectly has no near-black pixel in it.
   360×520".
 - Not known: whether the runner draws the graph in a window that is not
   ordered in. The run that counted pixels had it ordered in; it stays.
+- **And the reading itself was holding the main actor.** Its loops over the
+  picture were `for x in 0..<width`; in a debug build the first picture of a
+  run took twelve seconds — sampled: the range's iterator, unspecialised, and
+  the generic-metadata lookups under it, while the host was still starting —
+  on the one actor every test in the suite shares. (A later picture took a
+  tenth of a second, which is why timing one read showed nothing.) Plain
+  counters: the test alone went from 13.6s to 3.4s and the whole suite,
+  measured once each way, from 47.2s to 36.1s; the control reads the same
+  two boxes.
 
 **The paragraph under the heading had not moved; it had no frame yet.**
 `HeadingTypingTests` types in a heading and asks where the paragraph under it
@@ -8482,14 +8491,56 @@ again* it was at 341.77.
   place after the run loop has turned: the blank frames of that build, which
   the test could not tell from a move before.
 
-**What the two have in common** is §51.48's lesson again, unlearnt within the
+**The run after those two were fixed failed two others** — the graph test
+passing on the runner for the first time, and the editor package green —
+and both of these kept time.
+- **`aCancelledWalkStopsWaitingForItsListing` asserted how long a thing
+  took**: cancel, and expect the walk back within five seconds. The walk was
+  cancelled at once; coming back *to the test* took longer than that behind
+  the rest of the suite. Its listing now says when it has been asked for and
+  whether it was left to finish, and the test asks it: no clock. Control:
+  without the handler that passes the cancel on, the listing finishes and the
+  test says so, a minute later.
+- **`aWindowThatHasClosedIsNotTold` slept 100ms for "its catch-up done".** A
+  window that starts listening looks at the disk once, in a task of its own,
+  reading off the main actor. On the runner the read had not come back; the
+  test changed the file; and the read, begun before the window "closed",
+  brought the change in — "a note window that had closed was told".
+  **Reproduced here** by making that read take 300ms: the old wait fails with
+  those words, the new one passes. An editor and a window's tabs count their
+  reconciles under way (`reconcilesInFlight` — nothing in the app reads it),
+  and the test waits for none, where it slept. `aWindowThatComesBackCatchesUp`
+  had the same sleep, and a second and a half "for the watcher to have told
+  everyone listening": something still listening says when it has. Control:
+  with `stopObservingExternalChanges` doing nothing, both fail — three
+  expectations, each in its own words.
+- **The six pumps in the app's tests** were the editor package's, sleep last
+  and all. Each now runs for its seconds *and* for no fewer than twenty looks,
+  and ends on a turn of the run loop (`Waits.Pump`). Not looks alone, as in
+  the package: counted that way the suite took 58s here against 36s.
+- **Every sleep in the app's tests was read** — some seventy. What still goes
+  by the clock is of two kinds. A wait for something *not* to happen ("long
+  enough for it to have landed, had it") is weaker on a crowded runner and
+  never wrong there. And the tests that stage a race by the size of a note
+  (`SaveIndexingTests`) can find the race already over, and say "this tests
+  nothing"; they have not on the runner in five runs (unimplemented.md §12).
+- **A stand-in for the runner was tried and set aside**: one test that held
+  all but three threads of the concurrency pool and the main actor in 150ms
+  pulses. Under it the suite took 57s and neither of these two failed, at
+  any setting tried; what the runner has that it lacked is most likely three
+  slow cores doing real work, which this Mac was not asked to imitate while
+  it was in use. (One thing it taught: the pool has its width *at each
+  priority*, so threads held at another are held from nobody.)
+
+**What these have in common** is §51.48's lesson again, unlearnt within the
 day: a failure on the runner was given a cause that fitted — slowness, then a
 window — and a change was made for the cause instead of for a measurement.
 Each was settled by making the failing test say one more thing about what it
 saw, and by reproducing *that* here.
 
 **Checked:** the app suite, 902 tests in 138 suites; the editor package, 559
-in 61 on the Mac and 533 in 57 on the iPad simulator; both controls.
+in 61 on the Mac and 533 in 57 on the iPad simulator; every control above.
+On the runner: the graph test and the editor package pass (run 38226200774).
 
 ### 51.48 One folder, two names: what CI's failing tests were about (2026-10-12, after build 32)
 

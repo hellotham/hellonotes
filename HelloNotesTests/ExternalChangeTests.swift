@@ -34,6 +34,26 @@ struct ExternalChangeTests {
         return await condition()
     }
 
+    /// Until no reconcile is under way in `tabs` or in `editors` — one begun
+    /// by a task that has not had its turn yet included, which is what the
+    /// sleep before the first look is for: the main actor takes its jobs in
+    /// order, so a task made before this was called has started by then.
+    ///
+    /// **This is what "its catch-up done" was, as a sleep of 100ms.** A
+    /// window that starts listening looks at the disk once, in a task of its
+    /// own, and a window told of a change does the same; each reads off the
+    /// main actor. On CI's runner the read had not come back in 100ms, the
+    /// test went on to change the file, and the read — begun before the
+    /// window "closed" — brought the change into it: "a note window that had
+    /// closed was told" (implemented.md §51.49).
+    private func atRest(_ tabs: [EditorTabs] = [], _ editors: EditorModel...) async {
+        try? await Task.sleep(for: .milliseconds(20))
+        let rested = await eventually(timeout: .seconds(30)) {
+            tabs.allSatisfy { $0.reconcilesInFlight == 0 } && editors.allSatisfy { $0.reconcilesInFlight == 0 }
+        }
+        #expect(rested, "a reconcile never finished")
+    }
+
     /// Three notes in a folder, and a collection on it whose watcher tells
     /// `library` when something changes there — as `Library.open` has it.
     private func folder(toldTo library: Library) async throws -> (Collection, URL, [Note]) {
@@ -49,6 +69,9 @@ struct ExternalChangeTests {
         let notes = try names.map { try #require(collection.note(titled: $0)) }
         return (collection, root, notes)
     }
+
+    /// A window that only counts how often it is told.
+    @MainActor private final class Listener { var told = 0 }
 
     /// A main window with `note` open in a tab — its tabs wired as the shell
     /// wires them.
@@ -147,7 +170,7 @@ struct ExternalChangeTests {
         let inClosedNoteWindow = await noteWindow(notes[2], of: collection)
         NoteWindowView.observeExternalChanges(of: library, editor: inClosedNoteWindow)
         // Appeared — its catch-up done — and then gone.
-        try await Task.sleep(for: .milliseconds(100))
+        await atRest([closed], inClosed, inClosedNoteWindow)
         library.stopObservingExternalChanges(of: closed)
         library.stopObservingExternalChanges(of: inClosedNoteWindow)
         defer { withExtendedLifetime((closed, open)) {} }
@@ -155,8 +178,9 @@ struct ExternalChangeTests {
         for note in notes { try changeElsewhere(note) }
 
         #expect(await eventually { inOpen.text.contains("Changed elsewhere") }, "the window still open was not told")
-        // Time for the closed ones' reconcile to have landed, had they been told.
-        try await Task.sleep(for: .milliseconds(500))
+        // The closed ones' reconcile landed, had they been told: every window
+        // listening is told in one pass, the open one among them.
+        await atRest([closed], inClosed, inClosedNoteWindow)
         #expect(inClosed.text.contains("As it was"), "a main window that had closed was told")
         #expect(inClosedNoteWindow.text.contains("As it was"), "a note window that had closed was told")
     }
@@ -172,17 +196,26 @@ struct ExternalChangeTests {
         let inNoteWindow = await noteWindow(notes[1], of: collection)
         NoteWindowView.observeExternalChanges(of: library, editor: inNoteWindow)
         // Appeared — its catch-up done — and then gone.
-        try await Task.sleep(for: .milliseconds(100))
+        await atRest([tabs], inTab, inNoteWindow)
         library.stopObservingExternalChanges(of: tabs)
         library.stopObservingExternalChanges(of: inNoteWindow)
         defer { withExtendedLifetime(tabs) {} }
+        // Something that is still listening, to say when the watcher has
+        // told everyone who is — which was a sleep of a second and a half.
+        let listening = Listener()
+        library.observeExternalChanges(of: listening) { $0.told += 1 }
+        defer { library.stopObservingExternalChanges(of: listening) }
 
         try changeElsewhere(notes[0])
         try changeElsewhere(notes[1])
-        // Long enough for the watcher to have told everyone listening.
-        try await Task.sleep(for: .milliseconds(1_500))
+        // Counted from here, with no turn of the main actor since the
+        // change: whatever is told from now on is told after it.
+        let before = listening.told
+        #expect(await eventually { listening.told > before }, "the watcher told nobody of the change")
+        await atRest([tabs], inTab, inNoteWindow)
         #expect(inTab.text.contains("As it was") && inNoteWindow.text.contains("As it was"),
                 "a window that had gone was told")
+        library.stopObservingExternalChanges(of: listening)
 
         ContentView.observeExternalChanges(of: library, tabs: tabs, selection: .constant(nil))
         NoteWindowView.observeExternalChanges(of: library, editor: inNoteWindow)

@@ -99,12 +99,17 @@ struct ConcurrentTreeWalkTests {
     // MARK: Cancelling a listing in flight
 
     /// A root whose listing takes a minute — a provider's recursive prefetch
-    /// of a whole account — unless it is cancelled.
+    /// of a whole account — unless it is cancelled. It says when it has been
+    /// asked, and whether it was left to finish.
     private struct SlowRoot: TreeSource {
+        let asked = Locked(false)
+        let finished = Locked(false)
         var listingConcurrency: Int { 4 }
         func unavailability() -> CollectionState.UnavailableReason? { nil }
         func children(of directory: String) async throws -> DirectoryListing {
+            asked.set(true)
             try await Task.sleep(for: .seconds(60))
+            finished.set(true)
             return DirectoryListing()
         }
     }
@@ -115,14 +120,23 @@ struct ConcurrentTreeWalkTests {
     /// whole prefetch (implemented.md §51.36). And the directory whose listing
     /// was cut short is still in the checkpoint: walked again on resuming, not
     /// skipped as one that failed.
+    ///
+    /// **Asked of the listing, not of a clock.** This cancelled 200ms in and
+    /// expected the walk back within five seconds — and on CI's runner, with
+    /// the walk cancelled at once, coming back *to this test* took longer than
+    /// that behind the rest of the suite (implemented.md §51.49). The listing
+    /// says it was asked for, so the cancel is of a listing in flight; and it
+    /// says whether it was left to finish, which is the whole question.
     @Test func aCancelledWalkStopsWaitingForItsListing() async throws {
-        let walk = Task { await ResumableTreeWalk.run(source: SlowRoot()) { _ in } }
-        try await Task.sleep(for: .milliseconds(200))
-        let started = ContinuousClock.now
+        let source = SlowRoot()
+        let walk = Task { await ResumableTreeWalk.run(source: source) { _ in } }
+        var patience = Waits.Patience(.seconds(30))
+        while !source.asked.value, patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(source.asked.value, "the walk never asked for its root, so there was no listing to cancel")
         walk.cancel()
         let result = await walk.value
 
-        #expect(ContinuousClock.now - started < .seconds(5), "the cancelled walk waited for its listing")
+        #expect(!source.finished.value, "the cancelled walk waited for its listing")
         #expect(!result.isComplete)
         #expect(result.issues.isEmpty, "a listing cut short by the cancel was taken for a failure: \(result.issues)")
         let checkpoint = try #require(result.checkpoint)
