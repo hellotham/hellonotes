@@ -8540,7 +8540,12 @@ saw, and by reproducing *that* here.
 
 **Checked:** the app suite, 902 tests in 138 suites; the editor package, 559
 in 61 on the Mac and 533 in 57 on the iPad simulator; every control above.
-On the runner: the graph test and the editor package pass (run 38226200774).
+**On the runner, all four jobs pass** — the app's 902 tests in 78s, the
+editor package's 559 (run 38232186521), after the graph test and the editor
+package first passed there one run earlier (38226200774). One green run
+settles the failures that had a cause found; it does not settle the two that
+came and went (the editor package's, two runs in five; this section's last
+two, one in five), which only more runs can.
 
 ### 51.48 One folder, two names: what CI's failing tests were about (2026-10-12, after build 32)
 

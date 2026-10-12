@@ -403,8 +403,8 @@ What remains are **constraints of the providers and the platform**, not deferred
     (§51.49) — all eight confirmed by runs on GitHub.
   - ✅ ~~*CI, the macOS app: two more kept time* — a cancelled walk expected
     back within five seconds, and a window's catch-up slept past.~~ Each asks
-    what happened now (implemented.md §51.49). **To be confirmed by a run on
-    GitHub.**
+    what happened now (implemented.md §51.49), and the suite passed whole on
+    GitHub (run 38232186521) — once; each had failed one run in five.
   - 🟡 *A one-thread pool still fails six tests*
     (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`): the three
     `SaveIndexingTests` that stage a save still parsing, and
@@ -425,7 +425,8 @@ What remains are **constraints of the providers and the platform**, not deferred
     two runs in five.~~ It read the paragraph's place between the overlay
     refresh and the layout pass that follows it, where the fragment has no
     frame; the wait ends on a turn of the run loop now (implemented.md
-    §51.49). It passed the one run since; two in five is not settled by one.
+    §51.49). It has passed the two runs since; two in five is not settled by
+    two.
   - *Dictation has nowhere to say it failed.* `DictationController` records
     why a transcript reached no note (`lastError`) and keeps the transcript
     until the next recording, and no view reads either — the collection's own
