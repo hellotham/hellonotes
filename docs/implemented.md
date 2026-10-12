@@ -8542,10 +8542,11 @@ saw, and by reproducing *that* here.
 in 61 on the Mac and 533 in 57 on the iPad simulator; every control above.
 **On the runner, all four jobs pass** — the app's 902 tests in 78s, the
 editor package's 559 (run 38232186521), after the graph test and the editor
-package first passed there one run earlier (38226200774). One green run
-settles the failures that had a cause found; it does not settle the two that
-came and went (the editor package's, two runs in five; this section's last
-two, one in five), which only more runs can.
+package first passed there one run earlier (38226200774) — and again on the
+same code (38234811944). That settles the failures that had a cause found.
+For the ones that came and went (the editor package's, two runs in five;
+this section's last two, one in five) two green runs are a good sign and no
+more than that.
 
 ### 51.48 One folder, two names: what CI's failing tests were about (2026-10-12, after build 32)
 
