@@ -20,14 +20,14 @@ struct LargeFolderPromptTests {
     private func finishes(_ task: Task<Void, Never>, within limit: Duration) async -> Bool {
         let done = Locked(false)
         Task { await task.value; done.set(true) }
-        let deadline = ContinuousClock.now + limit
-        while !done.value, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        var patience = Waits.Patience(limit)
+        while !done.value, patience.lasts { try? await Task.sleep(for: .milliseconds(10)) }
         return done.value
     }
 
     private func until(_ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        var patience = Waits.Patience(.seconds(5))
+        while !condition(), patience.lasts { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
     /// A second large folder asked about while the first question is still up

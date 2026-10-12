@@ -243,9 +243,9 @@ struct MainActorBudgetTests {
         let collection = Collection(rootURL: root)
         await collection.scanOffMain()
         collection.refreshDerived(force: true)
-        let deadline = ContinuousClock.now + .seconds(30)
+        var patience = Waits.Patience(.seconds(30))
         while collection.search.quickOpenResults(query: "Section 8 of note 1999", limit: 1).isEmpty,
-              ContinuousClock.now < deadline {
+              patience.lasts {
             try await Task.sleep(for: .milliseconds(50))
         }
         #expect(!collection.search.quickOpenResults(query: "Section 8 of note 1999", limit: 1).isEmpty,
@@ -381,9 +381,9 @@ struct MainActorBudgetTests {
     /// Wait, sleeping, until `condition` holds. A sleeping main thread burns
     /// nothing, so a wait inside a measurement counts only what it waits for.
     private func until(_ condition: () -> Bool, timeout: Duration = .seconds(10)) async throws {
-        let deadline = ContinuousClock.now + timeout
+        var patience = Waits.Patience(timeout)
         while !condition() {
-            guard ContinuousClock.now < deadline else { throw CancellationError() }
+            guard patience.lasts else { throw CancellationError() }
             try await Task.sleep(for: .milliseconds(10))
         }
     }

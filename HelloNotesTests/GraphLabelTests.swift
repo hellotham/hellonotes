@@ -45,6 +45,14 @@ struct GraphLabelTests {
 
     /// The graph as a window draws it, once its layout has run. Light, so the
     /// labels are dark whatever the Mac's appearance is at the time.
+    ///
+    /// **Once its layout has run — seen, not timed.** The layout is worked
+    /// out off the main actor and nothing is drawn until it lands. This
+    /// waited two seconds and took the picture; on CI's three cores, with the
+    /// rest of the suite running, two seconds had not been enough and the
+    /// picture was of a graph that had not been laid out — "the graph drew no
+    /// labels at all" (implemented.md §51.48). It looks until there are
+    /// labels, and then once more, so the picture is of the graph at rest.
     private func render() async throws -> CGImage {
         #if canImport(AppKit)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
@@ -54,11 +62,12 @@ struct GraphLabelTests {
         let host = NSHostingView(rootView: graph())
         window.contentView = host
         defer { window.contentView = nil; window.close() }
-        try await Task.sleep(for: .seconds(2))
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return try #require(rep.cgImage)
+        func picture() throws -> CGImage {
+            host.layoutSubtreeIfNeeded()
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            return try #require(rep.cgImage)
+        }
         #else
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
@@ -67,12 +76,21 @@ struct GraphLabelTests {
         window.rootViewController = UIHostingController(rootView: graph())
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        try await Task.sleep(for: .seconds(2))
-        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
-            _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        func picture() throws -> CGImage {
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            return try #require(image.cgImage)
         }
-        return try #require(image.cgImage)
         #endif
+        var latest = try picture()
+        for _ in 0..<Waits.looks(in: .seconds(30), every: .milliseconds(250)) where labelInk(in: latest) == nil {
+            try await Task.sleep(for: .milliseconds(250))
+            latest = try picture()
+        }
+        // At rest: whatever moved the labels into place has finished moving them.
+        try await Task.sleep(for: .milliseconds(500))
+        return try picture()
     }
 
     /// The box around the near-black pixels — the node labels — between the

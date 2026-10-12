@@ -36,12 +36,13 @@ struct SaveIndexingTests {
     /// looks.
     private func eventually(timeout: Duration = .seconds(10),
                             _ condition: () async -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while await !condition() {
-            guard ContinuousClock.now < deadline else { return false }
+        // Looks, not seconds — a deadline on the clock runs out while another
+        // test has the main actor (`Waits`).
+        for _ in 0..<Waits.looks(in: timeout, every: .milliseconds(10)) {
+            if await condition() { return true }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return true
+        return await condition()
     }
 
     /// A folder holding `files` (title → text), scanned and indexed.
@@ -401,8 +402,8 @@ struct SaveIndexingTests {
             }
             await search.load(pairs: [(a, record(["new"])), (b, record(["saved"]))])
             // Well past the fold's wait, the newer picture still stands.
-            let deadline = ContinuousClock.now + .milliseconds(1_000)
-            while ContinuousClock.now < deadline, search.allTags() == ["new", "saved"] {
+            var patience = Waits.Patience(.milliseconds(1_000))
+            while patience.lasts, search.allTags() == ["new", "saved"] {
                 try await Task.sleep(for: .milliseconds(10))
             }
             #expect(search.allTags() == ["new", "saved"], "a fold of the older entries landed over the rebuild")

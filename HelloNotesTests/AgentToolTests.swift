@@ -171,8 +171,8 @@ struct AgentToolTests {
     /// passed alone every time); a card that never comes fails here all the
     /// same, only later.
     private func waitForPrompt(_ broker: PermissionBroker) async throws {
-        let deadline = ContinuousClock.now + .seconds(30)
-        while broker.prompt == nil && ContinuousClock.now < deadline {
+        var patience = Waits.Patience(.seconds(30))
+        while broker.prompt == nil && patience.lasts {
             try await Task.sleep(for: .milliseconds(5))
         }
         try #require(broker.prompt != nil, "no approval card appeared")
@@ -215,8 +215,8 @@ struct AgentToolTests {
         var told = 0
         await ctx.collection.activate(onExternalChange: { told += 1 })
         defer { ctx.collection.deactivate() }
-        let deadline = ContinuousClock.now + .seconds(5)
-        while ctx.note(matching: "Open") == nil && ContinuousClock.now < deadline {
+        var patience = Waits.Patience(.seconds(5))
+        while ctx.note(matching: "Open") == nil && patience.lasts {
             try await Task.sleep(for: .milliseconds(5))
         }
         let before = told
@@ -437,8 +437,8 @@ struct MentionLinkTests {
         await collection.scanOffMain()
         let unindexed = collection.derivedRevision
         collection.refreshDerived()
-        let deadline = ContinuousClock.now + .seconds(10)
-        while collection.derivedRevision == unindexed, ContinuousClock.now < deadline {
+        var patience = Waits.Patience(.seconds(10))
+        while collection.derivedRevision == unindexed, patience.lasts {
             try await Task.sleep(for: .milliseconds(10))
         }
         let target = try #require(collection.note(titled: "Target"))

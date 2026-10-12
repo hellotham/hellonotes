@@ -750,6 +750,23 @@ final class Collection: Identifiable {
     /// `nonisolated` and pure so it can run on a background executor — a full
     /// directory walk of a large collection is thousands of `stat` calls that
     /// shouldn't block the UI.
+    /// How much of `listed`'s path is the listing's own name for `root` —
+    /// its length, slash and all — when that is not the name `root` goes by;
+    /// `nil` when the listing used `root`'s own, which is nearly always.
+    nonisolated static func listedRootLength(of root: URL, in listed: URL) -> Int? {
+        let path = listed.path
+        let own = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard !path.hasPrefix(own) else { return nil }
+        return CollectionIndexCache.rootPrefixes(root).first { path.hasPrefix($0) }?.count
+    }
+
+    /// `listed` under `root`'s own spelling of the folder, given how much of
+    /// its path was the listing's (`listedRootLength`).
+    nonisolated static func respelled(_ listed: URL, under root: URL, dropping length: Int) -> URL {
+        root.appending(path: String(listed.path.dropFirst(length)),
+                       directoryHint: listed.hasDirectoryPath ? .isDirectory : .notDirectory)
+    }
+
     nonisolated static func enumerate(_ rootURL: URL) -> (notes: [Note], attachments: [CollectionFile], folders: [URL])? {
         let fileManager = FileManager.default
         let resourceKeys: [URLResourceKey] = [.contentModificationDateKey, .contentTypeKey, .isRegularFileKey, .isDirectoryKey, .fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
@@ -766,15 +783,34 @@ final class Collection: Identifiable {
         var discoveredFiles: [CollectionFile] = []
         var discoveredFolders: [URL] = []
 
-        for case let fileURL as URL in enumerator {
+        // **Every URL kept is under the collection's own spelling of its
+        // folder**, as the walk's are (`LocalTreeSource.children`). An
+        // enumerator of `/var/…` hands its entries back as `/private/var/…`,
+        // and this kept them: one collection then held notes under both
+        // names — these, and the ones it made, moved or walked again — and a
+        // tab on a note that had not moved was closed when another did,
+        // because the walk after the move spelled every note the other way
+        // (implemented.md §51.48). Decided once, from the first entry, so a
+        // folder listed under its own name pays nothing a file.
+        var listedRootLength: Int?
+        var spellingIsKnown = false
+
+        for case let listed as URL in enumerator {
             // A superseded walk should stop rather than run to completion behind
             // the one that replaced it: a bulk `git checkout` fires several
             // watcher batches, and each used to put another full walk on the
             // disk. The caller discards a cancelled walk's partial results.
             if Task.isCancelled { return nil }
-            guard let resourceValues = try? fileURL.resourceValues(forKeys: Set(resourceKeys)) else {
+            if !spellingIsKnown {
+                spellingIsKnown = true
+                listedRootLength = Self.listedRootLength(of: rootURL, in: listed)
+            }
+            // The resource values are the listed URL's — fetched with it — and
+            // only the URL that is kept is respelled.
+            guard let resourceValues = try? listed.resourceValues(forKeys: Set(resourceKeys)) else {
                 continue
             }
+            let fileURL = listedRootLength.map { Self.respelled(listed, under: rootURL, dropping: $0) } ?? listed
             if resourceValues.isDirectory == true {
                 discoveredFolders.append(fileURL)
                 continue

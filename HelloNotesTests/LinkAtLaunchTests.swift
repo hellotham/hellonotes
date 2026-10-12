@@ -217,8 +217,11 @@ struct LinkAtLaunchTests {
     }
 
     private func eventually(within limit: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + limit
-        while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        // Looks, not seconds (`Waits`).
+        for _ in 0..<Waits.looks(in: limit, every: .milliseconds(10)) {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         return condition()
     }
 

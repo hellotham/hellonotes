@@ -25,12 +25,13 @@ import Testing
 struct ExternalChangeTests {
 
     private func eventually(timeout: Duration = .seconds(10), _ condition: () async -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while await !condition() {
-            guard ContinuousClock.now < deadline else { return false }
+        // Looks, not seconds — a deadline on the clock runs out while another
+        // test has the main actor (`Waits`).
+        for _ in 0..<Waits.looks(in: timeout, every: .milliseconds(20)) {
+            if await condition() { return true }
             try? await Task.sleep(for: .milliseconds(20))
         }
-        return true
+        return await condition()
     }
 
     /// Three notes in a folder, and a collection on it whose watcher tells

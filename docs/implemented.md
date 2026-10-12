@@ -8416,6 +8416,84 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.48 One folder, two names: what CI's failing tests were about (2026-10-12, after build 32)
+
+With the stall gone (§51.47) the runner failed eight tests that pass here, and
+they were filed as "tests that assume a roomy machine". Their own messages
+said otherwise for five of them: the same file under two names,
+`/var/folders/…/Doomed.md` and `/private/var/folders/…/Doomed.md`.
+
+**Why only there.** The runner's test host is unsigned, so unsandboxed, so its
+temporary folder is `/var/folders/…` — and `/var` is `/private/var`. Here the
+host is sandboxed and its folders have one name. **Run unsigned, the suite
+fails the same five here** — `./scripts/run-tests.sh -only-testing:HelloNotesTests
+CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=` — which
+is the reproduction CI's failures had been missing.
+
+**The defect is the app's.** A collection is meant to call every file by its
+own spelling of its folder, and the walk rewrote a listing to that only when
+`resolvingSymlinksInPath` reported a link. Foundation hides this one: it
+answers `/var/…` for either name, and `contentsOfDirectory(at:)` then hands
+every entry back as `/private/var/…`. So a collection rooted at `/var/…` held
+its scanned notes under one name and the ones it made, moved or renamed under
+the other, and a note's identity is its URL:
+- a tab on a note that had **not** moved was closed when another did — the
+  walk after the move spelled every note the other way;
+- a note made again at a path was "not at the same path";
+- a cloud note was not found in its own manifest.
+
+**An iPhone's containers are spelled both ways like this** (`/var/mobile/…`
+and `/private/var/mobile/…`) and the simulator's are not, so no test, parity
+run or simulator session could show it. Whether it has been biting on devices
+is not known; it is the first thing to suspect behind a tab that closes or a
+note that is not selected there.
+- **Both listers respell.** `LocalTreeSource.children` asks once a listing
+  whether the entries came back under another name
+  (`cameBackUnderAnotherName`), and the synchronous `Collection.enumerate`
+  once a scan (`listedRootLength`, `respelled`) — strings, decided from the
+  first entry, so a folder listed under its own name pays nothing a file.
+- `OneSpellingTests`: the rule on spellings written by hand, which bite in
+  the sandbox too, and a real folder walked both ways wherever one with two
+  names is to be had (CI, and an unsigned run here). Control, unsigned: the
+  seven tests that should fail do.
+- `ConflictSaveTests` listed a folder itself and opened a copy under the
+  listing's name; it names the copy as the app does.
+
+**The other three were waits that gave up by the clock.**
+- **Ten `eventually` helpers and some twenty-five loops written out** all
+  said "until X, or until N seconds have passed". The tests share the main
+  actor, and a clock goes on running while another test has it: a wait came
+  back from its first sleep with its allowance spent and the work it waited
+  for queued behind it — "typing never settled", and here once, a tag index
+  "never built". They count **looks** now (`Waits`): as many as the seconds
+  hold sleeps, each after a turn in which the awaited work can run.
+- `GraphLabelTests` waited two seconds for a layout worked out off the main
+  actor and pictured a graph not yet laid out. It looks until there are
+  labels.
+- `aLookThatLandsAfterClosingSaysNothing` held two looks for 0.3 s and slept
+  0.1 s before closing; on three cores the looks were over first. Each look
+  says it is under way and is held until the collection is closed, one at a
+  time. Control: without the app's two guards it fails.
+
+**Checked:** the suite signed, 902 tests in 138 suites; unsigned, as the
+runner runs it, 902 with the two-names test taking part; the affected suites
+on the iPhone simulator.
+
+**Not settled.** With the pool held to one thread
+(`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`) six tests still fail:
+four stage a race that one thread cannot have, one waits on a timer of the
+app's that needs a thread the test is holding, and
+`aLookThatLandsAfterClosingSaysNothing` is not woken while its look holds the
+thread, for a reason not found. That is not the runner, which has three.
+
+**Two things this cost that should not be repeated.** Run with extra
+arguments, `run-tests.sh` drops its own `-only-testing:HelloNotesTests` — so
+the first unsigned runs also built and launched the interface tests' runner
+unsigned, and macOS told the person, repeatedly, that
+"HelloNotesUITests-Runner is damaged". And an unsandboxed host writes into the
+real `~/Library` (a preferences file, two Application Support folders, caches):
+moved out afterwards, and found only by listing before and after.
+
 ### 51.47 Three tests held the whole concurrency pool, and build 32 (2026-10-12)
 
 **What the stall was.** §51.46's capture named it on its first run. On the

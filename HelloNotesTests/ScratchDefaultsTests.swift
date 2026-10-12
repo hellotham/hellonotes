@@ -54,9 +54,9 @@ import Testing
 
     /// Whether `file` exists within `limit` — cfprefsd writes when it chooses.
     private static func appears(_ file: URL, within limit: Duration) async -> Bool {
-        let deadline = ContinuousClock.now + limit
+        var patience = Waits.Patience(limit)
         while !FileManager.default.fileExists(atPath: file.path) {
-            guard ContinuousClock.now < deadline else { return false }
+            guard patience.lasts else { return false }
             try? await Task.sleep(for: .milliseconds(20))
         }
         return true
@@ -108,8 +108,8 @@ import Testing
         defaults.removePersistentDomain(forName: name)
 
         // cfprefsd writes when it chooses.
-        let deadline = ContinuousClock.now + .seconds(15)
-        while Self.files(carrying: "control", in: folder).isEmpty, ContinuousClock.now < deadline {
+        var patience = Waits.Patience(.seconds(15))
+        while Self.files(carrying: "control", in: folder).isEmpty, patience.lasts {
             try await Task.sleep(for: .milliseconds(50))
         }
         #expect(Self.files(carrying: "control", in: folder) == ["control.plist"],

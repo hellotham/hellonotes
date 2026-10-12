@@ -77,8 +77,8 @@ struct PanelRequestTests {
     #endif
 
     private func until(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        var patience = Waits.Patience(.seconds(10))
+        while !condition(), patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
     }
 
     @Test(.scratchDefaults) func aPanelThatAppearsHoldingARequestRunsIt() async throws {

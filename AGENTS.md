@@ -61,7 +61,20 @@
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 899 tests in 137 suites, ~35s (2026-10-12).
+  afterwards whatever the result. 902 tests in 138 suites, ~35s (2026-10-12).
+  **As CI runs it** — unsigned, so unsandboxed, so with a temporary folder that
+  has two names: `./scripts/run-tests.sh -only-testing:HelloNotesTests
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=`. Three
+  things about that, each learnt the hard way (implemented.md §51.48): **name
+  `-only-testing:HelloNotesTests` yourself**, because any extra argument
+  replaces the script's own, and without it the interface tests' runner is
+  built and launched unsigned and macOS tells the person it "is damaged";
+  **run the plain script afterwards**, which signs everything again (that run
+  is slow, once); and **an unsandboxed host writes in the real `~/Library`** —
+  list `Preferences`, `Application Support`, `Caches` and `WebKit` for
+  `com.hellotham.HelloNotes` and `HelloNotes` before and after, and move out
+  what appeared. Never `defaults delete com.hellotham.HelloNotes`: from a
+  shell that can name the app's *container*.
   Its tests of collection walks keep time, and fail one at a time on a busy
   machine (three runs in four at a load average over 12); run it again before
   believing a failure there, and read *which* test it was.
@@ -929,6 +942,27 @@
   and how long it ran. The runner tests an **unsigned, unsandboxed** build —
   not what `run-tests.sh` runs here — so a failure there may be one this Mac
   cannot have (implemented.md §51.46).
+- **Every lister respells to the collection's own name for its folder —
+  and `resolvingSymlinksInPath` will not tell you when it must.** `/var` is
+  `/private/var`, Foundation answers `/var/…` for either, and a listing of
+  `/var/…` comes back as `/private/var/…`: so "rewrite only if the path went
+  through a link" never fired, and a collection rooted there held scanned
+  notes under one name and made, moved and renamed ones under the other. A
+  note's identity is its URL — a tab on a note that had not moved closed when
+  another did. Decide from the **listing**: does the first entry's folder
+  spell as the folder that was asked for (`LocalTreeSource.cameBackUnderAnotherName`,
+  `Collection.listedRootLength`)? An iPhone's containers have both names and
+  the simulator's do not; **only CI's unsandboxed test host showed this**, in
+  failures first read as slowness. Read a failing test's own message before
+  naming its cause: five of eight said `/var` and `/private/var` in so many
+  words (implemented.md §51.48).
+- **A wait counts looks, not seconds.** `let deadline = ContinuousClock.now +
+  .seconds(5)` runs out while *another test* has the main actor, and the wait
+  comes back from its first sleep already spent, with the work it waited for
+  queued behind it. `Waits.Patience` and the `eventually` helpers give a wait
+  as many looks as its seconds hold sleeps (`HelloNotesTests/Waits.swift`).
+  And a thing held open for a test is held until the test lets it go — never
+  for a time the test hopes to fit inside.
 - **A test never blocks a thread of the concurrency pool waiting for other
   work.** A Swift Testing test runs on the pool, which has one thread a core.
   Three `TokenCacheTests` each sat in `DispatchSemaphore.wait()` for a block

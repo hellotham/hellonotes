@@ -39,9 +39,12 @@ shift 2
 [ $# -gt 0 ] || { echo "ci-bounded.sh: no command" >&2; exit 2; }
 
 silence=${CI_STALL_SILENCE:-300}
-# A test host's argv is the app's, and this is the one word in it that names it
-# (see run-tests.sh).
-host_pattern=${CI_HOST_PATTERN:-NSTreatUnknownArgumentsAsOpen}
+# A test host's argv is the app's, and `-NSTreatUnknownArgumentsAsOpen` is the
+# one word in it that says it is a host (see run-tests.sh). **This app's**, as
+# that script matches it: Xcode launches every app it debugs with the same
+# argument, and the bare word would sample — and then stop — whatever else is
+# being run from Xcode on a developer's Mac.
+host_pattern=${CI_HOST_PATTERN:-HelloNotes\.app/Contents/MacOS/HelloNotes.*-NSTreatUnknownArgumentsAsOpen}
 
 mkdir -p "$out"
 log="$out/output.log"

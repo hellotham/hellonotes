@@ -29,8 +29,8 @@ struct TagCountTests {
         collection.scan()
         collection.refreshDerived(force: true)
         let search = collection.search
-        let deadline = ContinuousClock.now + .seconds(10)
-        while search.allTags().count < 5, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        var patience = Waits.Patience(.seconds(10))
+        while search.allTags().count < 5, patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
 
         // A tag's count holds the notes carrying it or a tag under it, in any
         // case — as many as `notesTagged` lists.

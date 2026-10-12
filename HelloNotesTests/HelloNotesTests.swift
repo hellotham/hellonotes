@@ -1297,24 +1297,56 @@ struct CollectionAvailabilityTests {
         let watched = Collection(rootURL: watchedRoot)
         watched.scan()
         try FileManager.default.removeItem(at: watchedRoot)
-        Collection.availabilityProbes.withLock { probes in
-            for root in [recheckedRoot, watchedRoot] { probes[root.path] = { _ in Thread.sleep(forTimeInterval: 0.3) } }
-        }
-        defer {
-            Collection.availabilityProbes.withLock { probes in
-                for root in [recheckedRoot, watchedRoot] { probes.removeValue(forKey: root.path) }
+        // Each look says it is under way and then waits to be let go — held
+        // for as long as closing takes, not for a time closing was hoped to
+        // fit inside. It slept 0.3 s here against a 0.1 s sleep in the test,
+        // and on CI's three cores the looks were over before the test came
+        // back to close anything: both collections were given their verdicts,
+        // and the test reported the defect it guards against (implemented.md
+        // §51.48).
+        //
+        // One look at a time, and the test *awaits* word of it rather than
+        // sleeping between looks at a counter: the look holds a thread of the
+        // concurrency pool while it is held, and two at once held two of the
+        // runner's three. (With the pool held to a single thread —
+        // `LIBDISPATCH_COOPERATIVE_POOL_STRICT` — this still fails: the test
+        // is not woken while the look holds that thread, for a reason not
+        // found. Three threads is what there is to pass on.)
+        @MainActor
+        func closing(_ collection: Collection, at root: URL, during look: () -> Task<Void, Never>) async {
+            let underWay = Gate()
+            let mayFinish = DispatchSemaphore(value: 0)
+            let began = Locked(false)
+            Collection.availabilityProbes.withLock {
+                $0[root.path] = { _ in
+                    began.set(true)
+                    underWay.open()
+                    _ = mayFinish.wait(timeout: .now() + 120)
+                }
             }
+            defer { _ = Collection.availabilityProbes.withLock { $0.removeValue(forKey: root.path) } }
+            // A look that never begins is a failure and not a wait for ever —
+            // on a thread of its own, so it needs nothing of the pool either.
+            // Long, because on a small pool the look waits its turn behind
+            // whatever else is holding a thread.
+            Thread.detachNewThread { Thread.sleep(forTimeInterval: 120); underWay.open() }
+            let finished = look()
+            await underWay.wait()
+            #expect(began.value, "the look at \(root.lastPathComponent) never began, so nothing was closed during it")
+            collection.deactivate()
+            mayFinish.signal()
+            await finished.value
         }
 
         var reported = 0
-        let recheck = Task { await rechecked.recheckAvailability() }
-        let rootChange = watched.receive(.rootChanged) { reported += 1 }
-        try await Task.sleep(for: .milliseconds(100))       // both looks under way
-        rechecked.deactivate()
-        watched.deactivate()
-
-        #expect(await recheck.value == false, "a closed collection was brought back")
-        await rootChange.value
+        let brought = Locked<Bool?>(nil)
+        await closing(rechecked, at: recheckedRoot) {
+            Task { brought.set(await rechecked.recheckAvailability()) }
+        }
+        #expect(brought.value == false, "a closed collection was brought back")
+        await closing(watched, at: watchedRoot) {
+            watched.receive(.rootChanged) { reported += 1 }
+        }
         #expect(rechecked.state == .unavailable(.missing), "a closed collection was brought back: \(rechecked.state)")
         #expect(watched.state == .ready, "a closed collection was given a verdict: \(watched.state)")
         #expect(reported == 0, "a closed collection's change was reported")
@@ -1396,8 +1428,8 @@ struct CollectionAvailabilityTests {
 
         var reported = 0
         await collection.handle(.eventsDropped) { reported += 1 }
-        let deadline = ContinuousClock.now + .seconds(20)
-        while looks.value < 1, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        var patience = Waits.Patience(.seconds(20))
+        while looks.value < 1, patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
         await collection.handle(.eventsDropped) { reported += 1 }     // seen during the walk
         // Until the walk shows its progress — the thing itself, not a time by
         // which it should have: the 750 ms to the reveal runs from when its
@@ -1405,12 +1437,12 @@ struct CollectionAvailabilityTests {
         // queued there that was later than 900 ms from the look in 2 runs of
         // 40. A walk let go before it finishes unannounced and leaves no
         // summary, which read as this test failing about one run in ten.
-        while !collection.showsScanProgress, ContinuousClock.now < deadline {
+        while !collection.showsScanProgress, patience.lasts {
             try await Task.sleep(for: .milliseconds(10))
         }
         try #require(collection.showsScanProgress, "the held walk never showed its progress")
         walkMayLook.signal()
-        while (looks.value < 2 || reported < 1), ContinuousClock.now < deadline {
+        while (looks.value < 2 || reported < 1), patience.lasts {
             try await Task.sleep(for: .milliseconds(10))
         }
 

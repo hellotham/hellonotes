@@ -451,6 +451,14 @@ nonisolated struct LocalTreeSource: TreeSource {
         Collection.unavailability(of: root)
     }
 
+    /// Whether a listing of `directory` named its entries under another
+    /// spelling of that folder — asked of the first, since a listing spells
+    /// them all one way.
+    static func cameBackUnderAnotherName(_ first: URL?, listing directory: URL) -> Bool {
+        guard let first else { return false }
+        return first.deletingLastPathComponent().path != directory.path
+    }
+
     func children(of directory: String) async throws -> DirectoryListing {
         let url = directory.isEmpty ? root : root.appending(path: directory)
 
@@ -477,11 +485,31 @@ nonisolated struct LocalTreeSource: TreeSource {
             includingPropertiesForKeys: Self.resourceKeys,
             options: [.skipsHiddenFiles])
 
+        // **And respelled when the listing came back under another name for
+        // the same folder**, which `viaLink` does not see. `/var` is a link to
+        // `/private/var` that Foundation hides: `resolvingSymlinksInPath`
+        // answers `/var/…` for either, so `viaLink` is false — and
+        // `contentsOfDirectory(at:)` then hands every entry back as
+        // `/private/var/…`. A collection rooted at `/var/…` had its scanned
+        // notes under one spelling and the notes it made, moved or renamed
+        // under the other: a moved note's tab closed (its editor followed it
+        // to a URL no listed note had), a note made again at a path was "not
+        // at the same path", and a cloud note was not found in its own
+        // manifest. An iPhone's containers are `/var/mobile/…` and
+        // `/private/var/mobile/…` in just this way, and the simulator's are
+        // neither — CI's unsandboxed test host, whose temporary folder is
+        // `/var/folders/…`, is the only thing that showed it (implemented.md
+        // §51.48). Asked once a listing, of strings: no file pays for it.
+        let respelled = viaLink || Self.cameBackUnderAnotherName(contents.first, listing: url)
+
         var listing = DirectoryListing()
         listing.children.reserveCapacity(contents.count)
         for entry in contents {
             guard let values = try? entry.resourceValues(forKeys: Set(Self.resourceKeys)) else { continue }
-            let child = viaLink ? url.appending(path: entry.lastPathComponent) : entry
+            let child = respelled
+                ? url.appending(path: entry.lastPathComponent,
+                                directoryHint: entry.hasDirectoryPath ? .isDirectory : .notDirectory)
+                : entry
             if values.isDirectory == true {
                 let isPackage = (try? entry.resourceValues(forKeys: Self.directoryKeys))?.isPackage == true
                 listing.children.append(TreeChild(url: child, isDirectory: true,

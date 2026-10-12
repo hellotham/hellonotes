@@ -265,8 +265,8 @@ extension UnloadedNoteTests {
     /// seconds to be scheduled. The cap only ends a test that is broken.
     func waitUntil(_ condition: () -> Bool,
                    sourceLocation: SourceLocation = #_sourceLocation) async throws {
-        let deadline = ContinuousClock.now + .seconds(60)
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        var patience = Waits.Patience(.seconds(60))
+        while !condition(), patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
         #expect(condition(), "the editor never got there", sourceLocation: sourceLocation)
     }
 

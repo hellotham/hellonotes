@@ -175,12 +175,13 @@ struct SplitArrangementTests {
     }
 
     private func eventually(timeout: Duration = .seconds(5), _ condition: () async -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while await !condition() {
-            guard ContinuousClock.now < deadline else { return false }
+        // Looks, not seconds — a deadline on the clock runs out while another
+        // test has the main actor (`Waits`).
+        for _ in 0..<Waits.looks(in: timeout, every: .milliseconds(20)) {
+            if await condition() { return true }
             await pump(0.02)
         }
-        return true
+        return await condition()
     }
 
     /// Turn the main run loop for `seconds`, in small steps, so the hosted

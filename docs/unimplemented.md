@@ -395,20 +395,22 @@ What remains are **constraints of the providers and the platform**, not deferred
   - ✅ ~~*CI, the macOS app: the Test step stalls.*~~ Three tests held the
     runner's whole concurrency pool; they hold none of it now, and the suite
     runs to its end there (implemented.md §51.47).
-  - 🟠 *CI, the macOS app: nine tests fail on the runner's three cores* that
-    pass here on sixteen — `eachLabelIsDrawnByItsNode`,
-    `aSyncAfterARenameDoesNotBringTheOldNameBack`,
-    `aNoteMadeAgainWhileItsOldSaveIsParsedIsNotGivenIt`,
-    `aMovedNotesBackgroundTabStaysOpen`, `aMovedFoldersNotesKeepTheirTabs`,
-    `aLookThatLandsAfterClosingSaysNothing`,
-    `aKeystrokeSettlesOnceTypingPauses`,
-    `aCopyOpenInAnEditorIsNotWrittenUnderIt` (run 38208088777; the whole
-    output is the run's `test-run-macOS` artifact). Tests that wait a fixed
-    time or assume work elsewhere has finished. The nearest thing to the
-    runner here is a one-thread pool —
-    `TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 ./scripts/run-tests.sh`
-    — which fails eight, three of them the same. Until they are fixed the job
-    is red on every push, for a reason that is the tests' and not the app's.
+  - ✅ ~~*CI, the macOS app: eight tests fail on the runner that pass here.*~~
+    Five were one folder under two names — a defect of the app's, which an
+    iPhone's containers can meet — and three were waits that gave up by the
+    clock (implemented.md §51.48). **To be confirmed by a run on GitHub.**
+  - 🟡 *A one-thread pool still fails six tests*
+    (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`): the three
+    `SaveIndexingTests` that stage a save still parsing, and
+    `aSaveMadeWhileRelatednessIsBuiltReachesIt`, whose setups say "this tests
+    nothing" there; `aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt`, which
+    waits on the app's own timer while holding the only thread; and
+    `aLookThatLandsAfterClosingSaysNothing`, not woken while its look holds
+    it, for a reason not found (§51.48). Not the runner's conditions.
+  - 🟡 *Has the two-names defect been biting on devices?* §51.48 fixed a
+    collection holding one note under `/var/…` and `/private/var/…`. Nothing
+    here can run on a device to say whether a closed tab or an unselected note
+    there was this.
   - 🟡 *CI, the editor package:* `HeadingTypingTests` failed on the runner in
     one run of three and passed in the two since. The position it reported is
     a fragment at exactly y = 0 — one made and not yet placed (§51.46). Its
