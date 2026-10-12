@@ -93,7 +93,27 @@ import AppKit
             #expect(abs(scrollView.contentView.bounds.origin.y - scroll) < 0.5,
                     "typing ‘\(key)’ scrolled the note from \(scroll) to \(scrollView.contentView.bounds.origin.y)")
             let now = try #require(below(), "the paragraph under the heading has no place on screen")
-            #expect(abs(now - place) < 0.5, "typing ‘\(key)’ moved the paragraph under the heading from \(place) to \(now)")
+            // Said in full when it fails. On CI's runner, and nowhere else, the
+            // first key in a first-level heading reported the paragraph
+            // 11,823pt from where it was, with the note not scrolled — and the
+            // message could not say whether that was where it was *drawn* or
+            // an estimate nothing had laid out yet (implemented.md §51.44).
+            // Asked only on a failure, so a run that passes is the run it was.
+            var seen = ""
+            if abs(now - place) >= 0.5 {
+                let controller = layoutManager.textViewportLayoutController
+                let offset = (textView.string as NSString).range(of: "The paragraph under the heading").location
+                let location = content.location(content.documentRange.location, offsetBy: offset)
+                let inViewport = location.flatMap { controller.viewportRange?.contains($0) } ?? false
+                let usage = layoutManager.usageBoundsForTextContainer
+                controller.layoutViewport()
+                let laidOut = below()
+                seen = " — in the viewport's range: \(inViewport); the viewport: \(controller.viewportBounds); "
+                    + "the text's height as TextKit has it: \(usage.height); the text view's: \(textView.frame.height); "
+                    + "and after the viewport is laid out again: \(laidOut.map { "\($0)" } ?? "nowhere")"
+            }
+            #expect(abs(now - place) < 0.5,
+                    "typing ‘\(key)’ moved the paragraph under the heading from \(place) to \(now)\(seen)")
         }
     }
 }

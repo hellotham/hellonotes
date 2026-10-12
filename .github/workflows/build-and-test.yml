@@ -138,19 +138,47 @@ jobs:
             -derivedDataPath "$PWD/DerivedData" \
             -clonedSourcePackagesDirPath "$SPM_CACHE"
 
+      # **Bounded, and a stall is looked at before it is stopped.** The first
+      # run to get this far (2026-10-12) started 775 tests within a fifth of a
+      # second and finished none: nothing more was printed for eighty minutes,
+      # the job ran into its ninety, and GitHub called it *cancelled* — with
+      # nothing kept that could say what the test host was waiting for. The
+      # suite takes about 35 seconds on a developer's Mac, where the host is
+      # signed and sandboxed; here it is neither, which is the first thing to
+      # suspect and not yet a finding (implemented.md §51.44).
+      #
+      # `ci-bounded.sh` follows the output, and when there has been none for
+      # five minutes — or the whole run passes twenty-five — it samples the
+      # host, pictures the runner's screen, counts the tests that started and
+      # finished, and leaves it all for the step below. Then it fails, in
+      # minutes.
       - name: Test
         if: matrix.test
+        timeout-minutes: 40
         env:
           DESTINATION: ${{ matrix.destination }}
         run: |
-          xcodebuild test-without-building \
-            -project HelloNotes.xcodeproj -scheme HelloNotes \
-            -skipPackagePluginValidation \
-            -destination "$DESTINATION" -configuration Debug \
-            -only-testing:HelloNotesTests \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            -derivedDataPath "$PWD/DerivedData" \
-            -clonedSourcePackagesDirPath "$SPM_CACHE"
+          scripts/ci-bounded.sh 1500 "$RUNNER_TEMP/test-run" -- \
+            xcodebuild test-without-building \
+              -project HelloNotes.xcodeproj -scheme HelloNotes \
+              -skipPackagePluginValidation \
+              -destination "$DESTINATION" -configuration Debug \
+              -only-testing:HelloNotesTests \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+              -derivedDataPath "$PWD/DerivedData" \
+              -clonedSourcePackagesDirPath "$SPM_CACHE"
+
+      # The whole output, and — after a stall — the samples, the picture and
+      # the count. Kept for a failure of any kind: a test that fails here and
+      # nowhere else is read from its own output, not from a summary of it.
+      - name: Keep what a failed test run left
+        if: failure() && matrix.test
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-run-${{ matrix.platform }}
+          path: ${{ runner.temp }}/test-run
+          if-no-files-found: ignore
+          retention-days: 14
 
   release:
     # "A green Debug build does not imply Release compiles" — a Swift SIL-inliner
