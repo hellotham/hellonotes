@@ -14,6 +14,44 @@ import Testing
 
 struct TokenCacheTests {
 
+    // MARK: - Threads of the tests' own
+    //
+    // Three tests here hold a Keychain call open and ask what else can go on
+    // meanwhile. They did it by dispatching the held call to a global queue
+    // and **waiting on a semaphore in the test itself** — and a Swift Testing
+    // test runs on the concurrency pool, which has one thread a core. On a
+    // 16-core Mac three blocked threads are three of sixteen. On CI's
+    // three-core runner they were the whole pool: these three tests, started
+    // together, each waiting for a block that no thread was left to run,
+    // and 824 tests behind them that never began. The job ran into its limit
+    // twice with nothing to show for it; the sample that named these three
+    // lines came from `scripts/ci-bounded.sh` (implemented.md §51.47).
+    //
+    // So the held call runs on a thread that is nobody's but its own, and the
+    // test *awaits* — holding no thread while it does.
+
+    /// Runs `work` on a thread of its own: not a queue's, which the system
+    /// may not give a thread to, and not the concurrency pool's.
+    static func onAThread(_ work: @escaping @Sendable () -> Void) {
+        Thread.detachNewThread(work)
+    }
+
+    /// Waits for `semaphore` — for ever, or `seconds` — without holding a
+    /// thread of the concurrency pool while it does.
+    @discardableResult
+    static func wait(for semaphore: DispatchSemaphore, upTo seconds: Double? = nil) async -> DispatchTimeoutResult {
+        await withCheckedContinuation { continuation in
+            Thread.detachNewThread {
+                if let seconds {
+                    continuation.resume(returning: semaphore.wait(timeout: .now() + seconds))
+                } else {
+                    semaphore.wait()
+                    continuation.resume(returning: .success)
+                }
+            }
+        }
+    }
+
     /// Answers from a dictionary, counts its reads, can fail reads or writes,
     /// and can hold the next read of an account until told to go on — having
     /// already taken the answer it will give, as a read in flight has.
@@ -137,24 +175,24 @@ struct TokenCacheTests {
     /// account's Keychain read is under way. The lock was held across every
     /// Keychain call, so a main-actor read of one account waited on another's
     /// XPC round trip — or on a prompt for as long as it was up.
-    @Test func aReadNeverWaitsOnAnotherAccountsKeychainCall() {
+    @Test func aReadNeverWaitsOnAnotherAccountsKeychainCall() async {
         let keychain = FakeKeychain()
         let cache = TokenCache(keychain: keychain)
         cache.setToken("dropbox token", for: "dropbox#1")
         let hold = keychain.holdNextRead(of: "box#1")
-        DispatchQueue.global().async { _ = cache.token(for: "box#1") }
-        hold.reached.wait()
+        Self.onAThread { _ = cache.token(for: "box#1") }
+        await Self.wait(for: hold.reached)
 
         let answered = DispatchSemaphore(value: 0)
         let answer = Locked<String?>(nil)
-        DispatchQueue.global().async {
+        Self.onAThread {
             answer.set(cache.token(for: "dropbox#1"))
             answered.signal()
         }
-        let waited = answered.wait(timeout: .now() + 2)
+        let waited = await Self.wait(for: answered, upTo: 2)
         hold.resume.signal()
         #expect(waited == .success, "a read of one account waited on another's Keychain call")
-        if waited == .timedOut { answered.wait() }
+        if waited == .timedOut { await Self.wait(for: answered) }
         #expect(answer.value == "dropbox token")
     }
 
@@ -162,22 +200,22 @@ struct TokenCacheTests {
     /// two tokens, or a prompt on screen. The writes took one lock for the
     /// whole process, so a Dropbox refresh on the main actor queued behind a
     /// Box refresh's Keychain calls.
-    @Test func aWriteNeverWaitsOnAnotherAccountsWrite() {
+    @Test func aWriteNeverWaitsOnAnotherAccountsWrite() async {
         let keychain = FakeKeychain()
         let cache = TokenCache(keychain: keychain)
         let hold = keychain.holdNextWrite(of: "box#1")
-        DispatchQueue.global().async { cache.setToken("box token", for: "box#1") }
-        hold.reached.wait()
+        Self.onAThread { cache.setToken("box token", for: "box#1") }
+        await Self.wait(for: hold.reached)
 
         let written = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        Self.onAThread {
             cache.setToken("dropbox token", for: "dropbox#1")
             written.signal()
         }
-        let waited = written.wait(timeout: .now() + 2)
+        let waited = await Self.wait(for: written, upTo: 2)
         hold.resume.signal()
         #expect(waited == .success, "a write of one account waited on another's")
-        if waited == .timedOut { written.wait() }
+        if waited == .timedOut { await Self.wait(for: written) }
         #expect(cache.token(for: "dropbox#1") == "dropbox token")
     }
 
@@ -229,22 +267,22 @@ struct TokenCacheTests {
     /// A refresh landing while the Keychain is being read: the read began
     /// before the write and finishes after it, with the token the write
     /// replaced — which it must neither hand back nor keep.
-    @Test func aWriteDuringAReadIsNotUndoneByIt() {
+    @Test func aWriteDuringAReadIsNotUndoneByIt() async {
         let keychain = FakeKeychain()
         keychain.put("old", for: "onedrive#1")
         let cache = TokenCache(keychain: keychain)
         let hold = keychain.holdNextRead(of: "onedrive#1")
         let done = DispatchSemaphore(value: 0)
         let seen = Locked<String?>(nil)
-        DispatchQueue.global().async {
+        Self.onAThread {
             seen.set(cache.token(for: "onedrive#1"))
             done.signal()
         }
-        hold.reached.wait()
+        await Self.wait(for: hold.reached)
 
         cache.setToken("new", for: "onedrive#1")
         hold.resume.signal()
-        done.wait()
+        await Self.wait(for: done)
         #expect(seen.value == "new", "a read that began before a write handed back what the write replaced")
         #expect(cache.token(for: "onedrive#1") == "new", "a read that began before a write put back what it replaced")
         #expect(keychain.stored("onedrive#1") == "new")
