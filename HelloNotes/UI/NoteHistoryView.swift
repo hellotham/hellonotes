@@ -12,9 +12,15 @@ import AppKit
 import UIKit
 #endif
 
-/// A sheet listing a note's Git history. Selecting a commit previews that
-/// version's contents; **Restore** replaces the editor's text with it (which
-/// then autosaves through the normal path, so it stays undoable).
+/// A note's Git history. Selecting a commit previews that version's contents;
+/// **Restore** replaces the note with it — after asking.
+///
+/// It asks because nothing takes it back. The replacement is a write the app
+/// makes into the open note (`EditorModel.applyEdit`), which replaces the
+/// document and resets its undo, and it is saved at once: whatever the note
+/// held that no commit holds is gone. This comment said the restore "stays
+/// undoable" for as long as it did not, and the button restored on one click
+/// (found by fact-checking the 1.3.3 website; implemented.md §51.44).
 struct NoteHistoryView: View {
     let fileURL: URL
     let git: GitService
@@ -32,6 +38,11 @@ struct NoteHistoryView: View {
     /// The revision list's width beside the preview, as dragged.
     @State private var listWidth: Double = 280
     @FocusState private var listHasFocus: Bool
+    /// The version Restore was pressed on, while the person is asked.
+    @State private var restoring: GitService.NoteRevision?
+    /// The chosen version could not be read — which is not a version that is
+    /// empty, and must not be restored as one.
+    @State private var previewIsUnreadable = false
 
     private var selectedRevision: GitService.NoteRevision? {
         revisions.first { $0.id == selected }
@@ -67,7 +78,7 @@ struct NoteHistoryView: View {
                         Button("Close") { dismiss() }
                             .keyboardShortcut(.cancelAction)
                     } trailing: {
-                        Button("Restore This Version", action: restore)
+                        Button("Restore This Version", action: askToRestore)
                             .buttonStyle(ChromePushStyle(prominent: true))
                             .keyboardShortcut(.defaultAction)
                             .disabled(!canRestore)
@@ -82,7 +93,7 @@ struct NoteHistoryView: View {
                     ChromeDivider()
                     HStack(spacing: 8) {
                         Spacer()
-                        Button("Restore", action: restore)
+                        Button("Restore", action: askToRestore)
                             .disabled(!canRestore)
                     }
                     .padding(8)
@@ -90,17 +101,41 @@ struct NoteHistoryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .confirmationDialog(
+            "Restore this version?",
+            isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }),
+            titleVisibility: .visible,
+            presenting: restoring
+        ) { revision in
+            Button("Restore", role: .destructive) { restore(revision) }
+            Button("Cancel", role: .cancel) {}
+        } message: { revision in
+            Text(Self.restoreWarning(for: revision))
+        }
         .task { await load() }
         .onChange(of: selected) { _, newID in
-            guard let newID else { preview = ""; return }
+            guard let newID else { preview = ""; previewIsUnreadable = false; return }
             Task { await loadPreview(for: newID) }
         }
     }
 
-    private var canRestore: Bool { selectedRevision != nil && !isLoadingPreview }
+    private var canRestore: Bool { selectedRevision != nil && !isLoadingPreview && !previewIsUnreadable }
 
-    private func restore() {
-        guard selectedRevision != nil else { return }
+    private func askToRestore() {
+        restoring = selectedRevision
+    }
+
+    /// What Restore costs, said before it is paid.
+    static func restoreWarning(for revision: GitService.NoteRevision) -> String {
+        "The note becomes the version of \(revision.date.formatted(date: .abbreviated, time: .shortened)). "
+            + "Anything written since the last commit is lost, and Undo will not bring it back."
+    }
+
+    /// The restore itself — reached only from the confirmation, and only for
+    /// the version still chosen: the preview is that version's text, and a
+    /// selection that moved while the question was up is another's.
+    private func restore(_ revision: GitService.NoteRevision) {
+        guard selectedRevision?.id == revision.id, canRestore else { return }
         onRestore(preview)
         if presentation == .sheet { dismiss() }
     }
@@ -217,6 +252,10 @@ struct NoteHistoryView: View {
             ChromeEmptyState("Select a Version", systemImage: "doc.text.magnifyingglass")
         } else if isLoadingPreview {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if previewIsUnreadable {
+            // Said, not shown as an empty version — which is what `?? ""` drew,
+            // with Restore enabled beside it.
+            ChromeEmptyState("This Version Can’t Be Read", systemImage: "exclamationmark.triangle")
         } else {
             ScrollView {
                 Text(preview)
@@ -240,12 +279,16 @@ struct NoteHistoryView: View {
 
     private func loadPreview(for id: GitService.NoteRevision.ID) async {
         isLoadingPreview = true
-        let content = await git.content(ofRevision: id, for: fileURL) ?? ""
+        let content = await git.content(ofRevision: id, for: fileURL)
         // Drop a stale result: the user may have selected a different revision
         // while this (possibly slow) git read was in flight. Applying it would
         // show — and let "Restore" write — the wrong revision's content.
         guard selected == id else { return }
-        preview = content
+        // A version that cannot be read is not an empty one. It was read as
+        // `?? ""`, previewed as nothing, and Restore — enabled — would have
+        // written an empty note over the one that is there.
+        previewIsUnreadable = content == nil
+        preview = content ?? ""
         isLoadingPreview = false
     }
 }

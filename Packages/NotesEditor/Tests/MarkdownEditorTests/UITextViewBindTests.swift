@@ -847,6 +847,14 @@ import Testing
         tv.selectedRange = NSRange(location: 0, length: 0)
         #expect(inputs().contains(UIKeyCommand.inputUpArrow))
         #expect(inputs().contains(UIKeyCommand.inputLeftArrow))
+        // And each comes before the text view's own arrows, or it is listed
+        // here and never called — which is all this test could see for as
+        // long as that was so. The app's interface test presses the key.
+        let arrows = (tv.keyCommands ?? []).filter {
+            $0.input == UIKeyCommand.inputUpArrow || $0.input == UIKeyCommand.inputLeftArrow
+        }
+        #expect(arrows.count == 2 && arrows.allSatisfy { $0.wantsPriorityOverSystemBehavior },
+                "an arrow's key command without priority over the system's handling is never called")
 
         // Deep in the document neither does — ↑ and ← must reach the text view.
         tv.selectedRange = NSRange(location: document.storage.length / 2, length: 0)

@@ -6,9 +6,14 @@
 //
 //  "Rewrite with AI…" for the editor's selection: pick a canned task or
 //  type an instruction, preview the model's rewrite, then Replace the
-//  selection (undoable — it applies through the editor's normal edit path)
-//  or Insert Below. Complements Apple Writing Tools with the model the person
-//  chose and free-form instructions.
+//  selection or Insert Below. Complements Apple Writing Tools with the model
+//  the person chose and free-form instructions.
+//
+//  Whether Replace can be undone depends on what is being replaced. A
+//  *selection* is replaced in the text view, as typing is, and Undo takes it
+//  back. A *whole note* is a write the app makes into the note
+//  (`EditorModel.applyEdit`), which resets undo — so the preview and the
+//  button that names the note are the whole of the asking.
 //
 
 import SwiftUI

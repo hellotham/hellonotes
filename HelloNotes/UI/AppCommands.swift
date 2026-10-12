@@ -319,15 +319,15 @@ struct AppActions {
     /// Empty list ⇒ the submenu greys out.
     var templates: [TemplateRef] = []
     var insertTemplate: ((TemplateRef) -> Void)? = nil
-    /// Show the command palette (⌘⇧P).
+    /// Show the command palette (⇧⌘P).
     var commandPalette: (() -> Void)?
-    /// AI actions on the open note. `nil` when there is no note or no working
-    /// provider — the menu greys out and the palette omits them entirely.
+    /// AI actions on the open note. `nil` when there is no note or no model
+    /// that can answer — the menu greys out and the palette omits them entirely.
     var ai: AIActions?
     /// Walk this note's unmade links one at a time — Link / Skip / Never.
     ///
     /// Deliberately **not** inside `ai`: this is an exact text scan, so it works
-    /// with no provider configured at all. Filing it with the AI actions would
+    /// with no model that can answer at all. Filing it with the AI actions would
     /// hide a working feature behind a setting it does not need.
     var reviewLinks: (() -> Void)?
     /// Write or research a **new** note. Also not inside `ai` — but for the
@@ -369,6 +369,46 @@ struct AIActions {
     var suggestLinks: () -> Void
     /// Rewrite or expand the whole note, reviewed before it replaces anything.
     var rewriteNote: () -> Void
+
+    /// What each of the four is called and drawn as — in the Note menu, Note
+    /// Actions, the palette and the phone's AI place.
+    ///
+    /// Each place wrote its own, and they drifted: "Rewrite or Expand Note…"
+    /// in the menu and the palette against "Rewrite or Expand…" in Note
+    /// Actions and the AI place, "Summarise Note" against "Summarise", and two
+    /// pictures for Suggest Links — one command reading as three (found by
+    /// fact-checking the 1.3.3 website; implemented.md §51.44).
+    /// `ShellComplianceTests.theNoteAICommandsHaveOneName` holds it.
+    enum Command: CaseIterable {
+        case summarise, suggestTags, suggestLinks, rewrite
+
+        var title: String {
+            switch self {
+            case .summarise: "Summarise Note"
+            case .suggestTags: "Suggest Tags"
+            case .suggestLinks: "Suggest Links"
+            case .rewrite: "Rewrite or Expand Note…"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .summarise: "text.append"
+            case .suggestTags: "number"
+            case .suggestLinks: "link.badge.plus"
+            case .rewrite: "wand.and.stars"
+            }
+        }
+    }
+
+    func run(_ command: Command) {
+        switch command {
+        case .summarise: summarize()
+        case .suggestTags: suggestTags()
+        case .suggestLinks: suggestLinks()
+        case .rewrite: rewriteNote()
+        }
+    }
 }
 
 /// Menu actions that act on the selected note.
@@ -564,9 +604,6 @@ struct HelloNotesCommands: Commands {
             Button("Export as PDF…") { actions?.note?.exportPDF() }
                 .disabled(actions?.note == nil)
             Divider()
-            // The cheap path first. When a provider's client is installed its
-            // files are already on this Mac as ordinary dataless paths, so a
-            // collection there needs no sign-in, no token and no cache at all.
             Button("Command Palette…") { actions?.commandPalette?() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(actions?.commandPalette == nil)
@@ -637,14 +674,10 @@ struct HelloNotesCommands: Commands {
             // The AI actions, in the menu that owns the note rather than in a
             // panel of their own. Each names where its answer will appear, so
             // the menu teaches the inspector rather than replacing it.
-            Button("Summarise Note") { actions?.ai?.summarize() }
-                .disabled(actions?.ai == nil)
-            Button("Suggest Tags") { actions?.ai?.suggestTags() }
-                .disabled(actions?.ai == nil)
-            Button("Suggest Links") { actions?.ai?.suggestLinks() }
-                .disabled(actions?.ai == nil)
-            Button("Rewrite or Expand Note…") { actions?.ai?.rewriteNote() }
-                .disabled(actions?.ai == nil)
+            ForEach(AIActions.Command.allCases, id: \.self) { command in
+                Button(command.title) { actions?.ai?.run(command) }
+                    .disabled(actions?.ai == nil)
+            }
             Button("Review Links…") { actions?.reviewLinks?() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
                 .disabled(actions?.reviewLinks == nil)

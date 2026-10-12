@@ -864,6 +864,66 @@ struct ShellComplianceTests {
         }
     }
 
+    /// **One command, one name.** The four AI commands on a note are listed in
+    /// four places — the Note menu, Note Actions, the palette and the phone's
+    /// AI place — and each wrote its own titles: "Rewrite or Expand Note…"
+    /// against "Rewrite or Expand…", "Summarise Note" against "Summarise", so
+    /// the website had to explain that one command went by two names
+    /// (implemented.md §51.44). They are `AIActions.Command`'s now, and no
+    /// place may write one out again.
+    @Test("The AI commands on a note are named in one place") @MainActor
+    func theNoteAICommandsHaveOneName() throws {
+        #expect(AIActions.Command.allCases.map(\.title)
+                == ["Summarise Note", "Suggest Tags", "Suggest Links", "Rewrite or Expand Note…"])
+        let written = ["\"Summarise\"", "\"Summarise Note\"", "\"Suggest Tags\"", "\"Suggest Links\"",
+                       "\"Rewrite or Expand"]
+        for place in ["UI/AppCommands.swift", "UI/CommandPalette.swift", "ContentView.swift", "UI/AIPlaceList.swift"] {
+            var source = try Self.source(place)
+            #expect(source.contains("AIActions.Command"), "\(place) no longer lists the commands by their definition")
+            // The definition itself is the one place the titles are written.
+            if let start = source.range(of: "enum Command: CaseIterable {"),
+               let end = source.range(of: "func run(_ command: Command)", range: start.upperBound..<source.endIndex) {
+                source.removeSubrange(start.lowerBound..<end.lowerBound)
+            }
+            let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            for title in written {
+                #expect(!code.contains(title), "\(place) writes \(title) itself, beside AIActions.Command")
+            }
+        }
+    }
+
+    /// **Restore asks first.** A restored version replaces the note through
+    /// `EditorModel.applyEdit`, which resets undo and saves — so what the note
+    /// held that no commit holds is gone, and the button did it on one click
+    /// under a comment that said it "stays undoable" (implemented.md §51.44).
+    /// The restore is reached from the confirmation and nowhere else.
+    @Test("Restoring a version asks first")
+    func restoringAVersionAsksFirst() throws {
+        let source = try Self.source("UI/NoteHistoryView.swift")
+        let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        // One call, inside the function the dialog's button calls.
+        #expect(code.components(separatedBy: "onRestore(preview)").count - 1 == 1)
+        let dialog = try #require(code.range(of: ".confirmationDialog("))
+        let asked = code[dialog.upperBound...].prefix(700)
+        #expect(asked.contains("role: .destructive") && asked.contains("restore(revision)"),
+                "the confirmation no longer does the restoring")
+        #expect(code.components(separatedBy: "restore(revision)").count - 1 == 1,
+                "something restores a version without asking")
+        // The buttons ask; none restores.
+        for line in code.split(separator: "\n") where line.contains("Button(\"Restore") && !line.contains("role:") {
+            #expect(line.contains("action: askToRestore"), "a Restore button that does not ask: \(line)")
+        }
+        #expect(code.contains("Undo will not bring it back"), "the question no longer says what Restore costs")
+        // A version that cannot be read is not an empty one to restore.
+        #expect(!code.contains("for: fileURL) ?? \"\""), "an unreadable version is read as an empty one again")
+        #expect(code.contains("!isLoadingPreview && !previewIsUnreadable"),
+                "Restore is offered for a version that could not be read")
+    }
+
     @Test("The models folder panel's configuration wraps its importer")
     func folderPanelConfigurationWrapsTheImporter() throws {
         let source = try Self.source("UI/Assistant/IntelligenceSettingsView.swift")

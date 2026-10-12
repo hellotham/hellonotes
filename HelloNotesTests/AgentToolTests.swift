@@ -412,13 +412,49 @@ struct MentionLinkTests {
         await editor.open(note)
         editor.typed("Something about Target here.\nTyped, not yet saved.\n")
 
-        await MentionLinker.linkFirstMention(of: "Target", in: note, collection: collection)
+        await MentionLinker.linkFirstMention(of: ["Target"], to: "Target", in: note, collection: collection)
 
         #expect(editor.text == "Something about [[Target]] here.\nTyped, not yet saved.\n",
                 "the link was not made to what is on screen")
         #expect(!editor.hasConflict)
         await editor.save()
         #expect(try FileIO.readString(at: mentioning) == "Something about [[Target]] here.\nTyped, not yet saved.\n")
+    }
+
+    /// The Links view lists a note that mentions the open one by its title
+    /// **or an alias**, and its Link button was handed the title alone — so
+    /// for a note listed because of an alias the button changed nothing
+    /// (found by fact-checking the 1.3.3 website; implemented.md §51.44).
+    @Test func aMentionByAnAliasIsLinked() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MentionLink-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileIO.write("---\naliases: [Nick]\n---\n# Target\n", to: root.appendingPathComponent("Target.md"))
+        let mentioning = root.appendingPathComponent("Mentioning.md")
+        try FileIO.write("Something about Nick here.\n", to: mentioning)
+        let collection = Collection(rootURL: root)
+        await collection.scanOffMain()
+        let unindexed = collection.derivedRevision
+        collection.refreshDerived()
+        let deadline = ContinuousClock.now + .seconds(10)
+        while collection.derivedRevision == unindexed, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let target = try #require(collection.note(titled: "Target"))
+        let note = try #require(collection.note(titled: "Mentioning"))
+
+        // The control: this is a note the Links view lists, and why.
+        let names = NoteReferences.names(of: target, in: collection)
+        try #require(names == ["Target", "Nick"], "the alias was never indexed: \(names)")
+        #expect(MentionScanner.containsMention(of: names, in: "Something about Nick here.\n"))
+
+        await MentionLinker.linkFirstMention(of: target, in: note, collection: collection)
+
+        #expect(try FileIO.readString(at: mentioning) == "Something about [[Target|Nick]] here.\n",
+                "the Link button did nothing for a mention by an alias")
+        // And the link it made is one: the mention is gone, and the note links there.
+        #expect(!MentionScanner.containsMention(of: names, in: try FileIO.readString(at: mentioning)))
     }
 }
 

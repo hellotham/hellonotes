@@ -13,7 +13,7 @@
 //  is the same furniture, not a second AI surface.
 //
 //  Every row is disabled rather than hidden when it cannot apply, with a footer
-//  saying which of "no note" or "no provider" is the reason. A row that vanishes
+//  saying which of "no note" or "no model" is the reason. A row that vanishes
 //  teaches you nothing; a row that is present and does nothing teaches you the
 //  wrong thing.
 //
@@ -27,7 +27,7 @@ import SwiftUI
 
 struct AIPlaceList: View {
     /// The note-scoped actions, or nil when there is no note open *or* no
-    /// provider that can answer. Both are reasons to disable, and the footer
+    /// model that can answer. Both are reasons to disable, and the footer
     /// distinguishes them.
     var ai: AIActions?
     /// Whether there are notes to ask about at all.
@@ -53,14 +53,14 @@ struct AIPlaceList: View {
                     .disabled(!canAsk)
                 row("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square") { compose?() }
                     .disabled(compose == nil)
-                footer("Answers are drawn from the notes you have open, with links back to them.")
+                footer("Answers are drawn from the notes in your open collections, with links back to them.")
 
                 header("This note")
-                Group {
-                    row("Summarise", systemImage: "text.append") { ai?.summarize() }
-                    row("Suggest Tags", systemImage: "number") { ai?.suggestTags() }
-                    row("Suggest Links", systemImage: "link.badge.plus") { ai?.suggestLinks() }
-                    row("Rewrite or Expand…", systemImage: "wand.and.stars") { ai?.rewriteNote() }
+                // Named and drawn by `AIActions.Command` — this place said
+                // "Summarise" and "Rewrite or Expand…" where the menu says
+                // "Summarise Note" and "Rewrite or Expand Note…".
+                ForEach(AIActions.Command.allCases, id: \.self) { command in
+                    row(command.title, systemImage: command.systemImage) { ai?.run(command) }
                 }
                 .disabled(ai == nil)
                 // Outside the model's group: it finds links without one, as

@@ -32,6 +32,16 @@ enum CaptureSession {
 @MainActor
 @Observable
 final class Library {
+    /// Where the open collections are remembered between launches — the app's
+    /// own preferences, or a test's own store: a hosted test's `Library` that
+    /// opened a folder wrote that folder into the person's list of open
+    /// collections.
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
     /// The collections currently open, in the order they were added.
     private(set) var collections: [Collection] = []
 
@@ -136,6 +146,35 @@ final class Library {
     /// Called with a collection's root URL each time it's opened — wired to the
     /// recents store.
     var onOpened: @MainActor (URL) -> Void = { _ in }
+
+    // MARK: - Launch
+
+    /// Whether the launch has settled: what was open at the last quit is open
+    /// again and read, and on a first run the collection that ships with the
+    /// app. The window's launch work says when (`launchDidSettle`); a library
+    /// nothing launches — a test's — never does.
+    ///
+    /// It exists for what arrives *before* then. A link that launches the app
+    /// is handed over while the collection it names is not yet open, or is
+    /// open and not yet read; resolved at once it finds nothing, and was
+    /// dropped — the window came up and the note did not (`NavigationRouter`).
+    @ObservationIgnored private(set) var hasSettled = false
+    @ObservationIgnored private var afterSettling: [@MainActor () -> Void] = []
+
+    /// Run `action` once the launch has settled — now, if it has.
+    func afterLaunch(_ action: @escaping @MainActor () -> Void) {
+        if hasSettled { action() } else { afterSettling.append(action) }
+    }
+
+    /// The launch's work is done: whatever waited for it runs, once. Asked
+    /// again — a second window's launch — it does nothing.
+    func launchDidSettle() {
+        guard !hasSettled else { return }
+        hasSettled = true
+        let waiting = afterSettling
+        afterSettling = []
+        for action in waiting { action() }
+    }
 
     /// A note the main window has been asked to select by something that holds
     /// no selection of its own: the right panel's Graph, Mind Map and Ask
@@ -607,7 +646,7 @@ final class Library {
 
     /// Reopen the collections that were open at last quit. Call once at launch.
     func restore() async {
-        let store = UserDefaults.standard
+        let store = defaults
         var datas = (store.array(forKey: Self.bookmarksKey) as? [Data]) ?? []
         var paths = (store.array(forKey: Self.pathsKey) as? [String]) ?? []
 
@@ -724,14 +763,14 @@ final class Library {
             datas.append(data)
             paths.append(collection.rootURL.path)
         }
-        UserDefaults.standard.set(datas, forKey: Self.bookmarksKey)
-        UserDefaults.standard.set(paths, forKey: Self.pathsKey)
+        defaults.set(datas, forKey: Self.bookmarksKey)
+        defaults.set(paths, forKey: Self.pathsKey)
 
         // Direct-API collections live in our own container, so they need no
         // bookmark — just the cache directory, which the manifest inside it
         // describes completely.
         let remotes = collections.compactMap { $0.remote?.cacheRoot.path }
-        UserDefaults.standard.set(remotes, forKey: Self.remoteCachesKey)
+        defaults.set(remotes, forKey: Self.remoteCachesKey)
     }
 
     /// Rebuild the direct-API collections that were open at last quit.
@@ -743,7 +782,7 @@ final class Library {
     /// what has changed. The alternative was making the user reconnect every
     /// session to see notes that were already on disk.
     private func restoreRemoteCollections() async {
-        let caches = (UserDefaults.standard.array(forKey: Self.remoteCachesKey) as? [String]) ?? []
+        let caches = (defaults.array(forKey: Self.remoteCachesKey) as? [String]) ?? []
         for path in caches {
             let cacheRoot = URL(fileURLWithPath: path, isDirectory: true)
             // Read and decoded off the main actor — a manifest is a record per

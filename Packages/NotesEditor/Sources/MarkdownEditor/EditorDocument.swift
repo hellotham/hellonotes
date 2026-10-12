@@ -639,6 +639,12 @@ public final class EditorDocument {
         public var range: NSRange
         /// The text typed so far, markers stripped.
         public var query: String
+
+        public init(kind: Kind, range: NSRange, query: String) {
+            self.kind = kind
+            self.range = range
+            self.query = query
+        }
     }
 
     /// Inline context at `location`, or nil in plain text. Scans only the

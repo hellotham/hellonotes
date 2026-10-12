@@ -106,6 +106,11 @@ struct EditorHost: View {
 
     // Autocomplete popup state, reported by the editor on every caret move.
     @State private var inlineContext: EditorDocument.InlineContext?
+    /// The row the arrow keys have chosen in that list, and whether the keys
+    /// are the list's at all (`CompletionChoice`).
+    @State private var completionChoice = CompletionChoice()
+    /// That list, ranked once for the words typed (`CompletionMemo`).
+    @State private var completionMemo = CompletionMemo()
     @State private var caretRect: CGRect = .zero
 
     /// The selection "Rewrite with AI…" was asked for, if any.
@@ -172,7 +177,15 @@ struct EditorHost: View {
                     .onInlineContext { context, rect in
                         if inlineContext != context { inlineContext = context }
                         caretRect = rect
+                        completionChoice.report(context, revision: document.revision)
+                        if context == nil { completionMemo.forget() }
                     }
+                    // ↑ and ↓ choose in the list of suggestions, Return or Tab
+                    // takes the chosen one, Escape sends the list away — each
+                    // only while the list wants it, and otherwise the text's.
+                    .completionKeys(CompletionKeyHandler(
+                        wants: { completionChoice.wants($0, count: activeCompletions.count) },
+                        perform: takeCompletionKey))
                     // Ghost text. The editor asks whenever the caret settles
                     // somewhere a completion could be drawn; the debounce, the
                     // provider check and the cancellation all live host-side.
@@ -196,7 +209,8 @@ struct EditorHost: View {
                     .overlay(alignment: .topLeading) {
                         let matches = activeCompletions
                         if !matches.isEmpty {
-                            WikiLinkCompletionList(matches: matches, onSelect: accept)
+                            WikiLinkCompletionList(matches: matches, chosen: completionChoice.row,
+                                                   onSelect: accept)
                                 // Clamped so a caret near the right edge — or
                                 // near the bottom, where the keyboard is —
                                 // still draws the list on screen.
@@ -399,6 +413,8 @@ struct EditorHost: View {
         // A completion belongs to the note it was typed in.
         .onChange(of: note.fileURL) { _, _ in
             inlineContext = nil
+            completionChoice.leave()
+            completionMemo.forget()
             inlineCompletions.cancel()
         }
     }
@@ -452,13 +468,27 @@ struct EditorHost: View {
         Task { await model.save() }
     }
 
-    /// Suggestions for whatever the caret is inside right now, or none.
+    /// Suggestions for whatever the caret is inside right now, or none — and
+    /// none once the list has been sent away with Escape. Ranked once for the
+    /// words typed and kept (`CompletionMemo`): this is read each time the
+    /// host draws and each time the editor asks whether a key is the list's.
     private var activeCompletions: [WikiCompletion] {
-        guard isEditable, let context = inlineContext else { return [] }
-        switch context.kind {
-        case .wikiLink: return completionSource.matches(.wikiLink, query: context.query)
-        case .tag: return completionSource.matches(.tag, query: context.query)
+        guard isEditable, !completionChoice.isDismissed, let context = inlineContext else { return [] }
+        return completionMemo.matches(for: context) {
+            switch context.kind {
+            case .wikiLink: completionSource.matches(.wikiLink, query: context.query)
+            case .tag: completionSource.matches(.tag, query: context.query)
+            }
         }
+    }
+
+    /// A key the editor gave the list (`CompletionKeyHandler`): move the
+    /// choice, or take the row it is on.
+    private func takeCompletionKey(_ key: CompletionKey) {
+        let matches = activeCompletions
+        guard let row = completionChoice.take(key, count: matches.count), matches.indices.contains(row)
+        else { return }
+        accept(matches[row])
     }
 
     /// Replace the whole half-typed construct — markers included, which is what

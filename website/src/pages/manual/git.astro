@@ -40,11 +40,14 @@ import { href } from '../../lib/paths';
   <ul>
     <li>
       <strong>Commit</strong> stages everything that changed and records it, under a message
-      HelloNotes writes — “Update notes” and the date.
+      HelloNotes writes — “Update notes” and the date and time.
     </li>
     <li>
       A change you approve from the <a href={href('/manual/ai')}>Assistant</a> is committed too,
-      whatever Auto-commit is set to — with everything else then uncommitted.
+      whatever Auto-commit is set to — as a commit of its own, holding that note and nothing
+      else. It is not made in a cloud folder, or when the collection is one folder of a larger
+      repository, where Auto-commit is not allowed either — nor while another Git tool has
+      something staged, which the commit would otherwise take with it.
     </li>
     <li>
       <strong>Auto-commit</strong> (an option in the pane) commits quietly in the background a
@@ -58,8 +61,9 @@ import { href } from '../../lib/paths';
     <strong>History</strong>, in the right panel, lists the commits that touched the open note.
     Select one to read that version, and restore it if you want it back. Restoring writes the old
     content as a new change, so nothing in the history is lost — but it replaces the note as it
-    stands, at once and without asking, so commit first if you have edits since the last commit
-    that you want to keep. History looks back over the last 300 commits.
+    stands, and Undo does not bring that back. HelloNotes asks before it does, so commit first if
+    you have edits since the last commit that you want to keep. History looks back over the last
+    300 commits.
   </p>
 
   <h2 id="remote">Syncing with a remote</h2>

@@ -18,10 +18,10 @@ GitHub-identical Preview + parity tests).
 All three are run **from the repository root**, not from this directory.
 
 ```bash
-swift test --package-path Packages/NotesEditor                 # 553 tests, 59 suites
+swift test --package-path Packages/NotesEditor                 # 559 tests, 61 suites
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'           # 527 tests — run these too
-# ^ prints THREE bundle summaries (286/33, 215/18, 26/4 on 2026-10-11). The total
+  -destination 'platform=iOS Simulator,name=HN-iPad'           # 533 tests — run these too
+# ^ prints THREE bundle summaries (292/35, 215/18, 26/4 on 2026-10-12). The total
 #   is their sum; reading only the last one says "26 in 4" and looks exactly like
 #   nearly all of the suite having silently stopped running.
 ./scripts/render-parity.sh                                     # Edit ≡ Preview: the gate
@@ -275,6 +275,29 @@ They apply to this package's sources and to `Tools/RenderParity`, which grades i
   by asking the editor which they are (`extraBlankLineAttribute`) and
   *measuring* them (`extraBlankLineHeight`): neither which lines nor how tall is
   worked out there, which would be its own copy of the rule.
+
+- **Every key command `MarkdownUITextView` offers asks for priority over the
+  system's own behaviour** (`wantsPriorityOverSystemBehavior`), and is offered
+  only while it applies. Without it a text view's own arrows and Return come
+  first and the command is listed and never called — which is what ↑ off the
+  first line did on iOS for as long as it existed. Return and Tab also arrive
+  as typed text through `shouldChangeTextIn`, so a key the host may take is
+  taken there as well (`giveToCompletion`). The host's keys are asked for
+  before they are acted on (`CompletionKeyHandler`: `wants` changes nothing,
+  `perform` does the thing), on the Mac in `moveUp` / `moveDown` /
+  `insertNewline` / `insertTab` / `cancelOperation`. `CompletionKeyTests`
+  holds both halves; the app's interface tests press the keys.
+- **A text view draws its own idea of a `.link` over the document's.**
+  `StyleApplier` gives a link the theme's accent — its grey, for a note that
+  does not exist — and marks it `.link` for the click and the pointer. A text
+  view's `linkTextAttributes` are drawn *over* a `.link`'s own colour: system
+  blue and an underline on the Mac, the tint on iOS. So every wiki-link in
+  Edit on the Mac was blue and underlined beside a Preview that drew it in the
+  accent, and on both platforms a link to a missing note looked like any
+  other. The Mac's are `[.cursor: pointingHand]` now and iOS's empty
+  (`LinkColourTests`). When measuring a drawn colour, compare it with ink
+  drawn the same way — a picture of a view is in the display's colour space,
+  and the accent read back from one is not the accent that went in.
 
 - Never put a spacing number in a renderer — `RenderedBlockFragment.imageGap` was 6pt of
   padding around every rendered embed that `GFMBoxMetrics` knew nothing about, i.e. 12pt on

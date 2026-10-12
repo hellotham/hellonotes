@@ -101,8 +101,6 @@ nonisolated enum NoteEdits {
         phrase == target ? "[[\(target)]]" : "[[\(target)|\(phrase)]]"
     }
 
-    /// The note with `[[title]]` added under a `## Related` heading — the
-    /// existing one when the note already has it.
     /// The note with `[[title]]` recorded in its `related:` property.
     ///
     /// It used to append `- [[title]]` under a `## Related` heading, inventing
@@ -115,24 +113,6 @@ nonisolated enum NoteEdits {
         appending("[[\(title)]]", toListProperty: "related", of: text)
     }
 
-    /// Whether `line` is the note's Related heading.
-    ///
-    /// Deliberately loose about the two things Markdown is loose about — the
-    /// number of `#`s and the space after them. A note carrying `##  Related`
-    /// or `# Related` holds the same section as far as a reader is concerned,
-    /// and a matcher that insisted on `"## Related"` exactly would answer "no
-    /// such section" and write a second one, which is the single failure this
-    /// function exists to prevent.
-    private static func isRelatedHeading(_ line: String) -> Bool {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("#") else { return false }
-        let text = trimmed.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
-        return text.caseInsensitiveCompare("Related") == .orderedSame
-    }
-
-    /// The note with `summary` inserted as a `> [!summary]` callout at the top
-    /// of the body — after any front matter, which is both where a reader looks
-    /// for one and the only position that doesn't corrupt the YAML.
     /// The note with `summary` recorded in its `summary:` property.
     ///
     /// It used to push a `> [!summary]` callout above the note's first line —

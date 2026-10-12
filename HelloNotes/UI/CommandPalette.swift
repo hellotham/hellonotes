@@ -303,10 +303,11 @@ extension AppActions {
         // of their own: someone hunting for a way to summarise is thinking
         // about the note, not about which subsystem answers.
         if let ai {
-            add("ai-summarize", "Note", "Summarise Note", "text.append", run: ai.summarize)
-            add("ai-tags", "Note", "Suggest Tags", "number", run: ai.suggestTags)
-            add("ai-links", "Note", "Suggest Links", "link.badge.plus", run: ai.suggestLinks)
-            add("ai-rewrite", "Note", "Rewrite or Expand Note…", "wand.and.stars", run: ai.rewriteNote)
+            // Named and drawn by `AIActions.Command`, as everywhere else.
+            for (id, command) in [("ai-summarize", AIActions.Command.summarise), ("ai-tags", .suggestTags),
+                                  ("ai-links", .suggestLinks), ("ai-rewrite", .rewrite)] {
+                add(id, "Note", command.title, command.systemImage) { ai.run(command) }
+            }
         }
 
         add("quick-capture", "File", "Quick Capture…", "square.and.pencil.circle",

@@ -476,10 +476,11 @@ struct ContentView: View {
         }
     }
 
-    /// Turn the first mention of the open note in `note` into a link.
+    /// Turn the first mention of the open note in `note` into a link — by
+    /// whichever of its names the mention uses.
     private func linkMention(_ note: Note) {
         guard let target = activeEditor?.note, let c = editorCollection else { return }
-        Task { await MentionLinker.linkFirstMention(of: target.title, in: note, collection: c) }
+        Task { await MentionLinker.linkFirstMention(of: target, in: note, collection: c) }
     }
 
     /// Jump the editor to a heading, by name — a link carries a name and
@@ -777,6 +778,11 @@ struct ContentView: View {
                 let url = URL(fileURLWithPath: restoredNotePath)
                 if library.allNotes.contains(where: { $0.id == url }) { selectedNoteID = url }
             }
+            // The library is back: a link that launched the app — handed over
+            // before any of the above — is tried now (`NavigationRouter.hold`).
+            // After the note of the last session, so the link's is the one
+            // shown.
+            library.launchDidSettle()
             // A window that has never had its rail moved opens in the focused
             // collection, not on the Library place: the notes are the point.
             if railPlaceID == RailPlaceStorage.unset {
@@ -1373,7 +1379,7 @@ struct ContentView: View {
     }
 
     /// The AI commands, or `nil` when they would only disappoint — no note
-    /// open, or no provider that can actually answer. A greyed-out menu item
+    /// open, or no model that can actually answer. A greyed-out menu item
     /// says "not now"; an enabled one that always errors says "this app is
     /// broken", and the second is the lie.
     private var aiActions: AIActions? {
@@ -3133,10 +3139,9 @@ struct ContentView: View {
             if let ai = aiActions {
                 Divider()
                 Section("Using \(ai.modelName)") {
-                    Button { ai.summarize() } label: { Label("Summarise Note", systemImage: "text.append") }
-                    Button { ai.suggestTags() } label: { Label("Suggest Tags", systemImage: "number") }
-                    Button { ai.suggestLinks() } label: { Label("Suggest Links", systemImage: "link") }
-                    Button { ai.rewriteNote() } label: { Label("Rewrite or Expand…", systemImage: "wand.and.stars") }
+                    ForEach(AIActions.Command.allCases, id: \.self) { command in
+                        Button { ai.run(command) } label: { Label(command.title, systemImage: command.systemImage) }
+                    }
                 }
             }
             // Everything a long-press on this note's row offers — Rename,

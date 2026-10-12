@@ -371,77 +371,55 @@ What remains are **constraints of the providers and the platform**, not deferred
 
 **Found releasing 1.3.3 build 31 and left (2026-10-12, implemented.md §51.41):**
 
-- 🟠 **A link that launches the app opens the window and not the note.**
-  `open -n <app> "hellonotes://note?collection=DefaultCollection&title=Writing"`
-  with the app not running: one window, no tab for the note; the same link to a
-  running app opens it. The widget's links are this kind, so a tap on the
-  widget with the app closed lands on an empty editor. `NavigationRouter.handle`
-  routes at once and `selectNote` finds no collection, because
-  `Library.restore()` has not finished; there is no restored signal and no
-  pending destination for a note (there is one for a search). Measured the same
-  with and without `takingLinksWhereOpen()`. Hold the destination until the
-  library has restored, then open it; drop it then if the collection is not
-  open. iOS very likely the same — check it.
-- 🟠 **`window-parity.sh` fails as it stands, and not on a defect.** It crops
-  the iPad's picture by a 24pt status bar and sizes the Mac window to 1210×790
-  on that basis; the simulator's top inset is 32pt now (the status bar carries
-  the app's name), so every row is 8pt out — 3.5% of the empty window. Cropped
-  at 32 by hand, the sidebar and the bar differ by 746 pixels, the sidebar
-  toggle beside the Mac's traffic lights. Measure the inset (the capture test
-  can attach it) and size both halves from it. And the note state compares the
-  editor column, whose type is 17pt on iOS and 16 on the Mac on purpose
-  (`AppearanceSettings.baseEditorFontSize`): compare the chrome there and
-  report the editor apart.
-- 🟠 **Found by fact-checking the 1.3.3 website against the source (the
-  "reverse column"), all in build 31:**
-  - *An unlinked mention found by an alias cannot be linked.* The Links view
-    finds mentions of the title **or an alias** (`NoteReferences.swift:41-43`)
-    and its Link button is handed the title alone (`ContentView.swift:480-483`,
-    `MentionScanner.swift:35-44`), so for a note listed because of an alias the
-    button changes nothing.
-  - *Three app writes clear undo while their own comments promise it.* Review
-    Links, a restored version and a whole-note rewrite go through
-    `EditorModel.applyEdit`, which replaces the document and resets the undo
-    stack (`EditorHost.swift:411-423`, `EditorDocument.swift:348`);
-    `ReviewLinksView.swift:17-19` says "a single undoable edit",
-    `NoteHistoryView.swift:15-17` "so it stays undoable". Restore has no
-    confirmation either, and replaces edits made since the last commit. Decide
-    which is meant — undo kept, or a confirmation — and make the comments say it.
-  - *"Runs on this device. Your notes never leave it."* (AI settings and the
-    Assistant's empty state; `LanguageModels.swift:243, 247`,
-    `AssistantView.swift:205`) is shown by the same Assistant that has
-    `web_search`, whose queries the model writes after reading notes. The
-    website's privacy page says so; the app's line does not.
-  - *An approved Assistant change commits everything.* `ToolContext.commit`
-    calls `git.commitAll`, so every pending change in the collection goes into
-    the Assistant's commit, whatever Auto-commit is set to and without the
-    cloud-folder guard Auto-commit has.
-  - *One command, three labels:* "Rewrite or Expand Note…" (Note menu, palette)
-    against "Rewrite or Expand…" (Note Actions, the phone's AI tab), and
-    "Summarise Note" against "Summarise" (`AIPlaceList.swift:60, 63`).
-  - *Wiki-link completion has no keyboard route* (`WikiLinkCompletionList.swift:23-26`):
-    a suggestion is clicked or tapped, never chosen with Return or the arrows.
-  - *Comments describing a replaced design:* `GraphPane.swift:23-24` ("the open
-    note at the centre" — nothing is pinned), `FindReplaceBar.swift:89-91`
-    ("Graph View"), `AppCommands.swift:566-569` (an orphaned comment over
-    Command Palette…), `NoteEdits.swift:104-105, 133-135` (the `## Related`
-    section and `[!summary]` callout, with `isRelatedHeading` uncalled),
-    `CollectionSearchModel.swift:395` (aliases are matched too),
-    `NoteComposer.swift:69-76` and `MLXModelStore.swift:63-75, 175` (two model
-    roles; the refused entitlement), `VoiceCapture.swift:5-9, 31` (macOS 26 and
-    15), `CloudCollectionsManager.swift:2, 221` (its old names),
-    `AssistantHost.swift:70-72`, `AssistantView.swift:7` and
-    `EditApprovalView.swift:8-9` (panel or window; they are tabs).
-  - *`docs/menu.md` still to reconcile:* §4 ("only thirteen rows show a
-    shortcut" — the palette shows fifteen), §8 item 3 (struck through as fixed;
-    the palette still says "Find in Note", "Rename Note", "<Mode> Mode"), §3.5
-    ("the panel's Outline", "the panel's References"), §3.1 (About with no
-    window).
-- 🟡 **In Edit the Mac draws a link blue and underlined; the iPad draws it in
-  the accent.** `StyleApplier` sets `.link`, and nothing sets
-  `linkTextAttributes`, so `NSTextView` uses its own. Preview on the Mac uses
-  the accent, so Edit and Preview disagree there too — invisible to
-  `render-parity.sh`, which measures heights. Older than this release.
+- ✅ ~~**A link that launches the app opens the window and not the note.**~~ The
+  router holds a link that arrives before the library is back and tries it when
+  the launch settles (implemented.md §51.42).
+- ✅ ~~**`window-parity.sh` fails as it stands, and not on a defect.**~~ It
+  measures the status bar, masks the toggle the traffic lights displace, and
+  reports the note's column without judging it (implemented.md §51.43).
+- ✅ ~~**Found by fact-checking the 1.3.3 website against the source (the
+  "reverse column"), all in build 31:**~~ an alias mention that could not be
+  linked, three app writes whose comments promised undo, "Your notes never
+  leave it" over an Assistant that searches the web, an Assistant commit that
+  took everything pending, one command under three labels, a completion list
+  with no keyboard route, comments describing a replaced design, and four
+  passages of `docs/menu.md`. Done, with what doing them found — a deleted
+  note that Commit never committed, a deleted file spelled outside its own
+  repository, ↑ that never reached a note's title on iOS (implemented.md
+  §51.44). **Uncommitted, and not in build 31**: the website pages edited with
+  it describe the next build and go out with that build, not before.
+- 🟠 **Left by §51.44:**
+  - ✅ ~~*Quick Capture and dictation append to a note without telling its
+    editor*, and *New Collection ▸ Git Repository… writes its README with
+    `Data.write`*.~~ Done (implemented.md §51.45).
+  - 🟡 *CI, the macOS app:* the Test step stalls — 775 tests started, none
+    finished, ninety minutes. It is bounded now and a stall is sampled,
+    pictured and kept as an artifact (`scripts/ci-bounded.sh`, implemented.md
+    §51.46). **The cause is not known until a run on `main` has stalled under
+    it**: read the main thread of `sample-host-*.txt` and the picture of the
+    screen before changing anything in the app or its tests.
+  - 🟡 *CI, the editor package:* `HeadingTypingTests` fails on the runner
+    alone. The position it reported there is a fragment at exactly y = 0 — one
+    made and not yet placed — which points at no viewport layout having run
+    when it was measured (§51.46). Its message now says so or says otherwise;
+    read it from the next run before changing the test.
+  - *Dictation has nowhere to say it failed.* `DictationController` records
+    why a transcript reached no note (`lastError`) and keeps the transcript
+    until the next recording, and no view reads either — the collection's own
+    alert is all that shows (implemented.md §51.45).
+  - *An edit committed late can carry a deletion.* The Assistant's commits are
+    not awaited, so an "edit X" still queued behind a push when X is deleted
+    records the deletion under the edit's message.
+  - *The palette's names and groups* (menu.md §8, items 3 and 9): "Rename
+    Note", "Find in Note", "Edit Mode", "Hide Non-Note Files" and the launcher's
+    second name, Open Recent… — standing alone on purpose or by drift, to be
+    decided.
+  - *⌥⇥ and Escape for the ghost-text suggestion on iOS* ask for priority over
+    the system now, like every key command the text view offers, and have not
+    been pressed: no model runs in the simulator to draw a suggestion.
+- ✅ ~~**In Edit the Mac draws a link blue and underlined; the iPad draws it in
+  the accent.**~~ The views leave a link's colour to the document, and a link
+  to a missing note is the theme's grey on both (implemented.md §51.43).
 
 ---
 

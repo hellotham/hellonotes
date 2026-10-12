@@ -137,9 +137,10 @@ struct IntelligenceSettingsForm: View {
         })
     }
 
-    /// What the role covers, where its text goes, and — when the model cannot
-    /// run — why not. Three short lines rather than a paragraph, because the
-    /// middle one is the one that matters and must not be buried.
+    /// What the role covers, where its text goes, what a web search sends —
+    /// for a model that can call the web tools — and, when the model cannot
+    /// run, why not. Short lines rather than a paragraph, because the middle
+    /// ones are the ones that matter and must not be buried.
     ///
     /// The symbols are inline in the text rather than `Label`s, so every line
     /// starts at the same edge: a `Label` sets its glyph beside its text, which
@@ -148,6 +149,9 @@ struct IntelligenceSettingsForm: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(role)
             Text("\(Image(systemName: choice.runsOnDevice ? "lock" : "lock.icloud")) \(models.privacySummary(of: choice))")
+            if models.supportsTools(choice) {
+                Text("\(Image(systemName: "globe")) \(LanguageModels.webSummary)")
+            }
             if let reason = models.availability(of: choice).reason {
                 Text("\(Image(systemName: "exclamationmark.circle")) \(reason)")
                     .foregroundStyle(Chrome.Colour.orange)

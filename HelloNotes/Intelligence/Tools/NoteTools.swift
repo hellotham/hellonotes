@@ -62,6 +62,15 @@ nonisolated enum ToolOutcome {
 }
 
 enum NoteTools {
+    /// The tools that send something off the device. A session holding any of
+    /// them is one the app says so about (`LanguageModels.webSummary`).
+    nonisolated static let webToolNames: Set<String> = ["web_search", "web_fetch", "deep_research"]
+
+    /// Whether a session with `tools` can reach the web.
+    nonisolated static func reachesTheWeb(_ toolNames: some Sequence<String>) -> Bool {
+        toolNames.contains { webToolNames.contains($0) }
+    }
+
     /// The tools for a session, chosen by the model's window.
     ///
     /// Apple's guidance for the on-device model is three to five tools a

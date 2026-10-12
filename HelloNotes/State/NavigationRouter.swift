@@ -28,8 +28,15 @@ final class NavigationRouter {
 
     private let library: Library
 
-    init(library: Library) {
+    /// A destination that named nothing *yet* — it arrived while the library
+    /// was still coming back — with when it arrived. See `hold`.
+    @ObservationIgnored private var held: (destination: URLRouter.Destination, since: ContinuousClock.Instant)?
+    /// How long a held destination is still what the person asked for.
+    @ObservationIgnored private let holdsFor: Duration
+
+    init(library: Library, holdsFor: Duration = .seconds(120)) {
         self.library = library
+        self.holdsFor = holdsFor
         NavigationRouter.shared = self
     }
 
@@ -39,13 +46,61 @@ final class NavigationRouter {
         Task { await route(dest) }
     }
 
-    /// Perform a navigation. Returns whether it resolved to a target.
+    /// Perform a navigation. Returns whether it resolved to a target — now.
+    /// One that did not, while the library is still coming back at launch, is
+    /// held and tried again when it has (`hold`).
     @discardableResult
     func route(_ dest: URLRouter.Destination) async -> Bool {
         activationTick &+= 1
+        let resolved = await resolve(dest)
+        // The latest link is where the person meant to go, whichever way it
+        // went: one that could not be resolved replaces what was held, and one
+        // that could *ends* it — or an older link, still held, was tried when
+        // the launch settled and opened over this one.
+        if resolved { held = nil } else { hold(dest) }
+        return resolved
+    }
+
+    // MARK: - A link that arrives before the library
+
+    /// Keep `dest` to try again when the launch has settled.
+    ///
+    /// **A link that launches the app arrives before the library does.** The
+    /// window's first work is bringing back what was open at the last quit —
+    /// bookmarks resolved off the main actor, then each collection read — and
+    /// a link is handed over as soon as there is a window. Resolved then, it
+    /// named a collection not yet open (or open and not yet read), found
+    /// nothing and was dropped: the app came up on whatever it showed last,
+    /// and a tap on the widget with the app closed did nothing a tap on its
+    /// icon would not have.
+    ///
+    /// Held, not waited for: the answer `route` gives is still the answer
+    /// *now*, so a caller that needs one — an intent — is not kept waiting on
+    /// a launch that, with no window, may never come. The last one held is the
+    /// one tried; the launch settling tries it once; and one that still names
+    /// nothing then is dropped, as a link to nothing always was — so is one
+    /// held so long that it is no longer what the person is doing. Once the
+    /// launch has settled nothing is held at all.
+    private func hold(_ dest: URLRouter.Destination) {
+        guard !library.hasSettled else { return }
+        let alreadyWaiting = held != nil
+        held = (dest, .now)
+        guard !alreadyWaiting else { return }
+        library.afterLaunch { [weak self] in self?.tryWhatWasHeld() }
+    }
+
+    private func tryWhatWasHeld() {
+        guard let (dest, since) = held else { return }
+        held = nil
+        guard ContinuousClock.now - since <= holdsFor else { return }
+        Task { _ = await resolve(dest) }
+    }
+
+    /// Resolve `dest` against the library as it stands. Holds nothing.
+    private func resolve(_ dest: URLRouter.Destination) async -> Bool {
         switch dest {
         case .note(let collection, let ref):
-            return selectNote(collectionNamed: collection, ref: ref)
+            return select(collectionNamed: collection, ref: ref)
         case .collection(let name):
             guard let coll = collection(named: name) else { return false }
             library.focusedID = coll.id
@@ -77,8 +132,17 @@ final class NavigationRouter {
         return library.focused
     }
 
+    /// Ask the window to show the note — or, if it cannot be found while the
+    /// library is still coming back, when it has (`hold`): an intent that
+    /// opens the app to show a note runs before the note's collection is open.
     @discardableResult
     func selectNote(collectionNamed name: String, ref: URLRouter.NoteRef) -> Bool {
+        let selected = select(collectionNamed: name, ref: ref)
+        if selected { held = nil } else { hold(.note(collection: name, ref: ref)) }
+        return selected
+    }
+
+    private func select(collectionNamed name: String, ref: URLRouter.NoteRef) -> Bool {
         guard let coll = collection(named: name) else { return false }
         let note: Note?
         switch ref {
@@ -103,10 +167,12 @@ final class NavigationRouter {
         let firstLine = text.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? "Captured Note"
         let title = String(firstLine.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let note = await coll.createNote(title: title.isEmpty ? "Captured Note" : title) else { return false }
-        await coll.append(text, to: note)
+        // The note is shown either way — it is there — and the answer is
+        // whether the text reached it: it was `true` for a note left empty.
+        let written = await coll.append(text, to: note)
         library.focusedID = coll.id
         library.requestOpen(note.fileURL)
-        return true
+        return written
     }
 
     @discardableResult
@@ -119,22 +185,44 @@ final class NavigationRouter {
         return true
     }
 
+    /// What became of a request for today's note.
+    enum DailyNoteResult: Equatable {
+        case done
+        /// There is no collection to make it in.
+        case noCollection
+        /// The note could not be made, or what was to be added to it could not
+        /// be — with why, as the collection reported it.
+        case failed(String)
+    }
+
     /// Open (creating if needed) today's daily note in the target collection,
     /// honoring the configured folder + date format.
     @discardableResult
     func openDailyNote(collectionNamed name: String? = nil, appending text: String? = nil) async -> Bool {
-        guard let coll = targetCollection(named: name) else { return false }
+        await dailyNote(collectionNamed: name, appending: text) == .done
+    }
+
+    /// The same, saying what went wrong. Quick Capture clears its field as it
+    /// sends and answered "Added to today's note." for anything but a missing
+    /// collection — so a capture that could not be written was gone, under a
+    /// line saying it had been added (implemented.md §51.45).
+    func dailyNote(collectionNamed name: String? = nil, appending text: String? = nil) async -> DailyNoteResult {
+        guard let coll = targetCollection(named: name) else { return .noCollection }
         let folder = UserDefaults.standard.string(forKey: "dailyNoteFolder") ?? ""
         let format = UserDefaults.standard.string(forKey: "dailyDateFormat") ?? "yyyy-MM-dd"
         let dayName = TemplateExpander.dailyNoteName(for: .now, format: format)
         let rel = folder.isEmpty ? "\(dayName).md" : "\(folder)/\(dayName).md"
-        guard let note = await coll.note(atRelativePath: rel, creatingWith: "# \(dayName)\n\n") else { return false }
+        guard let note = await coll.note(atRelativePath: rel, creatingWith: "# \(dayName)\n\n") else {
+            return .failed(coll.lastError ?? "Couldn't make today's note.")
+        }
         if let text, !text.isEmpty {
-            await coll.append(text.hasSuffix("\n") ? text : text + "\n", to: note)
+            guard await coll.append(text.hasSuffix("\n") ? text : text + "\n", to: note) else {
+                return .failed(coll.lastError ?? "Couldn't add that to today's note.")
+            }
         }
         library.focusedID = coll.id
         library.requestOpen(note.fileURL)   // reuses the existing open-note plumbing
-        return true
+        return .done
     }
 
     /// Notes matching `query` across the focused collection (for SearchNotesIntent).

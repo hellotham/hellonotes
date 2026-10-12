@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  The Assistant's window: the conversation as the session recorded it —
+//  The Assistant's tab: the conversation as the session recorded it —
 //  prompts, reasoning, tool calls, their results and replies — with the model
 //  it is talking to, and where that model runs, always in view.
 //
@@ -205,8 +205,14 @@ struct AssistantView: View {
                 Label(models.privacySummary(of: model.modelChoice),
                       systemImage: model.modelChoice.runsOnDevice ? "lock" : "lock.icloud")
                     .foregroundStyle(Chrome.Colour.secondaryLabel)
+                // With tools it has the web, whichever model runs — and says
+                // so here, under the line about the model.
+                if usesTools {
+                    Label(LanguageModels.webSummary, systemImage: "globe")
+                        .foregroundStyle(Chrome.Colour.secondaryLabel)
+                }
                 Text(usesTools
-                     ? "Ask about your notes, or ask for changes — you approve every change before it's saved."
+                     ? "Ask about your notes, or ask for changes — each change waits for your approval, unless you allow them all for the session."
                      : "Chat only: the Assistant won't read or change your notes.")
                     .foregroundStyle(Chrome.Colour.secondaryLabel)
             }

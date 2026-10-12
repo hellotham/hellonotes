@@ -66,8 +66,22 @@ struct QuickCaptureView: View {
         guard !capture.isEmpty else { return }
         text = ""
         Task {
-            let ok = await router.openDailyNote(appending: capture)
-            status = ok ? "Added to today's note." : "Open a collection first."
+            switch await router.dailyNote(appending: capture) {
+            case .done:
+                status = "Added to today's note."
+            case .noCollection:
+                status = "Open a collection first."
+                giveBack(capture)
+            case .failed(let why):
+                status = why
+                giveBack(capture)
+            }
         }
+    }
+
+    /// What was typed goes back in the field when it could not be added —
+    /// ahead of anything typed since, never instead of it.
+    private func giveBack(_ capture: String) {
+        text = trimmed.isEmpty ? capture : capture + "\n" + text
     }
 }

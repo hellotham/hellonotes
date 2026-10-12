@@ -57,7 +57,7 @@ struct NoteInspector: View {
 
     // Outline
     var onSelectHeading: (Int, DocumentHeading) -> Void
-    /// Summarise the note. `nil` hides the affordance — no provider, nothing to
+    /// Summarise the note. `nil` hides the affordance — no model, nothing to
     /// offer, and an always-visible button that always fails is worse than none.
     var summarize: ((String) async throws -> String)? = nil
     /// Write the summary into the note's front matter (`summary:`). `nil`
@@ -72,7 +72,7 @@ struct NoteInspector: View {
     var noteCount: (String) -> Int = { _ in 0 }
     @Binding var selectedTag: String?
     /// Ask the configured model for tags this note's *content* suggests.
-    /// `nil` hides the button — no provider configured, nothing to offer.
+    /// `nil` hides the button — no model that can answer, nothing to offer.
     var suggestTags: ((String, [String]) async throws -> [String])? = nil
     /// Write a suggested tag into the note. `nil` makes suggestions read-only.
     var onInsertTag: ((String) -> Void)? = nil

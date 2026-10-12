@@ -482,6 +482,33 @@ struct HelloNotesTests {
         #expect(MentionScanner.linkingFirstMention(of: "Welcome", in: "Only [[Welcome]].") == nil)
     }
 
+    /// A mention by an alias is a link to the note, reading as it was written.
+    @Test
+    func aMentionByAnAliasLinksToTheNote() {
+        let names = ["Second Brain", "PKM", "Zettelkasten"]
+        func linked(_ text: String) -> String? {
+            MentionScanner.linkingFirstMention(of: names, to: "Second Brain", in: text)
+        }
+        #expect(linked("My PKM lives here.") == "My [[Second Brain|PKM]] lives here.")
+        #expect(linked("A zettelkasten, in short.") == "A [[Second Brain|zettelkasten]], in short.")
+        // By the title, as it always was — the words kept as they were typed.
+        #expect(linked("A second brain, in short.") == "A [[second brain]], in short.")
+        // The earliest mention, whichever name it uses.
+        #expect(linked("PKM first, Second Brain after.") == "[[Second Brain|PKM]] first, Second Brain after.")
+        #expect(linked("Second Brain first, PKM after.") == "[[Second Brain]] first, PKM after.")
+        // One already linked is not a mention, by either name.
+        #expect(linked("Only [[Second Brain|PKM]] here.") == nil)
+        #expect(linked("Linked [[Second Brain|PKM]], and PKM again.") == "Linked [[Second Brain|PKM]], and [[Second Brain|PKM]] again.")
+        // A link does not span lines: brackets left open on a line above do
+        // not make a mention below "inside a link" — and one inside a link on
+        // its own line still is.
+        #expect(linked("An open [[ here.\nPKM below.") == "An open [[ here.\n[[Second Brain|PKM]] below.")
+        #expect(linked("Above.\nOnly [[Second Brain|PKM]] here.") == nil)
+        // Two names that start at the same place: the longer is the mention.
+        #expect(MentionScanner.linkingFirstMention(of: ["Brain", "Brain Trust"], to: "Brain", in: "A Brain Trust met.")
+                == "A [[Brain|Brain Trust]] met.")
+    }
+
     // MARK: - Templates, properties & graph layout
 
     @Test
@@ -1372,7 +1399,16 @@ struct CollectionAvailabilityTests {
         let deadline = ContinuousClock.now + .seconds(20)
         while looks.value < 1, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         await collection.handle(.eventsDropped) { reported += 1 }     // seen during the walk
-        try await Task.sleep(for: .milliseconds(900))                   // past the progress reveal
+        // Until the walk shows its progress — the thing itself, not a time by
+        // which it should have: the 750 ms to the reveal runs from when its
+        // task first has the main actor, and with the whole suite's work
+        // queued there that was later than 900 ms from the look in 2 runs of
+        // 40. A walk let go before it finishes unannounced and leaves no
+        // summary, which read as this test failing about one run in ten.
+        while !collection.showsScanProgress, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(collection.showsScanProgress, "the held walk never showed its progress")
         walkMayLook.signal()
         while (looks.value < 2 || reported < 1), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))

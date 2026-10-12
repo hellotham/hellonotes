@@ -50,8 +50,7 @@ import { href } from '../../lib/paths';
       <strong>Links</strong> view beside the links the note already has.
     </li>
     <li>
-      <strong>Rewrite or Expand Note…</strong> (“Rewrite or Expand…” in Note Actions and the AI
-      tab) — improve the writing, fix the grammar, make it
+      <strong>Rewrite or Expand Note…</strong> — improve the writing, fix the grammar, make it
       concise, elaborate, simplify, turn it into bullet points or expand it — or describe the
       rewrite yourself. You see the result and choose <em>Replace Note</em> or{' '}
       <em>Insert Below</em>; nothing changes until you do.
@@ -170,8 +169,10 @@ import { href } from '../../lib/paths';
       shows you the exact change first and waits; nothing is written until you approve it. If you
       choose <strong>Allow all this session</strong>, the rest of that conversation’s changes are
       made without asking — except deleting a note, which always asks. In a collection that is a
-      Git repository, each change you approve is committed straight away — together with anything
-      else in the collection not yet committed, and whatever Auto-commit is set to.
+      Git repository, each change you approve is committed straight away as a commit of its own —
+      that note and nothing else, whatever Auto-commit is set to — so it can be taken back on its
+      own. No commit is made where Auto-commit is never allowed: in a cloud folder, or when the
+      collection is one folder of a larger repository.
     </p>
   </blockquote>
   <p>
@@ -209,8 +210,9 @@ import { href } from '../../lib/paths';
     </li>
   </ul>
   <p>
-    Under the picker is what the model is used for, one line saying where your text goes, and — if
-    it can’t run right now — why not.
+    Under the picker is what the model is used for, one line saying where your text goes, one
+    saying what a web search sends — for a model that can use tools — and, if it can’t run right
+    now, why not.
   </p>
   <p>
     Under <strong>Assistant</strong> are the model’s own settings, as the Foundation Models

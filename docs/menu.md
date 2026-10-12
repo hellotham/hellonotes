@@ -73,8 +73,8 @@ read). SwiftUI places the two custom menus, Note and Format, after View.
 
 | Item | Shortcut | Enabled when | Notes |
 |---|---|---|---|
-| About HelloNotes | | always | shows the splash over the key main window until it is tapped or Escape is pressed. With no main window key (none open, or a note window in front), it opens a new main window and shows no splash, because the launch splash appears once per launch |
-| Acknowledgements… | | a window | licences and credits, beside About rather than in Settings |
+| About HelloNotes | | always | shows the splash over the key main window until it is tapped or Escape is pressed. With no main window to show it in (none open — the Mac keeps running with none — or a note window in front), it asks for one (`WindowRequest`) and opens a main window; the window that takes the request shows it |
+| Acknowledgements… | | always | licences and credits, beside About rather than in Settings. With no main window to show it in, the same request |
 | — | | | |
 | Settings… | ⌘, | macOS: always *(system, from the `Settings` scene)*; iPad: a window (the app's own item, opening the Settings sheet) | |
 | — Services ▸ | | | *(system, macOS)* |
@@ -152,9 +152,9 @@ visible, clickable twin.
 | Duplicate | ⌘D | a note is open |
 | Add Bookmark / Remove Bookmark | ⇧⌘D | a note is open |
 | — | | |
-| Summarise Note | | a note is open and a model can answer. The summary appears in the panel's Outline (but see `secondary.md` §9, item 1) |
+| Summarise Note | | a note is open and a model can answer. The summary appears in the panel's Summary & Outline (but see `secondary.md` §9, item 1) |
 | Suggest Tags | | the same. In the panel's Tags |
-| Suggest Links | | the same. In the panel's References |
+| Suggest Links | | the same. In the panel's Links |
 | Rewrite or Expand Note… | | the same. A sheet that shows the result before replacing anything |
 | Review Links… | ⇧⌘L | a note is open. An exact text scan, so it needs no model |
 | — | | |
@@ -222,10 +222,21 @@ this menu.
 - **Each row shows its group** (File, Edit, View, Assistant, Note, Format or
   Help) as a caption. With the query empty the rows are in the order they were
   added, not in sections; once you type they are ranked by how well they match.
-- **Only thirteen rows show a shortcut.** None is shown for Today's Note,
-  Rescan, Rename, Duplicate, Bookmark, Move to Trash, the modes, the launcher
-  (⌘O in the menu), or the Format commands that have one in the menu (Bold,
-  Italic, the headings and the lists).
+- **Only fifteen rows show a shortcut** — New Note, New Note from a Prompt…,
+  Open Quickly…, Open…, New Window, Find in Note, Search All Collections,
+  Dictate to Daily Note, Graph, Mind Map, Ask Your Library, Assistant, Quick
+  Capture…, Review Links… and Print…. None is shown for Today's Note, Rescan,
+  Rename, Duplicate, Bookmark, Move to Trash, the modes, or the Format
+  commands that have one in the menu (Bold, Italic, the headings and the
+  lists).
+- **A row is named to stand alone.** A menu item inherits its object from the
+  menu it is in — Note ▸ Rename…, Edit ▸ Find… — and a palette row has no menu
+  around it, so the palette says "Rename Note", "Duplicate Note", "Bookmark
+  Note", "Find in Note" and "Edit Mode" (and the other modes) where the menu
+  says Rename…, Duplicate, Add Bookmark, Find… and Edit. The four AI commands
+  on a note are the exception that needs none: they are named once
+  (`AIActions.Command`) and read the same in the menu, Note Actions, the
+  palette and the phone's AI place.
 - The Format rows appear only in Edit mode, like the menu.
 - **It has no touch route.** It opens from ⇧⌘P or File ▸ Command Palette…, so
   it needs a keyboard or the menu bar. Nothing in the bar or the compact places
@@ -303,7 +314,8 @@ or extend another app's menus.
 | Esc | closes the find bar or a sheet (their cancel actions) — and the panel only where it is carried over the note, a phone's width (`SidePanel.escapeCloses`; as a column it took Escape from the find bar and the approval card); dismisses Open Quickly, the palette and the splash; clears an inline suggestion; **denies** an Assistant edit awaiting approval | wherever it applies |
 | Return | presses a sheet's default button; opens or runs the selected row in Open Quickly and the palette; sends in the Assistant; **approves** an Assistant edit awaiting approval; asks the question in Ask Library; goes to the next match in the find bar | wherever it applies |
 | ↑ · ↓ | moves the selection: through notes and attachments in the sidebar column (when focused), notes and headings in Open Quickly, commands in the palette, revisions in the History list | those lists |
-| ↑ or ← at the top of a note | moves the caret into the note's title | the editor |
+| ↑ · ↓, then Return or Tab; Esc | chooses a row in the list of notes or tags offered while a `[[link` or a `#tag` is typed, and takes it; Esc sends the list away. Nothing is chosen until an arrow is pressed, so Return alone is a new line, and the arrows are the list's only while the construct is being typed (`CompletionChoice`; implemented.md §51.44) | the editor, in Edit |
+| ↑ or ← at the top of a note | moves the caret into the note's title (on iPhone and iPad this never fired before §51.44: its key command did not ask for priority over the text view's own arrows) | the editor |
 | ↓, Return or Tab in the title | moves the caret into the note's body | the note's title |
 | ⌥⇥ | accepts an inline completion (also → at the end of a line, on the Mac) | the editor |
 | ⌥Esc or F5 | asks for a completion (macOS) | the editor |
@@ -348,20 +360,31 @@ or extend another app's menus.
    turned window tabbing off. They have nothing to do with the note tabs in the
    bar, and the iPad has neither. [tabs.md](tabs.md) T0 turns them off and gives
    Show Previous/Next Tab to the note tabs.
-3. ✅ ~~**The palette disagrees with the menus.**~~
-   - *Shortcuts:* it labels Open Quickly with ⌘O (the menu, correctly, says
-     ⇧⌘O), and writes modifiers as ⌘⇧ where the menu shows ⇧⌘.
-   - *Names:* "Find in Note", "Rename Note", "Duplicate Note", "Bookmark Note",
-     "Ask Your Library", "Edit Mode" and the other modes, and "Open Quickly" and
-     "Acknowledgements" without their "…".
-   - *One name, two things:* the palette's "Open Collection" is the launcher
+3. 🟡 **The palette disagrees with the menus** — in part still, and that part
+   on purpose.
+   - ✅ ~~*Shortcuts:* it labels Open Quickly with ⌘O (the menu, correctly, says
+     ⇧⌘O), and writes modifiers as ⌘⇧ where the menu shows ⇧⌘.~~ *Fixed
+     (implemented.md §51.36).*
+   - 🟡 *Names:* ~~"Ask Your Library", and "Open Quickly" and "Acknowledgements"
+     without their "…"~~ are the menu's now. **"Find in Note", "Rename Note",
+     "Duplicate Note", "Bookmark Note" and "Edit Mode" and the other modes
+     still differ** from Find…, Rename…, Duplicate, Add Bookmark and Edit — as
+     do "Hide Non-Note Files" (item 9) and the rows for adding a collection,
+     which show each option's standalone title where the menu shows it under
+     New Collection ▸ or Open Collection ▸:
+     this item was struck through whole while they did (found by fact-checking
+     the 1.3.3 website, implemented.md §51.44). They stand alone because a
+     palette row has no menu around it to say what is renamed or found (§4) —
+     a design to confirm or change, not a slip.
+   - ✅ ~~*One name, two things:* the palette's "Open Collection" is the launcher
      (the menu's Open… ⌘O), while the menu's Open Collection ▸ is the
-     add-a-collection submenu.
-   - *Groups:* Dictation is under Edit, Export and Print under Note,
+     add-a-collection submenu.~~ The row is "Open…", ⌘O.
+   - 🟡 *Groups:* Dictation is under Edit, Export and Print under Note,
      Acknowledgements under Help (the menu has it in the app menu), and Ask Your
      Library and Assistant under "Assistant" (the menu has them in View).
 
-   One vocabulary and one notation, derived from the menu, would stop the drift.
+   One vocabulary and one notation, derived from the menu, would stop the
+   drift; the four AI commands on a note are (`AIActions.Command`).
 4. ✅ ~~**Some commands ignore Open Quickly.**~~ Insert Template stays enabled while
    Open Quickly is up and inserts into the note behind it. New Window, Open
    Default Collection, Rescan Collection, Refresh Cloud Collection, the editor
@@ -385,7 +408,19 @@ or extend another app's menus.
    Actions and "Rewrite Note…" in the AI place. The launcher has three names:
    Open… (File), Open Collection (the palette) and Open Recent… (the `+` menu,
    More ⋯ and the Library place). The palette says "Hide Non-Note Files" where
-   the menu shows a ticked "Show Non-Note Files". *Fixed (implemented.md §51.36).*
+   the menu shows a ticked "Show Non-Note Files". *Fixed (implemented.md §51.36)* —
+   **in part: this item was struck through whole while three of its four parts
+   still stood** (found by fact-checking, implemented.md §51.44).
+   - ✅ Summarise/Summarize, and the palette's name for the launcher (it is
+     "Open…" now).
+   - ✅ Rewrite and Summarise, which that fix left as "Rewrite or Expand…" in
+     Note Actions and the AI place and "Summarise" in the AI place: all four AI
+     commands on a note are named in one place now (`AIActions.Command`, §51.44).
+   - 🟡 **The launcher still has two names**: Open… (File, the palette) and
+     Open Recent… (the sidebar's `+` and the empty sidebar).
+   - 🟡 **The palette still says "Hide Non-Note Files"** where the menu shows a
+     ticked "Show Non-Note Files" (`CommandPalette.swift`): a palette row has
+     no tick, so it names what choosing it will do.
 10. ✅ ~~**Review Links is greyed out with no model**~~ in the compact AI place,
     although it needs no model (the Note menu gets this right). *Fixed (implemented.md §51.36).*
 11. ✅ ~~**Acknowledgements greys out with no window**~~, although it concerns the app,

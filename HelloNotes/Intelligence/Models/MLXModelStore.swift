@@ -60,19 +60,19 @@ final class MLXModelStore {
         #endif
     }
 
-    /// The models folder when the person has not chosen one.
+    /// The models folder when the person has not chosen one: HelloNotes' own
+    /// storage, on every platform.
     ///
-    /// On a Mac that is the **Hugging Face cache**, `~/.cache/huggingface/hub`,
-    /// where `mlx_lm` and every other MLX tool keeps its models — so a model
-    /// already on the machine is simply there, and one downloaded here is the
-    /// same copy those tools use. The app is sandboxed, so this is reachable
-    /// only because the app asks for it by name
-    /// (`com.apple.security.temporary-exception.files.home-relative-path.read-write`);
-    /// a Debug build reads the whole disk and proves nothing about it.
+    /// In the sandbox that is the container's `Caches/huggingface/hub` — not
+    /// the **Hugging Face cache** in the person's home,
+    /// `~/.cache/huggingface/hub`, where `mlx_lm` and every other MLX tool
+    /// keeps its models. A sandboxed app cannot read that one until the person
+    /// grants it: **Access MLX Models…** opens a panel already pointed there,
+    /// and the bookmark is kept (`usesOwnStorage` is what that button reads).
+    /// A Debug build reads the whole disk and proves nothing about either.
     ///
-    /// On iPhone and iPad there is no shared cache, so it is HelloNotes' own
-    /// storage. Either way the folder is *already set*: nothing to choose
-    /// before a model can be downloaded, and Change… for somewhere else.
+    /// Either way a folder is *already set*: nothing to choose before a model
+    /// can be downloaded, and Change… for somewhere else.
     private static var ownStorage: URL? {
         // The library's own answer, which is already sandbox-aware: inside a
         // container it is `Caches/huggingface/hub` there, and outside one it is
@@ -172,7 +172,7 @@ final class MLXModelStore {
 
     // MARK: - Choosing
 
-    /// Use `model` — for both roles that use MLX, since one runs at a time.
+    /// Use `model` — for everything, since the app runs one model.
     func use(_ model: MLXLocalModel) {
         chosenID = model.id
         defaults.set(model.id, forKey: Keys.model)

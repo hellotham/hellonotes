@@ -16,7 +16,11 @@
 //
 //  Nothing is written until the review ends. Accepting a link mid-review would
 //  shift every later proposal's range — so decisions accumulate, and the whole
-//  set applies at once as a single undoable edit.
+//  set applies at once, as one write the app makes into the note
+//  (`EditorModel.applyEdit`). Not an undoable one: an app write replaces the
+//  document and resets its undo, so what takes a link back is deleting its
+//  brackets. This said "a single undoable edit" until the 1.3.3 website was
+//  fact-checked against the source (implemented.md §51.44).
 //
 
 import SwiftUI

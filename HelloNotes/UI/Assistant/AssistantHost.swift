@@ -67,9 +67,9 @@ struct AssistantHost: View {
     /// Nothing to present: the Mac opens its Settings window.
     private func presentingSettings(_ content: some View) -> some View { content }
     #else
-    /// Presented from here, not the shell: the Assistant, a view of the panel,
-    /// has no route to the shell's own Settings sheet — the old "Open AI
-    /// Settings…" button here did nothing on iPad for want of one.
+    /// Presented from here, not the shell: the Assistant, a tab beside the
+    /// notes, has no route to the shell's own Settings sheet — the old "Open
+    /// AI Settings…" button here did nothing on iPad for want of one.
     private func presentingSettings(_ content: some View) -> some View {
         content.sheet(isPresented: $showSettings) {
             AppSettingsView(intelligenceSettings: intelligenceSettings, appearance: appearance,

@@ -235,18 +235,31 @@ final class LanguageModels {
         return mlx.models.contains { $0.id == id }
     }
 
-    /// Where the text goes, in one sentence. The HIG is explicit that people
-    /// must be able to tell whether a feature sends their data to a server.
+    /// Where the text goes to be *processed*, in one sentence. The HIG is
+    /// explicit that people must be able to tell whether a feature sends their
+    /// data to a server.
+    ///
+    /// About the model and nothing else. Both on-device lines ended "Your
+    /// notes never leave it", under an Assistant that searches the web with
+    /// terms the model writes after reading notes — true of the model, untrue
+    /// of the feature it was printed on. What the web tools send is
+    /// `webSummary`, shown beside this wherever those tools are
+    /// (implemented.md §51.44).
     func privacySummary(of choice: ModelChoice) -> String {
         switch choice {
         case .onDevice:
-            "Runs on this device. Your notes never leave it."
+            "Runs on this device. Your notes are not sent to any AI service."
         case .privateCloud:
             "Sent to Apple's Private Cloud Compute to process. It isn't stored, and it isn't accessible to Apple."
         case .mlx:
-            "Runs on this device with an open model you downloaded. Your notes never leave it."
+            "Runs on this device with an open model you downloaded. Your notes are not sent to any AI service."
         }
     }
+
+    /// What does leave the device, whichever model runs: a web search. Shown
+    /// wherever the model has the web tools — the Assistant with tools on, and
+    /// the AI settings for a model that can call them (`NoteTools.reachesTheWeb`).
+    nonisolated static let webSummary = "The Assistant and Research can search the web. What they search for goes to DuckDuckGo, and can include words from your question or your notes."
 
     func systemImage(of choice: ModelChoice) -> String {
         switch choice {

@@ -244,6 +244,15 @@ final class HelloNotesUITests: XCTestCase {
     /// the empty window and of one note open, for the script to compare with
     /// the Mac's at the same size. The launch arguments are the argument domain,
     /// so they override without writing anything.
+    ///
+    /// **And it keeps the screen's geometry, measured.** The script used to
+    /// know that an iPad's status bar is 24pt, and sized the Mac's window and
+    /// cut the iPad's picture by that. It is 32pt on this simulator now — the
+    /// bar carries the app's name — so every row was 8pt out and the gate
+    /// failed on 3.5% of an empty window that matched (implemented.md §51.43).
+    /// The status bar is asked of SpringBoard, which draws it: a number that
+    /// owes nothing to where the app put anything, or an app that began 8pt
+    /// low would be measured as an 8pt taller bar and pass.
     @MainActor
     func testWindowParityCapture() throws {
         #if os(iOS)
@@ -258,6 +267,16 @@ final class HelloNotesUITests: XCTestCase {
             XCTAssertTrue(splash.waitForNonExistence(timeout: 20), "splash never dismissed")
         }
         sleep(2)
+        let statusBar = XCUIApplication(bundleIdentifier: "com.apple.springboard").statusBars.firstMatch
+        XCTAssertTrue(statusBar.waitForExistence(timeout: 10), "SpringBoard reports no status bar to measure")
+        let screen = app.windows.firstMatch.frame.size
+        let geometry = ["width": Int(screen.width), "height": Int(screen.height),
+                        "top": Int(statusBar.frame.height), "bottom": Self.homeIndicatorInset]
+        let measured = XCTAttachment(data: try JSONSerialization.data(withJSONObject: geometry),
+                                     uniformTypeIdentifier: "public.json")
+        measured.name = "window-geometry"
+        measured.lifetime = .keepAlways
+        add(measured)
         keep(XCUIScreen.main.screenshot(), named: "window-empty")
 
         let note = app.staticTexts["Linking"].firstMatch
@@ -426,6 +445,12 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
+    /// What an iPad keeps clear at the bottom for its home indicator. Not
+    /// measured — SpringBoard reports nothing for it — so if a device ever
+    /// differs, the comparison fails along the window's bottom edge, where the
+    /// status row is, and that is the place to look.
+    static let homeIndicatorInset = 20
+
     /// The settings both halves launch with — each one's default, stated, so
     /// neither device's history can make the two pictures differ.
     static let windowParityArguments = [
@@ -529,6 +554,43 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
+    /// A link that launches the app opens its note.
+    ///
+    /// It opened the app and nothing else. The link is handed over as soon as
+    /// there is a window, before the collections open at the last quit are
+    /// back, and resolved then it named nothing and was dropped — so a tap on
+    /// the widget with the app closed did what a tap on its icon does. The
+    /// router holds it until the launch has settled now
+    /// (`NavigationRouter.hold`, `LinkAtLaunchTests`).
+    ///
+    /// The app is not running when the link is opened: that is the case. On a
+    /// device that has never run it, the first launch seeds the sample
+    /// collection the link names, and the link waits for that as well.
+    @MainActor
+    func testALinkThatLaunchesTheAppOpensItsNote() throws {
+        #if os(iOS)
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.terminate()
+        app.launchArguments += ["-hasSeenWelcome", "YES", "-editorViewMode", "edit", "-HNHideTips"]
+        app.open(URL(string: "hellonotes://note?collection=DefaultCollection&title=Writing")!)
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "the link did not launch the app")
+        let splash = app.staticTexts["Where every idea says hello."]
+        if splash.waitForExistence(timeout: 5) {
+            XCTAssertTrue(splash.waitForNonExistence(timeout: 20), "splash never dismissed")
+        }
+        // The phone says which note is open on the strip above its tab bar,
+        // or on the note's own bar if it is filling the screen; the iPad on a
+        // tab, whose close button is named for it.
+        let named = NSPredicate(format: "label == 'Open Writing' OR label == 'Close Writing'")
+        let shown = app.buttons.matching(named).firstMatch.waitForExistence(timeout: 25)
+        XCTAssertTrue(shown, "the app launched and the note the link named is not open. Buttons: "
+                      + app.buttons.allElementsBoundByIndex.prefix(40).map(\.label).joined(separator: " | "))
+        #else
+        throw XCTSkip("iOS launch test.")
+        #endif
+    }
+
     /// Each of the editor's view modes says which it is.
     ///
     /// The four are a row of glyphs, each named by the control that draws them
@@ -625,6 +687,112 @@ final class HelloNotesUITests: XCTestCase {
         throw XCTSkip("iPad layout test.")
         #endif
     }
+
+    /// A suggestion in the list by the caret is chosen and taken from a
+    /// keyboard: ↓, then Return.
+    ///
+    /// The list — notes while a `[[link` is typed, tags after a `#` — could
+    /// only be tapped, because the text view keeps the keyboard and the list
+    /// never had a key (implemented.md §51.44). The editor asks the app for
+    /// each of ↑, ↓, Return, Tab and Escape now, and on iOS that is a key
+    /// command: one UIKit lists and **never calls** unless it asks for
+    /// priority over a text view's own arrows and Return. No unit test can see
+    /// which — they read `keyCommands` and call the selector themselves — so
+    /// this presses the keys.
+    ///
+    /// It also holds the rule that keeps the list from taking a key meant for
+    /// the text: nothing is chosen until an arrow chooses it, so the first
+    /// Return here, with the list open, is a new line.
+    @MainActor
+    func testASuggestionIsTakenFromTheKeyboard() throws {
+        #if os(iOS)
+        let app = launchPastSplash()
+        let editor = try editorOfANewNote(in: app)
+
+        // With the list open and nothing chosen, Return is a new line.
+        editor.typeText("One [[")
+        let list = app.descendants(matching: .any)["editor.completions"].firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 10),
+                      "no list of suggestions came up for a link being typed, so nothing below is about one")
+        // Return as `typeText` sends it: `typeKey` with the Return key types
+        // nothing at all into a text view here, with or without a list.
+        editor.typeText("\n")
+        let afterReturn = editor.value as? String ?? ""
+        XCTAssertTrue(afterReturn.contains("One [[\n"),
+                      "Return with nothing chosen did not type a new line: \(afterReturn)")
+        XCTAssertFalse(afterReturn.contains("]]"), "Return with nothing chosen took a suggestion: \(afterReturn)")
+
+        // A link typed, a row chosen, and taken.
+        editor.typeText("Two [[")
+        XCTAssertTrue(list.waitForExistence(timeout: 10), "no list of suggestions for the second link")
+        let first = list.buttons.firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 5), "the list has no rows")
+        let title = first.label
+        XCTAssertFalse(title.isEmpty)
+        editor.typeKey(XCUIKeyboardKey.downArrow.rawValue, modifierFlags: [])
+        XCTAssertTrue(first.isSelected, "↓ chose no row — the key never reached the list")
+        editor.typeText("\n")
+
+        let text = editor.value as? String ?? ""
+        XCTAssertTrue(text.contains("Two [[\(title)]]"),
+                      "↓ and Return did not take “\(title)”: \(text.debugDescription)")
+        XCTAssertTrue(list.waitForNonExistence(timeout: 5), "the list stayed up after its suggestion was taken")
+        #else
+        throw XCTSkip("iOS key commands.")
+        #endif
+    }
+
+    /// ↑ from the first line of a note lands in its title, on a keyboard
+    /// attached to an iPhone or iPad as on the Mac.
+    ///
+    /// The Mac does it by overriding `moveUp`; UIKit has no such override, so
+    /// it is a key command — and it was one that asked for no priority over
+    /// the text view's own ↑, which since iOS 15 means it was listed and never
+    /// called. The unit test for it reads `keyCommands` and finds it there,
+    /// which is why nothing noticed. Found by the control for the test above:
+    /// its ↓, built the same way, stopped arriving the moment the priority was
+    /// taken away (implemented.md §51.44).
+    @MainActor
+    func testArrowingUpFromTheFirstLineReachesTheTitle() throws {
+        #if os(iOS)
+        let app = launchPastSplash()
+        let editor = try editorOfANewNote(in: app)
+        let title = app.textFields["Note title"].firstMatch
+        try XCTSkipUnless(title.waitForExistence(timeout: 5), "No inline title is shown above this note.")
+        XCTAssertEqual(editor.value(forKey: "hasKeyboardFocus") as? Bool, true, "the note never took the caret")
+
+        editor.typeKey(XCUIKeyboardKey.upArrow.rawValue, modifierFlags: [])
+
+        let landed = NSPredicate { _, _ in title.value(forKey: "hasKeyboardFocus") as? Bool == true }
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: landed, object: nil)], timeout: 5),
+                       .completed, "↑ on the first line of the note did not reach its title")
+        #else
+        throw XCTSkip("iOS key commands.")
+        #endif
+    }
+
+    #if os(iOS)
+    /// A new note of the test's own, open in Edit on the compact shell with
+    /// the caret in it — as the clipping test makes one: what the collection
+    /// holds is not these tests' subject.
+    @MainActor
+    private func editorOfANewNote(in app: XCUIApplication) throws -> XCUIElement {
+        try XCTSkipUnless(app.buttons["Tags"].waitForExistence(timeout: 15), "Compact shell only.")
+        app.buttons["Notes"].tap()
+        let more = app.buttons["More actions"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 15), "the Notes place has no overflow menu")
+        more.tap()
+        let newNote = app.buttons["New Note"].firstMatch
+        XCTAssertTrue(newNote.waitForExistence(timeout: 10), "New Note is not in the overflow menu")
+        newNote.tap()
+        let strip = app.buttons["shell.miniStrip"].firstMatch
+        if strip.waitForExistence(timeout: 15) { strip.tap() }
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 15), "the new note did not open in Edit")
+        editor.tap()
+        return editor
+    }
+    #endif
 
     /// No control a person can reach is announced by its icon's file name.
     ///

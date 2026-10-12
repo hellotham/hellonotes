@@ -30,17 +30,44 @@ nonisolated enum MentionScanner {
         return false
     }
 
-    /// Wrap the first bare mention of `name` in `text` as `[[name]]`, returning
-    /// the rewritten text — or nil if there's no bare mention to link.
-    static func linkingFirstMention(of name: String, in text: String) -> String? {
+    /// Link the first bare mention of the note called `title` in `text`,
+    /// returning the rewritten text — or nil if there is no bare mention to
+    /// link.
+    ///
+    /// `names` are everything the note answers to — its title and its aliases,
+    /// the names the Links view found the mention by (`NoteReferences.names`).
+    /// A mention by the title becomes `[[as written]]`, as it always did; one
+    /// by an alias becomes `[[Title|as written]]`, so the sentence reads as it
+    /// did and the link says where it goes. The scanner was given the title
+    /// alone, so for a note listed because of an alias the Link button
+    /// changed nothing (implemented.md §51.44).
+    ///
+    /// The first is the earliest in the text, whichever name it uses; of two
+    /// that start at the same place, the longer.
+    static func linkingFirstMention(of names: [String], to title: String, in text: String) -> String? {
         let ns = text as NSString
-        guard let regex = wordRegex(for: name) else { return nil }
-        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            guard !isInsideWikiLink(match.range, in: ns) else { continue }
-            let matched = ns.substring(with: match.range)
-            return ns.replacingCharacters(in: match.range, with: "[[\(matched)]]")
+        let whole = NSRange(location: 0, length: ns.length)
+        var first: NSRange?
+        for name in names where !name.trimmingCharacters(in: .whitespaces).isEmpty {
+            // The same fast reject as `containsMention`: no substring, no regex.
+            guard ns.range(of: name, options: .caseInsensitive).location != NSNotFound,
+                  let regex = wordRegex(for: name),
+                  let range = regex.matches(in: text, range: whole)
+                    .first(where: { !isInsideWikiLink($0.range, in: ns) })?.range
+            else { continue }
+            if let found = first, (found.location, -found.length) <= (range.location, -range.length) { continue }
+            first = range
         }
-        return nil
+        guard let first else { return nil }
+        let matched = ns.substring(with: first)
+        let link = matched.caseInsensitiveCompare(title) == .orderedSame
+            ? "[[\(matched)]]" : "[[\(title)|\(matched)]]"
+        return ns.replacingCharacters(in: first, with: link)
+    }
+
+    /// The same for a note with one name.
+    static func linkingFirstMention(of name: String, in text: String) -> String? {
+        linkingFirstMention(of: [name], to: name, in: text)
     }
 
     // MARK: - Private
@@ -70,12 +97,22 @@ nonisolated enum MentionScanner {
     /// multi-word target or alias (`[[My Note]]`, `[[Foo|Bar]]`, `[[Note#h]]`).
     /// Checking only the two preceding characters would let `linkingFirstMention`
     /// rewrite `Note` inside `[[My Note]]` into `[[My [[Note]]]]`, corrupting the
-    /// file. We're inside a link when the nearest `[[` before the match has no
-    /// closing `]]` between it and the match.
+    /// file. We're inside a link when the nearest `[[` before the match, **on
+    /// its line**, has no closing `]]` between it and the match.
+    ///
+    /// Searched in place, within the line. It copied everything before the
+    /// match to search it — once per match, so a megabyte note with a few
+    /// hundred links took 160 ms on the main actor for one name — and looked
+    /// back past the line, so a stray `[[` anywhere above made every mention
+    /// below it "inside a link". A link does not span lines
+    /// (`EditorDocument.inlineContext`).
     private static func isInsideWikiLink(_ range: NSRange, in ns: NSString) -> Bool {
-        guard range.location >= 2 else { return false }
-        let prefix = ns.substring(to: range.location)
-        guard let open = prefix.range(of: "[[", options: .backwards) else { return false }
-        return prefix[open.upperBound...].range(of: "]]") == nil
+        let lineStart = ns.lineRange(for: NSRange(location: range.location, length: 0)).location
+        guard range.location - lineStart >= 2 else { return false }
+        let before = NSRange(location: lineStart, length: range.location - lineStart)
+        let open = ns.range(of: "[[", options: .backwards, range: before)
+        guard open.location != NSNotFound else { return false }
+        let between = NSRange(location: open.location + 2, length: range.location - (open.location + 2))
+        return ns.range(of: "]]", options: [], range: between).location == NSNotFound
     }
 }

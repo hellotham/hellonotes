@@ -392,7 +392,8 @@ final class CollectionSearchModel {
         return content + titleResults(query: query).filter { !contentURLs.contains($0.id) }
     }
 
-    /// Fuzzy matches over note titles and their headings, best first — scored
+    /// Fuzzy matches over note titles, their aliases and their headings, best
+    /// first (each alias is an item of its own, `rank`) — scored
     /// on the caller's actor, for a caller not waiting on a keystroke (an
     /// intent). The palette uses `quickOpenResultsOffMain`.
     func quickOpenResults(query: String, limit: Int = 40) -> [QuickOpenItem] {

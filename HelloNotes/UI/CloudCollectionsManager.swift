@@ -1,5 +1,5 @@
 //
-//  CloudFolderManager.swift
+//  CloudCollectionsManager.swift
 //  HelloNotes
 //
 //  Created by Chris Tham on 25/8/2026.
@@ -218,7 +218,7 @@ struct CloudCollectionsManager: View {
     /// A cloud-backed collection, and the way to let it go.
     ///
     /// Listed first because this screen is named for these: someone opening
-    /// "Manage Cloud Folders" most often wants to see what they already have,
+    /// "Manage Cloud Collections" most often wants to see what they already have,
     /// and a management screen that shows only what you could *add* is a
     /// signup form wearing the wrong title.
     private func collectionRow(_ collection: Collection) -> some View {

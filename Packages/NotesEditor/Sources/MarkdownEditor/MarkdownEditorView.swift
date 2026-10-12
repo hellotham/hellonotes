@@ -38,6 +38,35 @@ public enum CaretEscape: Equatable, Sendable {
     case backward
 }
 
+/// A key the host's list of suggestions — the one it shows by the caret while
+/// a `[[link` or a `#tag` is being typed — can take from the text.
+public enum CompletionKey: Sendable, CaseIterable {
+    /// ↑ and ↓: choose a row.
+    case up, down
+    /// Return or Tab: take the chosen row.
+    case accept
+    /// Escape: send the list away.
+    case dismiss
+}
+
+/// The host's side of those keys.
+///
+/// The list is the host's (it knows the notes and the tags), the keys are the
+/// text view's (it is first responder, and stays it — which is why the list
+/// could only ever be clicked). So the view asks before it acts on one:
+/// **`wants` must cost nothing and change nothing** — UIKit asks it for every
+/// key command it considers — and a key the host does not want is the text's,
+/// exactly as it was.
+public struct CompletionKeyHandler {
+    public var wants: (CompletionKey) -> Bool
+    public var perform: (CompletionKey) -> Void
+
+    public init(wants: @escaping (CompletionKey) -> Bool, perform: @escaping (CompletionKey) -> Void) {
+        self.wants = wants
+        self.perform = perform
+    }
+}
+
 #if canImport(AppKit)
 import AppKit
 import SwiftUI
@@ -195,6 +224,16 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
         textView.smartInsertDeleteEnabled = false
         MarkdownVocabulary.ignore(in: textView)
 
+        // **A link looks the way the document styled it.** `StyleApplier`
+        // gives a link the theme's accent — or its grey, for a note that does
+        // not exist — and marks it `.link` for the click. A text view draws
+        // its own `linkTextAttributes` over a `.link`'s colour, by default
+        // system blue and an underline: so every wiki-link in Edit was blue
+        // and underlined beside a Preview that drew it in the accent, and a
+        // link to a missing note looked like any other. The pointer is the
+        // one thing kept (`LinkColourTests`).
+        textView.linkTextAttributes = [.cursor: NSCursor.pointingHand]
+
         // AI-native: full Apple Intelligence Writing Tools (proofread,
         // rewrite, summarize — inline, because this is a real TextKit 2
         // view), constrained to plain text so a rewrite can never come back
@@ -264,7 +303,31 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
         selectedRange().length == 0 && selectedRange().location <= firstBodyLineStart
     }
 
+    // MARK: - Keys for the host's list of suggestions
+
+    /// The host's list by the caret, if it has one (`CompletionKeyHandler`).
+    var completionKeys: CompletionKeyHandler?
+
+    /// Gives `key` to the host's list when it wants it. Never while text is
+    /// being composed: the arrows and Return are the input method's then.
+    private func giveToCompletion(_ key: CompletionKey) -> Bool {
+        guard isEditable, !hasMarkedText(), let completionKeys, completionKeys.wants(key) else { return false }
+        completionKeys.perform(key)
+        return true
+    }
+
+    public override func moveDown(_ sender: Any?) {
+        if giveToCompletion(.down) { return }
+        super.moveDown(sender)
+    }
+
+    public override func insertTab(_ sender: Any?) {
+        if giveToCompletion(.accept) { return }
+        super.insertTab(sender)
+    }
+
     public override func moveUp(_ sender: Any?) {
+        if giveToCompletion(.up) { return }
         // Anywhere but the first line this is ordinary caret movement and must
         // behave exactly as AppKit intends. On the first line there is nothing
         // above *in the text*, so the title is what "up" means — and it must
@@ -781,6 +844,7 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
     /// list (`ListContinuation`). Anywhere else, and while text is being
     /// composed or a range is selected, it is AppKit's newline.
     public override func insertNewline(_ sender: Any?) {
+        if giveToCompletion(.accept) { return }
         guard isEditable, !hasMarkedText(), selectedRange().length == 0, let document,
               let edit = ListContinuation.returnKey(in: string as NSString, at: selectedRange().location,
                                                     parse: document.parse)
@@ -827,6 +891,7 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
             clearInlineSuggestion()
             return
         }
+        if giveToCompletion(.dismiss) { return }
         super.cancelOperation(sender)
     }
 
@@ -1128,6 +1193,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var onCaretEscapeTopHandler: ((CaretEscape) -> Void)?
     private var onInlineCompletionRequestHandler: ((InlineCompletionContext) -> Void)?
     private var onEndEditingHandler: (() -> Void)?
+    private var completionKeyHandler: CompletionKeyHandler?
 
     public init(document: EditorDocument) {
         self.document = document
@@ -1165,6 +1231,12 @@ public struct MarkdownEditorView: NSViewRepresentable {
     /// Called when the caret leaves through the top of the document.
     public func onCaretEscapeTop(_ handler: @escaping (CaretEscape) -> Void) -> Self {
         var copy = self; copy.onCaretEscapeTopHandler = handler; return copy
+    }
+
+    /// ↑, ↓, Return, Tab and Escape for a list of suggestions the host shows
+    /// by the caret — each only while the host wants it (`CompletionKeyHandler`).
+    public func completionKeys(_ handler: CompletionKeyHandler?) -> Self {
+        var copy = self; copy.completionKeyHandler = handler; return copy
     }
 
     public func onLinkTap(_ handler: @escaping (EditorLinkTap) -> Void) -> Self {
@@ -1260,6 +1332,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.onDiagramZoom = onDiagramZoomHandler
         textView.onInlineCompletionRequest = onInlineCompletionRequestHandler
         textView.onEndEditing = onEndEditingHandler
+        textView.completionKeys = completionKeyHandler
         editorProxy?.textView = textView
         applyProperties(textView, context: context)
     }
@@ -1678,6 +1751,11 @@ public final class MarkdownUITextView: UITextView {
         tv.isEditable = true
         tv.isScrollEnabled = true
         tv.alwaysBounceVertical = true
+        // A link looks the way the document styled it — the accent, or the
+        // theme's grey for a note that does not exist. Left to the view, every
+        // `.link` is drawn in the tint, the missing ones too (`LinkColourTests`;
+        // the Mac's half of this is in `scrollableEditor`).
+        tv.linkTextAttributes = [:]
         tv.backgroundColor = .clear
         // From EditorMetrics so a host can align chrome with the text.
         tv.textContainerInset = UIEdgeInsets(top: EditorMetrics.textContainerInset.height,
@@ -2142,12 +2220,24 @@ public final class MarkdownUITextView: UITextView {
     /// swallowed from a text view that has no suggestion to dismiss.
     public override var keyCommands: [UIKeyCommand]? {
         var commands = super.keyCommands ?? []
+        commands += completionKeyCommands
+        // **Every command here asks for priority over the system's own
+        // behaviour.** Since iOS 15 a text view's handling of its keys — the
+        // arrows above all — comes before a key command that does not, and
+        // the command is listed and never called: ↑ off the first line never
+        // reached the title on iPhone or iPad, with a test reading this
+        // property and finding it there. The app's interface tests press the
+        // keys (`testArrowingUpFromTheFirstLineReachesTheTitle`). Safe to
+        // ask, because each is offered only while it applies.
+        func command(_ input: String, _ modifiers: UIKeyModifierFlags, _ action: Selector) -> UIKeyCommand {
+            let command = UIKeyCommand(input: input, modifierFlags: modifiers, action: action)
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
         if inlineSuggestion != nil {
             commands += [
-                UIKeyCommand(input: "\t", modifierFlags: .alternate,
-                             action: #selector(acceptInlineSuggestionCommand(_:))),
-                UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [],
-                             action: #selector(dismissInlineSuggestionCommand(_:))),
+                command("\t", .alternate, #selector(acceptInlineSuggestionCommand(_:))),
+                command(UIKeyCommand.inputEscape, [], #selector(dismissInlineSuggestionCommand(_:))),
             ]
         }
         // Arrowing off the top of the note lands in the title above it — the
@@ -2158,15 +2248,56 @@ public final class MarkdownUITextView: UITextView {
         // swallow ordinary caret movement for the whole document.
         if onCaretEscapeTop != nil {
             if caretIsOnFirstLine {
-                commands.append(UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [],
-                                             action: #selector(escapeTopVertical(_:))))
+                commands.append(command(UIKeyCommand.inputUpArrow, [], #selector(escapeTopVertical(_:))))
             }
             if caretIsAtStart {
-                commands.append(UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [],
-                                             action: #selector(escapeTopBackward(_:))))
+                commands.append(command(UIKeyCommand.inputLeftArrow, [], #selector(escapeTopBackward(_:))))
             }
         }
         return commands
+    }
+
+    // MARK: - Keys for the host's list of suggestions
+
+    /// The host's list by the caret, if it has one (`CompletionKeyHandler`).
+    var completionKeys: CompletionKeyHandler?
+
+    /// What each key is on a hardware keyboard. Return and Tab both take the
+    /// chosen row, as on the Mac.
+    private static let completionKeyInputs: [(input: String, key: CompletionKey)] = [
+        (UIKeyCommand.inputUpArrow, .up), (UIKeyCommand.inputDownArrow, .down),
+        ("\r", .accept), ("\t", .accept), (UIKeyCommand.inputEscape, .dismiss),
+    ]
+
+    /// The keys the host's list wants **now**, and no others: a command
+    /// installed for good would take ↑, ↓ and Return from the whole document.
+    /// Each asks for priority over the system's own behaviour — since iOS 15
+    /// a text view's arrows and Return are that, and a key command without it
+    /// is listed and never called. None while text is being composed: the
+    /// keys are the input method's then.
+    private var completionKeyCommands: [UIKeyCommand] {
+        guard isEditable, markedTextRange == nil, let completionKeys else { return [] }
+        return Self.completionKeyInputs.filter { completionKeys.wants($0.key) }.map { entry in
+            let command = UIKeyCommand(input: entry.input, modifierFlags: [],
+                                       action: #selector(completionKeyCommand(_:)))
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
+    }
+
+    @objc private func completionKeyCommand(_ sender: UIKeyCommand) {
+        guard let key = Self.completionKeyInputs.first(where: { $0.input == sender.input })?.key else { return }
+        _ = giveToCompletion(key)
+    }
+
+    /// Gives `key` to the host's list when it wants it — asked again here, as
+    /// a command UIKit held from before the list went may be called late.
+    /// Never while text is being composed.
+    @discardableResult
+    func giveToCompletion(_ key: CompletionKey) -> Bool {
+        guard isEditable, markedTextRange == nil, let completionKeys, completionKeys.wants(key) else { return false }
+        completionKeys.perform(key)
+        return true
     }
 
     // MARK: - Caret escape (↑ / ← off the top of the note)
@@ -2674,6 +2805,13 @@ public struct MarkdownEditorView: View {
     public func onInlineCompletionRequest(_ handler: @escaping (InlineCompletionContext) -> Void) -> Self {
         var copy = self; copy.representable = representable.onInlineCompletionRequest(handler); return copy
     }
+
+    /// ↑, ↓, Return, Tab and Escape on a hardware keyboard for a list of
+    /// suggestions the host shows by the caret — each only while the host
+    /// wants it (`CompletionKeyHandler`).
+    public func completionKeys(_ handler: CompletionKeyHandler?) -> Self {
+        var copy = self; copy.representable = representable.completionKeys(handler); return copy
+    }
 }
 
 struct MarkdownEditorRepresentable: UIViewRepresentable {
@@ -2693,6 +2831,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     private var onInlineContext: ((EditorDocument.InlineContext?, CGRect) -> Void)?
     private var onInlineCompletionRequest: ((InlineCompletionContext) -> Void)?
     private var onEndEditing: (() -> Void)?
+    private var completionKeyHandler: CompletionKeyHandler?
 
     init(document: EditorDocument) { self.document = document }
 
@@ -2746,6 +2885,10 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         var copy = self; copy.onInlineCompletionRequest = handler; return copy
     }
 
+    func completionKeys(_ handler: CompletionKeyHandler?) -> Self {
+        var copy = self; copy.completionKeyHandler = handler; return copy
+    }
+
     func onEndEditing(_ handler: @escaping () -> Void) -> Self {
         var copy = self; copy.onEndEditing = handler; return copy
     }
@@ -2771,6 +2914,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onInlineContextChange = onInlineContext
         tv.onInlineCompletionRequest = onInlineCompletionRequest
         tv.onEndEditing = onEndEditing
+        tv.completionKeys = completionKeyHandler
         editorProxy?.textView = tv
         tv.delegate = context.coordinator
         context.coordinator.subscribe(editorID: busEditorID, view: tv)
@@ -2829,6 +2973,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onInlineContextChange = onInlineContext
         tv.onInlineCompletionRequest = onInlineCompletionRequest
         tv.onEndEditing = onEndEditing
+        tv.completionKeys = completionKeyHandler
         editorProxy?.textView = tv
         context.coordinator.selectionMenuItems = selectionMenuItems
         context.coordinator.subscribe(editorID: busEditorID, view: tv)
@@ -3091,8 +3236,18 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         /// the list (`ListContinuation`) — from the software keyboard and a
         /// hardware one alike, both of which arrive here as a newline. Not
         /// while text is being composed, nor over a selection.
+        ///
+        /// Before that, Return or Tab with a row chosen in the host's list of
+        /// suggestions takes the row (`CompletionKeyHandler`). Here as well as
+        /// in the key commands, because this is where the two keys arrive: the
+        /// interface test's Return came through here and past a key command
+        /// that was offering to take it.
         public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange,
                              replacementText text: String) -> Bool {
+            if text == "\n" || text == "\t", textView.markedTextRange == nil,
+               let view = textView as? MarkdownUITextView, view.giveToCompletion(.accept) {
+                return false
+            }
             guard text == "\n", range.length == 0, textView.markedTextRange == nil,
                   let view = textView as? MarkdownUITextView, let document = view.document,
                   let edit = ListContinuation.returnKey(in: (view.text ?? "") as NSString, at: range.location,

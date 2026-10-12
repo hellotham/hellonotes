@@ -7,8 +7,11 @@ import { href } from '../../lib/paths';
   <h2 id="wiki-links">Wiki-links</h2>
   <p>
     In Edit, type <code>[[</code> and an autocomplete list of notes appears; keep typing to filter,
-    and click or tap a note to insert it. The link is written as plain Markdown text — no hidden
-    identifiers — so the file stays portable.
+    and click or tap a note to insert it. On a keyboard, <kbd>↓</kbd> and <kbd>↑</kbd> choose a
+    note and <kbd>Return</kbd> or <kbd>Tab</kbd> inserts it; <kbd>Esc</kbd> closes the list.
+    Nothing is chosen until you press an arrow, so <kbd>Return</kbd> on its own is still a new
+    line. The list of tags after a <code>#</code> works the same way. The link is written as plain
+    Markdown text — no hidden identifiers — so the file stays portable.
   </p>
   <ul>
     <li><code>[[Note title]]</code> — link to a note.</li>
@@ -51,8 +54,9 @@ aliases: [TextKit, TextKit 2]
     <li><strong>Linked mentions</strong> — its backlinks: notes that link <em>to</em> this one.</li>
     <li>
       <strong>Unlinked mentions</strong> — notes that mention this note’s title or an alias in plain
-      text without linking. Each has a <strong>Link</strong> button, which turns a mention of the
-      title into a proper wiki-link in one click.
+      text without linking. Each has a <strong>Link</strong> button, which turns the first such
+      mention into a proper wiki-link in one click — <code>[[Title|the alias as written]]</code>{' '}
+      when the mention uses an alias, so the sentence reads as it did.
     </li>
   </ul>
   <p>

@@ -6,7 +6,7 @@
 //
 //  The approval card shown when a tool wants to change a file. Presents the
 //  proposed diff and Approve / Deny / Allow-all controls. Rendered as an overlay
-//  inside the assistant window (avoids nested sheets).
+//  inside the Assistant's tab (avoids nested sheets).
 //
 
 import SwiftUI

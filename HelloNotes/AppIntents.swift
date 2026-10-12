@@ -128,8 +128,11 @@ struct AppendToDailyNoteIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard let router = NavigationRouter.shared else { throw AppIntentError.noOpenCollection }
-        guard await router.openDailyNote(appending: text) else { throw AppIntentError.noOpenCollection }
-        return .result()
+        switch await router.dailyNote(appending: text) {
+        case .done: return .result()
+        case .noCollection: throw AppIntentError.noOpenCollection
+        case .failed: throw AppIntentError.couldNotAppend
+        }
     }
 }
 
@@ -202,9 +205,13 @@ struct SearchNotesIntent: AppIntent {
 
 enum AppIntentError: Error, CustomLocalizedStringResourceConvertible {
     case noOpenCollection
+    /// A collection is open and today's note could not be written to — which
+    /// was answered as if no collection were open.
+    case couldNotAppend
     var localizedStringResource: LocalizedStringResource {
         switch self {
         case .noOpenCollection: "Open a collection in HelloNotes first."
+        case .couldNotAppend: "HelloNotes couldn’t add that to today’s note."
         }
     }
 }

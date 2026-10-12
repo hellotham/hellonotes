@@ -31,17 +31,18 @@
 
 # Commands
 - Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification. **Every app `xcodebuild` needs `-skipPackagePluginValidation`**: mlx-swift's `Cmlx` target carries a `CudaBuild` build-tool plugin (inert on Apple platforms), and without the flag the build fails at "Validate plug-in" before compiling a file. Xcode's GUI asks once to Trust & Enable instead. The Hugging Face bridges in `Intelligence/Models/MLXBridge.swift` are hand-written rather than mlx-swift-lm's macros for the same reason — a macro plugin would need `-skipMacroValidation` everywhere too.
-- Editor tests (macOS): `swift test --package-path Packages/NotesEditor` — **three bundles here too**: 312/37, 215/18, 26/4 — 553 tests in 59 suites, 2026-10-11 — and `tail` shows the smallest. A toolchain bump can stop this target *compiling*, which both editor suites share, so both die at once and silently: Xcode 27 made `TableEmbedTests.blankImage` unreachable from the `nonisolated` `BlockRenderer` witness beside it, and 408 + 387 tests had been building nothing for weeks. `error: Build failed` is a failing suite, not a missing one.
-- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 527 tests in 55 suites, verified 2026-10-11). It runs **three bundles** and prints a summary line for each — 286/33, 215/18, 26/4 — so the total is their *sum*; reading only the last one says "26 in 4" and looks like nearly all of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
+- Editor tests (macOS): `swift test --package-path Packages/NotesEditor` — **three bundles here too**: 318/39, 215/18, 26/4 — 559 tests in 61 suites, 2026-10-12 — and `tail` shows the smallest. A toolchain bump can stop this target *compiling*, which both editor suites share, so both die at once and silently: Xcode 27 made `TableEmbedTests.blankImage` unreachable from the `nonisolated` `BlockRenderer` witness beside it, and 408 + 387 tests had been building nothing for weeks. `error: Build failed` is a failing suite, not a missing one.
+- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 533 tests in 57 suites, verified 2026-10-12). It runs **three bundles** and prints a summary line for each — 292/35, 215/18, 26/4 — so the total is their *sum*; reading only the last one says "26 in 4" and looks like nearly all of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
 - **Look at the iOS app without the user's device**: `xcodebuild build -destination 'platform=iOS Simulator,name=HN-iPad'`, then `xcrun simctl install HN-iPad <app>`, `xcrun simctl launch HN-iPad com.hellotham.HelloNotes`, and `xcrun simctl io HN-iPad screenshot out.png` — which is readable. A whole iPad session was shipped blind (a keyboard bar that never rendered, a zero-width one, five inspector toggles that could not work at that width) because nobody looked. `simctl` has no tap injection, so driving the UI still needs the live panel — which needs `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` from the user.
 - Is it running on the device? `xcrun devicectl device info processes --device <id> | grep "HelloNotes.app/HelloNotes"` — **capital H**. A lower-cased pattern matches nothing and reads exactly like a crash-on-launch; an hour went into diagnosing a crash that never happened. Cross-check against `--domain-type systemCrashLogs`: no new `.ips` means no crash, whatever the process list appears to say.
 - Layout contract: `./scripts/run-tests.sh -only-testing:HelloNotesTests/ShellContractTests` (~2s — run it after any shell or representable change).
-- **Window parity**: `./scripts/window-parity.sh` — the whole window: the iPad app in the `HN-iPad` simulator in landscape against the Mac app at exactly its safe area (1210×790pt), same settings, same sample collection, captured empty and with a note open, compared pixel by pixel with only the traffic lights, window corners and iPadOS's resize grabber masked. It is what found the 28pt strip a hidden Mac title bar still reserves (`contentUnderTitleBar`) and the notes saved in the same second listed in a different order on each (`Note.newestFirst`) — neither visible to the scene renders. It quits your running HelloNotes gracefully, launches the Debug build with only `DefaultCollection` open via the argument domain and `-HNCaptureSession YES` (which saves no collection list or recents), and afterwards only *reads* your preferences back to check them: an earlier version imported a backup and lost the race with `cfprefsd`, leaving the sample as the only open collection. The Mac half needs the screen unlocked: with `loginwindow` in front, a new window stays at 90% of its size and cannot be captured, which reads exactly like a window-sizing bug.
+- **Window parity**: `./scripts/window-parity.sh` — the whole window: the iPad app in the `HN-iPad` simulator in landscape against the Mac app at exactly its safe area, same settings, same sample collection, captured empty and with a note open, compared pixel by pixel with only the OS's own masked — the traffic lights and the sidebar toggle they displace, the window's corners, iPadOS's resize grabber. It is what found the 28pt strip a hidden Mac title bar still reserves (`contentUnderTitleBar`) and the notes saved in the same second listed in a different order on each (`Note.newestFirst`) — neither visible to the scene renders. **The safe area is measured**: the capture test asks SpringBoard for the status bar's height and the script sizes the Mac's window and cuts the iPad's picture from that. It was 24pt, written down, and the simulator's is 32 now — the gate failed on 3.5% of an empty window that matched until it was (implemented.md §51.43); SpringBoard's number, because one taken from where the app drew would pass an app that began 8pt low. **With a note open the note is reported, not judged**: its text is 17pt on iOS and 16pt on the Mac on purpose (`baseEditorFontSize`), so the verdict there is the chrome's. It quits your running HelloNotes gracefully, launches the Debug build as a capture session with only `DefaultCollection` open (all three lists in the argument domain), reads the window through Accessibility for any other collection's name before each picture (`window-names.swift` — a count, never a name), and afterwards only *reads* your preferences back to check them: an earlier version imported a backup and lost the race with `cfprefsd`, leaving the sample as the only open collection. `PARITY_REUSE_IPAD=1` keeps the last iPad half. Its negative control is in the script's header: one point of padding above the shell on the Mac alone fails both states (1.3% and 4.0% on 2026-10-12). The Mac half needs the screen unlocked: with `loginwindow` in front, a new window stays at 90% of its size and cannot be captured, which reads exactly like a window-sizing bug.
 - **Chrome parity**: `./scripts/chrome-parity.sh` — renders the chrome (bar, rows, status bar, panel header, a settings form, a sheet bar, an empty state) on macOS *and* in the `HN-iPad` simulator and compares the two pictures pixel by pixel; anything past antialiasing (Δ>12, or >0.1% of a scene) fails, and a one-pixel shift fails it by 4–7%. Run it after touching `Chrome*.swift` or any shared control. The macOS half is app-hosted, so it goes through `run-tests.sh`.
 - **Model evaluations** (Apple's Evaluations framework, real on-device model, ~30s, opt-in — needs Apple Intelligence, so never CI): `TEST_RUNNER_HN_EVALUATIONS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/IntelligenceEvaluationTests`. Tags, links, rewrites, long-note summaries and Assistant tool trajectories. Add `TEST_RUNNER_HN_EVAL_MLX_FOLDER=<absolute path>` to run the same suite on an MLX model — a model folder, or a model's `models--org--name` folder in `~/.cache/huggingface/hub` (list what is there with `mlx_lm.manage --scan`; never download one without asking), loaded through the app's own folder path; a `~` would expand inside the test host's container. Two more suites run under the same flags and pick themselves by the model: `AssistantEditEvaluation` (a tool call, an approval, and the note on disk changes — the trajectory suite denies every approval, so nothing else ever writes) and `AssistantWithoutToolsEvaluation` (a model whose template has no tools must answer in words, not imitation calls). Add them with their own `-only-testing:` flags. Run after touching any prompt, schema, tool, `HistoryWindow` or `TokenBudget` — the unit tests prove plumbing and could not see the two defects this suite found in its first hour (below). Read per-sample results with `xcrun xcresulttool export attachments --path <xcresult> --output-path <dir>` (`.xcevalresult` JSON). Two more opt-in probes run inside the signed app: `TEST_RUNNER_HN_RESEARCH_PROBE=1 … -only-testing:HelloNotesTests/ResearchProbe` (a real deep-research run, ~30s, searches the web) and `TEST_RUNNER_HN_PCC_PROBE=1 … -only-testing:HelloNotesTests/PrivateCloudComputeProbe` (one PCC request; does nothing unless the build is entitled).
 - **iOS interface tests** — the only check that a screen actually *draws*:
   `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=iOS Simulator,name=HN-iPhone' -skipPackagePluginValidation -only-testing:HelloNotesUITests`
-  (~4 min, 16 cases, 2026-10-12 — three skip there: the window-parity capture
+  (~4.5 min, 15 cases and the launch test, 2026-10-12 — the run prints
+  "Executed 15 tests, with 3 tests skipped"; three skip there: the window-parity capture
   and the store's screenshots unless their own runs ask for them, and the
   iPad's test — headless). **Then the iPad's, which a phone cannot run**:
   the same command with `name=HN-iPad13` and
@@ -60,7 +61,10 @@
   The bundle is *hosted by the app*, so a raw run opens HelloNotes on the user's
   screen and leaves test hosts behind; the script quits their app first
   (gracefully — it may hold unsaved edits), runs the suite, and kills any host
-  afterwards whatever the result. 852 tests in 130 suites, ~35s (2026-10-12).
+  afterwards whatever the result. 899 tests in 137 suites, ~35s (2026-10-12).
+  Its tests of collection walks keep time, and fail one at a time on a busy
+  machine (three runs in four at a load average over 12); run it again before
+  believing a failure there, and read *which* test it was.
 - **Edit ≡ Preview**: `./scripts/render-parity.sh` — lays the same note out in TextKit and in WebKit, offscreen, and fails if any block drifts more than a point. Three gates in one: a hand-written sample at 5 text sizes × 3 widths, **60 whole documents at 1200 / 800 / 560pt** (plus 420 measured and reported without failing — see the bullet below), and a chrome check that measures the marks themselves. Run it after touching `GFMBoxMetrics`, `StyleApplier`, `BlockBoxes`, `GFMLiveStyle` or `GFMPage`. It is a script, not a test, because a `WKWebView` never finishes loading under `swift test` *or* under XCTest in the app host — both were tried. See implemented.md §23.
 - **The real-document gate**: `swift run --package-path Tools/RenderParity RenderParity --docs --width <w>` over `Tools/RenderParity/Documents` — READMEs, meeting notes, kitchen sinks, one document ending in each awkward thing and one starting with it. It found nineteen defects on its first outing with all 672 spec examples already agreeing, and it is the gate to run when a change is about *documents* rather than constructs. Bisect one with `--locate <file>`, which lays out every prefix a top-level block at a time and marks the row where the delta moves. **Width is a dimension of coverage, not a configuration**: six of the nineteen were horizontal errors that only become heights when something wraps, and two more (a heading's opening margin paid per wrapped line, a 900pt cap on every rendered embed) were exact at 800 and wrong at 420 and 1200. 420 is measured and **reported without failing**, because it is the only width where a four-column table stops fitting (so the only place the overflow layout is exercised) and also the only width where an open divergence fires — TextKit takes a line-break opportunity after `/` and WebKit does not, which is 20pt on any wrapped code line holding a URL. Both failing documents print with their deltas on every run, so a new shortfall there is a new line; if that listing ever names more than the two, something regressed.
 - Live verification: run `scripts/relaunch-debug.sh` first — plain `open` reuses a stale instance and you test the wrong binary.
@@ -662,9 +666,19 @@
   widget — by making a new window unless an open one says it would rather
   take it. None did: three links, four main windows, the note opened in all
   of them (counted through Accessibility). `takingLinksWhereOpen()` says so
-  for the main window; with none open one is still made. Still open: a link
-  that *launches* the app arrives before the library has restored and opens
-  nothing (measured the same with and without this change).
+  for the main window; with none open one is still made.
+- **A link that launches the app arrives before the library does.** It is
+  handed to the router as soon as there is a window, and the window's first
+  work is bringing back what was open — so resolved at once it named nothing
+  and was dropped: the app came up and the note did not, and a tap on the
+  widget with the app closed did what a tap on the icon does. The router
+  *holds* what it cannot resolve until `Library.launchDidSettle()`, then tries
+  it once (`NavigationRouter.hold`). Held, never awaited: `route` still
+  answers for now, or an intent with no window would wait on a launch that
+  never comes. Anything else that acts on the library from outside the window
+  at launch meets the same empty library. `LinkAtLaunchTests` stage the launch
+  in a `Library(defaults:)` of their own — a hosted test's plain `Library()`
+  that opens a folder writes it into the person's list of open collections.
 - **The app opens no window of its own, on either platform.** `openWindow` on
   iPadOS makes a scene that *replaces* the notes in full-screen apps and in
   Split View, and closing it left the app — Done in the Assistant showed the
@@ -831,5 +845,102 @@
   or a size to work out what to expect and must never assign one. Test the
   rule below the settings instead (`TextColumnTests` sets the column on the
   view).
+- **A key command in an iOS text view asks for priority, or it is listed and
+  never called.** Since iOS 15 a text view's own handling of its keys — the
+  arrows, Return — comes before a `UIKeyCommand` that does not set
+  `wantsPriorityOverSystemBehavior`. ↑ off the first line of a note never
+  reached its title on iPhone or iPad, from the day the inline title shipped,
+  with a unit test that read `keyCommands` and found the command there. Offer
+  a command only while it applies and it is safe to ask for priority; and
+  **Return and Tab reach the text view as typed text**, through
+  `shouldChangeTextIn`, past a key command offering to take them. Only a
+  pressed key shows any of this: `XCUIElement.typeKey` for the arrows,
+  `typeText("\n")` for Return (`typeKey` with Return types nothing into a text
+  view). Reading `keyCommands` is the source-symmetry check again
+  (implemented.md §51.44).
+- **A key the editor gives away, it asks about first.** The list of
+  suggestions by the caret is the host's and the keys are the text view's,
+  which stays first responder. `CompletionKeyHandler.wants` must cost nothing
+  and change nothing — UIKit asks it for every command it considers, and the
+  host ranked every title in the collection to answer "how many rows"
+  (`CompletionMemo`). Nothing is chosen until an arrow chooses it, so Return
+  with the list open is still Return; and the arrows are the list's only while
+  the construct is being typed, because the list also shows for a caret
+  passing through a link that is already there (`CompletionChoice`).
+- **`repo.add(path:)` cannot stage a deletion; `repo.add(paths:)` can.** The
+  first is libgit2's `add_bypath`, which fails on a file that is gone, and
+  `commitAll` called it behind a `try?`: a deleted note was never committed,
+  by Commit or by Auto-commit, and with nothing else pending Commit failed
+  with an empty error. The second is `add_all`. A commit also writes the whole
+  index, so one that names its files (`GitService.commit(_:message:)`) refuses
+  when another tool has something staged.
+- **`standardizedFileURL` drops `/private` only from a path that exists.** A
+  folder that is there and a file just deleted from it come out spelled two
+  ways (`/var/folders/…` and `/private/var/folders/…`, probed), so "is this
+  file inside that root" answers no — and the commit of a deletion would have
+  been skipped without a word on an iPhone, whose containers are
+  `/private/var/…`. This sharpens the "one directory, two names" rule above:
+  the two spellings can come from *one* call. Ask through
+  `CollectionIndexCache.rootPrefixes`. The test host's own folders have no
+  `/private` twin, so a test there cannot see it; spell the paths by hand.
+- **A commit nobody pressed Commit for obeys one rule**
+  (`GitService.allowsUnattendedCommits`): never in a cloud-backed collection,
+  never in a collection that is one folder of a larger repository. Auto-commit
+  had both guards and the Assistant's commit had neither, and took every
+  pending change in the collection with it. It commits its own note now,
+  whatever Auto-commit's switch says — the person approved that change, and a
+  commit of its own is how it is taken back.
+- **What a line says about privacy is true of the feature it is printed on,
+  not of a part of it.** "Runs on this device. Your notes never leave it." was
+  true of the model and printed on an Assistant that searches the web with
+  terms the model writes after reading notes. The model's line is about the
+  model; what a search sends is `LanguageModels.webSummary`, shown wherever the
+  web tools are; `PrivacyLineTests` fails the day a tool set gains or loses the
+  web without the sentence changing.
+- **An append is a write into a note, and today's note is the one that is
+  open.** `Collection.append` — Quick Capture, dictation, the daily-note
+  intent — wrote the file and called `noteDidSave`, which marks the write as
+  the app's own so the watcher tells nobody: the tab kept its text, and with
+  typing not yet saved the person was asked to choose between what they had
+  typed and what they had captured. It is made in the editor that holds the
+  note (`applyEdit`), and otherwise over the text it read and no other
+  (`FileIO.replace(_:at:ifContentsEqual:)`) with the editors told — the rule
+  above about writes outside the editor, which this path was older than. And
+  **a thing that clears what was typed as it sends must be able to give it
+  back**: Quick Capture answered "Added to today's note." for any failure but
+  a missing collection (`NavigationRouter.dailyNote`, implemented.md §51.45).
+  Two traps on the way: **an editor can be loaded over a placeholder** (a
+  refresh that finds the provider's copy changed marks the note not
+  downloaded and leaves the bytes), so the editor is asked only when the file
+  is not one; and `applyEdit`'s save is one nobody waits for, so anything that
+  answers "done" awaits `editor.save()` first.
+- **A cleanup removes what was made, not what has the name.** A failed New
+  Collection ▸ Git Repository… removed the folder it was making — and so a
+  *file* of that name, which is why making it had failed, and an empty folder
+  the person had made. Record what was there before, and take away only the
+  rest (`GitService.createRepository`, `NewRepositoryTests`).
+- **A CI step that can wait for ever is bounded, and looked at before it is
+  stopped.** The macOS test job on `main` started 775 tests, finished none and
+  ran into its ninety minutes; GitHub called it *cancelled*, which read as
+  someone having stopped it, and nothing was kept. `scripts/ci-bounded.sh`
+  follows the output and, after five silent minutes, samples the test host,
+  pictures the runner's screen, counts what started and finished, keeps it all
+  as an artifact and fails. A job's status is not its cause: read which step,
+  and how long it ran. The runner tests an **unsigned, unsandboxed** build —
+  not what `run-tests.sh` runs here — so a failure there may be one this Mac
+  cannot have (implemented.md §51.46).
+- **A test that sleeps "past" a timer is racing it.** The walk test slept
+  900 ms to get past a 750 ms reveal — but the reveal's clock starts when its
+  task first has the main actor, and with the whole suite's work queued there
+  it started late in 2 runs of 40. Wait for the condition. And a test double
+  that counts is shared state: `listCalls += 1` under six listings at once
+  lost a count in 12 walks of 2,000, and the test it served failed one run in
+  three. When a test fails once in a while, **count what failed**: this one
+  recorded one issue where a real cancellation records three, which said the
+  walk had not been cancelled before any code was read.
+- **A test of a tool that deletes must answer the question.** A deletion is
+  asked about every time, whatever "Allow all" was given, so a test that calls
+  `deleteNote` with an approving broker waits for ever — and a hosted run that
+  waits for ever looks like a hang in the app.
 - Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts). **Read its reverse column too: a doc fact-check is also a source check.** Checking the AI page after the two model roles collapsed found three *strings in the app* still telling people to choose a model "for writing tools" and "for the Assistant" — a picker that no longer existed — and two file headers describing the design the file below them had replaced.
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.

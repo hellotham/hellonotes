@@ -111,12 +111,18 @@ struct RecursiveListingTests {
 
     /// A provider that counts what it is asked, and can be told to support the
     /// recursive call or not.
+    ///
+    /// The counts are kept under a lock: a walk has six listings in flight at
+    /// once (`RemoteTreeSource.listingConcurrency`), and a bare `+= 1` lost one
+    /// in 12 of 2,000 walks — a walk that asked 21 times counted as 20, and
+    /// `oneRequestReplacesOnePerFolder` failed for it about one run in three.
     private final class CountingStore: RemoteStore, @unchecked Sendable {
         let providerName = "Counting"
         let accountID = "count"
         let supportsRecursive: Bool
-        private(set) var listCalls = 0
-        private(set) var recursiveCalls = 0
+        private let counts = Locked((list: 0, recursive: 0))
+        var listCalls: Int { counts.value.list }
+        var recursiveCalls: Int { counts.value.recursive }
         private let tree: [RemoteEntry]
 
         init(folders: Int, filesPerFolder: Int, supportsRecursive: Bool) {
@@ -134,14 +140,14 @@ struct RecursiveListingTests {
         }
 
         func list(path: String) async throws -> [RemoteEntry] {
-            listCalls += 1
+            counts.mutate { $0.list += 1 }
             let parent = path.isEmpty ? "" : path
             return tree.filter { ($0.path as NSString).deletingLastPathComponent == (parent.isEmpty ? "/" : parent) }
         }
 
         func listRecursively(path: String) async throws -> [RemoteEntry]? {
             guard supportsRecursive else { return nil }
-            recursiveCalls += 1
+            counts.mutate { $0.recursive += 1 }
             return tree
         }
 

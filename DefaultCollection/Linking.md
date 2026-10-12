@@ -6,7 +6,9 @@ aliases: [Links, Wiki Links]
 
 # Linking
 
-Type `[[` and HelloNotes offers every note in the collection. Links resolve by
+Type `[[` and HelloNotes offers notes from the collection — a short list that
+narrows as you type. Click or tap one, or choose it with **↓** and **↑** and
+press **Return**. Links resolve by
 **name**, so moving a note between folders never breaks one. When two notes
 share a name, add as much of the folder path as you need — `[[Manual/Index]]` —
 and that still follows the note if the rest of the path changes.

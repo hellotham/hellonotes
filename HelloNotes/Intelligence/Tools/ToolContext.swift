@@ -325,7 +325,7 @@ final class ToolContext {
         // this used to wait for a walk of the whole collection to find it, and
         // the walk then rebuilt the sidebar under whoever was typing.
         collection.noteDidSave(note.fileURL, text: content)
-        commit("assistant: create \(rel)")
+        commit("assistant: create \(rel)", of: note.fileURL)
         return "Created “\(relativePath(note))”."
     }
 
@@ -356,7 +356,7 @@ final class ToolContext {
         else { throw ToolError.declined }
 
         try await save(after, to: note, replacing: before)
-        commit("assistant: edit \(rel)")
+        commit("assistant: edit \(rel)", of: note.fileURL)
         return "Edited “\(rel)” (\(replaceAll ? "\(occurrences) replacements" : "1 replacement"))."
     }
 
@@ -375,7 +375,7 @@ final class ToolContext {
         else { throw ToolError.declined }
 
         try await save(content, to: note, replacing: before)
-        commit("assistant: rewrite \(rel)")
+        commit("assistant: rewrite \(rel)", of: note.fileURL)
         return "Rewrote “\(rel)”."
     }
 
@@ -394,7 +394,13 @@ final class ToolContext {
         else { throw ToolError.declined }
 
         await collection.deleteNote(note)
-        commit("assistant: delete \(rel)")
+        // `deleteNote` reports a failure and returns, leaving the note where
+        // it was — and this went on to commit and to answer "Moved to the
+        // Trash". A note still in the collection was not deleted.
+        guard !collection.notes.contains(where: { $0.fileURL == note.fileURL }) else {
+            throw ToolError.failed(collection.lastError ?? "Couldn't move “\(rel)” to the Trash.")
+        }
+        commit("assistant: delete \(rel)", of: note.fileURL)
         return "Moved “\(rel)” to the Trash."
     }
 
@@ -439,18 +445,33 @@ final class ToolContext {
         }
     }
 
-    /// Commit the change if the collection is a Git repository — every
-    /// Assistant edit is its own commit, so each one can be undone on its own.
+    /// Commit the change — that file, and nothing else — if the collection is
+    /// a Git repository the app may commit into unasked. Every Assistant edit
+    /// is its own commit, so each one can be undone on its own.
+    ///
+    /// It was `commitAll`: the commit took every pending change in the
+    /// collection with it, and was made in a cloud folder and in a sub-folder
+    /// of a larger repository, where Auto-commit is refused. It is made under
+    /// Auto-commit's rule now (`GitService.allowsUnattendedCommits`), though
+    /// not under its switch: the person approved this change, and a commit of
+    /// its own is how it is taken back (implemented.md §51.44).
     ///
     /// **Not awaited.** Git runs one operation at a time, so a commit waits
     /// behind whatever is in flight — a push to a slow remote can take minutes —
     /// and the tool's result, and with it the Assistant's reply, waited too. The
     /// change is already saved; the commit follows it in order. The commit
     /// refreshes the status in its own queue slot, so nothing else is needed.
-    func commit(_ message: String) {
-        guard git.status.isRepository else { return }
-        Task { [git] in await git.commitAll(message: message) }
+    func commit(_ message: String, of file: URL) {
+        lastCommit = nil
+        guard git.status.isRepository,
+              git.allowsUnattendedCommits(isCloudBacked: CloudProvider.name(for: collection.rootURL) != nil)
+        else { return }
+        lastCommit = Task { [git] in await git.commit([file], message: message) }
     }
+
+    /// The commit of the last change made, while it runs and after — `nil`
+    /// when that change was not committed. For a test to wait on.
+    private(set) var lastCommit: Task<Void, Never>?
 }
 
 /// Why a tool could not do what it was asked.

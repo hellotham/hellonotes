@@ -53,14 +53,23 @@ enum ComposeRun {
 @MainActor
 enum MentionLinker {
 
-    /// Turn the first unlinked mention of `title` inside `note` into a
-    /// `[[wiki link]]`.
+    /// Turn the first unlinked mention of `target` inside `note` into a link
+    /// to it — a mention by its title or by an alias, which are the names the
+    /// Links view listed `note` for (`NoteReferences.names`). Asked by the
+    /// title alone, the button did nothing for a note listed for an alias.
+    static func linkFirstMention(of target: Note, in note: Note, collection: Collection) async {
+        await linkFirstMention(of: NoteReferences.names(of: target, in: collection), to: target.title,
+                               in: note, collection: collection)
+    }
+
+    /// Turn the first unlinked mention of any of `names` inside `note` into a
+    /// `[[wiki link]]` to the note called `title`.
     ///
     /// The read **and** the write go off the main actor: both are coordinated,
     /// and a coordinated call against a File Provider blocks for as long as the
     /// provider takes. This runs from a button in the inspector, so the window
     /// would freeze with it.
-    static func linkFirstMention(of title: String,
+    static func linkFirstMention(of names: [String], to title: String,
                                  in note: Note,
                                  collection: Collection) async {
         // **Open in an editor: made there**, to what is on screen, and written
@@ -68,13 +77,13 @@ enum MentionLinker {
         // to the file and told to no editor, it met the note's tab as a change
         // made elsewhere, and asked the person to choose (implemented.md §51.36).
         if let editor = EditorModel.editors(holding: note.fileURL).first(where: { $0.isLoaded && !$0.hasConflict }) {
-            editor.applyEdit { MentionScanner.linkingFirstMention(of: title, in: $0) }
+            editor.applyEdit { MentionScanner.linkingFirstMention(of: names, to: title, in: $0) }
             return
         }
         // Otherwise the file — and only over the text the link was found in.
         let updated = await offMain { () -> String? in
             guard let text = try? FileIO.readString(at: note.fileURL),
-                  let updated = MentionScanner.linkingFirstMention(of: title, in: text),
+                  let updated = MentionScanner.linkingFirstMention(of: names, to: title, in: text),
                   (try? FileIO.replace(updated, at: note.fileURL, ifContentsEqual: text)) == true
             else { return nil }
             return updated

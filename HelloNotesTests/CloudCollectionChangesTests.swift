@@ -394,6 +394,36 @@ struct CloudCollectionChangesTests {
         #expect(store.text(at: "/Welcome.md") == Self.welcome + "- one more\n")
     }
 
+    /// The note is open, and the provider's copy has changed since: the
+    /// mirror marks it not downloaded and leaves the bytes, and the editor
+    /// stays loaded over what is now a placeholder. A capture made in that
+    /// editor was saved here, refused by the upload — a placeholder is never
+    /// uploaded — and replaced by the next download, with "Added" already
+    /// said (found by the vault-I/O review, implemented.md §51.45). It goes
+    /// by the file: the note fetched first, the capture after it, and sent.
+    @Test func appendingToAnOpenNoteTheProviderHasChangedKeepsBoth() async throws {
+        let (collection, store, cache) = try await cloudCollection()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let mirror = try #require(collection.remote)
+        let welcome = try note("Welcome", in: collection)
+        let editor = EditorModel()
+        EditorWiring { _ in collection }.wire(editor)
+        await editor.open(welcome)
+        try #require(editor.isLoaded && editor.text == Self.welcome, "the note never opened")
+
+        store.put("# Welcome, changed elsewhere\n", at: "/Welcome.md")
+        try await mirror.syncMetadata()
+        try #require(collection.isPlaceholder(at: welcome.fileURL) && editor.isLoaded,
+                     "not an editor loaded over a placeholder, so this shows nothing about one")
+
+        #expect(await collection.append("- one more\n", to: welcome))
+        await sent(collection)
+
+        #expect(store.text(at: "/Welcome.md") == "# Welcome, changed elsewhere\n- one more\n",
+                "the capture never reached the provider, or went over what was changed there")
+        #expect(text(at: welcome.fileURL) == "# Welcome, changed elsewhere\n- one more\n")
+    }
+
     // MARK: - While the provider could not be reached
 
     /// Made while the provider could not be reached: the upload fails and says

@@ -68,12 +68,11 @@ final class NoteComposer {
 
     /// Why `mode` cannot run, or `nil` when it can.
     ///
-    /// The two modes use different models, and that is not an oversight to be
-    /// tidied away: writing a note is a writing tool and follows the writing
-    /// tools' model (on-device by default, which is the right default for
-    /// something composed from your own notes); research drives tools and reads
-    /// the web, which is the Assistant's model. Collapsing them would force one
-    /// of the two to be wrong.
+    /// Both modes run on the one model the app is set to
+    /// (`IntelligenceSettings.model`) and ask different things of it: writing
+    /// a note needs a model that can answer, research one that can also call
+    /// tools — so a model whose template has none can write and cannot
+    /// research, and each mode has its own reason.
     ///
     /// Static, and the single answer for both platforms *and* for
     /// `DeepResearch` itself — so the sheet can never offer a run the research

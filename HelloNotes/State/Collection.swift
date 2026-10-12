@@ -2814,39 +2814,118 @@ final class Collection: Identifiable {
         return notes.first { $0.fileURL.standardizedFileURL == url.standardizedFileURL }
     }
 
-    /// Append `text` to a note's file on disk (quick-capture / daily-note intents).
-    func append(_ text: String, to note: Note) async {
-        // Read, join and write in one hop off the main actor — both file calls
-        // are coordinated, so both can block on a provider.
+    /// Append `text` to a note — Quick Capture, dictation and the daily-note
+    /// intent. Returns whether it was appended; a failure is reported.
+    ///
+    /// **Open in an editor: appended there**, to what is on screen, and written
+    /// by its own save (`applyEdit`) — as a linked mention and the Assistant's
+    /// edits are. It was written to the file and told to the index alone
+    /// (`noteDidSave`, which marks a write as the app's own so the watcher
+    /// says nothing): the tab kept the text it had, and with typing not yet
+    /// saved its next save met a file it had not written and asked the person
+    /// to choose between what they had typed and what they had captured.
+    /// Today's note is the note most likely to be open (implemented.md §51.45).
+    ///
+    /// **Otherwise the file, over the text it was appended to and no other**
+    /// (`FileIO.replace(_:at:ifContentsEqual:)`). A read and then a plain
+    /// write put the capture over whatever was saved between the two; a file
+    /// that has moved on is read again. And the open editors are told, which
+    /// `noteDidSave` keeps the watcher from doing.
+    @discardableResult
+    func append(_ text: String, to note: Note) async -> Bool {
         let url = note.fileURL
+        // **Not into an editor whose file is a placeholder.** An editor can be
+        // loaded over one: a refresh that finds the provider's copy changed
+        // marks the note not downloaded and leaves the bytes, and nothing
+        // unloads the editor. Its save would land here, the upload be refused
+        // (a placeholder is never uploaded) and the next download replace the
+        // capture — with "Added" already said. That note goes by the file,
+        // fetched first, and its editor hears of it below.
+        if !isPlaceholder(at: url),
+           let editor = EditorModel.editors(holding: url).first(where: { $0.isLoaded && !$0.hasConflict }) {
+            editor.applyEdit { Self.appending(text, to: $0) }
+            // Written before this answers, as the Assistant's edits are: the
+            // save `applyEdit` starts is not one anybody waits for.
+            await editor.save()
+            // Another window's editor on the same note hears nothing from a
+            // save the collection counts as its own.
+            noteChangedOutsideEditor()
+            if editor.isDirty {
+                // On screen, and not yet in the file — said, and not answered
+                // as a failure: the capture is in the note, and given back to
+                // be sent again it would be there twice.
+                report("Added to “\(note.title)”, which is open, but it couldn't be saved yet"
+                       + (editor.saveError.map { ": \($0)" } ?? "."))
+            }
+            return true
+        }
         // Appended to a placeholder, the text was appended to nothing: the
         // note became the appended line, and the next download put the note
         // back over it. Fetched first — and nothing appended if it cannot be,
         // which the download has already said.
         if isPlaceholder(at: url) {
             await hydrateIfNeeded(url)
-            guard !isPlaceholder(at: url) else { return }
+            guard !isPlaceholder(at: url) else { return false }
         }
-        let outcome = await offMain { () -> Result<String, Error>? in
-            guard let existing = try? FileIO.readString(at: url) else { return nil }
-            let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
-            let updated = existing + separator + text
-            do { try FileIO.write(Data(updated.utf8), to: url); return .success(updated) }
-            catch { return .failure(error) }
+        // Read, join and write in one hop off the main actor — both file calls
+        // are coordinated, so both can block on a provider.
+        let outcome = await offMain { () -> Appended in
+            // A file that changed between the read and the write is read
+            // again; three times is a note something else is writing to.
+            for _ in 0..<3 {
+                // Not `?? ""`: a note that cannot be read is not an empty one
+                // to append to, and writing would replace it with the capture.
+                guard let existing = try? FileIO.readString(at: url) else { return .unreadable }
+                let updated = Self.appending(text, to: existing)
+                do {
+                    if try FileIO.replace(updated, at: url, ifContentsEqual: existing) { return .done(updated) }
+                } catch {
+                    return .failed(error.localizedDescription)
+                }
+            }
+            return .failed("it kept changing while it was written to")
         }
-        guard let outcome else { return }
         let updated: String
         switch outcome {
-        case .success(let value): updated = value
-        case .failure(let error):
-            report("Couldn't append to “\(note.title)”: \(error.localizedDescription)")
-            return
+        case .done(let value):
+            updated = value
+        case .unreadable:
+            report("Couldn't read “\(note.title)”, so nothing was added to it.")
+            return false
+        case .failed(let why):
+            report("Couldn't append to “\(note.title)”: \(why)")
+            return false
+        }
+        // Evicted, or found changed on the provider, while the write was off
+        // the main actor: what was written is in a placeholder, which is never
+        // uploaded and is replaced by the next download. Not "Added".
+        guard !isPlaceholder(at: url) else {
+            report("Couldn't append to “\(note.title)”: it was being fetched from \(remote?.store.providerName ?? "the cloud") again.")
+            return false
         }
         rememberSelfWrite(url)
         // **One note's content changed, so no walk.** This used to
         // `await scanOffMain()`, which made a one-file append cost a re-read of
         // the whole folder — and appending is what quick-capture does.
         noteDidSave(url, text: updated)
+        // An editor holding the note that could not take the append itself —
+        // still loading, holding a conflict, or over a placeholder — hears of
+        // it here.
+        noteChangedOutsideEditor()
+        return true
+    }
+
+    /// `existing` with `text` after it, on a line of its own.
+    nonisolated static func appending(_ text: String, to existing: String) -> String {
+        let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
+        return existing + separator + text
+    }
+
+    /// What became of an append to a file.
+    private nonisolated enum Appended: Sendable {
+        case done(String)
+        case unreadable
+        case failed(String)
     }
 
     /// Move a note to the Trash (never a hard delete) and re-index.

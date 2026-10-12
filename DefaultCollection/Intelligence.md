@@ -11,7 +11,7 @@ Optional, and off until you ask for it.
 
 Every AI feature runs on Apple's **Foundation Models**, on one of two models:
 
-| Model | Where your text goes |
+| Model | Where your text goes to be processed |
 |---|---|
 | **System** (the default) | nowhere — Apple's model on this Mac, iPhone or iPad |
 | **MLX** | nowhere — an open model you download runs on this device |
@@ -21,9 +21,11 @@ the writing tools and Research — because the app is either using Apple's model
 yours. The Assistant, Rewrite and the AI commands in **Note Actions** name the model
 doing the work. The Assistant and **Ask Your Library** are at the top of the sidebar,
 and open as tabs beside your notes.
-The Assistant can also look things up on the web — on its own, when a question
-needs it — and so can Research in New Note from a Prompt. What they search for
-goes to DuckDuckGo, and a page they read is fetched from its website.
+One thing does leave the device, whichever model runs: a web search. The Assistant
+can look things up on the web — on its own, when a question needs it — and so can
+Research in New Note from a Prompt. What they search for goes to DuckDuckGo, and
+can include words from your question or from notes they have read; a page they
+read is fetched from its website. The Assistant and the AI settings say so too.
 
 ## The model's own settings
 

@@ -169,7 +169,7 @@ collection's (D13).
 | Group | Items |
 |---|---|
 | — | **Present as Slides** (a Marp deck only) · **View Diagram** (only if the note has one) |
-| — "Using *model*" | **Summarise Note** · **Suggest Tags** · **Suggest Links** · **Rewrite or Expand…** (only when a model can answer) |
+| — "Using *model*" | **Summarise Note** · **Suggest Tags** · **Suggest Links** · **Rewrite or Expand Note…** (only when a model can answer; named by `AIActions.Command`, as in the Note menu) |
 | — | the note's row menu from the sidebar ([primary.md](primary.md) §6): Rename…, Duplicate, Add/Remove Bookmark · — · Copy Wiki Link, Open in New Window, Reveal in Finder/Files · — Download or Remove Download (cloud notes) · — Review Links… · — Export ▸ (Export as HTML…, Export as PDF…, Print…) · — **Move to Trash**, last |
 
 ### 3.4 Per shell

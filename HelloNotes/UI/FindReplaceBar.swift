@@ -88,7 +88,7 @@ struct FindReplaceBar: View {
                 }
                 // No shortcut of its own to name: Shift-Return is the field's
                 // submit, which is Next, and ⇧⌘G — the usual Find Previous —
-                // is Graph View here (toolbars.md §14, item 12).
+                // is Graph here (toolbars.md §14, item 12).
                 .help("Previous match")
                 .disabled(matchCount == 0)
 

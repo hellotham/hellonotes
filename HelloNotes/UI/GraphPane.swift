@@ -12,17 +12,18 @@
 //
 //  It was also, until 1.3.3, the *whole collection's* graph, with a picker that
 //  could narrow it to the notes around a node clicked in it. The panel it sits
-//  in is about the open note, so that is what the graph is about now: the note
-//  at the centre, what links to it and what it links to around it, and a
-//  distance that reaches a link or two further. The collection's links are the
+//  in is about the open note, so that is what the graph is about now: the
+//  note, what links to it and what it links to, and a distance that reaches a
+//  link or two further. Nothing is pinned — the layout is the links' own, and
+//  the open note is told apart by how it is drawn, not by where it sits. The collection's links are the
 //  Mind Map's (`CollectionMindMap`), a tab of its own.
 //
 
 import SwiftUI
 
-/// One note's links in and out, in the right panel: the open note at the
-/// centre, what links to it and what it links to around it, and — with the
-/// distance raised — the notes a link or two further on.
+/// One note's links in and out, in the right panel: the open note, what links
+/// to it and what it links to, and — with the distance raised — the notes a
+/// link or two further on.
 ///
 /// It was the whole collection's link graph with a scope picker that could
 /// narrow it to "Around Focused Note", where the focus was a click in the

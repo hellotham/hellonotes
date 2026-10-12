@@ -2,11 +2,11 @@
 //  VoiceCapture.swift
 //  HelloNotes
 //
-//  On-device voice capture via the new Speech engine (macOS/iOS 26):
-//  `SpeechAnalyzer` + `SpeechTranscriber` stream a live transcript from the
-//  microphone, which the caller writes into a note. Models install on demand via
-//  `AssetInventory`. Availability- and `canImport`-gated so the app still builds
-//  on the macOS 15 floor.
+//  On-device voice capture via the Speech engine: `SpeechAnalyzer` +
+//  `SpeechTranscriber` stream a live transcript from the microphone, which the
+//  caller writes into a note. Models install on demand via `AssetInventory`.
+//  `canImport`-gated for a platform without Speech; there is no availability
+//  gate, the app's floor (27) being past the engine's (26).
 //
 
 import Foundation
@@ -28,7 +28,6 @@ enum VoiceCaptureError: LocalizedError {
     }
 }
 
-@available(macOS 26.0, iOS 26.0, *)
 actor VoiceCapture {
     private let engine = AVAudioEngine()
     private var analyzer: SpeechAnalyzer?

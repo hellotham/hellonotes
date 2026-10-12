@@ -4,8 +4,8 @@
 //
 //  Drives on-device voice capture (`VoiceCapture`) from the UI: toggle to start/
 //  stop dictation; the live transcript is exposed for display, and on stop it's
-//  appended to today's daily note via `NavigationRouter`. Availability-gated —
-//  a no-op where the Speech engine isn't available.
+//  appended to today's daily note via `NavigationRouter`. A no-op on a platform
+//  without the Speech framework.
 //
 
 import Foundation
@@ -29,12 +29,17 @@ final class DictationController {
     private(set) var lastError: String?
 
     #if canImport(Speech)
-    private var capture: Any?   // VoiceCapture (macOS/iOS 26-gated), held as Any
+    private var capture: VoiceCapture?
     #endif
 
+    /// Whether this platform has the Speech framework at all. It was an OS
+    /// check as well, from when the app's floor was below the engine's (26).
     var isSupported: Bool {
-        if #available(macOS 26.0, iOS 26.0, *) { return true }
-        return false
+        #if canImport(Speech)
+        true
+        #else
+        false
+        #endif
     }
 
     func toggle() {
@@ -43,7 +48,7 @@ final class DictationController {
 
     func start() async {
         #if canImport(Speech)
-        guard #available(macOS 26.0, iOS 26.0, *), !isRecording else { return }
+        guard !isRecording else { return }
         transcript = ""
         lastError = nil
         let vc = VoiceCapture()
@@ -65,12 +70,20 @@ final class DictationController {
 
     func stop() async {
         #if canImport(Speech)
-        guard #available(macOS 26.0, iOS 26.0, *), let vc = capture as? VoiceCapture else { return }
+        guard let vc = capture else { return }
         await vc.stop()
         capture = nil
         isRecording = false
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty { await NavigationRouter.shared?.openDailyNote(appending: text) }
+        guard !text.isEmpty else { return }
+        // What was said is kept in `transcript` until the next recording
+        // starts, and a note it could not be added to is said: the result was
+        // ignored, so a transcript that reached no note was simply gone.
+        switch await NavigationRouter.shared?.dailyNote(appending: text) {
+        case .done: break
+        case .noCollection, nil: lastError = "Open a collection to keep what was dictated."
+        case .failed(let why): lastError = why
+        }
         #endif
     }
 }

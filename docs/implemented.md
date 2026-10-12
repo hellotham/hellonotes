@@ -8416,6 +8416,412 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.46 CI's test step is bounded, and a stall is looked at before it is stopped (2026-10-12)
+
+Left by §51.44: on `main` the macOS app job was reported *cancelled*, and
+nobody had cancelled it. 775 tests started within a fifth of a second, none
+finished, nothing more was printed for eighty minutes, and the job ran into
+its ninety — with nothing kept that could say what the test host was waiting
+for.
+
+- **`scripts/ci-bounded.sh <seconds> <folder> -- <command>`** follows the
+  command's output, and when there has been none for five minutes, or the run
+  passes its time, it samples the test host and the command, pictures the
+  runner's screen (a sheet asking for something is a thing on a screen), lists
+  the processes, counts the tests that started and that finished, leaves it
+  all in the folder with the whole output, stops the command's process group
+  and exits 124. Otherwise it exits with the command's own status. The picture
+  and the process list are taken on a runner only: run by hand, the screen is
+  a person's. Tried here all three ways — a command that finishes, one that
+  goes quiet beside a stand-in for the host, one that runs past its time.
+- **The workflow's Test step** runs through it (25 minutes, the step 40), and
+  the step after keeps the folder as an artifact on any failure.
+- **The cause is still not known**, and this does not guess it: the runner's
+  build is unsigned and unsandboxed, which is the first thing to suspect and
+  not a finding. The next run on `main` is the first that can say.
+
+**The editor package's runner-only failure, read again.** `HeadingTypingTests`
+reported the paragraph under the heading at −11,473.97 from the scroll
+position, on the first key of a first-level heading. Here the note's scroll
+origin in that test is 11,473.97 — so the fragment's frame on the runner was
+at **exactly y = 0**: a fragment made and not yet placed, not a paragraph that
+moved. That is evidence for "no viewport layout had run when it was measured",
+and still not proof. The failing expectation's message now says whether the
+paragraph is in the viewport's range, what TextKit has for the text's height,
+and where the paragraph is once the viewport is laid out again — asked only
+on a failure, so a run that passes is the run it was.
+
+### 51.45 A capture reaches the note that is open (2026-10-12, after build 31)
+
+Left by §51.44, from its vault-I/O review.
+
+**Quick Capture, dictation and the daily-note intent appended to a note
+without telling its editor.** `Collection.append` read the file, wrote the
+file and called `noteDidSave` — which marks a write as the app's own, so the
+watcher says nothing to anyone. Today's note is the note most likely to be
+open: its tab kept the text it had, and with typing not yet saved its next
+save met a file it had not written and asked the person to choose between
+what they had typed and what they had captured. And it was a read and then a
+plain write, so a save landing between the two was written over.
+- **Open in an editor: appended there**, to what is on screen, and written by
+  the editor's own save (`applyEdit`) — as a linked mention and the
+  Assistant's edits are.
+- **Otherwise the file, over the text it was appended to and no other**
+  (`FileIO.replace(_:at:ifContentsEqual:)`, read again up to three times if
+  the file has moved on), and the open editors are told
+  (`noteChangedOutsideEditor`).
+- **A capture that could not be written says so, and comes back.** Quick
+  Capture cleared its field as it sent and answered "Added to today's note."
+  for anything but a missing collection. `NavigationRouter.dailyNote` says
+  what happened; the field gets its text back, the line says why, and the
+  Shortcuts action fails as "couldn't add that" and no longer as "open a
+  collection first". A note that cannot be read is not an empty one to append
+  to: nothing is written, and it says so — that case was silent.
+- `AppendToOpenNoteTests`, with the control: taken back out, the capture is
+  not on screen and a conflict is raised.
+
+**What reviewing that found**, each fixed and each with a control that fails
+without it:
+- **An editor can be loaded over a placeholder.** A refresh that finds the
+  provider's copy changed marks the note not downloaded and leaves the bytes,
+  and nothing unloads the editor. A capture made in that editor was saved
+  here, refused by the upload — a placeholder is never uploaded — and replaced
+  by the next download, with "Added" already said. That note goes by the file:
+  fetched first, then written, and its editor told
+  (`appendingToAnOpenNoteTheProviderHasChangedKeepsBoth`). And a note evicted
+  while the write was off the main actor is not answered as added.
+- **"Added" was said before the write.** `applyEdit` starts a save nobody
+  waits for; the append waits for it now, as the Assistant's edits do, and
+  says so if the note could not be saved yet — without calling it a failure,
+  since the capture is in the note and given back it would be sent twice.
+- **Dictation ignored the answer**, so a transcript that reached no note was
+  gone; it records why. Nothing on screen shows that yet (unimplemented.md §12).
+- **Quick Capture's give-back dropped the capture** if anything had been typed
+  since. It goes back ahead of it.
+- **A captured note** (Services ▸ New Note from Selection) answered `true` for
+  a note left empty.
+
+**New Collection ▸ Git Repository… wrote its README with `Data.write`** — the
+one uncoordinated write the review found, into a folder that is about to be a
+collection and may be in a cloud provider's. It is `FileIO.create`: the folder
+is new or empty, which the call already checks. `NewRepositoryTests` are the
+first tests `createRepository` has had.
+- **And it deleted a file of the same name.** Given a name a *file* already
+  had, `createDirectory` failed and the cleanup for a failed create removed
+  whatever had that name — the person's file; an empty folder they had made
+  went the same way on any failure. A file of that name is refused, and only
+  what was made here is taken away again (`aFileOfThatNameIsLeftAlone`: the
+  control deletes the file).
+
+**Checked:** the Mac suite, 899 tests in 137 suites; the append, repository,
+commit and cloud suites on the iPhone simulator (64 tests).
+
+### 51.44 What fact-checking the 1.3.3 website found in the app (2026-10-12, after build 31)
+
+Fact-checking the website against the source has a reverse column: where the
+page was right and the app was not. Eight things were left from it
+(unimplemented.md §12). They are done, with what doing them turned up — more
+than was on the list, and most of it by a test written to learn something
+else.
+
+**None of this is in build 31.** It is uncommitted on `release/1.3.3`. The
+website pages edited here (`manual/ai`, `git`, `links-and-graph`, `shortcuts`)
+describe the next build, and must go out with it, not before.
+
+**1 · A mention by an alias could not be linked.** The Links view lists a note
+that mentions the open one by its title *or an alias*, and its **Link** button
+was handed the title alone — so for a note listed for an alias the button did
+nothing. `MentionScanner.linkingFirstMention(of:to:in:)` takes every name: a
+mention by the title becomes `[[as written]]`, as before; one by an alias
+`[[Title|as written]]`. The first is the earliest in the text, and of two that
+start together the longer. `MentionLinker` asks `NoteReferences.names` — what
+the list was found with.
+- Found in review of that: the scan copied everything before each match to
+  look for an open `[[` (160 ms on the main actor for a megabyte note with a
+  few hundred links), and looked back past the line, so one stray `[[` made
+  every mention below it "inside a link". It searches in place, within the
+  line; a link does not span lines.
+
+**2 · Restore asks first, and the comments say what undo does.** A restored
+version, Review Links and a whole-note rewrite are writes the app makes
+(`EditorModel.applyEdit`), which replace the document and reset undo — under
+comments that said "undoable". The person chose: undo stays reset, **Restore
+confirms** ("Anything written since the last commit is lost, and Undo will not
+bring it back"), and the three comments say so. A selection rewrite is still
+undoable — it goes through the text view — and its comment says which is which.
+- Found in review: a version that could not be read was read as `?? ""`,
+  previewed as nothing, and Restore — enabled — would have written an empty
+  note. It says it cannot be read, and Restore is off.
+
+**3 · "Your notes never leave it" was untrue of the feature it was printed
+on.** True of the model; printed on an Assistant that searches the web with
+terms the model writes after reading notes. `privacySummary` is about the model
+("…not sent to any AI service"), and `LanguageModels.webSummary` says what a
+search sends — shown in the Assistant's opening when it has tools and in the AI
+settings for a model that can call them. `PrivacyLineTests` holds the two
+together: every tool set the Assistant can have reaches the web
+(`NoteTools.reachesTheWeb`), so the line is neither missing nor claiming a
+search the model cannot make. The bundled manual says the same.
+- From the same check: the Assistant's opening said "you approve every
+  change", untrue after **Allow all this session**; and the AI place's footer
+  said answers come from "the notes you have open", which reads as tabs — it is
+  every open collection.
+
+**4 · The Assistant's commit holds its own note, where a commit may be made
+unasked.** It was `commitAll`: every pending change in the collection went
+into "assistant: edit …", in a cloud folder and in a sub-folder of a larger
+repository alike. `GitService.commit(_:message:)` stages the named file and
+refuses if another tool has something staged (a commit writes the whole
+index). The person chose where: under Auto-commit's guards, not its switch —
+`GitService.allowsUnattendedCommits`, one rule for both.
+- **`commitAll` never committed a deleted note.** It staged each path with
+  `add(path:)` behind a `try?`, and libgit2's `add_bypath` fails on a file
+  that is gone: the deletion stayed pending for ever, and with nothing else
+  pending Commit failed with an empty error. Found by a test written only to
+  learn which staging call the new commit could use. `add(paths:)` — `add_all`
+  — takes a deletion; both commits use it.
+- **A folder that is there and a file no longer in it are spelled two ways.**
+  `standardizedFileURL` drops `/private` from a path that *exists* and leaves
+  it on one that does not (probed: root `/var/folders/…`, the deleted file
+  `/private/var/folders/…`). So the deleted note was "not inside" its own
+  repository and its commit would have been skipped without a word on any
+  collection reached as `/private/var/…` — an iPhone's containers. The test
+  host's folders have no `/private` twin, so the deletion test could not see
+  it; the reviewer flagged it as unverified and a ten-line probe settled it.
+  `GitService.relativePath` asks through `CollectionIndexCache.rootPrefixes`.
+- A delete that failed was still answered "Moved to the Trash", and
+  committed. A note still in the collection was not deleted.
+
+**5 · One command, one name.** "Rewrite or Expand Note…" in the menu and the
+palette against "Rewrite or Expand…" in Note Actions and the AI place,
+"Summarise Note" against "Summarise", two pictures for Suggest Links.
+`AIActions.Command` names and draws the four, and
+`ShellComplianceTests.theNoteAICommandsHaveOneName` keeps any place from
+writing one out again.
+
+**6 · The list of suggestions has a keyboard.** The notes offered while a
+`[[link` is typed, and the tags after a `#`, could only be clicked: the text
+view keeps first responder, so the list never had a key. The editor asks the
+host before it acts on ↑, ↓, Return, Tab or Escape (`CompletionKeyHandler`:
+`wants`, which changes nothing, and `perform`), and the host answers from
+`CompletionChoice`. Two rules keep it from taking a key meant for the text:
+- **Nothing is chosen until an arrow chooses it**, so Return is Return — a
+  line ending in a tag is the commonest thing typed beside this list.
+- **The arrows are the list's only while it is being typed into.** The list
+  also shows for a caret standing in a link already there, and ↓ through a
+  paragraph must go on down it.
+
+  On the Mac the keys are the commands AppKit binds them to (`moveDown:`,
+  `insertNewline:`…). On iOS they are key commands — and two things only
+  pressing the keys could show (`testASuggestionIsTakenFromTheKeyboard`,
+  XCUITest's `typeKey`):
+- **A key command a text view's own handling comes before is listed and never
+  called.** Without `wantsPriorityOverSystemBehavior` the test's ↓ chose no
+  row. The control for that found a neighbour: **↑ off the first line of a
+  note never reached its title on iPhone or iPad**, built the same way since
+  the inline title shipped, with a unit test that read `keyCommands` and found
+  it there. Every command the iOS text view offers asks for priority now, and
+  `testArrowingUpFromTheFirstLineReachesTheTitle` presses the key (it failed
+  first).
+- **Return and Tab reach an iOS text view as typed text**, through its
+  delegate, past a key command offering to take them — so the row is taken
+  there too.
+- Found in review: the host ranked every title in the collection to answer
+  "how many rows" — 3.4 ms at 2,500 titles, five times for one read of the key
+  commands. `CompletionMemo` ranks once for the words typed.
+
+**7 · Comments that described a replaced design**, corrected (the Graph pins
+nothing; ⇧⌘G is Graph; two model roles; the refused entitlement; the
+Assistant's "window"; "provider"), an orphaned one removed, `isRelatedHeading`
+deleted with no caller, and the availability gates left from the old OS floor
+taken out of dictation.
+
+**8 · `docs/menu.md` reconciled**: About and Acknowledgements with no window,
+the panel's views by their names, fifteen palette rows with a shortcut, and two
+items that had been struck through whole while parts of them stood — the
+palette's standalone names (a design to confirm, not a slip), "Hide Non-Note
+Files", and the launcher's second name. The completion keys are in both
+shortcut references.
+
+**Also verified, as asked.** Two tests that failed about one run in three:
+- `oneRequestReplacesOnePerFolder` — the test's own counter, `+= 1` under six
+  listings at once, lost a count in 12 of 2,000 walks. Under a lock: 0.
+- `aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt` — it slept 900 ms "to get
+  past the 750 ms reveal", but the reveal's clock starts when its task first
+  has the main actor. With other work queued there, 2 runs in 40 reached the
+  signal first; a walk let go unannounced leaves no summary, which is what the
+  one recorded failure was (one issue, not the three a real cancellation
+  gives). It waits for the progress to show: 40 of 40.
+
+  From a link held at launch: one that *resolves* did not clear an older one
+  still held, which then opened over it when the launch settled.
+
+**Checked:** the Mac suite three times and then twice more, clean (889 tests in
+135 suites); the editor package on both platforms (559 in 61, 533 in 57); the
+iOS interface suite (15 cases, 3 skipped by design) and the iPad portrait typing
+test; sixteen negative controls, each failing without its fix; three reviews
+(vault I/O, concurrency, a 72-claim fact-check of the edited pages — 69 true,
+and the three that were not corrected).
+
+**Not settled.** On CI the editor package's one remaining failure
+(`HeadingTypingTests`, first-level heading, first key: the paragraph below
+reported 11,823pt from where it was, the scroll position unchanged) did not
+reproduce here in eight runs under load, nor with the test's window never
+shown. And the macOS app job was not cancelled by anyone: 775 tests started
+within 0.2 s, none finished, and the job ran into its 90 minutes — on an
+unsigned, unsandboxed build, which is not what runs here. Both are in
+unimplemented.md §12.
+
+### 51.43 The whole-window comparison measures the screen it compares (2026-10-12, after build 31)
+
+Left open by §51.41: `scripts/window-parity.sh` failed as it stood — 3.5% of
+an empty window, 10.6% with a note open — and on nothing that was wrong.
+
+**The status bar was a number written down.** The comparison cut the iPad's
+picture below a 24pt status bar and above a 20pt home indicator, and the
+script sized the Mac's window to the 1210×790 that leaves. The simulator's bar
+is 32pt now (it carries the app's name), so the safe area is 1210×782: every
+row of the iPad's chrome was 8pt lower than the Mac's, and the Mac's window 8pt
+taller than what it was compared with.
+- **Measured.** `testWindowParityCapture` asks SpringBoard — which draws the
+  status bar — for its frame, and attaches the screen's size and that height
+  with its captures; the script sizes the Mac's window and passes the insets to
+  the comparison. SpringBoard's number and not one taken from where the app
+  drew: that would measure an app that began 8pt low as an 8pt taller bar, and
+  pass it. The home indicator's 20pt is not reported by anything, so it is
+  still stated — once, in the test — and a device that differs fails along the
+  bottom edge, where the status row is.
+- **The toggle beside the traffic lights.** The mask covered the 78pt the
+  Mac's window controls take and not the sidebar toggle they push along the
+  bar, which the iPad draws at the leading edge: one glyph in two places, the
+  one difference the chrome is meant to have (`WindowControls.leadingInset`).
+  It was 407 of the 1,153 pixels that differed. The mask is the bar's leading
+  124pt now.
+
+**With a note open, the note is reported and not judged.** Its text is 17pt on
+iOS and 16pt on the Mac on purpose (`AppearanceSettings.baseEditorFontSize`) —
+a 26pt line against a 24pt one — so the middle of that picture never could
+match. The verdict is the chrome's: the sidebar, the bar, the status row. The
+editor column's difference is printed beside it (9.9% of the editor), and drawn
+blue in the difference map so the map says what was not judged.
+
+**What it says now**, the iPad half and the Mac half both fresh:
+
+    ok    mac-empty 2420×1564px  worst Δ43  648 px beyond noise (0.017%)
+    ok    mac-note 2420×1564px, the chrome  worst Δ43  734 px beyond noise (0.065%)
+
+against a limit of 0.1%. What is left is glyph edges: the sidebar's first
+icon, the bar's three, the view-mode switch.
+
+**Its negative control**, run: one point of padding above the shell on the Mac
+alone. Empty 1.324%, the chrome with a note open 3.964% — both `FAIL`; taken
+out again, both `ok`. (`PARITY_REUSE_IPAD=1` keeps the iPad half, so a control
+that is the Mac's alone costs one Mac capture.)
+
+**And it reads the window before it takes it.** The capture session names all
+three collection lists, so only the sample can be open; `window-names.swift`
+checks that the construction held — the window read through Accessibility for
+the names of the person's other collections and their top-level folders,
+printing `windows=1 matches=0` and never a name — before each picture, and a
+match takes none. The script printed the person's collection paths when it
+finished; it prints how many there are.
+
+**A link is drawn in the colour the document gave it.** Lined up, the two
+windows showed a note whose links were two colours: blue and underlined on the
+Mac, the accent on the iPad. `StyleApplier` colours a link with the theme's
+accent — its grey, for a note that does not exist — and marks it `.link`; a
+text view draws its own `linkTextAttributes` over that. So Edit on the Mac
+disagreed with its own Preview, and on *both* platforms a link to a missing
+note looked like one to a note that is there: the grey was never drawn. The
+Mac's attributes are the pointer alone now and iOS's are empty.
+`LinkColourTests`: the view adds no colour or underline (both platforms), and
+on the Mac the ink of a link is the ink of a Markdown link's text, and a
+missing link's the ink of a comment — measured against ink drawn the same way,
+because a picture of a view is in the display's colour space and the accent
+read back from one is not the accent that went in. Both fail without the fix.
+
+| | |
+|---|---|
+| Editor package, macOS | 555 in 60 suites |
+| Editor package, iOS (`HN-iPad`) | 528 in 56 suites |
+| `window-parity.sh` | both states `ok`; `FAIL` under its control |
+
+**Not run again.** The last complete run of the comparison was before the link
+colours changed: the Mac's screen had locked by the next, and the script stops
+at its Mac half then, as it is written to. The change is inside the editor
+column, which the gate reports and does not judge, so the verdict stands — but
+the editor's reported figure is the old one, and
+`PARITY_REUSE_IPAD=1 ./scripts/window-parity.sh` with the screen unlocked is
+what would say so. The app's own suite was not run after the link change for
+the same reason: its host sat at no CPU for nine minutes behind the lock and
+was stopped. The editor package, which holds the change and its tests, ran on
+both platforms.
+
+### 51.42 A link that launches the app opens its note (2026-10-12, after build 31)
+
+Left open by §51.41, where it was measured: the app launched by a
+`hellonotes://note?…` link came up with its window and without the note. The
+widget's links are this kind, so a tap on the widget with the app closed did
+what a tap on the app's icon does.
+
+- **Why.** A link is handed to `NavigationRouter` as soon as there is a window,
+  and the window's first work is bringing back what was open at the last quit
+  — bookmarks resolved off the main actor, then each collection read.
+  `selectNote` asked `collection(named:)`, found none yet (or found it listed
+  and not yet read), answered `false`, and that was the end of the link.
+  `hellonotes://new` and `hellonotes://daily` went the same way: no collection
+  to make the note in.
+- **What changed.** The router *holds* what it could not resolve while the
+  library is still coming back, and tries it once more when the launch settles.
+  `Library.launchDidSettle()` is the signal — called at the end of the window's
+  launch work, after the restore, the first run's seeding of the sample
+  collection, and the last session's note, so the link's note is the one shown.
+  `Library.afterLaunch` runs what waited.
+- **Held, not waited for.** `route` and `selectNote` still answer for *now*, so
+  an intent that fails still fails at once rather than waiting on a launch
+  that, with no window, may never come. The last link held is the one tried;
+  settling tries it once; one that still names nothing is dropped, as a link to
+  nothing always was; one held past two minutes is no longer what the person is
+  doing and is dropped too. Once the launch has settled nothing is held.
+- **`Library(defaults:)`.** The library reads and writes "what was open"
+  through a store it is given, the app's preferences by default. A hosted test
+  that opened a folder in a `Library` wrote it into the person's own list of
+  open collections; the tests here stage a launch in `ScratchDefaults`.
+
+**What holds it.**
+- `LinkAtLaunchTests` (7): the launch as it happens — a library that reads a
+  collection "open at the last quit" from the test's own defaults, the link
+  first, the restore after. A note link, the last of two, a new note, and an
+  intent's `selectNote` are opened when the launch settles; a link to what is
+  not there is dropped and stays dropped when a note of that name is made
+  later; a link after the launch resolves at once; one held too long is not
+  opened. Before the fix the first three failed with their own control
+  passing — the collection back and the note findable — so the failure was the
+  link forgotten, not the note missing.
+- `HelloNotesUITests.testALinkThatLaunchesTheAppOpensItsNote`: the app
+  terminated, then opened *by* the link (`XCUIApplication.open`), on the phone
+  (the strip names the note) and on the iPad (a tab does). With
+  `launchDidSettle()` taken out it fails: "the app launched and the note the
+  link named is not open".
+- On the Mac, the measurement that found it, through Accessibility in a
+  capture session: one process, one window, a tab named for the note. (The
+  window server lists a second, 500×500 and off screen — a helper surface, not
+  a window; Accessibility reports one.)
+
+| | |
+|---|---|
+| App tests, macOS | 859 in 131 suites |
+| `testALinkThatLaunchesTheAppOpensItsNote` | passes on `HN-iPhone` and `HN-iPad13`; fails without the fix |
+
+The full suite was run five times and passed twice, the last run among them.
+The three failures were one test each, of collection walks that keep time
+(`aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt` twice,
+`oneRequestReplacesOnePerFolder` once), on a machine at a load average of 12
+to 22 with Spotlight re-indexing and other test runs under way; that suite
+passes alone, and none of them touches the library, the router or the window.
+Said because a suite that passes two times in five is not yet a suite that
+passes: those tests want a clock they are given, not the machine's.
+
 ### 51.41 What shooting the store's screenshots found, and build 31 (2026-10-12)
 
 Releasing 1.3.3 meant new App Store screenshots: builds 27–29 rearranged the

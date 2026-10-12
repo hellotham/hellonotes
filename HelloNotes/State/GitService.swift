@@ -124,9 +124,62 @@ final class GitService {
             var paths = Set(entries.compactMap { $0.workingTree?.newFile.path ?? $0.index?.newFile.path })
             if let scope { paths = paths.filter { $0.hasPrefix(scope) } }
             guard !paths.isEmpty else { throw GitServiceError.nothingToCommit }
-            for path in paths { try? repo.add(path: path) }
+            // `add(paths:)` — libgit2's `add_all`, which takes a deletion out
+            // of the index. This staged each with `add(path:)` behind a `try?`,
+            // and that call fails on a file that is no longer there: a deleted
+            // note was never committed, by Commit or by Auto-commit, and with
+            // nothing else pending Commit failed with an empty error
+            // (`AssistantCommitTests.commitTakesADeletionToo`, §51.44).
+            try repo.add(paths: Array(paths))
             _ = try repo.commit(message: message)
         }
+    }
+
+    /// Commit these files and nothing else — a change the app made itself, as
+    /// its own commit.
+    ///
+    /// The Assistant's commit was `commitAll`, so every pending change in the
+    /// collection went into "assistant: edit …": the person's own work,
+    /// committed by something else under a message that was not about it
+    /// (implemented.md §51.44).
+    ///
+    /// As there, `commit` writes the whole index — so anything another tool
+    /// has staged would be swept in, and that is refused rather than included.
+    /// Staged with `add(paths:)`, which is libgit2's `add_all` and takes a
+    /// deletion; `add(path:)` fails on a file that is no longer there.
+    func commit(_ files: [URL], message: String) async {
+        guard let collectionRoot = rootURL else { return }
+        let repositoryRoot = status.repositoryRoot ?? collectionRoot
+        let wanted = Set(files.compactMap { Self.relativePath(of: $0, in: repositoryRoot) })
+        guard !wanted.isEmpty else { return }
+        await run(success: "Committed changes") {
+            let repo = try Repository.open(at: repositoryRoot)
+            Self.ensureCommitIdentity(repo)
+            let entries = try repo.status()
+
+            let stagedElsewhere = entries.compactMap { $0.index?.newFile.path }.filter { !wanted.contains($0) }
+            guard stagedElsewhere.isEmpty else {
+                throw GitServiceError.stagedOutsideCollection(count: stagedElsewhere.count)
+            }
+
+            let changed = entries.compactMap { $0.workingTree?.newFile.path ?? $0.index?.newFile.path }
+                .filter { wanted.contains($0) }
+            guard !changed.isEmpty else { throw GitServiceError.nothingToCommit }
+            try repo.add(paths: changed)
+            _ = try repo.commit(message: message)
+        }
+    }
+
+    /// Whether a commit nobody pressed Commit for may be made here —
+    /// Auto-commit's, and the Assistant's for a change it was approved to make.
+    ///
+    /// Never in a cloud-backed collection: libgit2 would churn the object store
+    /// against online-only files. Nor in a collection that is only *part* of a
+    /// repository — commits there are scoped to this folder, but writing them
+    /// unasked into a repository someone is using for other work is not ours
+    /// to decide. One rule for both: the Assistant had neither guard.
+    func allowsUnattendedCommits(isCloudBacked: Bool) -> Bool {
+        !isCloudBacked && !status.isSubdirectory
     }
 
     /// Push the current branch to its remote (user-initiated only).
@@ -272,15 +325,25 @@ final class GitService {
 
     /// `fileURL` expressed relative to the collection root, using forward slashes, or
     /// nil if it isn't inside the collection.
-    private nonisolated static func relativePath(of fileURL: URL, in rootURL: URL) -> String? {
-        let file = fileURL.standardizedFileURL.path
-        var base = rootURL.standardizedFileURL.path
-        if !base.hasSuffix("/") { base += "/" }
-        guard file.hasPrefix(base) else { return nil }
-        return String(file.dropFirst(base.count))
+    ///
+    /// Asked of every spelling of the root (`CollectionIndexCache.rootPrefixes`),
+    /// and of the file's path both as given and standardised.
+    /// `standardizedFileURL` drops `/private` from a path that **exists** and
+    /// leaves it on one that does not — so a folder and a note just deleted
+    /// from it came out spelled two ways, the note was "not inside" its own
+    /// repository, and the commit of a deletion would have been skipped
+    /// without a word on any collection reached as `/private/var/…`, which is
+    /// an iPhone's containers (probed 2026-10-12; implemented.md §51.44).
+    nonisolated static func relativePath(of fileURL: URL, in rootURL: URL) -> String? {
+        let prefixes = CollectionIndexCache.rootPrefixes(rootURL)
+        for file in [fileURL.standardizedFileURL.path, fileURL.path] {
+            if let base = prefixes.first(where: { file.hasPrefix($0) }) {
+                return String(file.dropFirst(base.count))
+            }
+        }
+        return nil
     }
 
-    /// Debounced local auto-commit; only ever commits, never pushes.
     /// What a commit this app makes says.
     ///
     /// It lived in `MacContentView`, so the iPad — which had no commit button
@@ -298,13 +361,9 @@ final class GitService {
     /// went stale the moment you typed. The rules it encodes are Git's, not a
     /// shell's.
     func noteDidSave(autoCommitEnabled: Bool, isCloudBacked: Bool) {
-        // Never auto-commit a cloud-backed collection: libgit2 would churn the
-        // object store against online-only files. Nor a collection that is only
-        // *part* of a repository — commits there are scoped to this folder, but
-        // writing commits automatically into a repository someone is using for
-        // other work is not ours to decide. (Both are disabled in the toggle
-        // too; this honours a pre-existing enabled flag as well.)
-        if autoCommitEnabled, !isCloudBacked, !status.isSubdirectory {
+        // Not everywhere (`allowsUnattendedCommits`). Both cases are disabled
+        // in the toggle too; this honours a pre-existing enabled flag as well.
+        if autoCommitEnabled, allowsUnattendedCommits(isCloudBacked: isCloudBacked) {
             scheduleAutoCommit(message: Self.autoCommitMessage)
         }
         scheduleStatusRefresh()
@@ -321,6 +380,7 @@ final class GitService {
         }
     }
 
+    /// Debounced local auto-commit; only ever commits, never pushes.
     func scheduleAutoCommit(message: String) {
         autoCommitTask?.cancel()
         autoCommitTask = Task { [weak self] in
@@ -553,6 +613,29 @@ final class GitService {
             lastError = "“\(safeName)” already exists and isn't empty."
             return nil
         }
+        // **Only what is made here is taken away again.** A failure below
+        // removes the folder — and removed whatever had that name: a *file*
+        // called the same failed `createDirectory` and was then deleted by the
+        // cleanup, and an empty folder the person had made went the same way.
+        // A file of that name is refused; a folder that was already there is
+        // left where it was.
+        var isFolder: ObjCBool = false
+        let wasThere = FileManager.default.fileExists(atPath: directory.path, isDirectory: &isFolder)
+        if wasThere, !isFolder.boolValue {
+            lastError = "“\(safeName)” already exists, and isn't a folder."
+            return nil
+        }
+        let undo: @Sendable () -> Void = {
+            guard wasThere else {
+                try? FileManager.default.removeItem(at: directory)
+                return
+            }
+            // The folder was empty and is the person's: out go the two things
+            // put in it.
+            for made in ["README.md", ".git"] {
+                try? FileManager.default.removeItem(at: directory.appendingPathComponent(made))
+            }
+        }
 
         let pushURL: URL? = {
             guard let remoteURL else { return nil }
@@ -580,7 +663,12 @@ final class GitService {
                 do {
                     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                     let readme = directory.appendingPathComponent("README.md")
-                    try Data("# \(safeName)\n".utf8).write(to: readme)
+                    // Coordinated, as every write into a folder that is — or
+                    // is about to be — a collection is: the person may have
+                    // put the new repository in a cloud provider's folder.
+                    // The folder is new or empty (checked above), so there is
+                    // no README to write over, and `create` would refuse one.
+                    try FileIO.create(Data("# \(safeName)\n".utf8), at: readme)
 
                     let repo = try Repository(at: directory, createIfNotExists: true)
                     Self.ensureCommitIdentity(repo)
@@ -613,7 +701,7 @@ final class GitService {
             // reports success and gets opened.
             if Task.isCancelled {
                 lastError = "Create cancelled."
-                try? FileManager.default.removeItem(at: directory)
+                await offMain(undo)
                 return nil
             }
             switch result {
@@ -622,7 +710,7 @@ final class GitService {
                 return directory
             case .failure(let error):
                 lastError = Self.scrubCredentials("Couldn't create the repository: \(error)")
-                try? FileManager.default.removeItem(at: directory)
+                await offMain(undo)
                 return nil
             }
         }
