@@ -19,6 +19,12 @@ file's processing state and pixel size — so the check is a read, not a look.
     scripts/asc-listing.py build 1.3.3 31     # attach build 31 to both platforms' versions
     scripts/asc-listing.py screenshots 1.3.3  # replace every set from dist/Screenshots-*
     scripts/asc-listing.py submit 1.3.3       # one review submission a platform
+    scripts/asc-listing.py withdraw 1.3.3     # take a version Waiting for Review out of it
+
+`--platform IOS` (or `MAC_OS`), anywhere after the command, keeps it to one
+platform — for the day one build is up and the other is not: the Mac's upload
+needs Xcode's account and an unlocked keychain, and the iPhone's needs only
+the team key.
 
 `text` prints the difference before it writes and reads back after; nothing is
 written when the store already matches. `screenshots` removes a set's pictures
@@ -28,6 +34,13 @@ deleted. Screenshots cannot be changed once a version is Waiting for Review.
 
 `submit` is the one that cannot be taken back without removing the version
 from review. It refuses unless every set is complete and a build is attached.
+
+`withdraw` is that removal: the version leaves the queue, and goes to the back
+of it when it is submitted again. It is how a newer build replaces one already
+waiting — withdraw, `build`, `submit` — and it touches only a submission that
+is still Waiting for Review; one a reviewer has started on is left alone,
+unless `--in-review` says to take that one too. That throws away a review
+under way, and is the person's to decide each time.
 
 Never prints the token or reads the key into a variable: `openssl` signs with
 the file.
@@ -45,6 +58,9 @@ SETS = {
     "MAC_OS": {"APP_DESKTOP": ("dist/Screenshots-macOS", (2560, 1600))},
 }
 DESCRIPTION = {"IOS": "**Description** — iPhone and iPad", "MAC_OS": "**Description** — Mac"}
+
+# `withdraw --in-review`: a submission a reviewer has started on goes too.
+IN_REVIEW_TOO = False
 
 _token = [None, 0]
 
@@ -266,6 +282,35 @@ def cmd_screenshots(version):
     inventory(found)
 
 
+def cmd_withdraw(version):
+    """Cancel each platform's submission that is still waiting, and wait for it to have gone."""
+    versions(version)   # the version exists; a typo should not go looking for submissions
+    states = "WAITING_FOR_REVIEW,IN_REVIEW" if IN_REVIEW_TOO else "WAITING_FOR_REVIEW"
+    for platform in PLATFORMS:
+        _, r = call("GET", f"/v1/reviewSubmissions?filter[app]={APP_ID}&filter[platform]={platform}"
+                           f"&filter[state]={states}&limit=10")
+        waiting = must(_, r, f"{platform} submissions")["data"]
+        if not waiting:
+            print(f"{platform}: nothing is {states.replace(',', ' or ')}")
+            continue
+        print(f"{platform}: withdrawing a submission that is {waiting[0]['attributes'].get('state')}")
+        for submission in waiting:
+            _, r = call("PATCH", f"/v1/reviewSubmissions/{submission['id']}",
+                        {"data": {"type": "reviewSubmissions", "id": submission["id"],
+                                  "attributes": {"canceled": True}}})
+            must(_, r, f"{platform} withdraw")
+        # Cancelling is not instant, and nothing can be attached or submitted
+        # until it is done.
+        state = None
+        for _ in range(40):
+            _, r = call("GET", f"/v1/reviewSubmissions/{waiting[0]['id']}")
+            state = must(_, r, f"{platform} submission")["data"]["attributes"].get("state")
+            if state not in ("WAITING_FOR_REVIEW", "IN_REVIEW", "CANCELING"):
+                break
+            time.sleep(5)
+        print(f"{platform}: withdrawn — the submission is {state}")
+
+
 def cmd_submit(version):
     found = versions(version)
     if not inventory(found):
@@ -285,7 +330,16 @@ def cmd_submit(version):
 
 if __name__ == "__main__":
     commands = {"status": cmd_status, "text": cmd_text, "build": cmd_build,
-                "screenshots": cmd_screenshots, "submit": cmd_submit}
-    if len(sys.argv) < 3 or sys.argv[1] not in commands:
+                "screenshots": cmd_screenshots, "submit": cmd_submit, "withdraw": cmd_withdraw}
+    arguments = sys.argv[1:]
+    IN_REVIEW_TOO = "--in-review" in arguments
+    arguments = [a for a in arguments if a != "--in-review"]
+    if "--platform" in arguments:
+        at = arguments.index("--platform")
+        if at + 1 >= len(arguments) or arguments[at + 1] not in PLATFORMS:
+            sys.exit(f"--platform takes one of {PLATFORMS}")
+        PLATFORMS = (arguments[at + 1],)
+        del arguments[at:at + 2]
+    if len(arguments) < 2 or arguments[0] not in commands:
         sys.exit(__doc__)
-    commands[sys.argv[1]](*sys.argv[2:])
+    commands[arguments[0]](*arguments[1:])

@@ -41,7 +41,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | SKU | `HELLONOTES-001` |
 | Apple team | **Hello Tham Pty. Ltd.** — `RPL5R637DS` (Organization; Account Holder Chris Tham; signs as `Apple Development / Apple Distribution`) |
 | Category | Productivity (`public.app-category.productivity`) |
-| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 31` — **submitted for review on both platforms on 2026-10-12** (§10j). **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), 28 the rearrangement asked for after testing 27 (§10g), 29 the two `+` menus, the three-button bar and regular expressions in find (§10h), 30 the seven editor fixes reported from a day on 28 (§10i), and 31 what shooting the store's screenshots found — a note could not be typed in on an iPad held upright (§10j). 1.3.2 build 21 is what is live until Apple approves. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
+| Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 32` — **build 32 submitted for iPhone and iPad on 2026-10-12; the Mac still has build 31 waiting, until Xcode is signed in again** (§10k; build 31 was submitted on both that morning, §10j). **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), 28 the rearrangement asked for after testing 27 (§10g), 29 the two `+` menus, the three-button bar and regular expressions in find (§10h), 30 the seven editor fixes reported from a day on 28 (§10i), and 31 what shooting the store's screenshots found — a note could not be typed in on an iPad held upright (§10j). 1.3.2 build 21 is what is live until Apple approves. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
 | Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
@@ -725,6 +725,57 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10k · 1.3.3 build 32 — iPhone and iPad resubmitted, the Mac waiting on Xcode's sign-in, 2026-10-12
+
+From `853e79d` (the tests fixed after it, `3c3f827`, are not in a shipped
+binary). **What 32 is for**: what build 31 was missing — implemented.md
+§51.42–§51.45. A link that launches the app opens its note; Restore asks
+first; the Assistant commits its own note and Commit takes a deletion; the
+list of suggestions has a keyboard and ↑ reaches a note's title on iOS; a
+capture reaches the note that is open.
+
+Read back from each archive: 1.3.3 (32) in both and in all six extensions;
+arm64 only; macOS 27.0 and iOS 27.0; no temporary-exception entitlement; all
+five cloud-provider keys present (by length); `ITSAppUsesNonExemptEncryption`
+false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` at 16:21 with the team's API key; `VALID` within minutes | **not uploaded**: `exportArchive Failed to Use Accounts — App Store Connect access for "RPL5R637DS" is required`. Xcode's sign-in has lapsed again, and the key cannot sign a Mac installer (`Cloud signing permission error`), tried again and so again |
+| Review | build 31 had gone **In Review** while 32 was being made; at the person's direction it was withdrawn (`asc-listing.py withdraw --in-review`), 32 attached and resubmitted — `WAITING_FOR_REVIEW` | build 31 still `WAITING_FOR_REVIEW` |
+
+**To finish the Mac**, after signing in under Xcode ▸ Settings ▸ Accounts —
+the archive is `build/HelloNotes.xcarchive`, already made and checked:
+```bash
+xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
+  -exportOptionsPlist ExportOptions-AppStore-macOS.plist \
+  -exportPath build/export-appstore-mac -allowProvisioningUpdates
+scripts/asc-listing.py withdraw 1.3.3 --platform MAC_OS   # add --in-review if a reviewer has started
+scripts/asc-listing.py build 1.3.3 32 --platform MAC_OS    # once the build reads VALID
+scripts/asc-listing.py submit 1.3.3 --platform MAC_OS
+```
+
+**`asc-listing.py` works on one platform now** (`--platform`), and can take a
+version back out of review (`withdraw`): by default only one still Waiting for
+Review, since pulling one a reviewer has started on throws that review away
+and is the person's to decide each time.
+
+**Two failures that were the screen being locked**, and read as something
+else: `notarytool` said "No Keychain password item found for profile:
+hellotham-notary" and the Mac export "Failed to Use Accounts". Both went away
+with the Mac unlocked — the notary profile at once; the account not, because
+its sign-in really had lapsed as well.
+
+**The download is build 32 too**, at the person's direction: notarised and
+stapled, 29.1 MB, SHA-256 `665bc36b…ace4629`, replacing the file in GitHub
+release `v1.3.3`; `site.ts` carries the new size and checksum and the manual
+pages describe this build. Build 31's DMG is kept as
+`dist/HelloNotes-1.3.3-build31.dmg`.
+
+**When Apple approves** is as §10j says: `liveVersion: '1.3.3'`,
+`pendingVersion: null`, push, `scripts/check-download-page.sh`; then China
+mainland back on.
 
 ## 10j · 1.3.3 build 31 — submitted for review, both platforms, 2026-10-12
 

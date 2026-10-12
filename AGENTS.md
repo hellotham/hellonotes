@@ -929,6 +929,28 @@
   and how long it ran. The runner tests an **unsigned, unsandboxed** build —
   not what `run-tests.sh` runs here — so a failure there may be one this Mac
   cannot have (implemented.md §51.46).
+- **A test never blocks a thread of the concurrency pool waiting for other
+  work.** A Swift Testing test runs on the pool, which has one thread a core.
+  Three `TokenCacheTests` each sat in `DispatchSemaphore.wait()` for a block
+  handed to a global queue: three of sixteen threads here, and **all three** on
+  CI's runner, where 824 tests then never began and the job ran into its
+  limit twice. Run the held work on a thread of its own
+  (`Thread.detachNewThread`) and *await* the wait (`TokenCacheTests.wait(for:)`).
+  The nearest thing here to the runner is
+  `TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 ./scripts/run-tests.sh` —
+  a one-thread pool; it does not reproduce that stall, and it does fail the
+  tests that assume a roomy machine. And the lesson of how it was found: two
+  plausible causes had been written down (a locked screen, an unsigned build)
+  and one five-second `sample` of the stalled process made both unnecessary
+  (implemented.md §51.47).
+- **A locked screen takes the keychain with it.** With the Mac locked,
+  `notarytool` says "No Keychain password item found for profile" and
+  `xcodebuild -exportArchive` says "Failed to Use Accounts" — the same words
+  as a profile that was never stored and a sign-in that has lapsed. Check
+  `ioreg -n Root -d1 -a | grep -A1 IOConsoleLocked` before believing either.
+  (The upload with the team's API key, and the hosted test suite, are
+  unaffected.) A sign-in that *has* lapsed says the same thing unlocked, and
+  only the person can renew it: Xcode ▸ Settings ▸ Accounts.
 - **A test that sleeps "past" a timer is racing it.** The walk test slept
   900 ms to get past a 750 ms reveal — but the reveal's clock starts when its
   task first has the main actor, and with the whole suite's work queued there

@@ -8416,6 +8416,39 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.47 Three tests held the whole concurrency pool, and build 32 (2026-10-12)
+
+**What the stall was.** §51.46's capture named it on its first run. On the
+runner the test host had three threads in its concurrency pool — it has three
+cores — and each was in `DispatchSemaphore.wait()`, at `hold.reached.wait()`
+in three `TokenCacheTests` (lines 146, 170 and 243), waiting for a block
+handed to `DispatchQueue.global()`. No thread was running those blocks; three
+of the queue's threads were parked. 824 tests had started and none could
+finish: a Swift Testing test runs on the pool, and the pool was those three.
+On a 16-core Mac three blocked threads are three of sixteen, which is why it
+never showed here, and why "the screen was locked" and "the build is unsigned"
+were both wrong guesses the sample made unnecessary.
+- **The fix.** The held Keychain call runs on a thread of its own
+  (`TokenCacheTests.onAThread`), and the tests *await*
+  (`wait(for:upTo:)`) — holding no pool thread while they do.
+- **Shown on the runner**, which is the only place it could be: the next run
+  got through the whole suite, 899 tests in 43 seconds, where the two before
+  it never finished one.
+- **Not established:** why the global queue's blocks were given no thread
+  there. Holding the pool to one thread here
+  (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`) did not reproduce the
+  stall with the old tests, and neither did a standalone probe that blocked
+  every pool thread on a global-queue block, with and without work queued
+  behind them.
+- **What the run then showed**, for the first time: nine tests fail on three
+  cores that pass on sixteen (unimplemented.md §12). A one-thread pool here
+  fails eight, three of them the same — the same kind of test, not the same
+  list.
+
+**Build 32** is §51.42–§51.45, for the App Store and the download (production.md
+§10k). Both archives read 1.3.3 (32), arm64, 27.0, no temporary-exception
+entitlement, five provider keys by length.
+
 ### 51.46 CI's test step is bounded, and a stall is looked at before it is stopped (2026-10-12)
 
 Left by §51.44: on `main` the macOS app job was reported *cancelled*, and

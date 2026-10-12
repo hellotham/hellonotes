@@ -392,17 +392,28 @@ What remains are **constraints of the providers and the platform**, not deferred
   - ✅ ~~*Quick Capture and dictation append to a note without telling its
     editor*, and *New Collection ▸ Git Repository… writes its README with
     `Data.write`*.~~ Done (implemented.md §51.45).
-  - 🟡 *CI, the macOS app:* the Test step stalls — 775 tests started, none
-    finished, ninety minutes. It is bounded now and a stall is sampled,
-    pictured and kept as an artifact (`scripts/ci-bounded.sh`, implemented.md
-    §51.46). **The cause is not known until a run on `main` has stalled under
-    it**: read the main thread of `sample-host-*.txt` and the picture of the
-    screen before changing anything in the app or its tests.
-  - 🟡 *CI, the editor package:* `HeadingTypingTests` fails on the runner
-    alone. The position it reported there is a fragment at exactly y = 0 — one
-    made and not yet placed — which points at no viewport layout having run
-    when it was measured (§51.46). Its message now says so or says otherwise;
-    read it from the next run before changing the test.
+  - ✅ ~~*CI, the macOS app: the Test step stalls.*~~ Three tests held the
+    runner's whole concurrency pool; they hold none of it now, and the suite
+    runs to its end there (implemented.md §51.47).
+  - 🟠 *CI, the macOS app: nine tests fail on the runner's three cores* that
+    pass here on sixteen — `eachLabelIsDrawnByItsNode`,
+    `aSyncAfterARenameDoesNotBringTheOldNameBack`,
+    `aNoteMadeAgainWhileItsOldSaveIsParsedIsNotGivenIt`,
+    `aMovedNotesBackgroundTabStaysOpen`, `aMovedFoldersNotesKeepTheirTabs`,
+    `aLookThatLandsAfterClosingSaysNothing`,
+    `aKeystrokeSettlesOnceTypingPauses`,
+    `aCopyOpenInAnEditorIsNotWrittenUnderIt` (run 38208088777; the whole
+    output is the run's `test-run-macOS` artifact). Tests that wait a fixed
+    time or assume work elsewhere has finished. The nearest thing to the
+    runner here is a one-thread pool —
+    `TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 ./scripts/run-tests.sh`
+    — which fails eight, three of them the same. Until they are fixed the job
+    is red on every push, for a reason that is the tests' and not the app's.
+  - 🟡 *CI, the editor package:* `HeadingTypingTests` failed on the runner in
+    one run of three and passed in the two since. The position it reported is
+    a fragment at exactly y = 0 — one made and not yet placed (§51.46). Its
+    message says more now; read it the next time it fails before changing the
+    test.
   - *Dictation has nowhere to say it failed.* `DictationController` records
     why a transcript reached no note (`lastError`) and keeps the transcript
     until the next recording, and no view reads either — the collection's own
