@@ -397,8 +397,10 @@ What remains are **constraints of the providers and the platform**, not deferred
     runs to its end there (implemented.md §51.47).
   - ✅ ~~*CI, the macOS app: eight tests fail on the runner that pass here.*~~
     Five were one folder under two names — a defect of the app's, which an
-    iPhone's containers can meet — and three were waits that gave up by the
-    clock (implemented.md §51.48). **To be confirmed by a run on GitHub.**
+    iPhone's containers can meet — two were waits that gave up by the clock
+    (implemented.md §51.48, seven confirmed by a run on GitHub), and the
+    eighth read a picture in a way that holds only at two pixels a point
+    (§51.49). **The eighth to be confirmed by a run on GitHub.**
   - 🟡 *A one-thread pool still fails six tests*
     (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`): the three
     `SaveIndexingTests` that stage a save still parsing, and
@@ -411,11 +413,11 @@ What remains are **constraints of the providers and the platform**, not deferred
     collection holding one note under `/var/…` and `/private/var/…`. Nothing
     here can run on a device to say whether a closed tab or an unselected note
     there was this.
-  - 🟡 *CI, the editor package:* `HeadingTypingTests` failed on the runner in
-    one run of three and passed in the two since. The position it reported is
-    a fragment at exactly y = 0 — one made and not yet placed (§51.46). Its
-    message says more now; read it the next time it fails before changing the
-    test.
+  - ✅ ~~*CI, the editor package:* `HeadingTypingTests` fails on the runner
+    two runs in five.~~ It read the paragraph's place between the overlay
+    refresh and the layout pass that follows it, where the fragment has no
+    frame; the wait ends on a turn of the run loop now (implemented.md
+    §51.49). **To be confirmed by a run on GitHub.**
   - *Dictation has nowhere to say it failed.* `DictationController` records
     why a transcript reached no note (`lastError`) and keeps the transcript
     until the next recording, and no view reads either — the collection's own

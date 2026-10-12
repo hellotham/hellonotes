@@ -8416,6 +8416,81 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.49 The last two failures on CI's runner: a display of one pixel a point, and a read before the layout pass (2026-10-12, after build 32)
+
+After §51.48 the runner failed one test of the app's 902 and, two runs in
+five, one of the editor package's. Neither was a slow machine, and each had
+been given a cause it did not have.
+
+**The graph's labels were drawn, and the test could not see them.**
+`GraphLabelTests` finds the labels as the *near-black* pixels of the picture
+— channels summing to under 150 — and asks whether they are spread under the
+orbs or piled in a corner. That is a fact about a display of two pixels a
+point, where a label's strokes cover whole pixels. The runner's, by the
+count below, has one: an 11pt label's strokes fill no pixel there, and a
+label drawn perfectly has no near-black pixel in it.
+- **Two causes were written down first, and a change made for each**: the
+  layout had not landed in two seconds (the test now looks for thirty), then
+  the test's window was never shown so the graph's `.task` never ran (the
+  window is now ordered in, off-screen). Both runs failed with the same
+  words, "the graph drew no labels at all".
+- **What settled it was a number in the message.** The second change also
+  made the failure count the pixels of *anything* in the graph's area:
+  **2,621** on the runner. This Mac's own picture at half size has **2,735**
+  — the whole graph, labels and all — and no pixel under 150: its darkest
+  grey is 261, against 82 at full size. The runner had been drawing the graph
+  all along.
+- The labels are now the pixels that are **grey and about as dark as the
+  darkest grey in the picture** — they are the one thing drawn in the text
+  colour; orbs, arrows and the ring are coloured, and a shadow is a grey far
+  lighter. And the test reads its picture twice here, as drawn and at half
+  size, so the scale the runner draws at is one this Mac reads too.
+- Control: with the labels piled in a corner again it fails at both sizes —
+  "piled in (15, 251, 64, 8) of a 720×1040 graph" and "(10, 126, 28, 3) of a
+  360×520".
+- Not known: whether the runner draws the graph in a window that is not
+  ordered in. The run that counted pixels had it ordered in; it stays.
+
+**The paragraph under the heading had not moved; it had no frame yet.**
+`HeadingTypingTests` types in a heading and asks where the paragraph under it
+is on screen. On the runner it was "moved from 341.77 to −11468.97" — and the
+message added by §51.46 said the rest: the note had not scrolled, the
+paragraph was in the viewport's range, and *after the viewport was laid out
+again* it was at 341.77.
+- −11468.97 is minus the scroll offset: a fragment whose frame is zero.
+  **Reproduced here to the digit**: set an attribute over the heading's line
+  *and the blank line after it*, read at once, and the paragraph's fragment
+  is in state `.none` at −11468.968609865471; over the heading's line alone
+  it is where it was.
+- **Which is what the overlay refresh does.** 120ms after a key it restyles
+  the heading's block with the blank lines round it (`{20300, 27}`, the
+  paragraph at 20327), and TextKit makes the paragraph after an edited
+  paragraph break a new fragment — one with no frame until the view's next
+  layout pass.
+- That pass is the run loop's, and comes before anything is drawn, so
+  **nothing on screen ever showed this**. The test's wait ended on a sleep —
+  where main-actor tasks run — by a deadline, and on a runner whose tests
+  share one main actor a sleep can come back with the clock already past:
+  the read then follows the refresh with no turn of the run loop between.
+  Here the main actor is idle in that sleep, the run loop turns by itself,
+  and none of five stagings of the timing reproduced the read.
+- The wait counts looks and **ends with a turn of the run loop**, and a
+  fragment not laid out has no place — which is now its own failure, "left
+  the paragraph under the heading with no place on screen".
+- Control: restyle the whole note on the refresh, as build 28 did, and it
+  fails twice over — 40,479 characters restyled, and the paragraph with no
+  place after the run loop has turned: the blank frames of that build, which
+  the test could not tell from a move before.
+
+**What the two have in common** is §51.48's lesson again, unlearnt within the
+day: a failure on the runner was given a cause that fitted — slowness, then a
+window — and a change was made for the cause instead of for a measurement.
+Each was settled by making the failing test say one more thing about what it
+saw, and by reproducing *that* here.
+
+**Checked:** the app suite, 902 tests in 138 suites; the editor package, 559
+in 61 on the Mac and 533 in 57 on the iPad simulator; both controls.
+
 ### 51.48 One folder, two names: what CI's failing tests were about (2026-10-12, after build 32)
 
 With the stall gone (§51.47) the runner failed eight tests that pass here, and
@@ -8459,7 +8534,7 @@ note that is not selected there.
 - `ConflictSaveTests` listed a folder itself and opened a copy under the
   listing's name; it names the copy as the app does.
 
-**The other three were waits that gave up by the clock.**
+**Two of the other three were waits that gave up by the clock.**
 - **Ten `eventually` helpers and some twenty-five loops written out** all
   said "until X, or until N seconds have passed". The tests share the main
   actor, and a clock goes on running while another test has it: a wait came
@@ -8467,14 +8542,11 @@ note that is not selected there.
   for queued behind it — "typing never settled", and here once, a tag index
   "never built". They count **looks** now (`Waits`): as many as the seconds
   hold sleeps, each after a turn in which the awaited work can run.
-- `GraphLabelTests` waited two seconds for a layout worked out off the main
-  actor and pictured a graph not yet laid out. It looks until there are
-  labels — and that was not all of it: on the runner thirty seconds of
-  looking still found none. The layout starts in the graph's `.task`, which
-  runs when the view appears, and the test's window was never shown; here a
-  view in such a window appears all the same, and there it does not. The
-  window is ordered in, borderless and far off any screen. (Control: with the
-  labels piled in a corner again, it fails for that.)
+- `GraphLabelTests` was the third, and **was not a wait at all** — it is
+  §51.49's. Two causes were written here for it, a layout that had not
+  landed in two seconds and then a window never shown, and a change made for
+  each; the test looks until there are labels and its window is ordered in,
+  far off any screen, and neither was what failed.
 - `aLookThatLandsAfterClosingSaysNothing` held two looks for 0.3 s and slept
   0.1 s before closing; on three cores the looks were over first. Each look
   says it is under way and is held until the collection is closed, one at a

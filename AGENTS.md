@@ -633,6 +633,16 @@
   without the root's defaults draws correctly, so a check of it must apply
   `chromeDefaults()` — the first probe left them out and saw nothing wrong
   (`GraphLabelTests`, with a negative control).
+- **A threshold on a pixel is a fact about the display, and CI's draws at
+  one pixel a point.** `GraphLabelTests` found the labels as near-black pixels.
+  At two pixels a point a label's strokes fill pixels; at one they fill none,
+  so the runner drew the graph and failed "no labels at all" — put down to a
+  slow layout, then to a window never shown, with a change made for each.
+  Read ink against the picture (grey, and about as dark as its darkest
+  grey), read the picture at half size here as well as at full, and **make a
+  picture test that fails count what it did see**: "2,621 pixels of anything"
+  was the whole diagnosis, against 2,735 in this Mac's picture halved
+  (implemented.md §51.49).
 - **A keyboard covers part of a scene; it does not make the scene shorter.**
   The shell is the band when the scene is taller than wide and the columns
   when it is not, and it went by the height the scene was *offered* — which a
@@ -853,6 +863,16 @@
   measures an editor nobody uses. The first probe of the heading flicker saw
   nothing wrong for exactly that reason. Make the test `async` and alternate a
   short run-loop turn with `await Task.sleep` (`HeadingTypingTests.pump`).
+- **And a test that awaits gives the run loop the last turn.** A main-actor
+  task runs in the await, and what it changed is laid out by the run loop,
+  before anything is drawn. Restyle a paragraph break and TextKit makes the
+  paragraph after it a new fragment — frame zero, state `.none` — until the
+  view's layout pass; `HeadingTypingTests` read between the two on CI's
+  runner, and reported a paragraph "moved" by exactly the scroll offset. Its
+  wait ended on a sleep, by a deadline. End a pump on a turn of the run loop,
+  count its looks, and take a fragment's place only when its `state` is
+  `.layoutAvailable` — no place, with the run loop turned, is a failure of its
+  own: the blank frames of build 28 (implemented.md §51.49).
 - **A hosted test's `AppearanceSettings()` is the person's own.** It reads
   their preferences and *writes them on every set*, so a test may read a width
   or a size to work out what to expect and must never assign one. Test the

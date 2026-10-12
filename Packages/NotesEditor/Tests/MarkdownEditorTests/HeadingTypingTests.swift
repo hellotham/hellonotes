@@ -40,13 +40,28 @@ import AppKit
 
     private func turn() { RunLoop.main.run(until: Date().addingTimeInterval(0.002)) }
 
-    /// The run loop and the main actor's tasks, both, for `seconds`.
+    /// The run loop and the main actor's tasks, both, for `seconds` — in
+    /// looks, and with the run loop last.
+    ///
+    /// **Looks, not a deadline.** Every test of this suite shares the main
+    /// actor, so one sleep here can come back with other tests' work done
+    /// and the clock already past — and a wait that ends there ends on
+    /// whatever ran in that sleep, with no turn of the run loop after it.
+    ///
+    /// **The run loop last**, because that is the order on screen. The
+    /// overlay refresh is a main-actor task, so it runs in the sleep; it
+    /// restyles the heading with the blank lines round it, and TextKit then
+    /// makes the paragraph after them a new fragment — one with no frame
+    /// until the view's next layout pass, which is the run loop's and comes
+    /// before anything is drawn. Read between the two, the paragraph was
+    /// "moved" by exactly the scroll offset: to a frame of zero
+    /// (implemented.md §51.49).
     private func pump(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        repeat {
+        for _ in 0..<max(1, Int((seconds / 0.003).rounded(.up))) {
             turn()
             try? await Task.sleep(for: .milliseconds(1))
-        } while Date() < deadline
+        }
+        turn()
     }
 
     @Test(arguments: ["## A heading in the middle", "# A first-level heading"])
@@ -74,11 +89,14 @@ import AppKit
 
         let layoutManager = try #require(textView.textLayoutManager)
         let content = try #require(layoutManager.textContentManager)
-        /// Where the paragraph under the heading is on screen.
+        /// Where the paragraph under the heading is on screen — `nil` while it
+        /// has no place there: a fragment made and not yet laid out reports a
+        /// frame of zero, which is where nothing is drawn.
         func below() -> CGFloat? {
             let offset = (textView.string as NSString).range(of: "The paragraph under the heading").location
             guard let location = content.location(content.documentRange.location, offsetBy: offset),
-                  let fragment = layoutManager.textLayoutFragment(for: location) else { return nil }
+                  let fragment = layoutManager.textLayoutFragment(for: location),
+                  fragment.state == .layoutAvailable else { return nil }
             return fragment.layoutFragmentFrame.minY - scrollView.contentView.bounds.origin.y
         }
         let scroll = scrollView.contentView.bounds.origin.y
@@ -92,13 +110,16 @@ import AppKit
             #expect(span < 2_000, "typing ‘\(key)’ in a heading restyled \(span) characters of a note of \(textView.string.count)")
             #expect(abs(scrollView.contentView.bounds.origin.y - scroll) < 0.5,
                     "typing ‘\(key)’ scrolled the note from \(scroll) to \(scrollView.contentView.bounds.origin.y)")
-            let now = try #require(below(), "the paragraph under the heading has no place on screen")
-            // Said in full when it fails. On CI's runner, and nowhere else, the
-            // first key in a first-level heading reported the paragraph
-            // 11,823pt from where it was, with the note not scrolled — and the
-            // message could not say whether that was where it was *drawn* or
-            // an estimate nothing had laid out yet (implemented.md §51.44).
-            // Asked only on a failure, so a run that passes is the run it was.
+            // With the run loop turned and still no place, the screen has a
+            // gap where the paragraph was — what build 28 drew, and what
+            // restyling the whole note on the refresh does here.
+            let now = try #require(below(), "typing ‘\(key)’ left the paragraph under the heading with no place on screen")
+            // Said in full when it fails: this message is what showed the
+            // runner's failure to be a fragment not yet laid out — the
+            // paragraph "moved" by the scroll offset to the point, and back
+            // where it was once the viewport was laid out (implemented.md
+            // §51.49). Asked only on a failure, so a run that passes is the
+            // run it was.
             var seen = ""
             if abs(now - place) >= 0.5 {
                 let controller = layoutManager.textViewportLayoutController
