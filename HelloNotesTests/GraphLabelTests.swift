@@ -55,13 +55,21 @@ struct GraphLabelTests {
     /// labels, and then once more, so the picture is of the graph at rest.
     private func render() async throws -> CGImage {
         #if canImport(AppKit)
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        // **Ordered in, far off any screen**: a window as a window is, whose
+        // view has appeared — the layout starts in the graph's `.task`, and a
+        // view in a window never shown need not appear. Here it happened to;
+        // on CI's runner it did not, and thirty seconds of looking found a
+        // graph that had never been asked to lay itself out (implemented.md
+        // §51.48). Borderless, because a titled window is moved back onto a
+        // screen when it is ordered in — the person's.
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -20_000, y: -20_000), size: Self.size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)
         let host = NSHostingView(rootView: graph())
         window.contentView = host
-        defer { window.contentView = nil; window.close() }
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
         func picture() throws -> CGImage {
             host.layoutSubtreeIfNeeded()
             let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -123,11 +131,34 @@ struct GraphLabelTests {
         return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
     }
 
+    /// How many pixels between the header and the legend are not the page's
+    /// white — orbs, arrows, labels, anything. Said when no label is found:
+    /// none means the graph was never drawn, not that its labels were lost.
+    private static func drawn(in image: CGImage) -> Int {
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        pixels.withUnsafeMutableBytes { buffer in
+            CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?
+                .draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        var count = 0
+        for y in Int(Double(height) * 0.15)..<Int(Double(height) * 0.88) {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                if pixels[i + 3] > 200, Int(pixels[i]) + Int(pixels[i + 1]) + Int(pixels[i + 2]) < 700 { count += 1 }
+            }
+        }
+        return count
+    }
+
     /// The five labels are spread across the graph, under their orbs — not in
     /// a pile in one corner of it.
     @Test func eachLabelIsDrawnByItsNode() async throws {
         let image = try await render()
-        let ink = try #require(labelInk(in: image), "the graph drew no labels at all")
+        let ink = try #require(labelInk(in: image),
+                               "the graph drew no labels at all — \(Self.drawn(in: image)) pixels of anything in its area")
         #expect(ink.width > CGFloat(image.width) * 0.5 && ink.height > CGFloat(image.height) * 0.25,
                 "the labels are piled in \(ink) of a \(image.width)×\(image.height) graph, not under their nodes")
     }

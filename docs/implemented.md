@@ -8469,7 +8469,12 @@ note that is not selected there.
   hold sleeps, each after a turn in which the awaited work can run.
 - `GraphLabelTests` waited two seconds for a layout worked out off the main
   actor and pictured a graph not yet laid out. It looks until there are
-  labels.
+  labels — and that was not all of it: on the runner thirty seconds of
+  looking still found none. The layout starts in the graph's `.task`, which
+  runs when the view appears, and the test's window was never shown; here a
+  view in such a window appears all the same, and there it does not. The
+  window is ordered in, borderless and far off any screen. (Control: with the
+  labels piled in a corner again, it fails for that.)
 - `aLookThatLandsAfterClosingSaysNothing` held two looks for 0.3 s and slept
   0.1 s before closing; on three cores the looks were over first. Each look
   says it is under way and is held until the collection is closed, one at a
