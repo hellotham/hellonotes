@@ -8416,6 +8416,90 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.53 The screencapture guard reads every list a collection comes back from (2026-10-17)
+
+Since 2026-10-09 CLAUDE.md has said that `collectionPaths` lists local
+collections only — a cloud collection comes back on launch from
+`remoteCollectionCaches` — and that a capture waits for that key to be empty
+too, because on 24 September `collectionPaths` named DefaultCollection alone
+and a capture showed a OneDrive collection's folders. **The guard was never
+told.** `.claude/hooks/guard-screencapture.py` read `collectionPaths` and
+nothing else, so it allowed exactly that capture: a stand-in of that plist
+passes the old guard (below).
+
+What is open is whatever `Library.restore()` reopens, and it reopens from
+four keys:
+
+| key | what `restore()` does with it | the guard before | now |
+|---|---|---|---|
+| `collectionPaths` | names the local collections, index for index with their bookmarks | judged by name (`SAFE_VAULTS`) | the same |
+| `remoteCollectionCaches` | reopens each cloud collection, which is in no other list | not read | any entry blocks |
+| `collectionBookmarks` | reopens every bookmark that resolves, named by the path at its index when there is one | not read | a bookmark with no path blocks |
+| `vaultBookmark` | the first versions' one bookmark, opened with no path when `collectionBookmarks` is empty | not read | blocks |
+
+- **No name makes a cloud collection safe.** Its cache folder is
+  `RemoteMirror/<provider>/<the provider's folder>`, so a Dropbox folder
+  called DefaultCollection would pass the name rule. Any entry blocks.
+- **`collectionBookmarks` can name what `collectionPaths` does not.**
+  `persist()` writes the two together, so they agree once a launch has
+  written them; but `restore()` opens a bookmark that resolves whether or not
+  a path is at its index — in a plist from before `collectionPaths`
+  (2026-08-15), or one written by hand. A bookmark is the app's to resolve,
+  so the guard counts them.
+- **A crash was a pass.** Claude Code takes every exit from a PreToolUse hook
+  but 2 as "go ahead", and a `collectionPaths` that held a number raised in
+  the name check — exit 1 — so the capture went ahead. Each list is now an
+  array or absent (absent is empty; anything else is "could not be read"),
+  and from the process check on, an uncaught exception blocks
+  (`sys.excepthook`), naming its class and line, never its message. The
+  process check is left as it is.
+- **It says what it found in key names and counts.** The old message for a
+  private vault printed the vault's path into whichever transcript set it
+  off, and suggested `PlistBuddy -c "Print :collectionPaths"`, which prints
+  them all. Every message now counts, and says how to count by reading:
+  `plutil -extract <key> raw -expect array -o - <plist>`. The `-expect array`
+  is what keeps it a count: without it, `raw` prints a string's value
+  (tried on a stand-in).
+
+**Checked** with fifteen plists of invented values — nothing of the person's
+was read — each through `HN_GUARD_PREFS=<plist> HN_GUARD_ASSUME_RUNNING=1
+python3 .claude/hooks/guard-screencapture.py < payload.json` with a
+`screencapture -x` payload, the old guard first as the negative control:
+
+| stand-in | old guard | now |
+|---|---|---|
+| DefaultCollection alone | allow | allow |
+| DefaultCollection and a cloud collection | **allow** | block |
+| DefaultCollection and an empty `remoteCollectionCaches` | allow | allow |
+| a private local vault | block, printing its path | block, with a count |
+| SampleVault and DefaultCollection | allow | allow |
+| a cloud collection alone | block, as "no open collection" | block, as a cloud collection |
+| a cloud collection whose folder is called DefaultCollection | **allow** | block |
+| `remoteCollectionCaches` a string | **allow** | block, unreadable |
+| two bookmarks and one path | **allow** | block |
+| `collectionBookmarks` one data value, not an array | **allow** | block, unreadable |
+| `collectionPaths` a number | **exit 1: allowed** | block, unreadable |
+| `vaultBookmark` alone | block, as "no open collection" | block, as an unnamed bookmark |
+| nothing open | block | block |
+| a plist whose root is an array | block | block |
+| a file that is not a plist | block | block |
+
+And with the same file: a tool that is not Bash, and a Bash command that
+captures nothing, pass; with HelloNotes not running and no override, a
+private vault passes; a crash planted after the lists are read blocks,
+naming `KeyError` and its line and not the path its message carried. No
+message in the new run repeats a value from its plist; in the old run one
+did. The crash hook goes in after the process check, not before it, so that
+nothing here touches the lines the release line's §51.50 rewrites: merged
+with that version (`git merge-file`), the guard has no conflict and passes
+the same fifteen cases, and blocks when its helper is missing.
+
+**Not run:** a real capture, by design. **Not handled:** the guard reads the
+plist on disk — the app's record of what to reopen, which cfprefsd writes
+after the app sets it (how long after was not measured) — and not the window.
+A collection `persist()` leaves out, one whose bookmark cannot be minted, is
+in no list; and `collectionPaths` holds last-known paths.
+
 ### 51.47 Three tests held the whole concurrency pool, and build 32 (2026-10-12)
 
 **What the stall was.** §51.46's capture named it on its first run. On the

@@ -12,23 +12,62 @@ the second is safe: the file exists the moment the shutter fires, whatever
 was intended for it afterwards.
 
 CLAUDE.md now carries the rule ("screenshotting to check IS capturing;
-verify by reading collectionPaths"). A rule that must be remembered is
-weaker than a gate that cannot be forgotten, which is what this is.
+verify by reading collectionPaths — and remoteCollectionCaches"). A rule
+that must be remembered is weaker than a gate that cannot be forgotten, which
+is what this is.
 
 The rule
 --------
 If a Bash command runs `screencapture` **and** HelloNotes is running **and**
-its loaded collections are anything other than SampleVault alone, block it.
+its loaded collections are anything other than SampleVault and
+DefaultCollection, block it.
+
+What is loaded is asked of every list `Library.restore()` reopens a
+collection from, never of collectionPaths alone:
+
+  collectionPaths         The local collections' last-known paths: the only
+                          names here, and the only list SAFE_VAULTS judges.
+  remoteCollectionCaches  The cloud collections' cache folders. A cloud
+                          collection is in this list and no other: on
+                          2026-09-24 collectionPaths said DefaultCollection
+                          alone, and a capture showed a OneDrive collection's
+                          folders. A cache folder is named after the
+                          provider's folder, so no name makes one safe.
+  collectionBookmarks     What restore() opens; collectionPaths only names it,
+                          index for index. persist() writes the two together,
+                          but restore() opens a bookmark that has no path at
+                          its index too — a plist from before collectionPaths
+                          (2026-08-15), or one written by hand — and a
+                          bookmark is opaque here, so the two are counted.
+  vaultBookmark           The first versions' one bookmark, which restore()
+                          opens, with no path, when collectionBookmarks is
+                          empty.
 
 Deliberately narrow, so it costs nothing in normal work:
 
   * HelloNotes not running        -> allow. Nothing of the vault is on screen.
-  * SampleVault the only vault    -> allow. That is the marketing vault, and
-                                     it ships in the repo.
-  * plist unreadable / anything
+  * SampleVault, DefaultCollection
+    or both, and nothing else in
+    any list                      -> allow. One is the marketing vault in the
+                                     repo; the other ships inside the binary.
+  * remoteCollectionCaches lists
+    anything                      -> BLOCK, whatever it is called: no cloud
+                                     collection is ours to publish.
+  * collectionPaths names any
+    other collection              -> BLOCK.
+  * a bookmark with no path       -> BLOCK. It opens a collection this guard
+                                     cannot name.
+  * nothing open                  -> BLOCK. What is on screen cannot be
+                                     confirmed.
+  * plist unreadable, a list that
+    is not an array, the guard
+    itself failing, anything
     unexpected                    -> BLOCK. This guard exists for a privacy
                                      incident, so ambiguity resolves toward
                                      not taking the picture.
+
+What it found is said in key names and counts, never values: a path names a
+private folder, and a cache folder a provider's.
 
 Checking which window a `-l<id>` targets is deliberately *not* attempted: a
 full-screen or region capture catches the vault just as well, and a guard
@@ -39,6 +78,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -65,6 +105,21 @@ SAFE_VAULTS = {"SampleVault", "DefaultCollection"}
 def deny(reason: str) -> None:
     print(reason, file=sys.stderr)
     sys.exit(2)
+
+
+def crashed(kind, exc, tb) -> None:
+    # The class and the line only: an exception's message can carry a value.
+    while tb is not None and tb.tb_next is not None:
+        tb = tb.tb_next
+    where = f" at {Path(tb.tb_frame.f_code.co_filename).name}:{tb.tb_lineno}" if tb else ""
+    print(
+        f"screencapture blocked: this guard failed ({kind.__name__}{where}) "
+        "before it could decide, and a guard that has not decided does not "
+        "allow. See .claude/hooks/guard-screencapture.py.",
+        file=sys.stderr,
+        flush=True,
+    )
+    os._exit(2)
 
 
 try:
@@ -97,33 +152,112 @@ except Exception:
 if not (running or FORCE_RUNNING):
     sys.exit(0)
 
+# From here on the command takes a picture and HelloNotes may be running,
+# and a guard that crashes has not decided. Claude Code reads every exit but
+# 2 as "go ahead", so an uncaught exception — exit 1 — let the picture be
+# taken: a collectionPaths that held a number did exactly that. Whatever
+# fails from here on blocks.
+sys.excepthook = crashed
+
+# Each list is an array or absent — absent being a list nothing has written
+# yet. Anything else is a list this guard cannot read, and it fails closed.
+class Unreadable(Exception):
+    pass
+
+
+def listed(prefs: dict, key: str) -> list:
+    value = prefs.get(key, [])
+    if not isinstance(value, list):
+        raise Unreadable(f"{key} holds {type(value).__name__}, not an array")
+    return value
+
+
+def counted(n: int, noun: str) -> str:
+    return f"{n} {noun}" + ("" if n == 1 else "s")
+
+
+def counting(*keys: str) -> str:
+    # How to read a list's size without printing what is in it. `-expect
+    # array` is what makes it a count: without it, `raw` prints the value of
+    # a key that holds a string.
+    plist = shlex.quote(str(PREFS))
+    return "".join(
+        f"  plutil -extract {key} raw -expect array -o - \\\n    {plist}\n"
+        for key in keys
+    )
+
+
 try:
     with PREFS.open("rb") as fh:
-        collections = plistlib.load(fh).get("collectionPaths") or []
+        prefs = plistlib.load(fh)
+    if not isinstance(prefs, dict):
+        raise Unreadable(f"the plist holds {type(prefs).__name__}, not a dictionary")
+    collections = listed(prefs, "collectionPaths")
+    remotes = listed(prefs, "remoteCollectionCaches")
+    bookmarks = listed(prefs, "collectionBookmarks")
 except Exception as exc:
+    detail = str(exc) if isinstance(exc, Unreadable) else exc.__class__.__name__
     deny(
         "screencapture blocked: HelloNotes is running and its preferences "
-        f"could not be read ({exc.__class__.__name__}), so which vault is on "
-        "screen is unknown.\n"
+        f"could not be read ({detail}), so which vault is on screen is "
+        "unknown.\n"
         "This guard fails closed on purpose — see .claude/hooks/"
         "guard-screencapture.py. Quit HelloNotes, or open SampleVault or "
         "DefaultCollection, then retry."
     )
 
-others = [p for p in collections if Path(str(p)).name not in SAFE_VAULTS]
-if others:
-    listed = "\n  ".join(str(p) for p in others)
+if remotes:
+    n = len(remotes)
     deny(
-        "screencapture blocked: HelloNotes has a collection open that is not "
-        "SampleVault or DefaultCollection, so a capture may contain private "
-        "notes.\n  " + listed + "\n\n"
-        "Close it and leave only one of those open, then retry. Verify by "
-        "READING, "
-        "never by capturing to look:\n"
-        '  /usr/libexec/PlistBuddy -c "Print :collectionPaths" \\\n'
-        f"    {PREFS}\n\n"
-        "Back the plist up first and restore it afterwards — opening or "
+        f"screencapture blocked: HelloNotes has {counted(n, 'cloud collection')} "
+        f"open — remoteCollectionCaches lists {n} — so a capture may contain "
+        "private notes. A cloud collection comes back from that list alone "
+        "and is never in collectionPaths, so collectionPaths cannot vouch for "
+        "it.\n\n"
+        f"Close {'it' if n == 1 else 'them'}, or quit HelloNotes, then retry. "
+        "Verify by READING, never by capturing to look — and count, never "
+        "print: an entry names a provider's folder. This prints how many "
+        'there are; 0, or "No value at that key path", means none:\n'
+        + counting("remoteCollectionCaches")
+    )
+
+private = [p for p in collections if Path(str(p)).name not in SAFE_VAULTS]
+if private:
+    n = len(private)
+    deny(
+        f"screencapture blocked: collectionPaths names "
+        f"{counted(len(collections), 'collection')}, and {n} "
+        f"{'is' if n == 1 else 'are'} not SampleVault or DefaultCollection, "
+        "so a capture may contain private notes.\n\n"
+        f"Close {'it' if n == 1 else 'them'}, leaving SampleVault or "
+        "DefaultCollection, then retry: this guard reads the names again on "
+        "every capture. Verify by READING, never by capturing to look — and "
+        "count, never print: a path names a private folder.\n"
+        + counting("collectionPaths")
+        + "\nBack the plist up first and restore it afterwards — opening or "
         "closing a collection changes the user's state."
+    )
+
+# restore() pairs bookmark i with path i, and opens a bookmark that resolves
+# whether or not a path is there to name it — so one past the end of
+# collectionPaths is a collection nothing here can name. The first versions'
+# one `vaultBookmark` is opened that way whenever collectionBookmarks is empty.
+legacy = not bookmarks and "vaultBookmark" in prefs
+unnamed = 1 if legacy else len(bookmarks) - len(collections)
+if unnamed > 0:
+    found = (
+        "vaultBookmark is set and collectionBookmarks is empty"
+        if legacy
+        else f"collectionBookmarks lists {len(bookmarks)} and collectionPaths "
+        f"names {len(collections)}"
+    )
+    deny(
+        f"screencapture blocked: {found}. HelloNotes opens a bookmark with no "
+        "path beside it, and this guard cannot name what that opens: a "
+        "bookmark is opaque to it.\n\n"
+        "Quit HelloNotes, or open or close any collection (the app then "
+        "writes both lists again), and retry. Count by reading, never print:\n"
+        + counting("collectionBookmarks", "collectionPaths")
     )
 
 if not collections:
