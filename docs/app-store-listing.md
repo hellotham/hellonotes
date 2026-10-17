@@ -1,4 +1,4 @@
-# App Store listing — 1.3.3
+# App Store listing — 1.3.4
 
 > **The copy for the version being prepared — not a record of what is live.**
 > App Store Connect is the source of truth for the live listing
@@ -54,24 +54,31 @@ Plain Markdown files you own, with AI from Apple Foundation Models on your devic
 markdown,knowledge base,wiki,backlinks,zettelkasten,pkm,notes,notetaking,git,graph,local,privacy
 ```
 
-**Version** — What's New in 1.3.3:
+**Version** — What's New, iPhone and iPad (1.3.4; this platform had 1.3.3 build 32):
 ```
-HelloNotes now runs its AI on Apple Foundation Models.
+HelloNotes 1.3.4 can run its AI on Apple's Private Cloud Compute.
 
-• Choose where AI runs: Apple Intelligence on your device, Apple's server model on Private Cloud Compute, or an open model you download and run on your device with MLX. If Hugging Face isn't reachable where you are, you can choose a model folder instead.
-• Summaries now cover the whole of a long note, not just its opening. Tag suggestions come back in the note's own language, and link suggestions only ever name notes you have.
-• The Assistant looks through your notes before it answers, and changes nothing without your approval. Several changes proposed at once now wait their turn instead of failing.
-• Third-party AI services and API keys are gone. Any keys you had stored for them are deleted from this device.
-
-Also in this version:
-• A simpler window. Your collection is on the left, the note is in the middle, and what the note is — its outline, tags, links, properties, history and graph — is in one panel on the right. The Mind Map, the Assistant and Ask Your Library open as tabs beside your notes.
-• The Mind Map draws the links across a whole collection; the Graph shows one note's links in and out.
-• Find and Replace understands regular expressions.
-• Return continues a list, a note scrolls past its last line, and the blank lines you type are shown.
-• On an iPad held upright, the on-screen keyboard no longer rearranges the window.
+• Choose Private Cloud Compute in Settings > AI for Apple's server model. It reads far more of your notes at once than the model on your device; what it is sent isn't stored, and isn't accessible to Apple. Suggestions as you type still need a model on your device.
 • Report… beside the AI's answers and suggestions opens an email to us, and Settings > Support > Contact has our address.
+• A note or attachment that iCloud Drive keeps online is downloaded when you open it. If it can't be, HelloNotes says so and offers Try Again, instead of a download that never ends.
 
-HelloNotes 1.3.3 requires iOS 27 or macOS 27.
+HelloNotes 1.3.4 requires iOS 27.
+```
+
+**Version** — What's New, Mac (1.3.4; this platform had 1.3.3 build 31, so build 32's fixes are new here too):
+```
+HelloNotes 1.3.4 can run its AI on Apple's Private Cloud Compute.
+
+• Choose Private Cloud Compute in Settings > AI for Apple's server model. It reads far more of your notes at once than the model on your Mac; what it is sent isn't stored, and isn't accessible to Apple. Suggestions as you type still need a model on your Mac.
+• Report… beside the AI's answers and suggestions opens an email to us, and Settings > Support > Contact has our address.
+• A note or attachment that iCloud Drive keeps online is downloaded when you open it. If it can't be, HelloNotes says so and offers Try Again, instead of a download that never ends.
+• A link to a note — from the widget, say — opens that note even when HelloNotes wasn't running.
+• Restore asks before it replaces a note with an earlier version.
+• A note that mentions another by one of its aliases can be linked from the Links view.
+• When the Assistant changes a note in a Git collection, it commits that note; and Commit includes notes you've deleted.
+• Quick Capture and dictation add to today's note even while it's open, without asking you to choose between versions.
+
+HelloNotes 1.3.4 requires macOS 27.
 ```
 
 ## Description

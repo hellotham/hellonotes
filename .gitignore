@@ -25,3 +25,6 @@ dist/
 # Per-developer API credentials (copy Config/Secrets.example.xcconfig)
 Config/Secrets.xcconfig
 Tools/RenderParity/.build/
+
+# Python bytecode, made when a script is imported (scripts/asc-listing.py).
+__pycache__/
