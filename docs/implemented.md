@@ -8449,19 +8449,20 @@ four keys:
 - **A crash was a pass.** Claude Code takes every exit from a PreToolUse hook
   but 2 as "go ahead", and a `collectionPaths` that held a number raised in
   the name check — exit 1 — so the capture went ahead. Each list is now an
-  array or absent (absent is empty; anything else is "could not be read"),
-  and from the process check on, an uncaught exception blocks
+  array of what `restore()` reads, or absent (absent is empty; anything else
+  is "could not be read"), and from the process check on, an uncaught
+  exception blocks
   (`sys.excepthook`), naming its class and line, never its message. The
   process check is left as it is.
 - **It says what it found in key names and counts.** The old message for a
   private vault printed the vault's path into whichever transcript set it
   off, and suggested `PlistBuddy -c "Print :collectionPaths"`, which prints
-  them all. Every message now counts, and says how to count by reading:
-  `plutil -extract <key> raw -expect array -o - <plist>`. The `-expect array`
-  is what keeps it a count: without it, `raw` prints a string's value
-  (tried on a stand-in).
+  them all. Every message now counts, and says how to count by reading what
+  cfprefsd holds: `defaults export <plist> - | plutil -extract <key> raw
+  -expect array -o - -`. The `-expect array` is what keeps it a count:
+  without it, `raw` prints a string's value (tried on a stand-in).
 
-**Checked** with fifteen plists of invented values — nothing of the person's
+**Checked** with eighteen plists of invented values — nothing of the person's
 was read — each through `HN_GUARD_PREFS=<plist> HN_GUARD_ASSUME_RUNNING=1
 python3 .claude/hooks/guard-screencapture.py < payload.json` with a
 `screencapture -x` payload, the old guard first as the negative control:
@@ -8480,23 +8481,50 @@ python3 .claude/hooks/guard-screencapture.py < payload.json` with a
 | `collectionBookmarks` one data value, not an array | **allow** | block, unreadable |
 | `collectionPaths` a number | **exit 1: allowed** | block, unreadable |
 | `vaultBookmark` alone | block, as "no open collection" | block, as an unnamed bookmark |
+| `collectionBookmarks` with an entry that is not data, and a `vaultBookmark` | **allow** | block, unreadable |
+| `collectionPaths` with an entry that is not a string | block | block, unreadable |
+| `remoteCollectionCaches` with an entry that is not a string | **allow** | block, unreadable |
 | nothing open | block | block |
 | a plist whose root is an array | block | block |
 | a file that is not a plist | block | block |
 
 And with the same file: a tool that is not Bash, and a Bash command that
 captures nothing, pass; with HelloNotes not running and no override, a
-private vault passes; a crash planted after the lists are read blocks,
-naming `KeyError` and its line and not the path its message carried. No
+private vault passes; a crash planted while the lists are judged, or after,
+blocks, naming `KeyError` — and, after, its line — and not the path its
+message carried. No
 message in the new run repeats a value from its plist; in the old run one
 did. The crash hook goes in after the process check, not before it, so that
 nothing here touches the lines the release line's §51.50 rewrites: merged
 with that version (`git merge-file`), the guard has no conflict and passes
-the same fifteen cases, and blocks when its helper is missing.
+the same eighteen cases, and blocks when its helper is missing.
 
-**Not run:** a real capture, by design. **Not handled:** the guard reads the
-plist on disk — the app's record of what to reopen, which cfprefsd writes
-after the app sets it (how long after was not measured) — and not the window.
+**What a review of the first commit found** (fd2232d), both proved against it
+before they were fixed:
+
+- **A list with an entry of another kind.** `restore()` reads `as? [Data]`
+  and `as? [String]`, so to the app such a list is no list — and with
+  `collectionBookmarks` empty that way it opens `vaultBookmark` in its place,
+  unnamed. fd2232d counted the list as it stood and allowed the capture; a
+  list with an entry of another kind is unreadable now.
+- **The file is late.** The app's changes reach cfprefsd at once and the plist
+  file when cfprefsd writes it: ten seconds later (9.94–10.04 s, three
+  rounds) for a sandboxed stand-in in a container of its own, as the app is,
+  its plist already there; over a minute later where the plist did not exist
+  yet. Asking cfprefsd makes it write sooner — which is how a first
+  measurement, asking before looking, said 50 ms. The guard now judges the
+  file *and* what cfprefsd holds (`defaults export <plist> -`, made binary by
+  `plutil`, because an entry of `spotlightDonatedIDs` holds a control
+  character that stops Python's XML parser) and blocks if either rules the
+  capture out. Started together the moment that stand-in had opened a cloud
+  collection, fd2232d allowed 20 captures in 20 and the new guard blocked all
+  20, from cfprefsd. It costs about 15 ms a capture (96 ms against 81), and
+  each read has a one-second timeout: a hook that runs out of its 15 seconds
+  is taken as "go ahead".
+
+**Not run:** a real capture, by design. **Not handled:** the guard reads what
+the app has saved, not the window — and cfprefsd keeps no change it cannot
+write: with the plist's folder made read-only, both views kept the old list.
 A collection `persist()` leaves out, one whose bookmark cannot be minted, is
 in no list; and `collectionPaths` holds last-known paths.
 
