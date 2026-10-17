@@ -29,6 +29,9 @@ struct LibraryChatView: View {
     @State private var sources: [Note] = []
     @State private var errorText: String?
 
+    /// The answer when no note matched — the app's, not a model's.
+    private static let nothingFound = "I couldn't find any notes related to that."
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
@@ -69,6 +72,15 @@ struct LibraryChatView: View {
                         Text(AnswerMarkdown.attributed(answer))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        // The app's own words when nothing matched are not
+                        // a model's, so there is nothing of a model's to report.
+                        if answer != Self.nothingFound {
+                            ReportResponseButton {
+                                ResponseReport(feature: "Ask Your Library", model: intelligence.modelName,
+                                               response: answer, prompt: question)
+                            }
+                            .font(Chrome.Style.caption)
+                        }
                     }
                     if !sources.isEmpty {
                         ChromeDivider()
@@ -120,7 +132,7 @@ struct LibraryChatView: View {
             let context = read.map { (title: $0.note.title, text: $0.text) }
             do {
                 if context.isEmpty {
-                    answer = "I couldn't find any notes related to that."
+                    answer = Self.nothingFound
                 } else {
                     answer = try await intelligence.answer(question: q, context: context)
                 }

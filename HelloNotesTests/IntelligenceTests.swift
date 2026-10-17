@@ -597,4 +597,77 @@ struct PrivateCloudComputeEntitlementTests {
         #expect(!LanguageModels.offeredChoices.contains(.privateCloud))
         #expect(LanguageModels.offeredChoices == [.onDevice, .mlx])
     }
+
+    /// **The DMG is signed from the same file, less this one key.** Apple never
+    /// provisions Private Cloud Compute for Developer ID, so the direct-download
+    /// archive overrides `HN_APP_ENTITLEMENTS` with a copy that lacks it
+    /// (`docs/production.md` Appendix A2). That works only while the app target
+    /// names its entitlements through the setting — and by default names the
+    /// file the test above reads. Written back as a plain path, the override
+    /// would override nothing, and the release's export would fail.
+    @Test func theDirectDownloadCanBeSignedWithoutIt() throws {
+        let project = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes.xcodeproj/project.pbxproj"), encoding: .utf8)
+        func count(_ line: String) -> Int { project.components(separatedBy: line).count - 1 }
+        // The app target's Debug and Release, and no other target's.
+        #expect(count("CODE_SIGN_ENTITLEMENTS = \"$(HN_APP_ENTITLEMENTS)\";") == 2)
+        #expect(count("HN_APP_ENTITLEMENTS = HelloNotes/HelloNotes.entitlements;") == 2)
+        #expect(count("CODE_SIGN_ENTITLEMENTS = HelloNotes/HelloNotes.entitlements;") == 0)
+    }
+}
+
+/// What the app says once Private Cloud Compute is a choice. Each was found by
+/// fact-checking the manual against the source on the day it became one, in a
+/// string written while it could not be (implemented.md §51.54).
+@MainActor
+struct PrivateCloudComputeWordingTests {
+
+    /// **A model is never told to choose itself, or one that reads less.** The
+    /// "too long" errors named one list for every model, so Private Cloud
+    /// Compute — the largest window the app reaches — was told to choose
+    /// Private Cloud Compute, or an MLX model with half its window.
+    @Test func aModelIsNeverToldToChooseItselfOrASmallerOne() {
+        let enabled = LanguageModels.privateCloudComputeEnabled
+        #expect(LanguageModels.largerModels(than: .privateCloud) == nil)
+        #expect(LanguageModels.largerModels(than: .mlx)?.contains("MLX") != true)
+        #expect((LanguageModels.largerModels(than: .mlx) != nil) == enabled)
+        let fromSystem = LanguageModels.largerModels(than: .onDevice) ?? ""
+        #expect(fromSystem.contains("an MLX model"))
+        #expect(fromSystem.contains("Private Cloud Compute") == enabled)
+        // Where the Assistant and Research name the models that can use tools.
+        #expect(LanguageModels.appleModels(joinedBy: "or").contains("Private Cloud Compute") == enabled)
+    }
+
+    /// Suggestions as you type run only on a model on this device, so the line
+    /// saying what the model is for promises them only there.
+    @Test func suggestionsAsYouTypeArePromisedOnlyOnTheDevice() {
+        for choice in ModelChoice.allCases {
+            let uses = LanguageModels.uses(of: choice)
+            #expect(uses.contains("and the suggestions as you type") == choice.runsOnDevice,
+                    "\(choice): “\(uses)”")
+        }
+    }
+
+    /// **A conversation under way says what each message sends, on a model off
+    /// the device.** The Assistant said where text goes only on an empty
+    /// conversation, and one switched to Private Cloud Compute partway sends
+    /// everything before the switch with it.
+    @Test(.scratchDefaults) func aConversationOffTheDeviceSaysWhatEachMessageSends() throws {
+        let models = LanguageModels(mlx: MLXModelStore(defaults: ScratchDefaults.suite()))
+        for choice in ModelChoice.allCases {
+            #expect((models.conversationPrivacy(of: choice) == nil) == choice.runsOnDevice, "\(choice)")
+        }
+        let line = try #require(models.conversationPrivacy(of: .privateCloud))
+        #expect(line.contains("the conversation so far") && line.contains("your notes"))
+        // Apple's claim in the same words as the line under the picker.
+        let claim = "It isn't stored, and it isn't accessible to Apple."
+        #expect(models.privacySummary(of: .privateCloud).hasSuffix(claim))
+        #expect(line.hasSuffix(claim))
+        // And the Assistant draws it, once there is a conversation.
+        let assistant = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes/UI/Assistant/AssistantView.swift"), encoding: .utf8)
+        #expect(assistant.contains("if !model.entries.isEmpty, let line = models.conversationPrivacy(of: model.modelChoice)"))
+    }
 }

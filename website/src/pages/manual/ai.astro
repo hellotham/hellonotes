@@ -6,12 +6,15 @@ import { href } from '../../lib/paths';
 <ManualLayout slug="ai">
   <h2 id="on-device">On your device</h2>
   <p>
-    Every AI feature runs on Apple’s <strong>Foundation Models</strong>, on your own Mac, iPhone or
-    iPad: <strong>Apple Intelligence</strong> by default — the model the app calls{' '}
+    Every AI feature runs on Apple’s <strong>Foundation Models</strong>, and by default on your own
+    Mac, iPhone or iPad: <strong>Apple Intelligence</strong> — the model the app calls{' '}
     <strong>System</strong> — or an open model you download and run on your device with{' '}
-    <a href="#mlx">MLX</a>. Your notes are processed on the device and are not sent to us or to any
-    AI service. There are no third-party AI services and no API keys. What does leave the device
-    is a web search, when <a href="#assistant">the Assistant</a> or Research looks something up:
+    <a href="#mlx">MLX</a>. Your notes are then processed on the device and are not sent to us or to
+    any AI service. There are no third-party AI services and no API keys. In the App Store version you
+    can choose <a href="#settings">Private Cloud Compute</a> instead — Apple’s server model — and
+    then what a feature works on is sent to Apple to be processed; it isn’t stored, and it isn’t
+    accessible to Apple. Whichever model you choose, a web search leaves the device when{' '}
+    <a href="#assistant">the Assistant</a> or Research looks something up:
     the search terms go to DuckDuckGo — and the model writes them after reading your question and,
     often, your notes — and a page it then reads is fetched from that page’s site. Downloading an
     MLX model fetches its files from Hugging Face.
@@ -19,7 +22,8 @@ import { href } from '../../lib/paths';
   <p>
     The AI features are available when the model you have chosen can run. Apple Intelligence needs
     a device that supports it, with Apple Intelligence turned on — in System Settings on the Mac,
-    Settings on iPhone and iPad. An MLX model needs to be downloaded, or its folder chosen.
+    Settings on iPhone and iPad. Private Cloud Compute needs an internet connection, and not
+    every device can use it. An MLX model needs to be downloaded, or its folder chosen.
     Otherwise the AI commands are unavailable, and the AI settings say why.
   </p>
   <p>
@@ -102,8 +106,8 @@ import { href } from '../../lib/paths';
   </p>
   <p>
     <strong>Research needs a model with room to read web pages</strong> — at least 8,000 tokens.
-    MLX models have that, and so does the System model where Apple Intelligence gives it 8,192
-    tokens. Research uses the model chosen in <strong>Settings ▸ AI</strong>, and if that one
+    MLX models have that, so does Private Cloud Compute, and so does the System model where Apple
+    Intelligence gives it 8,192 tokens. Research uses the model chosen in <strong>Settings ▸ AI</strong>, and if that one
     can’t hold enough, the sheet says so rather than starting a run that cannot finish.
   </p>
   <p>
@@ -132,7 +136,8 @@ import { href } from '../../lib/paths';
   <p>
     On iPhone and iPad, tap the suggestion to accept it — or press <kbd>⌥⇥</kbd> with a keyboard
     attached; <kbd>Esc</kbd> dismisses it. Suggestions come from the model chosen in{' '}
-    <strong>Settings ▸ AI</strong>. They are off until you turn on{' '}
+    <strong>Settings ▸ AI</strong>, when it runs on your device — a round trip to Private Cloud
+    Compute can’t keep up with typing, so they are off while it is chosen. They are off until you turn on{' '}
     <strong>Suggest as I type</strong>, in the <strong>Inline Completion</strong> section of the
     AI settings.
   </p>
@@ -184,17 +189,36 @@ import { href } from '../../lib/paths';
     matches.
   </p>
   <p>
-    On a model with a window of at least 16,000 tokens — in this version, an MLX model on a Mac —
+    On a model with a window of at least 16,000 tokens — an MLX model on a Mac, or Private Cloud
+    Compute in the App Store version —
     the Assistant can also read whole web pages and run <strong>deep research</strong>, a longer
     multi-step investigation across your notes and the web. With a smaller window it searches the
     web and works from the results. The model it is using is always shown at the top of its tab.
+  </p>
+
+  <h2 id="report">Reporting a response</h2>
+  <p>
+    What the AI writes stays with you — in your notes, and the Assistant’s conversations in
+    HelloNotes’ own storage on your device. Nothing is posted anywhere, and there is no one else
+    to see it. If something it wrote is wrong or offensive, <strong>Report…</strong> is beside its
+    answers and suggestions: an Assistant reply, an answer from Ask Your Library, a rewrite, a new
+    note’s draft, a summary, and suggested tags or links. It opens your mail app with a message to
+    us holding the response, what you asked, the model in use and the app’s version; you read it,
+    and can change or delete any of it, before you send. HelloNotes sends nothing itself.
+  </p>
+  <p>
+    Anything else it wrote — a suggestion shown as grey text, say — is reported by writing to us
+    from <strong>Settings ▸ Support ▸ Contact</strong>, which anyone can use. The System model applies
+    Apple’s safeguards, and Private Cloud Compute is Apple’s own model on Apple’s servers; an MLX
+    model is the one you chose, and HelloNotes does not filter what it writes.
   </p>
 
   <h2 id="settings">Choosing a model</h2>
   <p>
     <strong>Settings ▸ AI</strong> has one choice, for everything the app does with AI — the
     Assistant, the research behind New Note from a Prompt, Summarise, Suggest Tags and Links,
-    Rewrite, Compose, Ask Your Library and the suggestions as you type. It can be:
+    Rewrite, Compose, Ask Your Library and the suggestions as you type, which need it to run on
+    your device. It can be:
   </p>
   <ul>
     <li>
@@ -202,11 +226,20 @@ import { href } from '../../lib/paths';
       on your hardware. The name is Apple’s own. The default.
     </li>
     <li>
+      <strong>Private Cloud Compute</strong> — Apple’s server model, in the App Store version.
+      What a feature works on — your question, and the notes it reads to answer it — is sent to
+      Apple’s Private Cloud Compute to be processed; it isn’t stored, and it isn’t accessible to
+      Apple. It needs an internet connection, reads far more at once than the System model, and
+      can’t make suggestions as you type. Apple sets a daily allowance: Settings says when you are
+      close to it — with <strong>Request More</strong>, when Apple offers a way to ask for a higher
+      limit — and a request past it says so, with when it resets if Apple gives a time.
+    </li>
+    <li>
       <strong>MLX · <em>model name</em></strong> — an open model from your models folder, run on
       your device. Every model in the folder that HelloNotes can run is listed here, one entry
       each, so choosing a model and choosing MLX are the same act. A folder with nothing runnable
-      in it leaves the picker offering System — and, if MLX was your choice, a line saying the
-      folder has no model.
+      in it leaves the picker offering System (and Private Cloud Compute, in the App Store
+      version) — and, if MLX was your choice, a line saying the folder has no model.
     </li>
   </ul>
   <p>
@@ -282,7 +315,8 @@ import { href } from '../../lib/paths';
   <h2 id="limits">How much a model can read</h2>
   <p>
     Every model has a window — how much text it can hold at once. HelloNotes asks Apple
-    Intelligence how large the System model’s window is rather than assuming one. An
+    Intelligence how large the System model’s window is rather than assuming one, and asks
+    Private Cloud Compute the same — 32,768 tokens, last time it was asked. An
     MLX model is given 16,384 tokens on a Mac and 8,192 on iPhone and iPad, because a larger window
     costs memory. Text in Chinese, Japanese or Korean takes about a token a character, so the same
     window holds fewer characters of it.

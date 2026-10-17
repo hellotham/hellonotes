@@ -30,6 +30,7 @@
 # we just built. A relaunch that quietly left the old app up is worse than one
 # that fails loudly, because you then test the wrong code and trust the result.
 set -euo pipefail
+here=${0:a:h}
 
 # Launching takes over the user's screen, so this script must never do it by
 # accident. It takes no arguments; anything passed is a misunderstanding of what
@@ -69,29 +70,25 @@ binary="$app/Contents/MacOS/HelloNotes"
 
 # Every live instance of the **Mac** app, however it was started — a normal
 # launch, an Xcode run, a test host — all of which run the same executable at
-# `HelloNotes.app/Contents/MacOS/HelloNotes`, so the path is what finds them.
+# `HelloNotes.app/Contents/MacOS/HelloNotes`. Found by what each process
+# executes (`hellonotes-processes.sh`), which always exits 0: this script runs
+# under `set -e`, and "none running" is the usual answer.
 #
-# This used to union in `pgrep -x HelloNotes` as well, on the stated grounds
-# that the path match "misses an app whose process name differs from the
-# bundle". That is backwards: the path match is precisely what catches a test
-# host and an Xcode run. What `pgrep -x` actually added was every process
-# merely *named* HelloNotes — including the app running in the **iOS
-# Simulator**, which this script would then try to quit, fail to reach with
-# AppleScript, and SIGKILL while printing its loudest warning. A simulator
-# instance is not the Mac app and is none of this script's business.
+# It has been wrong both ways. Unioned with `pgrep -x HelloNotes`, it took in
+# the app running in the **iOS Simulator** — merely *named* HelloNotes — which
+# this script then tried to quit, failed to reach with AppleScript, and
+# SIGKILLed while printing its loudest warning. And as `pgrep -f` on the
+# bundle path it took in anything that named the path on its command line — a
+# shell, an editor, `sample` — every one of them then sent SIGTERM and, failing
+# that, SIGKILL below (docs/implemented.md §51.50).
 running_pids() {
-  # `|| true` is load-bearing: pgrep exits 1 when nothing matches, and this
-  # script runs under `set -e`. Dropping it makes the whole script abort,
-  # silently and with no output, in the ordinary case where the app is not
-  # already running — which is most of the time.
-  { pgrep -f "HelloNotes\.app/Contents/MacOS/HelloNotes" || true; } 2>/dev/null \
-    | sort -u | tr '\n' ' ' | sed 's/ $//'
+  "$here/hellonotes-processes.sh" all | sort -u | tr '\n' ' ' | sed 's/ $//'
 }
 
 # What a *person* sees is not the process table — it is the Dock, ⌘-Tab and the
 # window list, all of which come from LaunchServices. LaunchServices reaps a
 # killed app a moment after the process dies, so a relaunch that only waits on
-# `pgrep` can put the new app up while the old one is still listed and its
+# the process table can put the new app up while the old one is still listed and its
 # window still on screen. That looks exactly like launching on top of the old
 # app, and from the user's side it *is*.
 registered_asns() {

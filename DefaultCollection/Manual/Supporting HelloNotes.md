@@ -32,4 +32,10 @@ versions, and hands the whole thing to your own mail app, where you can read
 every word — and delete any of it — before you press send. Nothing about your
 notes is included: no folder names, no file names, no text.
 
+## Contact
+
+Anyone can write to us, backer or not: **Settings ▸ Support ▸ Contact** has our address,
+info@hellotham.com, and the support website. Something the AI wrote can be reported from
+beside it with **Report…** (see [[Intelligence]]).
+
 Everything above lives in **Settings ▸ Support**.

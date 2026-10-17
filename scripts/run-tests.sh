@@ -16,7 +16,9 @@
 #
 # The host does have a signature: Xcode launches it with
 # `-NSTreatUnknownArgumentsAsOpen`, which a normally-launched app never has. That
-# is what this matches, so cleanup can never hit the user's own instance.
+# is what tells the two apart, so cleanup can never hit the user's own instance —
+# asked of the process that *is* the app, never of a command line that merely
+# mentions it (`hellonotes-processes.sh`).
 #
 # Usage:  ./scripts/run-tests.sh [extra xcodebuild args]
 #   e.g.  ./scripts/run-tests.sh -only-testing:HelloNotesTests/ShellContractTests
@@ -25,31 +27,19 @@ set -uo pipefail
 here=${0:a:h}
 cd "$here/.."
 
-# The user's *Mac* app, and never a simulator or a test host.
+# The user's *Mac* app, and never a simulator or a test host; and a test host,
+# and never the user's app — each by what the process executes
+# (`hellonotes-processes.sh`, which says why that and nothing else).
 #
-# This used to be `pgrep -x HelloNotes`, which matches on the process **name**
-# alone — and an app running in the iOS Simulator is also called `HelloNotes`.
-# So an iPad-simulator instance left behind by an iOS check read as "the user
-# has the app open", the script refused to run, and it blamed a modal sheet
-# that did not exist. The macOS bundle layout is the discriminator:
-# `HelloNotes.app/Contents/MacOS/HelloNotes`, which a simulator build (a flat
-# `HelloNotes.app/HelloNotes`) never has.
-mac_app() {
-  local pid cmd out=""
-  for pid in ${(f)"$(pgrep -f 'HelloNotes\.app/Contents/MacOS/HelloNotes' 2>/dev/null)"}; do
-    cmd=$(ps -o command= -p "$pid" 2>/dev/null)
-    # A test host carries an argument a normally-launched app never has.
-    [[ "$cmd" == *-NSTreatUnknownArgumentsAsOpen* ]] && continue
-    out+="$pid "
-  done
-  echo "${out% }"
-}
-
-# A test host, and never the user's app.
-test_hosts() {
-  pgrep -f "HelloNotes.app/Contents/MacOS/HelloNotes.*-NSTreatUnknownArgumentsAsOpen" \
-    | tr '\n' ' ' | sed 's/ $//'
-}
+# Twice before this was found by name or by command line, and was wrong both
+# ways. `pgrep -x HelloNotes` matched the app in the iOS Simulator too, so a
+# simulator left running read as "the user has the app open" and the script
+# refused, blaming a modal sheet that did not exist. Then `pgrep -f` on the
+# bundle path matched anything that *named* it: the shell that had started
+# this script was taken for the running app, and the same kind of match chose
+# what `kill -9` below is sent to (docs/implemented.md §51.50).
+mac_app() { "$here/hellonotes-processes.sh" app | tr '\n' ' ' | sed 's/ $//'; }
+test_hosts() { "$here/hellonotes-processes.sh" hosts | tr '\n' ' ' | sed 's/ $//'; }
 
 cleanup_hosts() {
   local hosts=$(test_hosts)

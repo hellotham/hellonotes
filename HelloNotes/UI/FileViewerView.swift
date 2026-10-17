@@ -16,9 +16,12 @@
 //  `isPlaceholder` / `prepare` by the shell — the collection knows how to
 //  hydrate its own files — while iOS re-implemented hydration here against
 //  iCloud's ubiquitous-item status. Both are needed: a direct-API collection
-//  hydrates through its provider and a Files-backed one through iCloud, and
-//  either shell may hand over either. So the callbacks are used when supplied
-//  and the ubiquitous-item watch is the fallback, on both platforms.
+//  hydrates through its provider and a Files-backed one through iCloud. The
+//  callbacks became "used when supplied, iCloud the fallback" — and the one
+//  shell always supplies them, so the iCloud wait was never reached and an
+//  attachment iCloud held online-only previewed blank for good. One decision
+//  now, for either kind of collection, with an end (`AttachmentBytes`,
+//  docs/implemented.md §51.52).
 //
 //  Three things differ underneath and each has an `#else`: the PDF, Quick Look
 //  and "open in the default app" representables. PDFKit ships on both, so even
@@ -46,11 +49,10 @@ struct FileViewerView: View {
     /// file, so it is safe to call on every selection.
     var prepare: (@MainActor (URL) async -> Void)?
 
-    @State private var isDownloading = false
-    /// Bumped after a download so the viewer re-reads a file whose bytes have
-    /// just changed underneath it. PDFKit and Quick Look cache by URL, and the
-    /// URL is exactly what did *not* change.
-    @State private var contentRevision = 0
+    /// Getting the bytes here, and what to say meanwhile.
+    @State private var bytes = AttachmentBytes()
+    /// Bumped by Try Again, which the fetch is keyed on with the file.
+    @State private var attempt = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,19 +61,30 @@ struct FileViewerView: View {
             ChromeDivider()
             bottomBar
         }
-        .task(id: file.url) { await materialise() }
+        .task(id: "\(file.url.path)#\(attempt)") {
+            await bytes.fetch(file.url, isPlaceholder: isPlaceholder, prepare: prepare)
+        }
     }
 
     @ViewBuilder
     private var content: some View {
-        if isDownloading {
+        switch bytes.state {
+        case .checking:
+            // The moment it takes to ask — nothing drawn, rather than a
+            // stand-in previewed as a blank page.
+            Color.clear
+        case .downloading:
             // The file exists and has no content yet. Saying so beats rendering
             // a zero-byte placeholder, which Quick Look draws as simply nothing
-            // — indistinguishable from a document that failed to open, and
-            // permanent, because nothing was going to reload it.
+            // — indistinguishable from a document that failed to open.
             ChromeEmptyState("Downloading “\(file.name)”", systemImage: "arrow.down.circle",
                              description: Text("Fetching it from the cloud."))
-        } else {
+        case .missing(let why):
+            ChromeEmptyState("“\(file.name)” isn’t on this device", systemImage: "icloud.slash",
+                             description: Text(why)) {
+                Button("Try Again") { attempt &+= 1 }
+            }
+        case .here:
             switch file.kind {
             case .pdf:
                 PDFKitViewer(url: file.url).id(viewerIdentity)
@@ -84,8 +97,9 @@ struct FileViewerView: View {
     }
 
     /// URL *and* revision: the same file with different bytes is a different
-    /// thing to render.
-    private var viewerIdentity: String { "\(file.url.path)#\(contentRevision)" }
+    /// thing to render. PDFKit and Quick Look cache by URL, and the URL is
+    /// exactly what does not change when a download lands.
+    private var viewerIdentity: String { "\(file.url.path)#\(bytes.revision)" }
 
     private var bottomBar: some View {
         HStack(spacing: 8) {
@@ -115,64 +129,6 @@ struct FileViewerView: View {
         .font(Chrome.Style.callout)
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background(Chrome.Colour.chrome)
-    }
-
-    // MARK: - Getting the bytes here
-
-    /// Hydrate the file if it is not local yet, saying so while it happens and
-    /// forcing a reload when it lands.
-    ///
-    /// The shell's `prepare` first, because a collection that mirrors a provider
-    /// knows how to fetch its own files. Failing that, the iCloud path: watch
-    /// the item's own downloading status, because `startDownloadingUbiquitousItem`
-    /// has no completion handler and the URL — the only thing `.task(id:)` keys
-    /// on — is exactly what does *not* change when the download completes. An
-    /// earlier version fired the download and returned, so an online-only
-    /// attachment previewed as a blank page for as long as you looked at it.
-    private func materialise() async {
-        if let prepare {
-            let needed = isPlaceholder?(file.url) ?? false
-            if needed { isDownloading = true }
-            await prepare(file.url)
-            if needed {
-                isDownloading = false
-                contentRevision &+= 1
-            }
-            return
-        }
-
-        guard Self.isOnlineOnly(file.url) else {
-            isDownloading = false
-            return
-        }
-        isDownloading = true
-        // Throws only for a non-ubiquitous item, which the guard has excluded.
-        try? FileIO.download(at: file.url)
-
-        // The cap is there so a provider that never finishes leaves the user
-        // with a preview attempt rather than a spinner with no end.
-        let deadline = ContinuousClock.now + .seconds(60)
-        while ContinuousClock.now < deadline {
-            // Throws on cancellation — the selection changed, and the task that
-            // replaced this one owns the state now. Returning without touching
-            // it is what keeps a cancelled download from clearing a live one's
-            // progress view.
-            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            if !Self.isOnlineOnly(file.url) { break }
-        }
-        guard !Task.isCancelled else { return }
-        isDownloading = false
-        contentRevision &+= 1
-    }
-
-    /// A cloud item whose bytes are not here yet. False for a local file, and
-    /// for a cloud file already fully downloaded.
-    private static func isOnlineOnly(_ url: URL) -> Bool {
-        let values = try? url.resourceValues(forKeys: [
-            .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
-        ])
-        guard values?.isUbiquitousItem == true else { return false }
-        return values?.ubiquitousItemDownloadingStatus != .current
     }
 }
 

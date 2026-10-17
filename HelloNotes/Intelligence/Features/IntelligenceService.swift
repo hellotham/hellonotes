@@ -75,7 +75,8 @@ struct IntelligenceService {
                                          prompt: "Summarize this note:\n\n\(body)", temperature: 0.3)
             }
             guard parts.count <= 32 else {
-                throw IntelligenceError.failed("This note is too long to summarise on \(modelName). A model with a larger context — \(LanguageModels.largerModels) — can read more at once.")
+                throw IntelligenceError.failed("This note is too long to summarise on \(modelName)."
+                    + (LanguageModels.largerModels(than: choice).map { " A model with a larger context — \($0) — can read more at once." } ?? ""))
             }
             // Map: one summary per part, each in a fresh session.
             var summaries: [String] = []
@@ -140,7 +141,8 @@ struct IntelligenceService {
             let budget = TokenBudget.inputTokens(context: window, instructions: Prompts.expand, reply: 0) / 3
             let body = FrontMatter.body(of: noteText)
             guard TokenBudget.estimate(body) <= budget else {
-                throw IntelligenceError.failed("This note is too long to expand on \(modelName). Try a shorter note, or choose \(LanguageModels.largerModels) in AI settings.")
+                throw IntelligenceError.failed("This note is too long to expand on \(modelName). Try a shorter note"
+                    + (LanguageModels.largerModels(than: choice).map { ", or choose \($0) in AI settings." } ?? "."))
             }
             return try await respond(model, instructions: Prompts.expand,
                                      prompt: "Expand and flesh out this note:\n\n\(body)", temperature: 0.5)
@@ -175,7 +177,8 @@ struct IntelligenceService {
             let budget = TokenBudget.inputTokens(context: window, instructions: Prompts.rewrite, reply: 0) / 2
                 - TokenBudget.estimate(instruction)
             guard TokenBudget.estimate(text) <= budget else {
-                throw IntelligenceError.failed("That passage is too long to rewrite on \(modelName) in one go. Select a shorter passage, or choose \(LanguageModels.largerModels) in AI settings.")
+                throw IntelligenceError.failed("That passage is too long to rewrite on \(modelName) in one go. Select a shorter passage"
+                    + (LanguageModels.largerModels(than: choice).map { ", or choose \($0) in AI settings." } ?? "."))
             }
             return try await respond(model, instructions: Prompts.rewrite,
                                      prompt: "Instruction: \(instruction)\n\nText:\n\(text)", temperature: 0.4)

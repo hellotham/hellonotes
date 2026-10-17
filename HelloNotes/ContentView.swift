@@ -1065,6 +1065,7 @@ struct ContentView: View {
         .sheet(isPresented: $showCompose, onDismiss: { composer.reset() }) {
             ComposeNoteView(
                 composer: composer,
+                modelName: IntelligenceService(settings: intelligenceSettings).modelName,
                 availability: { NoteComposer.unavailableReason(for: $0, settings: intelligenceSettings) },
                 onRun: { prompt, mode, depth in runCompose(prompt, mode: mode, depth: depth) },
                 onCreate: { draft in
@@ -1894,6 +1895,7 @@ struct ContentView: View {
                 summarize: !hasModel ? nil : { text in
                     try await IntelligenceService(settings: intelligenceSettings).summarize(text)
                 },
+                modelName: IntelligenceService(settings: intelligenceSettings).modelName,
                 onInsertSummary: { saveSummary($0) },
                 allTags: collection.search.allTags(),
                 noteCount: { collection.search.noteCountTagged($0) },

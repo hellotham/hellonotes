@@ -427,6 +427,18 @@ What remains are **constraints of the providers and the platform**, not deferred
     refresh and the layout pass that follows it, where the fragment has no
     frame; the wait ends on a turn of the run loop now (implemented.md
     §51.49). It has passed the three runs since; it had failed two in five.
+  - 🟡 *Provider calls still made with no deadline* (found by the review in
+    implemented.md §51.52; each pre-existing). `EditorModel.open`'s read of
+    the note (`Task.detached` → `FileIO.readString`, a coordinated read that
+    waits for the provider), `reconcileWithDisk`'s look at the file (on the
+    pool, per open tab, per change seen on disk) and `ToolContext.readContents`
+    each hold a pool thread for as long as a provider takes; and
+    `Collection.adopt(hydrated:)` asks `resourceValues` on the main actor.
+    The same lane-and-timer shape (`FileIO.waitForDownload`) would bound
+    them. Also latent there: `open` returning early at `flush()` leaves
+    `willOpen`'s "downloading" and "still loading" in place, and Keep Mine
+    would then keep mine beside the *new* note — unreachable while both
+    callers open into a fresh editor.
   - *Dictation has nowhere to say it failed.* `DictationController` records
     why a transcript reached no note (`lastError`) and keeps the transcript
     until the next recording, and no view reads either — the collection's own

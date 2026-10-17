@@ -56,9 +56,11 @@ nonisolated enum ModelChoice: String, Codable, CaseIterable, Identifiable, Senda
 
 /// How hard a reasoning model thinks before it answers.
 ///
-/// Only Private Cloud Compute and some MLX models reason; the on-device model
-/// does not, and asking it to is an error rather than a no-op — so the setting
-/// is carried here and applied only where the model declares the capability.
+/// A model reasons only where its capabilities say so: Private Cloud
+/// Compute's are read when it runs, the on-device model's do not include it,
+/// and an MLX model is never asked to (`MLXModelStore.reasons`). Asking a model
+/// that does not reason is an error rather than a no-op — so the setting is
+/// carried here and applied only where the model declares the capability.
 nonisolated enum ReasoningChoice: String, Codable, CaseIterable, Identifiable, Sendable {
     case automatic, light, moderate, deep
 

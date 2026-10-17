@@ -170,7 +170,10 @@ final class HelloNotesUITests: XCTestCase {
         for (tab, sections) in [("general", ["Attachments", "Daily notes", "Templates"]),
                                 ("appearance", ["Accent color", "Text size"]),
                                 ("git", ["Commit identity", "Accounts"]),
-                                ("ai", ["Model"])] {
+                                ("ai", ["Model"]),
+                                // Contact: how anyone reaches HelloNotes — App
+                                // Review Guideline 1.2 (implemented.md §51.53).
+                                ("support", ["Support Request", "Contact", "Terms"])] {
             let button = app.buttons["settings.tab.\(tab)"]
             XCTAssertTrue(button.waitForExistence(timeout: 10), "Settings has no \(tab) tab")
             button.tap()

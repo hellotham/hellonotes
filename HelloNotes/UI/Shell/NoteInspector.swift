@@ -60,6 +60,9 @@ struct NoteInspector: View {
     /// Summarise the note. `nil` hides the affordance — no model, nothing to
     /// offer, and an always-visible button that always fails is worse than none.
     var summarize: ((String) async throws -> String)? = nil
+    /// The model the suggestions come from, as the app names it in a
+    /// sentence — for reporting one (`ResponseReport`).
+    var modelName: String = ""
     /// Write the summary into the note's front matter (`summary:`). `nil`
     /// leaves it read-only.
     var onInsertSummary: ((String) -> Void)? = nil
@@ -297,18 +300,24 @@ struct NoteInspector: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                     .background(Chrome.Colour.quaternaryLabel.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
-                if onInsertSummary != nil {
-                    Button {
-                        onInsertSummary?(text)
-                        // It is saved now; offering again would just rewrite
-                        // the same property with the same text.
-                        summary = .idle
-                    } label: {
-                        Label("Save to Properties", systemImage: "square.and.arrow.down")
-                            .font(Chrome.Style.caption2)
+                HStack(spacing: 12) {
+                    if onInsertSummary != nil {
+                        Button {
+                            onInsertSummary?(text)
+                            // It is saved now; offering again would just rewrite
+                            // the same property with the same text.
+                            summary = .idle
+                        } label: {
+                            Label("Save to Properties", systemImage: "square.and.arrow.down")
+                                .font(Chrome.Style.caption2)
+                        }
+                        .buttonStyle(ChromeBorderlessStyle())
+                        .help("Save the summary in the note's summary: property")
                     }
-                    .buttonStyle(ChromeBorderlessStyle())
-                    .help("Save the summary in the note's summary: property")
+                    ReportResponseButton {
+                        ResponseReport(feature: "Summary", model: modelName, response: text)
+                    }
+                    .font(Chrome.Style.caption2)
                 }
             }
         }
@@ -520,6 +529,11 @@ struct NoteInspector: View {
                         .help("Add #\(tag) to this note's tags property")
                     }
                 }
+                ReportResponseButton {
+                    ResponseReport(feature: "Suggested Tags", model: modelName,
+                                   response: tags.map { "#\($0)" }.joined(separator: " "))
+                }
+                .font(Chrome.Style.caption2)
             }
             .padding(.top, 2)
         }
@@ -716,6 +730,11 @@ struct NoteInspector: View {
                         .disabled(onInsertLink == nil)
                         .help("Add “\(title)” to this note's related property")
                     }
+                    ReportResponseButton {
+                        ResponseReport(feature: "Suggested Links", model: modelName,
+                                       response: titles.map { "[[\($0)]]" }.joined(separator: "\n"))
+                    }
+                    .font(Chrome.Style.caption2)
                 }
             }
         }

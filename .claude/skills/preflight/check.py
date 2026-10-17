@@ -108,11 +108,18 @@ add("PASS" if raw and len(tracked) >= len(raw) else "WARN",
     "raw captures committed", f"{where} — {len(tracked)} tracked")
 
 # ------------------------------------------------- leftovers on the Mac
-host = sh("pgrep", "-f", "-NSTreatUnknownArgumentsAsOpen").stdout.strip()
+# By what each process executes (scripts/hellonotes-processes.sh). The host
+# check was `pgrep -f -NSTreatUnknownArgumentsAsOpen`, and pgrep reads a
+# pattern starting with `-` as options: "illegal option -- N", nothing on
+# stdout, so it said "ok" on every run and could not fail. The app check, a
+# pattern over command lines, warned about any shell that named the app
+# (docs/implemented.md §51.50).
+processes = str(ROOT / "scripts/hellonotes-processes.sh")
+host = sh(processes, "hosts").stdout.strip()
 add("PASS" if not host else "FAIL", "no test hosts left running",
     "" if not host else f"pids {host.split()}")
 
-app = sh("pgrep", "-f", r"HelloNotes\.app/Contents/MacOS/HelloNotes").stdout.strip()
+app = sh(processes, "app").stdout.strip()
 add("PASS" if not app else "WARN", "Mac app not running",
     "" if not app else f"pids {app.split()} — a test run will refuse")
 

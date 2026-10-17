@@ -323,6 +323,118 @@ extension UnloadedNoteTests {
     }
 }
 
+// MARK: - A download nothing answers
+
+extension UnloadedNoteTests {
+    /// **The wait for a note still in the cloud ends — whatever the provider
+    /// does.** Reported from an iPad, on an iCloud Drive folder: "it keeps
+    /// saying it is downloading from cloud but it never finishes". Opening
+    /// waits at most a minute and then says the note has not come, with Try
+    /// Again — `materialise` exists so that "a provider that never finishes
+    /// leaves the user with a message rather than a spinner with no end" — and
+    /// on the iPad the spinner had no end. Here the provider is asked whether
+    /// the note has come and never answers.
+    @Test func aDownloadNothingAnswersEndsInAMessageNotASpinner() async throws {
+        let body = "# Real Note\n"
+        let (made, dir) = try makeNote(body)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // As the folder's walk found it: not on this device.
+        let note = Note(title: made.title, fileURL: made.fileURL, lastModified: Date(),
+                        fileSize: body.utf8.count, isOnlineOnly: true)
+        // And a provider that never says whether it has come.
+        let answer = DispatchSemaphore(value: 0)
+        FileIO.materialisedProbes.withLock { $0[note.fileURL.path] = { _ in answer.wait() } }
+        defer {
+            _ = FileIO.materialisedProbes.withLock { $0.removeValue(forKey: note.fileURL.path) }
+            for _ in 0..<64 { answer.signal() }
+        }
+
+        let editor = EditorModel()
+        editor.downloadPatience = .seconds(1)
+        editor.willOpen(note)
+        #expect(editor.isDownloading, "the banner never said it was downloading, so this tests nothing")
+        let opening = Task { await editor.open(note) }
+        try await waitUntil { !editor.isDownloading }
+        #expect(editor.loadFailure?.contains("didn’t answer") == true,
+                "the spinner went, and in its place: \(editor.loadFailure ?? "nothing")")
+        #expect(editor.text.isEmpty, "the note was shown, so the provider answered, and this tests nothing")
+        await opening.value
+
+        // And when it does answer — the file is here — it opens, as the
+        // banner says it will, the way any change on disk is taken.
+        _ = FileIO.materialisedProbes.withLock { $0.removeValue(forKey: note.fileURL.path) }
+        for _ in 0..<64 { answer.signal() }
+        await editor.reconcileWithDisk()
+        #expect(editor.loadFailure == nil && editor.text == body, "the note that came was never opened")
+    }
+}
+
+extension UnloadedNoteTests {
+    /// **A note the folder's walk found here, whose provider then never
+    /// answers, says so too.** It was asked on the concurrency pool with no
+    /// deadline — for a note evicted since the walk, say — and a call that
+    /// never came back left an empty tab: no banner, no deadline, and typing
+    /// refused (review of §51.51, finding 2; §51.52).
+    @Test func aNoteThoughtHereWhoseProviderNeverAnswersSaysSo() async throws {
+        let (note, dir) = try makeNote("# Real Note\n")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(!note.isOnlineOnly)
+        let provider = StandInProvider(silent: true)
+        defer { provider.release() }
+
+        let editor = EditorModel()
+        editor.provider = provider.calls
+        editor.downloadPatience = .seconds(1)
+        editor.willOpen(note)
+        await editor.open(note)
+        #expect(!editor.isDownloading)
+        #expect(editor.loadFailure?.contains("didn’t answer") == true, "it said \(editor.loadFailure ?? "nothing")")
+    }
+
+    /// While the provider is slow to say, the banner says the note is coming
+    /// — and it opens when it does.
+    @Test func aNoteThoughtHereWhileTheProviderIsSlowSaysItIsDownloading() async throws {
+        let body = "# Real Note\n"
+        let (note, dir) = try makeNote(body)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let provider = StandInProvider(here: true, silent: true)
+        defer { provider.release() }
+
+        let editor = EditorModel()
+        editor.provider = provider.calls
+        editor.downloadPatience = .seconds(30)
+        editor.willOpen(note)
+        #expect(!editor.isDownloading, "a note the walk found here was said to be downloading at once")
+        let opening = Task { await editor.open(note) }
+        try await waitUntil { editor.isDownloading }
+        provider.release()
+        await opening.value
+        #expect(!editor.isDownloading && editor.loadFailure == nil && editor.text == body)
+    }
+
+    /// **And a cloud collection's fetch that never ends says so.** Opening
+    /// awaited it before any deadline, so a download the network trickled was
+    /// a banner with no end as well (review of §51.51, finding 4).
+    @Test func aCloudFetchThatNeverEndsSaysSo() async throws {
+        let (made, dir) = try makeNote("# Real Note\n")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let note = Note(title: made.title, fileURL: made.fileURL, lastModified: Date(),
+                        fileSize: 12, isOnlineOnly: true)
+        let fetch = Gate()
+        defer { fetch.open() }
+
+        let editor = EditorModel()
+        editor.downloadPatience = .seconds(1)
+        editor.prepareToOpen = { _ in await fetch.wait() }
+        editor.willOpen(note)
+        let opening = Task { await editor.open(note) }
+        try await waitUntil { !editor.isDownloading }
+        #expect(editor.loadFailure?.contains("still on its way") == true, "it said \(editor.loadFailure ?? "nothing")")
+        fetch.open()
+        await opening.value
+    }
+}
+
 // MARK: - A note that arrives after its load failed
 
 extension UnloadedNoteTests {

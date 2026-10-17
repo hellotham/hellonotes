@@ -57,10 +57,11 @@ struct DeepResearch {
         let choice = settings.model
         if case .unavailable(let why) = models.availability(of: choice) { return why }
         guard models.supportsTools(choice) else {
-            return "Research searches the web with tools, and \(models.name(of: choice)) can't use tools. Choose System in AI settings, or an MLX model it doesn't mark \"Can't use tools\"."
+            return "Research searches the web with tools, and \(models.name(of: choice)) can't use tools. Choose \(LanguageModels.appleModels(joinedBy: "or")) in AI settings, or an MLX model it doesn't mark \"Can't use tools\"."
         }
         guard models.knownContextSize(of: choice) >= minimumContextTokens else {
-            return "Research reads whole web pages, which needs a larger model than \(models.name(of: choice)). Choose \(LanguageModels.largerModels) in AI settings."
+            return "Research reads whole web pages, which needs a larger model than \(models.name(of: choice))."
+                + (LanguageModels.largerModels(than: choice).map { " Choose \($0) in AI settings." } ?? "")
         }
         return nil
     }

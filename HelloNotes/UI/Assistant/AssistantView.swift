@@ -102,15 +102,16 @@ struct AssistantView: View {
                         retiredNotice
                     }
                     if model.agentMode && !model.canUseTools && model.availability.isAvailable {
-                        Label("\(model.modelName) can't use tools, so the Assistant can chat but won't read or change your notes. System can, and so can any MLX model AI settings doesn't mark \"Can't use tools\".",
+                        Label("\(model.modelName) can't use tools, so the Assistant can chat but won't read or change your notes. \(LanguageModels.appleModels(joinedBy: "and")) can, and so can any MLX model AI settings doesn't mark \"Can't use tools\".",
                               systemImage: "info.circle")
                             .font(Chrome.Style.callout)
                             .foregroundStyle(Chrome.Colour.secondaryLabel)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if model.entries.isEmpty && !model.isResponding { emptyState }
-                    ForEach(AssistantRow.rows(model.entries)) { row in
-                        RowView(row: row)
+                    let rows = AssistantRow.rows(model.entries)
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        RowView(row: row, report: report(for: row, at: index, in: rows))
                     }
                     if model.isResponding, let status = progressText {
                         HStack(spacing: 8) {
@@ -224,6 +225,22 @@ struct AssistantView: View {
     // MARK: - Composer
 
     private var composer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Once there is a conversation the empty state, which says where
+            // text goes, is gone — so on a model off the device it is said
+            // here, beside what is about to be sent.
+            if !model.entries.isEmpty, let line = models.conversationPrivacy(of: model.modelChoice) {
+                Text("\(Image(systemName: "lock.icloud")) \(line)")
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            composerRow
+        }
+        .padding()
+    }
+
+    private var composerRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             // In its own well, so no field box — only the app's placeholder.
             TextField("", text: $model.input, axis: .vertical)
@@ -254,7 +271,6 @@ struct AssistantView: View {
                 .accessibilityLabel("Send")
             }
         }
-        .padding()
     }
 }
 
@@ -310,8 +326,25 @@ enum AssistantRow: Identifiable, Equatable {
     }
 }
 
+extension AssistantView {
+    /// What "Report…" beside a reply carries: the reply, the question asked
+    /// before it, and the model that wrote it (`ResponseReport`).
+    fileprivate func report(for row: AssistantRow, at index: Int,
+                            in rows: [AssistantRow]) -> (() -> ResponseReport)? {
+        guard case .response(_, let text) = row else { return nil }
+        let asked = rows[..<index].reversed().lazy.compactMap { row -> String? in
+            if case .prompt(_, let prompt) = row { return prompt }
+            return nil
+        }.first
+        let name = model.modelName
+        return { ResponseReport(feature: "Assistant", model: name, response: text, prompt: asked) }
+    }
+}
+
 private struct RowView: View {
     let row: AssistantRow
+    /// For a reply: what reporting it carries.
+    var report: (() -> ResponseReport)? = nil
     /// Kept per row, so a reply that is still arriving is rendered a line at a
     /// time rather than from the top on every redraw.
     @State private var answer = AnswerMarkdown.Streaming()
@@ -326,13 +359,20 @@ private struct RowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .response(_, let text):
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkles").foregroundStyle(Chrome.Colour.purple).frame(width: 20)
-                // `AnswerMarkdown`, not `Text(LocalizedStringKey(text))`, which
-                // renders inline Markdown only and drops every line break.
-                Text(answer.attributed(text))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "sparkles").foregroundStyle(Chrome.Colour.purple).frame(width: 20)
+                    // `AnswerMarkdown`, not `Text(LocalizedStringKey(text))`, which
+                    // renders inline Markdown only and drops every line break.
+                    Text(answer.attributed(text))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let report {
+                    ReportResponseButton(report: report)
+                        .font(Chrome.Style.caption)
+                        .padding(.leading, 30)
+                }
             }
         case .reasoning(_, let text):
             DisclosureGroup {

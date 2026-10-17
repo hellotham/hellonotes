@@ -35,25 +35,38 @@ held at build time**. Building without it ships empty cloud-provider keys.
 ## The pipeline
 
 ```bash
+# 0 · The app's entitlements without Private Cloud Compute, which Apple never
+#     provisions for Developer ID (docs/production.md §1b-PCC). PlistBuddy, not
+#     plutil: plutil reads the key's dots as a key path and removes nothing.
+mkdir -p build
+cp HelloNotes/HelloNotes.entitlements build/HelloNotes-DeveloperID.entitlements
+/usr/libexec/PlistBuddy -c "Delete :com.apple.developer.private-cloud-compute" \
+  build/HelloNotes-DeveloperID.entitlements
+
 # 1 · Archive (arm64 — 1.3.3's macOS 27 floor runs only on Apple silicon, and Xcode 27's
-#     ARCHS_STANDARD is arm64 there; 1.3.2 and earlier were universal)
+#     ARCHS_STANDARD is arm64 there; 1.3.2 and earlier were universal), signed with
+#     those. Only the app target reads HN_APP_ENTITLEMENTS; the extensions keep
+#     their own. Its own archive path: this archive must never be uploaded to the
+#     App Store, whose build carries the entitlement.
 xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'generic/platform=macOS' -skipPackagePluginValidation \
-  -archivePath build/HelloNotes.xcarchive -allowProvisioningUpdates
+  -archivePath build/HelloNotes-DeveloperID.xcarchive -allowProvisioningUpdates \
+  HN_APP_ENTITLEMENTS="$PWD/build/HelloNotes-DeveloperID.entitlements"
 
-# 2 · Export with Developer ID
-xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
-  -exportOptionsPlist ExportOptions.plist -exportPath build/export \
+# 2 · Export with Developer ID — fails "not available for Developer ID provisioning
+#     profiles" if the archive carries Private Cloud Compute
+xcodebuild -exportArchive -archivePath build/HelloNotes-DeveloperID.xcarchive \
+  -exportOptionsPlist ExportOptions.plist -exportPath build/export-developer-id \
   -allowProvisioningUpdates
 
 # 3 · Notarize + staple the .app (package-dmg.sh refuses an un-notarized app)
-ditto -c -k --keepParent build/export/HelloNotes.app build/HelloNotes.zip
+ditto -c -k --keepParent build/export-developer-id/HelloNotes.app build/HelloNotes.zip
 xcrun notarytool submit build/HelloNotes.zip --keychain-profile "hellotham-notary" --wait
-xcrun stapler staple build/export/HelloNotes.app
+xcrun stapler staple build/export-developer-id/HelloNotes.app
 
 # 4 · Build, sign, notarize, staple the DMG → dist/HelloNotes.dmg
 #     (overwrites any existing dist/HelloNotes.dmg — move it aside to keep it)
-scripts/package-dmg.sh build/export/HelloNotes.app
+scripts/package-dmg.sh build/export-developer-id/HelloNotes.app
 ```
 
 ## Verify what you are shipping — as a user's Mac would
@@ -65,6 +78,7 @@ spctl --assess -t open --context context:primary-signature -v dist/HelloNotes.dm
 #   → accepted / source=Notarized Developer ID
 hdiutil attach dist/HelloNotes.dmg -nobrowse -mountpoint /tmp/hn
 lipo -archs /tmp/hn/HelloNotes.app/Contents/MacOS/HelloNotes    # → arm64 (1.3.3+)
+codesign -d --entitlements - /tmp/hn/HelloNotes.app | grep -c private-cloud-compute  # → 0
 spctl --assess --type execute -v /tmp/hn/HelloNotes.app
 xcrun stapler validate /tmp/hn/HelloNotes.app                   # works offline
 defaults read /tmp/hn/HelloNotes.app/Contents/Info CFBundleShortVersionString

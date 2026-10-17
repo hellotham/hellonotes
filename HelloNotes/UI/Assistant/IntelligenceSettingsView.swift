@@ -42,9 +42,9 @@ struct IntelligenceSettingsForm: View {
     private var mlx: MLXModelStore { settings.mlx }
 
     #if os(iOS)
-    private let ghostTextHelp = "Grey text appears after the cursor when you pause at the end of a line. Tap it to accept — or ⌥⇥ with a keyboard attached; Esc dismisses it. Nothing is added to the note until you accept."
+    private let ghostTextHelp = "Grey text appears after the cursor when you pause at the end of a line. Tap it to accept — or ⌥⇥ with a keyboard attached; Esc dismisses it. Nothing is added to the note until you accept. To report a suggestion, write to us — Settings ▸ Support ▸ Contact."
     #else
-    private let ghostTextHelp = "Grey text appears after the cursor when you pause at the end of a line. ⌥⇥ or → accepts it; Esc dismisses it. Nothing is added to the note until you accept."
+    private let ghostTextHelp = "Grey text appears after the cursor when you pause at the end of a line. ⌥⇥ or → accepts it; Esc dismisses it. Nothing is added to the note until you accept. To report a suggestion, write to us — Settings ▸ Support ▸ Contact."
     #endif
 
     private var ghostTextUnavailable: String? {
@@ -99,8 +99,7 @@ struct IntelligenceSettingsForm: View {
     private var modelsSection: some View {
         ChromeSection {
             modelPicker
-            modelCaption(for: settings.model,
-                         role: "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Your Library, Research and the suggestions as you type.")
+            modelCaption(for: settings.model, role: LanguageModels.uses(of: settings.model))
 
             if settings.model == .privateCloud, let quota = models.privateCloudQuotaNote {
                 VStack(alignment: .leading, spacing: 6) {
@@ -215,7 +214,7 @@ struct IntelligenceSettingsForm: View {
                             options: ReasoningChoice.allCases.map { ChromeOption(value: $0, title: $0.title) })
             }
             Text(models.supportsReasoning(settings.model)
-                 ? "Lower creativity is more focused and predictable. More thinking gives better answers to hard questions, and takes longer."
+                 ? "Lower creativity is more focused and predictable. More thinking gives better answers to hard questions, and takes longer. These are the model's own settings, and they apply to the Assistant — the writing tools ask for what each task needs."
                  : "Lower creativity is more focused and predictable; higher is more varied. These are the model's own settings, and they apply to the Assistant — the writing tools ask for what each task needs.")
                 .font(Chrome.Style.caption).foregroundStyle(Chrome.Colour.secondaryLabel)
                 .fixedSize(horizontal: false, vertical: true)

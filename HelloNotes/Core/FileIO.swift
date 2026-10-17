@@ -97,6 +97,21 @@ nonisolated enum FileIO {
         return status != .notDownloaded
     }
 
+    /// Whether the **newest** version of a file is here: stricter than
+    /// `isMaterialized`, which counts an older copy on the device as here. A
+    /// file that is not a cloud item, or whose state cannot be read, is
+    /// current. What a preview waits for — nothing refreshes one when a newer
+    /// version lands (`AttachmentBytes`).
+    static func isCurrent(at url: URL) -> Bool {
+        if let probe = materialisedProbes.withLock({ $0[url.path] }) { probe(Thread.isMainThread) }
+        guard let values = try? url.resourceValues(forKeys: [
+            .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
+        ]),
+            values.isUbiquitousItem == true
+        else { return true }
+        return values.ubiquitousItemDownloadingStatus == .current
+    }
+
     /// Told, for a file's path, whether a look at its download state ran on
     /// the main thread — a test's way to see where it is asked, which no
     /// timing can show for a local file and a File Provider's can block on.
@@ -366,33 +381,150 @@ nonisolated enum FileIO {
     /// and called the note empty.
     ///
     /// The deadline is there so a provider that never finishes leaves the user
-    /// with a message rather than a spinner with no end.
-    ///
-    /// **`@concurrent`, or it polls on the main actor.** A plain `async`
-    /// function on this `nonisolated` enum inherits its caller's actor under
-    /// approachable concurrency, and both callers are main-actor classes — so
-    /// every metadata query to the provider, and the download request, ran on
-    /// the main thread every 200 ms for up to a minute. Measured by a probe
-    /// built with this target's flags: main thread before and after the sleep
-    /// without the attribute, the cooperative pool with it.
+    /// with a message rather than a spinner with no end — `waitForDownload`
+    /// says which of the two ways it was not there.
     /// - Returns: whether the content is available now.
     @discardableResult
-    @concurrent
     static func materialise(at url: URL, timeout: Duration = .seconds(60)) async -> Bool {
-        if isMaterialized(at: url) { return true }
-        try? download(at: url)
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            do { try await Task.sleep(for: .milliseconds(200)) } catch { return isMaterialized(at: url) }
-            if isMaterialized(at: url) { return true }
-        }
-        return isMaterialized(at: url)
+        await waitForDownload(at: url, timeout: timeout) == .arrived
     }
+
+    /// What waiting for a cloud file's bytes came to.
+    enum DownloadWait: Sendable, Equatable {
+        /// Here — or here all along.
+        case arrived
+        /// Asked for, and the provider still saying "not here" at the deadline.
+        case notYet
+        /// No answer from the provider by the deadline: a question to it had
+        /// not come back, or could not be asked.
+        case noAnswer
+    }
+
+    /// How much of a cloud file has to be here.
+    enum DownloadNeed: Sendable, Equatable {
+        /// Content to read. An older version on the device will do: a note
+        /// opens from it, and a newer one is taken as any change on disk is
+        /// (`EditorModel.reconcileWithDisk`).
+        case content
+        /// The newest version — what a preview waits for (`isCurrent`).
+        case latest
+    }
+
+    /// The questions a wait puts to the file provider, and where it puts
+    /// them: the real ones, or a test's stand-in for a provider that is slow,
+    /// silent or absent.
+    struct ProviderCalls: Sendable {
+        /// Whether the file is here, as far as the need asks.
+        var isHere: @Sendable (_ url: URL, _ need: DownloadNeed) -> Bool
+        /// Ask for it to be downloaded.
+        var askFor: @Sendable (_ url: URL) -> Void
+        /// Where the questions are asked — one file's on one lane, in turn. A
+        /// stand-in brings lanes of its own, so a provider a test holds silent
+        /// holds up no one else's questions.
+        var lanes: [DispatchQueue] = FileIO.sharedLanes
+
+        static let live = ProviderCalls(
+            isHere: { url, need in need == .latest ? FileIO.isCurrent(at: url) : FileIO.isMaterialized(at: url) },
+            askFor: { url in try? FileIO.download(at: url) })
+
+        /// Sixteen serial queues: a silent provider holds at most one a file,
+        /// and sixteen in all.
+        static func makeLanes(_ label: String) -> [DispatchQueue] {
+            (0..<16).map { DispatchQueue(label: "\(label).\($0)", qos: .userInitiated) }
+        }
+
+        func lane(for url: URL) -> DispatchQueue {
+            lanes[Int(UInt(bitPattern: url.path.hashValue) % UInt(lanes.count))]
+        }
+    }
+
+    /// `materialise`, saying how it ended — and **ended by its deadline,
+    /// whatever the provider does** (implemented.md §51.51, §51.52).
+    ///
+    /// Asking whether a file has come and asking for it are synchronous calls
+    /// to the file provider, and one that never comes back is a thread held
+    /// for good. The wait polled on the concurrency pool and read its clock
+    /// between questions, so one such call held the "Downloading … from the
+    /// cloud" banner up for good on an iPad. Each of these was then measured:
+    /// - **Questions go on lanes of their own** — sixteen serial queues, one
+    ///   file always on the same one. On the pool each held one of its few
+    ///   threads; on a concurrent queue every Try Again took another of GCD's
+    ///   capped threads, and at the cap nothing in the process ran. Now a
+    ///   silent provider holds at most a lane per file, sixteen in all, and
+    ///   nothing is held between questions: the next is scheduled, not slept
+    ///   for.
+    /// - **The deadline is a timer on a queue of its own** (`deadlines`),
+    ///   which no question can hold up: on GCD's shared queue it waited behind
+    ///   the very calls it was there to outlast. One monotonic deadline is
+    ///   read by both sides.
+    /// - **Which way it ended is true.** The questions say "not yet" at the
+    ///   deadline while the provider is answering; only a question still out
+    ///   a second past it — or never put, its lane held by another file's — is
+    ///   "no answer". And once answered, nothing more is asked.
+    static func waitForDownload(at url: URL, timeout: Duration = .seconds(60),
+                                needing need: DownloadNeed = .content,
+                                using provider: ProviderCalls = .live) async -> DownloadWait {
+        let wait = DownloadWaiter(url: url, need: need, provider: provider, timeout: timeout)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { wait.start($0) }
+        } onCancel: {
+            wait.give(.notYet)
+        }
+    }
+
+    /// Where the app asks the provider (`ProviderCalls.lanes`).
+    static let sharedLanes = ProviderCalls.makeLanes("com.hellotham.HelloNotes.file-provider")
+
+    /// Where deadlines are kept. Serial, so it is given a thread even when
+    /// GCD's shared pool is full of calls that have not come back.
+    static let deadlines = DispatchQueue(label: "com.hellotham.HelloNotes.deadlines", qos: .userInitiated)
 
     /// Ask the system to free an item's local copy back to online-only. This is
     /// **best-effort**: for a File Provider domain we don't own, the provider has
     /// the final say and may keep or re-download the file.
     static func evict(at url: URL) throws {
         try FileManager.default.evictUbiquitousItem(at: url)
+    }
+}
+
+/// One wait for one file's download (`FileIO.waitForDownload`).
+nonisolated private final class DownloadWaiter: @unchecked Sendable {
+    private let url: URL
+    private let need: FileIO.DownloadNeed
+    private let provider: FileIO.ProviderCalls
+    private let deadline: DispatchTime
+    private let answer = OneAnswer<FileIO.DownloadWait>()
+
+    init(url: URL, need: FileIO.DownloadNeed, provider: FileIO.ProviderCalls, timeout: Duration) {
+        self.url = url
+        self.need = need
+        self.provider = provider
+        deadline = .now() + timeout.dispatchInterval
+    }
+
+    func start(_ continuation: CheckedContinuation<FileIO.DownloadWait, Never>) {
+        // Answered already — cancelled before it began — and nothing is asked.
+        guard answer.expect(continuation) else { return }
+        FileIO.deadlines.asyncAfter(deadline: deadline + .seconds(1)) { [self] in answer.give(.noAnswer) }
+        provider.lane(for: url).async { [self] in look(first: true) }
+    }
+
+    func give(_ value: FileIO.DownloadWait) { answer.give(value) }
+
+    /// One look — the first time, the request too — and the next one
+    /// scheduled, not slept for.
+    private func look(first: Bool) {
+        guard !answer.isGiven else { return }
+        if provider.isHere(url, need) { answer.give(.arrived); return }
+        if first {
+            guard !answer.isGiven else { return }
+            provider.askFor(url)
+        }
+        let now = DispatchTime.now()
+        guard now < deadline else { answer.give(.notYet); return }
+        guard !answer.isGiven else { return }
+        provider.lane(for: url).asyncAfter(deadline: min(now + .milliseconds(200), deadline)) { [self] in
+            look(first: false)
+        }
     }
 }

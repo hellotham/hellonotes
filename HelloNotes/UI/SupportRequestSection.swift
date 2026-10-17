@@ -129,6 +129,15 @@ struct SupportRequestSection: View {
 
     /// Versions and platform. Nothing about the user's notes.
     static func diagnostics(entitlement: String?) -> String {
+        """
+        \(versionLines)
+        Support: \(entitlement ?? "none")
+        """
+    }
+
+    /// The app's version and build, and the system's — what a support request
+    /// and a report of a response both carry (`ResponseReport`).
+    static var versionLines: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
@@ -141,7 +150,6 @@ struct SupportRequestSection: View {
         return """
         HelloNotes \(version) (\(build))
         \(platform) — \(os)
-        Support: \(entitlement ?? "none")
         """
     }
 

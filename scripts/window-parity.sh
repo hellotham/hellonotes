@@ -136,7 +136,9 @@ xcodebuild build -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePl
   -destination 'platform=macOS' > "$work/mac-build.log" 2>&1 \
   || { echo "macOS build failed — see $work/mac-build.log"; exit 1; }
 
-running() { pgrep -f 'HelloNotes\.app/Contents/MacOS/HelloNotes' | tr '\n' ' '; }
+# By what each process executes, not by a command line that mentions the app
+# (`hellonotes-processes.sh`).
+running() { "$here/hellonotes-processes.sh" all | tr '\n' ' '; }
 if [[ -n "$(running)" ]]; then
   echo "Mac: quitting the running HelloNotes (it may hold unsaved edits)…"
   osascript -e 'tell application id "com.hellotham.HelloNotes" to quit' > /dev/null 2>&1
@@ -245,7 +247,7 @@ sleep 3
 swiftc -O scripts/winid.swift -o "$work/winid" 2> /dev/null
 window() { "$work/winid" | awk -v size="^${width}(\\.0)?x${safe_height}(\\.0)?$" '$2 ~ size {print $1; exit}'; }
 id=$(window)
-mac_pid=$(pgrep -f "$mac_app/Contents/MacOS/HelloNotes" | head -1)
+mac_pid=$("$here/hellonotes-processes.sh" at "$mac_app/Contents/MacOS/HelloNotes" | head -1)
 # Read, not looked at: no picture while a name that is not the sample's shows.
 only_the_sample() {
   local seen=$("$work/window-names" "$mac_pid" "$work/private-names.txt")

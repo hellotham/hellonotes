@@ -142,6 +142,10 @@ struct RewriteSelectionView: View {
                                 dismiss()
                             }
                             Spacer()
+                            ReportResponseButton {
+                                ResponseReport(feature: "Rewrite", model: intelligence.modelName, response: result,
+                                               prompt: instruction.isEmpty ? nil : instruction)
+                            }
                         }
                     }
                 }

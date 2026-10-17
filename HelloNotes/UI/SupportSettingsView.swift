@@ -41,6 +41,9 @@ struct SupportSettingsView: View {
     /// `…/privacy/` 404s while `…/privacy` is 200 — a dead policy link on the
     /// one screen a reviewer is required to check.
     static let privacyURL = URL(string: "https://hellotham.com/hellonotes/privacy")!
+    /// The published address — the website's support page and the support
+    /// request use the same one — written to without anything composed in it.
+    static let contactURL = URL(string: "mailto:\(SupportRequestSection.supportAddress)")!
 
     @Environment(\.openURL) private var openURL
 
@@ -61,6 +64,21 @@ struct SupportSettingsView: View {
             championSection
             commercialSection
             SupportRequestSection(store: store)
+
+            // **For everyone, and nothing to do with backing the app.** App
+            // Review Guideline 1.2 asks an app that generates content for
+            // published contact information "so users can easily reach you";
+            // the address was on the website and nowhere in the app, where the
+            // one route was the support request, which backing buys.
+            ChromeSection {
+                policyLink("Email \(SupportRequestSection.supportAddress)", systemImage: "envelope",
+                           destination: Self.contactURL)
+                policyLink("Support Website", systemImage: "safari", destination: ResponseReport.supportPage)
+            } header: {
+                Text("Contact")
+            } footer: {
+                Text("Write to us about anything — a question, a problem, or something HelloNotes’ AI wrote that it should not have. The AI’s responses also have Report… beside them.")
+            }
 
             ChromeSection {
                 policyLink("Terms of Use (EULA)", systemImage: "doc.text", destination: Self.eulaURL)

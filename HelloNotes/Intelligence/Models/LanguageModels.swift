@@ -104,10 +104,29 @@ final class LanguageModels {
 
     var offeredChoices: [ModelChoice] { Self.offeredChoices }
 
-    /// The models worth suggesting when the chosen one is too small, named only
-    /// if this build can offer them.
-    nonisolated static var largerModels: String {
-        privateCloudComputeEnabled ? "Private Cloud Compute or an MLX model" : "an MLX model"
+    /// The models worth suggesting when `choice` is too small — named only if
+    /// this build can offer them and they read more at once — or `nil` when
+    /// there are none.
+    ///
+    /// It was one sentence for every model, which was harmless while there
+    /// were two: Private Cloud Compute, the largest window the app can reach
+    /// (32,768), was then told to choose itself, or an MLX model with half its
+    /// window. An MLX model is offered from System because a Mac gives one
+    /// 16,384 tokens, and on a device whose System model has 4,096 so does the
+    /// 8,192 an iPhone gives it.
+    nonisolated static func largerModels(than choice: ModelChoice) -> String? {
+        switch choice {
+        case .onDevice: privateCloudComputeEnabled ? "Private Cloud Compute or an MLX model" : "an MLX model"
+        case .mlx: privateCloudComputeEnabled ? "Private Cloud Compute" : nil
+        case .privateCloud: nil
+        }
+    }
+
+    /// Apple's models this build offers, by name, for a sentence about
+    /// something every one of them can do: "System", or "System and Private
+    /// Cloud Compute" (with "or", for a choice).
+    nonisolated static func appleModels(joinedBy conjunction: String) -> String {
+        privateCloudComputeEnabled ? "System \(conjunction) Private Cloud Compute" : "System"
     }
 
     private static let privateCloudNotInThisBuild =
@@ -253,6 +272,29 @@ final class LanguageModels {
             "Sent to Apple's Private Cloud Compute to process. It isn't stored, and it isn't accessible to Apple."
         case .mlx:
             "Runs on this device with an open model you downloaded. Your notes are not sent to any AI service."
+        }
+    }
+
+    /// What the chosen model is used for, as the AI settings say under the
+    /// picker. Suggestions as you type run only on a model on this device
+    /// (`IntelligenceService.supportsInlineCompletion`) — a round trip cannot
+    /// keep up with typing — so the line does not promise them on one off it.
+    nonisolated static func uses(of choice: ModelChoice) -> String {
+        choice.runsOnDevice
+            ? "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Your Library, Research and the suggestions as you type."
+            : "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Your Library and Research. Suggestions as you type need a model on this device."
+    }
+
+    /// What each message of a conversation under way sends, on a model off
+    /// the device — or `nil` on one on it. The Assistant said where text goes
+    /// only on an empty conversation, and a conversation switched to Private
+    /// Cloud Compute partway carries everything before the switch with it,
+    /// what the tools read from notes on the device included.
+    func conversationPrivacy(of choice: ModelChoice) -> String? {
+        switch choice {
+        case .onDevice, .mlx: nil
+        case .privateCloud:
+            "Each message sends the conversation so far to Apple's Private Cloud Compute, with what it has read from your notes. It isn't stored, and it isn't accessible to Apple."
         }
     }
 

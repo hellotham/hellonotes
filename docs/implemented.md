@@ -8416,6 +8416,386 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.54 Private Cloud Compute, granted — in the App Store build, and kept out of the DMG (2026-10-17)
+
+**Apple granted the managed entitlement, and the app now offers Private Cloud
+Compute** — the change `production.md` §1b-PCC had waited a month for, made as
+it said: the capability on the `com.hellotham.HelloNotes` App ID in the
+Developer portal (*Access to models on Private Cloud Compute*, beside the App
+Groups, iCloud and In-App Purchase it already had), the key in
+`HelloNotes.entitlements`, and `PRIVATE_CLOUD_COMPUTE` in the app target's
+Debug and Release. The app side needed nothing more: the model, its privacy
+line, its quota note and its errors had been written in September behind the
+flag. From inside the signed app the probe asked once — available, quota not
+reached, "OK" in 1.2 seconds — with a development profile Xcode made for it
+that minute, carrying the entitlement.
+
+**The portal's own note beside the capability said what the rest of the day
+was about: Provisioning Support — Development, Ad hoc, App Store Connect.**
+Not Developer ID. A Release archive exported for the DMG failed: *"Cannot
+create a Developer ID provisioning profile for "com.hellotham.HelloNotes".
+The Access to models on Private Cloud Compute capability is not available for
+Developer ID provisioning profiles."* Two things that could mean, with very
+different costs: that an app *asking* for it cannot be given a Developer ID
+profile, or that an App ID *having* it cannot — which would have taken the
+DMG's iCloud sync and App Group with it, both of which need a profile.
+- **Measured, not argued.** Re-signing the archived app without the key, to
+  export that, was refused by this session's safety classifier, and was not
+  tried another way. The ordinary route answered it instead: the same project
+  archived once from the entitlements without the key (put back the moment the
+  archive finished) exported for Developer ID — signed Developer ID
+  Application, a new *Mac Team Direct Provisioning Profile*, iCloud's key-value
+  store and the App Group intact, all three extensions Developer ID-signed,
+  `codesign --verify --deep --strict` clean. The capability on the App ID
+  costs the DMG nothing but the model.
+- **So the DMG is archived from the app's entitlements less that key**, and
+  the switch is a build setting only the app reads: `CODE_SIGN_ENTITLEMENTS =
+  "$(HN_APP_ENTITLEMENTS)"`, `HN_APP_ENTITLEMENTS =
+  HelloNotes/HelloNotes.entitlements`. Overriding `CODE_SIGN_ENTITLEMENTS` on
+  the command line would have given the widget, Preview and Thumbnail
+  extensions the app's entitlements too; overriding `HN_APP_ENTITLEMENTS`
+  reaches the app alone (read back with `-showBuildSettings`, and from the
+  exported extensions' signatures). The copy is made at release time from the
+  real file — nothing committed to drift — by PlistBuddy: `plutil -remove`
+  reads the key's dots as a key path, finds nothing, and writes nothing.
+  `theDirectDownloadCanBeSignedWithoutIt` fails if the project is written back
+  to a plain path, which would leave the override overriding nothing.
+- **The two archives have two paths** (`build/HelloNotes.xcarchive` for the
+  App Store, `build/HelloNotes-DeveloperID.xcarchive` for the DMG). They
+  shared one; a DMG archive uploaded to the App Store would be a build without
+  the model, and nothing would say so.
+- **The DMG build still has the flag, and does not offer the model**: on the
+  Mac, `privateCloudComputeEnabled` also reads the *signed* entitlement
+  (`SecTaskCopyValueForEntitlement`), which September's version wrote for
+  exactly this case. That build was not launched — a Release build opens the
+  person's own collections.
+- **The App Store side was proved the same way.** The archive with the key,
+  exported `app-store-connect` to a folder — a copy of the upload plist with
+  `destination` set to `export`, since the repository's sends the build — is
+  an Apple Distribution app with the entitlement, in a package signed by the
+  installer certificate.
+
+What it is called, and where it is described. In Apple's words and the app's:
+"Sent to Apple's Private Cloud Compute to process. It isn't stored, and it
+isn't accessible to Apple." — the same sentence under the picker, in the
+manual (bundled and on the website), in the privacy policy (with a paragraph
+for email sent to us, which it had never mentioned) and in the listing.
+Nothing claims it filters anything: its interface has no guardrail setting,
+only `init()`, so the copy calls it Apple's own model on Apple's servers and
+keeps "applies Apple's guardrails" for the System model, where the app
+chooses the guardrails. App Privacy was re-read in full and stays "no data
+collected": data sent to serve a request in real time and not retained is not
+collected, and "you are not responsible for disclosing data collected by
+Apple". The listing names it from build 33 only — build 32, in review on iOS,
+does not offer it, and its promotional text is the field that can be changed
+without review, so the easiest to paste early.
+
+**"Written behind the flag" was not "written right": a fact-check of the new
+copy against the source (the `docs-fact-checker`, 46 claims) found the app
+wrong in four places the day the model became choosable**, each a string or
+a screen written while it could not be:
+- **The "too long" errors told Private Cloud Compute to choose itself** — and
+  an MLX model with half its window — because one list served every model
+  (`LanguageModels.largerModels`). `largerModels(than:)` asks about the model
+  in use: nothing is larger than Private Cloud Compute, only it is larger than
+  MLX, and from System both (summary, expand, rewrite, Research).
+- **The AI settings promised suggestions as you type on a model that cannot
+  make them**: ghost text needs a model on the device
+  (`supportsInlineCompletion`). The line under the picker is
+  `LanguageModels.uses(of:)` now, and says so.
+- **A conversation switched to Private Cloud Compute partway said nothing.**
+  The Assistant said where text goes only on an empty conversation, and the
+  session rebuilt for the new model carries the conversation so far — what the
+  tools read from notes on the device included. On a model off the device a
+  line above the message field says each message sends it
+  (`conversationPrivacy(of:)`).
+- **Two sentences naming the models that can use tools left Private Cloud
+  Compute out** (`appleModels(joinedBy:)`).
+- Smaller: Ask Your Library's "I couldn't find any notes" — the app's words —
+  had Report… beside it; the creativity caption lost "they apply to the
+  Assistant" on a reasoning model; four comments described the app as it was.
+
+`PrivateCloudComputeWordingTests` holds the first three; with the old
+behaviour put back (the larger-model list, and the role line promising ghost
+text everywhere) it failed on exactly those two expectations. The copy took
+the rest: the ghost-text limit, Request More, the reset time said only when
+Apple gives one, "Report… is beside its answers and suggestions" rather than
+"every response" (the Assistant's thinking and an edit's proposed text have
+none, and Contact covers them), the model in use rather than "the model that
+wrote it" (the report names the model chosen when it is pressed), the
+Assistant's conversations kept in the app's own storage, no claim that Private
+Cloud Compute needs Apple Intelligence turned on (the SDK says only "not
+eligible" or "not ready", and the app's own sentence hedges), none that it
+thinks (that is the model's runtime capability, unprobed), and the reviewer
+notes' "the results are read by the model on the device" — untrue of the
+model this change added. And one older error it found on the way: the notes
+to App Review sent the reviewer to "Settings ▸ Support ▸ Support HelloNotes",
+a screen that does not exist — that is the subscription group's name.
+
+| Check | Result |
+|---|---|
+| Developer portal, after saving | Private Cloud Compute ticked beside App Groups, iCloud and In-App Purchase, on a fresh load |
+| `PrivateCloudComputeEntitlementTests` + `PrivateCloudComputeProbe` | 3 tests in 2 suites pass; "OK" from Private Cloud Compute in 1.2 s, inside the signed app |
+| Release archive with the key, exported for Developer ID | fails, as quoted |
+| Same project archived without it (`HN_APP_ENTITLEMENTS`), exported for Developer ID | Developer ID Application; iCloud and App Group kept; no Private Cloud Compute; extensions on their own entitlements; deep strict verify clean |
+| Release archive with the key, exported `app-store-connect` to a folder | Apple Distribution, entitlement present, package signed by the installer certificate |
+| iOS device build | passes, with a new *iOS Team Provisioning Profile: com.hellotham.HelloNotes* (17:17) carrying the entitlement, and the app signed with it — after the person signed in to Xcode again. The first two tries said "No Accounts": the Mac had locked at 15:35 while a build wanted the account, and Xcode's stored list was empty afterwards (AGENTS.md, "A locked screen takes the keychain with it") |
+| Wording suite, entitlement, privacy-line, report, shell, chrome, listing and shipped-content suites | 52 tests in 9 suites pass; negative control as above |
+| macOS app suite, whole | 926 tests in 144 suites, pass |
+| iOS interface tests, iPhone | 19 executed, 3 skipped, 0 failures |
+| iPad held upright | pass |
+| Website build and `site-audit` | clean, 16 pages |
+
+### 51.53 What a model wrote can be reported, and anyone can write to us (2026-10-17)
+
+**App Review Guideline 1.2 names AI content creation apps now** (the revision
+of 16 October 2026). Of an app whose content is generated, it asks for a way
+to filter objectionable material, a mechanism to report offensive content, the
+ability to block abusive users, and published contact information. What
+HelloNotes' models write goes only into the person's own notes — no accounts,
+no other users, nowhere to post — so there is no one to block and no one else
+who sees it. The report and the contact were what applied.
+- **Report… beside every response a model wrote** (`ResponseReport`,
+  `ReportResponseButton`): an Assistant reply, an answer from Ask Your Library,
+  a rewrite, a New Note from a Prompt draft, and the right panel's summary,
+  suggested tags and suggested links. It composes an email to
+  info@hellotham.com in the person's own mail app — the app sends nothing, as
+  with the support request — holding the response (its first 1,000
+  characters, and how many more there were), the question (300), the feature,
+  the model and the versions, and a line saying to read it through before
+  sending, because the response may quote their notes. The URL is built by
+  `URLComponents`, so a response with `&` or `#` in it arrives whole; with no
+  mail app, the support page opens instead. The report is made when the button
+  is pressed, so a reply still arriving is reported as it stands.
+- **Settings ▸ Support ▸ Contact** — the address and the support website, for
+  everyone. It is not a purchase: the support *request* stays the one thing
+  backing HelloNotes adds (`SupportContractTests` unchanged).
+- **Suggest as I type** has no room for a button beside grey text; its help
+  line says to write from Settings ▸ Support ▸ Contact.
+- **Filtering is the model's, and said so.** The System model applies Apple's
+  guardrails; an MLX model is one the person chose and downloaded, and
+  HelloNotes does not filter what it writes — in the manual and to App Review,
+  not left to be inferred.
+- `ResponseReportTests`: the body survives its trip through the URL whole; a
+  long response is cut and says by how much; a suggestion has no question
+  section; the address is the one `website/src/lib/site.ts` publishes, read
+  from it, loudly when it moves. `AIReportSurfacesTests` reads the five files
+  that show a model's text and fails any of seven features shown with nothing
+  to report it by — control: Ask Your Library's report removed, and it failed
+  naming the file. A source check cannot see whether a screen draws, so the
+  iOS settings walk opens Support and finds Contact.
+- Written up in the bundled manual (Intelligence ▸ Reporting a response;
+  Supporting HelloNotes ▸ Contact), the website's AI page (`#report`) and a
+  SAFEGUARDS paragraph in the notes to App Review (`app-store-listing.md`),
+  for the next build.
+
+The revision's other changes — 2.3.14, 2.5.19, 3.1.1(a) and 5 — were read
+against the app and ask nothing new of it.
+
+| Check | Result |
+|---|---|
+| `ResponseReportTests`, `AIReportSurfacesTests`, `SupportContractTests`, `ShippedContentTests`, `ShellComplianceTests` | 45 tests in 5 suites, pass |
+| iOS interface tests, iPhone | 19 executed, 3 skipped, 0 failures |
+| iPad held upright | pass |
+| Website build and `site-audit` | clean, 16 pages |
+
+### 51.52 An attachment iCloud held was never asked for; and the wait, reviewed and rebuilt (2026-10-17)
+
+**The attachment viewer's iCloud wait had never run.** `FileViewerView` used
+the shell's `prepare` if it had one — a cloud collection's fetch — and waited
+for iCloud otherwise. The one shell always passes `prepare`, and for an
+iCloud Drive folder it is a no-op, so the wait below it was never reached: an
+image or a PDF the system held online-only was never asked for, and its empty
+stand-in was previewed, blank, for good. A cloud collection's stand-in that
+could not be fetched was previewed the same way. (The task was filed as "the
+viewer's wait is unbounded and on the main thread". Both were true of code
+that did not run.)
+- **`AttachmentBytes`** is the one decision, apart from the view so a test can
+  drive it: a cloud collection's stand-in is fetched by its collection; any
+  other file is waited for as the system holds it — the *newest* version
+  (`FileIO.isCurrent`), since nothing refreshes a preview when one lands —
+  and either way the wait has an end and says how it ended, with Try Again.
+  "Downloading" is said only after a quarter of a second without an answer:
+  a file that is here answers sooner.
+- Control: the decision as it was, ported verbatim and run under the new
+  tests, failed four expectations — the attachment never asked for and never
+  said to be downloading, a silent provider and an unfetched stand-in both
+  "shown".
+- `FileViewerDrawsTests` draws the real viewer for a local CSV and reads the
+  picture, at full size and halved (CI's runner draws at one pixel a point):
+  the table, not a blank. Control: "here" drawn as nothing fails it. Read
+  from the picture because, in-process, SwiftUI's accessibility tree came
+  back empty — the bottom bar's name and all — and could tell nothing apart.
+
+**The wait itself was reviewed, and five findings were measured true** (the
+`swift-concurrency-reviewer`, against a byte-identical harness of §51.51's
+version):
+1. Its timer ran on GCD's shared queue — the same capped pool the stuck
+   provider calls held. A hundred waits on a silent provider were answered by
+   nobody, and an unrelated block on that queue did not run.
+2. Each waiter slept on a thread between questions, which reached the cap
+   sooner.
+3. "No answer" was reported for a provider that had answered every question:
+   the timer was anchored before the first question, the polling's deadline
+   after two, on two clocks.
+4. A wait cancelled before it began still asked the provider, and still asked
+   for a download nobody would wait for.
+5. A note the folder's walk had found here was still asked on the pool with
+   no deadline — and one that never answered left an empty tab: no banner,
+   no deadline, typing refused.
+And one that predated it: a cloud collection's fetch, awaited before any
+deadline, was bounded only by the network's own timeouts.
+
+What changed, each held by a test:
+- **Questions go on lanes**: sixteen serial queues, one file always on the
+  same one, so a silent provider holds at most a lane a file and sixteen in
+  all; the next question is scheduled, not slept for. **The deadline has a
+  serial queue of its own**, which GCD gives a thread when its shared pool is
+  full. One monotonic deadline; the questions say "not yet" at it while the
+  provider answers, and only a question still out a second past it — or never
+  put — is "no answer"; once answered, nothing more is asked.
+  `FileProviderWaitTests`: a slow but answering provider is "not yet"; a
+  silent one is "no answer" by its deadline; a cancelled wait asks nothing;
+  two hundred waits on silent providers, every lane held, are all answered,
+  with at most sixteen questions out, while an unrelated block on GCD's
+  shared queue runs.
+- **The editor asks about every note through the wait that has an end**, and
+  a cloud collection's fetch is waited for no longer
+  (`finishes(within:)`, Core/Deadline.swift). Mutation controls: skipping the
+  wait for a note thought here fails both of its tests (and the older
+  `openingAsksAboutTheDownloadOffTheMainActor`); awaiting the fetch with no
+  deadline fails its test.
+- **A test's stand-in provider brings lanes of its own** (`StandInProvider`,
+  `ProviderCalls.lanes`). A test that held one of the app's shared lanes silent
+  for a minute — waiting, failing, for a state it had missed — held up
+  whichever other test's note hashed to that lane, one time in sixteen, by a
+  hash that differs per run: the Assistant's `createReadListAndGrep` was
+  told its scratch note "hasn't downloaded to this device". And a state that
+  passes — "Downloading" between asking and the answer — is held by the test
+  until it has seen it, never polled for against the deadline that ends it.
+
+**Checked:** the app suite twice, 916 tests in 140 suites; the iOS build.
+**Not done** — the review's other findings, each pre-existing and recorded in
+unimplemented.md §12: the editor's coordinated read of a note, the reconcile
+on every change seen on disk and the Assistant's read each ask the provider
+on the pool with no deadline, and `adopt(hydrated:)` asks it on the main
+actor.
+
+### 51.51 "Downloading from the cloud" with no end: a deadline nothing can hold up (2026-10-17)
+
+Reported from an iPad on an earlier build (31 or 32; the code below is
+unchanged since): in an iCloud Drive folder, opening a note said
+"Downloading “2026-10-10 DevFest Sydney” from the cloud…", with its spinner,
+and went on saying it — past a minute, which is as long as opening waits
+before saying instead that the note "hasn’t finished downloading … It will
+open once the download completes", with Try Again. `FileIO.materialise` had
+that minute "so a provider that never finishes leaves the user with a message
+rather than a spinner with no end".
+
+**Its deadline was checked between questions to the provider.** It asked
+whether the file had come (`URL.resourceValues` for the download status), and
+asked for it (`startDownloadingUbiquitousItem`), every 200 ms on the
+concurrency pool, and compared the clock in between. Both are synchronous
+calls to the file provider. One that does not return holds the wait — the
+banner — for good, and the pool thread under it with it.
+- **Reproduced**, with the provider asked whether the note had come never
+  answering (`FileIO.materialisedProbes`) and a limit of one second: still
+  "downloading" after 66 seconds.
+- **`FileIO.waitForDownload`** asks on a GCD queue of its own, so a call that
+  never returns holds one of GCD's threads and never one of the pool's few,
+  and is answered by whichever comes first: the questions, or a timer a
+  second past their deadline that nothing asked of the provider can hold up.
+  A late answer is dropped; the file, if it comes, is found the way any change
+  on disk is (`reconcileWithDisk`, "Arrived"). `materialise` is a wrapper.
+  *That first version was reviewed the same day and rebuilt — its timer
+  shared GCD's capped pool with the calls it outlasted, among other things
+  (§51.52).*
+- **It says which wait it was**: "hasn’t finished downloading" when the
+  provider answered and the file did not come; "its provider didn’t answer
+  when asked for it" when the provider never answered — so the next report
+  says which.
+- And opening no longer asks the pool for a thread to ask a question already
+  answered: for a note the folder's walk found was not here, "is it here?" is
+  not asked again before the wait.
+- `aDownloadNothingAnswersEndsInAMessageNotASpinner`: the banner ends with the
+  provider's silence named in it, and the note opens once the provider
+  answers. Control: the same test on the code before, above.
+
+**Not established.** That a call that never returns is what the iPad did:
+the device was not read, at the person's request, and the reproduction is of
+the mechanism. A pool held whole — every thread busy, as a large vault's
+first scan might make it — could not be tested: XCTest waits for a test on a
+nested run loop, and with no thread left the probe's own sleeps never came
+back. Whether the note then *opens* is iCloud's to decide: if the Files app
+cannot download it either, the app can only say so. The attachment viewer
+waits for a download the old way, and on the main thread (left for its own
+change).
+
+### 51.50 A process is what it executes, not what its command line mentions (2026-10-17)
+
+On 2026-10-12, sampling a test host for §51.49, `run-tests.sh` twice refused
+to run: "Mac app would not quit … this is a real macOS process: <pid>". No
+HelloNotes was running. The pid was the shell that had started the script —
+its command line named `HelloNotes.app/Contents/MacOS/HelloNotes`, and the
+script found the app with `pgrep -f`, which matches the **whole command line
+of every process**.
+
+**Every finder of the app worked that way.** `run-tests.sh` (the person's app,
+and the test hosts it then sends `kill -9`), `relaunch-debug.sh` (everything
+it sends SIGTERM and then SIGKILL), `window-parity.sh` (what it quits, and the
+pid whose windows it reads for private names), `ci-bounded.sh` (what it
+samples and `pkill`s on a stall), the screencapture guard, and the preflight
+check. Each took in anything that *named* the app — a shell, an editor open
+on it, `sample` — and three of them chose what to kill that way. Five decoys
+and three stand-ins, asked of each finder as it was:
+
+| | old finders | now |
+|---|---|---|
+| a binary named HelloNotes in a Mac bundle (the app) | found | found |
+| the same, launched with `-NSTreatUnknownArgumentsAsOpen` (a host) | found | found, as a host |
+| the same at a 263-character path with spaces | found | found |
+| a binary named HelloNotes in a flat bundle (the simulator's) | not found | not found |
+| a shell whose command names the path | **found, as the app** | not found |
+| a shell whose command names the path and the host argument | **found, as a host — `kill -9`** | not found |
+| a binary started *as* the app's path (`exec -a`) | **found, as a host** | not found |
+
+**And the preflight's host check had never run.** It was `pgrep -f
+-NSTreatUnknownArgumentsAsOpen`; pgrep reads a pattern that starts with `-`
+as options, said "illegal option -- N", and printed nothing — so the check
+said "ok" on every run, test host or no.
+
+**`scripts/hellonotes-processes.sh`** (`app`, `hosts`, `all`, `at
+<executable>`) is the one answer, and every place above asks it. A process is
+HelloNotes when the file the kernel executed is named `HelloNotes` (`ps -o
+ucomm`, which a shell's command line cannot change and `exec -a` does not)
+*and* it was started as a path ending in the Mac bundle's layout (`ps -o
+comm`, the full path, spaces and all — the simulator's bundle is flat). A
+host is such a process whose own arguments carry
+`-NSTreatUnknownArgumentsAsOpen`. It prints pids and always exits 0, because
+"none" is the usual answer and `relaunch-debug.sh` runs under `set -e`.
+- A trap on the way: a zsh variable named `path` **is** `$PATH`. The helper's
+  first version assigned one, and every command after it was "not found".
+- The screencapture guard now **fails closed** when it cannot ask: it took
+  "the check errored" for "not running", the one place it resolved
+  ambiguity toward taking the picture.
+
+**Checked, against the stand-ins and decoys** (nothing of the person's was
+touched): each finder as the scripts now define it reports the stand-ins
+it should — app, host, or both — and nothing else; `run-tests.sh` runs with every decoy alive (7
+tests), the helper sees the real test host during the run, cleanup kills the
+stand-in host and leaves every decoy; with the stand-in app up and AppleScript
+stubbed, it still refuses politely, naming the stand-in and not the decoy;
+`ci-bounded.sh`, stalled, samples and stops the stand-in host only; the guard
+still blocks with the stand-in app or host up over a private vault, no longer
+blocks on decoys, and blocks when its helper is missing; the preflight check
+fails on the stand-in host and passes with only decoys and another app run
+with Xcode's argument.
+
+**Not run:** `relaunch-debug.sh` and `window-parity.sh` for real — they quit
+and relaunch the person's app, and the second captures the screen; their
+finders were run as extracted. Not handled: an app started by a relative path
+(`./HelloNotes`), which LaunchServices and Xcode never do.
+
 ### 51.49 The last two failures on CI's runner: a display of one pixel a point, and a read before the layout pass (2026-10-12, after build 32)
 
 After §51.48 the runner failed one test of the app's 902 and, two runs in

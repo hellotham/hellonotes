@@ -39,12 +39,15 @@ shift 2
 [ $# -gt 0 ] || { echo "ci-bounded.sh: no command" >&2; exit 2; }
 
 silence=${CI_STALL_SILENCE:-300}
-# A test host's argv is the app's, and `-NSTreatUnknownArgumentsAsOpen` is the
-# one word in it that says it is a host (see run-tests.sh). **This app's**, as
-# that script matches it: Xcode launches every app it debugs with the same
-# argument, and the bare word would sample — and then stop — whatever else is
-# being run from Xcode on a developer's Mac.
-host_pattern=${CI_HOST_PATTERN:-HelloNotes\.app/Contents/MacOS/HelloNotes.*-NSTreatUnknownArgumentsAsOpen}
+here=$(cd "$(dirname "$0")" && pwd)
+# The test hosts: this app, launched by Xcode with the argument that says it is
+# a host — found by what each process executes (`hellonotes-processes.sh`).
+# Not the bare argument, which Xcode gives every app it runs, so it would have
+# sampled and stopped whatever else was being run from Xcode on a developer's
+# Mac; and not a pattern over command lines, which matched any process that
+# named the app and the argument — a shell, say — and `pkill` then stopped it
+# (docs/implemented.md §51.50).
+hosts() { "$here/hellonotes-processes.sh" hosts; }
 
 mkdir -p "$out"
 log="$out/output.log"
@@ -102,7 +105,7 @@ tests_finished=$(grep -cE '^(✔|✘) Test .* (passed|failed)' "$log")
 } | tee -a "$out/summary.txt"
 echo "::error::The command $why — $tests_started tests started, $tests_finished finished. Samples are in the run's artifacts."
 
-for pid in $(pgrep -f "$host_pattern"); do
+for pid in $(hosts); do
   sample_into "$pid" "$out/sample-host-$pid.txt"
 done
 sample_into "$command_pid" "$out/sample-command.txt"
@@ -111,7 +114,7 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
   ps -axo pid,ppid,state,etime,command > "$out/processes.txt" 2> /dev/null || true
 fi
 
-pkill -f "$host_pattern" 2> /dev/null
+for pid in $(hosts); do kill "$pid" 2> /dev/null; done
 kill -- "-$command_pid" 2> /dev/null || kill "$command_pid" 2> /dev/null
 sleep 2
 kill -9 -- "-$command_pid" 2> /dev/null

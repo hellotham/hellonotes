@@ -340,7 +340,12 @@
   nothing. The model is only created and offered under the `PRIVATE_CLOUD_COMPUTE`
   compilation condition (`LanguageModels.privateCloudComputeEnabled`), added in the
   same change as the entitlement; `PrivateCloudComputeEntitlementTests` fails if
-  they disagree. Never add the entitlement before Apple assigns it (signing breaks).
+  they disagree. Apple granted it on 17 October 2026, and both are in the app
+  target from build 33. **Apple provisions it for Development, Ad hoc and App
+  Store Connect, never Developer ID** — an export of an archive that carries it
+  fails ("not available for Developer ID provisioning profiles"), so the DMG is
+  archived from the entitlements without it, and on the Mac the flag also reads
+  the *signed* entitlement, so that build does not offer the model.
   Steps: `docs/production.md` §1b-PCC.
 - **A profile's `historyTransform` is handed the instructions entry too** —
   `["instructions", "prompt"]` on the first request — and that entry carries the
@@ -953,6 +958,31 @@
   *file* of that name, which is why making it had failed, and an empty folder
   the person had made. Record what was there before, and take away only the
   rest (`GitService.createRepository`, `NewRepositoryTests`).
+- **A deadline is kept by a clock that nothing it waits for can hold up.**
+  `FileIO.materialise` gave a download a minute and checked the minute
+  between synchronous calls to the file provider: one that never returned
+  held the "Downloading … from the cloud" banner up for good on an iPad. Its
+  first fix was measured wrong in review: the timer sat on GCD's shared,
+  capped pool with the calls it was outlasting. So — ask a file provider on
+  **lanes** (a file always on one of sixteen serial queues: a silent provider
+  holds a lane a file, never the pool), schedule the next question rather
+  than sleep for it, keep the deadline on a **serial queue of its own**, read
+  one monotonic deadline, and say which way it ended (`FileIO.waitForDownload`,
+  `finishes(within:)`). A test's stand-in provider brings lanes of its own —
+  held silent on the app's, it held up whichever test's note hashed to the
+  same lane (implemented.md §51.51, §51.52).
+- **A process is what it executes, not what its command line mentions.**
+  `pgrep -f` on the bundle path matches every process whose command line
+  *names* it — a shell running a command that mentions the app, an editor,
+  `sample` — and six places found the app that way, three of them choosing
+  what to `kill -9` or `pkill`: `run-tests.sh` took the shell that had started
+  it for the running app and refused, twice. Ask
+  `scripts/hellonotes-processes.sh` (`app`, `hosts`, `all`, `at <path>`): the
+  executed file's name *and* the started path's bundle layout, and a host by
+  its own arguments. Two more traps it met: `pgrep -f -NSTreat…` reads the
+  pattern as options and prints nothing, so a check built on it can never
+  fail (the preflight's never did); and in zsh a variable named `path` is
+  `$PATH` (implemented.md §51.50).
 - **A CI step that can wait for ever is bounded, and looked at before it is
   stopped.** The macOS test job on `main` started 775 tests, finished none and
   ran into its ninety minutes; GitHub called it *cancelled*, which read as
@@ -1005,7 +1035,15 @@
   `ioreg -n Root -d1 -a | grep -A1 IOConsoleLocked` before believing either.
   (The upload with the team's API key, and the hosted test suite, are
   unaffected.) A sign-in that *has* lapsed says the same thing unlocked, and
-  only the person can renew it: Xcode ▸ Settings ▸ Accounts.
+  only the person can renew it: Xcode ▸ Settings ▸ Accounts. **And an
+  `xcodebuild` that wants the account while the screen is locked can lose it
+  for good** — seen on 2026-10-17: profiles made at 15:13–15:30, the screen
+  locked, a build at 15:35 said "Invalid credentials in keychain …, missing
+  Xcode-Username", and from then on, unlocked, "No Accounts": Xcode's stored
+  list held none (`DVTDeveloperAccountManagerAppleIDLists`, counted, never
+  printed) and its keychain items were gone, while the running Xcode could
+  still look signed in. Check the lock *before* an `-allowProvisioningUpdates`
+  run, not after.
 - **A test that sleeps "past" a timer is racing it.** The walk test slept
   900 ms to get past a 750 ms reveal — but the reveal's clock starts when its
   task first has the main actor, and with the whole suite's work queued there
@@ -1032,4 +1070,9 @@
   `deleteNote` with an approving broker waits for ever — and a hosted run that
   waits for ever looks like a hang in the app.
 - Docs describe the UI from source, not memory — verify shortcuts/menus with the `docs-fact-checker` agent (a draft once shipped two invented shortcuts). **Read its reverse column too: a doc fact-check is also a source check.** Checking the AI page after the two model roles collapsed found three *strings in the app* still telling people to choose a model "for writing tools" and "for the Assistant" — a picker that no longer existed — and two file headers describing the design the file below them had replaced.
+  **Turning on something that sat behind a flag needs the same check**: the day
+  Private Cloud Compute became choosable, four strings and one screen written
+  while it could not be were wrong — the "too long" errors told it to choose
+  itself, and a conversation switched to it partway said nothing about sending
+  what came before (implemented.md §51.54).
 - Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` per repo convention.

@@ -9,19 +9,26 @@ Optional, and off until you ask for it.
 
 ## You choose where it runs
 
-Every AI feature runs on Apple's **Foundation Models**, on one of two models:
+Every AI feature runs on Apple's **Foundation Models**, on one of these models:
 
 | Model | Where your text goes to be processed |
 |---|---|
 | **System** (the default) | nowhere — Apple's model on this Mac, iPhone or iPad |
+| **Private Cloud Compute** (the App Store version) | to Apple's servers, for Apple's server model; it isn't stored, and it isn't accessible to Apple |
 | **MLX** | nowhere — an open model you download runs on this device |
 
 Pick one in **Settings**, under **AI**. It is one choice for everything — the Assistant,
-the writing tools and Research — because the app is either using Apple's model or using
-yours. The Assistant, Rewrite and the AI commands in **Note Actions** name the model
+the writing tools and Research — because the app uses one model at a time, one of Apple's
+or yours. The Assistant, Rewrite and the AI commands in **Note Actions** name the model
 doing the work. The Assistant and **Ask Your Library** are at the top of the sidebar,
 and open as tabs beside your notes.
-One thing does leave the device, whichever model runs: a web search. The Assistant
+
+Private Cloud Compute needs an internet connection, and not every device can use it. It
+reads far more at once than the System model, but it can't make suggestions as you type —
+a round trip to Apple's servers can't keep up with typing, so those need a model on this
+device. Apple sets a daily allowance; Settings says when you are close to it.
+
+Whichever model runs, a web search leaves the device. The Assistant
 can look things up on the web — on its own, when a question needs it — and so can
 Research in New Note from a Prompt. What they search for goes to DuckDuckGo, and
 can include words from your question or from notes they have read; a page they
@@ -57,6 +64,22 @@ rewriting wants determinism whatever you chose for conversation.
 Nothing is written until you say so: a summary when you choose **Save to Properties**,
 a tag or link when you tap it, and rewrites, new notes and the Assistant's edits when
 you accept them.
+
+## Reporting a response
+
+What the AI writes stays with you — in your notes, and the Assistant's conversations in
+HelloNotes' own storage on this device. Nothing is posted anywhere, and there is no one else
+to see it. If something it wrote is wrong or offensive, **Report…** is beside its answers
+and suggestions: an Assistant reply, an answer from Ask Your Library, a rewrite, a new
+note's draft, a summary, and suggested tags or links. It opens your mail app with a message
+to us holding the response, what you asked, the model in use and the app's version — you
+read it, and can change or delete any of it, before you send. HelloNotes sends nothing
+itself. Anything else it wrote — a suggestion shown as grey text (**Suggest as I type**),
+say — is reported by writing to us from **Settings ▸ Support ▸ Contact**.
+
+The System model applies Apple's safeguards, and Private Cloud Compute is Apple's own
+model on Apple's servers. An MLX model is the one you chose, and HelloNotes does not
+filter what it writes.
 
 ## Open models with MLX
 
