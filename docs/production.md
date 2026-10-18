@@ -767,7 +767,7 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
-## 10m · 1.3.5 build 34 — to TestFlight, not to review, 2026-10-19
+## 10m · 1.3.5 build 34 — on TestFlight, both platforms, not in review, 2026-10-19
 
 From `d07ab39`. **What 34 is for**: implemented.md §51.55 — the models named
 by where they run, Local (Apple) standing in by itself when Cloud (Apple)'s
@@ -800,14 +800,7 @@ length); `ITSAppUsesNonExemptEncryption` false.
 
 | | iPhone and iPad | Mac |
 |---|---|---|
-| Upload | `Upload succeeded` 07:41 with the team's API key — Xcode's account had lapsed again (`Failed to Use Accounts`, screen unlocked) | **waiting on the person's sign-in** (Xcode ▸ Settings ▸ Accounts): the key cannot sign a Mac installer, and the keychain holds no installer identity. The archive is `build/HelloNotes.xcarchive`, made and read back |
-
-**To finish the Mac**, once signed in:
-```bash
-xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
-  -exportOptionsPlist ExportOptions-AppStore-macOS.plist \
-  -exportPath build/export-macos-34 -allowProvisioningUpdates
-```
+| Upload | `Upload succeeded` 07:41 with the team's API key — Xcode's account had lapsed again (`Failed to Use Accounts`, screen unlocked); `VALID` 07:44 | `Upload succeeded` 07:56, after the person signed in again under Xcode ▸ Settings ▸ Accounts — the key cannot sign a Mac installer and the keychain holds no installer identity, so the export was retried every two minutes, each attempt only with the screen unlocked; `VALID` 07:58 |
 
 **Next, when the person says**: `asc-listing.py create 1.3.5` (it renames the
 iOS 1.3.4 left Developer Rejected, and makes the Mac's), `text 1.3.5`, the
