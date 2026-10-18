@@ -767,6 +767,53 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
+## 10m · 1.3.5 build 34 — to TestFlight, not to review, 2026-10-19
+
+From `d07ab39`. **What 34 is for**: implemented.md §51.55 — the models named
+by where they run, Local (Apple) standing in by itself when Cloud (Apple)'s
+allowance is spent, an Assistant that reads, changes nothing and says it is
+experimental (Ask Your Library folded in), its note tools taking the room the
+turn has left — and the fifteen fixes of a `/code-review max` pass over all
+of it. At the person's direction it goes to TestFlight and **not** to review:
+no 1.3.5 version record was made, and none is needed for TestFlight.
+
+Before the archives: the macOS suite (952 tests in 145 suites), the iPhone
+interface suite (19 run, 3 skipped by design) and the iPad typing test — which
+failed on the first version of one-Assistant-per-collection (the tab stayed on
+its spinner: implemented.md §51.55) and passed with the library's list
+observed — and a negative control for two of the review's fixes.
+
+**The Mac's screenshots were shot by script** for the first time
+(`scripts/store-shots-mac.sh`): ten at 2560×1600, each looked at, filed in
+`dist/Screenshots-macOS` and as the raw `light_0N`/`dark_0N`. The person's three
+open collections and default model were unchanged, and so was every other
+preference but one: `editorViewMode` was left as the last scene's, because the
+app saved the value the scene passed in as the person's own. It was written
+back by hand, and the script now writes back every key it passes in — as
+property-list values, because `defaults -float` keeps a 32-bit float. The
+pictures are not in App Store Connect yet: they go with the submission.
+
+Read back from each archive: 1.3.5 (34) in the app and all six extensions;
+arm64 only; 27.0; the Private Cloud Compute entitlement present; no
+temporary-exception entitlement; all five cloud-provider keys present (by
+length); `ITSAppUsesNonExemptEncryption` false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` 07:41 with the team's API key — Xcode's account had lapsed again (`Failed to Use Accounts`, screen unlocked) | **waiting on the person's sign-in** (Xcode ▸ Settings ▸ Accounts): the key cannot sign a Mac installer, and the keychain holds no installer identity. The archive is `build/HelloNotes.xcarchive`, made and read back |
+
+**To finish the Mac**, once signed in:
+```bash
+xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
+  -exportOptionsPlist ExportOptions-AppStore-macOS.plist \
+  -exportPath build/export-macos-34 -allowProvisioningUpdates
+```
+
+**Next, when the person says**: `asc-listing.py create 1.3.5` (it renames the
+iOS 1.3.4 left Developer Rejected, and makes the Mac's), `text 1.3.5`, the
+Mac's new pictures with `screenshots`, `build 1.3.5 34`, and `submit` — the
+listing text is `docs/app-store-listing.md`.
+
 ## 10l · 1.3.4 build 33 — submitted for review, both platforms, 2026-10-17
 
 From `fa62783` (the work is `6183c57`; the version commit followed it).

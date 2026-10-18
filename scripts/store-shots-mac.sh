@@ -118,21 +118,28 @@ restore() {
   defaults export "$prefs" "$work/prefs-captured.plist"
   python3 - "$work/prefs-backup.plist" "$work/prefs-captured.plist" "$prefs" <<'KEYS'
 import plistlib, subprocess, sys
+from xml.sax.saxutils import escape
 before, captured = (plistlib.load(open(p, "rb")) for p in sys.argv[1:3])
 domain = sys.argv[3]
 keys = ["NSWindow Frame main-AppWindow-1", "hasSeenWelcome", "appearanceMode", "accentChoice",
         "increaseContrast", "textScale", "editorViewMode", "sidePanel", "sidebarWidth",
         "sidePanelWidth", "aiModel"]
-flags = {str: "-string", bool: "-bool", int: "-int", float: "-float"}
+# As property-list values: `defaults -float` keeps a 32-bit float, and 1.2 came
+# back as 1.2000000476837158.
+def fragment(value):
+    if isinstance(value, bool): return "<true/>" if value else "<false/>"
+    if isinstance(value, int): return f"<integer>{value}</integer>"
+    if isinstance(value, float): return f"<real>{value!r}</real>"
+    if isinstance(value, str): return f"<string>{escape(value)}</string>"
+    return None
 for key in keys:
     old = before.get(key)
     if old == captured.get(key):
         continue
     if old is None:
         subprocess.run(["defaults", "delete", domain, key], check=False)
-    elif type(old) in flags:
-        value = ("true" if old else "false") if isinstance(old, bool) else str(old)
-        subprocess.run(["defaults", "write", domain, key, flags[type(old)], value], check=False)
+    elif (value := fragment(old)) is not None:
+        subprocess.run(["defaults", "write", domain, key, value], check=False)
     else:
         print(f"WARNING — {key} changed and is not a kind this script writes back.")
 KEYS
