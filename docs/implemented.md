@@ -8634,6 +8634,27 @@ findings were fixed before the build went up** (2026-10-19).
   one had left them in; and `ax-press` fails when Accessibility does, rather
   than letting the question be typed into the note.
 
+**And Research's questions got rooms of their own** (2026-10-19, after build
+34 — a candidate of the same review that did not make its fifteen). Each
+question runs in a session of its own, and each result there took a fixed
+share — a quarter of the window a note, a sixth a page — whatever the question
+had read already; on the on-device model's 8,192 tokens a question that read a
+note and fetched two pages, or fetched three, ran past its window, and that
+part of the research failed. Each question has a `TurnRoom` now, measured from
+its own session's transcript by the measure the Assistant uses
+(`TurnRoom.held(in:)`, which `AssistantModel` took out of itself), budgeted
+after its instructions and tools' definitions (`LanguageModels.cost`,
+`TurnRoom.budget`), and shared by its four tools
+(`DeepResearch.researcherTools`). The web tools take their part in the
+Assistant's turns as well: a page or a search's results are reserved before
+the network is asked (`TurnRoom.reserve`), take their own cap and no more than
+is left, so the turn's notes keep the rest, and a page is cut by tokens
+(`ToolLimits.fetchTokens`) — it was cut by characters, at three a token, which
+a Chinese page is not. `aFullTurnFetchesNoPageAndSearchesNothing` and
+`researchAndTheAssistantGiveTheirWebToolsTheRoom` fail with the room taken
+out, and `ResearchProbe` researched two questions on Local (Apple) in 65
+seconds.
+
 ### 51.54 Private Cloud Compute, granted — in the App Store build, and kept out of the DMG (2026-10-17)
 
 **Apple granted the managed entitlement, and the app now offers Private Cloud

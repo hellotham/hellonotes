@@ -147,26 +147,30 @@ struct DeepResearch {
             }
             let questions = Array((plan.isEmpty ? [question] : plan).prefix(depth))
 
-            // 2. Research each question in its own session.
+            // 2. Research each question in its own session, whose results
+            // share the room it has (`TurnRoom`). Each took a fixed share —
+            // a quarter of the window a note, a sixth a page — whatever the
+            // question had read already, and on the on-device model's 8,192
+            // tokens a third page ran the session past its window, and that
+            // part of the research failed.
             let limits = ToolLimits(contextTokens: window)
+            let fixedTokens = await models.cost(
+                ofInstructions: Self.researcherInstructions,
+                tools: Self.researcherTools(context: context, limits: limits, room: nil), on: choice)
+            let roomBudget = TurnRoom.budget(window: window, fixedTokens: fixedTokens)
             var findings: [String] = []
             for (index, sub) in questions.enumerated() {
                 try Task.checkCancellation()
                 onProgress("Researching \(index + 1) of \(questions.count): \(sub)")
+                let holder = SessionHolder()
+                let room = TurnRoom(budget: roomBudget) { [holder] in
+                    holder.session.map { TurnRoom.held(in: $0.transcript) } ?? .empty
+                }
                 let researcher = LanguageModelSession(
                     model: model,
-                    tools: [
-                        WebSearchTool(),
-                        WebFetchTool(limits: limits),
-                        SearchNotesTool(context: context, limits: limits),
-                        ReadNoteTool(context: context, limits: limits),
-                    ],
-                    instructions: """
-                    You are a researcher. Use web_search to find sources and web_fetch to read \
-                    the most promising ones; search_notes and read_note look in the person's own \
-                    notes. Report what you found as concise facts, and list the address of every \
-                    web page you relied on.
-                    """)
+                    tools: Self.researcherTools(context: context, limits: limits, room: room),
+                    instructions: Self.researcherInstructions)
+                holder.session = researcher
                 let report: String
                 do {
                     report = try await researcher.respond(
@@ -209,6 +213,24 @@ struct DeepResearch {
         }
     }
 
+    static let researcherInstructions = """
+    You are a researcher. Use web_search to find sources and web_fetch to read \
+    the most promising ones; search_notes and read_note look in the person's own \
+    notes. Report what you found as concise facts, and list the address of every \
+    web page you relied on.
+    """
+
+    /// A question's tools — the web and the person's notes — sharing the
+    /// question's room. `nil` measures what they cost.
+    static func researcherTools(context: ToolContext, limits: ToolLimits, room: TurnRoom?) -> [any Tool] {
+        [
+            WebSearchTool(room: room),
+            WebFetchTool(limits: limits, room: room),
+            SearchNotesTool(context: context, limits: limits, room: room),
+            ReadNoteTool(context: context, limits: limits, room: room),
+        ]
+    }
+
     private static let synthesisInstructions = """
     Combine the research notes into one clear, well-structured answer to the question, in \
     Markdown. Cite web sources inline by their addresses. Say plainly where the notes \
@@ -217,6 +239,13 @@ struct DeepResearch {
 }
 
 /// Deep research, offered to the Assistant as a tool on models with the room for it.
+/// The session a question's room measures, which is made after the room — the
+/// tools it is made with hold the room. Weakly, or the session, its tools,
+/// their room and this would hold one another for good.
+@MainActor private final class SessionHolder {
+    weak var session: LanguageModelSession?
+}
+
 nonisolated struct DeepResearchTool: Tool {
     let context: ToolContext
     let name = "deep_research"

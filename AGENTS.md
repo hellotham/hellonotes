@@ -376,8 +376,14 @@
   spent room. A result that cannot fit is said in
   words (`ToolContext.noRoom`), never sent past the window, where the whole
   request fails; what didn't fit is counted ("… and 37 more notes matched").
-  Outside a conversation (Research's own sessions) a tool takes a quarter of
-  the window (`ToolLimits.resultTokens`). **And `TokenBudget.prefix` is the
+  **Each of Research's questions has a room of its own**, measured the same
+  way (`TurnRoom.held(in:)`, `DeepResearch.researcherTools`): it gave each
+  result a fixed share whatever its question had read already, and on the
+  on-device model's 8,192 tokens a third page ran the session past its
+  window. A web page and a search's results take their own cap and no more
+  than is left, reserved before the network is asked (`TurnRoom.reserve`) and
+  cut by tokens, never characters; only a tool on its own, in no session's
+  room, takes a quarter of the window (`ToolLimits.resultTokens`). **And `TokenBudget.prefix` is the
   longest prefix that fits, cut inside a paragraph if it must** — it was the
   first of `chunks`, which stops before a paragraph too big for one, so a note
   with a long opening paragraph was read as its title and tagged from nothing.

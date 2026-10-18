@@ -579,23 +579,9 @@ final class AssistantModel {
         if pendingPrompt != nil, entries.count > pendingBase { pendingPrompt = nil }
     }
 
-    /// What the current turn holds in the session's transcript — from its
-    /// message on — how many tools its latest step asked for, and where it
-    /// began (`TurnRoom`).
+    /// What the current turn holds in the session's transcript (`TurnRoom`).
     private func heldThisTurn() -> TurnRoom.Held {
-        let none = TurnRoom.Held(tokens: 0, calls: 0, turnStart: 0)
-        guard let session else { return none }
-        let entries = Array(session.transcript)
-        guard let start = entries.lastIndex(where: { entry in
-            if case .prompt = entry { return true }
-            return false
-        }) else { return none }
-        var held = TurnRoom.Held(tokens: 0, calls: 0, turnStart: start)
-        for entry in entries[start...] {
-            held.tokens += HistoryWindow.estimate(entry)
-            if case .toolCalls(let step) = entry { held.calls = Array(step).count }
-        }
-        return held
+        session.map { TurnRoom.held(in: $0.transcript) } ?? .empty
     }
 
     /// The turn room's budget: the history's, less the summary it may carry.
@@ -629,9 +615,7 @@ final class AssistantModel {
         toolContext?.modelChoice = option
         // The turn's room, which the note tools' results share; its budget is
         // the history's share, known once the tools' own cost is.
-        let room = TurnRoom(budget: 0) { [weak self] in
-            self?.heldThisTurn() ?? TurnRoom.Held(tokens: 0, calls: 0, turnStart: 0)
-        }
+        let room = TurnRoom(budget: 0) { [weak self] in self?.heldThisTurn() ?? .empty }
         let tools: [any Tool] = agentMode && canUseTools
             ? (toolContext.map { NoteTools.tools(for: $0, contextTokens: window, room: room) } ?? [])
             : []
@@ -640,16 +624,8 @@ final class AssistantModel {
             collectionName: toolContext?.rootURL?.lastPathComponent,
             noteCount: toolContext?.notes.count ?? 0)
 
-        // What the instructions and tool definitions cost, measured where the
-        // model can measure it and estimated where it cannot.
-        var fixedTokens = TokenBudget.estimate(instructions)
-        if choice == .onDevice, let measured = try? await models.onDevice.tokenCount(for: tools) {
-            fixedTokens += measured
-        } else {
-            fixedTokens += tools.reduce(0) { $0 + TokenBudget.estimate($1.description) + 80 }
-        }
-        let replyReserve = min(2_048, window / 4)
-        let historyTokens = max(512, window - fixedTokens - replyReserve - window / 20)
+        let fixedTokens = await models.cost(ofInstructions: instructions, tools: tools, on: choice)
+        let historyTokens = TurnRoom.budget(window: window, fixedTokens: fixedTokens)
         historyBudget = historyTokens
         self.room = room
         fitRoom()

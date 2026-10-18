@@ -51,13 +51,17 @@
 //
 
 import Foundation
+import FoundationModels
 
-/// How much of the window an Assistant turn has left, in tokens, for a note
-/// tool shaping its result. Querying notes is what the Assistant is for, so a
-/// result takes **all of the room there is**: older turns make way
+/// How much of the window a turn has left, in tokens, for a tool shaping its
+/// result — an Assistant conversation's turn, or one of Research's questions,
+/// each in a session of its own. Querying notes is what the Assistant is for,
+/// so a note's result takes **all of the room there is**: older turns make way
 /// (`HistoryWindow.fit` keeps the newest whole turns and summarises the rest),
 /// and what stays is the instructions, the reply's reserve — both outside
-/// `budget` — the message, and what the turn's tools have already returned.
+/// `budget` — the message, and what the turn's tools have already returned. A
+/// web page or a list of search results takes no more than its own cap
+/// (`reserve`), so the notes keep the rest.
 ///
 /// **Results asked for together share it.** The model may ask for several
 /// tools in one step; the framework runs them at once and adds their results
@@ -74,13 +78,17 @@ import Foundation
     /// of one shape apart: a room lives as long as its session, and the next
     /// question the same size as the last inherited its spent room — "No room
     /// is left" before anything had been read.
-    struct Held: Equatable {
+    nonisolated struct Held: Equatable, Sendable {
         var tokens: Int
         var calls: Int
         var turnStart: Int
+
+        /// A session with no turn in it yet.
+        static let empty = Held(tokens: 0, calls: 0, turnStart: 0)
     }
 
-    /// The history's share of the window (`AssistantModel.historyBudget`).
+    /// The share of the window the turn's message and results have
+    /// (`budget(window:fixedTokens:)`).
     var budget: Int
     private let held: () -> Held
     private var seen: Held?
@@ -108,6 +116,45 @@ import Foundation
     func take(_ tokens: Int) {
         pending += tokens
         answered += 1
+    }
+
+    /// Reserve a result's part of `room` before the work that makes it — at
+    /// most `tokens` — so a sibling shaped meanwhile sees what is left without
+    /// it: a web page's cap, say, which the turn's notes need the rest of.
+    /// `nil` when the turn has no room left (`ToolContext.share`), which the
+    /// tool says rather than sending a result past the window. Without a room,
+    /// `tokens`.
+    static func reserve(_ tokens: Int, from room: TurnRoom?) -> Int? {
+        guard let share = ToolContext.share(of: tokens, room: room) else { return nil }
+        let part = min(tokens, share)
+        room?.take(part)
+        return part
+    }
+
+    /// What `transcript`'s latest turn holds — from its last prompt on — how
+    /// many tools its latest step asked for, and where it began: the measure
+    /// for every session a room is kept for, an Assistant conversation's and
+    /// each of Research's.
+    nonisolated static func held(in transcript: some Sequence<Transcript.Entry>) -> Held {
+        let entries = Array(transcript)
+        guard let start = entries.lastIndex(where: { entry in
+            if case .prompt = entry { return true }
+            return false
+        }) else { return .empty }
+        var held = Held(tokens: 0, calls: 0, turnStart: start)
+        for entry in entries[start...] {
+            held.tokens += HistoryWindow.estimate(entry)
+            if case .toolCalls(let step) = entry { held.calls = Array(step).count }
+        }
+        return held
+    }
+
+    /// The share of a `window` a turn's message and results have, once the
+    /// session's instructions and tool definitions (`fixedTokens`) and the
+    /// reply's reserve are out of it.
+    nonisolated static func budget(window: Int, fixedTokens: Int) -> Int {
+        let replyReserve = min(2_048, window / 4)
+        return max(512, window - fixedTokens - replyReserve - window / 20)
     }
 }
 
@@ -340,7 +387,7 @@ final class ToolContext {
         return share
     }
 
-    static let noRoom = "No room is left in this conversation for more results this turn. Answer from what you have read, and say what is left to look at."
+    nonisolated static let noRoom = "No room is left in this conversation for more results this turn. Answer from what you have read, and say what is left to look at."
 
     /// A matching line as a result shows it: whole, or — past 400 characters,
     /// a long paragraph's worth — the stretch around the match. A line is

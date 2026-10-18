@@ -373,6 +373,18 @@ final class LanguageModels {
         }
     }
 
+    /// What a session's instructions and tool definitions cost every request
+    /// on `choice`: measured where the model can measure it (on this device),
+    /// estimated where it cannot. What a turn's room is left after
+    /// (`TurnRoom.budget(window:fixedTokens:)`).
+    func cost(ofInstructions instructions: String, tools: [any Tool], on choice: ModelChoice) async -> Int {
+        let written = TokenBudget.estimate(instructions)
+        if choice == .onDevice, let measured = try? await onDevice.tokenCount(for: tools) {
+            return written + measured
+        }
+        return written + tools.reduce(0) { $0 + TokenBudget.estimate($1.description) + 80 }
+    }
+
     /// The context size without waiting: exact on-device and for MLX, and for
     /// Private Cloud Compute the size last reported (32,768 until it has been
     /// asked). For deciding whether to *offer* something; a request itself

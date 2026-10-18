@@ -391,7 +391,7 @@ struct TokenBudgetTests {
         let small = ToolLimits(contextTokens: 8_192)
         let large = ToolLimits(contextTokens: 32_768)
         #expect(small.resultTokens < large.resultTokens)
-        #expect(small.fetchCharacters < large.fetchCharacters)
+        #expect(small.fetchTokens < large.fetchTokens)
         #expect(ToolLimits(contextTokens: 100).resultTokens == 500)
     }
 }

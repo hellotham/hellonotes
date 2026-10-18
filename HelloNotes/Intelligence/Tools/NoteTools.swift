@@ -30,21 +30,24 @@ import FoundationModels
 /// model's 8,192 tokens a whole long note would crowd out the answer; on Private
 /// Cloud Compute's 32,768 the same cap would read a fraction of what fits.
 nonisolated struct ToolLimits: Sendable, Equatable {
-    /// A note tool's result where nothing shares out a turn's room — Research's
-    /// own sessions, a tool on its own: a quarter of the window, in tokens. In
-    /// an Assistant conversation a result takes what the turn has left instead
-    /// (`TurnRoom`). There were counts — six search results, or ten, twenty
-    /// lines of exact-text search, sixty titles — whatever the window, and a
-    /// search on Cloud (Apple)'s 32K showed ten notes of the hundreds that
-    /// matched (the person, 2026-10-18: "There's plenty of tokens left to
-    /// return all entries and let the model summarise").
+    /// A note tool's result where nothing shares out a turn's room — a tool on
+    /// its own: a quarter of the window, in tokens. In an Assistant
+    /// conversation, and in each of Research's questions, a result takes what
+    /// the turn has left instead (`TurnRoom`). There were counts — six search
+    /// results, or ten, twenty lines of exact-text search, sixty titles —
+    /// whatever the window, and a search on Cloud (Apple)'s 32K showed ten
+    /// notes of the hundreds that matched (the person, 2026-10-18: "There's
+    /// plenty of tokens left to return all entries and let the model
+    /// summarise").
     let resultTokens: Int
-    let fetchCharacters: Int
+    /// A web page's cap: a sixth of the window, in tokens, from 500 to 5,333 —
+    /// what the 1,500 and 16,000 characters it was in characters came to at
+    /// three a token, which is what a Chinese page is not.
+    let fetchTokens: Int
 
     init(contextTokens: Int) {
         resultTokens = max(500, contextTokens / 4)
-        // A sixth of the window for a web page, at three characters a token.
-        fetchCharacters = min(16_000, max(1_500, contextTokens / 6 * 3))
+        fetchTokens = min(5_333, max(500, contextTokens / 6))
     }
 }
 
@@ -98,7 +101,7 @@ enum NoteTools {
                 SearchNotesTool(context: context, limits: limits, room: room),
                 ReadNoteTool(context: context, limits: limits, room: room),
                 GrepTool(context: context, limits: limits, room: room),
-                WebSearchTool(),
+                WebSearchTool(room: room),
             ]
             if hasSkills { compact.append(LoadSkillTool(context: context)) }
             return compact
@@ -109,8 +112,8 @@ enum NoteTools {
             ReadNoteTool(context: context, limits: limits, room: room),
             ListNotesTool(context: context, limits: limits, room: room),
             GrepTool(context: context, limits: limits, room: room),
-            WebSearchTool(),
-            WebFetchTool(limits: limits),
+            WebSearchTool(room: room),
+            WebFetchTool(limits: limits, room: room),
             DeepResearchTool(context: context),
         ]
         if hasSkills { full.append(LoadSkillTool(context: context)) }

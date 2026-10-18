@@ -12,6 +12,7 @@
 
 import Testing
 import Foundation
+import FoundationModels
 @testable import HelloNotes
 
 @MainActor
@@ -212,6 +213,111 @@ struct AgentToolTests {
         let full = TurnRoom(budget: 100) { TurnRoom.Held(tokens: 0, calls: 1, turnStart: 1) }
         let found = await ctx.searchNotes("Callouts", tokens: 100_000, room: full)
         #expect(found == ToolContext.noRoom, "\(found)")
+    }
+
+    /// **One measure for every session a room is kept for** — an Assistant
+    /// conversation's and each of Research's questions': the latest turn, from
+    /// its last prompt on, how many tools its latest step asked for, and where
+    /// it began.
+    @Test
+    func theTurnIsMeasuredFromItsLastPrompt() throws {
+        let instructions = Transcript.Entry.instructions(Transcript.Instructions(
+            segments: [.text(.init(content: "Research."))], toolDefinitions: []))
+        let earlier = Transcript.Entry.prompt(Transcript.Prompt(segments: [.text(.init(content: "an earlier question"))]))
+        let answered = Transcript.Entry.response(Transcript.Response(
+            assetIDs: [], segments: [.text(.init(content: "an earlier answer"))]))
+        let asked = Transcript.Entry.prompt(Transcript.Prompt(segments: [.text(.init(content: "How do actors work?"))]))
+        let step = Transcript.Entry.toolCalls(Transcript.ToolCalls([
+            Transcript.ToolCall(id: "a", toolName: "web_fetch",
+                                arguments: GeneratedContent(properties: ["url": "https://example.com/a"])),
+            Transcript.ToolCall(id: "b", toolName: "web_fetch",
+                                arguments: GeneratedContent(properties: ["url": "https://example.com/b"])),
+        ]))
+        let page = Transcript.Entry.toolOutput(Transcript.ToolOutput(
+            id: "a", toolName: "web_fetch", segments: [.text(.init(content: String(repeating: "page ", count: 400)))]))
+        let held = TurnRoom.held(in: [instructions, earlier, answered, asked, step, page])
+        #expect(held.turnStart == 3)
+        #expect(held.calls == 2)
+        #expect(held.tokens == [asked, step, page].reduce(0) { $0 + HistoryWindow.estimate($1) })
+        #expect(TurnRoom.held(in: [instructions]) == .empty)
+    }
+
+    /// **A web result takes its own cap, and no more than the turn has left**,
+    /// reserved before it is fetched, so the turn's notes keep the rest and a
+    /// sibling shaped meanwhile sees what is left without it. Research gave
+    /// each page a sixth of the window whatever its question had read already.
+    @Test
+    func aWebResultTakesItsCapAndNoMoreThanIsLeft() {
+        let held = TurnRoom.Held(tokens: 1_000, calls: 2, turnStart: 1)
+        let room = TurnRoom(budget: 10_000) { held }   // a margin of 400
+        #expect(TurnRoom.reserve(1_365, from: room) == 1_365, "a page took more than its cap")
+        // Its sibling: what is left — 10,000 less 1,000 held, 1,365 taken and
+        // the margin — up to its own cap.
+        #expect(TurnRoom.reserve(9_000, from: room) == 7_235)
+        // A third, past the step's two, gets nothing rather than more than there is.
+        #expect(TurnRoom.reserve(1_365, from: room) == nil)
+        #expect(TurnRoom.reserve(1_365, from: nil) == 1_365, "outside a room, the cap")
+        // The room a question on the on-device model has: room for a page and a note's read.
+        let budget = TurnRoom.budget(window: 8_192, fixedTokens: 900)
+        let limits = ToolLimits(contextTokens: 8_192)
+        #expect(budget == 8_192 - 900 - 2_048 - 409)
+        #expect(budget > limits.fetchTokens + limits.resultTokens)
+    }
+
+    /// A web tool with no room left says so — before it asks the network for
+    /// anything: had it fetched, the unreachable address would have come back
+    /// as a failure instead.
+    @Test
+    func aFullTurnFetchesNoPageAndSearchesNothing() async throws {
+        let full = TurnRoom(budget: 100) { TurnRoom.Held(tokens: 0, calls: 1, turnStart: 1) }
+        let fetch = WebFetchTool(limits: ToolLimits(contextTokens: 8_192), room: full)
+        let page = try await fetch.call(arguments: WebFetchTool.Arguments(
+            GeneratedContent(properties: ["url": "https://example.invalid/page"])))
+        #expect(page == ToolContext.noRoom, "\(page)")
+        let search = WebSearchTool(room: full)
+        let found = try await search.call(arguments: WebSearchTool.Arguments(
+            GeneratedContent(properties: ["query": "actors"])))
+        #expect(found == ToolContext.noRoom, "\(found)")
+    }
+
+    /// **A page is cut as a model counts it**, by tokens: by characters, at
+    /// three a token, a Chinese page went several times over its share. And
+    /// search results that don't all fit are whole, and counted.
+    @Test
+    func aPageIsCutAsAModelCountsIt() {
+        let chinese = String(repeating: "并发安全的演员模型。", count: 300)
+        let cut = WebFetchTool.shaped(chinese, tokens: 500)
+        #expect(cut.hasSuffix("… (truncated)"))
+        #expect(TokenBudget.estimate(cut) <= 500, "\(TokenBudget.estimate(cut)) tokens in a share of 500")
+        #expect(WebFetchTool.shaped("A short page.", tokens: 500) == "A short page.")
+
+        let results = (1...6).map { "\($0). Result \($0)\n   https://example.com/\($0)\n   "
+            + String(repeating: "snippet ", count: 40) }
+        let some = WebSearchTool.shaped(results, tokens: 200)
+        #expect(some.hasPrefix(results[0]), "the first result was not shown whole")
+        #expect(some.contains("more results that don't fit here"), "\(some)")
+        let shown = some.components(separatedBy: "\n… and ").first ?? ""
+        #expect(TokenBudget.estimate(shown) <= 200, "\(TokenBudget.estimate(shown)) tokens in a share of 200")
+        #expect(!WebSearchTool.shaped(results, tokens: 100_000).contains("don't fit"))
+    }
+
+    /// **Each of Research's questions shares one room among its tools**, and
+    /// the Assistant's web tools take the turn's room as its note tools do.
+    @Test
+    func researchAndTheAssistantGiveTheirWebToolsTheRoom() throws {
+        let (ctx, vault) = try makeContext()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let room = TurnRoom(budget: 5_000) { .empty }
+        let tools = DeepResearch.researcherTools(context: ctx, limits: ToolLimits(contextTokens: 8_192), room: room)
+        #expect(tools.map(\.name) == ["web_search", "web_fetch", "search_notes", "read_note"])
+        #expect((tools[0] as? WebSearchTool)?.room === room)
+        #expect((tools[1] as? WebFetchTool)?.room === room)
+        #expect((tools[2] as? SearchNotesTool)?.room === room)
+        #expect((tools[3] as? ReadNoteTool)?.room === room)
+
+        let assistant = NoteTools.tools(for: ctx, contextTokens: 32_768, room: room)
+        #expect(assistant.compactMap { ($0 as? WebSearchTool)?.room }.first === room)
+        #expect(assistant.compactMap { ($0 as? WebFetchTool)?.room }.first === room)
     }
 
     @Test
