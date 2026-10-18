@@ -10,9 +10,10 @@
 //  left, the note in the middle, and what the note is on the right.** So the
 //  panel shows facts about the open note — its summary and outline, its
 //  properties, its tags, its links, its history and its graph — and nothing
-//  that is about the collection. The Mind Map, the Assistant and Ask Your
-//  Library are the collection's; they open as tabs beside the notes, from the
-//  sidebar that holds the collection (`CollectionTool`).
+//  that is about the collection. The Mind Map and the Assistant are the
+//  collection's; they open as tabs beside the notes, from the sidebar that
+//  holds the collection (`CollectionTool`). Ask Your Library was the third
+//  until 1.3.5, when it became part of the Assistant.
 //
 //  It was nine views for a while, the collection's three among the note's six
 //  — one panel, one state, one width — and that is how a map of one note's

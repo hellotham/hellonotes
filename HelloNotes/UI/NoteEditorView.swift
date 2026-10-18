@@ -209,7 +209,7 @@ struct NoteEditorView: View {
             if let note = editor.note {
                 // Split out because the modifier chain below defeated the type
                 // checker once the pane became a single call — the same reason
-                // `iOSContentView` splits its own body in two.
+                // `ContentView` splits its own body in two.
                 noteBody(note)
 
             } else {
@@ -848,9 +848,9 @@ struct NoteEditorView: View {
 /// The sheets and commands that act on the open note.
 ///
 /// A `ViewModifier` because the chain in `noteBody` defeated the type checker
-/// once the pane became a single call — the same reason `iOSContentView` keeps
-/// its parity sheets in one. Splitting a long chain in two is two smaller
-/// problems for the compiler.
+/// once the pane became a single call — the same reason `ContentView` keeps
+/// its sheets and alerts in one function (`presentations`). Splitting a long
+/// chain in two is two smaller problems for the compiler.
 private struct NoteEditorSheets: ViewModifier {
     @Bindable var editor: EditorModel
     var git: GitService

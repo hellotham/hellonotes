@@ -2,16 +2,20 @@
 //  NoteInspector.swift
 //  HelloNotes
 //
-//  The right rail: "what is this, and what touches it?"
+//  The right panel's views of the open note: "what is this, and what touches
+//  it?" — five of its six, Summary & Outline, Tags, Links, Properties and
+//  History. The panel's views are `SidePanel` and its header `SidePanelHeader`
+//  (UI/SidePanel.swift); the sixth, the Graph, the shell draws itself
+//  (`NoteGraphPanel`).
 //
-//  It consolidates four surfaces that were scattered across the app — the
+//  It brought together four surfaces that were scattered across the app — the
 //  references panel wedged under the editor, the outline in a popover, tags in
 //  the left sidebar, and note history in a sheet — into one place with a
-//  consistent rhythm (decisions 1, 8 and 10 of docs/layout-architecture.md).
+//  consistent rhythm (decisions L1, L8 and L10 in docs/ui.md).
 //
-//  The left rail answers "where is it?"; this one answers "what is this?".
-//  They cooperate across the shell: selecting a tag here filters the note list
-//  over there.
+//  The sidebar answers "where is it?"; the panel answers "what is this?". They
+//  cooperate across the window: selecting a tag here filters the sidebar's
+//  tree.
 //
 
 import SwiftUI
@@ -66,7 +70,7 @@ struct NoteInspector: View {
     /// leaves it read-only.
     var onInsertSummary: ((String) -> Void)? = nil
 
-    // Tags — selecting one filters the note list in the *other* rail.
+    // Tags — selecting one makes the sidebar's tree the notes that carry it.
     /// Every tag in the collection. Never listed wholesale; searched.
     let allTags: [String]
     /// How many notes carry a tag, shown beside a search result so you can see
