@@ -237,7 +237,7 @@ echo "Mac: launching with the sample collection only, at ${width}×${safe_height
 # size, so it is overridden too — in the argument domain, like the rest.
 open -n -F -a "$mac_app" --args "${settings[@]}" -ApplePersistenceIgnoreState YES -HNCaptureSession YES \
   -HNWindowWidth $width -HNWindowHeight $safe_height "-NSWindow Frame main-AppWindow-1" "100 60 $width $safe_height 0 0 1512 949 " \
-  -collectionBookmarks "(<$only_sample>)" -collectionPaths "(\"$sample\")" -remoteCollectionCaches "()" -HNHideTips
+  -collectionBookmarks "(<$only_sample>)" -collectionPaths "(\"$sample\")" -remoteCollectionCaches "()"
 sleep 5
 # In front, or not captured: a window of an app that is not frontmost is drawn
 # at 90% — Stage Manager's set — and `screencapture -l` cannot take it. Every

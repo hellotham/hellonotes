@@ -195,29 +195,60 @@ final class Library {
 
     func requestReveal(_ collectionID: Collection.ID) { pendingRevealCollectionID = collectionID }
 
-    /// A question the Ask Library window should open pre-filled with — set when
-    /// someone selects a phrase and asks the library about it. Consumed once,
-    /// by the window, so reopening it later doesn't re-ask a stale question.
-    var pendingLibraryQuestion: String?
+    // MARK: - The Assistant
 
-    func requestAsk(_ question: String) { pendingLibraryQuestion = question }
+    /// Each collection's Assistant: one conversation a collection, however
+    /// many windows show it, alive while a note is shown in its tab's place.
+    /// It was the tab's own, so showing a note took it down — and a turn
+    /// still streaming in the old one then saved over the transcript of the
+    /// one made when the tab came back, Use my notes came back on, and a
+    /// question asked from one window was taken by whichever window's tab
+    /// heard it first, with that window's collection (implemented.md §51.55).
+    /// Keyed by collection; `nil` is the conversation with none open.
+    /// Observed, so a tab drawn before its model was made draws it when it is:
+    /// ignored, the Assistant's tab stayed on its spinner for good (the iPad
+    /// test's "doesn't say it is experimental").
+    private var assistants: [Collection.ID?: AssistantModel] = [:]
 
-    /// Ask the library about a selected phrase.
+    /// The Assistant for `collection`, made the first time it is asked for:
+    /// its tools, its skills and its kept conversation.
+    func assistant(for collection: Collection?, settings: IntelligenceSettings) -> AssistantModel {
+        if let kept = assistants[collection?.id] { return kept }
+        let model = AssistantModel(settings: settings)
+        if let collection {
+            let skills = SkillStore()
+            skills.refresh(from: collection.notes)
+            model.toolContext = ToolContext(
+                collection: collection, search: collection.search, git: collection.git,
+                permissions: PermissionBroker(), settings: settings, skills: skills)
+        }
+        model.sessionStore = ChatSessionStore(collectionURL: collection?.rootURL)
+        assistants[collection?.id] = model
+        return model
+    }
+
+    /// The Assistant for `collection` if it has been made — a look that
+    /// makes nothing (making one reads the kept conversation from disk), for a
+    /// view to draw with.
+    func assistantIfMade(for collection: Collection?) -> AssistantModel? {
+        assistants[collection?.id]
+    }
+
+    /// Ask `collection`'s Assistant about a selected phrase.
     ///
     /// The prompt lives here because it was written out at two call sites — one
     /// in each shell — and a sentence duplicated across platforms is a sentence
-    /// that can differ on them. The *mechanism* was duplicated too: the Mac set
-    /// this pending question and opened its window, while iPad kept a local
-    /// `chatSeed`, so anything else that called `requestAsk` reached the Mac's
-    /// chat and not the iPad's.
-    func askAboutSelection(_ phrase: String) {
-        requestAsk("Explain this, using my notes: \(phrase)")
+    /// that can differ on them. It is asked of the conversation itself, not
+    /// left for a tab to find: the question used to wait in the library for
+    /// whichever window's Assistant noticed it first.
+    func askAboutSelection(_ phrase: String, in collection: Collection?, settings: IntelligenceSettings) {
+        assistant(for: collection, settings: settings).ask("Explain this, using my notes: \(phrase)")
     }
 
-    /// Take the pending question, if any, clearing it.
-    func takePendingLibraryQuestion() -> String? {
-        defer { pendingLibraryQuestion = nil }
-        return pendingLibraryQuestion
+    /// A closed collection's Assistant stops, keeping what it had said.
+    private func retireAssistant(of id: Collection.ID) {
+        assistants[id]?.stop()
+        assistants[id] = nil
     }
 
     // MARK: - Focus
@@ -325,6 +356,7 @@ final class Library {
     /// Close a collection: stop watching it, drop it, and update persistence.
     func close(_ collection: Collection) {
         collection.deactivate()
+        retireAssistant(of: collection.id)
         collections.removeAll { $0.id == collection.id }
         if focusedID == collection.id { focusedID = collections.first?.id }
         persist()
@@ -332,7 +364,10 @@ final class Library {
 
     /// Close every open collection (used when switching to a saved library).
     func closeAll() {
-        for collection in collections { collection.deactivate() }
+        for collection in collections {
+            collection.deactivate()
+            retireAssistant(of: collection.id)
+        }
         collections.removeAll()
         focusedID = nil
         persist()

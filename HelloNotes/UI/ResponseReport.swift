@@ -28,10 +28,9 @@ import UIKit
 struct ResponseReport: Equatable {
     /// Where the text came from — "Assistant", "Summary", …
     let feature: String
-    /// The model in use, as the app names it in a sentence — "System model",
-    /// "Private Cloud Compute", or an MLX model's name (`LanguageModels.name(of:)`).
-    /// The one chosen when Report… is pressed: a conversation that changed
-    /// model partway is reported under the model it has now.
+    /// The model that made the response, as the app names it — "Local
+    /// (Apple)", "Cloud (Apple)", "Local (<MLX model>)" — from the result's
+    /// `ModelStamp`, or the model in use where a result has none.
     let model: String
     /// What it wrote.
     let response: String

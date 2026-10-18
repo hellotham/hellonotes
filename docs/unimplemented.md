@@ -121,6 +121,10 @@ version instead — see implemented.md §49.*
 - ✅ ~~**References panel disappears when empty**~~ — resolved (§20): the button stays put and shows the same "No References" copy the inspector already used. (The inspector's own tab already had the empty state.)
 - ✅ ~~**Duplicate has no keyboard shortcut**~~ — **entry was stale**: Duplicate is ⌘D (Finder convention) and Bookmark is ⇧⌘D (`AppCommands.swift`). Shipped before 1.1, never struck off.
 - ✅ ~~**Clearing a number property turns it into text.**~~ — resolved (implemented.md §51.15): the panel's rows are a draft, so the empty value in between is never written, and the number typed next is written as a number.
+- **The Assistant changing notes** — deferred from 1.3.5 by the person (2026-10-18: "the ability to edit a note is probably next release"). The tools exist and are not offered (`NoteTools`); what stopped them was not the code but what a person could see — nothing said how an edit would be proposed, approved or undone. Before offering them again: a visible proposal (the diff), approval in the conversation, a way back, and `AssistantEditEvaluation` re-enabled and passing on Local (Apple) and Cloud (Apple). implemented.md §51.55.
+- **Summaries across conversations** — 1.3.5 summarises the earlier messages *within* a conversation, the person's choice of the two (2026-10-18). Carrying context from one conversation into the next is the other half.
+- **Tips, done properly or not at all** — two TipKit popovers (Suggest Links, Mind Map) were removed in 1.3.5: on iOS a popover takes the first tap, and two tips are not a way to learn the app. The person's terms (2026-10-18): across the app's functionality, and never blocking it.
+- **Screenshots that show what 1.3.5 removed** — the store's iPhone `04-intelligence` and Mac `05-dark-assistant` / `10-light-assistant` show Ask Your Library or the old Assistant header, so they leave the 1.3.5 sets rather than mislead; the website's screenshots of the same need re-shooting with the sample collection alone.
 
 ---
 

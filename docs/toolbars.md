@@ -1,5 +1,5 @@
 ---
-status: CURRENT (2026-10-09). Every bar the app draws, as built, with its open
+status: CURRENT (2026-10-09; the collection's tools and the Assistant's header from source for 1.3.5, 2026-10-19). Every bar the app draws, as built, with its open
 defects (§14). Decision record: `shell-chrome.md` D1, D3, D8, D9, D10, D11, D12, D13;
 the formatting decision is L20 in `ui.md` §11. Overview: `ui.md`.
 ---
@@ -106,7 +106,7 @@ iOS).
 | 2 | **New Note** `+` | `plus` | a menu: every way to make a note (§3.2) | not on compact |
 | 3 | **Search** 🔍 | `magnifyingglass` | a menu (§3.2). **Search Notes** — and ⌥⌘F, which also shows a hidden sidebar — turns the 🔍 into the search field, focused (120–180pt). It searches every open collection, and the results replace the tree in the primary sidebar ([primary.md](primary.md) §3.2). The placeholder "Search" is drawn by the app; a clear button (`xmark.circle.fill`) appears with text; Return leaves the field. Empty and left — focus elsewhere, or its text cleared — it folds back to the 🔍. VoiceOver: "Search all collections" | not on compact |
 | 4 | **Settings** | `gearshape` | opens Settings | not on compact |
-| 5 | **Tabs** | — | the open notes, then the collection's tools open beside them (Mind Map, Assistant, Ask Your Library — a symbol before the title); flexible; scrolls when it does not fit ([tabs.md](tabs.md)) | while a note or a tool is open; otherwise empty space |
+| 5 | **Tabs** | — | the open notes, then the collection's tools open beside them (Mind Map, Assistant — a symbol before the title); flexible; scrolls when it does not fit ([tabs.md](tabs.md)) | while a note or a tool is open; otherwise empty space |
 | 6 | **Note Actions** ⌄ | `chevron.down.circle` | a menu (§3.3) | while a note is in front |
 | 7 | **Show Panel / Hide Panel** | `sidebar.trailing` | shows or hides the right panel; drawn on while the panel shows | always |
 
@@ -192,8 +192,8 @@ Both are 40pt rows in the chrome grey with a rule below.
   (`collectionAddItems`), menu items as they were before build 28 (D14). The
   window drags by it. → [primary.md](primary.md) §7.
 - **Sidebar commands**: the collection's tools, as named rows above the tree —
-  **Mind Map**, **Assistant**, **Ask Your Library** and **Git** (its branch, a
-  dot for changes, the Git pane as a popover). In the band, the same as a
+  **Mind Map**, **Assistant** and **Git** (its branch, a dot for changes, the
+  Git pane as a popover). In the band, the same as a
   strip across its top. → [primary.md](primary.md).
 - **Panel header**: the strip of the note's six views (or a pull-down when it
   cannot fit) and **Close panel**. → [secondary.md](secondary.md) §3.
@@ -384,7 +384,8 @@ count or the heights; those are described here from `EditorCommands.swift`.
 **Selection actions** are menu items, not a bar. On a selection, the editor's
 context menu on the Mac and the system edit menu on iOS offer **Rewrite with
 AI…** first, then **Link to "*title*"** (only when a note of that name exists),
-**Find Related** and **Ask Your Library**, beside the system's own Writing Tools.
+**Find Related** and **Ask the Assistant** (which opens the Assistant's tab and
+asks "Explain this, using my notes: …"), beside the system's own Writing Tools.
 
 ---
 
@@ -437,9 +438,11 @@ The collection's tools, in their tabs, draw a header at their top:
   name, "*n* notes · *m* links" (its tooltip says how many linked notes the cap
   left off and how many notes have no links), and zoom controls, with 16pt of
   padding.
-- **Assistant**: agent mode (a toggle, `wrench.and.screwdriver.fill` or
-  `bubble.left`), the model (a pull-down), **New conversation**
-  (`square.and.pencil`) and **AI settings** (`gearshape`), right-aligned.
+- **Assistant**: **Use my notes** (a labelled switch) at the leading end; then,
+  right-aligned, the conversation's model (a pull-down: Local (Apple), Cloud
+  (Apple) in App Store builds, and each MLX model as "Local (*name*)", with
+  **AI Settings…** at its foot) and **New conversation** (`square.and.pencil`).
+  It has no settings button of its own.
 
 That is three extra rows, drawn three different ways (§14).
 

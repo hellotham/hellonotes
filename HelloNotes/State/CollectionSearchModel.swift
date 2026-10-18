@@ -384,10 +384,13 @@ final class CollectionSearchModel {
     }
 
     /// Title and content hits combined (content snippets win), across the whole
-    /// collection. Convenience for retrieval callers (Ask Library, agent tools)
-    /// that want one correct answer and can afford the on-demand reads.
+    /// collection. Convenience for retrieval callers (the Assistant's tools)
+    /// that want one correct answer and can afford the on-demand reads —
+    /// **every** match: `search_notes` shows what fits and counts the rest, and
+    /// the list's cap of 250 stopped the count there, so the model was told it
+    /// had every match when it had 250.
     func fullTextResults(query: String) async -> [SearchHit] {
-        let content = await contentResults(query: query)
+        let content = await contentResults(query: query, limit: .max)
         let contentURLs = Set(content.map(\.id))
         return content + titleResults(query: query).filter { !contentURLs.contains($0.id) }
     }

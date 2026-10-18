@@ -19,8 +19,9 @@
 //  Apple silicon), and the SDK decides that — `SystemLanguageModel.variant` is
 //  read-only and no initializer takes one. Private Cloud Compute is one model
 //  from an app's point of view. Naming a model the app cannot select would be a
-//  setting that does nothing — so the on-device model is shown as "System", the
-//  name Apple's `fm` tool gives it.
+//  setting that does nothing — so the on-device model is one entry, "Local
+//  (Apple)", named by where it runs (the person's choice, 2026-10-18; it was
+//  "System", the name Apple's `fm` tool gives it).
 //
 
 import Foundation
@@ -113,8 +114,9 @@ nonisolated enum SamplingChoice: String, Codable, CaseIterable, Identifiable, Se
 /// `MLXLocalModel.id`.
 ///
 /// There was a single `.mlx` entry for a while, on the reasoning that only one
-/// MLX model is loaded at a time. True, and beside the point: that is a fact
-/// about loading, not about choosing. It made "which model" a second decision
+/// MLX model is loaded at a time. Beside the point — a fact about loading, not
+/// about choosing — and not even true: models load lazily and stay cached, and
+/// the person's Mac holds several (2026-10-18). It made "which model" a second decision
 /// taken in another section behind a **Use** button, while the control actually
 /// labelled *Model* could not express it — and **Use** pressed while the picker
 /// said System changed which model would run and left the app on System.
@@ -132,6 +134,17 @@ nonisolated enum ModelOption: Hashable, Identifiable, Sendable {
         case .onDevice: "onDevice"
         case .privateCloud: "privateCloud"
         case .mlx(let model): "mlx:\(model)"
+        }
+    }
+
+    /// The entry `id` names — the inverse of `id`, for an entry kept on disk.
+    init?(id: String) {
+        switch id {
+        case "onDevice": self = .onDevice
+        case "privateCloud": self = .privateCloud
+        default:
+            guard id.hasPrefix("mlx:") else { return nil }
+            self = .mlx(String(id.dropFirst(4)))
         }
     }
 

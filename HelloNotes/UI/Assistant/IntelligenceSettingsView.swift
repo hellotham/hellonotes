@@ -12,8 +12,8 @@
 //  that exists any more. What a person decides now is small and legible: *which
 //  model*, with a sentence under it saying where the text goes. That sentence is
 //  the part the Human Interface Guidelines insist on, and it is why the choice
-//  is shown as where a model runs ("System", "Private Cloud Compute", "MLX")
-//  before what it is called.
+//  is named by where a model runs — "Local (Apple)", "Cloud (Apple)", "Local
+//  (<MLX model>)" — before whose it is.
 //
 
 import SwiftUI
@@ -84,10 +84,18 @@ struct IntelligenceSettingsForm: View {
     /// opened an Obsidian vault as a collection was that vault, not the
     /// Hugging Face cache. Apple's documentation says only that the modifier
     /// "configures the fileImporter", not which side of it to put it on.
+    ///
+    /// It is a permission, so it says so: the button reads **Allow**, and the
+    /// message says not to pick a model — a panel showing a folder of models
+    /// with a button reading Open looked like a request to open one (the
+    /// person's check of build 34). A Yes/No of the app's own cannot do it: the
+    /// sandbox grants a folder only through this panel, which runs outside the
+    /// app, and the entitlement that would skip it was refused (CLAUDE.md).
     private func startingInHuggingFaceCache(_ presenter: some View) -> some View {
         presenter
             .fileDialogDefaultDirectory(Self.huggingFaceCache)
-            .fileDialogMessage("Your MLX models are in this folder. Click Open to let HelloNotes use them.")
+            .fileDialogMessage("Click Allow to let HelloNotes use the MLX models in this folder. There's no need to choose a model — HelloNotes lists them all.")
+            .fileDialogConfirmationLabel("Allow")
     }
     #else
     /// No Hugging Face cache on iOS to start in: the picker opens where Files does.
@@ -99,25 +107,42 @@ struct IntelligenceSettingsForm: View {
     private var modelsSection: some View {
         ChromeSection {
             modelPicker
+            huggingFaceHint
             modelCaption(for: settings.model, role: LanguageModels.uses(of: settings.model))
 
             if settings.model == .privateCloud, let quota = models.privateCloudQuotaNote {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(quota, systemImage: "gauge.with.dots.needle.67percent")
-                        .font(Chrome.Style.caption)
-                        .foregroundStyle(Chrome.Colour.secondaryLabel)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if models.canSuggestLimitIncrease {
-                        Button("Request More") { models.suggestLimitIncrease() }
-                            .controlSize(.small)
-                    }
-                }
+                Label(quota, systemImage: "gauge.with.dots.needle.67percent")
+                    .font(Chrome.Style.caption)
+                    .foregroundStyle(Chrome.Colour.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         } header: {
             Text("Models")
         } footer: {
-            Text("System is Apple's model on this device — whichever one Apple Intelligence runs here. AI can make mistakes. Check anything important before you rely on it.")
+            // Cloud (Apple) only where this build can offer it: never the DMG.
+            Text((LanguageModels.privateCloudComputeEnabled
+                  ? "Local means it runs on this device; Cloud (Apple) runs on Apple's Private Cloud Compute. "
+                  : "Local means it runs on this device. ")
+                 + "This is the default — the Assistant can use another for a conversation. AI can make mistakes. Check anything important before you rely on it.")
         }
+    }
+
+    /// Why a Mac's MLX models are not in the picker yet, while they are not:
+    /// they are in the Hugging Face cache, which the sandbox keeps from the
+    /// app until the person allows it once (**Access MLX Models…**, in the MLX
+    /// Models section). Build 34's picker listed none and said nothing, beside
+    /// a cache of runnable models (the person's check, 2026-10-18).
+    @ViewBuilder private var huggingFaceHint: some View {
+        #if os(macOS)
+        if mlx.usesOwnStorage && mlx.models.isEmpty {
+            Text("\(Image(systemName: "folder")) MLX models already on this Mac, in the Hugging Face cache, are listed here once you allow HelloNotes to read it: Access MLX Models…, under MLX Models below.")
+                .font(Chrome.Style.caption)
+                .foregroundStyle(Chrome.Colour.secondaryLabel)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        #else
+        EmptyView()
+        #endif
     }
 
     /// Apple's model, and **every MLX model in the models folder** — the whole
@@ -127,7 +152,7 @@ struct IntelligenceSettingsForm: View {
         let current = settings.option(for: settings.model)
         var options = models.options
         if !options.contains(current) { options.append(current) }
-        return ChromePopUp("Model", selection: Binding(
+        return ChromePopUp("Default model", selection: Binding(
             get: { current },
             set: { settings.choose($0) }
         ), options: options.map { option in
@@ -310,8 +335,8 @@ struct IntelligenceSettingsForm: View {
     /// Why the button exists. App Review refused the entitlement that would
     /// have made this automatic (2.4.5(i)), so the sandbox's own route — the
     /// person granting the folder once — is the whole of it. The panel opens
-    /// *in* the cache, so granting it is one click on Open.
-    private let accessHelp = "Your MLX models are probably already on this Mac, in the Hugging Face cache that mlx_lm and other MLX tools share. macOS won't let HelloNotes read that folder until you allow it: Access MLX Models opens it — click Open to allow. They are listed here from then on, and downloads go into the same place rather than a second copy."
+    /// *in* the cache, so granting it is one click on Allow.
+    private let accessHelp = "Your MLX models are probably already on this Mac, in the Hugging Face cache that mlx_lm and other MLX tools share. macOS won't let HelloNotes read that folder until you allow it: Access MLX Models opens it — click Allow. They are listed here from then on, and downloads go into the same place rather than a second copy."
     #else
     private let accessHelp = "Models download into HelloNotes' own storage. Choose Folder points at somewhere else — a folder in Files, or on an external drive — if you keep them there."
     #endif
@@ -326,9 +351,9 @@ struct IntelligenceSettingsForm: View {
         return URL(fileURLWithPath: String(cString: home)).appending(path: ".cache/huggingface/hub")
     }
 
-    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. Allow access to your Hugging Face cache, ~/.cache/huggingface/hub, and the models already there are listed and downloads join them, shared with mlx_lm and every other MLX tool. Until then models live in HelloNotes' own storage. One MLX model runs at a time, and everything the app does with AI uses it."
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. Allow access to your Hugging Face cache, ~/.cache/huggingface/hub, and the models already there are listed and downloads join them, shared with mlx_lm and every other MLX tool. Until then models live in HelloNotes' own storage. The model chosen above is the default; an Assistant conversation can run another beside it, and each model in use takes memory of its own."
     #else
-    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: HelloNotes' own storage, or a folder you choose. One MLX model runs at a time, and everything the app does with AI uses it."
+    private let mlxFooter = "Bring your own model — HelloNotes doesn't recommend one. MLX models live in one place, the models folder: HelloNotes' own storage, or a folder you choose. The model chosen above is the default; an Assistant conversation can run another beside it, and each model in use takes memory of its own."
     #endif
 
     /// A model in the folder: what it is, what it costs, and the two things you

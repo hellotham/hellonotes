@@ -27,6 +27,27 @@ final class ChatSessionStore {
     private let directory: URL
     private var fileURL: URL { directory.appendingPathComponent("transcript.json") }
     private var legacyURL: URL { directory.appendingPathComponent("current.jsonl") }
+    /// Where each kept reply was made (`ModelStamp`), by the reply's id.
+    private var stampsURL: URL { directory.appendingPathComponent("models.json") }
+    /// What the conversation keeps beside its transcript (`Conversation`).
+    private var conversationURL: URL { directory.appendingPathComponent("conversation.json") }
+
+    /// What a conversation keeps beside its transcript, so the Assistant made
+    /// again — after a relaunch, or a note shown in its place — takes it up
+    /// where it was: its own model, whether it reads the notes, and the
+    /// summary of the turns that no longer fit. All optional, decoded
+    /// leniently: what is missing is the default.
+    nonisolated struct Conversation: Codable, Equatable, Sendable {
+        /// `ModelOption.id` of the model chosen in the Assistant's menu.
+        var model: String?
+        /// **Use my notes** — kept, because it is how a conversation on a
+        /// model off the device keeps the notes away from it.
+        var useNotes: Bool?
+        /// The summary of earlier turns (`AssistantModel.earlierSummary`).
+        var summary: String?
+        /// The id of the last entry `summary` covers.
+        var summarisedThrough: String?
+    }
 
     /// The most recent entries kept on disk, so a long-lived conversation with
     /// verbatim tool output cannot grow the file without limit.
@@ -72,8 +93,53 @@ final class ChatSessionStore {
         return migrated
     }
 
-    func save(_ entries: [Transcript.Entry]) {
-        let transcript = Transcript(entries: entries.suffix(Self.persistedTailLimit))
+    /// Where each kept reply was made. Missing or unreadable is "not known" —
+    /// never a reason to lose the conversation.
+    func loadStamps() -> [String: ModelStamp] {
+        guard let data = try? Data(contentsOf: stampsURL) else { return [:] }
+        return (try? JSONDecoder().decode([String: ModelStamp].self, from: data)) ?? [:]
+    }
+
+    /// What the conversation keeps beside its transcript. Missing or
+    /// unreadable is the default.
+    func loadConversation() -> Conversation {
+        guard let data = try? Data(contentsOf: conversationURL),
+              let kept = try? JSONDecoder().decode(Conversation.self, from: data) else { return Conversation() }
+        return kept
+    }
+
+    /// Keep `conversation` — in the write queue, so a clear after it takes it
+    /// away too — and report a failure, as the transcript's saves do.
+    func saveConversation(_ conversation: Conversation) {
+        let url = conversationURL
+        let previous = writeTask
+        let report = onPersistenceError
+        writeTask = Task.detached(priority: .utility) {
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            do {
+                try JSONEncoder().encode(conversation).write(to: url, options: .atomic)
+            } catch {
+                await MainActor.run { report?("Couldn't save the conversation: \(error.localizedDescription)") }
+            }
+        }
+    }
+
+    /// The ids of the replies in `entries`.
+    nonisolated static func replyIDs(in entries: some Sequence<Transcript.Entry>) -> Set<String> {
+        Set(entries.compactMap { entry -> String? in
+            if case .response(let reply) = entry { return reply.id }
+            return nil
+        })
+    }
+
+    func save(_ entries: [Transcript.Entry], stamps: [String: ModelStamp] = [:]) {
+        let kept = entries.suffix(Self.persistedTailLimit)
+        let transcript = Transcript(entries: kept)
+        // Only the stamps of replies that are kept, in the same write as them.
+        let keptReplies = Self.replyIDs(in: kept)
+        let keptStamps = stamps.filter { keptReplies.contains($0.key) }
+        let stampsURL = self.stampsURL
         let url = fileURL
         let previous = writeTask
         let report = onPersistenceError
@@ -85,6 +151,7 @@ final class ChatSessionStore {
             do {
                 let data = try JSONEncoder().encode(transcript)
                 try data.write(to: url, options: .atomic)
+                try JSONEncoder().encode(keptStamps).write(to: stampsURL, options: .atomic)
             } catch {
                 await MainActor.run {
                     report?("Couldn't save the conversation: \(error.localizedDescription)")
@@ -106,7 +173,7 @@ final class ChatSessionStore {
     func clear() -> Task<Void, Never> {
         writeTask?.cancel()
         let previous = writeTask
-        let urls = [fileURL, legacyURL]
+        let urls = [fileURL, legacyURL, stampsURL, conversationURL]
         let report = onPersistenceError
         let removal = Task.detached(priority: .utility) {
             await previous?.value

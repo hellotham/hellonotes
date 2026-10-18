@@ -76,7 +76,7 @@ export const SCREENS: Screen[] = [
     dark: dark05,
     alt: 'The Assistant open as a tab, running on the System model: asked to summarise the Linking note in three bullet points, it shows a search_notes call and a read_note call and then a three-point answer',
     title: 'An Assistant that reads your notes first',
-    body: 'Ask the Assistant about your collection and it searches and reads your notes before it answers, showing each step — here on Apple’s model, on the device. A change to a note waits for your approval.',
+    body: 'Ask the Assistant about your collection and it searches and reads your notes before it answers, showing each step — here on Apple’s model, on the device. It doesn’t change your notes.',
   },
 ];
 

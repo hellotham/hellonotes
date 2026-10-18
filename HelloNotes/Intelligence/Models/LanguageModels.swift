@@ -116,21 +116,21 @@ final class LanguageModels {
     /// 8,192 an iPhone gives it.
     nonisolated static func largerModels(than choice: ModelChoice) -> String? {
         switch choice {
-        case .onDevice: privateCloudComputeEnabled ? "Private Cloud Compute or an MLX model" : "an MLX model"
-        case .mlx: privateCloudComputeEnabled ? "Private Cloud Compute" : nil
+        case .onDevice: privateCloudComputeEnabled ? "Cloud (Apple) or a local MLX model" : "a local MLX model"
+        case .mlx: privateCloudComputeEnabled ? "Cloud (Apple)" : nil
         case .privateCloud: nil
         }
     }
 
     /// Apple's models this build offers, by name, for a sentence about
-    /// something every one of them can do: "System", or "System and Private
-    /// Cloud Compute" (with "or", for a choice).
+    /// something every one of them can do: "Local (Apple)", or "Local (Apple)
+    /// and Cloud (Apple)" (with "or", for a choice).
     nonisolated static func appleModels(joinedBy conjunction: String) -> String {
-        privateCloudComputeEnabled ? "System \(conjunction) Private Cloud Compute" : "System"
+        privateCloudComputeEnabled ? "Local (Apple) \(conjunction) Cloud (Apple)" : "Local (Apple)"
     }
 
     private static let privateCloudNotInThisBuild =
-        "Private Cloud Compute isn't available in this version of HelloNotes."
+        "Cloud (Apple) isn't available in this version of HelloNotes."
 
     /// Private Cloud Compute's window, once asked. It is `async throws` on the
     /// model, so it is fetched once and remembered for the process.
@@ -175,38 +175,26 @@ final class LanguageModels {
 
     // MARK: - Describing
 
-    /// The model's name in a sentence: "System model", "Private Cloud Compute",
-    /// "gemma-4-31b-it-4bit".
+    /// The model's name: **where it runs, then whose it is** — "Local
+    /// (Apple)", "Cloud (Apple)", "Local (gemma-4-31b-it-4bit)" — in a sentence
+    /// and in a menu alike (the person's decision, 2026-10-18).
     ///
-    /// Apple's on-device model is the **System model** — what Apple's own `fm`
-    /// tool calls it (`--model system`, "System model available"). Not its
-    /// variant, "AFM 3 Core" or "AFM 3 Core Advanced": the hardware decides
-    /// that, and naming a model nobody can choose made people ask where the
-    /// other one was.
+    /// It was "System" and "Private Cloud Compute": two of Apple's models set
+    /// against each other, when the choice that matters is whether the text
+    /// leaves the device. Not the on-device variant ("AFM 3 Core Advanced")
+    /// either — the hardware decides it, and naming a model nobody can choose
+    /// made people ask where the other one was.
     func name(of choice: ModelChoice) -> String {
         switch choice {
-        case .onDevice:
-            // A device that cannot run Apple Intelligence has no System model
-            // to speak of.
-            if case .unavailable(.deviceNotEligible) = onDevice.availability {
-                "Apple Intelligence"
-            } else {
-                "System model"
-            }
-        case .privateCloud: "Private Cloud Compute"
-        case .mlx: mlx.modelName
+        case .onDevice: "Local (Apple)"
+        case .privateCloud: "Cloud (Apple)"
+        case .mlx: "Local (\(mlx.modelName))"
         }
     }
 
-    /// The name as an entry, for pickers and the Assistant's header: `fm`'s own
-    /// word for Apple's model, and where an MLX model runs before its name.
-    func title(of choice: ModelChoice) -> String {
-        switch choice {
-        case .onDevice: "System"
-        case .privateCloud: "Private Cloud Compute"
-        case .mlx: "MLX · \(name(of: choice))"
-        }
-    }
+    /// The name as an entry, for pickers and the Assistant's header — the same
+    /// words, so a menu and a sentence never disagree.
+    func title(of choice: ModelChoice) -> String { name(of: choice) }
 
     // MARK: - Picker entries
 
@@ -234,12 +222,68 @@ final class LanguageModels {
     /// reading as a bare "MLX" that looks the same as a working one.
     func title(of option: ModelOption) -> String {
         guard let id = option.mlxModelID else { return title(of: option.choice) }
-        if let model = mlx.models.first(where: { $0.id == id }) { return "MLX · \(model.name)" }
-        if mlx.models.isEmpty { return "MLX · no model in the models folder" }
-        return id.isEmpty ? "MLX · no model chosen" : "MLX · model not in this folder"
+        if let model = mlx.models.first(where: { $0.id == id }) { return "Local (\(model.name))" }
+        if mlx.models.isEmpty { return "Local (MLX) · no model in the models folder" }
+        return id.isEmpty ? "Local (MLX) · no model chosen" : "Local (MLX) · model not in this folder"
     }
 
     func systemImage(of option: ModelOption) -> String { systemImage(of: option.choice) }
+
+    // MARK: - An entry, for a conversation of its own
+
+    /// The model an entry names — for an MLX entry that model, whichever the
+    /// store has chosen as the default's — once it can run.
+    func model(forOption option: ModelOption, purpose: Purpose = .general) throws -> any LanguageModel {
+        guard let id = option.mlxModelID, !id.isEmpty else { return try model(for: option.choice, purpose: purpose) }
+        if case .unavailable(let why) = availability(ofOption: option) { throw IntelligenceError.unavailable(why) }
+        guard let local = mlx.models.first(where: { $0.id == id }) else {
+            throw IntelligenceError.unavailable(Self.notInFolder)
+        }
+        return mlx.languageModel(for: local)
+    }
+
+    /// Whether an entry's model can call tools — an MLX entry's own template.
+    func supportsTools(option: ModelOption) -> Bool {
+        guard let id = option.mlxModelID else { return supportsTools(option.choice) }
+        return mlx.models.first { $0.id == id }?.rendersTools ?? true
+    }
+
+    /// Whether an entry's model can run, and why not. The store follows the
+    /// default's MLX model only — and an entry naming none (`.mlx("")`, the
+    /// default with no model chosen) is the store's own answer; another in the
+    /// folder is runnable while it is there, and says what is wrong on its
+    /// first request if anything is.
+    func availability(ofOption option: ModelOption) -> IntelligenceAvailability {
+        guard let id = option.mlxModelID else { return availability(of: option.choice) }
+        if id.isEmpty || id == mlx.chosenID { return availability(of: .mlx) }
+        #if targetEnvironment(simulator)
+        return availability(of: .mlx)
+        #else
+        return mlx.models.contains { $0.id == id } ? .available : .unavailable(Self.notInFolder)
+        #endif
+    }
+
+    nonisolated static let notInFolder = "That MLX model isn't in the models folder any more."
+
+    /// `option` as the folder holds it now. An MLX entry is named by its
+    /// snapshot, which a new revision of the same model replaces — so an entry
+    /// kept with a conversation is matched to its repository's current
+    /// snapshot rather than dropped, which put a conversation kept on this
+    /// device back on the Settings default, Cloud (Apple) perhaps. An entry
+    /// the folder no longer has at all is kept, and says so where it is used.
+    func resolved(_ option: ModelOption) -> ModelOption {
+        guard let id = option.mlxModelID, !id.isEmpty, !mlx.models.contains(where: { $0.id == id }),
+              let range = id.range(of: "/snapshots/") else { return option }
+        let repository = String(id[..<range.lowerBound])
+        guard let current = mlx.models.first(where: { $0.folder.standardizedFileURL.path == repository }) else { return option }
+        return .mlx(current.id)
+    }
+
+    /// The entry a request asked of `option` runs on: `option`, or Local
+    /// (Apple) while Cloud (Apple)'s allowance is spent (`serving`).
+    func serving(option: ModelOption) -> ModelOption {
+        serving(option.choice) == option.choice ? option : .onDevice
+    }
 
     /// Whether an entry can be chosen now.
     ///
@@ -248,11 +292,7 @@ final class LanguageModels {
     /// so asking it about the others would disable every model in the folder
     /// whenever the one in use wasn't ready, including before anything has been
     /// chosen at all. A model that is here and runnable can always be chosen.
-    func isAvailable(_ option: ModelOption) -> Bool {
-        guard let id = option.mlxModelID else { return availability(of: option.choice).isAvailable }
-        if id == mlx.chosenID { return availability(of: .mlx).isAvailable }
-        return mlx.models.contains { $0.id == id }
-    }
+    func isAvailable(_ option: ModelOption) -> Bool { availability(ofOption: option).isAvailable }
 
     /// Where the text goes to be *processed*, in one sentence. The HIG is
     /// explicit that people must be able to tell whether a feature sends their
@@ -264,7 +304,11 @@ final class LanguageModels {
     /// of the feature it was printed on. What the web tools send is
     /// `webSummary`, shown beside this wherever those tools are
     /// (implemented.md §51.44).
-    func privacySummary(of choice: ModelChoice) -> String {
+    func privacySummary(of choice: ModelChoice) -> String { Self.privacySummary(of: choice) }
+
+    /// The same line, for what has a choice and no `LanguageModels` — a
+    /// result's `ModelStamp`.
+    nonisolated static func privacySummary(of choice: ModelChoice) -> String {
         switch choice {
         case .onDevice:
             "Runs on this device. Your notes are not sent to any AI service."
@@ -281,8 +325,8 @@ final class LanguageModels {
     /// keep up with typing — so the line does not promise them on one off it.
     nonisolated static func uses(of choice: ModelChoice) -> String {
         choice.runsOnDevice
-            ? "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Your Library, Research and the suggestions as you type."
-            : "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Ask Your Library and Research. Suggestions as you type need a model on this device."
+            ? "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose, Research and the suggestions as you type."
+            : "The Assistant, Summarise, Suggest Tags and Links, Rewrite, Compose and Research. Suggestions as you type need a model on this device."
     }
 
     /// What each message of a conversation under way sends, on a model off
@@ -375,33 +419,72 @@ final class LanguageModels {
 
     // MARK: - Private Cloud Compute quota
 
-    /// A line about today's Private Cloud Compute allowance, or `nil` while
-    /// there is nothing to say. Persistent and quiet by design — Apple's
-    /// guidance is to show the quota where the feature is, never as an alert.
+    /// The model a request asked of `choice` runs on: `choice` — or, once
+    /// Cloud (Apple) has used today's allowance, Local (Apple), when it can
+    /// run. A fallback towards the device and never away from it, so nothing
+    /// goes anywhere the person did not choose to send it; and asked of the
+    /// framework each time (`quotaUsage`), never remembered.
+    func serving(_ choice: ModelChoice) -> ModelChoice {
+        // `quotaUsage` is read only for Cloud (Apple): nothing else has one.
+        guard choice == .privateCloud else { return choice }
+        return Self.serving(choice, limitReached: privateCloudLimitReached,
+                            localAvailable: availability(of: .onDevice).isAvailable)
+    }
+
+    nonisolated static func serving(_ choice: ModelChoice, limitReached: Bool, localAvailable: Bool) -> ModelChoice {
+        choice == .privateCloud && limitReached && localAvailable ? .onDevice : choice
+    }
+
+    /// The model to ask again when a request on `choice` failed with `error`:
+    /// Local (Apple), when Cloud (Apple) refused it for today's limit — the
+    /// request that finds the allowance spent, before `quotaUsage` says so —
+    /// and `nil` for every other failure, which a second model would not mend.
+    func fallback(after error: any Error, on choice: ModelChoice) -> ModelChoice? {
+        Self.fallback(after: error, on: choice, localAvailable: availability(of: .onDevice).isAvailable)
+    }
+
+    nonisolated static func fallback(after error: any Error, on choice: ModelChoice, localAvailable: Bool) -> ModelChoice? {
+        guard choice == .privateCloud, localAvailable,
+              let error = error as? PrivateCloudComputeLanguageModel.Error,
+              case .quotaLimitReached = error else { return nil }
+        return .onDevice
+    }
+
+    /// A line about today's Cloud (Apple) allowance, or `nil` while there is
+    /// nothing to say. Persistent and quiet by design — Apple's guidance is to
+    /// show the quota where the feature is, never as an alert.
     var privateCloudQuotaNote: String? {
         guard let usage = privateCloud?.quotaUsage else { return nil }
+        let localAvailable = availability(of: .onDevice).isAvailable
         switch usage.status {
         case .belowLimit(let below):
             return below.isApproachingLimit
-                ? "You're close to today's Private Cloud Compute limit."
+                ? "You're close to today's limit for Cloud (Apple)."
+                    + (localAvailable ? " After it, Local (Apple) is used until it resets." : "")
                 : nil
         case .limitReached:
-            if let reset = usage.resetDate {
-                return "You've reached today's Private Cloud Compute limit. It resets \(reset.formatted(.relative(presentation: .named)))."
-            }
-            return "You've reached today's Private Cloud Compute limit."
+            return Self.limitReached(resets: usage.resetDate, fallingBack: localAvailable)
         @unknown default:
             return nil
         }
     }
 
-    /// Offer the system's own way to raise the limit, when it has one.
-    var canSuggestLimitIncrease: Bool {
-        privateCloud?.quotaUsage.limitIncreaseSuggestion != nil
+    /// Whether today's allowance is spent.
+    var privateCloudLimitReached: Bool {
+        privateCloud?.quotaUsage.isLimitReached ?? false
     }
 
-    func suggestLimitIncrease() {
-        privateCloud?.quotaUsage.limitIncreaseSuggestion?.show()
+    /// When today's allowance comes back, when that is known.
+    var privateCloudResetDate: Date? { privateCloud?.quotaUsage.resetDate }
+
+    /// What reaching the limit says, wherever it is said: the note in Settings
+    /// and the Assistant while Local (Apple) stands in, and the failure when
+    /// nothing can.
+    nonisolated static func limitReached(resets: Date?, fallingBack: Bool) -> String {
+        let when = resets.map { " It resets \($0.formatted(.relative(presentation: .named)))." } ?? ""
+        return fallingBack
+            ? "You've reached today's limit for Cloud (Apple), so Local (Apple) is being used instead.\(when)"
+            : "You've reached today's limit for Cloud (Apple).\(when)"
     }
 }
 
@@ -446,14 +529,13 @@ nonisolated enum IntelligenceError: LocalizedError {
         if let error = error as? PrivateCloudComputeLanguageModel.Error {
             switch error {
             case .quotaLimitReached(let limit):
-                if let reset = limit.resetDate {
-                    return "You've reached today's Private Cloud Compute limit. It resets \(reset.formatted(.relative(presentation: .named)))."
-                }
-                return "You've reached today's Private Cloud Compute limit."
+                // Reached only where Local (Apple) could not stand in
+                // (`LanguageModels.fallback(after:on:)`).
+                return LanguageModels.limitReached(resets: limit.resetDate, fallingBack: false)
             case .networkFailure:
-                return "Couldn't reach Private Cloud Compute. Check your internet connection."
+                return "Couldn't reach Cloud (Apple). Check your internet connection."
             case .serviceUnavailable:
-                return "Private Cloud Compute is unavailable right now. Try again later."
+                return "Cloud (Apple) is unavailable right now. Try again later."
             @unknown default:
                 return error.localizedDescription
             }

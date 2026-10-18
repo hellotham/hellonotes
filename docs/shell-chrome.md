@@ -207,7 +207,8 @@ the defect being removed from the inspector.
 
 **D6. The right panel holds anything ancillary, and its own header says
 which.** *(Amended by D13: the panel holds the note's six; the collection's
-three are tabs, opened from the sidebar.)* The window is three regions: collections on the left, the editor in the
+three are tabs, opened from the sidebar — two since 1.3.5, which folded Ask
+Library into the Assistant.)* The window is three regions: collections on the left, the editor in the
 middle, anything else on the right. Outline, Tags, References, Properties,
 History and the Mind Map are about the note; Graph, Ask Library and the
 Assistant are about the collection; all nine are the same kind of thing —
@@ -303,7 +304,9 @@ presents once open — a menu, a popover, an alert.
 **D13. The collection is the sidebar's, the note the panel's, and each command
 is in one place** (2026-10-09, after 1.3.3 build 27, at the person's direction).
 *(Amended by D14: the sidebar's making and opening commands are a `+` in its
-header again, and the bar is three buttons.)*
+header again, and the bar is three buttons. And in 1.3.5 Ask Your Library was
+folded into the Assistant, so the tools above the tree are the Mind Map, the
+Assistant and Git, and the tool tabs the Mind Map and the Assistant.)*
 Testing build 27 on the Mac, the person found the commands confusing and
 duplicated across bars — the More menu, Note Actions and the bottom bar carried
 the same commands three times, and the collection's commands were in none of
@@ -375,7 +378,6 @@ search, Open Quickly and find; the sidebar's header holds its toggle and its
 ├────────────────┼──────────────────────────────────────────────────────────┤
 │ ◉ Mind Map     │                                                          │
 │ ✦ Assistant    │   the open note — or a tool's tab in front of it         │
-│ ✦ Ask Your Lib.│                                                          │
 │ ⎇ Git  main •  │                                                          │
 │ ▸ Recents      │                                                          │
 │ ▾ Collection   │                                                          │

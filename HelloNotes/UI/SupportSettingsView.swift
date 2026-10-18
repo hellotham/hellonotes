@@ -180,8 +180,18 @@ struct SupportSettingsView: View {
             // The auto-renewal disclosure. Required in the binary for an
             // auto-renewable subscription, and separate from the price line
             // above it.
-            Text("An annual licence for using HelloNotes at work — the same app, with the same features. Payment is charged to your Apple Account on confirmation. The subscription renews automatically each year unless it is turned off at least 24 hours before the period ends. Manage or cancel it in Settings ▸ your name ▸ Subscriptions.")
+            Text("An annual licence for using HelloNotes at work — the same app, with the same features. Payment is charged to your Apple Account on confirmation. The subscription renews automatically each year unless it is turned off at least 24 hours before the period ends. Manage or cancel it \(Self.whereSubscriptionsAre).")
         }
+    }
+
+    /// Where a person manages a subscription, in their platform's words — the
+    /// Mac has no Settings ▸ your name, and its listing says this.
+    private static var whereSubscriptionsAre: String {
+        #if os(macOS)
+        "in your Apple Account settings"
+        #else
+        "in Settings ▸ your name ▸ Subscriptions"
+        #endif
     }
 
     private var renewalText: String {

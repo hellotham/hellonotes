@@ -41,7 +41,7 @@ struct PanelRequestTests {
         var body: some View {
             if host.shown {
                 NoteInspector(editor: editor, onSelectHeading: { _, _ in },
-                              summarize: { _ in host.summaries += 1; return "A summary." },
+                              summarize: { _ in host.summaries += 1; return ("A summary.", ModelStamp(choice: .onDevice, name: "Local (Apple)")) },
                               allTags: [], selectedTag: .constant(nil),
                               backlinks: [], outgoingLinks: [], unlinkedMentions: [],
                               onOpenNote: { _ in }, onLinkMention: { _ in },

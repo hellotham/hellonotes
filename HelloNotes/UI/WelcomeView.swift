@@ -55,7 +55,7 @@ struct WelcomeView: View {
                   detail: "[[Wiki-links]], backlinks, tags, and a graph tie your notes together."),
         Highlight(symbol: "sparkles",
                   title: "On-device intelligence",
-                  detail: "Summarise, rewrite, and ask your library — with Apple Intelligence or your own model."),
+                  detail: "Summarise, rewrite, and ask the Assistant about your notes — with Apple Intelligence or your own model."),
     ]
 
     var body: some View {

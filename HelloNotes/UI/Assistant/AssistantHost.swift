@@ -4,19 +4,26 @@
 //
 //  Created by Chris Tham on 16/8/2026.
 //
-//  The assistant, with its model, permission broker and skill store, pointed at
-//  whichever collection is focused.
+//  The Assistant's tab: the conversation of the collection the window's
+//  sidebar has selected, and the Settings it opens.
 //
 //  Extracted from `AuxiliaryWindows` when the assistant came to iOS, where it
 //  lived in a `Window` scene on the Mac and a sheet on iOS. It was one of the
 //  right panel's views for a while; it is one of the collection's tools now,
-//  opened from the sidebar as a tab beside the notes (`CollectionTool`), and
-//  the ownership stays here.
+//  opened from the sidebar as a tab beside the notes (`CollectionTool`). The
+//  conversation is the library's (`Library.assistant(for:settings:)`), not
+//  this view's: it owned the model, the approvals and the skills, and a note
+//  shown in the tab's place took all three down with it.
 //
 
 import SwiftUI
 
 struct AssistantHost: View {
+    /// The collection the window's sidebar has selected, whose conversation
+    /// this is — the sidebar's, as everything keyed on a collection is; it
+    /// followed the library's focus, which every window shares.
+    let collection: Collection?
+
     @Environment(Library.self) private var library
     @Environment(IntelligenceSettings.self) private var intelligenceSettings
     #if os(macOS)
@@ -28,11 +35,8 @@ struct AssistantHost: View {
     @State private var showSettings = false
     #endif
 
-    @State private var model: AssistantModel?
-    @State private var permissions = PermissionBroker()
-    @State private var skills = SkillStore()
-
     var body: some View {
+        let model = library.assistantIfMade(for: collection)
         presentingSettings(Group {
             if let model {
                 AssistantView(model: model) { openAISettings() }
@@ -40,15 +44,14 @@ struct AssistantHost: View {
                 ProgressView()
             }
         })
-        .task {
-            if model == nil {
-                model = AssistantModel(settings: intelligenceSettings)
-            }
-            syncFocusedServices()
+        // Made in a task, not while drawing: making one reads the kept
+        // conversation from disk. The library's list is observed, so this
+        // draws again when it has.
+        .task(id: collection?.id) {
+            _ = library.assistant(for: collection, settings: intelligenceSettings)
         }
-        .onChange(of: library.focusedID) { _, _ in syncFocusedServices() }
-        .onChange(of: library.allNotes) { _, _ in
-            if let c = library.focused { skills.refresh(from: c.notes) }
+        .onChange(of: collection?.notes) { _, notes in
+            if let notes { model?.toolContext?.skills?.refresh(from: notes) }
         }
     }
 
@@ -73,19 +76,9 @@ struct AssistantHost: View {
     private func presentingSettings(_ content: some View) -> some View {
         content.sheet(isPresented: $showSettings) {
             AppSettingsView(intelligenceSettings: intelligenceSettings, appearance: appearance,
-                            git: library.focused?.git, accounts: gitAccounts, store: store,
+                            git: collection?.git, accounts: gitAccounts, store: store,
                             page: .ai)
         }
     }
     #endif
-
-    /// Point the assistant's tools and conversation at the focused collection.
-    private func syncFocusedServices() {
-        guard let model, let c = library.focused else { return }
-        skills.refresh(from: c.notes)
-        model.toolContext = ToolContext(
-            collection: c, search: c.search, git: c.git, permissions: permissions,
-            settings: intelligenceSettings, skills: skills)
-        model.sessionStore = ChatSessionStore(collectionURL: c.rootURL)
-    }
 }

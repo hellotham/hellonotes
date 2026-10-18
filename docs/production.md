@@ -767,6 +767,57 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
+## 10l · 1.3.4 build 33 — submitted for review, both platforms, 2026-10-17
+
+From `fa62783` (the work is `6183c57`; the version commit followed it).
+**There was nothing in review to pull**: Apple had approved 1.3.3 and released
+it on 13 October — iPhone and iPad with build 32, the Mac with build 31
+(`appVersionState` READY_FOR_DISTRIBUTION on both; the public lookup said
+1.3.3, released 2026-10-12T15:10Z). A released version's train takes no more
+builds, for TestFlight or review, so at the person's direction build 33 went
+as **1.3.4** — the reason a version number moved when only a build was asked
+for, and the reason it has to.
+
+**What 33 is for**: Private Cloud Compute (implemented.md §51.54), Report… and
+a free Contact section (§51.53), and iCloud downloads that end (§51.51–§51.52);
+on the Mac also build 32's fixes (§51.42–§51.45), because the Mac shipped 31.
+So What's New is one a platform now (`app-store-listing.md`).
+
+Read back from each archive: 1.3.4 (33) in the app and all six extensions;
+arm64 only; 27.0; the Private Cloud Compute entitlement present; no
+temporary-exception entitlement; all five cloud-provider keys present (by
+length); `ITSAppUsesNonExemptEncryption` false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` 18:26, with Xcode's account; `VALID` 18:28 | `Upload succeeded` 18:28; `VALID` 18:30 |
+| Version | `asc-listing.py create 1.3.4`: Prepare for Submission, released after approval as 1.3.3 was; App Store Connect carried the pictures over (6 iPhone, 5 iPad) and the App Review contact | the same; 10 pictures |
+| Text | `text 1.3.4`: description, What's New, promotional text and the notes to App Review, each read back equal | the same |
+| Review | `build 1.3.4 33`, `submit 1.3.4` — `WAITING_FOR_REVIEW` | `WAITING_FOR_REVIEW` |
+
+The in-app purchases needed nothing: Champion (`….champion.contribution`) and
+Commercial are approved; `….champion`, "missing metadata", is the original ID
+that `.contribution` replaced and is not in the app.
+
+**1.3.3's release steps, done the same day**: the website says the App Store
+has 1.3.3 (`e75df86` on `main`, deployed, `check-download-page.sh` passes run
+from `main` — it reads the `site.ts` of the checkout it is run in), and China
+mainland is back on (Pricing and Availability: 175 countries or regions, China
+mainland "Processing to Available").
+
+**Still to do for 1.3.4**: the download. The DMG is 1.3.3 build 32; a 1.3.4 one
+is the `/release` skill's job — Appendix A2, now with the step that leaves
+Private Cloud Compute out of a Developer ID build — and `site.ts`'s `version`,
+size and checksum move with it. **When Apple approves 1.3.4**: `liveVersion:
+'1.3.4'`, `pendingVersion: null` (or, if the DMG went out first, it says
+`pendingVersion: '1.3.4'` until then).
+
+**Xcode's account was lost and re-signed** during the day: a provisioning build
+ran with the screen locked, and from then on Xcode said "No Accounts" — the
+stored list was empty — until the person signed in again (AGENTS.md, "A locked
+screen takes the keychain with it"). Every `xcodebuild` here checks the lock
+first now.
+
 ## 10k · 1.3.3 build 32 — iPhone and iPad resubmitted, the Mac waiting on Xcode's sign-in, 2026-10-12
 
 From `853e79d` (the tests fixed after it, `3c3f827`, are not in a shipped

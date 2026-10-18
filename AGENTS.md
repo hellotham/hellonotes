@@ -12,7 +12,7 @@
   cannot promise an OS its own embedded extensions refuse to run on.
 - Multiplatform: One shell, `AdaptiveShell`, chosen by the *axis of abundance* (width/height), never by device — a Mac window and an iPad of the same size get the same layout. See `docs/ui.md`, and for each part of the window `docs/primary.md`, `docs/secondary.md`, `docs/toolbars.md`, `docs/tabs.md` and `docs/menu.md`.
 - The window is three regions, each about one thing: **the collection on the left, the note in the middle, what the note is on the right** — and each command is in one place (after 1.3.3 builds 27 and 28, at the person's direction; `docs/shell-chrome.md` D12, D13 and D14).
-  - **The sidebar** — the one collapsible column — is the collection: a *single tree* (Recents and Bookmarks pinned at the top, then one root per open collection, expanding into its folders), with its tools as named rows above the tree (`SidebarCommands.swift`) — **Mind Map**, **Assistant**, **Ask Your Library**, **Git** — and, in its header, its own **toggle** and a **`+`** for New Folder, New Collection, Open Collection (with Open Recent) and Open Default Collection (`collectionAddItems`). One definition: rows in the column and in the phone's Notes place (the phone's sidebar — the panel was its only route to the collection's map, so moving the Mind Map out left it none until the rows came — whose bar has the same `+`), a strip in the tall shell's band. While the sidebar is hidden its toggle is the bar's first button, so a hidden sidebar can always come back ("a hidden command is an unreachable command"). All of these but New Folder and Git are in the menu bar too (`docs/menu.md` §8).
+  - **The sidebar** — the one collapsible column — is the collection: a *single tree* (Recents and Bookmarks pinned at the top, then one root per open collection, expanding into its folders), with its tools as named rows above the tree (`SidebarCommands.swift`) — **Mind Map**, **Assistant**, **Git** (Ask Your Library was folded into the Assistant in 1.3.5) — and, in its header, its own **toggle** and a **`+`** for New Folder, New Collection, Open Collection (with Open Recent) and Open Default Collection (`collectionAddItems`). One definition: rows in the column and in the phone's Notes place (the phone's sidebar — the panel was its only route to the collection's map, so moving the Mind Map out left it none until the rows came — whose bar has the same `+`), a strip in the tall shell's band. While the sidebar is hidden its toggle is the bar's first button, so a hidden sidebar can always come back ("a hidden command is an unreachable command"). All of these but New Folder and Git are in the menu bar too (`docs/menu.md` §8).
   - **The bar over the editor** is three buttons: **`+`** (New Note, Today's Note, New Note from a Prompt, Quick Capture, Dictate to Daily Note) · **🔍** (Search Notes — which opens the search field in its place while a search lasts — Open Quickly, Find & Replace in Note) · **⚙** Settings | tabs | Note Actions ⌄ (the note's own commands, Open in New Window among them) · Panel. There is no More menu.
   - **The right panel** is the open note's views (`SidePanel`): Summary & Outline, Tags, Links, Properties, History, Graph.
   - **The bottom bar** is how the note is shown — save status and the four view modes — in the main window. A note window, which has no panel and no command bar, keeps the note's commands there too (`NoteEditorView.commandsInBottomBar`).
@@ -359,6 +359,55 @@
   second edit for nothing. And a tool that *throws* aborts the whole response
   (`ToolCallError`, transcript rolled back) — recoverable failures are returned
   as text (`ToolOutcome`), only cancellation propagates.
+- **A note tool's result takes the room the turn has left — querying notes is
+  what the Assistant is for** (the person, 2026-10-18: "querying notes in the
+  assistant is the only useful functionality at present, so we have to
+  optimise for this"). Search, read, exact-text search and the note list
+  shaped their results by fixed counts — six results, or ten, whatever the
+  window — and said nothing about what they left out. Now each takes its part
+  of `TurnRoom`: the history's share of the window less what the turn already
+  holds, older turns making way (`HistoryWindow.fit`), the reply's reserve
+  kept. **Results asked for in one step share it** — the model may call
+  several tools at once, and their results reach the transcript together —
+  so each is measured and taken on the main actor with nothing in between, a
+  call alone getting all that is left; and a room lives as long as its
+  session, so turns are told apart by where they begin (`Held.turnStart`) —
+  told apart by size, the next question the shape of the last inherited its
+  spent room. A result that cannot fit is said in
+  words (`ToolContext.noRoom`), never sent past the window, where the whole
+  request fails; what didn't fit is counted ("… and 37 more notes matched").
+  Outside a conversation (Research's own sessions) a tool takes a quarter of
+  the window (`ToolLimits.resultTokens`). **And `TokenBudget.prefix` is the
+  longest prefix that fits, cut inside a paragraph if it must** — it was the
+  first of `chunks`, which stops before a paragraph too big for one, so a note
+  with a long opening paragraph was read as its title and tagged from nothing.
+- **The Assistant reads; it changes nothing, in 1.3.5 — the person's
+  decision, 2026-10-18, with editing for a later release.** The tools that
+  create, edit, write and delete notes are kept and not offered
+  (`NoteTools.tools(for:contextTokens:)`), the instructions tell the model to
+  give the person text to paste instead, `AssistantEditEvaluation` is
+  disabled, and `AssistantReadOnlyTests` fails if a mutating tool comes back.
+  It is labelled **experimental** where it opens: a model with an 8K window
+  reads a few notes at a time, and is not a full chat assistant — say so
+  rather than promise one. The two rules after the next are about those
+  tools, for when they return.
+- **A conversation is the library's, never a view's — and what it is, it
+  keeps.** One `AssistantModel` per collection (`Library.assistant(for:settings:)`),
+  shown by any window whose sidebar has that collection. It was its tab's
+  `@State`, so a note shown in the tab's place took it down: a turn still
+  streaming saved over the transcript of the model made when the tab came
+  back, **Use my notes** came back on beside a Cloud (Apple) choice restored
+  from disk, and a question from Ask the Assistant was taken by whichever
+  window's tab heard it first. A view drawn from the list must observe it:
+  read through `@ObservationIgnored`, the tab drew its spinner before its
+  task had made the model, and never drew again. Its model, Use my notes and its summary are
+  kept beside the transcript (`ChatSessionStore.Conversation`); a model the
+  folder no longer lists stays the conversation's and says so — swapped for
+  the default, it could be off the device. **The summary of what no longer
+  fits is a turn, never instructions**: the model's account of text that
+  quotes notes and pages (`HistoryWindow.fit`, read before each request
+  through `EarlierSummary`), and only what a summary has read counts as
+  covered (`AssistantModel.summaryParts`).
 - **Calling the tool is the request for approval — say so, or the on-device
   model asks in words.** Told only that "the person approves every change", it
   replied "Please confirm this is correct" and never called `edit_note` (four of
@@ -524,7 +573,9 @@
   the sandbox's own route, made short: **Access MLX Models…** opens a folder
   panel already pointed at `~/.cache/huggingface/hub`
   (`fileDialogDefaultDirectory`, which runs outside the sandbox and so can show
-  a folder the app cannot yet read), one click on Open grants it, and the
+  a folder the app cannot yet read), one click on **Allow** grants it (the
+  panel's button reads Allow and its message says not to pick a model — it
+  read Open, and looked like a request to open one), and the
   security-scoped bookmark keeps it. Until then `MLXModelStore.ownStorage` is
   `HubCache.default.cacheDirectory`, which is already container-aware, and
   `usesOwnStorage` is what the button reads.
@@ -624,8 +675,8 @@
   collection's links were the Graph: the panel did not say what it was about,
   so neither did its views. **The Graph is one note's links in and out; the
   Mind Map is the links across the collection, drawn as a mind map**
-  (`CollectionMindMap`), and it, the Assistant and Ask Your Library open from
-  the sidebar as tabs. The panel is a **column** wherever the editor keeps its
+  (`CollectionMindMap`), and it and the Assistant open from the sidebar as
+  tabs (Ask Your Library, the third, became part of the Assistant in 1.3.5). The panel is a **column** wherever the editor keeps its
   floor beside it (`ShellMetrics.hasPanelColumn`) — *an editor never blocks
   editing*, so it is never a modal over the note — and only a phone, with no
   room for a column, carries it over the note.
@@ -670,8 +721,8 @@
   nothing, on either platform, silently. On the Mac the word left over
   (`edit`, `YES`) is a file to open, and an app launched to open a file shows
   **no window of its own** — which read, for an hour, as the app launching
-  without one. `-HNHideTips YES` is as good; the app only asks whether the
-  argument is there.
+  without one. `-HNHideTips YES` was as good — the app only asked whether the
+  argument was there — and the flag went with the tips in 1.3.5.
 - **A script that presses a button fails when the button is not there, and a
   test does not skip on the symptom of what it is for.** The store-screenshot
   test's `tap` returned quietly when it found nothing, and the run passed with
@@ -730,9 +781,29 @@
   it. The Assistant presents Settings itself — on iOS it is already presented,
   and the shell cannot present over it, which is why its old "Open AI
   Settings…" did nothing on iPad. ⌘, opens Settings on iPad too.
-- **The on-device model is "System"** — Apple's name for it (`fm --help`:
-  `system`, "System model available"). Its variant, AFM 3 Core or Core
-  Advanced, is the hardware's decision; naming it made people ask for the other.
+- **A model is named by where it runs, then whose it is: Local (Apple), Cloud
+  (Apple), Local (*an MLX model's name*)** (`LanguageModels.name(of:)`, the
+  person's decision, 2026-10-18). "System" and "Private Cloud Compute" side by
+  side read as two system models, which both are — the difference a person
+  needs is where the text goes. Never the variant, AFM 3 Core or Core
+  Advanced: that is the hardware's decision, and naming it made people ask for
+  the other. Each answer and suggestion carries the name of the model that
+  made it (`ModelStamp`), recorded by the work itself
+  (`IntelligenceService.stamped`, `DeepResearch.onModel`, the Assistant's
+  turn) — a stamp taken before the work named Cloud (Apple) for a request
+  Local (Apple) answered after a refusal.
+- **The one fallback goes towards the device.** Cloud (Apple) has a daily
+  allowance; once it is spent a request runs on Local (Apple) instead
+  (`LanguageModels.serving`, asked of `quotaUsage` each time, never
+  remembered), and the request that finds it spent before the framework says
+  so is asked again there, once (`fallback(after:on:)`). Nothing ever falls
+  back *to* the cloud, no other failure is retried on another model, and the
+  person is told in a line, with nothing to press — a **Request More** button
+  was added for the framework's limit-increase sheet without being asked for,
+  and taken out (2026-10-18). `quotaUsage` is a cached local value — 1,000
+  reads in 47 µs, probed — and a process without the entitlement reads it
+  without harm ("not reached", no reset date), so a view may ask it on every
+  redraw; it is only a *request* without the entitlement that crashes.
 - **A platform gate inside a modifier chain goes in a helper.**
   `ShellComplianceTests` requires every `#if os(…)` to have an `#else`, and a
   postfix `#if` with an empty branch does not compile ("reference to member
@@ -792,15 +863,17 @@
   fixed and do not follow it (implemented.md §51.36).
 - **One model, and the framework's knobs — no roles, no inventions.** There was
   a model for the Assistant and another for the writing tools; with MLX they
-  could not even differ, since one MLX model is loaded at a time, so picking one
-  silently moved the other. `IntelligenceSettings.model` is the single choice:
-  the app is either on Apple's model or on yours. What is tunable is exactly
+  could not even differ, since the store ran one MLX model, so picking one
+  silently moved the other. `IntelligenceSettings.model` is the single choice
+  — the **default**, since 2026-10-18: the Assistant's menu can choose another
+  for one conversation (`AssistantModel.conversationChoice`; New conversation
+  goes back to the default), and the writing tools use the default. What is tunable is exactly
   what `GenerationOptions` and `ContextOptions` expose — temperature (0–2),
   `samplingMode` (greedy, top-k, top-p, each with a seed), `maximumResponseTokens`
   and `reasoningLevel` — applied to the Assistant's profile. A control the model
   never sees is worse than no control, and a knob the framework has and the app
   hides is a question someone has to ask.
-- **The control named *Model* lists every model you could be running.** The
+- **The control named *Default model* lists every model you could be running.** The
   picker offered Apple's model and one entry for MLX, because only one MLX model
   loads at a time — a fact about *loading* used to justify a fact about
   *choosing*. So "which of my models" became a second decision, in another
@@ -811,7 +884,13 @@
   `isAvailable` must ask about **that** model, or the store's "no model chosen"
   disables every entry and nothing can ever be picked; and a tick meaning "in
   use" must read `model == .mlx && chosenID == id`, or it claims a model is in
-  use while the app answers on System.
+  use while the app answers on Local (Apple). **And the Assistant's menu
+  repeated the mistake** — one MLX entry, because one model "loads at a time"
+  — until the person found one model where they had several, and said the
+  rest: "You are assuming the user does not have space to load multiple
+  models simultaneously. This is incorrect" (2026-10-18). It lists
+  `LanguageModels.options`, and a conversation runs the entry it chose
+  (`ModelOption`, `languageModel(for:)`) beside the default's, untouched.
 - **The app suggests no models, and remembers no fact about one.** Four
   suggestions with sizes and a sentence each lasted a day: checked against the
   Hub they were last updated in 2025, while the models on the machine were 2026

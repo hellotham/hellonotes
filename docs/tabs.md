@@ -52,10 +52,9 @@ and otherwise in a new tab of its own:
   that is not already open** (`NoteOutlineList.swift:179–192`);
 - Open Quickly; a followed `[[link]]` (`ContentView.openWikiLink`); a reference
   in the panel or the status bar's Links popover;
-- a graph node, a mind-map node, an Ask Library citation, and a
-  `hellonotes://` link, a widget or the Open Note App Intent (a Shortcuts
-  action) (all through `library.requestOpen`, which `ContentView` answers in
-  its `onChange(of: library.pendingOpenNoteID)`);
+- a graph node, a mind-map node, and a `hellonotes://` link, a widget or the
+  Open Note App Intent (a Shortcuts action) (all through `library.requestOpen`,
+  which `ContentView` answers in its `onChange(of: library.pendingOpenNoteID)`);
 - Quick Capture and Dictate to Daily Note, which append to today's note and
   then open it (`NavigationRouter.openDailyNote`);
 - New Note, Today's Note, Duplicate and New Note from a Prompt, which select
@@ -92,8 +91,8 @@ disappearing (§2.3).
 - The strip sits in the middle of the bar over the editor (`toolbars.md` §3).
   Tabs are 28pt tall and up to 200pt wide; the active one is semibold on the
   accent at 30%; every tab has a ×. After the notes come the collection's
-  tools that are open (D13) — the Mind Map, the Assistant, Ask Your Library,
-  each with its symbol before its title (`ToolTabs`). A tool's tab in front
+  tools that are open (D13) — the Mind Map and the Assistant, each with its
+  symbol before its title (`ToolTabs`). A tool's tab in front
   puts the notes behind it; choosing a note, or a note's tab, puts the tool
   behind; closing the tool in front shows the note again. Tool tabs are not
   remembered across launches. When they do not fit, the strip scrolls
@@ -274,7 +273,7 @@ ambiguous which one the sidebar is pointing at.
 |---|---|
 | **+** at the end of the strip | a new Start tab at the end, active, with the caret in its field |
 | **⌘T**, **File ▸ New Tab** | the same |
-| **⌘-click** on a note or attachment row (sidebar, band, compact lists, Recents, Bookmarks, search results), a reference, a link in the editor, a graph or mind-map node, an Ask Library citation | the item in a new tab **right after the active one**, activated |
+| **⌘-click** on a note or attachment row (sidebar, band, compact lists, Recents, Bookmarks, search results), a reference, a link in the editor, a graph or mind-map node | the item in a new tab **right after the active one**, activated |
 | **⌘Return** in Open Quickly, or on the Start page | the same |
 | **Open in New Tab** in every note and attachment row menu, and **Open Link in New Tab** in the editor's link menu | the same |
 | any of these, when the item is already in a tab | that tab is activated (T3) |
@@ -554,7 +553,7 @@ What each action does today, and what it does under this design.
 | choose in Open Quickly (Return) | its tab if it has one, else a new tab | the active tab; ⌘Return: a new tab |
 | click a `[[link]]` in the editor | its tab if it has one, else a new tab | **the active tab**; Back returns (T6); ⌘-click: a new tab |
 | click a reference in the panel or the Links popover | its tab if it has one, else a new tab | the active tab; ⌘-click: a new tab |
-| click a graph or mind-map node, or an Ask Library citation | its tab if it has one, else a new tab | the active tab |
+| click a graph or mind-map node | its tab if it has one, else a new tab | the active tab |
 | open a `hellonotes://` link, a widget, or an App Intent such as Open Note | its tab if it has one, else a new tab | **a new tab** (T2) |
 | Services' New Note from Selection, or the system-wide ⌃⌥⌘N | always a new tab (they create the note) | a new tab (T2) |
 | Quick Capture… or Dictate to Daily Note | today's note opens: its tab if it has one, else a new tab | **nothing moves**; the text is appended (T2) |

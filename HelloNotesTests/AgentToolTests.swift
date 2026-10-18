@@ -47,12 +47,12 @@ struct AgentToolTests {
                                                folder: nil)
         #expect(created.contains("AgentScratch"))
 
-        #expect(ctx.listNotes(limit: 10_000).contains("AgentScratch"))
+        #expect(ctx.listNotes(tokens: 100_000).contains("AgentScratch"))
 
-        let read = try await ctx.readNote("AgentScratch", maxCharacters: 10_000)
+        let read = try await ctx.readNote("AgentScratch", tokens: 10_000)
         #expect(read.contains("secret-token here"))
 
-        let grep = await ctx.grep("secret-token", limit: 40)
+        let grep = await ctx.grep("secret-token", tokens: 100_000)
         #expect(grep.contains("AgentScratch"))
     }
 
@@ -65,7 +65,7 @@ struct AgentToolTests {
         await #expect(throws: ToolError.self) {
             _ = try await ctx.createNote(title: "Once", content: "second", folder: nil)
         }
-        #expect(try await ctx.readNote("Once", maxCharacters: 10_000).contains("first"))
+        #expect(try await ctx.readNote("Once", tokens: 10_000).contains("first"))
     }
 
     @Test
@@ -87,7 +87,7 @@ struct AgentToolTests {
         let result = try await ctx.editNote("EditMe", oldString: "beta", newString: "BETA", replaceAll: false)
         #expect(result.contains("1 replacement"))
 
-        let read = try await ctx.readNote("EditMe", maxCharacters: 10_000)
+        let read = try await ctx.readNote("EditMe", tokens: 10_000)
         #expect(read.contains("alpha BETA gamma"))
     }
 
@@ -104,7 +104,7 @@ struct AgentToolTests {
 
         let result = try await ctx.editNote("Dup", oldString: "dup", newString: "x", replaceAll: true)
         #expect(result.contains("2 replacements"))
-        #expect(try await ctx.readNote("Dup", maxCharacters: 10_000).contains("x x"))
+        #expect(try await ctx.readNote("Dup", tokens: 10_000).contains("x x"))
     }
 
     /// Through the tool, the arguments Apple's on-device model sent when asked
@@ -132,8 +132,86 @@ struct AgentToolTests {
         let (ctx, vault) = try makeContext()
         defer { try? FileManager.default.removeItem(at: vault) }
 
-        let found = await ctx.searchNotes("Callouts", limit: 10)
+        let found = await ctx.searchNotes("Callouts", tokens: 2_000)
         #expect(found.contains("- Callouts  (Callouts.md)"), "\(found)")
+    }
+
+    /// **Every match that fits, and the count of the rest.** Search had a cap
+    /// of six or ten whatever the window, and said nothing about the notes it
+    /// left out — so a model shown ten took ten for the answer.
+    @Test
+    func searchReturnsEveryMatchThatFitsAndCountsTheRest() async throws {
+        let (ctx, vault) = try makeContext()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        for index in 1...25 {
+            _ = try await ctx.createNote(title: "Topic \(index)", content: "About the topic.", folder: nil)
+        }
+        let all = await ctx.searchNotes("Topic", tokens: 100_000)
+        #expect((1...25).allSatisfy { all.contains("- Topic \($0)  (") }, "\(all)")
+        #expect(!all.contains("more notes matched"))
+        let some = await ctx.searchNotes("Topic", tokens: 60)
+        #expect(some.contains("more notes matched that don't fit"), "\(some)")
+        #expect(ToolLimits(contextTokens: 32_768).resultTokens == 8_192)
+    }
+
+    /// **Every match, past the list's 250.** The note list's search stops at
+    /// 250 notes, and `search_notes` used it — so with more matching than
+    /// that, every one shown fitted and nothing said there were more: the
+    /// model was told it had the complete list.
+    @Test
+    func searchCountsEveryMatchPastTheListsCap() async throws {
+        let (ctx, vault) = try makeContext()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let folder = vault.appendingPathComponent("Minutes", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for index in 1...260 {
+            try "Notes from the quarterly meeting, part \(index).\n"
+                .write(to: folder.appendingPathComponent("Note \(index).md"), atomically: true, encoding: .utf8)
+        }
+        ctx.collection.scan()
+        await ctx.search.refresh(from: ctx.collection.notes)
+        let all = await ctx.searchNotes("quarterly meeting", tokens: 1_000_000)
+        let listed = all.components(separatedBy: "\n").filter { $0.hasPrefix("- Note ") }.count
+        #expect(listed == 260, "listed \(listed) of 260 notes")
+        let some = await ctx.searchNotes("quarterly meeting", tokens: 2_000)
+        #expect(some.contains("more notes matched that don't fit"), "\(some.suffix(200))")
+    }
+
+    /// **A result takes the room the turn has left, and results asked for
+    /// together share it.** Of two in one step the first gets half and leaves
+    /// the second what it did not use; a third past the step's count gets
+    /// nothing rather than more than there is; once the step's results are
+    /// in the transcript, the count starts again from it; and the next turn,
+    /// though it is the same size, starts with its own room.
+    @Test
+    func resultsShareTheRoomTheTurnHasLeft() {
+        var held = TurnRoom.Held(tokens: 1_000, calls: 2, turnStart: 1)
+        let room = TurnRoom(budget: 10_000) { held }   // a margin of 400
+        let first = room.share()
+        #expect(first == 4_300)
+        room.take(1_000)
+        let second = room.share()
+        #expect(second == 7_600)
+        room.take(second)
+        #expect(room.share() == 0)
+        held = TurnRoom.Held(tokens: 3_000, calls: 1, turnStart: 1)
+        #expect(room.share() == 6_600, "the count did not start again from the transcript")
+        room.take(6_600)
+        #expect(room.share() == 0)
+        // The next question, the same size as the last.
+        held = TurnRoom.Held(tokens: 3_000, calls: 1, turnStart: 9)
+        #expect(room.share() == 6_600, "a turn of the last one's shape inherited its spent room")
+    }
+
+    /// A turn with no room left is told so in words, never sent a result past
+    /// the window — which would fail the whole request.
+    @Test
+    func aFullTurnIsToldSo() async throws {
+        let (ctx, vault) = try makeContext()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let full = TurnRoom(budget: 100) { TurnRoom.Held(tokens: 0, calls: 1, turnStart: 1) }
+        let found = await ctx.searchNotes("Callouts", tokens: 100_000, room: full)
+        #expect(found == ToolContext.noRoom, "\(found)")
     }
 
     @Test
@@ -142,7 +220,7 @@ struct AgentToolTests {
         defer { try? FileManager.default.removeItem(at: vault) }
 
         _ = try await ctx.createNote(title: "Long", content: String(repeating: "word ", count: 2_000), folder: nil)
-        let read = try await ctx.readNote("Long", maxCharacters: 100)
+        let read = try await ctx.readNote("Long", tokens: 100)
         #expect(read.contains("truncated"))
     }
 
@@ -319,7 +397,7 @@ struct AgentToolTests {
         try Data([0xFF, 0xFE, 0xFD]).write(to: vault.appendingPathComponent("Garbled.md"))
         ctx.collection.scan()
 
-        await #expect(throws: ToolError.self) { _ = try await ctx.readNote("Garbled", maxCharacters: 1_000) }
+        await #expect(throws: ToolError.self) { _ = try await ctx.readNote("Garbled", tokens: 1_000) }
         await #expect(throws: ToolError.self) { _ = try await ctx.deleteNote("Garbled") }
         #expect(ctx.permissions.prompt == nil, "a deletion card was shown for a note that couldn't be read")
         #expect(FileManager.default.fileExists(atPath: vault.appendingPathComponent("Garbled.md").path))

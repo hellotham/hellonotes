@@ -54,7 +54,6 @@ The [[Start Here|tour]] shows you the app. This is the reference.
 | ⇧⌘P | Command Palette… |
 | ⇧⌘G | Graph — this note's links |
 | ⇧⌘M | Mind Map — the collection's links |
-| ⇧⌘J | Ask Your Library |
 | ⇧⌘A | Assistant |
 | ⇧⌘L | Review Links… |
 

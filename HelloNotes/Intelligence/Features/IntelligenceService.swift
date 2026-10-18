@@ -5,7 +5,7 @@
 //  Created by Chris Tham on 12/7/2026.
 //
 //  The writing tools — Summarise, Suggest Tags and Links, Rewrite, Expand,
-//  Compose, Ask Library and ghost text — on whichever model the person chose.
+//  Compose and ghost text — on whichever model the person chose.
 //
 //  One code path now. There were two: a structured Foundation Models path for
 //  Apple's on-device model and a prompt-and-parse path for everything else,
@@ -44,22 +44,44 @@ struct IntelligenceService {
     let settings: IntelligenceSettings
 
     private var models: LanguageModels { settings.models }
-    private var choice: ModelChoice { settings.model }
+    /// The model that runs a request now: the one chosen, or Local (Apple)
+    /// while Cloud (Apple)'s allowance for today is spent
+    /// (`LanguageModels.serving`).
+    private var choice: ModelChoice { models.serving(settings.model) }
 
     // MARK: - What the chosen model is
 
     var availability: IntelligenceAvailability { models.availability(of: choice) }
     var isAvailable: Bool { availability.isAvailable }
 
-    /// The model's name — "System model", "Private Cloud Compute",
-    /// "gemma-4-31b-it-4bit" — so a menu can say who does the work.
+    /// The model's name — "Local (Apple)", "Cloud (Apple)",
+    /// "Local (gemma-4-31b-it-4bit)" — so a menu can say who does the work.
     var modelName: String { models.name(of: choice) }
 
-    var runsOnDevice: Bool { choice.runsOnDevice }
+    /// Where an operation started now would run.
+    var stamp: ModelStamp { ModelStamp(choice: choice, name: modelName) }
+
+    /// Which model did this service's work: set as `perform` resolves a model,
+    /// and again when Cloud (Apple) refuses for today's limit and Local (Apple)
+    /// is asked instead. A box, because the service is a value its callers copy.
+    @MainActor final class Served { var stamp: ModelStamp? }
+    let served = Served()
+
+    /// Run `work`, and say which model made its result (`ModelStamp`) — the
+    /// one chosen, or Local (Apple) when it stood in. Taken from the work
+    /// itself, so neither a model switched while it ran nor a fallback in the
+    /// middle of it can leave a result named for a model that didn't make it.
+    func stamped<T>(_ work: (IntelligenceService) async throws -> T) async throws -> (T, ModelStamp) {
+        let service = IntelligenceService(settings: settings)
+        let value = try await work(service)
+        return (value, service.served.stamp ?? service.stamp)
+    }
 
     /// Ghost text has to appear between keystrokes, and a network round trip
-    /// cannot — so it runs only on a model on this device.
-    var supportsInlineCompletion: Bool { isAvailable && runsOnDevice }
+    /// cannot — so it runs only on a model on this device, and only when that
+    /// is the model chosen: Local (Apple) standing in for a spent Cloud (Apple)
+    /// does not start suggesting as the person types.
+    var supportsInlineCompletion: Bool { isAvailable && settings.model.runsOnDevice }
 
     // MARK: - Features
 
@@ -111,7 +133,7 @@ struct IntelligenceService {
     /// bounded window ending exactly at the caret, front matter included,
     /// because the caret may well be *in* it.
     func completeInline(prefix: String, suffix: String) async throws -> String {
-        guard runsOnDevice else { return "" }
+        guard settings.model.runsOnDevice else { return "" }
         return try await perform(purpose: .transforming) { model, _ in
             let session = LanguageModelSession(model: model, instructions: InlineCompletionPrompt.instructions)
             return try await session.respond(
@@ -146,26 +168,6 @@ struct IntelligenceService {
             }
             return try await respond(model, instructions: Prompts.expand,
                                      prompt: "Expand and flesh out this note:\n\n\(body)", temperature: 0.5)
-        }
-    }
-
-    /// Answer a question grounded in `context`, the notes retrieval found.
-    func answer(question: String, context: [(title: String, text: String)]) async throws -> String {
-        try await perform(purpose: .general) { model, window in
-            // The window, shared across the retrieved notes. A note that does
-            // not fit whole contributes its opening, and says so.
-            let budget = TokenBudget.inputTokens(context: window, instructions: Prompts.answer, reply: 800)
-                - TokenBudget.estimate(question)
-            let perNote = max(200, budget / max(context.count, 1))
-            let notes = await offMain {
-                context.map { note -> String in
-                    let (text, truncated) = TokenBudget.prefix(FrontMatter.body(of: note.text), tokens: perNote)
-                    return "## \(note.title)\n\(text)\(truncated ? "\n(…the rest of this note was left out)" : "")"
-                }.joined(separator: "\n\n")
-            }
-            return try await respond(model, instructions: Prompts.answer,
-                                     prompt: "Notes from my library:\n\n\(notes)\n\nQuestion: \(question)",
-                                     temperature: 0.3)
         }
     }
 
@@ -239,19 +241,34 @@ struct IntelligenceService {
     // MARK: - Running a request
 
     /// Resolve the model, run `work`, and put any failure in words.
+    /// Run `work` on the model for now — and once more, from the start, on
+    /// Local (Apple) when Cloud (Apple) refuses it for today's limit
+    /// (`LanguageModels.fallback(after:on:)`).
     private func perform<T>(purpose: LanguageModels.Purpose,
                             _ work: (any LanguageModel, Int) async throws -> T) async throws -> T {
-        let name = modelName
-        do {
-            let model = try models.model(for: choice, purpose: purpose)
-            let window = await models.contextSize(of: choice)
-            return try await work(model, window)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as IntelligenceError {
-            throw error
-        } catch {
-            throw IntelligenceError.failed(IntelligenceService.describe(error, modelName: name))
+        var choice = choice
+        /// The model that refused partway — which had been sent the work's
+        /// earlier requests, the first parts of a long note's summary among
+        /// them — so the stamp does not say nothing left the device.
+        var refused: ModelChoice?
+        while true {
+            do {
+                let model = try models.model(for: choice, purpose: purpose)
+                served.stamp = ModelStamp(choice: choice, name: models.name(of: choice), after: refused)
+                let window = await models.contextSize(of: choice)
+                return try await work(model, window)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as IntelligenceError {
+                throw error
+            } catch {
+                if let fallback = models.fallback(after: error, on: choice) {
+                    refused = choice
+                    choice = fallback
+                    continue
+                }
+                throw IntelligenceError.failed(IntelligenceService.describe(error, modelName: models.name(of: choice)))
+            }
         }
     }
 
@@ -304,7 +321,6 @@ nonisolated enum Prompts {
     static let summarise = "You summarize personal notes. Reply with 2–4 concise sentences capturing the key points. No preamble."
     static let summarisePart = "You summarize one part of a longer note. Reply with the key points of this part in a few sentences. No preamble."
     static let expand = "You expand brief notes and outlines into clear, well-structured Markdown prose. Preserve the author's intent, headings and lists. Return only the expanded note, no preamble."
-    static let answer = "You answer questions using ONLY the provided notes from the person's library. Cite the note titles you used in brackets, like [Title]. If the notes don't contain the answer, say you couldn't find it in the library."
     static let rewrite = """
     You rewrite passages from the person's Markdown notes. Follow the rewrite instruction faithfully. \
     Keep Markdown syntax (links, emphasis, lists, headings) intact unless the instruction says otherwise. \

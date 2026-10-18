@@ -9,7 +9,7 @@ import { APP, PUBLISHER } from '../lib/site';
   title="Privacy Policy — HelloNotes"
   description="HelloNotes collects nothing: no account, no analytics, no tracking, no servers. Your notes are plain files on your own device."
   heading="Privacy Policy"
-  intro="Last updated: 17 October 2026"
+  intro="Last updated: 18 October 2026"
 >
   <div class="mx-auto max-w-[1120px] px-6 py-12">
     <Prose>
@@ -26,9 +26,9 @@ import { APP, PUBLISHER } from '../lib/site';
         <p>
           <strong>In short:</strong> no account, no analytics, no tracking, no servers of ours.
           Your notes never leave your device unless you choose to send them somewhere yourself — to a
-          service you sync with, or to Apple’s Private Cloud Compute if you choose it as the AI
-          model. Otherwise what the AI features send anywhere is a web search, and the pages it
-          then reads, when a question needs them. Both are described below.
+          service you sync with, or to Apple’s Private Cloud Compute if you choose Cloud (Apple) as
+          the AI model. Otherwise what the AI features send anywhere is a web search, and the pages
+          it then reads, when a question needs them. Both are described below.
         </p>
       </blockquote>
 
@@ -61,20 +61,24 @@ import { APP, PUBLISHER } from '../lib/site';
       <h2>Intelligence</h2>
       <p>
         The optional AI features — Summarise, Suggest Tags and Links, Rewrite, suggestions as you
-        type, New Note from a Prompt, “Ask your library” and the Assistant — use Apple’s Foundation
-        Models framework. By default they run on your device: Apple Intelligence, or an open model
-        you choose to download and run on your device with MLX. Your note content is then processed
-        locally and is <strong>not</strong> sent to us or to any AI service. {APP.name} has no
-        third-party AI services and stores no AI credentials; API keys stored by earlier versions
-        are deleted from your device.
+        type, New Note from a Prompt and the Assistant — use Apple’s Foundation Models framework.
+        By default they run on your device: on <strong>Local (Apple)</strong>, the Apple
+        Intelligence model, or on an open model you choose to download and run on your device with
+        MLX. Your note content is then processed locally and is <strong>not</strong> sent to us or
+        to any AI service. {APP.name} has no third-party AI services and stores no AI credentials;
+        API keys stored by earlier versions are deleted from your device.
       </p>
       <p>
-        In the App Store version, Settings ▸ AI also offers <strong>Private Cloud Compute</strong>,
-        Apple’s server model, and it is used only if you choose it. Then what a feature works on —
-        your question, and the notes or passages it reads to answer it — is sent to Apple’s Private
-        Cloud Compute to be processed. Apple does not store it, and it is not accessible to Apple;
-        it never reaches us. Settings says so under the model whenever it is chosen, and so does
-        the Assistant, in a conversation on it.
+        In the App Store version, Settings ▸ AI also offers <strong>Cloud (Apple)</strong>, Apple’s
+        server model, which runs on Apple’s Private Cloud Compute. It is used only if you choose it
+        — as the default model, or in the Assistant for one conversation. Then what a feature works
+        on — your question, and the notes or passages it reads to answer it — is sent to Apple’s
+        Private Cloud Compute to be processed. Apple does not store it, and it is not accessible to
+        Apple; it never reaches us. Settings says so under the model whenever it is chosen, and so
+        does the Assistant, in a conversation on it, and its answers and suggestions say which model
+        made them.
+        When Apple’s daily allowance for it is used up, the work is done on your device by
+        Local (Apple) instead, until the allowance resets.
       </p>
       <p>
         Downloading an MLX model contacts Hugging Face to fetch the model’s files; none of your

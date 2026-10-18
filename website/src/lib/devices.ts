@@ -51,7 +51,7 @@ export const DEVICE_SHOTS: DeviceShot[] = [
     image: iphoneAI,
     device: 'iPhone',
     alt: 'The AI tab on iPhone listing Ask Your Library and New Note from a Prompt, then for this note Summarise, Suggest Tags, Suggest Links, Rewrite or Expand and Review Links, then Assistant and AI Settings',
-    caption: 'The AI tab: ask your library, or act on the note in front of you.',
+    caption: 'The AI tab: ask the Assistant, or act on the note in front of you.',
   },
   {
     id: 'ipad-split-view',

@@ -114,8 +114,8 @@ Two things they cannot do, both of which have a workaround:
 
 - **A menu-presenting control is refused** in the background (opening it would
   front the app). Use the menu bar: `View ▸ Graph` (the open note's, in the
-  panel), `View ▸ Mind Map` and `View ▸ Ask Your Library` (the collection's, as
-  tabs), `File ▸ New Window` all work through System Events' `click menu item`.
+  panel), `View ▸ Mind Map` and `View ▸ Assistant` (the collection's, as tabs),
+  `File ▸ New Window` all work through System Events' `click menu item`.
 - **Scrolling is unreliable** — the scroll action sets the scrollbar's `AXValue`
   and lands on 0. Navigate instead: the panel's **Summary & Outline** lists
   every heading and clicking one scrolls to it exactly.
@@ -133,7 +133,7 @@ same thing — **the caret reveals the syntax it is inside**:
 `click (first button of toolbar 1 of window 1 whose description is "Outline")`
 — but the background tools are faster and do not disturb the user's frontmost
 app. Notes are reachable by clicking a sidebar row; views via the **View** menu
-(Edit, Preview, Markdown, Split; Graph, Mind Map, Ask Your Library, Assistant).
+(Edit, Preview, Markdown, Split; Graph, Mind Map, Assistant).
 
 **Capture with the app active, from inside the same AppleScript.** `activate`
 from one shell command and `screencapture` from the next captures an
@@ -185,8 +185,11 @@ what it leaves.
 ```
 
 **Captions are composited into the image**, so a capture must match its scene's
-caption in `website/src/lib/screens.ts` — scene 05 is "Ask your library", and
-pointing it at anything else puts a false claim on a public page. The script
+caption (`SCENES` in `scripts/make-screenshots.py`) and its entry in
+`website/src/lib/screens.ts` — scene 05 is the Assistant tab, "The Assistant
+reads your notes — on your device" (it was "Ask your library" before 1.3.3,
+and Ask Your Library itself is gone since 1.3.5), and pointing it at anything
+else puts a false claim on a public page. The script
 also writes `website/public/assets/og.png` *outside* its output directory, so
 there is no such thing as a dry run into a scratch directory.
 

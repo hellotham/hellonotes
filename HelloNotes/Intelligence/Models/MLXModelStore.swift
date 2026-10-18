@@ -16,8 +16,9 @@
 //
 //  Nothing about a model is remembered: what it is, how big it is and whether
 //  it can use tools are read from its files (`MLXModelFolder`), and whether it
-//  can run is asked of the loader. One MLX model runs at a time, so the
-//  Assistant and the writing tools share it.
+//  can run is asked of the loader. The chosen model is the default's; an
+//  Assistant conversation can run any other in the folder beside it
+//  (`languageModel(for:)`), each loaded on its first request.
 //
 //  A model is *loaded* lazily by `MLXLanguageModel` on its first request and
 //  cached process-wide there; this store never holds weights itself.
@@ -236,10 +237,20 @@ final class MLXModelStore {
         guard let chosen else {
             throw chosenID == nil ? MLXModelError.noModelChosen : MLXModelError.notOnDevice(modelName)
         }
+        return languageModel(for: chosen)
+    }
+
+    /// Any model in the folder as a `LanguageModel`, not only the chosen one:
+    /// an Assistant conversation can run one model while the default is
+    /// another. Each loads on its first request and stays cached, so two in
+    /// use hold the memory of both — the person's to spend (2026-10-18: "You
+    /// are assuming the user does not have space to load multiple models
+    /// simultaneously").
+    func languageModel(for model: MLXLocalModel) -> MLXLanguageModel {
         var capabilities: [LanguageModelCapabilities.Capability] = [.guidedGeneration]
-        if chosen.rendersTools != false { capabilities.append(.toolCalling) }
+        if model.rendersTools != false { capabilities.append(.toolCalling) }
         if reasons { capabilities.append(.reasoning) }
-        let directory = chosen.directory
+        let directory = model.directory
         return MLXLanguageModel(
             configuration: ModelConfiguration(directory: directory),
             capabilities: capabilities,
@@ -322,6 +333,13 @@ final class MLXModelStore {
             lastError = "Choose a models folder first."
             return
         }
+        // One model's own folder is not a folder of models: a download into
+        // it landed inside that model, where nothing — this app, or mlx_lm —
+        // looks for one, and was never listed.
+        guard !MLXModelFolder.isOneModel(folder) else {
+            lastError = "The models folder is one model's folder, “\(folder.lastPathComponent)”. To download a model, choose the folder that holds your models — usually ~/.cache/huggingface/hub."
+            return
+        }
         guard downloadTask == nil else { return }
         lastError = nil
         downloadingID = id
@@ -357,9 +375,11 @@ final class MLXModelStore {
         downloadTask?.cancel()
     }
 
-    /// Delete a model from the models folder, and release its memory.
+    /// Delete a model from the models folder, and release its memory —
+    /// whichever model it is: a conversation can have loaded any model in
+    /// the folder, not only the default's, and only an eviction frees one.
     func remove(_ model: MLXLocalModel) async {
-        if chosen?.id == model.id, let loaded = try? languageModel() { await loaded.evict() }
+        await languageModel(for: model).evict()
         let folder = model.folder
         do {
             // A models folder, not the vault: `FileIO`'s coordination rule is

@@ -30,9 +30,6 @@ struct AIPlaceList: View {
     /// model that can answer. Both are reasons to disable, and the footer
     /// distinguishes them.
     var ai: AIActions?
-    /// Whether there are notes to ask about at all.
-    var canAsk: Bool
-    var askLibrary: () -> Void
     /// Nil when there is no note to review links in.
     var reviewLinks: (() -> Void)?
     /// Nil when there is no collection to write the new note into.
@@ -49,11 +46,8 @@ struct AIPlaceList: View {
     var body: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
-                row("Ask Your Library", systemImage: "sparkles.rectangle.stack") { askLibrary() }
-                    .disabled(!canAsk)
                 row("New Note from a Prompt…", systemImage: "sparkles.square.filled.on.square") { compose?() }
                     .disabled(compose == nil)
-                footer("Answers are drawn from the notes in your open collections, with links back to them.")
 
                 header("This note")
                 // Named and drawn by `AIActions.Command` — this place said

@@ -30,21 +30,21 @@ import FoundationModels
 /// model's 8,192 tokens a whole long note would crowd out the answer; on Private
 /// Cloud Compute's 32,768 the same cap would read a fraction of what fits.
 nonisolated struct ToolLimits: Sendable, Equatable {
-    let readCharacters: Int
+    /// A note tool's result where nothing shares out a turn's room — Research's
+    /// own sessions, a tool on its own: a quarter of the window, in tokens. In
+    /// an Assistant conversation a result takes what the turn has left instead
+    /// (`TurnRoom`). There were counts — six search results, or ten, twenty
+    /// lines of exact-text search, sixty titles — whatever the window, and a
+    /// search on Cloud (Apple)'s 32K showed ten notes of the hundreds that
+    /// matched (the person, 2026-10-18: "There's plenty of tokens left to
+    /// return all entries and let the model summarise").
+    let resultTokens: Int
     let fetchCharacters: Int
-    let listLimit: Int
-    let grepLimit: Int
-    let searchLimit: Int
 
     init(contextTokens: Int) {
-        // About a quarter of the window for a note, a sixth for a web page, at
-        // a conservative three characters a token.
-        readCharacters = min(40_000, max(2_000, contextTokens / 4 * 3))
+        resultTokens = max(500, contextTokens / 4)
+        // A sixth of the window for a web page, at three characters a token.
         fetchCharacters = min(16_000, max(1_500, contextTokens / 6 * 3))
-        let roomy = contextTokens >= 16_000
-        listLimit = roomy ? 200 : 60
-        grepLimit = roomy ? 60 : 20
-        searchLimit = roomy ? 10 : 6
     }
 }
 
@@ -76,20 +76,28 @@ enum NoteTools {
     /// Apple's guidance for the on-device model is three to five tools a
     /// request: every definition is instructions the model must read before the
     /// person's question, and a small window spent on schemas is a window not
-    /// spent on notes. So a small window gets the five that carry the
-    /// Assistant's purpose — find, read, create, edit, and look something up —
+    /// spent on notes. So a small window gets the few that carry the
+    /// Assistant's purpose — find, read, and look something up —
     /// and a large one gets the full set.
     @MainActor
-    static func tools(for context: ToolContext, contextTokens: Int) -> [any Tool] {
+    static func tools(for context: ToolContext, contextTokens: Int, room: TurnRoom? = nil) -> [any Tool] {
         let limits = ToolLimits(contextTokens: contextTokens)
         let hasSkills = !(context.skills?.skills.isEmpty ?? true)
 
+        // **It reads and answers; it changes nothing (1.3.5).** Creating,
+        // editing, rewriting and deleting notes are left out until they are
+        // designed properly — the person's decision, 2026-10-18. The tools stay
+        // written (`CreateNoteTool` … `DeleteNoteTool`, approvals and all) for
+        // the release that brings them back; nothing offers them meanwhile.
+        //
+        // Exact-text search is on every model now: it is cheap, and on the
+        // on-device model it was the only way to find a line past where
+        // `read_note` stops reading.
         guard contextTokens >= 16_000 else {
             var compact: [any Tool] = [
-                SearchNotesTool(context: context, limits: limits),
-                ReadNoteTool(context: context, limits: limits),
-                CreateNoteTool(context: context),
-                EditNoteTool(context: context),
+                SearchNotesTool(context: context, limits: limits, room: room),
+                ReadNoteTool(context: context, limits: limits, room: room),
+                GrepTool(context: context, limits: limits, room: room),
                 WebSearchTool(),
             ]
             if hasSkills { compact.append(LoadSkillTool(context: context)) }
@@ -97,14 +105,10 @@ enum NoteTools {
         }
 
         var full: [any Tool] = [
-            SearchNotesTool(context: context, limits: limits),
-            ReadNoteTool(context: context, limits: limits),
-            ListNotesTool(context: context, limits: limits),
-            GrepTool(context: context, limits: limits),
-            CreateNoteTool(context: context),
-            EditNoteTool(context: context),
-            WriteNoteTool(context: context),
-            DeleteNoteTool(context: context),
+            SearchNotesTool(context: context, limits: limits, room: room),
+            ReadNoteTool(context: context, limits: limits, room: room),
+            ListNotesTool(context: context, limits: limits, room: room),
+            GrepTool(context: context, limits: limits, room: room),
             WebSearchTool(),
             WebFetchTool(limits: limits),
             DeepResearchTool(context: context),
@@ -119,6 +123,8 @@ enum NoteTools {
 nonisolated struct ListNotesTool: Tool {
     let context: ToolContext
     let limits: ToolLimits
+    /// The Assistant turn's room, which results asked for together share (`TurnRoom`).
+    var room: TurnRoom? = nil
     let name = "list_notes"
     let description = "List the collection's notes by title and path. Prefer search_notes to find something specific."
 
@@ -126,27 +132,29 @@ nonisolated struct ListNotesTool: Tool {
     nonisolated struct Arguments {}
 
     @concurrent func call(arguments: Arguments) async throws -> String {
-        let limit = limits.listLimit
-        return await context.listNotes(limit: limit)
+        await context.listNotes(tokens: limits.resultTokens, room: room)
     }
 }
 
 nonisolated struct ReadNoteTool: Tool {
     let context: ToolContext
     let limits: ToolLimits
+    /// The Assistant turn's room, which results asked for together share (`TurnRoom`).
+    var room: TurnRoom? = nil
     let name = "read_note"
-    let description = "Read a note's Markdown, by its title or relative path."
+    let description = "Read a note's Markdown, by its title or relative path — from the top, or from one of its sections. A long note is cut off, and the cut names the sections after it."
 
     @Generable
     nonisolated struct Arguments {
         @Guide(description: "The note's exact title or relative path, such as Welcome or Projects/Roadmap.md.")
         var note: String
+        @Guide(description: "A heading in the note to start reading from. Leave out to read from the top.")
+        var section: String?
     }
 
     @concurrent func call(arguments: Arguments) async throws -> String {
-        let limit = limits.readCharacters
-        return try await ToolOutcome.run {
-            try await context.readNote(arguments.note, maxCharacters: limit)
+        try await ToolOutcome.run {
+            try await context.readNote(arguments.note, tokens: limits.resultTokens, section: arguments.section, room: room)
         }
     }
 }
@@ -154,6 +162,8 @@ nonisolated struct ReadNoteTool: Tool {
 nonisolated struct SearchNotesTool: Tool {
     let context: ToolContext
     let limits: ToolLimits
+    /// The Assistant turn's room, which results asked for together share (`TurnRoom`).
+    var room: TurnRoom? = nil
     let name = "search_notes"
     let description = "Search the collection's notes for words or a phrase. Returns matching note titles with a snippet from each."
 
@@ -164,16 +174,17 @@ nonisolated struct SearchNotesTool: Tool {
     }
 
     @concurrent func call(arguments: Arguments) async throws -> String {
-        let limit = limits.searchLimit
-        return await context.searchNotes(arguments.query, limit: limit)
+        await context.searchNotes(arguments.query, tokens: limits.resultTokens, room: room)
     }
 }
 
 nonisolated struct GrepTool: Tool {
     let context: ToolContext
     let limits: ToolLimits
+    /// The Assistant turn's room, which results asked for together share (`TurnRoom`).
+    var room: TurnRoom? = nil
     let name = "grep_collection"
-    let description = "Find every line, across all notes, that contains some exact text (ignoring case). Returns the note title, line number and line."
+    let description = "Find every line, across all notes, that contains some exact text (ignoring case). Returns each line with its note, the section it is in, and its line number."
 
     @Generable
     nonisolated struct Arguments {
@@ -182,8 +193,7 @@ nonisolated struct GrepTool: Tool {
     }
 
     @concurrent func call(arguments: Arguments) async throws -> String {
-        let limit = limits.grepLimit
-        return await context.grep(arguments.pattern, limit: limit)
+        await context.grep(arguments.pattern, tokens: limits.resultTokens, room: room)
     }
 }
 

@@ -89,13 +89,7 @@ final class HelloNotesUITests: XCTestCase {
         // one of the settings that sync, so the device keeps it outside the
         // app's container. Left on Preview by a capture run, a note opens with
         // no text view in it and the test below waits for one.
-        //
-        // **`-HNHideTips` last.** It takes no value, and a launch argument is
-        // paired with whatever follows it: ahead of `-editorViewMode edit` it
-        // took `-editorViewMode` as its value and pinned nothing. On the Mac
-        // the word left over is a file to open, and an app launched to open a
-        // file shows no window of its own.
-        app.launchArguments += ["-editorViewMode", "edit", "-HNHideTips"]
+        app.launchArguments += ["-editorViewMode", "edit"]
         app.launch()
         let splash = app.staticTexts["Where every idea says hello."]
         if splash.waitForExistence(timeout: 5) {
@@ -170,7 +164,7 @@ final class HelloNotesUITests: XCTestCase {
         for (tab, sections) in [("general", ["Attachments", "Daily notes", "Templates"]),
                                 ("appearance", ["Accent color", "Text size"]),
                                 ("git", ["Commit identity", "Accounts"]),
-                                ("ai", ["Model"]),
+                                ("ai", ["Default model"]),
                                 // Contact: how anyone reaches HelloNotes — App
                                 // Review Guideline 1.2 (implemented.md §51.53).
                                 ("support", ["Support Request", "Contact", "Terms"])] {
@@ -199,7 +193,7 @@ final class HelloNotesUITests: XCTestCase {
 
         // One model for everything, so one picker: "Writing tools" was the
         // second role, and there is no second role.
-        XCTAssertTrue(app.staticTexts["Model"].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.staticTexts["Default model"].waitForExistence(timeout: 5),
                       "AI settings opened but drew no content — the form collapsed")
         // Kept with the result: a screen that draws *something* can still draw
         // it badly, and only a picture shows that.
@@ -322,10 +316,9 @@ final class HelloNotesUITests: XCTestCase {
         let app = XCUIApplication()
         // No `-editorViewMode`: an argument outranks what the app stores, so
         // the mode buttons below would change nothing while it was there.
-        // `-HNHideTips` last, as it takes no value (`launchPastSplash`).
         app.launchArguments += [
             "-hasSeenWelcome", "YES", "-appearanceMode", "dark", "-accentChoice", "lavender",
-            "-increaseContrast", "NO", "-textScale", "1", "-sidePanel", "graph", "-HNHideTips",
+            "-increaseContrast", "NO", "-textScale", "1", "-sidePanel", "graph",
         ]
         app.launch()
         let splash = app.staticTexts["Where every idea says hello."]
@@ -394,8 +387,6 @@ final class HelloNotesUITests: XCTestCase {
                           "Split never drew its page")
             shoot("05-split-view")
             tap("Preview")
-            tap("Ask Your Library")
-            shoot("04-ask-your-library")
             tap("Mind Map")
             sleep(3)
             shoot("x-mind-map")
@@ -460,7 +451,7 @@ final class HelloNotesUITests: XCTestCase {
         "-hasSeenWelcome", "YES", "-appearanceMode", "light", "-accentChoice", "lavender",
         "-increaseContrast", "NO", "-textScale", "1", "-editorViewMode", "edit",
         "-sidePanel", "outline", "-sidebarWidth", "280", "-sidePanelWidth", "360",
-        "-bandContainerPaneWidth", "260", "-HNHideTips",
+        "-bandContainerPaneWidth", "260",
     ]
 
     private func keep(_ screenshot: XCUIScreenshot, named name: String) {
@@ -575,7 +566,7 @@ final class HelloNotesUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.terminate()
-        app.launchArguments += ["-hasSeenWelcome", "YES", "-editorViewMode", "edit", "-HNHideTips"]
+        app.launchArguments += ["-hasSeenWelcome", "YES", "-editorViewMode", "edit"]
         app.open(URL(string: "hellonotes://note?collection=DefaultCollection&title=Writing")!)
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "the link did not launch the app")
         let splash = app.staticTexts["Where every idea says hello."]
@@ -686,6 +677,11 @@ final class HelloNotesUITests: XCTestCase {
         _ = app.staticTexts.count
         XCTAssertLessThan(Date().timeIntervalSince(started), 30,
                           "the app did not come to rest with the Assistant open")
+        // It says it is experimental wherever it is open — the line build 34
+        // kept to the empty state was never seen, because the Assistant opens
+        // on the last conversation.
+        XCTAssertTrue(app.staticTexts["assistant.experimental"].firstMatch.waitForExistence(timeout: 5),
+                      "the Assistant doesn't say it is experimental")
         #else
         throw XCTSkip("iPad layout test.")
         #endif

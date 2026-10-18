@@ -28,6 +28,6 @@ opens the panel at the place its answer lands.
 ## About the collection
 
 What is about the whole collection is in the sidebar, at the top: the
-**Mind Map** of the links across it, the **Assistant**, **Ask Your Library**,
-and its **Git**. The first three open as tabs beside your notes, so a note and
-the Mind Map, or a note and the Assistant, are a tab apart.
+**Mind Map** of the links across it, the **Assistant**, and its **Git**. The
+first two open as tabs beside your notes, so a note and the Mind Map, or a note
+and the Assistant, are a tab apart.

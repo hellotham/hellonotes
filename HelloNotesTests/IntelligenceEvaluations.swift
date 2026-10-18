@@ -25,6 +25,12 @@
 //
 //      TEST_RUNNER_HN_EVAL_MLX_FOLDER=/Users/you/.cache/huggingface/hub/models--org--name
 //
+//  To evaluate Cloud (Apple) — Private Cloud Compute, in a build entitled to
+//  it — add `TEST_RUNNER_HN_EVAL_PCC=1`. Every sample then spends requests from
+//  the day's allowance, so it is asked for by name, and a run refuses to start
+//  once the allowance is spent rather than measure Local (Apple), which is what
+//  the app would fall back to (`LanguageModels.serving`).
+//
 //  and read the report under the test run in Xcode's Report navigator. Every
 //  sample is synthetic: nothing here reads a real vault, so a Foundation Models
 //  trace of a run holds nothing private.
@@ -39,6 +45,19 @@ import FoundationModels
 /// The MLX model to evaluate instead of the on-device model, if one was given.
 private let mlxFolder: URL? = ProcessInfo.processInfo.environment["HN_EVAL_MLX_FOLDER"]
     .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+
+/// Whether to evaluate Cloud (Apple) instead of the on-device model.
+private let evaluateCloud = ProcessInfo.processInfo.environment["HN_EVAL_PCC"] == "1"
+
+/// Whether the evaluation called `name` is among those asked for:
+/// `TEST_RUNNER_HN_EVAL_ONLY=assistant` (or `tags,links,rewrite,summary`), and
+/// all of them when it is not given — so a Cloud (Apple) run can spend its
+/// requests on the one in question. `-only-testing:` can't do this: named down
+/// to a function, a Swift Testing run executes nothing and passes.
+private func evaluating(_ name: String) -> Bool {
+    guard let only = ProcessInfo.processInfo.environment["HN_EVAL_ONLY"], !only.isEmpty else { return true }
+    return only.split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == name }
+}
 
 /// Whether the evaluated model can call tools: the on-device model can; an MLX
 /// model can if its chat template shows it tools — the same test the app makes.
@@ -58,7 +77,7 @@ private let evaluationsEnabled =
 /// model is neither read nor replaced.
 @MainActor
 private enum Features {
-    static let choice: ModelChoice = mlxFolder == nil ? .onDevice : .mlx
+    static let choice: ModelChoice = evaluateCloud ? .privateCloud : mlxFolder == nil ? .onDevice : .mlx
 
     static let settings: IntelligenceSettings = {
         // A suite named by a path, so its plist is kept in the temporary
@@ -89,7 +108,17 @@ private enum Features {
     static func prepare() async throws {
         if preparation == nil {
             preparation = Task { @MainActor in
-                if let mlxFolder {
+                if evaluateCloud {
+                    let models = settings.models
+                    guard LanguageModels.privateCloudComputeEnabled else {
+                        throw IntelligenceError.unavailable("This build doesn't offer Cloud (Apple).")
+                    }
+                    if let reason = models.availability(of: .privateCloud).reason { throw IntelligenceError.unavailable(reason) }
+                    guard !models.privateCloudLimitReached else {
+                        throw IntelligenceError.unavailable("Cloud (Apple)'s allowance for today is spent, so this would measure Local (Apple).")
+                    }
+                    print("EVAL model: \(models.name(of: .privateCloud))")
+                } else if let mlxFolder {
                     let store = settings.mlx
                     await store.use(folder: mlxFolder)
                     if let reason = store.availability.reason { throw IntelligenceError.unavailable(reason) }
@@ -434,14 +463,14 @@ struct IntelligenceEvaluationTests {
     static let longSummary = LongSummaryEvaluation()
     static let assistant = AssistantTrajectoryEvaluation()
 
-    @Test(.evaluates(Self.tags), .enabled(if: evaluationsEnabled))
+    @Test(.evaluates(Self.tags), .enabled(if: evaluationsEnabled && evaluating("tags")))
     func tagsAreWellFormedAndOnTopic() {
         let result = EvaluationContext.current.result
         #expect(result.aggregateValue(.mean(of: Self.tags.wellFormed)) == 1)
         #expect(result.aggregateValue(.mean(of: Self.tags.onTopic)) >= 0.8)
     }
 
-    @Test(.evaluates(Self.links), .enabled(if: evaluationsEnabled))
+    @Test(.evaluates(Self.links), .enabled(if: evaluationsEnabled && evaluating("links")))
     func linksComeOnlyFromRealNotes() {
         let result = EvaluationContext.current.result
         // A schema, not a request: this one is a guarantee, so it must be 1.
@@ -449,14 +478,14 @@ struct IntelligenceEvaluationTests {
         #expect(result.aggregateValue(.mean(of: Self.links.findsRelated)) >= 0.66)
     }
 
-    @Test(.evaluates(Self.rewrite), .enabled(if: evaluationsEnabled))
+    @Test(.evaluates(Self.rewrite), .enabled(if: evaluationsEnabled && evaluating("rewrite")))
     func rewritesKeepLinksAndFollowInstructions() {
         let result = EvaluationContext.current.result
         #expect(result.aggregateValue(.mean(of: Self.rewrite.keepsLinks)) == 1)
         #expect(result.aggregateValue(.mean(of: Self.rewrite.followsInstruction)) >= 0.66)
     }
 
-    @Test(.evaluates(Self.longSummary), .enabled(if: evaluationsEnabled))
+    @Test(.evaluates(Self.longSummary), .enabled(if: evaluationsEnabled && evaluating("summary")))
     func longNotesAreSummarisedWhole() {
         let result = EvaluationContext.current.result
         #expect(result.aggregateValue(.mean(of: Self.longSummary.produced)) == 1)
@@ -464,7 +493,8 @@ struct IntelligenceEvaluationTests {
     }
 
     @Test(.evaluates(Self.assistant, recordTranscripts: true),
-          .enabled(if: evaluationsEnabled && evaluatedModelUsesTools, "the model can't call tools"))
+          .enabled(if: evaluationsEnabled && evaluatedModelUsesTools, "the model can't call tools"),
+          .enabled(if: evaluating("assistant")))
     func assistantReadsBeforeItAnswersAndNeverEditsUnasked() {
         let result = EvaluationContext.current.result
         #expect(result.aggregateValue(.mean(of: .toolsAllPass)) >= 0.66)
@@ -538,7 +568,10 @@ struct AssistantWithoutToolsEvaluation {
 /// ran, no model had ever changed a file through the app's tools.
 @Suite(.serialized)
 struct AssistantEditEvaluation {
-    @Test(.enabled(if: evaluationsEnabled && evaluatedModelUsesTools, "the model can't call tools"),
+    /// Off while the Assistant offers no tool that changes a note (1.3.5,
+    /// `NoteTools.tools`); it comes back with editing.
+    @Test(.disabled("The Assistant changes no notes in 1.3.5"),
+          .enabled(if: evaluationsEnabled && evaluatedModelUsesTools, "the model can't call tools"),
           .timeLimit(.minutes(10)))
     @MainActor
     func anApprovedEditReachesTheFile() async throws {

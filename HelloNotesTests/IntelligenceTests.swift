@@ -262,7 +262,7 @@ struct MLXModelFolderTests {
         settings.choose(.mlx(wanted.id))
         #expect(settings.model == .mlx)
         #expect(store.chosenID == wanted.id)
-        #expect(models.title(of: settings.option(for: settings.model)) == "MLX · \(wanted.name)")
+        #expect(models.title(of: settings.option(for: settings.model)) == "Local (\(wanted.name))")
 
         // Every *other* model in the folder can be chosen, whatever the state of
         // the one in use — asking the store about the others disabled all of
@@ -372,6 +372,12 @@ struct TokenBudgetTests {
         #expect(short == "tiny" && !cutShort)
         let (long, cutLong) = TokenBudget.prefix(String(repeating: "para.\n\n", count: 1_000), tokens: 50)
         #expect(cutLong && TokenBudget.estimate(long) <= 50)
+        // An opening paragraph bigger than the budget is cut inside it — not
+        // dropped, leaving only what came before it.
+        let note = "# Title\n\n" + String(repeating: "word ", count: 500)
+        let (opening, cutOpening) = TokenBudget.prefix(note, tokens: 100)
+        #expect(cutOpening && note.hasPrefix(opening))
+        #expect(opening.count > 200 && TokenBudget.estimate(opening) <= 100, "\(opening.count) characters")
     }
 
     @Test func inputBudgetPaysForInstructionsReplyAndMargin() {
@@ -384,11 +390,9 @@ struct TokenBudgetTests {
     @Test func toolLimitsScaleWithTheWindow() {
         let small = ToolLimits(contextTokens: 8_192)
         let large = ToolLimits(contextTokens: 32_768)
-        #expect(small.readCharacters < large.readCharacters)
+        #expect(small.resultTokens < large.resultTokens)
         #expect(small.fetchCharacters < large.fetchCharacters)
-        #expect(small.listLimit < large.listLimit)
-        #expect(ToolLimits(contextTokens: 1_000_000).readCharacters == 40_000)
-        #expect(ToolLimits(contextTokens: 100).readCharacters == 2_000)
+        #expect(ToolLimits(contextTokens: 100).resultTokens == 500)
     }
 }
 
@@ -633,10 +637,29 @@ struct PrivateCloudComputeWordingTests {
         #expect(LanguageModels.largerModels(than: .mlx)?.contains("MLX") != true)
         #expect((LanguageModels.largerModels(than: .mlx) != nil) == enabled)
         let fromSystem = LanguageModels.largerModels(than: .onDevice) ?? ""
-        #expect(fromSystem.contains("an MLX model"))
-        #expect(fromSystem.contains("Private Cloud Compute") == enabled)
+        #expect(fromSystem.contains("a local MLX model"))
+        #expect(fromSystem.contains("Cloud (Apple)") == enabled)
         // Where the Assistant and Research name the models that can use tools.
-        #expect(LanguageModels.appleModels(joinedBy: "or").contains("Private Cloud Compute") == enabled)
+        #expect(LanguageModels.appleModels(joinedBy: "or").contains("Cloud (Apple)") == enabled)
+    }
+
+    /// **Every sentence that names other models calls the function.** When
+    /// `largerModels` became `largerModels(than:)`, one interpolation kept the
+    /// bare name — which Swift accepts as the function itself, so 1.3.4's
+    /// Assistant told people retired from an AI service they could choose
+    /// "(Function)". One compiler warning was the whole signal (§51.55).
+    @Test func noSentenceInterpolatesTheFunctionItself() throws {
+        let app = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes")
+        let files = try #require(FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil))
+        var found: [String] = []
+        for case let url as URL in files where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for match in text.matches(of: /LanguageModels\.(largerModels|appleModels)(?!\()/) {
+                found.append("\(url.lastPathComponent): …\(match.output.0)")
+            }
+        }
+        #expect(found.isEmpty, "named, not called: \(found)")
     }
 
     /// Suggestions as you type run only on a model on this device, so the line

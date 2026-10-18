@@ -3,7 +3,7 @@
 //  HelloNotes
 //
 //  The collection's tools, in the sidebar that holds the collection, above
-//  its tree: the Mind Map of its links, the Assistant, Ask Your Library, its
+//  its tree: the Mind Map of its links, the Assistant, its
 //  Git. Making and opening folders and collections is the `+` in the
 //  sidebar's header (`collectionAddItems` in ContentView), menu items as it
 //  was before build 28; they were rows below the tree in 28.

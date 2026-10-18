@@ -156,10 +156,10 @@ struct ToolTabsTests {
 
     @Test func aNoteChosenPutsTheToolsBehindIt() {
         var tabs = ToolTabs()
-        tabs.show(.askLibrary)
+        tabs.show(.assistant)
         tabs.showNotes()
         #expect(tabs.showing == nil)
-        #expect(tabs.open == [.askLibrary], "choosing a note closed the tool's tab")
+        #expect(tabs.open == [.assistant], "choosing a note closed the tool's tab")
     }
 
     @Test func closingTheToolInFrontShowsTheNotes() {

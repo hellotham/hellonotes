@@ -44,34 +44,85 @@ struct DeepResearch {
 
     let settings: IntelligenceSettings
     let context: ToolContext
+    /// The model asked for: an Assistant conversation's own, when the
+    /// Assistant's tool runs it — the Settings default, which it used, sent a
+    /// conversation kept on this device to Cloud (Apple) — or `nil` for the
+    /// default.
+    var requested: ModelOption? = nil
+    /// Told the model each run starts on, again after a fallback, so the
+    /// result can say which model made it.
+    var onModel: (ModelOption) -> Void = { _ in }
     /// A running account of what is happening, for a person watching a task
     /// that takes minutes. "Researching…" on its own reads as a hang.
     var onProgress: (String) -> Void = { _ in }
 
     private var models: LanguageModels { settings.models }
-    private var choice: ModelChoice { settings.model }
+    /// The chosen model, or Local (Apple) while Cloud (Apple)'s allowance for
+    /// today is spent (`LanguageModels.serving`).
+    private var option: ModelOption {
+        models.serving(option: requested ?? settings.option(for: settings.model))
+    }
 
     /// Why research can't run on the chosen model, or `nil` when it can.
-    static func unavailableReason(settings: IntelligenceSettings) -> String? {
+    static func unavailableReason(settings: IntelligenceSettings, requested: ModelOption? = nil) -> String? {
         let models = settings.models
-        let choice = settings.model
-        if case .unavailable(let why) = models.availability(of: choice) { return why }
-        guard models.supportsTools(choice) else {
-            return "Research searches the web with tools, and \(models.name(of: choice)) can't use tools. Choose \(LanguageModels.appleModels(joinedBy: "or")) in AI settings, or an MLX model it doesn't mark \"Can't use tools\"."
+        let asked = requested ?? settings.option(for: settings.model)
+        let option = models.serving(option: asked)
+        return reason(on: option, models: models, standingIn: option != asked)
+    }
+
+    /// Why research can't run on `option`, or `nil` when it can. `standingIn`:
+    /// `option` is answering for Cloud (Apple), whose allowance for today is
+    /// spent — so the answer is not "choose Cloud (Apple)", which the person
+    /// did.
+    private static func reason(on option: ModelOption, models: LanguageModels, standingIn: Bool) -> String? {
+        let choice = option.choice
+        if case .unavailable(let why) = models.availability(ofOption: option) { return why }
+        guard models.supportsTools(option: option) else {
+            return "Research searches the web with tools, and \(models.title(of: option)) can't use tools. Choose \(LanguageModels.appleModels(joinedBy: "or")) in AI settings, or an MLX model it doesn't mark \"Can't use tools\"."
         }
         guard models.knownContextSize(of: choice) >= minimumContextTokens else {
-            return "Research reads whole web pages, which needs a larger model than \(models.name(of: choice))."
+            if standingIn {
+                return LanguageModels.limitReached(resets: models.privateCloudResetDate, fallingBack: false)
+                    + " Research reads whole web pages, which needs a larger model than \(models.title(of: option)), so it can run again once the limit resets."
+            }
+            return "Research reads whole web pages, which needs a larger model than \(models.title(of: option))."
                 + (LanguageModels.largerModels(than: choice).map { " Choose \($0) in AI settings." } ?? "")
         }
         return nil
     }
 
     func run(question: String, depth: Int) async throws -> String {
-        if let reason = Self.unavailableReason(settings: settings) {
+        if let reason = Self.unavailableReason(settings: settings, requested: requested) {
             throw IntelligenceError.unavailable(reason)
         }
-        let model = try models.model(for: choice)
-        let name = models.name(of: choice)
+        var option = option
+        while true {
+            do {
+                onModel(option)
+                return try await research(question, depth: depth, on: option)
+            } catch let refusal as FellBack {
+                // Cloud (Apple) refused a step for today's limit: the whole
+                // run again, from its plan, on this device — if research can
+                // run there at all. It started there unchecked, and on a
+                // device whose own window is too small for research every
+                // step then failed.
+                if let reason = Self.reason(on: refusal.option, models: models, standingIn: true) {
+                    throw IntelligenceError.unavailable(reason)
+                }
+                option = refusal.option
+            }
+        }
+    }
+
+    /// Thrown in place of Cloud (Apple)'s refusal for today's limit, before
+    /// any step has turned the error into words.
+    private struct FellBack: Error { let option: ModelOption }
+
+    private func research(_ question: String, depth: Int, on option: ModelOption) async throws -> String {
+        let choice = option.choice
+        let model = try models.model(forOption: option)
+        let name = models.title(of: option)
         let window = await models.contextSize(of: choice)
         let depth = max(1, min(4, depth))
         let reasoning = models.supportsReasoning(choice) ? ContextOptions.ReasoningLevel.moderate : nil
@@ -91,6 +142,7 @@ struct DeepResearch {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                if let fallback = models.fallback(after: error, on: choice) { throw FellBack(option: settings.option(for: fallback)) }
                 plan = []   // A failed plan still leaves the question itself to research.
             }
             let questions = Array((plan.isEmpty ? [question] : plan).prefix(depth))
@@ -123,6 +175,7 @@ struct DeepResearch {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
+                    if let fallback = models.fallback(after: error, on: choice) { throw FellBack(option: settings.option(for: fallback)) }
                     // Say what failed, in the notes the synthesis reads, so the
                     // gap is reported rather than papered over.
                     report = "(This part of the research failed: \(IntelligenceError.describe(error, modelName: name)))"
@@ -148,7 +201,10 @@ struct DeepResearch {
             throw CancellationError()
         } catch let error as IntelligenceError {
             throw error
+        } catch let refusal as FellBack {
+            throw refusal
         } catch {
+            if let fallback = models.fallback(after: error, on: choice) { throw FellBack(option: settings.option(for: fallback)) }
             throw IntelligenceError.failed(IntelligenceError.describe(error, modelName: name))
         }
     }
@@ -184,6 +240,7 @@ nonisolated struct DeepResearchTool: Tool {
 extension ToolContext {
     func deepResearch(_ question: String, depth: Int) async throws -> String {
         guard let settings else { throw ToolError.failed("Research isn't available here.") }
-        return try await DeepResearch(settings: settings, context: self).run(question: question, depth: depth)
+        return try await DeepResearch(settings: settings, context: self, requested: modelChoice)
+            .run(question: question, depth: depth)
     }
 }

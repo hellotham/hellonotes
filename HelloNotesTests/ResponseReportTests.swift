@@ -95,7 +95,6 @@ struct AIReportSurfacesTests {
     /// File, and the features in it that show a model's text.
     private static let surfaces: [(file: String, features: [String])] = [
         ("UI/Assistant/AssistantView.swift", ["Assistant"]),
-        ("UI/LibraryChatView.swift", ["Ask Your Library"]),
         ("UI/RewriteSelectionView.swift", ["Rewrite"]),
         ("UI/ComposeNoteView.swift", ["New Note from a Prompt"]),
         ("UI/Shell/NoteInspector.swift", ["Summary", "Suggested Tags", "Suggested Links"]),

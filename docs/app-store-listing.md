@@ -1,4 +1,4 @@
-# App Store listing — 1.3.4
+# App Store listing — 1.3.5
 
 > **The copy for the version being prepared — not a record of what is live.**
 > App Store Connect is the source of truth for the live listing
@@ -30,7 +30,7 @@ desired functionality."*
 
 The other way is the sandbox's own: **Access MLX Models…** in Settings ▸ AI
 opens a folder panel already pointed at `~/.cache/huggingface/hub`, one click
-on Open grants it, and a security-scoped bookmark keeps it. Until then models
+on Allow grants it, and a security-scoped bookmark keeps it. Until then models
 live in the app's own container. Nothing outside the container is reached
 except through user-selected folders and their bookmarks — the same way the
 app reaches notes.
@@ -54,31 +54,33 @@ Plain Markdown files you own, with AI from Apple Foundation Models on your devic
 markdown,knowledge base,wiki,backlinks,zettelkasten,pkm,notes,notetaking,git,graph,local,privacy
 ```
 
-**Version** — What's New, iPhone and iPad (1.3.4; this platform had 1.3.3 build 32):
+**Version** — What's New, iPhone and iPad (1.3.5; this platform had 1.3.3 build 32 — 1.3.4 was withdrawn before release, so its changes are new here too):
 ```
-HelloNotes 1.3.4 can run its AI on Apple's Private Cloud Compute.
+HelloNotes 1.3.5 can run its AI on Apple's Private Cloud Compute, and labels what each model made.
 
-• Choose Private Cloud Compute in Settings > AI for Apple's server model. It reads far more of your notes at once than the model on your device; what it is sent isn't stored, and isn't accessible to Apple. Suggestions as you type still need a model on your device.
+• The models are named by where they run: Local (Apple) on your device, Cloud (Apple) on Apple's Private Cloud Compute, and Local with a model's name for an open model you run with MLX. Choose the default in Settings > AI; the Assistant can use another for one conversation.
+• Cloud (Apple) reads far more of your notes at once than the model on your device; what it is sent isn't stored, and isn't accessible to Apple. Suggestions as you type still need a model on your device. When its daily allowance is used up, Local (Apple) takes over until it resets.
+• Each Assistant reply, summary, suggested tag or link, rewrite and draft says which model made it.
+• Ask Your Library is now part of the Assistant, which searches your notes more thoroughly — by section, and to the end of a long note — shows the notes it read, and summarises earlier messages when a conversation grows long. The Assistant is experimental: it reads your notes and no longer changes them.
 • Report… beside the AI's answers and suggestions opens an email to us, and Settings > Support > Contact has our address.
 • A note or attachment that iCloud Drive keeps online is downloaded when you open it. If it can't be, HelloNotes says so and offers Try Again, instead of a download that never ends.
+• Tips no longer appear over the window.
 
-HelloNotes 1.3.4 requires iOS 27.
+HelloNotes 1.3.5 requires iOS 27.
 ```
 
-**Version** — What's New, Mac (1.3.4; this platform had 1.3.3 build 31, so build 32's fixes are new here too):
+**Version** — What's New, Mac (1.3.5; this platform had 1.3.4 build 33):
 ```
-HelloNotes 1.3.4 can run its AI on Apple's Private Cloud Compute.
+HelloNotes 1.3.5 names its models by where they run, and labels what each model made.
 
-• Choose Private Cloud Compute in Settings > AI for Apple's server model. It reads far more of your notes at once than the model on your Mac; what it is sent isn't stored, and isn't accessible to Apple. Suggestions as you type still need a model on your Mac.
-• Report… beside the AI's answers and suggestions opens an email to us, and Settings > Support > Contact has our address.
-• A note or attachment that iCloud Drive keeps online is downloaded when you open it. If it can't be, HelloNotes says so and offers Try Again, instead of a download that never ends.
-• A link to a note — from the widget, say — opens that note even when HelloNotes wasn't running.
-• Restore asks before it replaces a note with an earlier version.
-• A note that mentions another by one of its aliases can be linked from the Links view.
-• When the Assistant changes a note in a Git collection, it commits that note; and Commit includes notes you've deleted.
-• Quick Capture and dictation add to today's note even while it's open, without asking you to choose between versions.
+• Local (Apple) runs on your Mac, Cloud (Apple) on Apple's Private Cloud Compute, and Local with a model's name is an open model you run with MLX. Choose the default in Settings > AI; the Assistant can use another for one conversation.
+• Each Assistant reply, summary, suggested tag or link, rewrite and draft says which model made it.
+• When Cloud (Apple)'s daily allowance is used up, Local (Apple) takes over until it resets.
+• Ask Your Library is now part of the Assistant, which searches your notes more thoroughly — by section, and to the end of a long note — shows the notes it read, and summarises earlier messages when a conversation grows long. The Assistant is experimental: it reads your notes and no longer changes them.
+• The notice about AI services HelloNotes no longer supports names the model you can choose, where it showed "(Function)".
+• Tips no longer appear over the window.
 
-HelloNotes 1.3.4 requires macOS 27.
+HelloNotes 1.3.5 requires macOS 27.
 ```
 
 ## Description
@@ -105,9 +107,8 @@ FIND ANYTHING
 
 AI ON YOUR DEVICE, OR ON PRIVATE CLOUD COMPUTE
 • Summarise a note, suggest tags and links, and rewrite a passage — with Apple Foundation Models, powered by Apple Intelligence
-• "Ask your library": answers grounded in your own notes, with citations
-• An Assistant that can search and read your notes, look things up on the web, and edit notes only with your approval
-• Run Apple's model on your device, or choose Private Cloud Compute for Apple's server model: what it is sent isn't stored, and isn't accessible to Apple
+• An Assistant that answers from your own notes and shows the notes it read, and can look things up on the web — experimental, and it doesn't change your notes
+• Run Apple's model on your device, Local (Apple), or choose Cloud (Apple), Apple's server model on Private Cloud Compute: what it is sent isn't stored, and isn't accessible to Apple. Its answers and suggestions say which model made them
 • Or download an open model and run it on your device with MLX
 There are no third-party AI services and no API keys.
 
@@ -151,9 +152,8 @@ FIND ANYTHING
 
 AI ON YOUR MAC, OR ON PRIVATE CLOUD COMPUTE
 • Summarise a note, suggest tags and links, and rewrite a passage — with Apple Foundation Models, powered by Apple Intelligence
-• "Ask your library": answers grounded in your own notes, with citations
-• An Assistant that can search and read your notes, look things up on the web, and edit notes only with your approval
-• Run Apple's model on your Mac, or choose Private Cloud Compute for Apple's server model: what it is sent isn't stored, and isn't accessible to Apple
+• An Assistant that answers from your own notes and shows the notes it read, and can look things up on the web — experimental, and it doesn't change your notes
+• Run Apple's model on your Mac, Local (Apple), or choose Cloud (Apple), Apple's server model on Private Cloud Compute: what it is sent isn't stored, and isn't accessible to Apple. Its answers and suggestions say which model made them
 • Or download an open model and run it on your Mac with MLX
 There are no third-party AI services and no API keys.
 
@@ -197,11 +197,11 @@ listing that names the model in a build that cannot offer it.
 ```
 HelloNotes is a local-first Markdown editor. Nothing needs to be set up: a sample collection is bundled in the app and opens by itself on first launch, so the tour, the manual and every feature below are reachable immediately. To use your own notes instead, choose Open… and pick any folder of .md files.
 
-All notes stay on the device in plain files; no account and no network are required for any core feature.
+Notes are plain files in a folder the person chooses — on the device, or in their own cloud storage; no account and no network are required for any core feature.
 
-AI. The AI features run on Apple Foundation Models, on the device — with Apple Intelligence where it is available and turned on. In Settings ▸ AI ▸ Model a person can instead choose Private Cloud Compute, Apple's server model (the managed entitlement com.apple.developer.private-cloud-compute, granted to this app on 17 October 2026); the line under the picker then says the text is sent to Apple's Private Cloud Compute to process, isn't stored and isn't accessible to Apple; a line there says when the day's allowance is nearly or fully used; and in an Assistant conversation a line above the message field says the conversation so far is sent with each message. Optionally, a person can download an open-source model from Hugging Face and run it on the device with MLX (Settings ▸ AI ▸ MLX Models); nothing is downloaded unless they ask. To answer a question, the Assistant — and Research, in New Note from a Prompt — can search the web through DuckDuckGo; the results are read by the chosen model — on the device, or on Private Cloud Compute when that is chosen. The app contains no third-party AI services, no ChatGPT or OpenAI integration, and no API keys or AI credentials of any kind.
+AI. The AI features run on Apple Foundation Models, on the device — with Apple Intelligence where it is available and turned on; the app calls that model Local (Apple). In Settings ▸ AI ▸ Default model a person can instead choose Cloud (Apple), which is Apple's Private Cloud Compute (the managed entitlement com.apple.developer.private-cloud-compute, granted to this app on 17 October 2026), and the Assistant's model menu can choose it for one conversation. The line under the picker then says the text is sent to Apple's Private Cloud Compute to process, isn't stored and isn't accessible to Apple; in an Assistant conversation a line above the message field says the conversation so far is sent with each message; and each AI answer and suggestion is labelled with the model that made it. A line says when the day's allowance is nearly used, and once it is used the app runs on the device's model instead and says so. Optionally, a person can download an open-source model from Hugging Face and run it on the device with MLX (Settings ▸ AI ▸ MLX Models); nothing is downloaded unless they ask. The Assistant is marked experimental and is read-only in this version: it searches and reads notes and cannot create, change or delete them. To answer a question, the Assistant — and Research, in New Note from a Prompt — can search the web through DuckDuckGo; the results are read by the chosen model — on the device, or on Private Cloud Compute when that is chosen. The app contains no third-party AI services, no ChatGPT or OpenAI integration, and no API keys or AI credentials of any kind.
 
-SAFEGUARDS (Guideline 1.2). What the AI writes goes only into the person's own notes — files on their device or in their own cloud storage — and the Assistant's conversations, kept in the app's own storage on the device. HelloNotes has no accounts, no other users and nowhere in the app to publish what it writes, so nothing it generates is shown to anyone else unless the person sends it somewhere themselves. The on-device System model applies Apple's guardrails, and Private Cloud Compute is Apple's own model on Apple's servers; an MLX model is one the person chooses and downloads themselves, and HelloNotes does not filter its output. The AI's answers and suggestions — Assistant replies, Ask Your Library answers, rewrites, New Note from a Prompt drafts, and the summary, tag and link suggestions in the right panel — have Report… beside them, which opens an email to info@hellotham.com carrying the response, the question, the model in use and the app version, for the person to read before sending. Settings ▸ Support ▸ Contact gives everyone the same address and the support website (hellotham.com/hellonotes/support), for anything else the AI wrote — the suggestions shown as grey text while typing, for one — and for anything at all.
+SAFEGUARDS (Guideline 1.2). What the AI writes goes only into the person's own notes — files on their device or in their own cloud storage — and the Assistant's conversations, kept in the app's own storage on the device. HelloNotes has no accounts, no other users and nowhere in the app to publish what it writes, so nothing it generates is shown to anyone else unless the person sends it somewhere themselves. The on-device model applies Apple's guardrails, and Private Cloud Compute is Apple's own model on Apple's servers; an MLX model is one the person chooses and downloads themselves, and HelloNotes does not filter its output. The AI's answers and suggestions — Assistant replies, rewrites, New Note from a Prompt drafts, and the summary, tag and link suggestions in the right panel — have Report… beside them, which opens an email to info@hellotham.com carrying the response, the question, the model in use and the app version, for the person to read before sending. Settings ▸ Support ▸ Contact gives everyone the same address and the support website (hellotham.com/hellonotes/support), for anything else the AI wrote — the suggestions shown as grey text while typing, for one — and for anything at all.
 
 IN-APP PURCHASES. Settings ▸ Support shows both products, under Champion and Commercial: Champion (a repeatable one-off contribution) and Commercial (an annual auto-renewable subscription). That screen carries the subscription's title, length, price per period, and working links to the Terms of Use (EULA) and the privacy policy. Every feature of the app is included for everyone; the only thing backing it adds is the ability to send a support request from inside the app, and that screen says so.
 ```

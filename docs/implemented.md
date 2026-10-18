@@ -8416,6 +8416,224 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.55 1.3.5: models named by where they run, an Assistant that reads and says so, and a fallback that just happens (2026-10-18)
+
+**1.3.4 reached the Mac with "(Function)" on screen.** The notice for people
+whose AI service 1.3.3 retired ended "You can choose \(LanguageModels.largerModels)
+in AI settings" — and build 33 had made `largerModels` a function of the model
+in use, so the interpolation printed the function itself. Swift accepts that
+with one warning. `PrivateCloudComputeWordingTests.noSentenceInterpolatesTheFunctionItself`
+holds it, with a negative control. The iOS 1.3.4 submission was withdrawn
+before review finished, so 1.3.5 is the next version on both platforms.
+
+**The person's own check of build 33 found the rest**, none of which any test
+had: Ask Your Library offered *System* against *Private Cloud Compute* — both
+Apple's models, so the toggle did not say the one thing that differs, where the
+text goes; a question on Private Cloud Compute took long and answered
+generically, citing nothing; its bar had a button that swapped two icons and
+seemed to do nothing, a model picker with "AI Settings" in it and a separate
+settings button; a Mind Map tip took the first tap; and nothing a person could
+see said how the Assistant would change a note. The decisions, all the
+person's, on 18 October: models are **Local (Apple)**, **Cloud (Apple)** and
+**Local (*model*)**, with a default in Settings and the Assistant able to
+choose for one conversation; a model menu and a labelled **Use my notes**
+switch; tips out "for now"; Ask Your Library folded into the Assistant; and a
+descope — a plan for an agent with editing tools "will end up reimplementing
+OpenCode in the app", so editing waits for a later release, and this one does
+the core: earlier messages summarised to keep a conversation going, a more
+robust search, a line saying the Assistant is experimental, and a graceful
+fallback for Cloud (Apple)'s daily allowance.
+
+**What changed.**
+
+* **Names** — `LanguageModels.name(of:)`, which `title(of:)` now returns as
+  is; every sentence that named "System" or "Private Cloud Compute" as a model
+  says the new name, and Apple's service keeps its own name where the text
+  says where it goes.
+* **Where a result was made** — `ModelStamp`, taken as the work starts and
+  drawn by `ModelStampLabel` beside Report…: each Assistant reply (kept beside
+  the conversation in `models.json`, `ChatSessionStore.save(_:stamps:)`), the
+  panel's summary, tags and links, Rewrite and Expand, New Note from a Prompt.
+  The stamp is recorded by the work itself (`IntelligenceService.stamped`,
+  `DeepResearch.onModel`), so a fallback partway through says Local (Apple).
+* **The Assistant reads** — offered `search_notes`, `read_note`,
+  `grep_collection` and `web_search` on an 8K window, and `list_notes`,
+  `web_fetch` and `deep_research` besides from 16K; the tools that create,
+  edit, write and delete are kept and not offered, and the instructions say
+  to give the person text to paste. Its header is the switch, the model menu
+  (AI Settings… at its foot — the separate gear went) and New conversation;
+  its empty state says it is experimental and why.
+* **Search** — `read_note` takes a `section:` to start at a heading (an
+  unknown one is answered with the note's sections), a truncated read names
+  the sections after it and how to ask for one, `grep_collection` lines say
+  `Title › Heading:LN:`, and `NoteSections` ignores headings in fenced code.
+  Ask Your Library had ranked notes by word counts and read their openings;
+  that is why it cited nothing useful.
+* **Earlier messages** — what `HistoryWindow` would drop is counted
+  (`keptFrom`) and summarised on the turn's own model before the request
+  (`AssistantModel.summariseWhatFallsOut`), and carried as a turn of the
+  conversation, never in the instructions (the review below).
+* **Ask Your Library is gone** (`LibraryChatView.swift`, its tab, row, menu
+  item, ⇧⌘J and palette entry). Selected text's **Ask the Assistant** sends
+  "Explain this, using my notes: …" to the sidebar's collection's
+  Assistant (`Library.askAboutSelection(_:in:settings:)`).
+* **Tips are gone** (`Tips.swift` and TipKit), and with them `-HNHideTips`.
+* **The allowance** — `LanguageModels.serving` sends a request asked of Cloud
+  (Apple) to Local (Apple) once `quotaUsage` says the day's allowance is
+  spent, and `fallback(after:on:)` asks a request refused for the limit again
+  there, once: in `IntelligenceService.perform`, in `DeepResearch.run` (a
+  refusal at any step starts the run again from its plan) and in
+  `AssistantModel.respond` (asked again from the conversation as it was before
+  the message, and the reply stamped with the model that wrote it). Never
+  towards the cloud, never for another failure. A **Request More** button had
+  been added for the framework's limit-increase sheet without being asked for;
+  the person asked for a fallback, and it went.
+
+**Measured**, on 18 October:
+
+| Gate | Result |
+|---|---|
+| macOS app suite | 941 tests in 146 suites, pass |
+| iOS interface tests, iPhone | 15 cases, the 3 designed skips, 0 failures |
+| iOS interface test, iPad held upright | pass, not skipped |
+| Evaluations, Local (Apple) | 5 of 5 — tags, links, rewrite, long summary, Assistant tool use — 28.7 s |
+| Evaluations, Cloud (Apple), Assistant only | 3 of 3 in 9.1 s; the roadmap answer names *Roadmap (Projects/Roadmap.md)* |
+| Fallback rule, negative control | falling back on any Cloud failure fails on exactly the two expectations meant to catch it |
+| Release, macOS, 1.3.5 (34) | builds; Apple Development signature, team profile carrying the entitlement |
+
+The interface runs were taken before the fallback change, which touches no
+screen they drive. Two flags make a Cloud evaluation affordable:
+`TEST_RUNNER_HN_EVAL_PCC=1`, which refuses to start once the allowance is
+spent rather than measure Local (Apple) under Cloud's name, and
+`TEST_RUNNER_HN_EVAL_ONLY=assistant`, because `-only-testing:` named down to a
+Swift Testing function runs nothing and passes.
+
+**Not shown.** The second ask — a request refused for the limit — cannot be
+driven without spending the allowance, and there is no stand-in
+`LanguageModel` (it would need a `LanguageModelExecutor`), so the rule is
+tested as pure functions and its three call sites were read, not run.
+Reading `quotaUsage` is free and safe: probed from an
+unsandboxed process with no entitlement — as CI's host is — the first read took
+9 µs and a thousand more 47 µs, and it answered "not reached" with no reset
+date; only a request without the entitlement crashes.
+
+**What the person's check of build 34 found, and the fact-check after it.**
+Two things on screen: **no line said the Assistant is experimental** — it was
+in the empty state, and the Assistant opens on the last conversation, so it
+was never seen (it is above the message field now, always, and
+`testTypingOnAnIPadHeldUpright` asks for it); and **no MLX model in the
+picker** beside a Hugging Face cache of runnable ones — because this Mac had
+never granted the cache to a sandboxed build (`aiMLXFolderBookmark` absent, a
+key name read and no value), and nothing by the picker said so (a line there
+now points to **Access MLX Models…**, on a Mac, while there is no grant and no
+model). Then a fact-check of the manual and the listing against the source,
+whose reverse column found what neither look had: **the Assistant's research
+tool ran on the Settings default**, so a conversation kept on this device sent
+what it researched to Cloud (Apple) under a Local stamp — the tool now runs on
+the conversation's model (`ToolContext.modelChoice`); the conversation's
+choice carried into another collection's conversation and was lost on
+relaunch (kept beside it now, `ChatSessionStore.Conversation`); a stamp taken
+before the work named Cloud (Apple) for a request Local (Apple) answered after
+a refusal (`IntelligenceService.stamped`, `DeepResearch.onModel`); and four
+strings — Inline Completion's "choose System", judged by the model standing in
+rather than the one chosen; the Settings footer naming Cloud (Apple) in the
+DMG, which never offers it; the Assistant promising it "names the notes it
+used", which is an instruction nobody measured (it says it shows each one it
+read, which the conversation does); and the Mac told the iPhone's path to
+manage a subscription. Ask Your Library's `answer()` went with the probe that
+timed it, its only caller.
+
+**Then the search itself, the person's next question: "why the search only
+returns a few entries in the Assistant? There's plenty of tokens left."**
+Every note tool shaped its result by a count fixed for the smallest window —
+`searchLimit` six, or ten from 16K, grep twenty or sixty lines, the list sixty
+or two hundred titles — and the search said nothing about the rest, so a model
+shown ten notes of the hundreds that matched took ten for the answer. A first
+fix gave a search a quarter of the window; the person asked why a quarter, and
+why not all of it with the history giving way — "querying notes in the
+assistant is the only useful functionality at present." So a note tool's
+result takes the room the turn has left (`TurnRoom`): the history's share of
+the window, less the message and what the turn's tools have returned, with
+older turns making way as `HistoryWindow.fit` already did and the reply's
+reserve kept. The one hazard is the model's habit of asking for several tools
+in one step, whose results reach the transcript together: each result is
+measured and taken on the main actor with nothing in between, so siblings
+share the room — one alone gets all of it — and a turn with none left is told
+so rather than sent past the window. What does not fit is counted. Shaping
+reads by tokens showed that `TokenBudget.prefix` was not the longest prefix
+it promised: it stopped before a paragraph too big for the budget, so a note
+with a long opening paragraph was read as its title, and Suggest Tags read the
+same opening; it now cuts inside that paragraph, at a line, sentence or word.
+947 tests; the five evaluations on Local (Apple) and the Assistant's on Cloud
+(Apple) pass — through the harness's own tools, which take the fallback
+quarter, so the room's sharing is held by `resultsShareTheRoomTheTurnHasLeft`
+and `aFullTurnIsToldSo`, not by a model.
+
+**Then a review of the whole change (`/code-review max`), whose fifteen
+findings were fixed before the build went up** (2026-10-19).
+- **The summary of earlier messages lost the thread four ways**: it read the
+  opening of what fell out and marked all of it covered; it moved on when a
+  summary failed; it measured before the new message was added, so a turn
+  went a message late; and it was never kept, so the Assistant made again
+  remembered none of it. Before a message goes, everything it pushes out is
+  folded in now, oldest first, in parts that join back into the whole
+  (`AssistantModel.summaryParts`, over `TokenBudget.chunks`), at most three a
+  message; only what was read counts as covered; and the summary and how far
+  it reaches are kept with the conversation (`ChatSessionStore.Conversation`,
+  `conversation.json`), beside its model and **Use my notes**. While it is
+  made, the message stays on screen with "Remembering earlier messages…" —
+  it vanished for the seconds a summary took — and a message that never went
+  goes back in the field.
+- **The summary is a turn, never instructions.** It is the model's account of
+  replies that quote notes and web pages, and it sat in the instructions,
+  against their own rule that nothing from a note or a page reaches them. It
+  is the answer to a question the app asks now, in the conversation's place,
+  shown only while a turn it covers is not (`HistoryWindow.fit`), and read by
+  the profile before every request (`EarlierSummary`) — so a new summary
+  needs no new session, and the instructions never change for one.
+- **The Assistant is the library's, one per collection**
+  (`Library.assistant(for:settings:)`). It was its tab's, and showing a note
+  took the tab down: a turn still streaming saved over the transcript of the
+  model made when the tab came back, **Use my notes** came back on while the
+  conversation's Cloud (Apple) choice came back from disk, and Ask the
+  Assistant left its question in the library for whichever window's tab heard
+  it first — with that window's collection. The tab shows the sidebar's
+  collection's conversation, not the library's focus, which every window
+  shares. Its first version kept the library's list unobserved and drew from
+  it, so a tab drawn before its task had made the model stayed on its spinner
+  for good: `testTypingOnAnIPadHeldUpright` failed ("the Assistant doesn't say
+  it is experimental"), and passed with the list observed.
+- **A conversation's own model stays its own.** An MLX model the folder no
+  longer lists is kept, and says so, where the conversation moved to the
+  default — possibly Cloud (Apple) — with everything it had read; an update's
+  new snapshot is found again (`LanguageModels.resolved`). A session is keyed
+  by the model's entry, not its title, which leaves out the organisation, so
+  two models of one name no longer share one.
+- **The turn room told turns apart by their size**, so a question the same
+  shape as the last inherited its spent room — "No room is left" before
+  anything was read (`TurnRoom.Held.turnStart`).
+- **A note saved on Windows was one line**: "\r\n" is one Character, never
+  "\n", so exact-text search returned the whole note as a match, past the
+  turn's room, and no section in it could be found. Lines split at any line
+  break; a long matching line is shown as the stretch around the match
+  (`ToolContext.excerpt`); and "## C#" is about C#.
+- **`search_notes` counted to 250** — the note list's cap — and told the model
+  it had every match.
+- **Research rechecks what it needs** when Cloud (Apple)'s limit moves it to
+  this device, where the window may be too small, and says it is the limit
+  rather than "choose Cloud (Apple)"; and a writing tool that fell back
+  partway is stamped with the model that refused, which had been sent its
+  first requests (`ModelStamp.after`).
+- **MLX**: removing any model frees its memory, not only the default's; a
+  single model's folder lists what was downloaded into it and takes no more
+  downloads (`MLXModelFolder.isOneModel`).
+- **The Mac screenshot script restores exactly what it moved**, from a folder
+  of its own, with its trap set before it touches anything and a refusal to
+  start over a stopped run's backups — it moved the conversations aside before
+  its trap existed, and began each run by deleting the folder an interrupted
+  one had left them in; and `ax-press` fails when Accessibility does, rather
+  than letting the question be typed into the note.
+
 ### 51.54 Private Cloud Compute, granted — in the App Store build, and kept out of the DMG (2026-10-17)
 
 **Apple granted the managed entitlement, and the app now offers Private Cloud

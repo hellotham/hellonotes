@@ -1,5 +1,5 @@
 ---
-status: CURRENT (2026-10-09; View's Graph and Mind Map from source, D13). The menu bar as built on macOS and iPadOS, the
+status: CURRENT (2026-10-09; View's Graph and Mind Map from source, D13; Ask Your Library's removal in 1.3.5 from source, 2026-10-19). The menu bar as built on macOS and iPadOS, the
 command palette, every keyboard shortcut, and the gaps (§8). The macOS menus in
 §3 were read from the running app through the accessibility API on 2026-09-24
 (Debug build, no window key, which is why the collection submenus are absent
@@ -36,8 +36,8 @@ generated from the same commands. Where that is not yet true, §8 says so.
   invisible there. A fact-check once found eight that had. Two still bypass it:
   HelloNotes Help and Dictate to Daily Note (§8).
 - **While Open Quickly is up**, some commands dismiss it first and then run
-  (`closingOpenQuickly`): New Note, Today's Note, Open…, Graph, Mind Map, Ask
-  Library, Assistant, Close Tab (and ⌘W), New Note from a Prompt and Search All
+  (`closingOpenQuickly`): New Note, Today's Note, Open…, Graph, Mind Map,
+  Assistant, Close Tab (and ⌘W), New Note from a Prompt and Search All
   Collections. The note, format, AI, Review Links and Find commands grey out
   instead, so they cannot act on the note behind it. Everything else does
   neither (§8, item 4).
@@ -138,11 +138,13 @@ visible, clickable twin.
 | — | | |
 | Graph | ⇧⌘G | a note is open. Opens the panel on the note's Graph — its links in and out (it was "Graph View", the whole collection's, until D13) |
 | Mind Map | ⇧⌘M | the scope collection has notes. Opens the Mind Map — the links across the collection — as a tab |
-| Ask Your Library | ⇧⌘J | there are notes. Opens it as a tab |
 | Assistant | ⇧⌘A | a window. Opens the Assistant as a tab |
 | — | | |
 | Show Non-Note Files | | a collection is in scope; a toggle |
 | — Enter Full Screen | | *(system)* |
+
+Ask Your Library (⇧⌘J) was here until 1.3.5, which folded it into the
+Assistant; ⇧⌘J is unassigned.
 
 ### 3.5 Note
 
@@ -222,10 +224,10 @@ this menu.
 - **Each row shows its group** (File, Edit, View, Assistant, Note, Format or
   Help) as a caption. With the query empty the rows are in the order they were
   added, not in sections; once you type they are ranked by how well they match.
-- **Only fifteen rows show a shortcut** — New Note, New Note from a Prompt…,
+- **Only fourteen rows show a shortcut** — New Note, New Note from a Prompt…,
   Open Quickly…, Open…, New Window, Find in Note, Search All Collections,
-  Dictate to Daily Note, Graph, Mind Map, Ask Your Library, Assistant, Quick
-  Capture…, Review Links… and Print…. None is shown for Today's Note, Rescan,
+  Dictate to Daily Note, Graph, Mind Map, Assistant, Quick Capture…, Review
+  Links… and Print…. None is shown for Today's Note, Rescan,
   Rename, Duplicate, Bookmark, Move to Trash, the modes, or the Format
   commands that have one in the menu (Bold, Italic, the headings and the
   lists).
@@ -257,7 +259,7 @@ The app draws these buttons; the OS draws the menus they open.
 | **Row menus** (`…` and context menus) | sidebar, band and compact rows | [primary.md](primary.md) §6 |
 | **✦ AI** and **Export** | the editor's status bar | [toolbars.md](toolbars.md) §5.1 |
 | **The panel's pull-down** | the panel's header, when narrow | [secondary.md](secondary.md) §3 |
-| **The editor's selection menu** | a right-click (Mac) or the edit menu (iOS) over a selection | Rewrite with AI…, Link to "*title*", Find Related, Ask Your Library, beside the system's items ([toolbars.md](toolbars.md) §9) |
+| **The editor's selection menu** | a right-click (Mac) or the edit menu (iOS) over a selection | Rewrite with AI…, Link to "*title*", Find Related, Ask the Assistant, beside the system's items ([toolbars.md](toolbars.md) §9) |
 | **The Library place's More ⋯** | the compact shell | [primary.md](primary.md) §10 |
 
 ---
@@ -292,7 +294,6 @@ or extend another app's menus.
 | ⌘F | Find… | Edit |
 | ⌥⌘F | Search All Collections | Edit |
 | ⇧⌘G | Graph | View |
-| ⇧⌘J | Ask Your Library | View |
 | ⇧⌘M | Mind Map | View |
 | ⌃⌘K | Quick Capture… | File |
 | ⇧⌘L | Review Links… | Note |
@@ -311,8 +312,8 @@ or extend another app's menus.
 
 | Key | Does | Where |
 |---|---|---|
-| Esc | closes the find bar or a sheet (their cancel actions) — and the panel only where it is carried over the note, a phone's width (`SidePanel.escapeCloses`; as a column it took Escape from the find bar and the approval card); dismisses Open Quickly, the palette and the splash; clears an inline suggestion; **denies** an Assistant edit awaiting approval | wherever it applies |
-| Return | presses a sheet's default button; opens or runs the selected row in Open Quickly and the palette; sends in the Assistant; **approves** an Assistant edit awaiting approval; asks the question in Ask Library; goes to the next match in the find bar | wherever it applies |
+| Esc | closes the find bar or a sheet (their cancel actions) — and the panel only where it is carried over the note, a phone's width (`SidePanel.escapeCloses`; as a column it took Escape from the find bar and, before 1.3.5, from the Assistant's approval card); dismisses Open Quickly, the palette and the splash; clears an inline suggestion | wherever it applies |
+| Return | presses a sheet's default button; opens or runs the selected row in Open Quickly and the palette; sends in the Assistant; goes to the next match in the find bar | wherever it applies |
 | ↑ · ↓ | moves the selection: through notes and attachments in the sidebar column (when focused), notes and headings in Open Quickly, commands in the palette, revisions in the History list | those lists |
 | ↑ · ↓, then Return or Tab; Esc | chooses a row in the list of notes or tags offered while a `[[link` or a `#tag` is typed, and takes it; Esc sends the list away. Nothing is chosen until an arrow is pressed, so Return alone is a new line, and the arrows are the list's only while the construct is being typed (`CompletionChoice`; implemented.md §51.44) | the editor, in Edit |
 | ↑ or ← at the top of a note | moves the caret into the note's title (on iPhone and iPad this never fired before §51.44: its key command did not ask for priority over the text view's own arrows) | the editor |
@@ -366,7 +367,8 @@ or extend another app's menus.
      ⇧⌘O), and writes modifiers as ⌘⇧ where the menu shows ⇧⌘.~~ *Fixed
      (implemented.md §51.36).*
    - 🟡 *Names:* ~~"Ask Your Library", and "Open Quickly" and "Acknowledgements"
-     without their "…"~~ are the menu's now. **"Find in Note", "Rename Note",
+     without their "…"~~ are the menu's now (Ask Your Library itself is gone
+     since 1.3.5). **"Find in Note", "Rename Note",
      "Duplicate Note", "Bookmark Note" and "Edit Mode" and the other modes
      still differ** from Find…, Rename…, Duplicate, Add Bookmark and Edit — as
      do "Hide Non-Note Files" (item 9) and the rows for adding a collection,
@@ -380,8 +382,8 @@ or extend another app's menus.
      (the menu's Open… ⌘O), while the menu's Open Collection ▸ is the
      add-a-collection submenu.~~ The row is "Open…", ⌘O.
    - 🟡 *Groups:* Dictation is under Edit, Export and Print under Note,
-     Acknowledgements under Help (the menu has it in the app menu), and Ask Your
-     Library and Assistant under "Assistant" (the menu has them in View).
+     Acknowledgements under Help (the menu has it in the app menu), and
+     Assistant under "Assistant" (the menu has it in View).
 
    One vocabulary and one notation, derived from the menu, would stop the
    drift; the four AI commands on a note are (`AIActions.Command`).

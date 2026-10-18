@@ -61,8 +61,12 @@ final class InlineCompletionModel {
     /// explains itself rather than appearing to do nothing.
     static func unavailableReason(_ intelligence: IntelligenceService) -> String? {
         if case .unavailable(let why) = intelligence.availability { return why }
-        guard !intelligence.runsOnDevice else { return nil }
-        return "\(intelligence.modelName) runs on Apple's servers. Suggestions as you type need a model on this device — choose System or an MLX model in AI settings."
+        // The model chosen, not the one standing in: Local (Apple) answering
+        // while Cloud (Apple)'s allowance is spent starts no suggestions
+        // (`IntelligenceService.supportsInlineCompletion`).
+        let chosen = intelligence.settings.model
+        guard !chosen.runsOnDevice else { return nil }
+        return "\(intelligence.settings.models.name(of: chosen)) runs on Apple's servers. Suggestions as you type need a model on this device — choose Local (Apple) or an MLX model in AI settings."
     }
 
     func cancel() {

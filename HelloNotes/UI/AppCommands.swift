@@ -265,8 +265,6 @@ struct AppActions {
     /// The links across the sidebar's collection, as a tab: needs notes.
     var canMindMap: Bool
     var mindMap: () -> Void
-    var canAsk: Bool
-    var askLibrary: () -> Void
     var assistant: () -> Void
     /// Close the active editor tab. Enabled only when more than one tab is
     /// open, so ⌘W falls through to the standard window Close otherwise.
@@ -785,9 +783,6 @@ struct HelloNotesCommands: Commands {
             Button("Mind Map") { actions?.mindMap() }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
                 .disabled(!(actions?.canMindMap ?? false))
-            Button("Ask Your Library") { actions?.askLibrary() }
-                .keyboardShortcut("j", modifiers: [.command, .shift])
-                .disabled(!(actions?.canAsk ?? false))
             Button("Assistant") { actions?.assistant() }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(actions == nil)

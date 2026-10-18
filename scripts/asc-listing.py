@@ -261,6 +261,10 @@ def cmd_text(version):
         print(f"{platform}: the notes to App Review are written and read back equal")
 
 
+# The states a version is still open in — editable, and not yet released.
+EDITABLE = {"PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED", "INVALID_BINARY"}
+
+
 def cmd_create(version):
     """A version on each platform that has none of that number, released the
     way the platform's last version was, with that version's App Review
@@ -272,6 +276,18 @@ def cmd_create(version):
         mine = [v for v in every if v["attributes"]["platform"] == platform]
         if any(v["attributes"]["versionString"] == version for v in mine):
             print(f"{platform}: {version} is there already")
+            continue
+        # App Store Connect keeps one version open a platform, so a version
+        # withdrawn from review (iOS 1.3.4, at the person's direction) is
+        # renamed rather than joined by another, which it refuses.
+        still_open = [v for v in mine if v["attributes"].get("appVersionState") in EDITABLE]
+        if still_open:
+            v = still_open[0]
+            _, r = call("PATCH", f"/v1/appStoreVersions/{v['id']}", {"data": {"type": "appStoreVersions",
+                "id": v["id"], "attributes": {"versionString": version}}})
+            must(_, r, f"{platform} {v['attributes']['versionString']} renamed {version}")
+            print(f"{platform}: {v['attributes']['versionString']} ({v['attributes']['appVersionState']}) "
+                  f"renamed {version}; its text, pictures and App Review contact stay with it")
             continue
         last = max(mine, key=lambda v: v["attributes"].get("createdDate") or "")
         _, r = call("POST", "/v1/appStoreVersions", {"data": {"type": "appStoreVersions",

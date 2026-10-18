@@ -60,7 +60,7 @@ HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps
 - `LinkGraph` — resolves link targets through **titles and `aliases:`**, indexed **by note URL**: `backlinksByURL`, `outgoingByURL`, and a `resolution` map (title/alias → URL). Rebuilt asynchronously on change.
 - `CollectionSearchModel` — an in-memory cache of note text, headings, tags, and aliases powering full-text search, Open Quickly, the tag tree, link candidates, and unlinked mentions.
 - `GitService` — per-collection status/commit/push/fetch/history; `GitCredentials` (Keychain HTTPS tokens) and `GitHostAPI` (clone / create-remote) support hosting integration.
-- Intelligence tier (1.3.3): `IntelligenceSettings` (the one model everything uses, and its settings), `LanguageModels` (a choice → a Foundation Models `LanguageModel`, with availability, context size and Private Cloud Compute gating — the build flag, and on the Mac the signed entitlement, which a Developer ID build cannot carry), `MLXModelStore` (open models), `AssistantModel` + `AssistantProfile` (one dynamic-profile session per collection), `ToolContext` + the tools, `SkillStore`, `PermissionBroker` (queued approvals), `ChatSessionStore` (Foundation Models `Transcript` JSON), `IntelligenceService` (the writing tools).
+- Intelligence tier (1.3.3): `IntelligenceSettings` (the one model everything uses, and its settings), `LanguageModels` (a choice → a Foundation Models `LanguageModel`, with availability, context size and Private Cloud Compute gating — the build flag, and on the Mac the signed entitlement, which a Developer ID build cannot carry), `MLXModelStore` (open models), `AssistantModel` + `AssistantProfile` (one dynamic-profile session per collection), `ToolContext` + the tools, `SkillStore`, `PermissionBroker` (queued approvals — which nothing asks for since 1.3.5, when the Assistant became read-only), `ChatSessionStore` (Foundation Models `Transcript` JSON), `IntelligenceService` (the writing tools).
 - Pure Core value/logic types: `TagTree`, `MentionScanner`, `TemplateExpander`, `FrontMatter` (typed YAML properties), `GraphLayout` (force-directed) + `LayoutRelaxation` (collision avoidance), `DocumentStatistics`, `MarkdownExport`, `CollectionTree`, `FuzzyMatch`, `MarpSlides`, `ObsidianVault`, `SmartPaste`, `VisionAlt`, `BuildInfo`.
 
 ## 4. Persistence strategy
@@ -164,10 +164,12 @@ What a model can do is still **asked, not tabulated** — now of the model itsel
 `quotaUsage`. Budgets are tokens, estimated script-aware (`TokenBudget`), because
 CJK text costs about one token a character against English's four characters a
 token. The Assistant is a `DynamicProfile`: model, temperature, reasoning, tools
-chosen by window (five on 8K, the full set from 16K), a `historyTransform` that
-keeps the instructions and the recent whole turns, and a tool-call budget that
-disallows tools for the next request once spent. Mutating tools stay behind
-explicit, queued approval. See implemented.md §51.
+chosen by window (four on 8K, five when the collection has skills; the full set
+from 16K), a `historyTransform` that keeps the instructions and the recent whole
+turns, and a tool-call budget that disallows tools for the next request once
+spent. Since 1.3.5 it only reads: no tool it is given creates, edits or deletes
+a note, so nothing asks for approval (the mutating tools and their queued
+approvals stay written, offered by nothing). See implemented.md §51.
 
 ### 5.10 Cloud storage  ⟶ **File Provider first; direct APIs via `URLSession`, no vendor SDKs** ✅
 
@@ -235,9 +237,9 @@ Shared concerns live in `RemoteStore.swift`: Keychain token storage and a **sing
 | 3 UI | `UI/NoteOutlineList.swift`, `UI/EditorTabBar.swift`, `UI/OpenQuicklyView.swift`, `UI/LauncherView.swift`, `UI/Shell/Chrome*.swift` | Folder/note tree, tabs, palette, collection launcher, the app-drawn chrome both platforms share |
 | 3 UI | `UI/SlidesView.swift`, `UI/FileViewerView.swift`, `UI/DiagramZoomView.swift`, `UI/EditorExport.swift` | Marp slides, attachment viewer, Mermaid diagram zoom, HTML/PDF export |
 | 3 UI | `UI/CollectionEmbedProvider.swift`, `UI/NoteTranscluder.swift`, `UI/MermaidDiagramRenderer.swift` | `![[embed]]` cards, transclusion rendering, inline diagram renderer. (What a `[[wiki link]]` means is `State/WikiLinkNavigation.swift`; `CollectionWikiLinkResolver.swift` went with the old editor.) |
-| 3 UI | `UI/Assistant/*`, `UI/LibraryChatView.swift`, `UI/IntelligenceView.swift` | Assistant chat + edit approval + LLM settings; Ask Library; Intelligence sheet |
+| 3 UI | `UI/Assistant/*` | The Assistant's tab (`AssistantHost`, `AssistantView`) and AI settings (`IntelligenceSettingsView`); `EditApprovalView`, which nothing shows since 1.3.5. (`LibraryChatView.swift`, Ask Library, went in 1.3.5, folded into the Assistant; `IntelligenceView.swift` is gone too.) |
 | 3 UI | `UI/AppCommands.swift`, `UI/AppearanceSettingsView.swift`, `UI/GeneralSettingsView.swift`, `UI/GitSettingsView.swift`, `UI/CloneRepositoryView.swift`, `UI/NewRepositoryView.swift`, `UI/SplashScreenView.swift`, `UI/iOSSettingsView.swift` | Menu bar, preferences tabs, git identity/hosting, splash/About, iOS settings |
-| 4 Shell | `HelloNotesApp.swift` | App entry; main window + `NoteRef`/`MindMapRef` window groups + Graph/Ask/Assistant windows + Settings |
+| 4 Shell | `HelloNotesApp.swift` | App entry; the main window and `NoteRef` window groups, Settings and the menu-bar extra (Mac). The `MindMapRef` group and the Graph/Ask/Assistant windows are gone: the app opens no window of its own (`ui.md` principle 9) |
 | 4 Shell | `UI/Shell/ShellContract.swift` | The layout contract as code — `ShellMetrics`, `shellKind(width:height:)`, the reading/editing width model, `ShellContext` |
 | 4 Shell | `UI/Shell/AdaptiveShell.swift` | The arrangement itself: four slots placed by the axis of abundance; `EditorPaneContainer` republishes the measured pane width |
 | 4 Shell | `UI/Shell/LibraryPlace.swift` | The library-wide places pinned above the collections — Recents and Bookmarks, each spanning every open collection (`LibraryRail.swift` was deleted with the rail) |

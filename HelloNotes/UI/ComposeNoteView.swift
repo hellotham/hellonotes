@@ -181,8 +181,9 @@ struct ComposeNoteView: View {
                 HStack {
                     Button("Discard") { composer.reset() }
                     Spacer()
+                    if let stamp = composer.stamp { ModelStampLabel(stamp: stamp) }
                     ReportResponseButton {
-                        ResponseReport(feature: "New Note from a Prompt", model: modelName,
+                        ResponseReport(feature: "New Note from a Prompt", model: composer.stamp?.name ?? modelName,
                                        response: draft.body, prompt: prompt)
                     }
                     Button("Create Note") {

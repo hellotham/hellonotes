@@ -60,7 +60,6 @@ struct HelloNotesApp: App {
         let lib = Library()
         _library = State(initialValue: lib)
         _router = State(initialValue: NavigationRouter(library: lib))
-        HelloNotesTips.configure()
         CloudPrefs.shared.start()   // mirror preference keys via iCloud KV
     }
 
@@ -139,9 +138,9 @@ struct HelloNotesApp: App {
         // Its bar is the app's, as the main window's is.
         .appDrawnTitleBar()
 
-        // Graph, Ask Your Library, Assistant and Mind Map have **no scene**.
+        // Graph, Assistant and Mind Map have **no scene**.
         // The Graph is a view of the right panel (`SidePanel`), like the
-        // note's own outline and tags; the other three are the collection's
+        // note's own outline and tags; the other two are the collection's
         // and open as tabs beside the notes (`CollectionTool`). The app
         // opens no window of its own on either platform — a scene the system
         // places cannot be relied on to sit beside the notes, and on iPadOS

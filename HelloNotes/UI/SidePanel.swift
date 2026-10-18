@@ -83,10 +83,10 @@ struct SidePanelHeader: View {
 
     /// Whether Escape closes the panel: only where it is carried over the
     /// note (a phone), never where it is a column beside it. As a column it
-    /// took Escape from the find bar's Done and the Assistant's approval card,
-    /// whose Deny it is — Escape during an approval could close the panel
-    /// instead of denying the edit (secondary.md §9, item 8; implemented.md
-    /// §51.36).
+    /// took Escape from the find bar's Done — and, while the Assistant could
+    /// change notes (before 1.3.5), from its approval card, whose Deny it was:
+    /// Escape during an approval could close the panel instead of denying the
+    /// edit (secondary.md §9, item 8; implemented.md §51.36).
     private var escapeCloses: Bool {
         !ShellMetrics.hasPanelColumn(kind: shell.kind, width: shell.size.width)
     }

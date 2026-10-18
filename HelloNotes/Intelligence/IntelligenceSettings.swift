@@ -6,13 +6,16 @@
 //
 //  Which model the app uses, and how the Assistant behaves.
 //
-//  **One model, for everything** — the Assistant, research, Summarise, Suggest
-//  Tags and Links, Rewrite, Compose, Ask Library and ghost text. There were two
+//  **One default model** — for research, Summarise, Suggest Tags and Links,
+//  Rewrite, Compose and ghost text, and the Assistant unless its menu chooses
+//  another for a conversation (`AssistantModel.conversationChoice`). There were two
 //  roles for a while, the Assistant's and the writing tools', on the theory that
 //  a person might want research on a larger window while their note text stayed
-//  on-device. With MLX the two could not even differ — one MLX model is loaded
-//  at a time — so choosing for one role silently moved the other, and a setting
-//  that lies is worse than a setting that isn't offered.
+//  on-device. With MLX the two could not even differ — the store ran one MLX
+//  model — so choosing for one role silently moved the other, and a setting
+//  that lies is worse than a setting that isn't offered. (From 2026-10-18 an
+//  Assistant conversation runs a model of its own beside the default, MLX
+//  included: `AssistantModel.conversationChoice`.)
 //
 //  What is tunable is what `GenerationOptions` and `ContextOptions` expose and
 //  nothing more: temperature, sampling, a reply cap, reasoning. They are the
@@ -31,12 +34,12 @@ import Observation
 final class IntelligenceSettings {
 
     /// The model, for everything: the Assistant, Summarise, Suggest, Rewrite,
-    /// Compose, Ask Library and Research.
+    /// Compose and Research — the default; the Assistant can use another for a conversation.
     ///
     /// One choice, not one per role. Two were offered — the Assistant's and the
     /// writing tools' — and with MLX they could not even be different, since
-    /// one MLX model is loaded at a time. Either the app is using Apple's
-    /// model, or it is using yours.
+    /// the store ran one MLX model. This is the default; an Assistant
+    /// conversation can choose another, MLX or not.
     var model: ModelChoice {
         didSet { defaults.set(model.rawValue, forKey: Keys.model) }
     }

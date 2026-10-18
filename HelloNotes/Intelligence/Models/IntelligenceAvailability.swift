@@ -50,7 +50,7 @@ extension IntelligenceAvailability {
         case .unavailable(.modelNotReady):
             self = .unavailable("Apple Intelligence is still getting its model ready. Try again shortly.")
         case .unavailable:
-            self = .unavailable("The System model is unavailable right now.")
+            self = .unavailable("Local (Apple) is unavailable right now.")
         }
     }
 
@@ -59,11 +59,11 @@ extension IntelligenceAvailability {
         case .available:
             self = .available
         case .unavailable(.deviceNotEligible):
-            self = .unavailable("Private Cloud Compute isn't available on this device.")
+            self = .unavailable("Cloud (Apple) isn't available on this device.")
         case .unavailable(.systemNotReady):
-            self = .unavailable("Private Cloud Compute isn't ready yet. Check that Apple Intelligence is on in \(Self.settingsName), then try again.")
+            self = .unavailable("Cloud (Apple) isn't ready yet. Check that Apple Intelligence is on in \(Self.settingsName), then try again.")
         case .unavailable:
-            self = .unavailable("Private Cloud Compute is unavailable right now.")
+            self = .unavailable("Cloud (Apple) is unavailable right now.")
         }
     }
 }
