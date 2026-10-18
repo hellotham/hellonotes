@@ -2,7 +2,9 @@
 
 > Status: **v1.3.2** (version bumped in a 2026-08-25 doc-currency pass; not
 > re-verified line-by-line — see `docs/implemented.md`'s "Current status" for what
-> shipped after v1.3) · Last substantively updated: 2026-08-16 · Companion to
+> shipped after v1.3; the layer diagram's settings type, the shell's files and the
+> panel's views checked against the 1.3.5 source, 2026-10-19) · Last substantively
+> updated: 2026-08-16 · Companion to
 > [PRD.md](PRD.md) and [implemented.md](implemented.md)
 
 This document describes the software architecture of HelloNotes and evaluates the third-party Swift packages the app depends on. For each capability we consider the realistic alternatives, then give a recommendation. As of **v1.3**, all packages below are resolved **and linked**, and the 4-layer architecture is fully in place across macOS and iOS; this document reflects the shipped design. (The shell that sits on top of it changed in 1.1 — one collapsible sidebar holding a single tree — see [shell-chrome.md](shell-chrome.md).)
@@ -14,27 +16,27 @@ This document describes the software architecture of HelloNotes and evaluates th
 HelloNotes uses a strict **4-layer architecture** so that the macOS and iOS apps share everything except the platform shell. Data flows in one direction: the file system is the source of truth, the Core layer reads/writes it, State projects it as observable values, and the UI renders State. The AI stack (`HelloNotes/Intelligence/`, 1.3.3) follows the same split — `nonisolated` Foundation Models tools, profiles and value types at the Core tier, `@MainActor @Observable` models at the State tier.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────┐
 │  Layer 4 — Platform Shells                                   │
-│    AdaptiveShell — one arrangement rule, both platforms:      │
-│    sidebar (collections + folders) · pane · inspector, by      │
-│    the axis of abundance; Mac/iOS supply the slots + scenes   │
-├─────────────────────────────────────────────────────────────┤
+│    AdaptiveShell — one arrangement rule, both platforms:     │
+│    sidebar (collections + folders) · pane · inspector, by    │
+│    the axis of abundance; Mac/iOS supply the slots + scenes  │
+├──────────────────────────────────────────────────────────────┤
 │  Layer 3 — Shared UI Components                              │
 │    Editor host (NotesEditor pkg), note tree, references      │
 │    panel, graph / mind map, slides, file viewer, assistant,  │
 │    launcher, splash                                          │
-├─────────────────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────────────────┤
 │  Layer 2 — State Management  (@Observable)                   │
 │    Library → Collections (scan/CRUD/watch), EditorModel /    │
 │    EditorTabs, LinkGraph, CollectionSearchModel, GitService, │
-│    AppearanceSettings, LLMSettings / AssistantModel          │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 1 — Core / Domain  (pure Swift, UI-agnostic)         │
+│    AppearanceSettings, IntelligenceSettings / AssistantModel │
+├──────────────────────────────────────────────────────────────┤
+│  Layer 1 — Core / Domain  (pure Swift, UI-agnostic)          │
 │    CollectionFile/Tree, MarkdownParsing (swift-markdown      │
 │    AST), FrontMatter, layouts, Marp, Obsidian import,        │
-│    FileWatcher (FSEvents), MLX download/tokenizer bridges           │
-└─────────────────────────────────────────────────────────────┘
+│    FileWatcher (FSEvents), MLX download/tokenizer bridges    │
+└──────────────────────────────────────────────────────────────┘
              ▲                                   │
              │  reads/writes                     │ observes
              └────  File System (collections of .md files)
@@ -243,9 +245,8 @@ Shared concerns live in `RemoteStore.swift`: Keychain token storage and a **sing
 | 4 Shell | `UI/Shell/ShellContract.swift` | The layout contract as code — `ShellMetrics`, `shellKind(width:height:)`, the reading/editing width model, `ShellContext` |
 | 4 Shell | `UI/Shell/AdaptiveShell.swift` | The arrangement itself: four slots placed by the axis of abundance; `EditorPaneContainer` republishes the measured pane width |
 | 4 Shell | `UI/Shell/LibraryPlace.swift` | The library-wide places pinned above the collections — Recents and Bookmarks, each spanning every open collection (`LibraryRail.swift` was deleted with the rail) |
-| 4 Shell | `UI/Shell/NoteInspector.swift`, `UI/Shell/CompactShell.swift` | The right rail's five tabs; the phone's bottom tab bar + mini-note strip |
-| 4 Shell | `MacContentView.swift` | macOS slots for `AdaptiveShell` — the sidebar's collection tree, editor column, inspector |
-| 4 Shell | `iOSContentView.swift` | iOS/iPadOS slots for the same shell |
+| 4 Shell | `UI/SidePanel.swift`, `UI/Shell/NoteInspector.swift`, `UI/Shell/CompactShell.swift` | The right panel: `SidePanel` names its six views — Summary & Outline, Tags, Links, Properties, History, Graph — and `SidePanelHeader` draws its header; `NoteInspector` draws the first five, and the shell the Graph (`NoteGraphPanel`). The compact shell — the phone, the 320pt iPad slice, a Mac window squeezed as narrow — with its bottom tab bar + mini-note strip |
+| 4 Shell | `ContentView.swift` | The slots for `AdaptiveShell` on both platforms — the sidebar's collection tree, the editor column, the right panel and the compact presentation (`CompactShell`) — and the window's commands (`AppActions`). One struct since 2026-08-22, when `MacContentView` and `iOSContentView` were merged |
 
 ## 8. Testing strategy
 - **Core is unit-tested** without UI (52 tests across parsing, front matter, tags, mentions, templates, layouts, stats, export, git, Obsidian import, smart paste, agent tools, skills): vault scan on a temp directory, CRUD, parser link extraction, autosave round-trip (write → read → byte-compare).
