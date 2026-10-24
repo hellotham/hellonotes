@@ -229,6 +229,32 @@ extension View {
         return self
         #endif
     }
+
+    /// The chrome colour behind a bar or a column, filling the window's safe
+    /// area at the sides and the bottom as well as the view. On iPhone Duo
+    /// the status column runs down one side of the display, outside the safe
+    /// area, and a bar that stopped at the safe area left a white strip
+    /// beside it; under its bottom bar the home indicator's inset — 34pt on
+    /// the Duo's inner display, 20pt on an iPad — was a white band the same
+    /// way. Both are the window's own colour showing where Apple has
+    /// backgrounds fill the display and only controls keep inside (the Duo
+    /// simulator, 2026-10-24). A Mac window has neither inset, so nothing new
+    /// is drawn there (`scripts/chrome-parity.sh`); the top stays the OS's —
+    /// `contentUnderTitleBar` is the one place that takes it.
+    func chromeBackground() -> some View {
+        background(chromeFill)
+    }
+
+    /// The same fill where the bar is also the window's drag area — the
+    /// sidebar's header and the bar over the editor, under the Mac's hidden
+    /// title bar (D11).
+    func chromeDraggableBackground() -> some View {
+        background(chromeFill.windowDraggable())
+    }
+
+    private var chromeFill: some View {
+        Chrome.Colour.chrome.ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+    }
 }
 
 extension View {

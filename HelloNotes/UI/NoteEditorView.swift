@@ -714,7 +714,7 @@ struct NoteEditorView: View {
         .foregroundStyle(Chrome.Colour.secondaryLabel)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .top) {
             Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
         }

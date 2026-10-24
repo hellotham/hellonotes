@@ -124,7 +124,7 @@ struct GraphPane: View {
         .padding(.horizontal, Chrome.Metric.barPadding)
         .padding(.vertical, 6)
         .frame(minHeight: 36)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .bottom) { ChromeDivider() }
     }
 }

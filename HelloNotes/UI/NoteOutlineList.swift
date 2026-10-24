@@ -89,7 +89,7 @@ struct NoteOutlineList: View {
             }
             .viewport()
             .scrollIndicators(.automatic)
-            .background(Chrome.Colour.chrome)
+            .chromeBackground()
             .environment(\.chromeScale, fontScale)
             .focusable()
             .focused($hasKeyboardFocus)

@@ -108,7 +108,7 @@ struct SidePanelHeader: View {
         }
         .padding(.horizontal, Chrome.Metric.barPadding)
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .bottom) {
             Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
         }

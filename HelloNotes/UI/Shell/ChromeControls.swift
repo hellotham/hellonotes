@@ -1152,7 +1152,7 @@ struct ChromeSheetBar<Leading: View, Trailing: View>: View {
         }
         .padding(.horizontal, Chrome.Metric.barPadding)
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .bottom) { ChromeDivider() }
     }
 }

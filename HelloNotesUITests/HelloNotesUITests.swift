@@ -687,6 +687,23 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
+    /// The control for the two key tests: a letter sent the way the arrows
+    /// are sent — `typeKey`, a hardware key — must arrive in the note, or
+    /// what follows is about the simulator's keyboard and not about the
+    /// app. On the iPhone Duo simulator (Xcode 27.1) both arrow tests
+    /// failed with "the key never reached the list", and nothing in that
+    /// message said whether *any* key had (implemented.md §51.58).
+    @MainActor
+    private func keysArrive(at editor: XCUIElement) throws {
+        #if os(iOS)
+        editor.typeKey("z", modifierFlags: [])
+        let typed = NSPredicate { _, _ in (editor.value as? String ?? "").contains("z") }
+        try XCTSkipUnless(
+            XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: typed, object: nil)], timeout: 5) == .completed,
+            "a hardware key (`typeKey`) does not reach the note on this simulator, so its arrows cannot be tested here")
+        #endif
+    }
+
     /// A suggestion in the list by the caret is chosen and taken from a
     /// keyboard: ↓, then Return.
     ///
@@ -707,6 +724,7 @@ final class HelloNotesUITests: XCTestCase {
         #if os(iOS)
         let app = launchPastSplash()
         let editor = try editorOfANewNote(in: app)
+        try keysArrive(at: editor)
 
         // With the list open and nothing chosen, Return is a new line.
         editor.typeText("One [[")
@@ -759,6 +777,7 @@ final class HelloNotesUITests: XCTestCase {
         let title = app.textFields["Note title"].firstMatch
         try XCTSkipUnless(title.waitForExistence(timeout: 5), "No inline title is shown above this note.")
         XCTAssertEqual(editor.value(forKey: "hasKeyboardFocus") as? Bool, true, "the note never took the caret")
+        try keysArrive(at: editor)
 
         editor.typeKey(XCUIKeyboardKey.upArrow.rawValue, modifierFlags: [])
 

@@ -138,7 +138,7 @@ struct CompactShell<Places: View, Editor: View>: View {
             .padding(.horizontal, 14)
             .frame(height: ShellMetrics.miniStrip)
             .frame(maxWidth: .infinity)
-            .background(Chrome.Colour.chrome)
+            .chromeBackground()
             .overlay(alignment: .top) { ChromeDivider() }
             .contentShape(.rect)
         }
@@ -180,7 +180,7 @@ struct CompactShell<Places: View, Editor: View>: View {
             }
             .padding(.horizontal, Chrome.Metric.barPadding)
             .frame(height: Chrome.Metric.barHeight)
-            .background(Chrome.Colour.chrome)
+            .chromeBackground()
             .overlay(alignment: .bottom) { ChromeDivider() }
             editor()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -218,7 +218,7 @@ struct CompactTabBar: View {
             }
         }
         .frame(height: ShellMetrics.bottomTabBar)
-        .background(Chrome.Colour.chrome.ignoresSafeArea(edges: .bottom))
+        .chromeBackground()
         .overlay(alignment: .top) { ChromeDivider() }
     }
 }
@@ -252,7 +252,7 @@ struct CompactPlaceBar<Trailing: View>: View {
         // of the screen long (seen shooting the 1.3.3 store screenshots).
         .frame(maxWidth: .infinity)
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .bottom) { ChromeDivider() }
     }
 }

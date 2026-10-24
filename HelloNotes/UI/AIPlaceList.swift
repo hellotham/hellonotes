@@ -77,7 +77,7 @@ struct AIPlaceList: View {
             .padding(.vertical, 4)
         }
         .viewport()
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     /// A command: a 12pt glyph and a 13pt title in the shell's row, dimmed

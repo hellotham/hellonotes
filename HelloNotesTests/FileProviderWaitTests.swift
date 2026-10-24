@@ -19,6 +19,39 @@ struct FileProviderWaitTests {
         URL(fileURLWithPath: "/tmp/file-provider-wait-tests/\(name).md")
     }
 
+    /// **The wait reads the file as it is now.** `URL.resourceValues` answers
+    /// from a cache on the URL that only the main run loop clears, and the
+    /// wait asks on a lane: the same URL reported its first answer back at
+    /// every look for the whole minute — a note that had downloaded in a
+    /// second was "not downloaded" at the deadline, and Try Again, with the
+    /// same URL, the same. The premise is held too, so the day Foundation
+    /// changes it the reason for the fresh read is still written down.
+    @Test func theWaitReadsTheFileAsItIsNow() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appending(path: "fresh-values-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "note.md")
+        try Data("one".utf8).write(to: file)
+        let lane = DispatchQueue(label: "fresh-values-lane")
+        let (cached, fresh): ([Int], [Int]) = await withCheckedContinuation { continuation in
+            lane.async {
+                var cached: [Int] = [], fresh: [Int] = []
+                func size(_ values: URLResourceValues?) -> Int { values?.fileSize ?? -1 }
+                cached.append(size(try? file.resourceValues(forKeys: [.fileSizeKey])))
+                fresh.append(size(try? FileIO.currentResourceValues(at: file, keys: [.fileSizeKey])))
+                try? Data(String(repeating: "x", count: 50).utf8).write(to: file)
+                lane.asyncAfter(deadline: .now() + .milliseconds(200)) {
+                    cached.append(size(try? file.resourceValues(forKeys: [.fileSizeKey])))
+                    fresh.append(size(try? FileIO.currentResourceValues(at: file, keys: [.fileSizeKey])))
+                    continuation.resume(returning: (cached, fresh))
+                }
+            }
+        }
+        #expect(fresh == [3, 50], "the fresh read did not see the file grow: \(fresh)")
+        #expect(cached == [3, 3], "the premise: a reused URL on a lane answers from its cache — \(cached)")
+    }
+
     /// **A provider that answers slowly is "not yet", not "no answer".** The
     /// first version anchored its timer before the first question and its
     /// own deadline after two, on two clocks, and called a provider that had

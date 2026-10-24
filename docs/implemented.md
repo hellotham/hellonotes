@@ -8416,6 +8416,239 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.58 Xcode 27.1 and the iPhone Duo: the app builds, runs in every pose, and its chrome fills the side the status column takes (2026-10-24)
+
+The person upgraded to Xcode 27.1 (27A9275: Swift 6.4, the iOS 27.1 SDK and
+runtime) and asked that the app build for the iPhone Duo, research first.
+What the research established, from Apple's pages for preparing an app for
+the Duo, its news post, the 27.1 release notes and the HIG (read through the
+`tutorials/data/….json` endpoints — the HTML pages come back empty), and
+Apple's own app-resizability skill (`xcrun agent skills export`):
+- **Two displays, one idiom.** The outer display is 466×678pt (1398×2034px
+  at 3×) — compact width, regular height, the phone's shape; the inner is
+  951×669pt (2853×2007px), **landscape-native** and regular both ways, and
+  ignores the app's supported orientations. The idiom is phone on both.
+- **Four poses**: Closed (the outer display), Open (the inner), Open and
+  turned, and Partially Open — the book, hinge at 127°, where the fold is a
+  40pt **division** down the middle of the inner display that
+  `UIView.reservedRegions(kind: .division)` reports (new in 27.1, UIKit only
+  — SwiftUI's interface has no counterpart; `.occlusion` is the other kind).
+- **The 27.1 SDK changes the picture**: an app built with it runs edge to
+  edge on the inner display with the status bar as a *column* down one side
+  and the system's bars vertical, while a 27.0 build is letterboxed. From
+  April 2027 a submission built with 27.1 needs Duo screenshots in the store
+  at 1398×2034 and 2007×2853. `UIScreen.main` is deprecated; traits are
+  read from the trait collection.
+- **The simulator is posed from Device Hub**, which replaces Simulator.app
+  in 27.1 (`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`,
+  bundle `com.apple.dt.Devices`). Its controls are SwiftUI's, which System
+  Events cannot see, so the poses are pressed through the AX API: select
+  the device's row, **Start**, then **Closed** / **Partially Open** /
+  **Open** / **Rotate Right** — `scripts/duo-pose.sh`, with
+  `duo-pose.swift` beside it (an asset you cannot regenerate lives in the
+  repo). A pose change backgrounds the running app, so it is relaunched
+  before each picture; `xcrun simctl io HN-iPhoneDuo screenshot
+  --display=primary` is the outer display and `--display=primary-1` the
+  inner, which is **black while closed** — a black picture is the pose, not
+  the app, and the first "open" shot here was one, taken after Device Hub
+  had closed its window and the pose had not changed.
+
+**The app builds and runs.** `HN-iPhoneDuo` made and booted; the build for
+it succeeds (`LC_BUILD_VERSION` minos 27.0, sdk 27.1); its prerequisites were
+already met (a generated launch screen, all four iPad orientations, no
+`UIRequiresFullScreen`). Launched with the capture arguments and looked at in
+every pose: **Closed** draws the compact shell on the outer display; **Open**
+the columns shell, sidebar, note and panel, on the inner; **turned**, the
+band; **Partially Open**, the columns again — with the note's column across
+the hinge, which is the follow-up below.
+
+**What was wrong: a white strip under the status column, and a white band
+under the bottom bar.** Every bar in the app drew
+`.background(Chrome.Colour.chrome)`, and a background stops at the safe
+area. On the Duo's inner display the status column is a *horizontal* inset,
+so the bar over the editor, the sidebar's header, the panel's, the status
+bar and the tab bar each left the column's width white beside them — on
+both displays, the whole height of the window. And under the columns
+shell's bottom bar the home indicator's inset — 34pt there, measured down
+a column of the picture (grey to 1900px of 2007, white below) — was a white
+band of the same kind, which an iPad has too at 20pt: the window-parity
+gate cuts the iPad's picture at its bottom inset and so has never compared
+it. `chromeBackground()` (`Chrome.swift`) is the one fill now,
+`Chrome.Colour.chrome.ignoresSafeArea(.container, edges: [.horizontal,
+.bottom])`, at the twenty-three sites that drew the colour, the compact
+shell's tab bar, and — through `chromeDraggableBackground()` — the two bars
+that are also the Mac window's drag area; the one plain
+`Chrome.Colour.chrome` left is a card inside the library place, nowhere near
+an edge. Measured on the inner display, open, after the change: down a
+column of the bar, chrome grey to the last row where it had turned white
+at 1906px; down a column under the status column, the top bar's grey, the
+editor's own white, and the bottom bar's grey to the edge. The strip is
+gone on both displays (closed, open and the book) and the band with it.
+
+**And two reads of the device where the view's traits were meant.**
+`EditorCommands` chose the shortcuts bar by `UIDevice.current.userInterfaceIdiom`
+and `MarkdownEditorView` a hairline by `UIScreen.main.scale` — the device's
+answers, where the trait collection answers for the view on whichever
+display it is on; both read the trait collection now, and
+`EditorToolbarContractTests` looks for that form.
+
+**Checked under 27.1**: the macOS suite, 961 tests in 146 suites, one
+failure — the contract test above, for the string it no longer finds, and
+its suite green once it looks for the trait; the editor's three bundles on
+the Mac (318/39, 215/18, 26/4) and 533 on the iPad; chrome parity, every
+scene at 0 px beyond noise; the phone's interface tests on the Duo, closed,
+19 run and 3 skipped — and **two failed**, the two that press arrow keys
+(`testASuggestionIsTakenFromTheKeyboard`: "↓ chose no row — the key never
+reached the list"; `testArrowingUpFromTheFirstLineReachesTheTitle`). Two
+things learnt telling a 27.1 defect from a Duo one: **the iOS 27.1 runtime
+is the Duo's alone** — `simctl create` refuses an iPhone 13 Pro Max and an
+iPhone 18 Pro Max on it alike ("Incompatible device"), so there is no other
+phone to run 27.1 on; and two `-only-testing:` flags kept in one zsh
+variable reach xcodebuild as **one argument**, which selects nothing, prints
+"Executed 0 tests" and exits 0 — two phones "passed" that way before the
+log was read (`${=T}` splits it). The tests have a control now
+(`keysArrive(at:)`): a letter sent as the arrows are, a hardware key
+(`typeKey`), must arrive in the note first, or the test skips saying the
+simulator's keys do not reach the app — so a failure is about the arrows,
+and a skip about the keyboard. **On the Duo the control skipped both**: the
+letter never arrives, while typed text does (`typeText` falls back to the
+software keyboard), so the Duo simulator delivers no hardware keys to the
+app; on `HN-iPhone` under Xcode 27.1 both tests pass. The two failures were
+the simulator's keyboard, not the app's key commands. After the fill
+reached the bottom, every gate again: the macOS suite, 961 passed; chrome
+parity, sixteen scenes at 0 px beyond noise; the phone's interface suite on
+`HN-iPhone`, 15 run and the usual 3 skipped, the two key tests among the
+passes; the iPad's typing test on `HN-iPad13`; the Duo's suite, 15 run and
+5 skipped — the usual 3 and the two key tests on their control; and window
+parity, the empty window at 0.017% and the open note's chrome at 0.065%
+beyond noise (the iPad's bottom inset is cut from the comparison, so the
+fill reaching it changes nothing the gate judges). Two more things about
+Device Hub: a
+test run on the Duo closes its window and the app keeps running (`open -a`
+with the device booted brings the window back — not before), and
+**quitting it shuts every booted simulator down**, as Simulator.app did.
+
+**Build 35 carries this** — the first build made with Xcode 27.1 — with
+§51.56 and §51.57, to TestFlight on both platforms on 2026-10-24
+(production.md §10n), not submitted for review.
+
+**Follow-ups, for the person to decide**: the book pose — a fold-aware split
+would keep the note's column off the division, which means a UIKit probe of
+`reservedRegions(kind: .division)` under the SwiftUI shell; Duo screenshots
+for the store before April 2027; `ChromeSheetFrame` still sizes a sheet by
+the pad idiom and `SupportRequestSection` names the platform in a string —
+presentation, not layout, and left.
+
+### 51.57 The iOS watcher hears a move as a move (2026-10-24)
+
+Found on the way to §51.56, and smaller than it first looked. `DirectoryPresenter`,
+the folder watcher on iOS (there is no FSEvents there), implemented a
+subitem's change, appearance and deletion, and the root's move and deletion —
+and not a subitem's **move** (`presentedSubitem(at:didMoveTo:)`). Written
+down as "a rename made in the Files app is never heard", which the control
+disproved: **without the callback the coordinator falls back to its others**,
+and a note moved under coordination arrived about a second later as three
+events — `presentedItemDidChange` (no path), then the old name as a change
+and the new one as an appearance. The handler walks the folder for the first
+of those unless a write of the app's own is recent, so a Files-app rename
+reached the sidebar after all, a second or two on. What was wrong was
+narrower: the app's own `moveItem` registered neither name as its own, so
+every move the app made on iOS was walked twice — once by `moveItem`, once
+for the report of it, a second later.
+- The move is heard as a move now: one event, both names, at once
+  (`.itemsChanged([old, new])`), which the handler takes as it takes
+  FSEvents' pair on the Mac; and `moveItem` registers both names as the
+  app's own writes, as a rename did.
+- Compiled on both platforms, so that a Mac test can register one on a
+  folder and move a note under it with a coordinator of its own, as another
+  app would (`DirectoryPresenterTests`): one event by both names, and a write
+  heard as before. **Control**: with the callback taken out, the test's first
+  form — "both names heard, eventually" — still passed, on the fallback; it
+  asks for one event with both now, and fails without the callback. The
+  `#if os(macOS)` around `FileWatcher` keeps an `#else`, which
+  `ShellComplianceTests` requires of every platform gate.
+
+**Not run on an iPad.** The reproduction is on the Mac's file coordination;
+whether iCloud's own daemon moves under coordination so that a Files-app
+rename reaches a presenter — by either route — is iOS's to show. Build 35
+(TestFlight, 2026-10-24) is the first build that carries it, and §51.56.
+
+### 51.56 The iPad's two reports, still there in build 34: a note with two names, and a wait that read its first answer for a minute (2026-10-24)
+
+**Reported again from the iPad, on build 34**: a note made in a folder of
+an Obsidian vault in iCloud Drive cannot be renamed — not by its title, not
+from the sidebar's Rename — and a note iCloud has not downloaded takes
+"forever" to open. Both were reported before and both were "fixed" in builds
+32 and 33 (`ShellActions.createNote(in:folderID:)`, §51.51–§51.52) — against
+the simulator, whose folders have one name, and a stand-in file provider.
+Neither fix was ever run on the thing that failed, and this record says so
+where the earlier ones said "fixed". What was found this time was found by
+asking Foundation itself, on both runtimes (a probe spawned in the iOS
+simulator's runtime, `xcrun simctl spawn`), and reproduced headless on a
+Mac before anything was changed.
+
+**One file, two names — and the earlier fix is where the second came from.**
+On an iPhone every folder a collection can be rooted in is `/private/var/…`,
+and its other name is `/var/…`. `Collection.id` is the *canonical* path
+(`resolvingSymlinksInPath`, which strips `/private`), so the id is the
+folder's other name; the walk spells every note the root's way
+(§51.48). The sidebar names a folder by the collection's id, and the fix for
+"New Note went to the root" built the folder's URL from that id
+(`URL(fileURLWithPath: folderID)`): so a note made with New Note Here was
+spelled `/var/…` while its twin from the next walk was spelled
+`/private/var/…`. `apply` compares pictures by relative path and so kept the
+walked twin; a rename handed the made note (the inline title's route) took
+out `$0.fileURL == note.fileURL` and left the twin — "Untitled" stayed in the
+sidebar beside the new name, and a second Rename from the row, of a file
+already moved, could only say it exists or could not be found. A move into
+a folder built its destination the same way; `EditorTabs.prune` keeps a tab
+by exact URL, so a tab on the other spelling closed. On a Mac or in the
+simulator the id and the root are one spelling and nothing diverges, which
+is the whole reason three builds passed every test.
+- `Collection.ownSpelling(of:)` respells any folder or file it is handed
+  under its own name, as a listing is (`listedRootLength`, `respelled`), and
+  `createNote(in:)`, `createFolder(in:)`, `moveItem(at:into:)` and
+  `renameNote` go through it; `adopt(createdAt:)` and `adopt(renamed:)`
+  compare by the file (`sameFile`, through `CollectionIndexCache.relativePath`,
+  which carries both names and never asks the file system — which answers
+  for a file that has just gone the other way round). `EditorModel.itemMoved`
+  and the shell's selection after a move keep the destination's spelling
+  rather than a standardised path's.
+- `aNoteMadeInAFolderKeepsTheCollectionsOwnSpelling` stages the iPhone's
+  shape on a Mac with a root reached through a link — the same two names —
+  makes a note from the sidebar's id, walks, renames and moves. Before the
+  change: made under the other name, re-spelled by the walk, the old name
+  still listed after the rename, the move under the wrong name (4 issues).
+
+**The download wait read its first answer back for the whole minute.**
+`URL.resourceValues(forKeys:)` answers from a cache on the URL, and only a
+turn of the main run loop clears it; the wait asks on a GCD lane, which has
+none. Probed: one instance reported 3 bytes at six looks 200 ms apart while
+the file held 50, on macOS and in the iOS runtime alike, and fresh on the
+main thread once its loop had turned. So `DownloadWaiter`, asking the same
+`url` every 200 ms, had "not downloaded" from its first look at its
+three-hundredth, whatever had arrived; the note's URL, kept from the walk
+with the walk's answers on it, carried "not downloaded" into the editor's
+first look and into Try Again. A note downloaded in a second was "hasn't
+finished downloading" at the deadline, every time — which is what "takes
+forever" is. §51.51's rebuild of the wait (lanes, a deadline nothing can
+hold up) was right about what it measured and never looked at the answer.
+- `FileIO.currentResourceValues(at:keys:)` asks a URL with no memory
+  (`removeAllCachedResourceValues`), and `isMaterialized`, `isCurrent` and
+  `Collection.adopt(hydrated:)` ask through it. `theWaitReadsTheFileAsItIsNow`
+  holds the fresh read *and* the premise, so the reason is still written
+  down the day Foundation changes it.
+
+**Not established, again, and said so this time.** Neither change has run on
+the iPad, and the download has not run against iCloud at all: this Mac's
+tests have no cloud item, and the person's iCloud Drive is theirs. Whether
+`startDownloadingUbiquitousItem` takes effect on a folder reached through
+the document picker is still iCloud's to show. The rename's reproduction is
+of the iPhone's exact shape; the wait's is of the mechanism, as §51.51's was.
+On the way: the iOS watcher (`DirectoryPresenter`) implemented no
+`presentedSubitem(at:didMoveTo:)`, so a rename made elsewhere reached it only
+through the coordinator's fallback, a second later (§51.57).
+
 ### 51.55 1.3.5: models named by where they run, an Assistant that reads and says so, and a fallback that just happens (2026-10-18)
 
 **1.3.4 reached the Mac with "(Function)" on screen.** The notice for people

@@ -176,7 +176,7 @@ struct DiagramZoomView: View {
         .font(Chrome.Style.callout)
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     /// What a drawing depends on: which diagram, and in which appearance.

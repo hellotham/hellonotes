@@ -767,6 +767,30 @@ final class Collection: Identifiable {
                        directoryHint: listed.hasDirectoryPath ? .isDirectory : .notDirectory)
     }
 
+    /// `url` under the collection's own spelling of its folder — as every
+    /// walked note is (`respelled`) — when it was handed in under the folder's
+    /// *other* name; itself otherwise.
+    ///
+    /// The sidebar names a folder by the canonical `id`, which is that other
+    /// name: where a link points, or on an iPhone, where every root is
+    /// `/private/var/…`, the `/var/…` form. A note made there from that id was
+    /// spelled the canonical way while the walk spelled its twin the root's,
+    /// so one file had two identities: the next walk kept the walked one, and
+    /// a rename then took out only the one it was handed — the old name stayed
+    /// in the sidebar beside the new (the person's iPad, builds 33 and 34).
+    /// Anything made, moved or renamed here is spelled once, the walk's way.
+    nonisolated func ownSpelling(of url: URL) -> URL {
+        guard let length = Self.listedRootLength(of: rootURL, in: url) else { return url }
+        return Self.respelled(url, under: rootURL, dropping: length)
+    }
+
+    /// Whether two URLs name one file of this collection, whatever each is
+    /// spelled under — never through the file system, which answers for a
+    /// file that has just gone (`standardizedFileURL`) the other way round.
+    nonisolated func sameFile(_ a: URL, _ b: URL) -> Bool {
+        a == b || CollectionIndexCache.relativePath(of: a, in: rootURL) == CollectionIndexCache.relativePath(of: b, in: rootURL)
+    }
+
     nonisolated static func enumerate(_ rootURL: URL) -> (notes: [Note], attachments: [CollectionFile], folders: [URL])? {
         let fileManager = FileManager.default
         let resourceKeys: [URLResourceKey] = [.contentModificationDateKey, .contentTypeKey, .isRegularFileKey, .isDirectoryKey, .fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
@@ -1460,7 +1484,9 @@ final class Collection: Identifiable {
     private func adopt(hydrated url: URL) {
         guard let index = notes.firstIndex(where: { $0.fileURL == url }) else { return }
         let note = notes[index]
-        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        // As the file is now — the URL is the walk's, with the walk's answers
+        // cached on it (`FileIO.currentResourceValues`).
+        let values = try? FileIO.currentResourceValues(at: url, keys: [.contentModificationDateKey, .fileSizeKey])
         notes[index] = Note(title: note.title, fileURL: note.fileURL,
                             lastModified: values?.contentModificationDate ?? note.lastModified,
                             fileSize: values?.fileSize ?? note.fileSize,
@@ -2466,7 +2492,7 @@ final class Collection: Identifiable {
 
     func createNote(title: String = "Untitled", in directory: URL? = nil) async -> Note? {
         let base = title.isEmpty ? "Untitled" : title
-        let folder = directory ?? rootURL
+        let folder = directory.map(ownSpelling) ?? rootURL
         // The file system work runs off the main actor. On a File Provider
         // folder both the existence checks and the coordinated create wait for
         // the provider, and every New Note — and the Assistant's create_note —
@@ -2544,7 +2570,7 @@ final class Collection: Identifiable {
                         fileURL: url,
                         lastModified: Date(),
                         fileSize: 0)
-        notes.removeAll { $0.fileURL.standardizedFileURL == url.standardizedFileURL }
+        notes.removeAll { sameFile($0.fileURL, url) }
         notes.append(note)
         // Same order `ScanAccumulator.sorted` uses, so an inserted note sits
         // exactly where a scan would have put it — newest first.
@@ -2596,6 +2622,10 @@ final class Collection: Identifiable {
         // The links to rewrite are the link graph's, so the saves made just
         // before — the shell flushes every tab first — have to be in it.
         await savesIndexed()
+        // The note as this collection spells it, whatever its caller holds.
+        let note = Note(title: note.title, fileURL: ownSpelling(of: note.fileURL),
+                        lastModified: note.lastModified, fileSize: note.fileSize,
+                        isOnlineOnly: note.isOnlineOnly)
         let title = newTitle
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")
@@ -2694,7 +2724,9 @@ final class Collection: Identifiable {
         let moved = Note(title: title, fileURL: destination,
                          lastModified: note.lastModified, fileSize: note.fileSize,
                          isOnlineOnly: note.isOnlineOnly)
-        notes.removeAll { $0.fileURL == note.fileURL || $0.fileURL == destination }
+        // By the file, not the spelling: the walked twin of a note made
+        // under another name stayed listed after its rename (`ownSpelling`).
+        notes.removeAll { sameFile($0.fileURL, note.fileURL) || sameFile($0.fileURL, destination) }
         notes.append(moved)
         notes.sort(by: Note.newestFirst)
         revision &+= 1
@@ -3005,7 +3037,7 @@ final class Collection: Identifiable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")
         guard !base.isEmpty else { return nil }
-        let container = parent ?? rootURL
+        let container = parent.map(ownSpelling) ?? rootURL
         // The name found and the folder made off the main actor: on a File
         // Provider's folder each is a round trip to the provider, and they
         // were made on the main thread (implemented.md §51.36).
@@ -3064,7 +3096,8 @@ final class Collection: Identifiable {
     /// collection). Returns the item's new URL, or `nil` when the move fails or
     /// a same-named item already exists there.
     func moveItem(at itemURL: URL, into folder: URL) async -> URL? {
-        let destination = folder.appendingPathComponent(itemURL.lastPathComponent)
+        let itemURL = ownSpelling(of: itemURL)
+        let destination = ownSpelling(of: folder).appendingPathComponent(itemURL.lastPathComponent)
         guard destination.standardizedFileURL != itemURL.standardizedFileURL else { return nil }
         guard await !offMain({ FileManager.default.fileExists(atPath: destination.path) }) else {
             report("“\(itemURL.lastPathComponent)” already exists in that folder.")
@@ -3085,6 +3118,12 @@ final class Collection: Identifiable {
                 self?.report("Couldn't move “\(name)” on \(remote.store.providerName): \(error.localizedDescription)")
             }
         }
+        // Ours, both names: the watcher reports a move by both (FSEvents, and
+        // the presenter's `presentedSubitem(at:didMoveTo:)`), and the walk
+        // below is the one this move gets — not a second from the report.
+        let now = Date()
+        rememberSelfWrite(itemURL, at: now)
+        rememberSelfWrite(destination, at: now)
         bookmarks.updatePath(from: itemURL, to: destination)   // keep the pin
         savesToIndex[itemURL] = nil               // see `indexSaved`
         keptSaves[itemURL] = nil                  // and `KeptSave`: read again where it went

@@ -88,7 +88,7 @@ nonisolated enum FileIO {
     /// metadata access and does not itself materialize the file.
     static func isMaterialized(at url: URL) -> Bool {
         if let probe = materialisedProbes.withLock({ $0[url.path] }) { probe(Thread.isMainThread) }
-        guard let values = try? url.resourceValues(forKeys: [
+        guard let values = try? currentResourceValues(at: url, keys: [
             .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
         ]),
             values.isUbiquitousItem == true,
@@ -104,12 +104,30 @@ nonisolated enum FileIO {
     /// version lands (`AttachmentBytes`).
     static func isCurrent(at url: URL) -> Bool {
         if let probe = materialisedProbes.withLock({ $0[url.path] }) { probe(Thread.isMainThread) }
-        guard let values = try? url.resourceValues(forKeys: [
+        guard let values = try? currentResourceValues(at: url, keys: [
             .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
         ]),
             values.isUbiquitousItem == true
         else { return true }
         return values.ubiquitousItemDownloadingStatus == .current
+    }
+
+    /// A file's resource values **as they are now**.
+    ///
+    /// `URL.resourceValues(forKeys:)` answers from a cache kept on the URL,
+    /// and only a turn of the main run loop clears it — which a GCD lane
+    /// never has. So the download wait, asking the same URL every 200 ms on
+    /// its lane (`DownloadWaiter`), read its first answer back for the whole
+    /// minute: "not downloaded" at the first look was "not downloaded" at the
+    /// three-hundredth, whatever had arrived, and the note's URL, kept from
+    /// the walk, carried the walk's answer into the editor and into Try
+    /// Again. Probed: one instance reported 3 bytes at six looks while the
+    /// file held 50 (`theWaitReadsTheFileAsItIsNow`). A question about *now*
+    /// is asked of a URL with no memory.
+    static func currentResourceValues(at url: URL, keys: Set<URLResourceKey>) throws -> URLResourceValues {
+        var asked = url
+        asked.removeAllCachedResourceValues()
+        return try asked.resourceValues(forKeys: keys)
     }
 
     /// Told, for a file's path, whether a look at its download state ran on

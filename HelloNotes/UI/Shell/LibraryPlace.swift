@@ -107,7 +107,7 @@ struct LibraryPlace: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     private func noteRow(_ note: Note, symbol: String) -> some View {

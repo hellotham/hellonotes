@@ -128,7 +128,7 @@ struct FileViewerView: View {
         }
         .font(Chrome.Style.callout)
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 }
 

@@ -122,7 +122,7 @@ struct FindReplaceBar: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         // The chrome grey, not `.bar`, which is each platform's own material.
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .bottom) { ChromeDivider() }
         .onAppear { findFocused = true }
     }

@@ -407,7 +407,7 @@ struct ContentView: View {
             // The header draws its own rule, as the bar does.
             panelContent
         }
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     @ViewBuilder
@@ -1699,7 +1699,7 @@ struct ContentView: View {
         // item the OS drew at each platform's own size — and the band's large
         // "Collections" title spent 52pt saying what the list already shows.
         .safeAreaInset(edge: .top, spacing: 0) { sidebarHeader }
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     /// What the tree says when there is nothing in it. Over the tree alone,
@@ -1733,7 +1733,7 @@ struct ContentView: View {
         // The Mac's window buttons are drawn over this corner.
         .padding(.leading, WindowControls.leadingInset)
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome.windowDraggable())
+        .chromeDraggableBackground()
         .overlay(alignment: .bottom) {
             Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
         }
@@ -2091,7 +2091,7 @@ struct ContentView: View {
         .padding(.horizontal, 10)
         .frame(height: Chrome.Metric.statusRow)
         .padding(.vertical, 5)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     private func closeTab(_ id: Note.ID) {
@@ -2447,7 +2447,7 @@ struct ContentView: View {
                 .padding(.bottom, 8)
             }
             .viewport()
-            .background(Chrome.Colour.chrome)
+            .chromeBackground()
         }
     }
 
@@ -2610,7 +2610,7 @@ struct ContentView: View {
             }
         }
         // A list place, like the others and the sidebar: the chrome colour.
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     /// A note in the compact list: the shared row, selected in the accent at
@@ -2699,7 +2699,7 @@ struct ContentView: View {
                 .viewport()
             }
         }
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     // MARK: - The inspector rail (right)
@@ -2821,7 +2821,7 @@ struct ContentView: View {
             if text.isEmpty && !searchFocused { searchOpen = false }
         }
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome.windowDraggable())
+        .chromeDraggableBackground()
         .overlay(alignment: .bottom) {
             Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
         }

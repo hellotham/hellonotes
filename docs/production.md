@@ -767,6 +767,43 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
+## 10n · 1.3.5 build 35 — to TestFlight, both platforms, not in review, 2026-10-24
+
+From the working tree on top of `eda5c49` — **uncommitted** when archived
+(the person asked for the upload, not a commit; the archive is what it read
+back as, below, and the commit is theirs to ask for). The first build made
+with **Xcode 27.1** (iOS SDK 27.1, macOS SDK 27.0). **What 35 is for**:
+implemented.md §51.56 — the iPad's two reports still in 34, a note with two
+names after New Note in a folder and an iCloud download that read its first
+answer for a minute; §51.57 — the iOS watcher hears a move as a move;
+§51.58 — the iPhone Duo: the chrome fills the status column's side and the
+home indicator's inset, the view's traits read where the device's were,
+and the app looked at in every pose.
+
+Before the archives, every gate under 27.1: the macOS suite (961 tests in
+146 suites), the editor's bundles on the Mac (318/39, 215/18, 26/4) and the
+iPad (533), chrome parity (sixteen scenes at 0 px), the phone's interface
+suite (15 run, 3 skipped by design), the iPad's typing test, the Duo's
+suite (15 run, 5 skipped — the two arrow-key tests on their new control,
+since the Duo simulator delivers no hardware keys), and window parity
+(0.017% empty, 0.065% with a note).
+
+Read back from each archive — by `scripts/archive-readback.sh`, new, which
+does by script what §10j–§10m did by hand: 1.3.5 (35) in the app and all
+six extensions; arm64 only; minos 27.0 (iOS built with SDK 27.1, the Mac
+with 27.0); the Private Cloud Compute entitlement present; no
+temporary-exception entitlement; all five cloud-provider keys present (by
+length: 15, 32, 32, 72, 36); `ITSAppUsesNonExemptEncryption` false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` 14:14, with Xcode's account (signed in since the 19th; screen unlocked, checked before each export) | `Upload succeeded` 14:17, the same account |
+
+Processing was not read back: the team key's issuer ID is not in this
+shell's environment, and `asc-listing.py` needs it — the builds show in
+TestFlight under 1.3.5 as they finish processing. Not submitted for review,
+as 34 was not; 34 stays on TestFlight beside it.
+
 ## 10m · 1.3.5 build 34 — on TestFlight, both platforms, not in review, 2026-10-19
 
 From `d07ab39`. **What 34 is for**: implemented.md §51.55 — the models named

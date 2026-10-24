@@ -123,6 +123,54 @@ struct SymlinkedRootTests {
                 "subdirectories under a symlinked root have to be walked too")
     }
 
+    /// **A note made in a folder keeps the collection's own spelling, and so
+    /// stays one note.** The sidebar names a folder by the collection's
+    /// canonical id (`Collection.id`), which is the folder's *other* name —
+    /// where a link points, or on an iPhone, where every root is
+    /// `/private/var/…`, the `/var/…` form — and the shell builds the folder
+    /// URL from that id. Built so, a new note's URL was spelled the canonical
+    /// way while every walked note is spelled the root's: one file, two
+    /// identities. The next walk replaced the made note with its walked twin,
+    /// and a rename then took out only the one it was handed — "Untitled"
+    /// stayed in the sidebar beside the new name. The person's iPad, builds
+    /// 33 and 34, which no Mac or simulator could show: neither has a root
+    /// with two names.
+    @Test func aNoteMadeInAFolderKeepsTheCollectionsOwnSpelling() async throws {
+        let (link, parent) = try makeLinkedVault(noteCount: 1)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let collection = Collection(rootURL: link)
+        await collection.scanOffMain()
+
+        // The folder as the sidebar ids it, and as the shell then spells it.
+        let folderID = collection.id + "/Sub"
+        let folder = URL(fileURLWithPath: folderID, isDirectory: true)
+        #expect(!folderID.contains("/Linked/"), "the premise: the id is the folder's other name")
+
+        let made = try #require(await collection.createNote(title: "Untitled", in: folder))
+        #expect(made.fileURL.path.contains("/Linked/Sub/"), "made as \(made.fileURL.path)")
+        await collection.scanOffMain()
+        let walked = collection.notes.filter { $0.title == "Untitled" }
+        #expect(walked.count == 1)
+        #expect(walked.first?.fileURL == made.fileURL,
+                "the walk spelled it another way: \(walked.first?.fileURL.path ?? "none")")
+
+        // The inline title's route: a rename handed the note as it was made.
+        _ = try #require(await collection.renameNote(made, to: "Titled"))
+        #expect(!FileManager.default.fileExists(atPath: made.fileURL.path))
+        #expect(collection.notes.filter { $0.title == "Untitled" }.isEmpty, "the old name stayed listed")
+        #expect(collection.notes.filter { $0.title == "Titled" }.count == 1)
+        await collection.scanOffMain()
+        #expect(collection.notes.filter { $0.title == "Untitled" }.isEmpty)
+        #expect(collection.notes.filter { $0.title == "Titled" }.count == 1)
+
+        // A move into the folder, whose destination the shell builds the same way.
+        let top = try #require(collection.notes.first { $0.title == "Note 0" })
+        let moved = try #require(await collection.moveItem(at: top.fileURL, into: folder))
+        #expect(moved.path.contains("/Linked/Sub/"), "moved to \(moved.path)")
+        #expect(collection.notes.filter { $0.title == "Note 0" }.count == 1)
+        #expect(collection.notes.first { $0.title == "Note 0" }?.fileURL.path.contains("/Linked/Sub/") == true)
+    }
+
     /// The notes keep the spelling the collection was opened with, so selection
     /// and the index cache still match them.
     @Test func notesKeepTheCollectionsOwnSpelling() async throws {

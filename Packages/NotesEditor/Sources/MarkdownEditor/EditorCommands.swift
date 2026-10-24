@@ -445,7 +445,10 @@ public extension MarkdownFormatting where Self: UITextView {
                 image: UIImage(systemName: "textformat.size"), menu: nil))
         headings.representativeItem?.accessibilityLabel = "Headings"
 
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        // The view's own traits, not the device's: a capability of the
+        // shortcuts bar, which only an iPad's keyboard has, and the one idiom
+        // check Apple's guidance for iPhone Duo leaves standing — read locally.
+        if traitCollection.userInterfaceIdiom == .pad {
             inputAssistantItem.leadingBarButtonGroups = [inline, blocks]
             inputAssistantItem.trailingBarButtonGroups = [headings]
         } else {

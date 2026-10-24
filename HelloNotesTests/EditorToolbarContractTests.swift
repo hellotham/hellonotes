@@ -42,8 +42,12 @@ struct EditorToolbarContractTests {
         let installer = try Self.packageSource("MarkdownEditor/EditorCommands.swift")
         #expect(installer.contains("inputAssistantItem.leadingBarButtonGroups"),
                 "iPad formatting belongs in the shortcuts bar")
-        #expect(installer.contains("UIDevice.current.userInterfaceIdiom == .pad"),
-                "iPhone has no shortcuts bar, so the idiom has to be checked at runtime")
+        #expect(installer.contains("traitCollection.userInterfaceIdiom == .pad"),
+                """
+                iPhone has no shortcuts bar, so the idiom has to be checked at runtime — \
+                and asked of the view's traits, never of `UIDevice`, which answers for \
+                the device whatever display the view is on
+                """)
         #expect(installer.contains("inputAccessoryView = bar"),
                 "iPhone still needs an accessory — it has no shortcuts bar to put these in")
 

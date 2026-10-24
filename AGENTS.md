@@ -174,6 +174,44 @@
   — use `touch_path` with a ~120ms dwell, or you will diagnose a working toggle
   as broken. To reach a settings state, seed it:
   `xcrun simctl spawn <dev> defaults write com.hellotham.HelloNotes aiAssistantModel -string mlx`.
+- **The iPhone Duo is two displays and four poses, and the app's chrome fills
+  the side its status column takes.** Xcode 27.1's `HN-iPhoneDuo` (iOS 27.1)
+  has an outer display of 466×678pt — compact width, so the phone's shell —
+  and an inner one of 951×669pt, landscape-native and regular both ways, so
+  the columns shell, and the band when turned; the idiom is **phone** on both.
+  Built against the 27.1 SDK the app runs edge to edge there with the status
+  bar as a *column* down one side — a horizontal safe-area inset, which every
+  bar's background stopped at: a white strip under the column on every
+  screen, on both displays — and under the bottom bar the home indicator's
+  34pt inset was a white band the same way (20pt on an iPad, where the
+  parity gate cuts it off and so never saw it). A bar's background fills the
+  safe area at the sides and the bottom (`chromeBackground()`, one fill), and
+  nothing reads the idiom from `UIDevice` or a scale from `UIScreen.main` —
+  the trait collection answers for the view on whichever display it is on.
+  **The iOS 27.1 runtime is the Duo's alone**: `simctl create` refuses every
+  other phone on it ("Incompatible device"), so a 27.1 defect cannot be told
+  from a Duo defect by running another phone on 27.1 — there is none. And
+  two `-only-testing:` flags kept in one zsh variable are **one argument**
+  (zsh does not split words): xcodebuild selects nothing, prints "Executed 0
+  tests" and exits 0, on two phones in a row here; split with `${=T}`, or
+  pass them literally. Pose it with `scripts/duo-pose.sh <Closed|
+  "Partially Open"|Open|"Rotate Right"|list>`: Device Hub draws its controls
+  in SwiftUI, which System Events cannot see, so the script goes through the
+  AX API (select the device's row, **Start**, then the pose). A pose change
+  backgrounds the app — relaunch it before shooting; a test run on the Duo
+  closes Device Hub's window (the app keeps running — `open -a` it with the
+  device booted and the window is back), and **quitting Device Hub shuts
+  every booted simulator down**, as Simulator.app did. Hardware keys
+  (`typeKey`) do not reach the app on the Duo simulator, while typed text
+  does: the two arrow-key interface tests skip there on their control
+  (`keysArrive`) and pass on `HN-iPhone`. `xcrun simctl io
+  HN-iPhoneDuo screenshot --display=primary` is the outer display and
+  `--display=primary-1` the inner, which is black while closed (a black
+  picture is the pose, not the app). In the book pose (Partially Open) the
+  hinge is a 40pt **division** reserved region down the middle of the inner
+  display (`UIView.reservedRegions(kind: .division)`, UIKit only in 27.1):
+  the editor column straddles it today. The store takes Duo screenshots at
+  1398×2034 and 2007×2853 from April 2027 for apps built with the 27.1 SDK.
 - **Suggestions write front matter, never the body.** Tags → `tags:`, links →
   `related:`, summaries → `summary:`, via `NoteEdits.appending(_:toListProperty:of:)`
   and `setting(_:property:of:)`. Three YAML rules travel with that: a value
@@ -296,7 +334,17 @@
   `ResumableTreeWalk` already warns about. When no prefix matches,
   `relativePath` returns an **absolute** path, and the cache will happily store
   it — that is how a collection came to disagree with itself about the names of
-  its own notes.
+  its own notes. **And the collection's own `id` is the other name**: canonical,
+  so `/var/…` where an iPhone's root is `/private/var/…`, and where a link
+  points for a root reached through one. The sidebar names folders by that
+  id, and a URL built from it (`URL(fileURLWithPath: folderID)`) is spelled
+  the way no walked note is — a note made there had two identities, and its
+  rename left the walked one listed (implemented.md §51.56). Anything a
+  collection is handed goes through `Collection.ownSpelling(of:)`, and
+  "the same file" is `sameFile`, by relative path — never
+  `standardizedFileURL`, which answers for a file that has just gone the
+  other way round. The Mac and the simulator cannot show any of this; a root
+  reached through a symlink can (`SymlinkedRootTests`).
 - **`contentsOfDirectory(at:)` refuses a symlink at the end of a path** with
   ENOTDIR; `contentsOfDirectory(atPath:)` follows it. `Collection.unavailability`
   uses the second, so a vault reached through a symlink passed every health check
@@ -832,7 +880,10 @@
   screen; it reads as "nothing happened", and the name you then type is a
   rename of a file you cannot see. It passes `bandContainerID` now, the same
   identifier the folder row's own **New Note Here** uses, expanding the folder
-  first (`ShellActions.expand`) so the note is not created into a closed one.
+  first (`ShellActions.expand`) so the note is not created into a closed one
+  — and that identifier is the collection's canonical `id`, which on an iPhone
+  is the folder's *other* name, so the collection respells it
+  (`ownSpelling`; the rule above, and §51.56).
   Separately, **rename, duplicate and move called `FileManager` directly** —
   the one place vault I/O escaped `FileIO`. In the app's container that works,
   which is why the simulator could not reproduce a failing rename; on a File
@@ -1055,7 +1106,13 @@
   one monotonic deadline, and say which way it ended (`FileIO.waitForDownload`,
   `finishes(within:)`). A test's stand-in provider brings lanes of its own —
   held silent on the app's, it held up whichever test's note hashed to the
-  same lane (implemented.md §51.51, §51.52).
+  same lane (implemented.md §51.51, §51.52). **And a question about *now* is
+  asked of a URL with no memory**: `URL.resourceValues` answers from a cache
+  on the URL that only the main run loop clears, and a lane has none, so the
+  wait read its first "not downloaded" back for the whole minute, and the
+  walk's answer rode the note's URL into the editor and Try Again — "takes
+  forever" on the iPad through two "fixes" (§51.56). Read through
+  `FileIO.currentResourceValues(at:keys:)`.
 - **A process is what it executes, not what its command line mentions.**
   `pgrep -f` on the bundle path matches every process whose command line
   *names* it — a shell running a command that mentions the app, an editor,

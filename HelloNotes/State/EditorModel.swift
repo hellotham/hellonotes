@@ -83,7 +83,11 @@ final class EditorModel {
             if path == from {
                 moved = new
             } else if path.hasPrefix(from + "/") {
-                moved = URL(fileURLWithPath: to + path.dropFirst(from.count))
+                // Under `new`'s own spelling, never the standardised path's:
+                // on an iPhone that is the folder's other name (`/var/…` for
+                // `/private/var/…`), and a tab holding it was a tab on a note
+                // the collection lists under neither.
+                moved = new.appending(path: String(path.dropFirst(from.count + 1)), directoryHint: .notDirectory)
             } else {
                 continue
             }

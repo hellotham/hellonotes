@@ -74,7 +74,7 @@ struct InspectorOverlay<Inspector: View>: ViewModifier {
                             .frame(width: ShellMetrics.panelIdeal)
                             // The panel's own colour, as its column draws it —
                             // not a material, which is the platform's blur.
-                            .background(Chrome.Colour.chrome)
+                            .chromeBackground()
                             // Said: a rule outside a stack has no axis to
                             // infer, and a horizontal one crossed the panel.
                             .overlay(alignment: .leading) { ChromeDivider(.vertical) }
