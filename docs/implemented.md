@@ -8416,6 +8416,44 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.61 1.3.5 on the App Store, and a check that read a cached store (2026-10-26)
+
+Apple released 1.3.5 (build 35) on iPhone, iPad and Mac on 2026-10-25
+(`READY_FOR_DISTRIBUTION` on both platforms; the lookup's
+`currentVersionReleaseDate` 18:45:57Z), the day it was submitted and the DMG
+went out. The site's two lines followed the next morning: `liveVersion:
+'1.3.5'`, `pendingVersion: null`, so the store notice and the screenshots
+page's "arrives when Apple approves it" are gone by themselves.
+
+**The check that exists to demand that change could not see it.**
+`check-download-page.sh` asked the store for its version at one fixed URL
+(`lookup?bundleId=…&country=au`), and the lookup is served through Akamai with
+a `max-age` of hours: that URL answered 1.3.3 from the cache (`TCP_HIT`,
+`max-age=26801`) while the same query by id, in another storefront, with
+`entity=macSoftware`, or with any extra parameter answered 1.3.5. So the check
+reported the page — still saying 1.3.3 with 1.3.5 pending — as true, and
+would have failed it for being right once it said 1.3.5. It asks a URL no
+cache has seen now (a parameter that changes every run). Read the cache
+headers before believing a lookup's answer about a release made today.
+
+Also brought up to date: the **CHANGELOG**, which stopped at 1.3.2 "App Store
+review pending" seven weeks after Apple released it — entries for 1.3.3, 1.3.4
+(Mac only) and 1.3.5 from the texts that shipped (the v1.3.3 notes, each
+version's What's New, the v1.3.5 notes), with dates as GitHub and the App
+Store's version history list them, in UTC; and the **v1.3.5 release page**,
+which said the App Store had its earlier version until Apple approved.
+
+**Cleaned up**: `build/` and `dist/` (both git-ignored) went from 5.9 GB to
+the two kinds of thing worth keeping — build 35's three archives, grouped
+into `build/build-35/` as earlier builds were, and build 32's Mac archive, the
+1.3.3 download's: an App Store build's symbols were uploaded with it
+(`uploadSymbols` in both upload plists), so a DMG's archive is the only copy
+of its debug symbols. The other seven per-build folders, the archive and
+upload logs, the notarisation zip, the exported app, and every DMG but 1.3.5's
+(each published one checked byte-for-byte against its GitHub asset first) went
+to the Trash, not `rm` — recoverable until it is emptied. The Duo simulator
+was shut down and Device Hub quit.
+
 ### 51.60 1.3.5 to the download, the day it went to review (2026-10-25)
 
 From `efa9d58`, the commit that submitted build 35 — the same sources,

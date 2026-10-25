@@ -1,11 +1,148 @@
 # Changelog
 
-All notable changes to HelloNotes. Dates are release dates; the version is the
-one shown in **HelloNotes ▸ About HelloNotes**.
+All notable changes to HelloNotes. Dates are release dates, in UTC — as the
+GitHub release and the App Store's version history list them; the version is
+the one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
-## 1.3.2 — 2026-08-29 (direct download); App Store review pending
+## 1.3.5 — 2026-10-25 · direct download and App Store (iPhone, iPad and Mac)
+
+*Build 35, the first built with Xcode 27.1. The download went out with the
+submission and the App Store released it the same day. On iPhone and iPad it
+also carries 1.3.4, which reached the Mac alone.*
+
+### Models, named by where they run
+
+- **Local (Apple)** is Apple's model on your device; **Cloud (Apple)** is
+  Apple's server model on Private Cloud Compute — in the App Store builds only,
+  because Apple does not provision it for a direct download; **Local** with a
+  model's name is an open model you run with MLX, and every model in the
+  folder is listed, not just one. Choose the default in Settings ▸ AI; the
+  Assistant can use another for one conversation.
+- **Each Assistant reply, summary, suggested tag or link, rewrite and draft
+  says which model made it.**
+- **When Cloud (Apple)'s daily allowance is used up, Local (Apple) takes over**
+  until it resets, by itself, with a line saying so.
+
+### The Assistant reads
+
+- **Ask Your Library is part of the Assistant now.** It searches your notes
+  more thoroughly — by section, and to the end of a long note — shows the notes
+  it read, and summarises earlier messages when a conversation grows long.
+- **It is experimental, and it no longer changes your notes**: it gives you
+  text to paste instead.
+
+### New on iPhone and iPad, from 1.3.4
+
+- **Cloud (Apple)** — 1.3.4 called it Private Cloud Compute. It reads far more
+  of your notes at once than the model on your device; what it is sent isn't
+  stored, and isn't accessible to Apple. Suggestions as you type still need a
+  model on your device.
+- **Report…** beside the AI's answers and suggestions opens an email to us, and
+  Settings ▸ Support ▸ Contact has our address.
+- **A note or attachment that iCloud Drive keeps online is downloaded when you
+  open it.** If it can't be, HelloNotes says so and offers Try Again, instead of
+  a download that never ends.
+
+### Fixed
+
+- **A note made in a folder of an iCloud Drive collection can be renamed** — by
+  its title, or from the sidebar. (iPhone and iPad.)
+- **iPhone Duo**: HelloNotes runs edge to edge on both displays, in every pose.
+- The notice about AI services HelloNotes no longer supports names the model
+  you can choose, where it showed "(Function)". (Mac.)
+- Tips no longer appear over the window.
+
+---
+
+## 1.3.4 — 2026-10-17 · Mac App Store only
+
+*Build 33. iPhone and iPad were submitted too and withdrawn before review, so
+these changes reached them in 1.3.5; there was no direct download — the DMG
+stayed 1.3.3 until 1.3.5.*
+
+- **Private Cloud Compute**: choose it in Settings ▸ AI for Apple's server
+  model. It reads far more of your notes at once than the model on your Mac;
+  what it is sent isn't stored, and isn't accessible to Apple. Suggestions as
+  you type still need a model on your Mac. (1.3.5 calls it Cloud (Apple).)
+- **Report…** beside the AI's answers and suggestions opens an email to us, and
+  Settings ▸ Support ▸ Contact has our address.
+- **A note or attachment that iCloud Drive keeps online is downloaded when you
+  open it.** If it can't be, HelloNotes says so and offers Try Again, instead of
+  a download that never ends.
+- **And 1.3.3 build 32's fixes, new to the Mac App Store** (the Mac had build
+  31): a link to a note — from the widget, say — opens that note even when
+  HelloNotes wasn't running; Restore asks before it replaces a note with an
+  earlier version; a note that mentions another by one of its aliases can be
+  linked from the Links view; when the Assistant changes a note in a Git
+  collection it commits that note, and Commit includes notes you've deleted;
+  Quick Capture and dictation add to today's note even while it's open.
+
+---
+
+## 1.3.3 — 2026-10-11 (direct download) · 2026-10-12 (App Store)
+
+*Builds 31 and 32. The download was replaced with build 32 the next day, with
+fixes found straight after; the App Store released build 32 on iPhone and iPad
+and build 31 on the Mac, whose build 32 fixes came in 1.3.4. Requires macOS 27
+(iOS and iPadOS 27 on the App Store); the Mac app is Apple silicon only.*
+
+### AI that runs where you are
+
+- **Apple Foundation Models, and nothing else**: Apple's model on your device
+  (1.3.3 called it *System*), or an open model run on your Mac with MLX —
+  *Access MLX Models…* in Settings ▸ AI points at the folder your other MLX
+  tools already use.
+- **Third-party AI services and API keys are gone.** Any keys you had stored for
+  them are deleted from the device.
+- Summaries cover the whole of a long note, not just its opening. Tag
+  suggestions come back in the note's own language, and link suggestions only
+  ever name notes you have.
+
+### One window, three regions
+
+- **The sidebar is the collection**: Recents and Bookmarks, then each open
+  collection and its folders, with the collection's tools above them — Mind
+  Map, Assistant, Ask Your Library, Git — and a `+` for folders and collections.
+- **The bar over the note is three buttons**: `+` for a new note in any of its
+  forms, search (Search Notes, Open Quickly, Find & Replace), and Settings —
+  then your tabs.
+- **The panel on the right is the open note's**: Summary & Outline, Tags,
+  Links, Properties, History, Graph.
+- **The Graph is one note's links in and out; the Mind Map is the links across
+  the whole collection**, and it opens as a tab beside your notes, as the
+  Assistant and Ask Your Library do. Nothing opens a window of its own unless
+  you ask for one.
+
+### Writing
+
+- **Find and Replace understands regular expressions.**
+- **Return continues a list**, and ends it on an empty item.
+- **A note scrolls past its last line**, so the end of what you are writing is
+  not pinned to the bottom of the window.
+- **The blank lines you type are shown** in Edit.
+- Typing in a heading no longer redraws the whole note after each keystroke.
+
+### Fixed
+
+- **iPad, held upright**: the on-screen keyboard changed the window's layout as
+  it came up, which sent the keyboard away again.
+- **Mac**: a link into the app opened another main window every time; it opens
+  in the window you have.
+- The four view modes each announce their own name to VoiceOver.
+- **In build 32** (the download, iPhone and iPad): a link that launches the app
+  opens its note; typing `[[` or `#`, the list of suggestions has a keyboard —
+  ↓ and ↑ choose, Return or Tab inserts, Esc closes it; Restore asks first;
+  Commit commits a deleted note, and a change approved from the Assistant is
+  committed on its own; Quick Capture and dictation add to today's note even
+  when it is open with unsaved typing; links in Edit are drawn in the accent
+  colour, and a link to a note that does not exist is grey; on iPhone and iPad
+  with a keyboard, ↑ on a note's first line moves to its title.
+
+---
+
+## 1.3.2 — 2026-08-29 (direct download) · 2026-09-08 (App Store)
 
 *Dated from 2026-08-20, when the first builds went to TestFlight: everything
 below landed in the same version while it was being tested, so it is one release
@@ -16,9 +153,11 @@ rather than several.*
 and stapled, and it is what the download button serves today
 (`scripts/check-download-page.sh` verifies that the page's version, size and
 checksum match the file it actually hands you). The **App Store** half of the
-same version has not been released yet. This heading said "unreleased" for a
+same version followed on 8 September. This heading said "unreleased" for a
 week after half of it had shipped, which is the same class of mistake as
-`site.ts` announcing a release that had not happened — see implemented.md §33.*
+`site.ts` announcing a release that had not happened — see implemented.md §33
+— and then "App Store review pending" for seven weeks after Apple had released
+it, which is the same mistake again.*
 
 ### The iPad is a first-class place to write
 

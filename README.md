@@ -20,7 +20,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, in user-facing terms |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
-## ✨ Features (v1.3.2)
+## ✨ Features (v1.3.5)
 
 **Local-first, multi-collection**
 - No CoreData/SwiftData/iCloud store; your `.md` files are the truth. Open **several collections at once** as a *library*, with a launcher, recents, and saved library sets.

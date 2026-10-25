@@ -767,7 +767,7 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
-## 10n · 1.3.5 build 35 — to TestFlight, both platforms, not in review, 2026-10-24
+## 10n · 1.3.5 build 35 — released on the App Store, both platforms, 2026-10-25; the DMG the same day
 
 From the working tree on top of `eda5c49` — **uncommitted** when archived
 (the person asked for the upload, not a commit; the archive is what it read
@@ -815,7 +815,14 @@ identifiers taken from this session's own earlier use of them:
 The website says 1.3.5 is with Apple (`site.ts` `pendingVersion: '1.3.5'`,
 on `main`, which also took the release branch's 1.3.5 pages at the merge
 `bc212da`). **When Apple approves**: `liveVersion: '1.3.5'`, `pendingVersion:
-null`. **The DMG followed the same afternoon** — 1.3.5 build 35, Developer ID
+null`. **Apple released it on both platforms the same day** — `READY_FOR_DISTRIBUTION`
+on iPhone, iPad and Mac, build 35, `currentVersionReleaseDate` 2026-10-25T18:45:57Z
+(the morning of the 26th here) — and the site said so the next morning
+(`liveVersion: '1.3.5'`, `pendingVersion: null`). The check that should have
+demanded it could not: the store's lookup URL `check-download-page.sh` asks
+was a CDN copy hours old, still answering 1.3.3 while every other spelling
+of the query answered 1.3.5, so the script asks a URL no cache has seen now
+(implemented.md §51.61). **The DMG followed the same afternoon** — 1.3.5 build 35, Developer ID
 without the Private Cloud Compute entitlement (A2), `v1.3.5` on GitHub, the
 page's version, size and checksum synced (implemented.md §51.60, with the
 hundred-second window that opened on the way). Build 34 stays on TestFlight

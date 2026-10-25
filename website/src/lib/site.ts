@@ -58,14 +58,14 @@ export const APP_STORE = {
    * has.
    *
    * **When Apple approves a pending version:** set `liveVersion` to it and
-   * `pendingVersion` to null (1.3.3, approved and released 2026-10-13; 1.3.5
-   * submitted 2026-10-25). The notice disappears by itself, and so does
+   * `pendingVersion` to null (1.3.5, submitted 2026-10-25 and released on
+   * both platforms the next day). The notice disappears by itself, and so does
    * the line on the screenshots page saying the iPhone and iPad pictures are
    * of a version still in review. `scripts/check-download-page.sh` fails from
    * the day the store has the new version until this is done.
    */
-  liveVersion: '1.3.3',
-  pendingVersion: '1.3.5' as string | null,
+  liveVersion: '1.3.5',
+  pendingVersion: null as string | null,
 } as const;
 
 /** Whether the App Store is a version behind the direct download. */

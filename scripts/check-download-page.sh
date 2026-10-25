@@ -89,8 +89,14 @@ fi
 # `APP_STORE.liveVersion` is what the store serves and `pendingVersion` what is
 # in review. So the check is that the page's account of the store is true —
 # and that it stops saying "pending" the day it is not.
+#
+# Asked of a URL no cache has seen. The lookup is served through Akamai with
+# `max-age` of hours, so the same URL every run read a copy: on 26 October,
+# with 1.3.5 released on both platforms and every other spelling of the query
+# answering 1.3.5, this one answered 1.3.3 from the cache (`TCP_HIT`) — the
+# check would have failed the page for being right.
 store=$(curl -s --max-time 20 \
-  "https://itunes.apple.com/lookup?bundleId=com.hellotham.HelloNotes&country=au" \
+  "https://itunes.apple.com/lookup?bundleId=com.hellotham.HelloNotes&country=au&uncached=$(date +%s)" \
   | /usr/bin/python3 -c 'import json,sys; r=json.load(sys.stdin).get("results") or []; print(r[0]["version"] if r else "")' 2>/dev/null || true)
 says_live=$(field liveVersion || true)
 says_pending=$(field pendingVersion || true)
