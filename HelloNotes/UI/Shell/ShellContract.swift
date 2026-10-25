@@ -76,12 +76,12 @@ enum ShellMetrics {
     static let sidebarIdeal: CGFloat = 280
     static let sidebarCap: CGFloat = 340
 
-    /// The right panel: collections on the left, the editor in the middle,
-    /// anything else here. One width, whatever it is showing — the outline of
-    /// the note or a conversation with the Assistant.
+    /// The right panel: the collection on the left, the note in the middle,
+    /// what the note is here (`SidePanel`). One width, whatever view of the
+    /// note it is showing.
     static let panelFloor: CGFloat = 220
-    /// Wider than the 280 the five note tabs were drawn for: the same panel
-    /// holds a conversation and a graph, and both read badly in a strip.
+    /// Wider than the 280 the five note tabs were drawn for: the panel holds
+    /// the note's graph, which reads badly in a strip.
     static let panelIdeal: CGFloat = 360
     // No cap of its own: the panel may be dragged to whatever leaves the editor
     // its floor (`AdaptiveShell.panelRange`). A `panelCap` was declared and read

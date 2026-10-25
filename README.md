@@ -13,7 +13,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [docs/unimplemented.md](docs/unimplemented.md) | Production-readiness register — release blockers, deferrals, bugs, tech debt, security, performance, usability & accessibility gaps (from a five-lane audit) |
 | [docs/native-roadmap.md](docs/native-roadmap.md) | Forward roadmap for deeper Apple-platform integration (App Intents, widgets, Spotlight…) |
 | [docs/cloud-native-roadmap.md](docs/cloud-native-roadmap.md) | Cloud storage: the File Provider path (on-demand files) and the direct-API providers, phase by phase |
-| [docs/production.md](docs/production.md) | Step-by-step runbook to ship the app to the Mac App Store |
+| [docs/production.md](docs/production.md) | Step-by-step runbook to ship the app — the App Store (Mac, iPhone and iPad) and the notarised DMG |
 | [docs/signing.md](docs/signing.md) | Code-signing & provisioning notes (team, capabilities, entitlements) |
 | [docs/xcode-targets-setup.md](docs/xcode-targets-setup.md) | How the Widget / Quick Look extension targets and the App Group were added |
 | [docs/website.md](docs/website.md) | The product site — Astro + Tailwind, its site map, GitHub Actions deploy, DMG distribution, and the two URL traps (`base`, custom domain) |
@@ -23,7 +23,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 ## ✨ Features (v1.3.5)
 
 **Local-first, multi-collection**
-- No CoreData/SwiftData/iCloud store; your `.md` files are the truth. Open **several collections at once** as a *library*, with a launcher, recents, and saved library sets.
+- No CoreData, SwiftData or database; your `.md` files are the truth (settings sync through iCloud's key-value store — never a note). Open **several collections at once** as a *library*, with a launcher, recents, and saved library sets. The first launch opens **DefaultCollection**, the bundled tour and user manual; File ▸ Open Default Collection brings it back.
 - **Obsidian vault import** — point HelloNotes at a folder of existing vaults and they open as collections, no migration.
 - Non-Markdown attachments (PDF, images, CSV…) appear in the tree and open in a native **file viewer** (QuickLook/PDFKit).
 
@@ -40,10 +40,10 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - A **Graph** of each note's links in and out (arrows, focus tracing, and a link or two further if you like), in the panel beside the note, and a **Mind Map** of the links across the whole collection — its most-connected notes as branches, every other linked note under the branch it is closest to, the links the tree has no line for dashed across it — in a tab of its own.
 
 **Organise & find**
-- One collapsible **sidebar** holding every place: **Recents** and **Bookmarks** pinned above each open collection, which expands into its own folder tree. Apple Notes' account-then-folders arrangement, and the reason the window has exactly one show/hide control. Where the window is *taller than it is wide* — an iPad in portrait — that navigation becomes a band across the top and splits into two panes, Finder-style: folders on the left, the notes inside the selected one on the right. Both are the same tree; the band is simply too wide and too short for one list. See [docs/shell-chrome.md](docs/shell-chrome.md).
-- An **inspector** answering "what is this, and what touches it?" — Outline · Tags · References · Properties · History, reopening on its last-used tab. Its five tabs are selected from the toolbar directly above it (Pages' `Format`/`Document` pattern), so the panel itself carries no chrome.
+- One collapsible **sidebar** holding every place: **Recents** and **Bookmarks** pinned above each open collection, which expands into its own folder tree, with the collection's tools — **Mind Map**, **Assistant**, **Git** — as rows above it and a `+` for folders and collections. Apple Notes' account-then-folders arrangement, in the window's one collapsible column. Where the window is *taller than it is wide* — an iPad in portrait — that navigation becomes a band across the top and splits into two panes, Finder-style: folders on the left, the notes inside the selected one on the right. Both are the same tree; the band is simply too wide and too short for one list. See [docs/shell-chrome.md](docs/shell-chrome.md).
+- A **right panel** answering "what is this note, and what touches it?" — Summary & Outline · Tags · Links · Properties · History · Graph, reopening on its last-used view. The views are chosen from an icon strip in the panel's own header, which becomes a pull-down when the panel is narrow. The **bar over the note** is three buttons — `+` (New Note, Today's Note, New Note from a Prompt, Quick Capture, Dictate to Daily Note), search and Settings — then your tabs, the note's own actions and Show/Hide Panel.
 - The note's title is shown **inline above the body as its H1** and renamed in place, which renames the file and rewrites every `[[wiki-link]]` to it; the caret crosses between title and body as one flow.
-- Full-text search with snippets (cross-collection by design, from an always-expanded field beside the sidebar — ⌥⌘F), Open Quickly (⇧⌘O), nested `#tags` (with autocomplete) **and front-matter `tags:` — both spellings count, so an Obsidian vault's tags are visible here**, bookmarks, daily notes, and templates.
+- Full-text search with snippets across every open collection — **Search Notes** (⌥⌘F) opens its field in the search button's place for as long as the search lasts — Open Quickly (⇧⌘O), `#tags` with autocomplete (`/` is allowed in a name) **and front-matter `tags:` — both spellings count, so an Obsidian vault's tags are visible here**, bookmarks, daily notes, and templates.
 
 **AI, on your terms — and where you'd look for it**
 - **Filed by what it acts on, not by the fact a model made it.** Summarise Note, Suggest Tags, Suggest Links and Rewrite live in the **Note** menu beside Rename and Duplicate, and each answer lands in the panel view that already owns that kind of information — summary in Summary & Outline, tags in Tags, links in Links. **Accepting one writes a property, never your prose** — `tags:`, `related:`, `summary:` — so it is visible in Properties and removable there, and a `related:` link is still a real link the graph sees. A **command palette** (⇧⌘P) runs anything by name, generated from the same command surface the menu bar is, so a command that goes missing from it is a test failure.
@@ -51,15 +51,15 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **New Note from a Prompt** (⌃⌘N) writes a note, or researches a question on the web and lands the cited synthesis *as a note* — connected to what you already have, since every `[[link]]` the model returns is verified against the collection and the invented ones are unwrapped to plain text. You read the whole draft before the file exists.
 - **Suggest as I type** *(off by default)* — ghost text after the cursor, ⌥⇥ to accept (or tap it, on iPhone and iPad). On-device only, and never part of the note until accepted: it is drawn, never stored, so it cannot reach a save, the index or a Git diff.
 - An **Assistant** *(experimental)* that answers from your notes and shows the notes it read, in a tab beside them (⇧⌘A). With **Use my notes** on it searches them — by their words, by section, and to the end of a long note — reads what it finds, and can search the web (and, on a model with a 16K window, fetch web pages and run deep research), with skills; off, it answers from the model alone and reads nothing. It never changes a note: no edits, no approvals. Select text and choose **Ask the Assistant** to ask it about a passage; a conversation that outgrows the model's window has its earlier messages summarised so it can go on.
-- **All of the above run on iPhone and iPad too**, except the palette.
-  iPad carries the menu bar and its shortcuts, file tabs, and the inspector over the note
-  rather than beside it — an iPad is never wide enough for a third column, and a threshold
-  that decides whether a panel *may* open is a threshold that hides it. Formatting lives in
+- **All of the above run on iPhone and iPad too** (the command palette opens from the
+  menu bar, so on iPad). iPad carries the menu bar and its shortcuts, file tabs, and the
+  right panel as a resizable column beside the note — an editor never blocks editing, so
+  only a window as narrow as a phone carries the panel over the note. Formatting lives in
   **the system's own bar above the keyboard** — the floating shortcuts row on iPad, an
   accessory bar on iPhone — so it costs the app no screen space, appears with a hardware
   keyboard too, and shows whenever there is a cursor rather than following the view mode.
 - **AI on Apple Foundation Models, and nothing else** — on a model named for where it runs. **Local (Apple)** is Apple's on-device model (AFM 3 Core or Core Advanced, whichever the hardware runs); **Cloud (Apple)** is Apple's server model on Private Cloud Compute, in App Store builds only (Apple doesn't provision its entitlement for Developer ID, so never the DMG); **Local (*model name*)** is an open **MLX** model you download, plugged into Foundation Models through its `LanguageModel` protocol. One **Default model** in Settings ▸ AI serves everything, the Assistant's menu can pick another for one conversation, and its answers and suggestions say which model made them. When Cloud (Apple)'s daily allowance is used up, Local (Apple) does the work until it resets. No third-party AI services and no API keys; keys stored by earlier versions are deleted on upgrade.
-- **Every feature fits the model's window.** Apple's models are asked for their context size (an MLX model is given one sized to the device's memory), and each feature sizes what it sends to fit — a long note is summarised in parts rather than cut off, a rewrite too large to return whole is refused rather than truncated, and the Assistant sends the recent turns that fit, with the earlier ones summarised, while the whole conversation stays on screen.
+- **Every feature fits the model's window.** Apple's models are asked for their context size (an MLX model is given the device's: 16,384 tokens on the Mac, 8,192 on iPhone and iPad), and each feature sizes what it sends to fit — a long note is summarised in parts rather than cut off, a rewrite too large to return whole is refused rather than truncated, and the Assistant sends the recent turns that fit, with the earlier ones summarised, while the whole conversation stays on screen.
 
 **Cloud storage — two ways, no lock-in**
 - **Open a cloud folder like any other** (recommended). Box, Dropbox, OneDrive (personal *and* business), Google Drive and iCloud Drive all surface through Apple's **File Provider** layer, so their folders are just paths — point HelloNotes at one and it works. Files stay **online-only until you open them**: all vault I/O is `NSFileCoordinator`-coordinated so a cloud file materialises on demand, and indexing deliberately **skips un-downloaded notes** rather than dragging your whole vault local. Online-only notes get a cloud badge, a "N online-only" status, per-note **Download / Remove Download**, and a provider label; Git is guarded on cloud folders (auto-commit off) since libgit2 needs real local objects.
@@ -72,29 +72,29 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 **Deep system integration**
 - **Siri & Shortcuts** — `NoteEntity` App Intents (open, create, append, search) with an `AppShortcutsProvider`, so notes are scriptable from Shortcuts and callable by voice.
 - **Spotlight** — notes are *donated* to the system index, so ⌘Space finds them and deep-links straight back (stale entries are retracted on rename/delete).
-- **Widgets** — a recent-notes widget in all three sizes, fed by an App Group snapshot; every row deep-links to its note.
+- **Widgets** — a recent-notes widget in all three sizes, fed by an App Group snapshot; in the medium and large sizes every row deep-links to its note, and the small one opens the most recent.
 - **Quick Look** — native `.md` preview *and* thumbnail extensions, so Markdown renders in Finder's Space-bar preview and as file icons.
-- **Menu-bar quick capture** — a `MenuBarExtra` jots a line into today's daily note without switching apps, plus a system-wide **⌃⌥⌘N** that brings HelloNotes forward on a new note.
+- **Quick capture** — **Quick Capture** (⌃⌘K) adds a line to today's note on both platforms; on the Mac a `MenuBarExtra` does it without switching apps, and a system-wide **⌃⌥⌘N** brings HelloNotes forward on a new note.
 - **URL scheme** — `hellonotes://note?…` / `collection` / `search` / `new` / `daily`, the shared entry point behind Shortcuts, Spotlight and widget taps.
-- **Dictation** — on-device `SpeechAnalyzer` transcription straight into the daily note; **Writing Tools** and inline prediction are wired into the editor (plain-text only, so rewrites can't corrupt Markdown).
-- Services menu ("New Note from Selection"), state restoration, and an Icon Composer app icon.
+- **Dictation** (⌃⌘D) — on-device `SpeechAnalyzer` transcription straight into the daily note; **Writing Tools** and inline prediction are wired into the editor (plain-text only, so rewrites can't corrupt Markdown).
+- Services menu ("New HelloNotes Note from Selection"), state restoration, and an Icon Composer app icon.
 
 **Native app polish**
-- Full menu bar with keyboard shortcuts, a native source-list note tree with the collection's commands beside it, the Mind Map and the Assistant as tabs beside your notes, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, a **first-run welcome**, and an adaptive iOS/iPadOS companion.
-- Accessibility: VoiceOver labels throughout, a **headings rotor** in the editor on both platforms, and Reduce Motion support.
+- Full menu bar with keyboard shortcuts (⌘, opens Settings on iPad too), a note tree the app draws in source-list style — the same on the Mac and the iPad — with the collection's commands beside it, the Mind Map and the Assistant as tabs beside your notes, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, and an adaptive iOS/iPadOS companion.
+- Accessibility: VoiceOver labels throughout, and a **headings rotor** in the editor on both platforms.
 
-> WebView policy: the *editing path is 100% native TextKit 2*. A `WKWebView` appears only in read-only rendering surfaces — the macOS/iOS GFM **Preview** and the **Marp slides** preview — never in the editor itself.
+> WebView policy: *typing is 100% native TextKit 2*. A `WKWebView` appears only in read-only rendering — the GFM **Preview**, the **Marp slides** preview, and, in Edit, an off-screen render of a raw HTML block, drawn as an image while the caret is elsewhere so that Edit shows what Preview shows — never where you type.
 
 **Free, and what backing it adds**
-- Every feature is included for everyone. Two voluntary products — **Champion** (a one-off contribution, repeatable and counted) and **Commercial** (an annual licence for using it at work) — and the only thing either unlocks is an **in-app support request**, which is a channel to the person who makes it rather than a faster queue. `SupportContractTests` fails the build if anything else starts consulting a purchase.
-- The support request composes a message and hands it to your own mail app; HelloNotes sends nothing itself and includes nothing about your notes — app and system versions only.
+- Every feature is included for everyone. Two voluntary products — **Champion** (a one-off contribution, repeatable and counted) and **Commercial** (an annual licence for using it at work) — and the only thing either unlocks is an **in-app support request**, which is a channel to the person who makes it rather than a faster queue. `SupportContractTests` fails if anything else starts consulting a purchase.
+- The support request composes a message and hands it to your own mail app; HelloNotes sends nothing itself and includes nothing about your notes — only the app's version and build, the platform and OS version, and which support you have.
 
 ## 🏗️ Architecture at a glance
 A strict **4-layer architecture** keeps macOS and iOS sharing everything but the shell:
 1. **Core / Domain** (pure Swift) — Markdown/front-matter/tag parsing, mention scanning, templates, graph & mind-map layout, statistics, export, Marp, Obsidian import, file watching, **coordinated file I/O** (`FileIO` — every vault read/write goes through `NSFileCoordinator`, so on-demand cloud files materialise instead of failing), and the **direct-API cloud clients** (`Core/Remote`). UI-agnostic, unit-tested.
 2. **State** — the `@Observable` macro *exclusively*: `Library` → `Collection`s (scan, CRUD, bookmarks, index cache), `EditorModel`/`EditorTabs`, `LinkGraph`, `CollectionSearchModel`, `GitService` (FIFO-serialized), `AppearanceSettings`, stores for recents/libraries/credentials.
 3. **Shared UI** — editor host, note tree, references panel, graph/mind map, assistant, viewers.
-4. **Platform shells** — one `AdaptiveShell` for both platforms, chosen by the **axis of abundance** (width and aspect) rather than device identity, so a Mac window and an iPad of the same size lay out identically and Stage Manager stops being a special case. It places three slots: the **sidebar** (collections and folders in one tree), the editor pane, and the **inspector**. `MacContentView` and `iOSContentView` supply the slots. Every viewport in the tree obeys a **sizing contract** — a window onto content reports the size it is *offered*, never the size it *contains* — asserted by `ShellContractTests`. See [docs/layout-architecture.md](docs/layout-architecture.md).
+4. **Platform shells** — one `AdaptiveShell` for both platforms, chosen by the **axis of abundance** (width and aspect) rather than device identity, so a Mac window and an iPad of the same size lay out identically and Stage Manager stops being a special case. It places three slots: the **sidebar** (collections and folders in one tree), the editor pane, and the **right panel**. `ContentView` — one struct for both platforms — supplies the slots. Every viewport in the tree obeys a **sizing contract** — a window onto content reports the size it is *offered*, never the size it *contains* — asserted by `ShellContractTests`. See [docs/layout-architecture.md](docs/layout-architecture.md).
 
 The **editor** is a separate local SPM package, [`Packages/NotesEditor`](Packages/NotesEditor) — `MarkdownCore` (incremental block/inline parser + style spec), `MarkdownEditor` (TextKit 2 `NSTextView`/`UITextView`), and `GFMRender` (cmark-gfm for the GitHub-identical Preview + spec/API parity).
 
@@ -137,17 +137,22 @@ cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
 # Open in Xcode (SPM dependencies resolve automatically on first open)
 open HelloNotes.xcodeproj
 
-# …or build from the command line (a shared scheme is committed)
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' build
+# …or build from the command line (a shared scheme is committed). Every app
+# xcodebuild needs -skipPackagePluginValidation: mlx-swift's Cmlx target carries a
+# build-tool plugin (inert on Apple platforms) that a command line cannot trust.
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -skipPackagePluginValidation build
 
-# app unit tests
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=macOS' -only-testing:HelloNotesTests test
+# app unit tests — through the script, never a bare `xcodebuild test`: the bundle is
+# hosted by the app, so the script quits a running HelloNotes first and cleans up after
+./scripts/run-tests.sh
 
-# editor package tests (GFM conformance, live-editor fidelity, parser fuzz)
+# editor package tests (GFM conformance, live-editor fidelity, parser fuzz) — on the Mac,
+# and on iOS, which `swift test` never builds (make an iPad simulator named HN-iPad first)
 swift test --package-path Packages/NotesEditor
+(cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad')
 
 # Release build — run this too before shipping (see the note below)
-xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'generic/platform=macOS' -configuration Release build
+xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'generic/platform=macOS' -configuration Release -skipPackagePluginValidation build
 ```
 
 > **A green Debug build does not imply Release compiles.** Optimizer-only failures
@@ -157,7 +162,7 @@ xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'generi
 > and grep the full log for `While running pass`, which names the offending function.
 > Details and the debugging recipe: [docs/production.md §1h](docs/production.md).
 
-Run the **HelloNotes** scheme, then click **Open…** and choose any directory of Markdown files — or point it at the bundled [`SampleVault/`](SampleVault/), whose notes demonstrate callouts, diagrams, math, transclusion, wiki-links, tags, slides, daily notes, and templates.
+Run the **HelloNotes** scheme: the first launch opens the bundled [`DefaultCollection/`](DefaultCollection/) — a tour of the app and its user manual. Open any folder of Markdown files with **File ▸ Open…**, or the repo's [`SampleVault/`](SampleVault/), whose notes demonstrate callouts, diagrams, math, transclusion, wiki-links, tags, slides, daily notes, and templates.
 
 ## 🗂️ Project layout
 ```
@@ -178,17 +183,18 @@ HelloNotes/            App sources (synchronised Xcode group)
   ├─ UI/               Layer 3 — shared views (editor host, tree, references,
   │                     graph, mind map, slides, viewers, assistant, splash)
   │   └─ Shell/        Layer 4 — the layout contract (ShellContract), the
-  │                     arrangement (AdaptiveShell), the collection tree,
-  │                     the inspector, the compact shell
-  ├─ MacContentView    Layer 4 — the macOS slots for AdaptiveShell
-  ├─ iOSContentView    Layer 4 — the iOS/iPadOS slots for the same shell
+  │                     arrangement (AdaptiveShell), the compact shell, the
+  │                     inspector, and the app-drawn chrome (Chrome*)
+  ├─ ContentView       Layer 4 — the slots for AdaptiveShell, one struct
+  │                     for both platforms
   └─ HelloNotesApp     App entry (main window + auxiliary window scenes)
 Packages/NotesEditor/  Live editor package (MarkdownCore, MarkdownEditor, GFMRender)
 website/               Product site — Astro 7 + Tailwind 4 → hellotham.com/hellonotes
 Config/                Secrets.example.xcconfig (template); Secrets.xcconfig is git-ignored
 docs/                  PRD, architecture, roadmaps (native + cloud), production, history
 HelloNotesTests/       App unit tests
-SampleVault/           Demo collection used by docs & screenshots
+DefaultCollection/     The bundled tour and user manual (in the app; the screenshots' source)
+SampleVault/           A sample collection, used by the tests
 HelloNotes.xcodeproj/  Project (SPM dependencies, shared scheme)
 ```
 
@@ -212,7 +218,7 @@ It deploys on every push to `main` that touches `website/`, via
 `gh-pages` branch.
 
 The **download button points at the latest GitHub Release**, not at a file in the site, so
-shipping a build means publishing a release — the 35 MB disk image is deliberately kept out of
+shipping a build means publishing a release — the ~30 MB disk image is deliberately kept out of
 git history. `src/lib/site.ts` holds the version, size and SHA-256 the download page prints,
 and must match the attached artefact.
 
@@ -230,8 +236,9 @@ only the live site is wrong). See [docs/website.md](docs/website.md):
 - `site` is the **custom domain** (`hellotham.com`), inherited from the `hellotham.github.io`
   user-site repo — so this repo needs no `CNAME`, and canonical/OG URLs must not point at
   `github.io`, which merely redirects.
-- **Keyboard shortcuts in the manual come from `AppCommands.swift`, not from memory.** Grep for
-  a binding before documenting it; a first pass invented two that don't exist.
+- **Keyboard shortcuts in the manual come from the source, not from memory** — `AppCommands.swift`,
+  the other `.keyboardShortcut(` calls, and the editor's own key handlers. Grep for a binding before
+  documenting it; a first pass invented two that don't exist.
 - **`og:image` must live in `public/`, never `src/assets/`.** Processed assets get
   content-hashed filenames that change on re-export, and social crawlers cache by URL — this
   shipped broken once, 404ing on every page while the build stayed green.

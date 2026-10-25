@@ -8443,6 +8443,26 @@ version's What's New, the v1.3.5 notes), with dates as GitHub and the App
 Store's version history list them, in UTC; and the **v1.3.5 release page**,
 which said the App Store had its earlier version until Apple approved.
 
+**The README, read against the source** (the `docs-fact-checker` agent, 101
+claims: 74 true, 15 partly, 11 false). Its features were headed "v1.3.2" and
+parts predated both redesigns: an "inspector" of five tabs chosen from the
+toolbar (the right panel is six views with a header of its own), the panel
+over the note on iPad (it is a column there; only a phone-width window
+carries it over the note), an "always-expanded" search field, `MacContentView`
+and `iOSContentView` (one `ContentView` since August), `SampleVault/` as the
+bundled collection (it is `DefaultCollection/`), and build commands that
+cannot work — no `-skipPackagePluginValidation`, and a bare `xcodebuild test`
+for the app-hosted suite. Each is corrected, with the smaller ones: nested
+tags (they are listed flat), the MLX window (the device's, 16,384 or 8,192),
+the small widget, the Services item's name, the tree (app-drawn, in
+source-list style), Reduce Motion (the splash alone), the WebView policy (Edit
+renders a raw HTML block off-screen), the support email's contents and the
+DMG's size. Its reverse column found three source comments the code no longer
+matched — the right panel holding "a conversation with the Assistant"
+(`ShellContract`), "nothing gated" (`StoreService`) and a welcome shown on the
+first launch, which opens DefaultCollection instead (`WelcomeView`) — and
+they say what the code does now.
+
 **Cleaned up**: `build/` and `dist/` (both git-ignored) went from 5.9 GB to
 the two kinds of thing worth keeping — build 35's three archives, grouped
 into `build/build-35/` as earlier builds were, and build 32's Mac archive, the

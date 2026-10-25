@@ -2,12 +2,15 @@
 //  StoreService.swift
 //  HelloNotes
 //
-//  Voluntary support: two products, nothing gated.
+//  Voluntary support: two products, and the one thing they open is a channel.
 //
 //  HelloNotes is free and complete. Neither product unlocks a feature, hides
-//  one, or changes what the app does — which is a design decision, not an
-//  oversight, and the reason this file has no `isPro` anywhere in it. Anything
-//  reading a purchase to decide whether a feature runs would be a bug.
+//  one, or changes what the app does — a design decision, and the reason this
+//  file has no `isPro` anywhere in it. What backing it opens is the in-app
+//  support request (`SupportRequestSection`): a way to reach the person who
+//  makes the app, never a faster queue. Anything else reading a purchase would
+//  be a bug, and `SupportContractTests.onlyTheSupportRequestConsultsAPurchase`
+//  fails if one does.
 //
 //    • **Champion** — a one-off contribution someone can make more than once.
 //      A *consumable*, because that is the only StoreKit product type that can

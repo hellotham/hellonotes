@@ -4,9 +4,11 @@
 //
 //  Created by Chris Tham on 20/7/2026.
 //
-//  First-run onboarding. Shown once (gated by @AppStorage("hasSeenWelcome"))
-//  the first time the app opens with no library to restore, so a new user
-//  meets the app — what it is, what it can do — and lands directly on the
+//  Onboarding for a library with nothing in it. A first launch opens the
+//  bundled DefaultCollection (the tour and the manual), so this is shown when
+//  a launch still finds no collection open — DefaultCollection closed, or
+//  never seeded — and only once (`@AppStorage("hasSeenWelcome")`); after
+//  that an empty launch goes to the launcher. It lands the person on the
 //  "open a folder of Markdown" action instead of a blank pane. Dismissible;
 //  the same open actions remain reachable afterwards from the launcher.
 //
