@@ -8416,6 +8416,50 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.62 CI was red on `main` for three tests that asked the wrong question (2026-10-26)
+
+**The 08:13 failure** (run 40232556548, `70054ce`) was the third red
+"Build & test" on `main` in a row, and the same as the one before it
+(`efa9d58`, 25 October, the merge that brought 1.3.5 to `main`): only **App —
+macOS ▸ Test**, in about two minutes and a quarter — a run that finished
+with three failures, not a stall. The run's time was the Release build's, the
+last job to end. CI never ran on `release/1.3.3` (the workflow is `main` and
+pull requests), so these first ran there on the 25th. (The 17 October red run
+was other tests altogether, on the `main` of the day.)
+
+- **Two tests asked the running copy's signature about the build's
+  settings.** `LanguageModels.privateCloudComputeEnabled` is the
+  `PRIVATE_CLOUD_COMPUTE` compilation condition *and*, on the Mac, the
+  entitlement the running app was signed with — the second is what keeps a
+  Developer ID export, or an unsigned build, from offering a model that
+  crashes it. CI builds unsigned (`CODE_SIGNING_ALLOWED=NO`), so the flag is
+  false there by design. `theFlagAndTheEntitlementAgree` compared it with
+  the entitlements *file*, which has the key, and failed; and
+  `privateCloudComputeIsOnlyListedWhenTheBuildOffersIt`, finding it false,
+  required the 1.3.5 listing not to name Private Cloud Compute. Both are
+  about how the build is configured, so both ask
+  `LanguageModels.privateCloudComputeBuilt` now — the condition alone — and
+  `privateCloudComputeEnabled` is that and the signature. Everything that
+  *offers* the model still asks `…Enabled`, and the tests of what it offers
+  still do. **Control**: reproduced first here in CI's mode
+  (`run-tests.sh … CODE_SIGNING_ALLOWED=NO …`, as AGENTS.md says): the two
+  failed exactly as on the runner, and pass after.
+- **One test timed the suite.** `manySilentWaitsAreAllAnsweredAndNothingElseStops`
+  sends two hundred waits to a silent provider and, beside its real checks —
+  every wait answered with the deadline's word, a lane a file, sixteen at
+  most — required the whole to take under ten seconds. On the three-core
+  runner, under the whole suite, every answer was right and it took 12.8,
+  twice. It asks what happened now: each wait gives two seconds, and the
+  unrelated work's answer must come before any wait's — it ran while all two
+  hundred were still waiting — with a one-minute time limit for a hang.
+  **Control**: with the unrelated work held three seconds, past every
+  deadline, the test fails on that order (and passes without it).
+
+The CI-mode run left `~/Library/Preferences/com.hellotham.HelloNotes.plist`
+outside the container, as an unsandboxed host does; it went to the Trash.
+Checked: the five suites that read the flag in CI's mode (40 tests), and the
+whole macOS suite signed (961).
+
 ### 51.61 1.3.5 on the App Store, and a check that read a cached store (2026-10-26)
 
 Apple released 1.3.5 (build 35) on iPhone, iPad and Mac on 2026-10-25

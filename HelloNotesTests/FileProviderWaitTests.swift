@@ -101,20 +101,28 @@ struct FileProviderWaitTests {
     /// and unrelated work stopped with them (review findings 1 and 6). Now a
     /// file's questions share a lane, the lanes are sixteen, and the timers
     /// have a queue of their own.
-    @Test func manySilentWaitsAreAllAnsweredAndNothingElseStops() async {
+    ///
+    /// Asked what happened, never how long it all took: every wait says the
+    /// deadline's word, the unrelated work's answer comes before any of
+    /// theirs — it ran while all two hundred were still waiting — and a hang
+    /// is the time limit's to catch. It used to say "within ten seconds", and
+    /// on CI's three-core runner, under the whole suite, every answer was
+    /// right and the run took 12.8 (implemented.md §51.62).
+    @Test(.timeLimit(.minutes(1)))
+    func manySilentWaitsAreAllAnsweredAndNothingElseStops() async {
         let provider = StandInProvider(silent: true)
         defer { provider.release() }
-        let started = ContinuousClock.now
         // A hundred for one file — Try Again, over and over — and a hundred
-        // for as many files, which is every lane held.
+        // for as many files, which is every lane held. Each gives two seconds,
+        // which is the margin the unrelated work has to go first.
         let answers = await withTaskGroup(of: FileIO.DownloadWait.self) { group in
             let one = Self.file()
             for _ in 0..<100 {
-                group.addTask { await FileIO.waitForDownload(at: one, timeout: .milliseconds(500), using: provider.calls) }
+                group.addTask { await FileIO.waitForDownload(at: one, timeout: .seconds(2), using: provider.calls) }
             }
             for _ in 0..<100 {
                 group.addTask {
-                    await FileIO.waitForDownload(at: Self.file(), timeout: .milliseconds(500), using: provider.calls)
+                    await FileIO.waitForDownload(at: Self.file(), timeout: .seconds(2), using: provider.calls)
                 }
             }
             // And something unrelated, on GCD's shared queue, meanwhile.
@@ -130,7 +138,9 @@ struct FileProviderWaitTests {
         }
         #expect(answers.count == 201)
         #expect(answers.filter { $0 == .noAnswer }.count == 200, "not every wait was answered no-answer")
-        #expect(ContinuousClock.now - started < .seconds(10), "the waits were answered late")
+        // In the order they came: the unrelated work first, or it waited on them.
+        #expect(answers.first == .arrived,
+                "the unrelated work was answered after \(answers.firstIndex(of: .arrived) ?? answers.count) waits")
         // A file's questions wait behind its first: at most one question a
         // lane, sixteen in all, however many waits.
         #expect(provider.questionCount <= 16, "\(provider.questionCount) questions held threads at once")

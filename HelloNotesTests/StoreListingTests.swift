@@ -159,13 +159,16 @@ struct StoreListingTests {
 
     /// The listing may only promise Private Cloud Compute in a build that can
     /// offer it — without the entitlement the app does not show the model at all.
+    /// The build the listing describes is the App Store's, so this asks how the
+    /// build is configured, not how the test host was signed: CI's host is
+    /// unsigned, offers nothing, and is not what the listing is about.
     @Test func privateCloudComputeIsOnlyListedWhenTheBuildOffersIt() throws {
         let doc = try Self.doc
         var text = ""
         for label in ["Promotional text", "Description", "Version"] {
             text += try Self.fields(label, in: doc).joined(separator: "\n")
         }
-        if !LanguageModels.privateCloudComputeEnabled {
+        if !LanguageModels.privateCloudComputeBuilt {
             #expect(!text.contains("Private Cloud Compute"),
                     "the listing offers Private Cloud Compute, which this build cannot")
         }

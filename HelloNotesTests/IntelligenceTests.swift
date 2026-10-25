@@ -590,9 +590,12 @@ struct PrivateCloudComputeEntitlementTests {
         let plist = try #require(NSDictionary(contentsOf: entitlements))
         let entitled = (plist["com.apple.developer.private-cloud-compute"] as? Bool) == true
 
-        // The app's flag, asked of the app: the test target is compiled with
-        // its own conditions and cannot see the app's.
-        #expect(entitled == LanguageModels.privateCloudComputeEnabled,
+        // The app's build setting, asked of the app: the test target is
+        // compiled with its own conditions and cannot see the app's. Its
+        // setting, not the running copy's signature — CI tests an unsigned
+        // build, which holds no entitlement and so offers nothing, as it must,
+        // and that says nothing about whether the file and the setting agree.
+        #expect(entitled == LanguageModels.privateCloudComputeBuilt,
                 "HelloNotes.entitlements and the app's PRIVATE_CLOUD_COMPUTE compilation condition disagree — change both together. Offering the model without the entitlement crashes on the first request.")
     }
 

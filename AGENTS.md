@@ -386,9 +386,14 @@
   host, and a concurrent evaluation with it. An unsandboxed `swiftc` probe reports
   the same availability and does *not* crash, so probing outside the app proved
   nothing. The model is only created and offered under the `PRIVATE_CLOUD_COMPUTE`
-  compilation condition (`LanguageModels.privateCloudComputeEnabled`), added in the
+  compilation condition (`LanguageModels.privateCloudComputeBuilt`), added in the
   same change as the entitlement; `PrivateCloudComputeEntitlementTests` fails if
-  they disagree. Apple granted it on 17 October 2026, and both are in the app
+  they disagree. What offers the model asks `privateCloudComputeEnabled` — the
+  condition *and*, on the Mac, the entitlement the running copy was signed
+  with; what checks the build's settings asks `privateCloudComputeBuilt`. CI's
+  build is unsigned, so the first is false there by design, and two tests that
+  asked it about the settings kept `main` red from the day 1.3.5 merged
+  (implemented.md §51.62). Apple granted it on 17 October 2026, and both are in the app
   target from build 33. **Apple provisions it for Development, Ad hoc and App
   Store Connect, never Developer ID** — an export of an archive that carries it
   fails ("not available for Developer ID provisioning profiles"), so the DMG is

@@ -65,15 +65,26 @@ final class LanguageModels {
     /// not crash, which is what made it look safe.
     ///
     /// So it is decided at build time: the `PRIVATE_CLOUD_COMPUTE` compilation
-    /// condition is added in the same change as the entitlement, and
-    /// `PrivateCloudComputeEntitlementTests` fails if the two disagree. On the
-    /// Mac the signed entitlement is also checked at runtime, because a Developer
-    /// ID export can be signed without an entitlement the App Store profile has.
+    /// condition (`privateCloudComputeBuilt`) is added in the same change as the
+    /// entitlement, and `PrivateCloudComputeEntitlementTests` fails if the two
+    /// disagree. On the Mac the signed entitlement is also checked at runtime,
+    /// because a Developer ID export can be signed without an entitlement the
+    /// App Store profile has — and an unsigned build, CI's, holds none at all.
     /// iOS offers no public way to read an app's own entitlements, which is why
     /// the flag exists at all.
-    nonisolated static let privateCloudComputeEnabled: Bool = {
+    nonisolated static let privateCloudComputeEnabled: Bool =
+        privateCloudComputeBuilt && signedEntitlement("com.apple.developer.private-cloud-compute")
+
+    /// Whether this build is *configured* to offer Private Cloud Compute: the
+    /// compilation condition alone, which moves with the entitlement in
+    /// `HelloNotes.entitlements`. A fact about the build's settings, never about
+    /// how the running copy was signed — so it is what a check of those settings
+    /// asks, and `privateCloudComputeEnabled` what everything that offers the
+    /// model asks. Asked the other way round, CI's unsigned build failed two
+    /// tests for being exactly as safe as it should be (implemented.md §51.62).
+    nonisolated static let privateCloudComputeBuilt: Bool = {
         #if PRIVATE_CLOUD_COMPUTE
-        return signedEntitlement("com.apple.developer.private-cloud-compute")
+        return true
         #else
         return false
         #endif
