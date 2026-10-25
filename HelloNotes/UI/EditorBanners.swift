@@ -59,8 +59,9 @@ struct ConflictBanner: View {
 /// retries on its own, and a re-appearing alert would spam. `saveError` was
 /// read only by `NoteEditorView`, so an iPad whose collection folder had
 /// gone away went on accepting typing that was never written, with nothing
-/// on screen to say so — this file even *builds* the blocked-save sentence
-/// itself, in `iOSContentView.wireTabs`, and then nothing read it back.
+/// on screen to say so — the iPad's shell even *built* the blocked-save
+/// sentence itself, in `iOSContentView.wireTabs`, and then nothing read it
+/// back.
 struct SaveErrorBanner: View {
     @Bindable var editor: EditorModel
 

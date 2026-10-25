@@ -34,7 +34,7 @@ struct CommandPaletteTests {
             canOpenQuickly: true, openQuickly: {},
             canGraph: true, graphView: {},
             canMindMap: true, mindMap: {},
-            canAsk: true, askLibrary: {}, assistant: {},
+            assistant: {},
             canCloseTab: true, closeTab: {},
             format: { _ in },
             note: NoteMenuActions(
@@ -77,7 +77,7 @@ struct CommandPaletteTests {
         // View
         "graph", "mind-map", "toggle-files",
         // Assistant
-        "ask-library", "assistant",
+        "assistant",
         // Note
         "ai-summarize", "ai-tags", "ai-links", "ai-rewrite", "review-links",
         "rename", "duplicate", "bookmark", "copy-link", "reveal", "new-window",
@@ -171,7 +171,7 @@ struct CommandPaletteTests {
             canOpenQuickly: true, openQuickly: {},
             canGraph: true, graphView: {},
             canMindMap: true, mindMap: {},
-            canAsk: true, askLibrary: {}, assistant: {},
+            assistant: {},
             canCloseTab: true, closeTab: {},
             searchAllCollections: {},
             editorMode: .edit, setEditorMode: { _ in })
@@ -196,7 +196,7 @@ struct CommandPaletteTests {
             canOpenQuickly: false, openQuickly: {},
             canGraph: false, graphView: {},
             canMindMap: false, mindMap: {},
-            canAsk: false, askLibrary: {}, assistant: {},
+            assistant: {},
             canCloseTab: false, closeTab: {},
             addCollection: AddCollectionActions(
                 openFolder: {}, openObsidianVault: {}, openiCloudDrive: {},

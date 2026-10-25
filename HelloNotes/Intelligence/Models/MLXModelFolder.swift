@@ -46,19 +46,42 @@ nonisolated enum MLXModelFolder {
 
     /// Every whole model in `folder`, by name.
     static func models(in folder: URL) -> [MLXLocalModel] {
+        let own = folder.lastPathComponent
+        var found: [MLXLocalModel] = []
+        if own.hasPrefix("models--") {
+            // One model's own folder, chosen where the folder of models was
+            // meant — a click on a row in the panel is as easy as a click on
+            // Allow — is that one model, rather than a models folder with
+            // nothing in it; and whatever was downloaded into it as if it
+            // were the folder of models is listed too.
+            if let snapshot = currentSnapshot(of: folder),
+               let itself = model(at: snapshot, name: displayName(ofRepositoryFolder: own), folder: folder,
+                                  repository: repositoryID(ofRepositoryFolder: own)) {
+                found.append(itself)
+            }
+        } else if FileManager.default.fileExists(atPath: folder.appending(path: "config.json").path) {
+            return model(at: folder, name: own, folder: folder, repository: nil).map { [$0] } ?? []
+        }
         let children = (try? FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
-        return children
-            .compactMap { child -> MLXLocalModel? in
-                let name = child.lastPathComponent
-                guard name.hasPrefix("models--") else {
-                    return model(at: child, name: name, folder: child, repository: nil)
-                }
-                guard let snapshot = currentSnapshot(of: child) else { return nil }
-                return model(at: snapshot, name: displayName(ofRepositoryFolder: name),
-                             folder: child, repository: repositoryID(ofRepositoryFolder: name))
+        found += children.compactMap { child -> MLXLocalModel? in
+            let name = child.lastPathComponent
+            guard name.hasPrefix("models--") else {
+                // A model's own `blobs`, `refs` and `snapshots` are not models.
+                return own.hasPrefix("models--") ? nil : model(at: child, name: name, folder: child, repository: nil)
             }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            guard let snapshot = currentSnapshot(of: child) else { return nil }
+            return model(at: snapshot, name: displayName(ofRepositoryFolder: name),
+                         folder: child, repository: repositoryID(ofRepositoryFolder: name))
+        }
+        return found.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Whether `folder` is one model's own folder rather than a folder of
+    /// models — somewhere nothing should be downloaded into.
+    static func isOneModel(_ folder: URL) -> Bool {
+        folder.lastPathComponent.hasPrefix("models--")
+            || FileManager.default.fileExists(atPath: folder.appending(path: "config.json").path)
     }
 
     /// The revision `refs/main` names, or — without one — the newest snapshot

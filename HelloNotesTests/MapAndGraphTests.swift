@@ -156,10 +156,10 @@ struct ToolTabsTests {
 
     @Test func aNoteChosenPutsTheToolsBehindIt() {
         var tabs = ToolTabs()
-        tabs.show(.askLibrary)
+        tabs.show(.assistant)
         tabs.showNotes()
         #expect(tabs.showing == nil)
-        #expect(tabs.open == [.askLibrary], "choosing a note closed the tool's tab")
+        #expect(tabs.open == [.assistant], "choosing a note closed the tool's tab")
     }
 
     @Test func closingTheToolInFrontShowsTheNotes() {
@@ -179,8 +179,8 @@ struct ToolTabsTests {
 struct NoteGraphTests {
 
     private func until(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        var patience = Waits.Patience(.seconds(10))
+        while !condition(), patience.lasts { try await Task.sleep(for: .milliseconds(20)) }
     }
 
     /// One note's links in and out: what it links to and what links to it,

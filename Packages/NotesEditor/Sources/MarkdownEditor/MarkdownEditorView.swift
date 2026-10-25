@@ -2660,7 +2660,7 @@ final class ChromeOverlayView: UIView {
         guard side == .overText else { return }
         if let x = tv.wrapGuideX {
             // Hairline at the current screen scale, so it stays one pixel.
-            let width = 1 / (tv.window?.screen.scale ?? UIScreen.main.scale)
+            let width = 1 / tv.traitCollection.displayScale
             UIColor.separator.withAlphaComponent(0.55).setFill()
             // Full height of the dirty rect: the overlay spans `contentSize`,
             // so this is the whole document's worth of guide, drawn a slice at

@@ -217,10 +217,12 @@ struct EditorHost: View {
                                 .offset(x: max(4, caretRect.minX), y: caretRect.maxY + 2)
                         }
                     }
-                    // Outline → editor. The Mac jumps to a heading by posting
-                    // its title on the find bus; iOS had the poster (the
-                    // inspector's outline) and no listener, because there was
-                    // no handle to scroll the text view with. There is now.
+                    // Outline → editor is not this host's: the outline posts a
+                    // heading's ordinal on `EditorBus.jumpToHeading(editor:)`
+                    // (`hnJumpToHeading`), and the editor answers it in the
+                    // package, holding it until the surface is ready
+                    // (`HeadingJump`). iOS once had the poster and nothing
+                    // listening, for want of a handle to scroll the text view.
                     .sheet(isPresented: Binding(
                         get: { rewriteRange != nil },
                         set: { if !$0 { rewriteRange = nil } }
@@ -555,18 +557,19 @@ struct EditorHost: View {
         return SmartPaste.markdownFromHTML(html: SmartPaste.pasteboardHTML())
     }
 
-    /// Build the editor's wiki-link / code-colour / block-embed services, using
-    /// the same cross-platform adapters as the macOS host.
+    /// Build the editor's wiki-link / code-colour / block-embed services, with
+    /// the cross-platform adapters both platforms share.
     private func makeServices() -> EditorServices {
         // `search.linkTargets()` — "all note titles plus their aliases" — and
         // not `collection.notes.map(\.title)`. The two differ on exactly the
         // aliases, and the completion list drawn over this editor already
-        // offers them (`iOSContentView` builds its `WikiCompletionSource` from
-        // `linkTargets()`), so the editor suggested an alias, you accepted it,
-        // and the finished `[[Alias]]` was painted as a broken link. The Mac
-        // has always resolved through `linkTargets()`.
+        // offers them (`ContentView` hands `NoteEditorView` `linkTargets()` for
+        // its `WikiCompletionSource`), so with titles alone the editor suggested
+        // an alias, you accepted it, and the finished `[[Alias]]` was painted
+        // as a broken link. The Mac's host, before there was one host, had
+        // always resolved through `linkTargets()`.
         //
-        // A snapshot, again as on the Mac: `wikiLinkExists` is `@Sendable` and
+        // A snapshot, as the Mac's host took: `wikiLinkExists` is `@Sendable` and
         // the styling pass may run from any context that owns the document, so
         // it captures a value rather than reaching back into a `@MainActor`
         // index. The cost is that adding or deleting a note is invisible to an

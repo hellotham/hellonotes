@@ -2,20 +2,23 @@
 //  NoteInspector.swift
 //  HelloNotes
 //
-//  The right rail: "what is this, and what touches it?"
+//  The right panel's views of the open note: "what is this, and what touches
+//  it?" — five of its six, Summary & Outline, Tags, Links, Properties and
+//  History. The panel's views are `SidePanel` and its header `SidePanelHeader`
+//  (UI/SidePanel.swift); the sixth, the Graph, the shell draws itself
+//  (`NoteGraphPanel`).
 //
-//  It consolidates four surfaces that were scattered across the app — the
+//  It brought together four surfaces that were scattered across the app — the
 //  references panel wedged under the editor, the outline in a popover, tags in
 //  the left sidebar, and note history in a sheet — into one place with a
-//  consistent rhythm (decisions 1, 8 and 10 of docs/layout-architecture.md).
+//  consistent rhythm (decisions L1, L8 and L10 in docs/ui.md).
 //
-//  The left rail answers "where is it?"; this one answers "what is this?".
-//  They cooperate across the shell: selecting a tag here filters the note list
-//  over there.
+//  The sidebar answers "where is it?"; the panel answers "what is this?". They
+//  cooperate across the window: selecting a tag here filters the sidebar's
+//  tree.
 //
 
 import SwiftUI
-import TipKit
 
 /// A menu command asking the rail to run one of its model-backed suggestions.
 ///
@@ -59,12 +62,15 @@ struct NoteInspector: View {
     var onSelectHeading: (Int, DocumentHeading) -> Void
     /// Summarise the note. `nil` hides the affordance — no model, nothing to
     /// offer, and an always-visible button that always fails is worse than none.
-    var summarize: ((String) async throws -> String)? = nil
+    var summarize: ((String) async throws -> (String, ModelStamp))? = nil
+    /// The model the suggestions come from, as the app names it in a
+    /// sentence — for reporting one (`ResponseReport`).
+    var modelName: String = ""
     /// Write the summary into the note's front matter (`summary:`). `nil`
     /// leaves it read-only.
     var onInsertSummary: ((String) -> Void)? = nil
 
-    // Tags — selecting one filters the note list in the *other* rail.
+    // Tags — selecting one makes the sidebar's tree the notes that carry it.
     /// Every tag in the collection. Never listed wholesale; searched.
     let allTags: [String]
     /// How many notes carry a tag, shown beside a search result so you can see
@@ -73,7 +79,7 @@ struct NoteInspector: View {
     @Binding var selectedTag: String?
     /// Ask the configured model for tags this note's *content* suggests.
     /// `nil` hides the button — no model that can answer, nothing to offer.
-    var suggestTags: ((String, [String]) async throws -> [String])? = nil
+    var suggestTags: ((String, [String]) async throws -> ([String], ModelStamp))? = nil
     /// Write a suggested tag into the note. `nil` makes suggestions read-only.
     var onInsertTag: ((String) -> Void)? = nil
 
@@ -87,7 +93,7 @@ struct NoteInspector: View {
     /// is drawn from.
     var linkCandidates: [String] = []
     /// Ask the model which of those this note should link to. `nil` hides it.
-    var suggestLinks: ((String, [String]) async throws -> [String])? = nil
+    var suggestLinks: ((String, [String]) async throws -> ([String], ModelStamp))? = nil
     /// Write an accepted suggestion into the note as a `[[link]]`.
     var onInsertLink: ((String) -> Void)? = nil
 
@@ -139,6 +145,10 @@ struct NoteInspector: View {
         case failed(String)
     }
     @State private var summary: SummaryState = .idle
+    /// Where each suggestion shown was made — the model when it was asked.
+    @State private var summaryStamp: ModelStamp?
+    @State private var tagsStamp: ModelStamp?
+    @State private var linksStamp: ModelStamp?
 
     /// The Properties tab's rows: a draft, written on commit.
     @State private var propertyDraft = PropertyDraft()
@@ -297,18 +307,25 @@ struct NoteInspector: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                     .background(Chrome.Colour.quaternaryLabel.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
-                if onInsertSummary != nil {
-                    Button {
-                        onInsertSummary?(text)
-                        // It is saved now; offering again would just rewrite
-                        // the same property with the same text.
-                        summary = .idle
-                    } label: {
-                        Label("Save to Properties", systemImage: "square.and.arrow.down")
-                            .font(Chrome.Style.caption2)
+                HStack(spacing: 12) {
+                    if onInsertSummary != nil {
+                        Button {
+                            onInsertSummary?(text)
+                            // It is saved now; offering again would just rewrite
+                            // the same property with the same text.
+                            summary = .idle
+                        } label: {
+                            Label("Save to Properties", systemImage: "square.and.arrow.down")
+                                .font(Chrome.Style.caption2)
+                        }
+                        .buttonStyle(ChromeBorderlessStyle())
+                        .help("Save the summary in the note's summary: property")
                     }
-                    .buttonStyle(ChromeBorderlessStyle())
-                    .help("Save the summary in the note's summary: property")
+                    if let summaryStamp { ModelStampLabel(stamp: summaryStamp) }
+                    ReportResponseButton {
+                        ResponseReport(feature: "Summary", model: summaryStamp?.name ?? modelName, response: text)
+                    }
+                    .font(Chrome.Style.caption2)
                 }
             }
         }
@@ -326,7 +343,9 @@ struct NoteInspector: View {
         summary = .loading
         Task {
             do {
-                let text = try await summarize(noteText)
+                // With the model that made it (`IntelligenceService.stamped`).
+                let (text, stamp) = try await summarize(noteText)
+                summaryStamp = stamp
                 summary = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? .failed("The model returned nothing.")
                     : .ready(text)
@@ -470,7 +489,8 @@ struct NoteInspector: View {
                 } else {
                     existing = await offMain { MarkdownParsing.tags(in: text) }
                 }
-                let tags = try await suggestTags(text, existing)
+                let (tags, stamp) = try await suggestTags(text, existing)
+                tagsStamp = stamp
                 // Anything the note already carries is not a suggestion.
                 let fresh = tags.filter { tag in
                     !existing.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
@@ -520,6 +540,12 @@ struct NoteInspector: View {
                         .help("Add #\(tag) to this note's tags property")
                     }
                 }
+                if let tagsStamp { ModelStampLabel(stamp: tagsStamp) }
+                ReportResponseButton {
+                    ResponseReport(feature: "Suggested Tags", model: tagsStamp?.name ?? modelName,
+                                   response: tags.map { "#\($0)" }.joined(separator: " "))
+                }
+                .font(Chrome.Style.caption2)
             }
             .padding(.top, 2)
         }
@@ -679,10 +705,6 @@ struct NoteInspector: View {
                 .buttonStyle(ChromeBorderlessStyle())
                 .disabled(linkSuggestion == .loading || noteText.isEmpty || linkCandidates.isEmpty)
                 .help("Find notes in this collection worth linking to")
-                // Only once there is somewhere to link to — a tip about
-                // linking, shown to someone with a single note, teaches nothing
-                // and spends the one time TipKit will interrupt them.
-                .popoverTip(linkCandidates.count > 3 ? SuggestLinksTip() : nil)
             }
 
             switch linkSuggestion {
@@ -716,6 +738,12 @@ struct NoteInspector: View {
                         .disabled(onInsertLink == nil)
                         .help("Add “\(title)” to this note's related property")
                     }
+                    if let linksStamp { ModelStampLabel(stamp: linksStamp) }
+                    ReportResponseButton {
+                        ResponseReport(feature: "Suggested Links", model: linksStamp?.name ?? modelName,
+                                       response: titles.map { "[[\($0)]]" }.joined(separator: "\n"))
+                    }
+                    .font(Chrome.Style.caption2)
                 }
             }
         }
@@ -727,7 +755,8 @@ struct NoteInspector: View {
         linkSuggestion = .loading
         Task {
             do {
-                let titles = try await suggestLinks(noteText, linkCandidates)
+                let (titles, stamp) = try await suggestLinks(noteText, linkCandidates)
+                linksStamp = stamp
                 // A note the text already links to is not a suggestion — and
                 // neither is this note, which a model handed its own title
                 // among the candidates will cheerfully propose.

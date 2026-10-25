@@ -385,7 +385,7 @@ struct ShellComplianceTests {
         let source = try Self.source("ContentView.swift")
         #expect(source.contains("SidePanel(rawValue: panelRaw) ?? .outline"),
                 "the stored panel is no longer read leniently")
-        for tool in ["showPanel(.mindMap)", "showPanel(.assistant)", "showPanel(.askLibrary)"] {
+        for tool in ["showPanel(.mindMap)", "showPanel(.assistant)"] {
             #expect(!source.contains(tool), "a collection's tool is a view of the panel again (\(tool))")
         }
     }
@@ -424,7 +424,7 @@ struct ShellComplianceTests {
             #expect(search.contains(command), "the bar's 🔍 lost \(command)")
         }
         let tools = try #require(Self.propertyBody(named: "collectionToolCommands", in: source))
-        for command in ["showTool(.mindMap)", "showTool(.assistant)", "showTool(.askLibrary)", "gitCommand"] {
+        for command in ["showTool(.mindMap)", "showTool(.assistant)", "gitCommand"] {
             #expect(tools.contains(command), "the sidebar's tools lost \(command)")
         }
         // Making and opening collections and folders: the `+` in the sidebar's

@@ -15,8 +15,14 @@ import Foundation
 import FoundationModels
 
 nonisolated struct WebSearchTool: Tool {
+    /// The turn's room, which this shares with the turn's other results
+    /// (`TurnRoom`); `nil` outside one.
+    var room: TurnRoom? = nil
     let name = "web_search"
     let description = "Search the web. Returns result titles, links and snippets."
+
+    /// What six results take at most: a title, an address and a snippet each.
+    static let resultTokens = 800
 
     @Generable
     nonisolated struct Arguments {
@@ -25,10 +31,14 @@ nonisolated struct WebSearchTool: Tool {
     }
 
     @concurrent func call(arguments: Arguments) async throws -> String {
-        try await ToolOutcome.run { try await Self.search(arguments.query, limit: 6) }
+        // Taken before the search, as a note's read is: a sibling shaped
+        // while this one waits on the network sees what is left without it.
+        guard let tokens = await TurnRoom.reserve(Self.resultTokens, from: room) else { return ToolContext.noRoom }
+        return try await ToolOutcome.run { try await Self.search(arguments.query, limit: 6, tokens: tokens) }
     }
 
-    @concurrent static func search(_ query: String, limit: Int) async throws -> String {
+    @concurrent static func search(_ query: String, limit: Int,
+                                   tokens: Int = WebSearchTool.resultTokens) async throws -> String {
         var comps = URLComponents(string: "https://html.duckduckgo.com/html/")!
         comps.queryItems = [URLQueryItem(name: "q", value: query)]
         guard let url = comps.url else { throw ToolError.failed("Couldn't build a search for that.") }
@@ -46,9 +56,20 @@ nonisolated struct WebSearchTool: Tool {
         let html = String(data: data, encoding: .utf8) ?? ""
         let results = parseResults(html, limit: limit)
         guard !results.isEmpty else { return "No results for “\(query)”." }
-        return results.enumerated().map { i, r in
+        let lines = results.enumerated().map { i, r in
             "\(i + 1). \(r.title)\n   \(r.url)\n   \(r.snippet)"
-        }.joined(separator: "\n")
+        }
+        return shaped(lines, tokens: tokens)
+    }
+
+    /// The results that fit in `tokens`, whole — at least one — and the count
+    /// of the rest.
+    static func shaped(_ lines: [String], tokens: Int) -> String {
+        let shown = ToolContext.fitting(lines, tokens: tokens)
+        let text = lines.prefix(shown).joined(separator: "\n")
+        return shown < lines.count
+            ? text + "\n… and \(lines.count - shown) more results that don't fit here."
+            : text
     }
 
     private struct Result { let title: String; let url: String; let snippet: String }
@@ -90,6 +111,13 @@ nonisolated struct WebSearchTool: Tool {
 
 nonisolated struct WebFetchTool: Tool {
     let limits: ToolLimits
+    /// The turn's room, which this shares with the turn's other results
+    /// (`TurnRoom`); `nil` outside one. A page takes at most its own cap,
+    /// `limits.fetchTokens`, and less when the turn has less left: Research
+    /// gave each page a fixed share whatever its questions had read already,
+    /// and on the on-device model's 8,192 tokens a third page ran the
+    /// question's session past its window.
+    var room: TurnRoom? = nil
     let name = "web_fetch"
     let description = "Read a web page as plain text. Use it on a link from web_search."
 
@@ -100,11 +128,12 @@ nonisolated struct WebFetchTool: Tool {
     }
 
     @concurrent func call(arguments: Arguments) async throws -> String {
-        let limit = limits.fetchCharacters
-        return try await ToolOutcome.run { try await Self.fetch(arguments.url, maxCharacters: limit) }
+        // Taken before the page is fetched, as a note's read is.
+        guard let tokens = await TurnRoom.reserve(limits.fetchTokens, from: room) else { return ToolContext.noRoom }
+        return try await ToolOutcome.run { try await Self.fetch(arguments.url, maxTokens: tokens) }
     }
 
-    @concurrent static func fetch(_ address: String, maxCharacters: Int) async throws -> String {
+    @concurrent static func fetch(_ address: String, maxTokens: Int) async throws -> String {
         guard let url = URL(string: address.trimmingCharacters(in: .whitespaces)),
               url.scheme?.hasPrefix("http") == true else {
             throw ToolError.badArguments("That isn't an http or https address.")
@@ -122,10 +151,14 @@ nonisolated struct WebFetchTool: Tool {
             throw ToolError.failed("Couldn't load that page (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
         }
         let html = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
-        let text = HTMLText.plain(html)
-        return text.count > maxCharacters
-            ? String(text.prefix(maxCharacters)) + "\n… (truncated)"
-            : text
+        return shaped(HTMLText.plain(html), tokens: maxTokens)
+    }
+
+    /// `text` within `tokens`, cut as a model counts — by tokens, never by
+    /// characters, which sent a Chinese page several times over its share.
+    static func shaped(_ text: String, tokens: Int) -> String {
+        let (kept, cut) = TokenBudget.prefix(text, tokens: max(50, tokens - 20))
+        return cut ? kept + "\n… (truncated)" : kept
     }
 }
 

@@ -121,6 +121,10 @@ version instead — see implemented.md §49.*
 - ✅ ~~**References panel disappears when empty**~~ — resolved (§20): the button stays put and shows the same "No References" copy the inspector already used. (The inspector's own tab already had the empty state.)
 - ✅ ~~**Duplicate has no keyboard shortcut**~~ — **entry was stale**: Duplicate is ⌘D (Finder convention) and Bookmark is ⇧⌘D (`AppCommands.swift`). Shipped before 1.1, never struck off.
 - ✅ ~~**Clearing a number property turns it into text.**~~ — resolved (implemented.md §51.15): the panel's rows are a draft, so the empty value in between is never written, and the number typed next is written as a number.
+- **The Assistant changing notes** — deferred from 1.3.5 by the person (2026-10-18: "the ability to edit a note is probably next release"). The tools exist and are not offered (`NoteTools`); what stopped them was not the code but what a person could see — nothing said how an edit would be proposed, approved or undone. Before offering them again: a visible proposal (the diff), approval in the conversation, a way back, and `AssistantEditEvaluation` re-enabled and passing on Local (Apple) and Cloud (Apple). implemented.md §51.55.
+- **Summaries across conversations** — 1.3.5 summarises the earlier messages *within* a conversation, the person's choice of the two (2026-10-18). Carrying context from one conversation into the next is the other half.
+- **Tips, done properly or not at all** — two TipKit popovers (Suggest Links, Mind Map) were removed in 1.3.5: on iOS a popover takes the first tap, and two tips are not a way to learn the app. The person's terms (2026-10-18): across the app's functionality, and never blocking it.
+- **Screenshots that show what 1.3.5 removed** — the store's iPhone `04-intelligence` and Mac `05-dark-assistant` / `10-light-assistant` show Ask Your Library or the old Assistant header, so they leave the 1.3.5 sets rather than mislead; the website's screenshots of the same need re-shooting with the sample collection alone.
 
 ---
 
@@ -395,25 +399,50 @@ What remains are **constraints of the providers and the platform**, not deferred
   - ✅ ~~*CI, the macOS app: the Test step stalls.*~~ Three tests held the
     runner's whole concurrency pool; they hold none of it now, and the suite
     runs to its end there (implemented.md §51.47).
-  - 🟠 *CI, the macOS app: nine tests fail on the runner's three cores* that
-    pass here on sixteen — `eachLabelIsDrawnByItsNode`,
-    `aSyncAfterARenameDoesNotBringTheOldNameBack`,
-    `aNoteMadeAgainWhileItsOldSaveIsParsedIsNotGivenIt`,
-    `aMovedNotesBackgroundTabStaysOpen`, `aMovedFoldersNotesKeepTheirTabs`,
-    `aLookThatLandsAfterClosingSaysNothing`,
-    `aKeystrokeSettlesOnceTypingPauses`,
-    `aCopyOpenInAnEditorIsNotWrittenUnderIt` (run 38208088777; the whole
-    output is the run's `test-run-macOS` artifact). Tests that wait a fixed
-    time or assume work elsewhere has finished. The nearest thing to the
-    runner here is a one-thread pool —
-    `TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 ./scripts/run-tests.sh`
-    — which fails eight, three of them the same. Until they are fixed the job
-    is red on every push, for a reason that is the tests' and not the app's.
-  - 🟡 *CI, the editor package:* `HeadingTypingTests` failed on the runner in
-    one run of three and passed in the two since. The position it reported is
-    a fragment at exactly y = 0 — one made and not yet placed (§51.46). Its
-    message says more now; read it the next time it fails before changing the
-    test.
+  - ✅ ~~*CI, the macOS app: eight tests fail on the runner that pass here.*~~
+    Five were one folder under two names — a defect of the app's, which an
+    iPhone's containers can meet — two were waits that gave up by the clock
+    (implemented.md §51.48, seven confirmed by a run on GitHub), and the
+    eighth read a picture in a way that holds only at two pixels a point
+    (§51.49) — all eight confirmed by runs on GitHub.
+  - ✅ ~~*CI, the macOS app: two more kept time* — a cancelled walk expected
+    back within five seconds, and a window's catch-up slept past.~~ Each asks
+    what happened now (implemented.md §51.49), and the suite has passed whole
+    on GitHub twice since (runs 38232186521, 38234811944); each had failed
+    one run in five.
+  - 🟡 *A one-thread pool still fails six tests*
+    (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`): the three
+    `SaveIndexingTests` that stage a save still parsing, and
+    `aSaveMadeWhileRelatednessIsBuiltReachesIt`, whose setups say "this tests
+    nothing" there; `aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt`, which
+    waits on the app's own timer while holding the only thread; and
+    `aLookThatLandsAfterClosingSaysNothing`, not woken while its look holds
+    it, for a reason not found (§51.48). Not the runner's conditions — but
+    the three that stage a save still parsing do it by the size of a note,
+    and nothing stops the runner finding that race over before it is looked
+    at. A way to hold one save's parse, as `availabilityProbes` holds a look
+    at a folder, would make them exact.
+  - 🟡 *Has the two-names defect been biting on devices?* §51.48 fixed a
+    collection holding one note under `/var/…` and `/private/var/…`. Nothing
+    here can run on a device to say whether a closed tab or an unselected note
+    there was this.
+  - ✅ ~~*CI, the editor package:* `HeadingTypingTests` fails on the runner
+    two runs in five.~~ It read the paragraph's place between the overlay
+    refresh and the layout pass that follows it, where the fragment has no
+    frame; the wait ends on a turn of the run loop now (implemented.md
+    §51.49). It has passed the three runs since; it had failed two in five.
+  - 🟡 *Provider calls still made with no deadline* (found by the review in
+    implemented.md §51.52; each pre-existing). `EditorModel.open`'s read of
+    the note (`Task.detached` → `FileIO.readString`, a coordinated read that
+    waits for the provider), `reconcileWithDisk`'s look at the file (on the
+    pool, per open tab, per change seen on disk) and `ToolContext.readContents`
+    each hold a pool thread for as long as a provider takes; and
+    `Collection.adopt(hydrated:)` asks `resourceValues` on the main actor.
+    The same lane-and-timer shape (`FileIO.waitForDownload`) would bound
+    them. Also latent there: `open` returning early at `flush()` leaves
+    `willOpen`'s "downloading" and "still loading" in place, and Keep Mine
+    would then keep mine beside the *new* note — unreachable while both
+    callers open into a fresh editor.
   - *Dictation has nowhere to say it failed.* `DictationController` records
     why a transcript reached no note (`lastError`) and keeps the transcript
     until the next recording, and no view reads either — the collection's own

@@ -262,7 +262,7 @@ struct MLXModelFolderTests {
         settings.choose(.mlx(wanted.id))
         #expect(settings.model == .mlx)
         #expect(store.chosenID == wanted.id)
-        #expect(models.title(of: settings.option(for: settings.model)) == "MLX · \(wanted.name)")
+        #expect(models.title(of: settings.option(for: settings.model)) == "Local (\(wanted.name))")
 
         // Every *other* model in the folder can be chosen, whatever the state of
         // the one in use — asking the store about the others disabled all of
@@ -372,6 +372,12 @@ struct TokenBudgetTests {
         #expect(short == "tiny" && !cutShort)
         let (long, cutLong) = TokenBudget.prefix(String(repeating: "para.\n\n", count: 1_000), tokens: 50)
         #expect(cutLong && TokenBudget.estimate(long) <= 50)
+        // An opening paragraph bigger than the budget is cut inside it — not
+        // dropped, leaving only what came before it.
+        let note = "# Title\n\n" + String(repeating: "word ", count: 500)
+        let (opening, cutOpening) = TokenBudget.prefix(note, tokens: 100)
+        #expect(cutOpening && note.hasPrefix(opening))
+        #expect(opening.count > 200 && TokenBudget.estimate(opening) <= 100, "\(opening.count) characters")
     }
 
     @Test func inputBudgetPaysForInstructionsReplyAndMargin() {
@@ -384,11 +390,9 @@ struct TokenBudgetTests {
     @Test func toolLimitsScaleWithTheWindow() {
         let small = ToolLimits(contextTokens: 8_192)
         let large = ToolLimits(contextTokens: 32_768)
-        #expect(small.readCharacters < large.readCharacters)
-        #expect(small.fetchCharacters < large.fetchCharacters)
-        #expect(small.listLimit < large.listLimit)
-        #expect(ToolLimits(contextTokens: 1_000_000).readCharacters == 40_000)
-        #expect(ToolLimits(contextTokens: 100).readCharacters == 2_000)
+        #expect(small.resultTokens < large.resultTokens)
+        #expect(small.fetchTokens < large.fetchTokens)
+        #expect(ToolLimits(contextTokens: 100).resultTokens == 500)
     }
 }
 
@@ -596,5 +600,97 @@ struct PrivateCloudComputeEntitlementTests {
         guard !LanguageModels.privateCloudComputeEnabled else { return }
         #expect(!LanguageModels.offeredChoices.contains(.privateCloud))
         #expect(LanguageModels.offeredChoices == [.onDevice, .mlx])
+    }
+
+    /// **The DMG is signed from the same file, less this one key.** Apple never
+    /// provisions Private Cloud Compute for Developer ID, so the direct-download
+    /// archive overrides `HN_APP_ENTITLEMENTS` with a copy that lacks it
+    /// (`docs/production.md` Appendix A2). That works only while the app target
+    /// names its entitlements through the setting — and by default names the
+    /// file the test above reads. Written back as a plain path, the override
+    /// would override nothing, and the release's export would fail.
+    @Test func theDirectDownloadCanBeSignedWithoutIt() throws {
+        let project = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes.xcodeproj/project.pbxproj"), encoding: .utf8)
+        func count(_ line: String) -> Int { project.components(separatedBy: line).count - 1 }
+        // The app target's Debug and Release, and no other target's.
+        #expect(count("CODE_SIGN_ENTITLEMENTS = \"$(HN_APP_ENTITLEMENTS)\";") == 2)
+        #expect(count("HN_APP_ENTITLEMENTS = HelloNotes/HelloNotes.entitlements;") == 2)
+        #expect(count("CODE_SIGN_ENTITLEMENTS = HelloNotes/HelloNotes.entitlements;") == 0)
+    }
+}
+
+/// What the app says once Private Cloud Compute is a choice. Each was found by
+/// fact-checking the manual against the source on the day it became one, in a
+/// string written while it could not be (implemented.md §51.54).
+@MainActor
+struct PrivateCloudComputeWordingTests {
+
+    /// **A model is never told to choose itself, or one that reads less.** The
+    /// "too long" errors named one list for every model, so Private Cloud
+    /// Compute — the largest window the app reaches — was told to choose
+    /// Private Cloud Compute, or an MLX model with half its window.
+    @Test func aModelIsNeverToldToChooseItselfOrASmallerOne() {
+        let enabled = LanguageModels.privateCloudComputeEnabled
+        #expect(LanguageModels.largerModels(than: .privateCloud) == nil)
+        #expect(LanguageModels.largerModels(than: .mlx)?.contains("MLX") != true)
+        #expect((LanguageModels.largerModels(than: .mlx) != nil) == enabled)
+        let fromSystem = LanguageModels.largerModels(than: .onDevice) ?? ""
+        #expect(fromSystem.contains("a local MLX model"))
+        #expect(fromSystem.contains("Cloud (Apple)") == enabled)
+        // Where the Assistant and Research name the models that can use tools.
+        #expect(LanguageModels.appleModels(joinedBy: "or").contains("Cloud (Apple)") == enabled)
+    }
+
+    /// **Every sentence that names other models calls the function.** When
+    /// `largerModels` became `largerModels(than:)`, one interpolation kept the
+    /// bare name — which Swift accepts as the function itself, so 1.3.4's
+    /// Assistant told people retired from an AI service they could choose
+    /// "(Function)". One compiler warning was the whole signal (§51.55).
+    @Test func noSentenceInterpolatesTheFunctionItself() throws {
+        let app = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes")
+        let files = try #require(FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil))
+        var found: [String] = []
+        for case let url as URL in files where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for match in text.matches(of: /LanguageModels\.(largerModels|appleModels)(?!\()/) {
+                found.append("\(url.lastPathComponent): …\(match.output.0)")
+            }
+        }
+        #expect(found.isEmpty, "named, not called: \(found)")
+    }
+
+    /// Suggestions as you type run only on a model on this device, so the line
+    /// saying what the model is for promises them only there.
+    @Test func suggestionsAsYouTypeArePromisedOnlyOnTheDevice() {
+        for choice in ModelChoice.allCases {
+            let uses = LanguageModels.uses(of: choice)
+            #expect(uses.contains("and the suggestions as you type") == choice.runsOnDevice,
+                    "\(choice): “\(uses)”")
+        }
+    }
+
+    /// **A conversation under way says what each message sends, on a model off
+    /// the device.** The Assistant said where text goes only on an empty
+    /// conversation, and one switched to Private Cloud Compute partway sends
+    /// everything before the switch with it.
+    @Test(.scratchDefaults) func aConversationOffTheDeviceSaysWhatEachMessageSends() throws {
+        let models = LanguageModels(mlx: MLXModelStore(defaults: ScratchDefaults.suite()))
+        for choice in ModelChoice.allCases {
+            #expect((models.conversationPrivacy(of: choice) == nil) == choice.runsOnDevice, "\(choice)")
+        }
+        let line = try #require(models.conversationPrivacy(of: .privateCloud))
+        #expect(line.contains("the conversation so far") && line.contains("your notes"))
+        // Apple's claim in the same words as the line under the picker.
+        let claim = "It isn't stored, and it isn't accessible to Apple."
+        #expect(models.privacySummary(of: .privateCloud).hasSuffix(claim))
+        #expect(line.hasSuffix(claim))
+        // And the Assistant draws it, once there is a conversation.
+        let assistant = try String(contentsOf: URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "HelloNotes/UI/Assistant/AssistantView.swift"), encoding: .utf8)
+        #expect(assistant.contains("if !model.entries.isEmpty, let line = models.conversationPrivacy(of: model.modelChoice)"))
     }
 }

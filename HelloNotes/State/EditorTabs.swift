@@ -113,8 +113,14 @@ final class EditorTabs {
     }
 
     func reconcileAll() async {
+        reconcilesInFlight += 1
+        defer { reconcilesInFlight -= 1 }
         for editor in editors { await editor.reconcileWithDisk() }
     }
+
+    /// Passes over the tabs under way — between two tabs none of them is
+    /// reconciling, and the pass is not over (`EditorModel.reconcilesInFlight`).
+    @ObservationIgnored private(set) var reconcilesInFlight = 0
 
     /// Drop tabs whose note no longer exists (deleted / renamed externally).
     ///

@@ -83,7 +83,11 @@ final class EditorModel {
             if path == from {
                 moved = new
             } else if path.hasPrefix(from + "/") {
-                moved = URL(fileURLWithPath: to + path.dropFirst(from.count))
+                // Under `new`'s own spelling, never the standardised path's:
+                // on an iPhone that is the folder's other name (`/var/…` for
+                // `/private/var/…`), and a tab holding it was a tab on a note
+                // the collection lists under neither.
+                moved = new.appending(path: String(path.dropFirst(from.count + 1)), directoryHint: .notDirectory)
             } else {
                 continue
             }
@@ -166,6 +170,12 @@ final class EditorModel {
     /// just show blank while a slow download runs.
     private(set) var isDownloading = false
 
+    /// How long opening waits for a note still in the cloud before saying it
+    /// has not come. A test makes it short; nothing else changes it.
+    @ObservationIgnored var downloadPatience: Duration = .seconds(60)
+    /// The file provider's calls — a test's stand-in, or the real ones.
+    @ObservationIgnored var provider: FileIO.ProviderCalls = .live
+
     /// Set when the note's contents could not be loaded — still downloading, or
     /// unreadable. **While this is set the editor never writes**, because the
     /// buffer is not the note: it is a blank standing in for content that was
@@ -187,6 +197,13 @@ final class EditorModel {
     /// each open. A count, so a second `open` (a retry during the first) is
     /// not unlocked when the first finishes.
     @ObservationIgnored private var loadsInFlight = 0
+
+    /// Reconciles with the disk under way. A reconcile reads the file off
+    /// the main actor, so one begun before a change on disk can land after
+    /// it; this is how a test knows none is still to land before it makes
+    /// the change it means to watch (`ExternalChangeTests`). Nothing in the
+    /// app reads it.
+    @ObservationIgnored private(set) var reconcilesInFlight = 0
 
     /// Increments after every successful write. Observers (e.g. the link graph)
     /// use it to know a note's contents changed on disk.
@@ -423,21 +440,44 @@ final class EditorModel {
             // empty baseline and the next save wrote that over the original.
             // `FileIO.hasContentAvailable` says so in as many words; the editor
             // was the one place not asking it.
-            // Off the main actor: for a File Provider's file this is a round
-            // trip to the provider (implemented.md §51.15, §51.36).
-            let online = await offMain { !FileIO.hasContentAvailable(note) }
-            isDownloading = online
+            // **Every wait here has an end** (implemented.md §51.51, §51.52).
+            // The banner shows at once for a note the folder's walk found was
+            // not here, and for any other once the provider is slow to say.
+            let known = note.isOnlineOnly
+            isDownloading = known
             // A cloud mirror's note fetched first: its cache holds a note it
             // has not downloaded as a placeholder of the note's name, and
             // reading that is reading an empty note. A no-op for a note already
-            // here, and for any other collection.
-            await prepareToOpen?(url)
-            if online {
-                let arrived = await FileIO.materialise(at: url)
+            // here, and for any other collection — and waited for no longer
+            // than a download is: a fetch the network trickles was a banner
+            // with no end too.
+            if let prepareToOpen, !(await finishes(within: downloadPatience, { await prepareToOpen(url) })) {
                 isDownloading = false
-                if !arrived {
+                loadFailure = "“\(note.title)” is still on its way from the cloud — try again in a moment."
+            } else {
+                // Asked of every note, through the wait that has a deadline:
+                // for a File Provider's file each question is a round trip to
+                // the provider (§51.15, §51.36), and asked on the pool, for a
+                // note the walk had found here, one that never came back left
+                // an empty tab — no banner, no deadline, and typing refused.
+                let saying = Task { [weak self] in
+                    try? await Task.sleep(for: AttachmentBytes.quiet)
+                    guard !Task.isCancelled, let self else { return }
+                    self.isDownloading = true
+                }
+                let wait = await FileIO.waitForDownload(at: url, timeout: downloadPatience, using: provider)
+                saying.cancel()
+                isDownloading = false
+                switch wait {
+                case .arrived:
+                    break
+                case .notYet:
                     loadFailure = "“\(note.title)” hasn’t finished downloading from the cloud. "
                                 + "It will open once the download completes."
+                case .noAnswer:
+                    // Said differently, so the next report says which wait it was.
+                    loadFailure = "“\(note.title)” hasn’t come from the cloud — its provider didn’t answer "
+                                + "when asked for it. It will open once it arrives."
                 }
             }
             // **A placeholder is not the note** — here because the fetch
@@ -452,7 +492,7 @@ final class EditorModel {
             // Arrived — which a placeholder has not, however the file system
             // answers for the empty file standing in for it: told that, the
             // collection took the note's cloud badge off its row.
-            if online, loadFailure == nil { onBecameAvailable?(url) }
+            if known, loadFailure == nil { onBecameAvailable?(url) }
             if loadFailure == nil {
                 // Read off the main actor so opening a large note never stalls the UI.
                 let outcome = await Task.detached(priority: .userInitiated) {
@@ -625,6 +665,8 @@ final class EditorModel {
     /// externally and our buffer is clean, silently reload it. If the buffer
     /// has unsaved edits, raise a conflict for the user to resolve.
     func reconcileWithDisk() async {
+        reconcilesInFlight += 1
+        defer { reconcilesInFlight -= 1 }
         guard let url = note?.fileURL else { return }
         // A load under way reads the file itself. Checked now, it would be
         // compared with the baseline of whatever the buffer held before — the

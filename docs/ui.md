@@ -1,5 +1,5 @@
 ---
-status: CURRENT (2026-10-09). The top-level UI design. It incorporates
+status: CURRENT (2026-10-09; the collection's tools from source for 1.3.5, 2026-10-19). The top-level UI design. It incorporates
 `layout-architecture.md` (2026-08-11), whose sizing contract, personas and
 decisions live here now, renumbered only where noted, and corrected to what is
 built. The component documents below carry the detail. `shell-chrome.md` stays
@@ -79,7 +79,7 @@ here first.
 3. **One row of chrome, ever** (D1). No panel adds a row beneath the bar.
 4. **Each command is in one place, and the place says what it is about** (D13,
    amending D8's "no command in the sidebar"; D14). The collection's commands
-   are the sidebar's — its tools (Mind Map, Assistant, Ask Your Library, Git)
+   are the sidebar's — its tools (Mind Map, Assistant, Git)
    as named rows above the tree, and making and opening (New Folder, New
    Collection, Open Collection, Open Recent, Open Default Collection) under the
    `+` in its header, beside its own toggle; the notes' are the bar's three
@@ -593,9 +593,9 @@ uses has not been checked.) A note window's bar draws its note's title.
 and the Assistant used to be windows on the Mac and sheets on iOS. On iPadOS a
 scene *replaces* the notes in full screen and in Split View, and closing one
 left the app. The Graph is a view of the right panel — the open note's links in
-and out — and the Mind Map, Ask Your Library and the Assistant are the
-collection's, opened from the sidebar (on a phone, the Notes place's rows) as
-tabs beside the notes (D13).
+and out — and the Mind Map and the Assistant (which Ask Library was folded
+into in 1.3.5) are the collection's, opened from the sidebar (on a phone, the
+Notes place's rows) as tabs beside the notes (D13).
 
 ### 9.2 Presentations
 
@@ -778,7 +778,7 @@ The component documents list their own. These cut across them.
 | **Primary sidebar** | The left column, or the band in the tall shell ([primary.md](primary.md)) |
 | **Band** | The primary sidebar laid across the top of a tall window, in two panes |
 | **Panel** / **secondary sidebar** | The right column that shows one of the open note's six views ([secondary.md](secondary.md)). Called the inspector in older code |
-| **Tool tab** | One of the collection's tools — the Mind Map, the Assistant, Ask Your Library — open as a tab beside the notes (`CollectionTool`) |
+| **Tool tab** | One of the collection's tools — the Mind Map or the Assistant — open as a tab beside the notes (`CollectionTool`) |
 | **Pane** | The editor's column. There is one; L2 would allow more |
 | **Bar** | A 40pt row the app draws. *The* bar, or shell bar, is the one over the editor ([toolbars.md](toolbars.md)) |
 | **Status bar** | The 44pt strip under the editor, or under the empty editor |

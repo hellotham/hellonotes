@@ -4,9 +4,9 @@
 //
 //  Created by Chris Tham on 13/7/2026.
 //
-//  The macOS menu bar. The main window publishes its actions through a focused
-//  scene value (`AppActions`), so every command below targets whichever window
-//  is frontmost and greys out when it doesn't apply. This is the app's primary
+//  The menu bar, on the Mac and on iPad. The main window publishes its actions
+//  through a focused scene value (`AppActions`), so every command below
+//  targets whichever window is frontmost and greys out when it doesn't apply. This is the app's primary
 //  discoverability surface: every major feature lives here with its shortcut.
 //
 
@@ -265,8 +265,6 @@ struct AppActions {
     /// The links across the sidebar's collection, as a tab: needs notes.
     var canMindMap: Bool
     var mindMap: () -> Void
-    var canAsk: Bool
-    var askLibrary: () -> Void
     var assistant: () -> Void
     /// Close the active editor tab. Enabled only when more than one tab is
     /// open, so ⌘W falls through to the standard window Close otherwise.
@@ -700,9 +698,10 @@ struct HelloNotesCommands: Commands {
             Button("Copy Wiki Link") { actions?.note?.copyWikiLink() }
                 .disabled(actions?.note == nil)
             // Not a Mac desktop concept after all: iPadOS makes a second scene
-            // from the same `openWindow(value:)` call, and `iOSNoteWindowView`
-            // now fills it. Disabled on the optional rather than gated on the
-            // platform, so the item follows the capability instead of the OS.
+            // from the same `openWindow(value:)` call, and `NoteWindowView`
+            // fills it on both platforms. Disabled on the optional rather than
+            // gated on the platform, so the item follows the capability
+            // instead of the OS.
             Button("Open in New Window") { actions?.note?.openInNewWindow?() }
                 .disabled(actions?.note?.openInNewWindow == nil)
             // One command on both platforms. It was gated to macOS on the
@@ -785,9 +784,6 @@ struct HelloNotesCommands: Commands {
             Button("Mind Map") { actions?.mindMap() }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
                 .disabled(!(actions?.canMindMap ?? false))
-            Button("Ask Your Library") { actions?.askLibrary() }
-                .keyboardShortcut("j", modifiers: [.command, .shift])
-                .disabled(!(actions?.canAsk ?? false))
             Button("Assistant") { actions?.assistant() }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(actions == nil)

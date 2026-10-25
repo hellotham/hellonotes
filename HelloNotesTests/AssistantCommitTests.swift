@@ -218,8 +218,8 @@ struct AssistantCommitTests {
         let deleting = Task { @MainActor () -> Result<String, Error> in
             do { return .success(try await context.deleteNote("Kept")) } catch { return .failure(error) }
         }
-        let deadline = ContinuousClock.now + .seconds(10)
-        while context.permissions.prompt == nil, ContinuousClock.now < deadline {
+        var patience = Waits.Patience(.seconds(10))
+        while context.permissions.prompt == nil, patience.lasts {
             try await Task.sleep(for: .milliseconds(10))
         }
         try #require(context.permissions.prompt?.diff?.isDeletion == true, "the delete was never asked about")

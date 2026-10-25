@@ -66,9 +66,52 @@ nonisolated enum TokenBudget {
 
     /// The longest leading part of `text` within `tokens`, cut at the most
     /// natural boundary available, and whether anything was cut.
+    ///
+    /// Whole paragraphs while they fit, then as much of the first that doesn't
+    /// as fits, at its lines, sentences or words. It was the first of `chunks`
+    /// — which closes a chunk before a paragraph too big for one — so a note
+    /// whose opening paragraph was longer than the budget came back as its
+    /// title alone: a read showed nothing, and tags were suggested from
+    /// nothing. Always an exact prefix of `text`.
     static func prefix(_ text: String, tokens: Int) -> (text: String, truncated: Bool) {
-        let parts = chunks(text, tokens: tokens)
-        return (parts.first ?? "", parts.count > 1)
+        guard estimate(text) > tokens else { return (text, false) }
+        guard tokens > 0 else { return ("", true) }
+        return (longestPrefix(text, tokens: tokens, separators: ["\n\n", "\n", ". ", "。", "！", "？", " "][...]), true)
+    }
+
+    private static func longestPrefix(_ text: String, tokens: Int, separators: ArraySlice<String>) -> String {
+        guard let separator = separators.first else { return hardPrefix(text, tokens: tokens) }
+        let pieces = text.components(separatedBy: separator)
+        guard pieces.count > 1 else { return longestPrefix(text, tokens: tokens, separators: separators.dropFirst()) }
+        var kept = ""
+        var used = 0
+        for (index, piece) in pieces.enumerated() {
+            let joint = index == 0 ? "" : separator
+            let cost = estimate(joint + piece)
+            if used + cost <= tokens {
+                kept += joint + piece
+                used += cost
+                continue
+            }
+            let left = tokens - used - estimate(joint)
+            if left > 0 {
+                let part = longestPrefix(piece, tokens: left, separators: separators.dropFirst())
+                if !part.isEmpty { kept += joint + part }
+            }
+            break
+        }
+        return kept
+    }
+
+    /// A run with no boundary in it, cut where the budget runs out.
+    private static func hardPrefix(_ text: String, tokens: Int) -> String {
+        var low = 0
+        var high = text.count
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if estimate(String(text.prefix(middle))) <= tokens { low = middle } else { high = middle - 1 }
+        }
+        return String(text.prefix(low))
     }
 
     /// `text` in order, split into pieces of at most `tokens` each.

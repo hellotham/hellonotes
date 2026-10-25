@@ -23,14 +23,15 @@ under **General**.
 
 ## AI
 
-Choose the model — System, or any MLX model in your models folder — with a line
-saying where your text goes. Every model the app can run is in that one picker,
-so choosing a model is choosing it: one choice for everything the app does with
-AI.
+Choose the **Default model** — Local (Apple), Cloud (Apple) in the App Store
+version, or any MLX model in your models folder as Local (*its name*) — with a
+line saying where your text goes. Every model the app can run is in that one
+picker. The writing tools and Research use it, and so does the Assistant, whose
+menu can choose another for one conversation.
 
 The models folder is HelloNotes' own storage until you point it elsewhere. On
 a Mac, **Access MLX Models…** opens your Hugging Face cache — one click on
-**Open** allows it, and the models already there are listed. Use or remove the
+**Allow** allows it, and the models already there are listed. Use or remove the
 models in it, or download one by its Hugging Face name.
 
 Under **Assistant** are the model's own settings, as the Foundation Models

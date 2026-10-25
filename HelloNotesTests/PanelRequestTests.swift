@@ -41,7 +41,7 @@ struct PanelRequestTests {
         var body: some View {
             if host.shown {
                 NoteInspector(editor: editor, onSelectHeading: { _, _ in },
-                              summarize: { _ in host.summaries += 1; return "A summary." },
+                              summarize: { _ in host.summaries += 1; return ("A summary.", ModelStamp(choice: .onDevice, name: "Local (Apple)")) },
                               allTags: [], selectedTag: .constant(nil),
                               backlinks: [], outgoingLinks: [], unlinkedMentions: [],
                               onOpenNote: { _ in }, onLinkMention: { _ in },
@@ -77,8 +77,8 @@ struct PanelRequestTests {
     #endif
 
     private func until(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        var patience = Waits.Patience(.seconds(10))
+        while !condition(), patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
     }
 
     @Test(.scratchDefaults) func aPanelThatAppearsHoldingARequestRunsIt() async throws {

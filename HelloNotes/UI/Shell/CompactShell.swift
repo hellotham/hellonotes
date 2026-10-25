@@ -38,7 +38,8 @@ import SwiftUI
 /// one of them — it is the now-playing track, not a destination.
 ///
 /// The AI place is decision 7's fourth tab. It used to be absent, with the
-/// reason written here: the Assistant and Ask Library views were macOS-only, and
+/// reason written here: the Assistant and Ask Library (now part of the
+/// Assistant) views were macOS-only, and
 /// a tab that led nowhere would be worse than no tab. That reason expired when
 /// 1.3 brought both to iOS — the comment outlived the constraint it described,
 /// which is the ordinary way a documented gap becomes a stale one.
@@ -137,7 +138,7 @@ struct CompactShell<Places: View, Editor: View>: View {
             .padding(.horizontal, 14)
             .frame(height: ShellMetrics.miniStrip)
             .frame(maxWidth: .infinity)
-            .background(Chrome.Colour.chrome)
+            .chromeBackground()
             .overlay(alignment: .top) { ChromeDivider() }
             .contentShape(.rect)
         }
@@ -179,7 +180,7 @@ struct CompactShell<Places: View, Editor: View>: View {
             }
             .padding(.horizontal, Chrome.Metric.barPadding)
             .frame(height: Chrome.Metric.barHeight)
-            .background(Chrome.Colour.chrome)
+            .chromeBackground()
             .overlay(alignment: .bottom) { ChromeDivider() }
             editor()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -217,7 +218,7 @@ struct CompactTabBar: View {
             }
         }
         .frame(height: ShellMetrics.bottomTabBar)
-        .background(Chrome.Colour.chrome.ignoresSafeArea(edges: .bottom))
+        .chromeBackground()
         .overlay(alignment: .top) { ChromeDivider() }
     }
 }
@@ -251,7 +252,7 @@ struct CompactPlaceBar<Trailing: View>: View {
         // of the screen long (seen shooting the 1.3.3 store screenshots).
         .frame(maxWidth: .infinity)
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .bottom) { ChromeDivider() }
     }
 }

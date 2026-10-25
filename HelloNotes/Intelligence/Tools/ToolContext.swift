@@ -51,6 +51,112 @@
 //
 
 import Foundation
+import FoundationModels
+
+/// How much of the window a turn has left, in tokens, for a tool shaping its
+/// result — an Assistant conversation's turn, or one of Research's questions,
+/// each in a session of its own. Querying notes is what the Assistant is for,
+/// so a note's result takes **all of the room there is**: older turns make way
+/// (`HistoryWindow.fit` keeps the newest whole turns and summarises the rest),
+/// and what stays is the instructions, the reply's reserve — both outside
+/// `budget` — the message, and what the turn's tools have already returned. A
+/// web page or a list of search results takes no more than its own cap
+/// (`reserve`), so the notes keep the rest.
+///
+/// **Results asked for together share it.** The model may ask for several
+/// tools in one step; the framework runs them at once and adds their results
+/// to the transcript when all are done, so a result measured against the
+/// transcript alone cannot see its siblings, and two searches would each take
+/// all of it — and fail the request together. Each takes its part here as it
+/// is shaped, measured and taken on the main actor with nothing in between:
+/// a call on its own gets everything left, and of several, each gets an even
+/// part of what the ones before it left. When the step's results land in the
+/// transcript, or another turn begins, the count starts again from it.
+@MainActor final class TurnRoom {
+    /// What the turn's transcript holds now, how many tools its latest step
+    /// asked for, and where the turn began. The start is what tells two turns
+    /// of one shape apart: a room lives as long as its session, and the next
+    /// question the same size as the last inherited its spent room — "No room
+    /// is left" before anything had been read.
+    nonisolated struct Held: Equatable, Sendable {
+        var tokens: Int
+        var calls: Int
+        var turnStart: Int
+
+        /// A session with no turn in it yet.
+        static let empty = Held(tokens: 0, calls: 0, turnStart: 0)
+    }
+
+    /// The share of the window the turn's message and results have
+    /// (`budget(window:fixedTokens:)`).
+    var budget: Int
+    private let held: () -> Held
+    private var seen: Held?
+    private var pending = 0
+    private var answered = 0
+
+    init(budget: Int, held: @escaping () -> Held) {
+        self.budget = budget
+        self.held = held
+    }
+
+    /// A result's part of what is left now.
+    func share() -> Int {
+        let now = held()
+        if now != seen {
+            seen = now
+            pending = 0
+            answered = 0
+        }
+        let left = budget - now.tokens - pending - max(200, budget / 25)
+        return max(0, left) / max(1, now.calls - answered)
+    }
+
+    /// Count a result of `tokens` as taken.
+    func take(_ tokens: Int) {
+        pending += tokens
+        answered += 1
+    }
+
+    /// Reserve a result's part of `room` before the work that makes it — at
+    /// most `tokens` — so a sibling shaped meanwhile sees what is left without
+    /// it: a web page's cap, say, which the turn's notes need the rest of.
+    /// `nil` when the turn has no room left (`ToolContext.share`), which the
+    /// tool says rather than sending a result past the window. Without a room,
+    /// `tokens`.
+    static func reserve(_ tokens: Int, from room: TurnRoom?) -> Int? {
+        guard let share = ToolContext.share(of: tokens, room: room) else { return nil }
+        let part = min(tokens, share)
+        room?.take(part)
+        return part
+    }
+
+    /// What `transcript`'s latest turn holds — from its last prompt on — how
+    /// many tools its latest step asked for, and where it began: the measure
+    /// for every session a room is kept for, an Assistant conversation's and
+    /// each of Research's.
+    nonisolated static func held(in transcript: some Sequence<Transcript.Entry>) -> Held {
+        let entries = Array(transcript)
+        guard let start = entries.lastIndex(where: { entry in
+            if case .prompt = entry { return true }
+            return false
+        }) else { return .empty }
+        var held = Held(tokens: 0, calls: 0, turnStart: start)
+        for entry in entries[start...] {
+            held.tokens += HistoryWindow.estimate(entry)
+            if case .toolCalls(let step) = entry { held.calls = Array(step).count }
+        }
+        return held
+    }
+
+    /// The share of a `window` a turn's message and results have, once the
+    /// session's instructions and tool definitions (`fixedTokens`) and the
+    /// reply's reserve are out of it.
+    nonisolated static func budget(window: Int, fixedTokens: Int) -> Int {
+        let replyReserve = min(2_048, window / 4)
+        return max(512, window - fixedTokens - replyReserve - window / 20)
+    }
+}
 
 @MainActor
 final class ToolContext {
@@ -60,6 +166,10 @@ final class ToolContext {
     let permissions: PermissionBroker
     /// For tools that start sessions of their own (deep research).
     var settings: IntelligenceSettings?
+    /// The model the conversation using these tools runs on, which a tool that
+    /// starts sessions of its own runs on too. Set by the Assistant as it
+    /// builds each session; `nil` is the Settings default.
+    var modelChoice: ModelOption?
     /// The collection's `SKILL.md` files (`load_skill`).
     var skills: SkillStore?
 
@@ -172,27 +282,65 @@ final class ToolContext {
 
     // MARK: - Reading
 
-    func listNotes(limit: Int) -> String {
+    /// Every note's title and path — as many as fit (`share(of:room:)`).
+    func listNotes(tokens: Int, room: TurnRoom? = nil) -> String {
         let all = notes
         guard !all.isEmpty else { return "The collection is empty." }
-        let shown = all.prefix(max(1, limit))
-        var lines = shown.map { "- \($0.title)  (\(relativePath($0)))" }
-        if all.count > shown.count {
-            lines.append("… and \(all.count - shown.count) more. Use search_notes to find a specific note.")
+        let lines = all.map { "- \($0.title)  (\(relativePath($0)))" }
+        guard let tokens = Self.share(of: tokens, room: room) else { return Self.noRoom }
+        let shown = Self.fitting(lines, tokens: tokens)
+        var text = lines.prefix(shown).joined(separator: "\n")
+        if shown < lines.count {
+            text += "\n… and \(lines.count - shown) more. Use search_notes to find a specific note."
         }
-        return lines.joined(separator: "\n")
+        room?.take(TokenBudget.estimate(text))
+        return text
     }
 
-    func readNote(_ query: String, maxCharacters: Int) async throws -> String {
+    /// A note's Markdown — from the top, or from one of its sections.
+    ///
+    /// **A long note was half-blind.** This read the note's opening, up to the
+    /// window's share, and said only how much more there was: nothing could
+    /// read past it, so a fact near the end of a long note was one the model
+    /// truthfully could not find. Now a cut says which sections lie past it,
+    /// and `section` reads from any of them.
+    func readNote(_ query: String, tokens: Int, section: String? = nil, room: TurnRoom? = nil) async throws -> String {
         let note = try require(query)
+        // Taken before the read, not after: a sibling shaped while this one
+        // reads sees what is left without it.
+        guard let tokens = Self.share(of: tokens, room: room) else { return Self.noRoom }
+        room?.take(tokens)
         let body = try await readContents(of: note)
-        let shown = body.count > maxCharacters
-            ? String(body.prefix(maxCharacters)) + "\n… (truncated: \(body.count - maxCharacters) more characters)"
-            : body
-        return "# \(note.title)  (\(relativePath(note)))\n\n\(shown)"
+        let wanted = section?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = note.title
+        let shown = try await offMain { () throws -> String in
+            var start = body.startIndex
+            if !wanted.isEmpty {
+                guard let found = NoteSections.start(of: wanted, in: body) else {
+                    let names = NoteSections.titles(in: body).prefix(40)
+                    throw ToolError.failed("“\(title)” has no section “\(wanted)”. Its sections: "
+                        + (names.isEmpty ? "none." : names.joined(separator: "; ") + "."))
+                }
+                start = found
+            }
+            let rest = String(body[start...])
+            // Cut as a model counts: three characters a token is a Chinese
+            // note read three times over its share.
+            let (kept, cut) = TokenBudget.prefix(rest, tokens: max(100, tokens - 80))
+            guard cut else { return rest }
+            let later = NoteSections.titles(in: String(rest.dropFirst(kept.count))).prefix(30)
+            return kept + "\n… (truncated: \(rest.count - kept.count) more characters"
+                + (later.isEmpty ? ")" : ". Later sections: \(later.joined(separator: "; ")) — read one by passing its name as `section`)")
+        }
+        let from = wanted.isEmpty ? "" : ", from “\(wanted)”"
+        return "# \(title)  (\(relativePath(note))\(from))\n\n\(shown)"
     }
 
-    func searchNotes(_ query: String, limit: Int) async -> String {
+    /// Every note that matches `query`, best first — as many as fit in
+    /// `tokens`, measured as a model counts them (`TokenBudget`), and the
+    /// count of the rest, so a model given part of the list never takes it
+    /// for the whole.
+    func searchNotes(_ query: String, tokens: Int, room: TurnRoom? = nil) async -> String {
         var found = await search.fullTextResults(query: query)
         // Titles from the collection's own list as well. The index holds only
         // the notes it has read — none until the rebuild that opening a
@@ -208,12 +356,62 @@ final class ToolContext {
             }
             found += byTitle.map { SearchHit(note: $0, snippet: "") }
         }
-        let hits = found.prefix(max(1, limit))
-        guard !hits.isEmpty else { return "No notes matched “\(query)”." }
-        return hits.map { hit in
+        guard !found.isEmpty else { return "No notes matched “\(query)”." }
+        let lines = found.map { hit in
             let snippet = hit.snippet.replacingOccurrences(of: "\n", with: " ")
             return "- \(hit.note.title)  (\(relativePath(hit.note)))\n  \(snippet)"
-        }.joined(separator: "\n")
+        }
+        // Measured, packed and taken with nothing in between, so results
+        // asked for together share the room rather than each take all of it.
+        guard let tokens = Self.share(of: tokens, room: room) else { return Self.noRoom }
+        let shown = Self.fitting(lines, tokens: tokens)
+        var text = lines.prefix(shown).joined(separator: "\n")
+        if shown < lines.count {
+            text += "\n… and \(lines.count - shown) more notes matched that don't fit here. Search with more words to narrow it."
+        }
+        room?.take(TokenBudget.estimate(text))
+        return text
+    }
+
+    /// What a result may take: its part of the turn's room in a conversation
+    /// (`TurnRoom.share`), or `tokens`, the window's share, outside one —
+    /// `nil` when a conversation has no room left, which is said rather than
+    /// sent past the window, where the whole request would fail.
+    static func share(of tokens: Int, room: TurnRoom?) -> Int? {
+        guard let room else { return tokens }
+        let share = room.share()
+        guard share >= 120 else {
+            room.take(40)
+            return nil
+        }
+        return share
+    }
+
+    nonisolated static let noRoom = "No room is left in this conversation for more results this turn. Answer from what you have read, and say what is left to look at."
+
+    /// A matching line as a result shows it: whole, or — past 400 characters,
+    /// a long paragraph's worth — the stretch around the match. A line is
+    /// where `read_note` can be asked to read from, not the reading, and one
+    /// line longer than the turn's room was sent whole (`fitting` keeps one).
+    nonisolated static func excerpt(_ line: Substring, around needle: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count > 400 else { return trimmed }
+        let lower = trimmed.lowercased()
+        let offset = lower.range(of: needle).map { lower.distance(from: lower.startIndex, to: $0.lowerBound) } ?? 0
+        let start = max(0, min(offset - 150, trimmed.count - 400))
+        let from = trimmed.index(trimmed.startIndex, offsetBy: start)
+        let to = trimmed.index(from, offsetBy: 400)
+        return (start > 0 ? "…" : "") + trimmed[from..<to] + (to < trimmed.endIndex ? "…" : "")
+    }
+
+    /// How many of `lines`, from the first, fit in `tokens` — at least one.
+    nonisolated static func fitting(_ lines: [String], tokens: Int) -> Int {
+        var used = 0
+        for (index, line) in lines.enumerated() {
+            used += TokenBudget.estimate(line) + 1
+            if used > tokens { return max(1, index) }
+        }
+        return lines.count
     }
 
     /// Lines containing `pattern`, across every note. The reads happen off the
@@ -224,19 +422,36 @@ final class ToolContext {
     /// makes several at once — would pull a whole cloud vault local. The result
     /// says how many were left out, so the model doesn't take "no matches" as
     /// the whole answer.
-    func grep(_ pattern: String, limit: Int) async -> String {
+    func grep(_ pattern: String, tokens: Int, room: TurnRoom? = nil) async -> String {
         let needle = pattern.lowercased()
         let targets = notes
         let notOnDevice = targets.filter(\.isOnlineOnly).count
-        let limit = max(1, limit)
+        // A turn with no room left is told so before a scan, not after one.
+        if let room, room.share() < 120 { return Self.noRoom }
+        // A bound on the scan, not on the result: past it, the line count is
+        // only a floor, and says so. More lines than this never fit a window.
+        let limit = 2_000
         let found = await offMain { () -> [String] in
             var out: [String] = []
             for target in targets {
                 guard FileIO.hasContentAvailable(target),
-                      let text = try? FileIO.readString(at: target.fileURL) else { continue }
-                for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
-                where line.lowercased().contains(needle) {
-                    out.append("\(target.title):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
+                      let text = try? FileIO.readString(at: target.fileURL),
+                      // A note without the text is passed over whole, not
+                      // lowered a line at a time.
+                      text.lowercased().contains(needle) else { continue }
+                // Where each match is, as well as what: the section a line is
+                // under is what `read_note` can be asked to read from.
+                var heading: String?
+                var inFence = false
+                // At any line break — a note saved on Windows ends its lines
+                // with "\r\n", which is one Character, never "\n", so the
+                // whole note was one line.
+                for (i, line) in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).enumerated() {
+                    if line.hasPrefix("```") || line.hasPrefix("~~~") { inFence.toggle() }
+                    if !inFence, let title = NoteSections.title(ofHeadingLine: line) { heading = title }
+                    guard line.lowercased().contains(needle) else { continue }
+                    let place = heading.map { "\(target.title) › \($0)" } ?? target.title
+                    out.append("\(place):\(i + 1): \(ToolContext.excerpt(line, around: needle))")
                     if out.count > limit { return out }
                 }
             }
@@ -246,10 +461,17 @@ final class ToolContext {
             ? "\n(\(notOnDevice) notes that haven't downloaded to this device weren't searched.)"
             : ""
         guard !found.isEmpty else { return "No matches for “\(pattern)”." + skipped }
-        if found.count > limit {
-            return found.prefix(limit).joined(separator: "\n") + "\n… (stopped at \(limit) matches)" + skipped
+        guard let tokens = Self.share(of: tokens, room: room) else { return Self.noRoom }
+        let lines = Array(found.prefix(limit))
+        let shown = Self.fitting(lines, tokens: tokens)
+        var text = lines.prefix(shown).joined(separator: "\n")
+        if shown < found.count {
+            let more = found.count > limit ? "\(found.count - shown - 1) or more" : "\(found.count - shown)"
+            text += "\n… and \(more) more matching lines that don't fit here. Look for something more exact to narrow it."
         }
-        return found.joined(separator: "\n") + skipped
+        text += skipped
+        room?.take(TokenBudget.estimate(text))
+        return text
     }
 
     func loadSkill(_ name: String) throws -> String {
@@ -537,5 +759,61 @@ nonisolated enum EditReplacement {
         }
         guard let start, let end else { return nil }
         return start..<end
+    }
+}
+
+/// A note's sections, by its Markdown headings — outside fenced code, where a
+/// `#` is a comment, not a heading.
+nonisolated enum NoteSections {
+    /// "Plans" for a line "## Plans", nil for any other line.
+    ///
+    /// A closing run of `#`s is the heading's own only after a space, as in
+    /// CommonMark: "## Notes ###" is "Notes", and "## C#" is about C# — every
+    /// `#` at the end was trimmed, so it was "C", and `read_note` could not be
+    /// asked for the section by the name it lists.
+    static func title(ofHeadingLine line: Substring) -> String? {
+        let hashes = line.prefix { $0 == "#" }
+        guard (1...6).contains(hashes.count), line.dropFirst(hashes.count).first == " " else { return nil }
+        var title = line.dropFirst(hashes.count).trimmingCharacters(in: .whitespaces)
+        if let last = title.lastIndex(where: { $0 != "#" }) {
+            if title[last].isWhitespace { title = title[..<last].trimmingCharacters(in: .whitespaces) }
+        } else {
+            title = ""
+        }
+        return title.isEmpty ? nil : title
+    }
+
+    /// Every heading's title, in order.
+    static func titles(in text: String) -> [String] {
+        var out: [String] = []
+        var inFence = false
+        // At any line break, "\r\n" among them (`ToolContext.grep`).
+        for line in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            if line.hasPrefix("```") || line.hasPrefix("~~~") { inFence.toggle(); continue }
+            if !inFence, let title = title(ofHeadingLine: line) { out.append(title) }
+        }
+        return out
+    }
+
+    /// Where the section named `name` begins: the heading that is `name`
+    /// (ignoring case and its `#`s), or failing that the first that contains it.
+    static func start(of name: String, in text: String) -> String.Index? {
+        let wanted = name.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased()
+        guard !wanted.isEmpty else { return nil }
+        var contains: String.Index?
+        var inFence = false
+        var lineStart = text.startIndex
+        while lineStart < text.endIndex {
+            let lineEnd = text[lineStart...].firstIndex(where: \.isNewline) ?? text.endIndex
+            let line = text[lineStart..<lineEnd]
+            if line.hasPrefix("```") || line.hasPrefix("~~~") {
+                inFence.toggle()
+            } else if !inFence, let title = title(ofHeadingLine: line)?.lowercased() {
+                if title == wanted { return lineStart }
+                if contains == nil, title.contains(wanted) { contains = lineStart }
+            }
+            lineStart = lineEnd < text.endIndex ? text.index(after: lineEnd) : text.endIndex
+        }
+        return contains
     }
 }

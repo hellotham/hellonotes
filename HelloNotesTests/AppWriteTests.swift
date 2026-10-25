@@ -50,9 +50,9 @@ struct AppWriteTests {
     /// save is a task away from whatever starts it, and the rest of the suite
     /// can hold the main actor for seconds at a time.
     private func file(at url: URL, until holds: (String) -> Bool) async -> String {
-        let deadline = ContinuousClock.now + .seconds(10)
+        var patience = Waits.Patience(.seconds(10))
         var text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        while !holds(text), ContinuousClock.now < deadline {
+        while !holds(text), patience.lasts {
             try? await Task.sleep(for: .milliseconds(20))
             text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         }

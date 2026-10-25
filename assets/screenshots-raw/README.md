@@ -27,7 +27,11 @@ one of them costs anybody anything to redo.
 
 The two simulator sets are reshootable headlessly and cost nobody their screen;
 the Mac set needs the author's machine, an unlocked screen and a loaded
-collection, and is the one that has already been lost once.
+collection, and is the one that has already been lost once. Since 1.3.5 it is
+`scripts/store-shots-mac.sh`: a capture session of the shipping sample, the
+five scenes in light and dark, about ten minutes with the screen taken — filed
+here as `light_0N`/`dark_0N` and into `dist/Screenshots-macOS` under the
+store's names, with everything it moved aside put back.
 
 **Shoot from `DefaultCollection`.** It ships *inside the binary* — it is the
 tour and the user manual, copied into the app's container on first launch — so

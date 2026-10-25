@@ -1,5 +1,5 @@
 ---
-status: CURRENT (2026-10-09). Describes the right panel as built, the rules it
+status: CURRENT (2026-10-09; the collection's tools and the AI place from source for 1.3.5, 2026-10-19). Describes the right panel as built, the rules it
 follows and its open defects (§9). Decision record: `shell-chrome.md` D6, D6a,
 D7, D13; decisions L1, L8, L10 and L16 in `ui.md` §11. Overview: `ui.md`.
 ---
@@ -12,7 +12,8 @@ answers **"what is this, and what touches it?"**, where the primary sidebar
 answers "where is it, and what is the collection?" ([primary.md](primary.md)).
 Older code calls it the inspector or the rail. The collection's tools — the
 Mind Map, Ask Library, the Assistant — were views of it until D13; they open as
-tabs beside the notes now (§6).
+tabs beside the notes now (§6), and since 1.3.5 Ask Library is part of the
+Assistant.
 
 ---
 
@@ -97,8 +98,8 @@ open still draws.
 - **Close panel** (`xmark.circle.fill`) at the trailing end. It is the
   **cancel action** only where the panel is carried over the note — a phone's
   width — so Escape closes it there; as a column it does not take Escape,
-  which belongs to the find bar's Done and the approval card's Deny (§9,
-  item 8; `SidePanel.escapeCloses`).
+  which belongs to the find bar's Done — and belonged to the Assistant
+  approval card's Deny until 1.3.5 (§9, item 8; `SidePanel.escapeCloses`).
 
 ---
 
@@ -226,16 +227,15 @@ out.").
 
 The collection's tools open in the middle of the window as **tabs beside the
 notes** (`CollectionTool`, `ToolTabs`), from the sidebar's rows
-([primary.md](primary.md)), the View menu (⇧⌘M, ⇧⌘J, ⇧⌘A), the command palette,
-a selection's Ask Your Library, and on a phone the AI place and the Notes
-place's ⋯. Choosing a note puts them behind it; closing the one in front shows
-the note again. They are not remembered across launches.
+([primary.md](primary.md)), the View menu (⇧⌘M, ⇧⌘A), the command palette,
+a selection's Ask the Assistant, and on a phone the AI place and the Notes
+place's rows. Choosing a note puts them behind it; closing the one in front
+shows the note again. They are not remembered across launches.
 
 | Tool | Content |
 |---|---|
 | **Mind Map** | `MindMapView`: the links across the sidebar's collection, as a mind map (`CollectionMindMap`). The collection at the centre; its most-connected notes head the coloured branches — each group of linked notes' best-connected one, and any note with three or more links of its own besides those to other heads; every other note on the branch that reaches it first; the links the tree leaves out as faint dashed cross-links. A header with the collection's name, "*n* notes · *m* links" (the tooltip says how many linked notes the 160-note cap left off and how many notes have no links) and zoom. Built off the main actor from a snapshot of the link graph's backlinks. Clicking a note opens it |
-| **Ask Your Library** | `LibraryChatView`: retrieval-augmented questions over every open collection, answers with links back. A question sent from a selection is taken as it is asked, whether the tab is just opening or already in front |
-| **Assistant** | `AssistantHost`: the agentic assistant. It draws its own header row (agent mode, the model, New conversation, AI settings), and its edits need approval (`EditApprovalView`) |
+| **Assistant** | `AssistantHost`: questions answered from the sidebar's collection's notes, in that collection's one conversation (`Library.assistant(for:settings:)` — the library's, so a note shown in its place leaves it as it was; Ask Your Library was folded into it in 1.3.5). It searches and reads them — `search_notes`, `read_note` (from the top or from one of its sections), `grep_collection`, and `list_notes` on a model with a larger window — and can search the web; it creates, edits and deletes nothing, so nothing asks for approval. It draws its own header row: a labelled **Use my notes** switch (off, it is plain chat and never reads them), the conversation's model (a menu: Local (Apple), Cloud (Apple) in App Store builds, and each MLX model as "Local (*name*)", with **AI Settings…** at its foot) and **New conversation**. An "Experimental…" line sits above the message field. A question sent from a selection — **Ask the Assistant**, which asks "Explain this, using my notes: …" — is asked of that conversation at once, or, while a reply is still coming, waits in the message field |
 
 ---
 
@@ -246,18 +246,16 @@ does (`AIPlaceList`):
 
 | Group | Rows |
 |---|---|
-| — | Ask Your Library · New Note from a Prompt… · a footer: "Answers are drawn from the notes you have open, with links back to them." |
-| **This note** | Summarize · Suggest Tags · Suggest Links · Rewrite Note… · Review Links… · a footer when they are disabled: "Open a note to use these." or "AI isn't available right now — AI Settings says why." |
+| — | New Note from a Prompt… |
+| **This note** | Summarise Note · Suggest Tags · Suggest Links · Rewrite or Expand Note… · Review Links… · a footer when they are disabled: "Open a note to use these." or "AI isn't available right now — AI Settings says why." |
 | — | Assistant · AI Settings… |
 
 A row that cannot apply is **disabled, not hidden**. In the This note group the
-footer says why; the first group's footer is fixed text, so a disabled Ask Your
-Library or New Note from a Prompt… gives no reason. Review Links… is disabled
-with the rest of its group when no model is available,
-although it needs none (`menu.md` §8). Ask Your Library and the Assistant open
-as tools, expanded over the places as a note is; the three note actions open the
-panel, which on a phone is drawn over the AI place itself while no note is
-expanded (§2).
+footer says why; New Note from a Prompt…, disabled with no collection in
+scope, gives no reason. Review Links… needs no model, so it is disabled only
+without a note (`menu.md` §8, item 10). The Assistant opens as a tool, expanded
+over the places as a note is; the three note actions open the panel, which on a
+phone is drawn over the AI place itself while no note is expanded (§2).
 
 ---
 
@@ -304,7 +302,7 @@ expanded (§2).
    Tags, Links, Properties and History have none. Summary & Outline, Tags and
    Links are reachable from the menu bar only indirectly, through Note ▸
    Summarise Note, Suggest Tags and Suggest Links. Only the Graph is in the View
-   menu (with the collection's Mind Map, Ask Your Library and Assistant beside it).
+   menu (with the collection's Mind Map and Assistant beside it).
    See [menu.md](menu.md) §8.
 5. ✅ ~~**The outline's headings are capped at 320pt high**~~, a leftover from when it
    was a popover. In a tall panel, a long outline scrolls inside a short box. *Fixed (implemented.md §51.36).*

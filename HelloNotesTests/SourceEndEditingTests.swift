@@ -32,22 +32,26 @@ struct SourceEndEditingTests {
     private static let typed = "Typed here."
 
     private func eventually(timeout: Duration = .seconds(5), _ condition: () async -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while await !condition() {
-            guard ContinuousClock.now < deadline else { return false }
+        // Looks, not seconds — a deadline on the clock runs out while another
+        // test has the main actor (`Waits`).
+        for _ in 0..<Waits.looks(in: timeout, every: .milliseconds(20)) {
+            if await condition() { return true }
             await pump(0.02)
         }
-        return true
+        return await condition()
     }
 
     /// Turn the main run loop for `seconds`, in small steps, so the hosted
     /// views lay out and their tasks run.
     private func pump(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
+        // For its seconds, for no fewer looks than a crowded main actor
+        // leaves it, and with the run loop last (`Waits.Pump`).
+        var pump = Waits.Pump(seconds)
         repeat {
             turnRunLoop(for: 0.004)
             try? await Task.sleep(for: .milliseconds(1))
-        } while Date() < deadline
+        } while pump.goesOn
+        turnRunLoop(for: 0.004)
     }
 
     private func turnRunLoop(for seconds: TimeInterval) {

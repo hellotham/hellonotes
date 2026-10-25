@@ -11,7 +11,7 @@
 //  and offering the same verbs again would be a worse copy of something the
 //  user already has and already trusts. What the OS cannot do is anything
 //  involving *this vault*: it has never heard of the other 2,000 notes. So that
-//  is all this offers — link it, find notes like it, ask the library about it.
+//  is all this offers — link it, find notes like it, ask the Assistant about it.
 //  Three actions, each impossible for Writing Tools by construction.
 //
 //  They surface as items in the editor's selection menu on both platforms —
@@ -33,7 +33,7 @@ struct SelectionActions {
     var linkTarget: (String) -> String?
     /// Show notes related to the phrase.
     var findRelated: (String) -> Void
-    /// Ask the library about the phrase.
+    /// Ask the Assistant about the phrase, using the notes.
     var explain: (String) -> Void
 
     /// Whether a phrase is worth offering a link for at all. A passage spanning
@@ -73,8 +73,8 @@ extension SelectionActions {
             findRelated(phrase)
             return nil       // read-only: the note is not touched
         })
-        items.append(EditorMenuItem(title: "Ask Your Library",
-                                    systemImage: "sparkles.rectangle.stack") { phrase in
+        items.append(EditorMenuItem(title: "Ask the Assistant",
+                                    systemImage: "sparkles") { phrase in
             explain(phrase)
             return nil
         })

@@ -1,5 +1,5 @@
 ---
-status: CURRENT (2026-10-09). Describes the primary sidebar as built, the rules
+status: CURRENT (2026-10-09; the collection's tools from source for 1.3.5, 2026-10-19). Describes the primary sidebar as built, the rules
 it follows and its open defects (§12). Decision record: `shell-chrome.md` D2,
 D2a, D3, D4, D5, D8, D11, D13. Overview: `ui.md`.
 ---
@@ -20,7 +20,7 @@ collection's commands. It answers **"where is it, and what is the collection?"**
   are the right panel's ([secondary.md](secondary.md), decision L1).
 - **The collection's commands** (D13, which amends D8's "no commands"; D14).
   Above the tree, its tools as named rows: **Mind Map** (the links across it, a
-  tab), **Assistant** and **Ask Your Library** (tabs), and **Git** — its branch,
+  tab), **Assistant** (a tab), and **Git** — its branch,
   a dot for uncommitted changes, and the Git pane as a popover (none for a
   direct-API collection). Rows in the column (22pt, a 12pt glyph in the accent
   and a 12pt name, `SidebarCommandSection`); in the band a strip of the same
@@ -346,7 +346,7 @@ place is remembered per window.
 
 | Place | Bar | Content |
 |---|---|---|
-| **Notes** (`folder`) | "Library" · **`+`** · **More ⋯** | the collection's tools as rows (Mind Map, Assistant, Ask Your Library, Git), a "Collections" heading, then one row per open collection: 32pt, `books.vertical`, the name at 13pt (semibold and ✓ when focused), the note count, `…`. Then **All Notes** (clears a tag filter, ✓ when none is active). With no collection open: **Open Folder…** |
+| **Notes** (`folder`) | "Library" · **`+`** · **More ⋯** | the collection's tools as rows (Mind Map, Assistant, Git), a "Collections" heading, then one row per open collection: 32pt, `books.vertical`, the name at 13pt (semibold and ✓ when focused), the note count, `…`. Then **All Notes** (clears a tag filter, ✓ when none is active). With no collection open: **Open Folder…** |
 | **Search** (`magnifyingglass`) | the collection's name, "#tag" under a tag filter, or "Library" · **New Note** | a full-width search field ("Search *collection*"), then the collection's notes: its search results, its tagged notes under a filter, or all of them. One collection, unlike the sidebar's search, which covers every open collection |
 | **Tags** (`number`) | "Tags" | **All Notes**, then every tag of the collection; choosing one filters the notes and switches to Search. Empty: **No Tags** ("Tags you write as #tag in a note appear here.") |
 | **AI** (`sparkles`) | "AI" | the AI commands ([secondary.md](secondary.md) §7) |

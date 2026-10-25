@@ -1,6 +1,6 @@
 # HelloNotes
 
-> **Version 1.3.3** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
+> **Version 1.3.5** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
 
 HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps like Obsidian and cross-platform editors like Typora. It's built strictly on modern Swift — **AppKit + TextKit 2 + SwiftUI** — prioritising high-FPS text rendering, plain `.md` files as the absolute source of truth, and seamless background Git synchronisation. **No proprietary database. Your files in Finder *are* the database** — and those files can live locally *or* in Box, Dropbox, OneDrive, Google Drive or iCloud, opened on demand without pulling the whole vault down.
 
@@ -50,7 +50,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **Review Links** (⇧⌘L) walks a note's unmade links one at a time — **Link / Skip / Never** — showing the phrase in its sentence and the target's opening lines. "Never" persists per collection, stored outside the vault so it never reaches a shared repo. Needs no AI at all: it is an exact scan of your own text.
 - **New Note from a Prompt** (⌃⌘N) writes a note, or researches a question on the web and lands the cited synthesis *as a note* — connected to what you already have, since every `[[link]]` the model returns is verified against the collection and the invented ones are unwrapped to plain text. You read the whole draft before the file exists.
 - **Suggest as I type** *(off by default)* — ghost text after the cursor, ⌥⇥ to accept (or tap it, on iPhone and iPad). On-device only, and never part of the note until accepted: it is drawn, never stored, so it cannot reach a save, the index or a Git diff.
-- **Ask Your Library** — retrieval chat grounded in your notes, with citations you can jump to. An agentic **Assistant** with tools (search, read, edit-with-approval, web search — and, on a model with a 16K window, web fetch and deep research) and skills.
+- An **Assistant** *(experimental)* that answers from your notes and shows the notes it read, in a tab beside them (⇧⌘A). With **Use my notes** on it searches them — by their words, by section, and to the end of a long note — reads what it finds, and can search the web (and, on a model with a 16K window, fetch web pages and run deep research), with skills; off, it answers from the model alone and reads nothing. It never changes a note: no edits, no approvals. Select text and choose **Ask the Assistant** to ask it about a passage; a conversation that outgrows the model's window has its earlier messages summarised so it can go on.
 - **All of the above run on iPhone and iPad too**, except the palette.
   iPad carries the menu bar and its shortcuts, file tabs, and the inspector over the note
   rather than beside it — an iPad is never wide enough for a third column, and a threshold
@@ -58,8 +58,8 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
   **the system's own bar above the keyboard** — the floating shortcuts row on iPad, an
   accessory bar on iPhone — so it costs the app no screen space, appears with a hardware
   keyboard too, and shows whenever there is a cursor rather than following the view mode.
-- **AI on Apple Foundation Models, and nothing else.** Every feature runs on the device: **System** (Apple's on-device model, as Apple's `fm` tool names it — AFM 3 Core or Core Advanced, whichever the hardware runs) or an open **MLX** model you download, plugged into Foundation Models through its `LanguageModel` protocol. No third-party AI services and no API keys; keys stored by earlier versions are deleted on upgrade.
-- **Every feature fits the model's window.** Apple Intelligence is asked for its context size (an MLX model is given one sized to the device's memory), and each feature sizes what it sends to fit — a long note is summarised in parts rather than cut off, a rewrite too large to return whole is refused rather than truncated, and the Assistant sends the recent turns that fit while the whole conversation stays on screen.
+- **AI on Apple Foundation Models, and nothing else** — on a model named for where it runs. **Local (Apple)** is Apple's on-device model (AFM 3 Core or Core Advanced, whichever the hardware runs); **Cloud (Apple)** is Apple's server model on Private Cloud Compute, in App Store builds only (Apple doesn't provision its entitlement for Developer ID, so never the DMG); **Local (*model name*)** is an open **MLX** model you download, plugged into Foundation Models through its `LanguageModel` protocol. One **Default model** in Settings ▸ AI serves everything, the Assistant's menu can pick another for one conversation, and its answers and suggestions say which model made them. When Cloud (Apple)'s daily allowance is used up, Local (Apple) does the work until it resets. No third-party AI services and no API keys; keys stored by earlier versions are deleted on upgrade.
+- **Every feature fits the model's window.** Apple's models are asked for their context size (an MLX model is given one sized to the device's memory), and each feature sizes what it sends to fit — a long note is summarised in parts rather than cut off, a rewrite too large to return whole is refused rather than truncated, and the Assistant sends the recent turns that fit, with the earlier ones summarised, while the whole conversation stays on screen.
 
 **Cloud storage — two ways, no lock-in**
 - **Open a cloud folder like any other** (recommended). Box, Dropbox, OneDrive (personal *and* business), Google Drive and iCloud Drive all surface through Apple's **File Provider** layer, so their folders are just paths — point HelloNotes at one and it works. Files stay **online-only until you open them**: all vault I/O is `NSFileCoordinator`-coordinated so a cloud file materialises on demand, and indexing deliberately **skips un-downloaded notes** rather than dragging your whole vault local. Online-only notes get a cloud badge, a "N online-only" status, per-note **Download / Remove Download**, and a provider label; Git is guarded on cloud folders (auto-commit off) since libgit2 needs real local objects.
@@ -77,10 +77,10 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **Menu-bar quick capture** — a `MenuBarExtra` jots a line into today's daily note without switching apps, plus a system-wide **⌃⌥⌘N** that brings HelloNotes forward on a new note.
 - **URL scheme** — `hellonotes://note?…` / `collection` / `search` / `new` / `daily`, the shared entry point behind Shortcuts, Spotlight and widget taps.
 - **Dictation** — on-device `SpeechAnalyzer` transcription straight into the daily note; **Writing Tools** and inline prediction are wired into the editor (plain-text only, so rewrites can't corrupt Markdown).
-- Services menu ("New Note from Selection"), state restoration, TipKit hints, and an Icon Composer app icon.
+- Services menu ("New Note from Selection"), state restoration, and an Icon Composer app icon.
 
 **Native app polish**
-- Full menu bar with keyboard shortcuts, a native source-list note tree with the collection's commands beside it, the Mind Map, the Assistant and Ask Your Library as tabs beside your notes, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, a **first-run welcome**, and an adaptive iOS/iPadOS companion.
+- Full menu bar with keyboard shortcuts, a native source-list note tree with the collection's commands beside it, the Mind Map and the Assistant as tabs beside your notes, appearance settings (light/dark, accent colours, text size), a launch splash with live build info, a **first-run welcome**, and an adaptive iOS/iPadOS companion.
 - Accessibility: VoiceOver labels throughout, a **headings rotor** in the editor on both platforms, and Reduce Motion support.
 
 > WebView policy: the *editing path is 100% native TextKit 2*. A `WKWebView` appears only in read-only rendering surfaces — the macOS/iOS GFM **Preview** and the **Marp slides** preview — never in the editor itself.
@@ -98,7 +98,7 @@ A strict **4-layer architecture** keeps macOS and iOS sharing everything but the
 
 The **editor** is a separate local SPM package, [`Packages/NotesEditor`](Packages/NotesEditor) — `MarkdownCore` (incremental block/inline parser + style spec), `MarkdownEditor` (TextKit 2 `NSTextView`/`UITextView`), and `GFMRender` (cmark-gfm for the GitHub-identical Preview + spec/API parity).
 
-The **Intelligence layer** (`HelloNotes/Intelligence/`) is built on the Foundation Models framework: `LanguageModels` resolves the chosen model (on-device or MLX), `IntelligenceService` and `DeepResearch` run the writing tools and research, and the Assistant is a `LanguageModelSession` driven by a dynamic profile over the collection tools (`ToolContext`, with every change approved through `PermissionBroker`). Chat transcripts persist as Foundation Models `Transcript` JSON under Application Support.
+The **Intelligence layer** (`HelloNotes/Intelligence/`) is built on the Foundation Models framework: `LanguageModels` resolves the chosen model (on-device, Private Cloud Compute or MLX) and names it by where it runs, `IntelligenceService` and `DeepResearch` run the writing tools and research, and the Assistant is a `LanguageModelSession` driven by a dynamic profile over the collection's read-only tools (`ToolContext`) — it searches and reads notes and looks things up on the web, and nothing it is offered changes a note. Chat transcripts persist as Foundation Models `Transcript` JSON under Application Support.
 
 Full detail, data flow, and concurrency model: [docs/architecture.md](docs/architecture.md).
 
@@ -174,7 +174,7 @@ HelloNotes/            App sources (synchronised Xcode group)
   │                     bookmarks/recents/credentials)
   ├─ Intelligence/     AI layer on Foundation Models — models (on-device,
   │                     MLX), writing tools and research, the Assistant
-  │                     (profile, tools, approvals, skills), settings & chats
+  │                     (profile, tools, skills), settings & chats
   ├─ UI/               Layer 3 — shared views (editor host, tree, references,
   │                     graph, mind map, slides, viewers, assistant, splash)
   │   └─ Shell/        Layer 4 — the layout contract (ShellContract), the

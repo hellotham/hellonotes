@@ -14,8 +14,10 @@ file's processing state and pixel size — so the check is a read, not a look.
                                               # repository is public and does not
                                               # carry them. The key itself is
                                               # ~/.appstoreconnect/private_keys/AuthKey_<id>.p8
+    scripts/asc-listing.py create 1.3.4       # a new version on each platform, released as the last was
     scripts/asc-listing.py status 1.3.3       # what each platform's version holds now
-    scripts/asc-listing.py text 1.3.3         # description + What's New from docs/app-store-listing.md
+    scripts/asc-listing.py text 1.3.3         # description, What's New, promotional text and the
+                                              # notes to App Review, from docs/app-store-listing.md
     scripts/asc-listing.py build 1.3.3 31     # attach build 31 to both platforms' versions
     scripts/asc-listing.py screenshots 1.3.3  # replace every set from dist/Screenshots-*
     scripts/asc-listing.py submit 1.3.3       # one review submission a platform
@@ -58,6 +60,11 @@ SETS = {
     "MAC_OS": {"APP_DESKTOP": ("dist/Screenshots-macOS", (2560, 1600))},
 }
 DESCRIPTION = {"IOS": "**Description** — iPhone and iPad", "MAC_OS": "**Description** — Mac"}
+# What's New is one a platform: a version can bring one platform what the other
+# already had — 1.3.4 brought the Mac build 32's fixes, which iOS shipped in 1.3.3.
+WHATS_NEW = {"IOS": "**Version** — What's New, iPhone and iPad", "MAC_OS": "**Version** — What's New, Mac"}
+PROMOTIONAL = "**Promotional text**"
+REVIEW_NOTES = "## Notes to reviewer (both platforms)"
 
 # `withdraw --in-review`: a submission a reviewer has started on goes too.
 IN_REVIEW_TOO = False
@@ -137,6 +144,19 @@ def localization(version_id):
     return data[0]
 
 
+def review_detail(version_id):
+    """The version's App Review information — contact and notes — or None."""
+    status, r = call("GET", f"/v1/appStoreVersions/{version_id}/appStoreReviewDetail")
+    return r.get("data") if status == 200 else None
+
+
+def listing_text(platform):
+    """What the version's one localization should hold, from the file."""
+    return {"description": listing_field(DESCRIPTION[platform]),
+            "whatsNew": listing_field(WHATS_NEW[platform]),
+            "promotionalText": listing_field(PROMOTIONAL)}
+
+
 def screenshot_sets(localization_id):
     _, r = call("GET", f"/v1/appStoreVersionLocalizations/{localization_id}/appScreenshotSets?limit=50")
     return {s["attributes"]["screenshotDisplayType"]: s["id"] for s in must(_, r, "screenshot sets")["data"]}
@@ -191,34 +211,105 @@ def cmd_status(version):
     inventory(found)
     for platform in PLATFORMS:
         attributes = localization(found[platform]["id"])["attributes"]
-        same = (attributes.get("description") == listing_field(DESCRIPTION[platform]),
-                attributes.get("whatsNew") == listing_field("**Version** — What's New"))
-        print(f"{platform} text matches docs/app-store-listing.md — description: {same[0]}, What's New: {same[1]}")
+        same = {key: attributes.get(key) == value for key, value in listing_text(platform).items()}
+        detail = review_detail(found[platform]["id"])
+        same["review notes"] = bool(detail) and detail["attributes"].get("notes") == listing_field(REVIEW_NOTES)
+        print(f"{platform} matches docs/app-store-listing.md — "
+              + ", ".join(f"{key}: {value}" for key, value in same.items()))
+
+
+def show_change(platform, key, old, new):
+    print(f"{platform} {key}:")
+    for line in difflib.unified_diff((old or "").splitlines(), new.splitlines(), lineterm="", n=0):
+        if not line.startswith(("---", "+++", "@@")):
+            print("   " + line[:160])
 
 
 def cmd_text(version):
     found = versions(version)
-    whats_new = listing_field("**Version** — What's New")
+    notes = listing_field(REVIEW_NOTES)
     for platform in PLATFORMS:
         loc = localization(found[platform]["id"])
-        want = {"description": listing_field(DESCRIPTION[platform]), "whatsNew": whats_new}
+        want = listing_text(platform)
         changed = {k: v for k, v in want.items() if loc["attributes"].get(k) != v}
         if not changed:
-            print(f"{platform}: already as the file has it")
+            print(f"{platform}: the listing is already as the file has it")
+        else:
+            for key, value in changed.items():
+                show_change(platform, key, loc["attributes"].get(key), value)
+            _, r = call("PATCH", f"/v1/appStoreVersionLocalizations/{loc['id']}",
+                        {"data": {"type": "appStoreVersionLocalizations", "id": loc["id"], "attributes": changed}})
+            must(_, r, f"{platform} text")
+            back = localization(found[platform]["id"])["attributes"]
+            if any(back.get(k) != v for k, v in want.items()):
+                sys.exit(f"✗ {platform}: written, and it does not read back equal")
+            print(f"{platform}: the listing is written and reads back equal")
+        # The notes to App Review live on the version's review details, beside
+        # the contact — `create` carries that over, so it is there to write to.
+        detail = review_detail(found[platform]["id"])
+        if not detail:
+            sys.exit(f"✗ {platform}: {version} has no App Review details — `create` makes them")
+        if detail["attributes"].get("notes") == notes:
+            print(f"{platform}: the notes to App Review are already as the file has them")
             continue
-        for key, value in changed.items():
-            print(f"{platform} {key}:")
-            for line in difflib.unified_diff((loc["attributes"].get(key) or "").splitlines(), value.splitlines(),
-                                             lineterm="", n=0):
-                if not line.startswith(("---", "+++", "@@")):
-                    print("   " + line[:160])
-        _, r = call("PATCH", f"/v1/appStoreVersionLocalizations/{loc['id']}",
-                    {"data": {"type": "appStoreVersionLocalizations", "id": loc["id"], "attributes": changed}})
-        must(_, r, f"{platform} text")
-        back = localization(found[platform]["id"])["attributes"]
-        if any(back.get(k) != v for k, v in want.items()):
-            sys.exit(f"✗ {platform}: written, and it does not read back equal")
-        print(f"{platform}: written and read back equal")
+        show_change(platform, "notes to App Review", detail["attributes"].get("notes"), notes)
+        _, r = call("PATCH", f"/v1/appStoreReviewDetails/{detail['id']}",
+                    {"data": {"type": "appStoreReviewDetails", "id": detail["id"], "attributes": {"notes": notes}}})
+        must(_, r, f"{platform} notes to App Review")
+        if (review_detail(found[platform]["id"]) or {}).get("attributes", {}).get("notes") != notes:
+            sys.exit(f"✗ {platform}: notes written, and they do not read back equal")
+        print(f"{platform}: the notes to App Review are written and read back equal")
+
+
+# The states a version is still open in — editable, and not yet released.
+EDITABLE = {"PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED", "INVALID_BINARY"}
+
+
+def cmd_create(version):
+    """A version on each platform that has none of that number, released the
+    way the platform's last version was, with that version's App Review
+    contact. Its description, keywords and pictures are carried over by App
+    Store Connect itself; `status` shows them."""
+    _, r = call("GET", f"/v1/apps/{APP_ID}/appStoreVersions?limit=50")
+    every = must(_, r, "versions")["data"]
+    for platform in PLATFORMS:
+        mine = [v for v in every if v["attributes"]["platform"] == platform]
+        if any(v["attributes"]["versionString"] == version for v in mine):
+            print(f"{platform}: {version} is there already")
+            continue
+        # App Store Connect keeps one version open a platform, so a version
+        # withdrawn from review (iOS 1.3.4, at the person's direction) is
+        # renamed rather than joined by another, which it refuses.
+        still_open = [v for v in mine if v["attributes"].get("appVersionState") in EDITABLE]
+        if still_open:
+            v = still_open[0]
+            _, r = call("PATCH", f"/v1/appStoreVersions/{v['id']}", {"data": {"type": "appStoreVersions",
+                "id": v["id"], "attributes": {"versionString": version}}})
+            must(_, r, f"{platform} {v['attributes']['versionString']} renamed {version}")
+            print(f"{platform}: {v['attributes']['versionString']} ({v['attributes']['appVersionState']}) "
+                  f"renamed {version}; its text, pictures and App Review contact stay with it")
+            continue
+        last = max(mine, key=lambda v: v["attributes"].get("createdDate") or "")
+        _, r = call("POST", "/v1/appStoreVersions", {"data": {"type": "appStoreVersions",
+            "attributes": {"platform": platform, "versionString": version,
+                           "releaseType": last["attributes"].get("releaseType") or "AFTER_APPROVAL"},
+            "relationships": {"app": {"data": {"type": "apps", "id": APP_ID}}}}})
+        made = must(_, r, f"{platform} {version}")["data"]
+        print(f"{platform}: {version} made, {made['attributes'].get('appVersionState')}, released "
+              f"{made['attributes'].get('releaseType')} as {last['attributes']['versionString']} was")
+        if review_detail(made["id"]):
+            continue
+        before = review_detail(last["id"])
+        if not before:
+            print(f"{platform}: {last['attributes']['versionString']} had no App Review details to carry over")
+            continue
+        contact = {k: v for k, v in before["attributes"].items()
+                   if (k.startswith("contact") or k == "demoAccountRequired") and v not in (None, "")}
+        _, r = call("POST", "/v1/appStoreReviewDetails", {"data": {"type": "appStoreReviewDetails",
+            "attributes": contact,
+            "relationships": {"appStoreVersion": {"data": {"type": "appStoreVersions", "id": made["id"]}}}}})
+        must(_, r, f"{platform} App Review contact")
+        print(f"{platform}: App Review contact carried over from {last['attributes']['versionString']}")
 
 
 def cmd_build(version, number):
@@ -329,7 +420,7 @@ def cmd_submit(version):
 
 
 if __name__ == "__main__":
-    commands = {"status": cmd_status, "text": cmd_text, "build": cmd_build,
+    commands = {"create": cmd_create, "status": cmd_status, "text": cmd_text, "build": cmd_build,
                 "screenshots": cmd_screenshots, "submit": cmd_submit, "withdraw": cmd_withdraw}
     arguments = sys.argv[1:]
     IN_REVIEW_TOO = "--in-review" in arguments

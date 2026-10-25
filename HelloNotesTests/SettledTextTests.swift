@@ -20,12 +20,15 @@ struct SettledTextTests {
     /// Whether `condition` comes to hold within `timeout`, awaiting between
     /// looks — the settle is a main-actor task, and only an `await` lets one run.
     private func eventually(timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while !condition() {
-            guard ContinuousClock.now < deadline else { return false }
+        // Looks, not seconds — a deadline on the clock runs out while another
+        // test has the main actor, and this one came back from its first
+        // sleep with its five seconds spent and the settle queued behind it
+        // (`Waits`).
+        for _ in 0..<Waits.looks(in: timeout, every: .milliseconds(10)) {
+            if condition() { return true }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return true
+        return condition()
     }
 
     @Test func aKeystrokeSettlesOnceTypingPauses() async {

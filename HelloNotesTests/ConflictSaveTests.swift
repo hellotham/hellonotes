@@ -50,11 +50,19 @@ struct ConflictSaveTests {
 
     private func onDisk(_ url: URL) throws -> String { try String(contentsOf: url, encoding: .utf8) }
 
-    /// The conflicted copies kept beside `note`.
+    /// The conflicted copies kept beside `note` — named under the note's own
+    /// spelling of its folder, as a collection names what it lists
+    /// (`LocalTreeSource.children`). A listing of `/var/…` comes back as
+    /// `/private/var/…`, and a test that opened a copy under that name held a
+    /// file the app, asking after the copy by the note's name for the folder,
+    /// did not find anyone holding — on CI's runner alone, whose temporary
+    /// folder is spelled both ways (implemented.md §51.48).
     private func copies(of note: Note) throws -> [URL] {
-        try FileManager.default
-            .contentsOfDirectory(at: note.fileURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+        let folder = note.fileURL.deletingLastPathComponent()
+        return try FileManager.default
+            .contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent.hasPrefix("\(note.title) (conflicted copy ") }
+            .map { folder.appendingPathComponent($0.lastPathComponent) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 

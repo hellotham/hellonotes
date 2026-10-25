@@ -156,7 +156,7 @@ manual page there and the navigation follows automatically.
 | `/manual/editor` | | Live Markdown, view modes, maths, diagrams, callouts, find, images, export |
 | `/manual/links-and-graph` | | Wiki-links, aliases, backlinks, transclusion, a note's Graph, the collection's Mind Map |
 | `/manual/organising` | | Search, Open Quickly, tags, bookmarks, daily notes, templates |
-| `/manual/ai` | | The System model, Ask Your Library, the Assistant, open models with MLX |
+| `/manual/ai` | | Where each model runs, the note actions, Review Links, New Note from a Prompt, typing suggestions, the Assistant, choosing Local (Apple), Cloud (Apple) or an MLX model |
 | `/manual/cloud` | | iCloud / Dropbox / Box / OneDrive / Google Drive, and the two ways to use them |
 | `/manual/git` | | Init, identity, commits, history, remotes, current limits |
 | `/manual/shortcuts` | | Keyboard reference |
@@ -292,11 +292,13 @@ in the script, descriptions in `screens.ts`, and the two must agree):
 | 02 | *Rich Content* in Split — source beside the rendered page | Markdown source beside the rendered page |
 | 03 | *Linking* with the right panel on its Graph | A graph of each note’s links, beside the note |
 | 04 | the Mind Map tab | A mind map of the links across your collection |
-| 05 | the Assistant tab answering from the notes, on the System model | The Assistant reads your notes — on your device |
+| 05 | the Assistant tab answering from the notes, on Local (Apple) | The Assistant reads your notes — on your device |
 
-**Scene 5 (the Assistant — it was Ask Library until 1.3.3) needs no setup.** The
-System model is the default, so the answer is generated on-device — and from
-1.3.3 there are no API keys to configure at all. Two things to know:
+**Scene 5 (the Assistant; it was Ask Library until 1.3.3, and 1.3.5 folded Ask
+Library into the Assistant) needs no setup.** Local (Apple) is the default model
+("System" until 1.3.5) and **Use my notes** starts on, so the answer is
+generated on-device from the notes — and from 1.3.3 there are no API keys to
+configure at all. Two things to know:
 
 - The on-device model is **not deterministic and not always right**. Across four
   runs of the same question it produced a clean answer, a verbatim dump of

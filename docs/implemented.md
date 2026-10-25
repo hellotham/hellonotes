@@ -8416,7 +8416,9 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
-### 51.53 The screencapture guard reads every list a collection comes back from (2026-10-17)
+### 51.59 The screencapture guard reads every list a collection comes back from (2026-10-17)
+
+*Written on `main` on 17 October, while 1.3.5's sections were on the release branch, and numbered at the merge of 2026-10-25 — §51.53 there is "What a model wrote can be reported".*
 
 Since 2026-10-09 CLAUDE.md has said that `collectionPaths` lists local
 collections only — a cloud collection comes back on launch from
@@ -8527,6 +8529,1069 @@ the app has saved, not the window — and cfprefsd keeps no change it cannot
 write: with the plist's folder made read-only, both views kept the old list.
 A collection `persist()` leaves out, one whose bookmark cannot be minted, is
 in no list; and `collectionPaths` holds last-known paths.
+### 51.58 Xcode 27.1 and the iPhone Duo: the app builds, runs in every pose, and its chrome fills the side the status column takes (2026-10-24)
+
+The person upgraded to Xcode 27.1 (27A9275: Swift 6.4, the iOS 27.1 SDK and
+runtime) and asked that the app build for the iPhone Duo, research first.
+What the research established, from Apple's pages for preparing an app for
+the Duo, its news post, the 27.1 release notes and the HIG (read through the
+`tutorials/data/….json` endpoints — the HTML pages come back empty), and
+Apple's own app-resizability skill (`xcrun agent skills export`):
+- **Two displays, one idiom.** The outer display is 466×678pt (1398×2034px
+  at 3×) — compact width, regular height, the phone's shape; the inner is
+  951×669pt (2853×2007px), **landscape-native** and regular both ways, and
+  ignores the app's supported orientations. The idiom is phone on both.
+- **Four poses**: Closed (the outer display), Open (the inner), Open and
+  turned, and Partially Open — the book, hinge at 127°, where the fold is a
+  40pt **division** down the middle of the inner display that
+  `UIView.reservedRegions(kind: .division)` reports (new in 27.1, UIKit only
+  — SwiftUI's interface has no counterpart; `.occlusion` is the other kind).
+- **The 27.1 SDK changes the picture**: an app built with it runs edge to
+  edge on the inner display with the status bar as a *column* down one side
+  and the system's bars vertical, while a 27.0 build is letterboxed. From
+  April 2027 a submission built with 27.1 needs Duo screenshots in the store
+  at 1398×2034 and 2007×2853. `UIScreen.main` is deprecated; traits are
+  read from the trait collection.
+- **The simulator is posed from Device Hub**, which replaces Simulator.app
+  in 27.1 (`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`,
+  bundle `com.apple.dt.Devices`). Its controls are SwiftUI's, which System
+  Events cannot see, so the poses are pressed through the AX API: select
+  the device's row, **Start**, then **Closed** / **Partially Open** /
+  **Open** / **Rotate Right** — `scripts/duo-pose.sh`, with
+  `duo-pose.swift` beside it (an asset you cannot regenerate lives in the
+  repo). A pose change backgrounds the running app, so it is relaunched
+  before each picture; `xcrun simctl io HN-iPhoneDuo screenshot
+  --display=primary` is the outer display and `--display=primary-1` the
+  inner, which is **black while closed** — a black picture is the pose, not
+  the app, and the first "open" shot here was one, taken after Device Hub
+  had closed its window and the pose had not changed.
+
+**The app builds and runs.** `HN-iPhoneDuo` made and booted; the build for
+it succeeds (`LC_BUILD_VERSION` minos 27.0, sdk 27.1); its prerequisites were
+already met (a generated launch screen, all four iPad orientations, no
+`UIRequiresFullScreen`). Launched with the capture arguments and looked at in
+every pose: **Closed** draws the compact shell on the outer display; **Open**
+the columns shell, sidebar, note and panel, on the inner; **turned**, the
+band; **Partially Open**, the columns again — with the note's column across
+the hinge, which is the follow-up below.
+
+**What was wrong: a white strip under the status column, and a white band
+under the bottom bar.** Every bar in the app drew
+`.background(Chrome.Colour.chrome)`, and a background stops at the safe
+area. On the Duo's inner display the status column is a *horizontal* inset,
+so the bar over the editor, the sidebar's header, the panel's, the status
+bar and the tab bar each left the column's width white beside them — on
+both displays, the whole height of the window. And under the columns
+shell's bottom bar the home indicator's inset — 34pt there, measured down
+a column of the picture (grey to 1900px of 2007, white below) — was a white
+band of the same kind, which an iPad has too at 20pt: the window-parity
+gate cuts the iPad's picture at its bottom inset and so has never compared
+it. `chromeBackground()` (`Chrome.swift`) is the one fill now,
+`Chrome.Colour.chrome.ignoresSafeArea(.container, edges: [.horizontal,
+.bottom])`, at the twenty-three sites that drew the colour, the compact
+shell's tab bar, and — through `chromeDraggableBackground()` — the two bars
+that are also the Mac window's drag area; the one plain
+`Chrome.Colour.chrome` left is a card inside the library place, nowhere near
+an edge. Measured on the inner display, open, after the change: down a
+column of the bar, chrome grey to the last row where it had turned white
+at 1906px; down a column under the status column, the top bar's grey, the
+editor's own white, and the bottom bar's grey to the edge. The strip is
+gone on both displays (closed, open and the book) and the band with it.
+
+**And two reads of the device where the view's traits were meant.**
+`EditorCommands` chose the shortcuts bar by `UIDevice.current.userInterfaceIdiom`
+and `MarkdownEditorView` a hairline by `UIScreen.main.scale` — the device's
+answers, where the trait collection answers for the view on whichever
+display it is on; both read the trait collection now, and
+`EditorToolbarContractTests` looks for that form.
+
+**Checked under 27.1**: the macOS suite, 961 tests in 146 suites, one
+failure — the contract test above, for the string it no longer finds, and
+its suite green once it looks for the trait; the editor's three bundles on
+the Mac (318/39, 215/18, 26/4) and 533 on the iPad; chrome parity, every
+scene at 0 px beyond noise; the phone's interface tests on the Duo, closed,
+19 run and 3 skipped — and **two failed**, the two that press arrow keys
+(`testASuggestionIsTakenFromTheKeyboard`: "↓ chose no row — the key never
+reached the list"; `testArrowingUpFromTheFirstLineReachesTheTitle`). Two
+things learnt telling a 27.1 defect from a Duo one: **the iOS 27.1 runtime
+is the Duo's alone** — `simctl create` refuses an iPhone 13 Pro Max and an
+iPhone 18 Pro Max on it alike ("Incompatible device"), so there is no other
+phone to run 27.1 on; and two `-only-testing:` flags kept in one zsh
+variable reach xcodebuild as **one argument**, which selects nothing, prints
+"Executed 0 tests" and exits 0 — two phones "passed" that way before the
+log was read (`${=T}` splits it). The tests have a control now
+(`keysArrive(at:)`): a letter sent as the arrows are, a hardware key
+(`typeKey`), must arrive in the note first, or the test skips saying the
+simulator's keys do not reach the app — so a failure is about the arrows,
+and a skip about the keyboard. **On the Duo the control skipped both**: the
+letter never arrives, while typed text does (`typeText` falls back to the
+software keyboard), so the Duo simulator delivers no hardware keys to the
+app; on `HN-iPhone` under Xcode 27.1 both tests pass. The two failures were
+the simulator's keyboard, not the app's key commands. After the fill
+reached the bottom, every gate again: the macOS suite, 961 passed; chrome
+parity, sixteen scenes at 0 px beyond noise; the phone's interface suite on
+`HN-iPhone`, 15 run and the usual 3 skipped, the two key tests among the
+passes; the iPad's typing test on `HN-iPad13`; the Duo's suite, 15 run and
+5 skipped — the usual 3 and the two key tests on their control; and window
+parity, the empty window at 0.017% and the open note's chrome at 0.065%
+beyond noise (the iPad's bottom inset is cut from the comparison, so the
+fill reaching it changes nothing the gate judges). Two more things about
+Device Hub: a
+test run on the Duo closes its window and the app keeps running (`open -a`
+with the device booted brings the window back — not before), and
+**quitting it shuts every booted simulator down**, as Simulator.app did.
+
+**Build 35 carries this** — the first build made with Xcode 27.1 — with
+§51.56 and §51.57, to TestFlight on both platforms on 2026-10-24
+(production.md §10n), not submitted for review.
+
+**Follow-ups, for the person to decide**: the book pose — a fold-aware split
+would keep the note's column off the division, which means a UIKit probe of
+`reservedRegions(kind: .division)` under the SwiftUI shell; Duo screenshots
+for the store before April 2027; `ChromeSheetFrame` still sizes a sheet by
+the pad idiom and `SupportRequestSection` names the platform in a string —
+presentation, not layout, and left.
+
+### 51.57 The iOS watcher hears a move as a move (2026-10-24)
+
+Found on the way to §51.56, and smaller than it first looked. `DirectoryPresenter`,
+the folder watcher on iOS (there is no FSEvents there), implemented a
+subitem's change, appearance and deletion, and the root's move and deletion —
+and not a subitem's **move** (`presentedSubitem(at:didMoveTo:)`). Written
+down as "a rename made in the Files app is never heard", which the control
+disproved: **without the callback the coordinator falls back to its others**,
+and a note moved under coordination arrived about a second later as three
+events — `presentedItemDidChange` (no path), then the old name as a change
+and the new one as an appearance. The handler walks the folder for the first
+of those unless a write of the app's own is recent, so a Files-app rename
+reached the sidebar after all, a second or two on. What was wrong was
+narrower: the app's own `moveItem` registered neither name as its own, so
+every move the app made on iOS was walked twice — once by `moveItem`, once
+for the report of it, a second later.
+- The move is heard as a move now: one event, both names, at once
+  (`.itemsChanged([old, new])`), which the handler takes as it takes
+  FSEvents' pair on the Mac; and `moveItem` registers both names as the
+  app's own writes, as a rename did.
+- Compiled on both platforms, so that a Mac test can register one on a
+  folder and move a note under it with a coordinator of its own, as another
+  app would (`DirectoryPresenterTests`): one event by both names, and a write
+  heard as before. **Control**: with the callback taken out, the test's first
+  form — "both names heard, eventually" — still passed, on the fallback; it
+  asks for one event with both now, and fails without the callback. The
+  `#if os(macOS)` around `FileWatcher` keeps an `#else`, which
+  `ShellComplianceTests` requires of every platform gate.
+
+**Not run on an iPad.** The reproduction is on the Mac's file coordination;
+whether iCloud's own daemon moves under coordination so that a Files-app
+rename reaches a presenter — by either route — is iOS's to show. Build 35
+(TestFlight, 2026-10-24) is the first build that carries it, and §51.56.
+
+### 51.56 The iPad's two reports, still there in build 34: a note with two names, and a wait that read its first answer for a minute (2026-10-24)
+
+**Reported again from the iPad, on build 34**: a note made in a folder of
+an Obsidian vault in iCloud Drive cannot be renamed — not by its title, not
+from the sidebar's Rename — and a note iCloud has not downloaded takes
+"forever" to open. Both were reported before and both were "fixed" in builds
+32 and 33 (`ShellActions.createNote(in:folderID:)`, §51.51–§51.52) — against
+the simulator, whose folders have one name, and a stand-in file provider.
+Neither fix was ever run on the thing that failed, and this record says so
+where the earlier ones said "fixed". What was found this time was found by
+asking Foundation itself, on both runtimes (a probe spawned in the iOS
+simulator's runtime, `xcrun simctl spawn`), and reproduced headless on a
+Mac before anything was changed.
+
+**One file, two names — and the earlier fix is where the second came from.**
+On an iPhone every folder a collection can be rooted in is `/private/var/…`,
+and its other name is `/var/…`. `Collection.id` is the *canonical* path
+(`resolvingSymlinksInPath`, which strips `/private`), so the id is the
+folder's other name; the walk spells every note the root's way
+(§51.48). The sidebar names a folder by the collection's id, and the fix for
+"New Note went to the root" built the folder's URL from that id
+(`URL(fileURLWithPath: folderID)`): so a note made with New Note Here was
+spelled `/var/…` while its twin from the next walk was spelled
+`/private/var/…`. `apply` compares pictures by relative path and so kept the
+walked twin; a rename handed the made note (the inline title's route) took
+out `$0.fileURL == note.fileURL` and left the twin — "Untitled" stayed in the
+sidebar beside the new name, and a second Rename from the row, of a file
+already moved, could only say it exists or could not be found. A move into
+a folder built its destination the same way; `EditorTabs.prune` keeps a tab
+by exact URL, so a tab on the other spelling closed. On a Mac or in the
+simulator the id and the root are one spelling and nothing diverges, which
+is the whole reason three builds passed every test.
+- `Collection.ownSpelling(of:)` respells any folder or file it is handed
+  under its own name, as a listing is (`listedRootLength`, `respelled`), and
+  `createNote(in:)`, `createFolder(in:)`, `moveItem(at:into:)` and
+  `renameNote` go through it; `adopt(createdAt:)` and `adopt(renamed:)`
+  compare by the file (`sameFile`, through `CollectionIndexCache.relativePath`,
+  which carries both names and never asks the file system — which answers
+  for a file that has just gone the other way round). `EditorModel.itemMoved`
+  and the shell's selection after a move keep the destination's spelling
+  rather than a standardised path's.
+- `aNoteMadeInAFolderKeepsTheCollectionsOwnSpelling` stages the iPhone's
+  shape on a Mac with a root reached through a link — the same two names —
+  makes a note from the sidebar's id, walks, renames and moves. Before the
+  change: made under the other name, re-spelled by the walk, the old name
+  still listed after the rename, the move under the wrong name (4 issues).
+
+**The download wait read its first answer back for the whole minute.**
+`URL.resourceValues(forKeys:)` answers from a cache on the URL, and only a
+turn of the main run loop clears it; the wait asks on a GCD lane, which has
+none. Probed: one instance reported 3 bytes at six looks 200 ms apart while
+the file held 50, on macOS and in the iOS runtime alike, and fresh on the
+main thread once its loop had turned. So `DownloadWaiter`, asking the same
+`url` every 200 ms, had "not downloaded" from its first look at its
+three-hundredth, whatever had arrived; the note's URL, kept from the walk
+with the walk's answers on it, carried "not downloaded" into the editor's
+first look and into Try Again. A note downloaded in a second was "hasn't
+finished downloading" at the deadline, every time — which is what "takes
+forever" is. §51.51's rebuild of the wait (lanes, a deadline nothing can
+hold up) was right about what it measured and never looked at the answer.
+- `FileIO.currentResourceValues(at:keys:)` asks a URL with no memory
+  (`removeAllCachedResourceValues`), and `isMaterialized`, `isCurrent` and
+  `Collection.adopt(hydrated:)` ask through it. `theWaitReadsTheFileAsItIsNow`
+  holds the fresh read *and* the premise, so the reason is still written
+  down the day Foundation changes it.
+
+**Not established, again, and said so this time.** Neither change has run on
+the iPad, and the download has not run against iCloud at all: this Mac's
+tests have no cloud item, and the person's iCloud Drive is theirs. Whether
+`startDownloadingUbiquitousItem` takes effect on a folder reached through
+the document picker is still iCloud's to show. The rename's reproduction is
+of the iPhone's exact shape; the wait's is of the mechanism, as §51.51's was.
+On the way: the iOS watcher (`DirectoryPresenter`) implemented no
+`presentedSubitem(at:didMoveTo:)`, so a rename made elsewhere reached it only
+through the coordinator's fallback, a second later (§51.57).
+
+### 51.55 1.3.5: models named by where they run, an Assistant that reads and says so, and a fallback that just happens (2026-10-18)
+
+**1.3.4 reached the Mac with "(Function)" on screen.** The notice for people
+whose AI service 1.3.3 retired ended "You can choose \(LanguageModels.largerModels)
+in AI settings" — and build 33 had made `largerModels` a function of the model
+in use, so the interpolation printed the function itself. Swift accepts that
+with one warning. `PrivateCloudComputeWordingTests.noSentenceInterpolatesTheFunctionItself`
+holds it, with a negative control. The iOS 1.3.4 submission was withdrawn
+before review finished, so 1.3.5 is the next version on both platforms.
+
+**The person's own check of build 33 found the rest**, none of which any test
+had: Ask Your Library offered *System* against *Private Cloud Compute* — both
+Apple's models, so the toggle did not say the one thing that differs, where the
+text goes; a question on Private Cloud Compute took long and answered
+generically, citing nothing; its bar had a button that swapped two icons and
+seemed to do nothing, a model picker with "AI Settings" in it and a separate
+settings button; a Mind Map tip took the first tap; and nothing a person could
+see said how the Assistant would change a note. The decisions, all the
+person's, on 18 October: models are **Local (Apple)**, **Cloud (Apple)** and
+**Local (*model*)**, with a default in Settings and the Assistant able to
+choose for one conversation; a model menu and a labelled **Use my notes**
+switch; tips out "for now"; Ask Your Library folded into the Assistant; and a
+descope — a plan for an agent with editing tools "will end up reimplementing
+OpenCode in the app", so editing waits for a later release, and this one does
+the core: earlier messages summarised to keep a conversation going, a more
+robust search, a line saying the Assistant is experimental, and a graceful
+fallback for Cloud (Apple)'s daily allowance.
+
+**What changed.**
+
+* **Names** — `LanguageModels.name(of:)`, which `title(of:)` now returns as
+  is; every sentence that named "System" or "Private Cloud Compute" as a model
+  says the new name, and Apple's service keeps its own name where the text
+  says where it goes.
+* **Where a result was made** — `ModelStamp`, taken as the work starts and
+  drawn by `ModelStampLabel` beside Report…: each Assistant reply (kept beside
+  the conversation in `models.json`, `ChatSessionStore.save(_:stamps:)`), the
+  panel's summary, tags and links, Rewrite and Expand, New Note from a Prompt.
+  The stamp is recorded by the work itself (`IntelligenceService.stamped`,
+  `DeepResearch.onModel`), so a fallback partway through says Local (Apple).
+* **The Assistant reads** — offered `search_notes`, `read_note`,
+  `grep_collection` and `web_search` on an 8K window, and `list_notes`,
+  `web_fetch` and `deep_research` besides from 16K; the tools that create,
+  edit, write and delete are kept and not offered, and the instructions say
+  to give the person text to paste. Its header is the switch, the model menu
+  (AI Settings… at its foot — the separate gear went) and New conversation;
+  its empty state says it is experimental and why.
+* **Search** — `read_note` takes a `section:` to start at a heading (an
+  unknown one is answered with the note's sections), a truncated read names
+  the sections after it and how to ask for one, `grep_collection` lines say
+  `Title › Heading:LN:`, and `NoteSections` ignores headings in fenced code.
+  Ask Your Library had ranked notes by word counts and read their openings;
+  that is why it cited nothing useful.
+* **Earlier messages** — what `HistoryWindow` would drop is counted
+  (`keptFrom`) and summarised on the turn's own model before the request
+  (`AssistantModel.summariseWhatFallsOut`), and carried as a turn of the
+  conversation, never in the instructions (the review below).
+* **Ask Your Library is gone** (`LibraryChatView.swift`, its tab, row, menu
+  item, ⇧⌘J and palette entry). Selected text's **Ask the Assistant** sends
+  "Explain this, using my notes: …" to the sidebar's collection's
+  Assistant (`Library.askAboutSelection(_:in:settings:)`).
+* **Tips are gone** (`Tips.swift` and TipKit), and with them `-HNHideTips`.
+* **The allowance** — `LanguageModels.serving` sends a request asked of Cloud
+  (Apple) to Local (Apple) once `quotaUsage` says the day's allowance is
+  spent, and `fallback(after:on:)` asks a request refused for the limit again
+  there, once: in `IntelligenceService.perform`, in `DeepResearch.run` (a
+  refusal at any step starts the run again from its plan) and in
+  `AssistantModel.respond` (asked again from the conversation as it was before
+  the message, and the reply stamped with the model that wrote it). Never
+  towards the cloud, never for another failure. A **Request More** button had
+  been added for the framework's limit-increase sheet without being asked for;
+  the person asked for a fallback, and it went.
+
+**Measured**, on 18 October:
+
+| Gate | Result |
+|---|---|
+| macOS app suite | 941 tests in 146 suites, pass |
+| iOS interface tests, iPhone | 15 cases, the 3 designed skips, 0 failures |
+| iOS interface test, iPad held upright | pass, not skipped |
+| Evaluations, Local (Apple) | 5 of 5 — tags, links, rewrite, long summary, Assistant tool use — 28.7 s |
+| Evaluations, Cloud (Apple), Assistant only | 3 of 3 in 9.1 s; the roadmap answer names *Roadmap (Projects/Roadmap.md)* |
+| Fallback rule, negative control | falling back on any Cloud failure fails on exactly the two expectations meant to catch it |
+| Release, macOS, 1.3.5 (34) | builds; Apple Development signature, team profile carrying the entitlement |
+
+The interface runs were taken before the fallback change, which touches no
+screen they drive. Two flags make a Cloud evaluation affordable:
+`TEST_RUNNER_HN_EVAL_PCC=1`, which refuses to start once the allowance is
+spent rather than measure Local (Apple) under Cloud's name, and
+`TEST_RUNNER_HN_EVAL_ONLY=assistant`, because `-only-testing:` named down to a
+Swift Testing function runs nothing and passes.
+
+**Not shown.** The second ask — a request refused for the limit — cannot be
+driven without spending the allowance, and there is no stand-in
+`LanguageModel` (it would need a `LanguageModelExecutor`), so the rule is
+tested as pure functions and its three call sites were read, not run.
+Reading `quotaUsage` is free and safe: probed from an
+unsandboxed process with no entitlement — as CI's host is — the first read took
+9 µs and a thousand more 47 µs, and it answered "not reached" with no reset
+date; only a request without the entitlement crashes.
+
+**What the person's check of build 34 found, and the fact-check after it.**
+Two things on screen: **no line said the Assistant is experimental** — it was
+in the empty state, and the Assistant opens on the last conversation, so it
+was never seen (it is above the message field now, always, and
+`testTypingOnAnIPadHeldUpright` asks for it); and **no MLX model in the
+picker** beside a Hugging Face cache of runnable ones — because this Mac had
+never granted the cache to a sandboxed build (`aiMLXFolderBookmark` absent, a
+key name read and no value), and nothing by the picker said so (a line there
+now points to **Access MLX Models…**, on a Mac, while there is no grant and no
+model). Then a fact-check of the manual and the listing against the source,
+whose reverse column found what neither look had: **the Assistant's research
+tool ran on the Settings default**, so a conversation kept on this device sent
+what it researched to Cloud (Apple) under a Local stamp — the tool now runs on
+the conversation's model (`ToolContext.modelChoice`); the conversation's
+choice carried into another collection's conversation and was lost on
+relaunch (kept beside it now, `ChatSessionStore.Conversation`); a stamp taken
+before the work named Cloud (Apple) for a request Local (Apple) answered after
+a refusal (`IntelligenceService.stamped`, `DeepResearch.onModel`); and four
+strings — Inline Completion's "choose System", judged by the model standing in
+rather than the one chosen; the Settings footer naming Cloud (Apple) in the
+DMG, which never offers it; the Assistant promising it "names the notes it
+used", which is an instruction nobody measured (it says it shows each one it
+read, which the conversation does); and the Mac told the iPhone's path to
+manage a subscription. Ask Your Library's `answer()` went with the probe that
+timed it, its only caller.
+
+**Then the search itself, the person's next question: "why the search only
+returns a few entries in the Assistant? There's plenty of tokens left."**
+Every note tool shaped its result by a count fixed for the smallest window —
+`searchLimit` six, or ten from 16K, grep twenty or sixty lines, the list sixty
+or two hundred titles — and the search said nothing about the rest, so a model
+shown ten notes of the hundreds that matched took ten for the answer. A first
+fix gave a search a quarter of the window; the person asked why a quarter, and
+why not all of it with the history giving way — "querying notes in the
+assistant is the only useful functionality at present." So a note tool's
+result takes the room the turn has left (`TurnRoom`): the history's share of
+the window, less the message and what the turn's tools have returned, with
+older turns making way as `HistoryWindow.fit` already did and the reply's
+reserve kept. The one hazard is the model's habit of asking for several tools
+in one step, whose results reach the transcript together: each result is
+measured and taken on the main actor with nothing in between, so siblings
+share the room — one alone gets all of it — and a turn with none left is told
+so rather than sent past the window. What does not fit is counted. Shaping
+reads by tokens showed that `TokenBudget.prefix` was not the longest prefix
+it promised: it stopped before a paragraph too big for the budget, so a note
+with a long opening paragraph was read as its title, and Suggest Tags read the
+same opening; it now cuts inside that paragraph, at a line, sentence or word.
+947 tests; the five evaluations on Local (Apple) and the Assistant's on Cloud
+(Apple) pass — through the harness's own tools, which take the fallback
+quarter, so the room's sharing is held by `resultsShareTheRoomTheTurnHasLeft`
+and `aFullTurnIsToldSo`, not by a model.
+
+**Then a review of the whole change (`/code-review max`), whose fifteen
+findings were fixed before the build went up** (2026-10-19).
+- **The summary of earlier messages lost the thread four ways**: it read the
+  opening of what fell out and marked all of it covered; it moved on when a
+  summary failed; it measured before the new message was added, so a turn
+  went a message late; and it was never kept, so the Assistant made again
+  remembered none of it. Before a message goes, everything it pushes out is
+  folded in now, oldest first, in parts that join back into the whole
+  (`AssistantModel.summaryParts`, over `TokenBudget.chunks`), at most three a
+  message; only what was read counts as covered; and the summary and how far
+  it reaches are kept with the conversation (`ChatSessionStore.Conversation`,
+  `conversation.json`), beside its model and **Use my notes**. While it is
+  made, the message stays on screen with "Remembering earlier messages…" —
+  it vanished for the seconds a summary took — and a message that never went
+  goes back in the field.
+- **The summary is a turn, never instructions.** It is the model's account of
+  replies that quote notes and web pages, and it sat in the instructions,
+  against their own rule that nothing from a note or a page reaches them. It
+  is the answer to a question the app asks now, in the conversation's place,
+  shown only while a turn it covers is not (`HistoryWindow.fit`), and read by
+  the profile before every request (`EarlierSummary`) — so a new summary
+  needs no new session, and the instructions never change for one.
+- **The Assistant is the library's, one per collection**
+  (`Library.assistant(for:settings:)`). It was its tab's, and showing a note
+  took the tab down: a turn still streaming saved over the transcript of the
+  model made when the tab came back, **Use my notes** came back on while the
+  conversation's Cloud (Apple) choice came back from disk, and Ask the
+  Assistant left its question in the library for whichever window's tab heard
+  it first — with that window's collection. The tab shows the sidebar's
+  collection's conversation, not the library's focus, which every window
+  shares. Its first version kept the library's list unobserved and drew from
+  it, so a tab drawn before its task had made the model stayed on its spinner
+  for good: `testTypingOnAnIPadHeldUpright` failed ("the Assistant doesn't say
+  it is experimental"), and passed with the list observed.
+- **A conversation's own model stays its own.** An MLX model the folder no
+  longer lists is kept, and says so, where the conversation moved to the
+  default — possibly Cloud (Apple) — with everything it had read; an update's
+  new snapshot is found again (`LanguageModels.resolved`). A session is keyed
+  by the model's entry, not its title, which leaves out the organisation, so
+  two models of one name no longer share one.
+- **The turn room told turns apart by their size**, so a question the same
+  shape as the last inherited its spent room — "No room is left" before
+  anything was read (`TurnRoom.Held.turnStart`).
+- **A note saved on Windows was one line**: "\r\n" is one Character, never
+  "\n", so exact-text search returned the whole note as a match, past the
+  turn's room, and no section in it could be found. Lines split at any line
+  break; a long matching line is shown as the stretch around the match
+  (`ToolContext.excerpt`); and "## C#" is about C#.
+- **`search_notes` counted to 250** — the note list's cap — and told the model
+  it had every match.
+- **Research rechecks what it needs** when Cloud (Apple)'s limit moves it to
+  this device, where the window may be too small, and says it is the limit
+  rather than "choose Cloud (Apple)"; and a writing tool that fell back
+  partway is stamped with the model that refused, which had been sent its
+  first requests (`ModelStamp.after`).
+- **MLX**: removing any model frees its memory, not only the default's; a
+  single model's folder lists what was downloaded into it and takes no more
+  downloads (`MLXModelFolder.isOneModel`).
+- **The Mac screenshot script restores exactly what it moved**, from a folder
+  of its own, with its trap set before it touches anything and a refusal to
+  start over a stopped run's backups — it moved the conversations aside before
+  its trap existed, and began each run by deleting the folder an interrupted
+  one had left them in; and `ax-press` fails when Accessibility does, rather
+  than letting the question be typed into the note.
+
+**And Research's questions got rooms of their own** (2026-10-19, after build
+34 — a candidate of the same review that did not make its fifteen). Each
+question runs in a session of its own, and each result there took a fixed
+share — a quarter of the window a note, a sixth a page — whatever the question
+had read already; on the on-device model's 8,192 tokens a question that read a
+note and fetched two pages, or fetched three, ran past its window, and that
+part of the research failed. Each question has a `TurnRoom` now, measured from
+its own session's transcript by the measure the Assistant uses
+(`TurnRoom.held(in:)`, which `AssistantModel` took out of itself), budgeted
+after its instructions and tools' definitions (`LanguageModels.cost`,
+`TurnRoom.budget`), and shared by its four tools
+(`DeepResearch.researcherTools`). The web tools take their part in the
+Assistant's turns as well: a page or a search's results are reserved before
+the network is asked (`TurnRoom.reserve`), take their own cap and no more than
+is left, so the turn's notes keep the rest, and a page is cut by tokens
+(`ToolLimits.fetchTokens`) — it was cut by characters, at three a token, which
+a Chinese page is not. `aFullTurnFetchesNoPageAndSearchesNothing` and
+`researchAndTheAssistantGiveTheirWebToolsTheRoom` fail with the room taken
+out, and `ResearchProbe` researched two questions on Local (Apple) in 65
+seconds.
+
+### 51.54 Private Cloud Compute, granted — in the App Store build, and kept out of the DMG (2026-10-17)
+
+**Apple granted the managed entitlement, and the app now offers Private Cloud
+Compute** — the change `production.md` §1b-PCC had waited a month for, made as
+it said: the capability on the `com.hellotham.HelloNotes` App ID in the
+Developer portal (*Access to models on Private Cloud Compute*, beside the App
+Groups, iCloud and In-App Purchase it already had), the key in
+`HelloNotes.entitlements`, and `PRIVATE_CLOUD_COMPUTE` in the app target's
+Debug and Release. The app side needed nothing more: the model, its privacy
+line, its quota note and its errors had been written in September behind the
+flag. From inside the signed app the probe asked once — available, quota not
+reached, "OK" in 1.2 seconds — with a development profile Xcode made for it
+that minute, carrying the entitlement.
+
+**The portal's own note beside the capability said what the rest of the day
+was about: Provisioning Support — Development, Ad hoc, App Store Connect.**
+Not Developer ID. A Release archive exported for the DMG failed: *"Cannot
+create a Developer ID provisioning profile for "com.hellotham.HelloNotes".
+The Access to models on Private Cloud Compute capability is not available for
+Developer ID provisioning profiles."* Two things that could mean, with very
+different costs: that an app *asking* for it cannot be given a Developer ID
+profile, or that an App ID *having* it cannot — which would have taken the
+DMG's iCloud sync and App Group with it, both of which need a profile.
+- **Measured, not argued.** Re-signing the archived app without the key, to
+  export that, was refused by this session's safety classifier, and was not
+  tried another way. The ordinary route answered it instead: the same project
+  archived once from the entitlements without the key (put back the moment the
+  archive finished) exported for Developer ID — signed Developer ID
+  Application, a new *Mac Team Direct Provisioning Profile*, iCloud's key-value
+  store and the App Group intact, all three extensions Developer ID-signed,
+  `codesign --verify --deep --strict` clean. The capability on the App ID
+  costs the DMG nothing but the model.
+- **So the DMG is archived from the app's entitlements less that key**, and
+  the switch is a build setting only the app reads: `CODE_SIGN_ENTITLEMENTS =
+  "$(HN_APP_ENTITLEMENTS)"`, `HN_APP_ENTITLEMENTS =
+  HelloNotes/HelloNotes.entitlements`. Overriding `CODE_SIGN_ENTITLEMENTS` on
+  the command line would have given the widget, Preview and Thumbnail
+  extensions the app's entitlements too; overriding `HN_APP_ENTITLEMENTS`
+  reaches the app alone (read back with `-showBuildSettings`, and from the
+  exported extensions' signatures). The copy is made at release time from the
+  real file — nothing committed to drift — by PlistBuddy: `plutil -remove`
+  reads the key's dots as a key path, finds nothing, and writes nothing.
+  `theDirectDownloadCanBeSignedWithoutIt` fails if the project is written back
+  to a plain path, which would leave the override overriding nothing.
+- **The two archives have two paths** (`build/HelloNotes.xcarchive` for the
+  App Store, `build/HelloNotes-DeveloperID.xcarchive` for the DMG). They
+  shared one; a DMG archive uploaded to the App Store would be a build without
+  the model, and nothing would say so.
+- **The DMG build still has the flag, and does not offer the model**: on the
+  Mac, `privateCloudComputeEnabled` also reads the *signed* entitlement
+  (`SecTaskCopyValueForEntitlement`), which September's version wrote for
+  exactly this case. That build was not launched — a Release build opens the
+  person's own collections.
+- **The App Store side was proved the same way.** The archive with the key,
+  exported `app-store-connect` to a folder — a copy of the upload plist with
+  `destination` set to `export`, since the repository's sends the build — is
+  an Apple Distribution app with the entitlement, in a package signed by the
+  installer certificate.
+
+What it is called, and where it is described. In Apple's words and the app's:
+"Sent to Apple's Private Cloud Compute to process. It isn't stored, and it
+isn't accessible to Apple." — the same sentence under the picker, in the
+manual (bundled and on the website), in the privacy policy (with a paragraph
+for email sent to us, which it had never mentioned) and in the listing.
+Nothing claims it filters anything: its interface has no guardrail setting,
+only `init()`, so the copy calls it Apple's own model on Apple's servers and
+keeps "applies Apple's guardrails" for the System model, where the app
+chooses the guardrails. App Privacy was re-read in full and stays "no data
+collected": data sent to serve a request in real time and not retained is not
+collected, and "you are not responsible for disclosing data collected by
+Apple". The listing names it from build 33 only — build 32, in review on iOS,
+does not offer it, and its promotional text is the field that can be changed
+without review, so the easiest to paste early.
+
+**"Written behind the flag" was not "written right": a fact-check of the new
+copy against the source (the `docs-fact-checker`, 46 claims) found the app
+wrong in four places the day the model became choosable**, each a string or
+a screen written while it could not be:
+- **The "too long" errors told Private Cloud Compute to choose itself** — and
+  an MLX model with half its window — because one list served every model
+  (`LanguageModels.largerModels`). `largerModels(than:)` asks about the model
+  in use: nothing is larger than Private Cloud Compute, only it is larger than
+  MLX, and from System both (summary, expand, rewrite, Research).
+- **The AI settings promised suggestions as you type on a model that cannot
+  make them**: ghost text needs a model on the device
+  (`supportsInlineCompletion`). The line under the picker is
+  `LanguageModels.uses(of:)` now, and says so.
+- **A conversation switched to Private Cloud Compute partway said nothing.**
+  The Assistant said where text goes only on an empty conversation, and the
+  session rebuilt for the new model carries the conversation so far — what the
+  tools read from notes on the device included. On a model off the device a
+  line above the message field says each message sends it
+  (`conversationPrivacy(of:)`).
+- **Two sentences naming the models that can use tools left Private Cloud
+  Compute out** (`appleModels(joinedBy:)`).
+- Smaller: Ask Your Library's "I couldn't find any notes" — the app's words —
+  had Report… beside it; the creativity caption lost "they apply to the
+  Assistant" on a reasoning model; four comments described the app as it was.
+
+`PrivateCloudComputeWordingTests` holds the first three; with the old
+behaviour put back (the larger-model list, and the role line promising ghost
+text everywhere) it failed on exactly those two expectations. The copy took
+the rest: the ghost-text limit, Request More, the reset time said only when
+Apple gives one, "Report… is beside its answers and suggestions" rather than
+"every response" (the Assistant's thinking and an edit's proposed text have
+none, and Contact covers them), the model in use rather than "the model that
+wrote it" (the report names the model chosen when it is pressed), the
+Assistant's conversations kept in the app's own storage, no claim that Private
+Cloud Compute needs Apple Intelligence turned on (the SDK says only "not
+eligible" or "not ready", and the app's own sentence hedges), none that it
+thinks (that is the model's runtime capability, unprobed), and the reviewer
+notes' "the results are read by the model on the device" — untrue of the
+model this change added. And one older error it found on the way: the notes
+to App Review sent the reviewer to "Settings ▸ Support ▸ Support HelloNotes",
+a screen that does not exist — that is the subscription group's name.
+
+| Check | Result |
+|---|---|
+| Developer portal, after saving | Private Cloud Compute ticked beside App Groups, iCloud and In-App Purchase, on a fresh load |
+| `PrivateCloudComputeEntitlementTests` + `PrivateCloudComputeProbe` | 3 tests in 2 suites pass; "OK" from Private Cloud Compute in 1.2 s, inside the signed app |
+| Release archive with the key, exported for Developer ID | fails, as quoted |
+| Same project archived without it (`HN_APP_ENTITLEMENTS`), exported for Developer ID | Developer ID Application; iCloud and App Group kept; no Private Cloud Compute; extensions on their own entitlements; deep strict verify clean |
+| Release archive with the key, exported `app-store-connect` to a folder | Apple Distribution, entitlement present, package signed by the installer certificate |
+| iOS device build | passes, with a new *iOS Team Provisioning Profile: com.hellotham.HelloNotes* (17:17) carrying the entitlement, and the app signed with it — after the person signed in to Xcode again. The first two tries said "No Accounts": the Mac had locked at 15:35 while a build wanted the account, and Xcode's stored list was empty afterwards (AGENTS.md, "A locked screen takes the keychain with it") |
+| Wording suite, entitlement, privacy-line, report, shell, chrome, listing and shipped-content suites | 52 tests in 9 suites pass; negative control as above |
+| macOS app suite, whole | 926 tests in 144 suites, pass |
+| iOS interface tests, iPhone | 19 executed, 3 skipped, 0 failures |
+| iPad held upright | pass |
+| Website build and `site-audit` | clean, 16 pages |
+
+### 51.53 What a model wrote can be reported, and anyone can write to us (2026-10-17)
+
+**App Review Guideline 1.2 names AI content creation apps now** (the revision
+of 16 October 2026). Of an app whose content is generated, it asks for a way
+to filter objectionable material, a mechanism to report offensive content, the
+ability to block abusive users, and published contact information. What
+HelloNotes' models write goes only into the person's own notes — no accounts,
+no other users, nowhere to post — so there is no one to block and no one else
+who sees it. The report and the contact were what applied.
+- **Report… beside every response a model wrote** (`ResponseReport`,
+  `ReportResponseButton`): an Assistant reply, an answer from Ask Your Library,
+  a rewrite, a New Note from a Prompt draft, and the right panel's summary,
+  suggested tags and suggested links. It composes an email to
+  info@hellotham.com in the person's own mail app — the app sends nothing, as
+  with the support request — holding the response (its first 1,000
+  characters, and how many more there were), the question (300), the feature,
+  the model and the versions, and a line saying to read it through before
+  sending, because the response may quote their notes. The URL is built by
+  `URLComponents`, so a response with `&` or `#` in it arrives whole; with no
+  mail app, the support page opens instead. The report is made when the button
+  is pressed, so a reply still arriving is reported as it stands.
+- **Settings ▸ Support ▸ Contact** — the address and the support website, for
+  everyone. It is not a purchase: the support *request* stays the one thing
+  backing HelloNotes adds (`SupportContractTests` unchanged).
+- **Suggest as I type** has no room for a button beside grey text; its help
+  line says to write from Settings ▸ Support ▸ Contact.
+- **Filtering is the model's, and said so.** The System model applies Apple's
+  guardrails; an MLX model is one the person chose and downloaded, and
+  HelloNotes does not filter what it writes — in the manual and to App Review,
+  not left to be inferred.
+- `ResponseReportTests`: the body survives its trip through the URL whole; a
+  long response is cut and says by how much; a suggestion has no question
+  section; the address is the one `website/src/lib/site.ts` publishes, read
+  from it, loudly when it moves. `AIReportSurfacesTests` reads the five files
+  that show a model's text and fails any of seven features shown with nothing
+  to report it by — control: Ask Your Library's report removed, and it failed
+  naming the file. A source check cannot see whether a screen draws, so the
+  iOS settings walk opens Support and finds Contact.
+- Written up in the bundled manual (Intelligence ▸ Reporting a response;
+  Supporting HelloNotes ▸ Contact), the website's AI page (`#report`) and a
+  SAFEGUARDS paragraph in the notes to App Review (`app-store-listing.md`),
+  for the next build.
+
+The revision's other changes — 2.3.14, 2.5.19, 3.1.1(a) and 5 — were read
+against the app and ask nothing new of it.
+
+| Check | Result |
+|---|---|
+| `ResponseReportTests`, `AIReportSurfacesTests`, `SupportContractTests`, `ShippedContentTests`, `ShellComplianceTests` | 45 tests in 5 suites, pass |
+| iOS interface tests, iPhone | 19 executed, 3 skipped, 0 failures |
+| iPad held upright | pass |
+| Website build and `site-audit` | clean, 16 pages |
+
+### 51.52 An attachment iCloud held was never asked for; and the wait, reviewed and rebuilt (2026-10-17)
+
+**The attachment viewer's iCloud wait had never run.** `FileViewerView` used
+the shell's `prepare` if it had one — a cloud collection's fetch — and waited
+for iCloud otherwise. The one shell always passes `prepare`, and for an
+iCloud Drive folder it is a no-op, so the wait below it was never reached: an
+image or a PDF the system held online-only was never asked for, and its empty
+stand-in was previewed, blank, for good. A cloud collection's stand-in that
+could not be fetched was previewed the same way. (The task was filed as "the
+viewer's wait is unbounded and on the main thread". Both were true of code
+that did not run.)
+- **`AttachmentBytes`** is the one decision, apart from the view so a test can
+  drive it: a cloud collection's stand-in is fetched by its collection; any
+  other file is waited for as the system holds it — the *newest* version
+  (`FileIO.isCurrent`), since nothing refreshes a preview when one lands —
+  and either way the wait has an end and says how it ended, with Try Again.
+  "Downloading" is said only after a quarter of a second without an answer:
+  a file that is here answers sooner.
+- Control: the decision as it was, ported verbatim and run under the new
+  tests, failed four expectations — the attachment never asked for and never
+  said to be downloading, a silent provider and an unfetched stand-in both
+  "shown".
+- `FileViewerDrawsTests` draws the real viewer for a local CSV and reads the
+  picture, at full size and halved (CI's runner draws at one pixel a point):
+  the table, not a blank. Control: "here" drawn as nothing fails it. Read
+  from the picture because, in-process, SwiftUI's accessibility tree came
+  back empty — the bottom bar's name and all — and could tell nothing apart.
+
+**The wait itself was reviewed, and five findings were measured true** (the
+`swift-concurrency-reviewer`, against a byte-identical harness of §51.51's
+version):
+1. Its timer ran on GCD's shared queue — the same capped pool the stuck
+   provider calls held. A hundred waits on a silent provider were answered by
+   nobody, and an unrelated block on that queue did not run.
+2. Each waiter slept on a thread between questions, which reached the cap
+   sooner.
+3. "No answer" was reported for a provider that had answered every question:
+   the timer was anchored before the first question, the polling's deadline
+   after two, on two clocks.
+4. A wait cancelled before it began still asked the provider, and still asked
+   for a download nobody would wait for.
+5. A note the folder's walk had found here was still asked on the pool with
+   no deadline — and one that never answered left an empty tab: no banner,
+   no deadline, typing refused.
+And one that predated it: a cloud collection's fetch, awaited before any
+deadline, was bounded only by the network's own timeouts.
+
+What changed, each held by a test:
+- **Questions go on lanes**: sixteen serial queues, one file always on the
+  same one, so a silent provider holds at most a lane a file and sixteen in
+  all; the next question is scheduled, not slept for. **The deadline has a
+  serial queue of its own**, which GCD gives a thread when its shared pool is
+  full. One monotonic deadline; the questions say "not yet" at it while the
+  provider answers, and only a question still out a second past it — or never
+  put — is "no answer"; once answered, nothing more is asked.
+  `FileProviderWaitTests`: a slow but answering provider is "not yet"; a
+  silent one is "no answer" by its deadline; a cancelled wait asks nothing;
+  two hundred waits on silent providers, every lane held, are all answered,
+  with at most sixteen questions out, while an unrelated block on GCD's
+  shared queue runs.
+- **The editor asks about every note through the wait that has an end**, and
+  a cloud collection's fetch is waited for no longer
+  (`finishes(within:)`, Core/Deadline.swift). Mutation controls: skipping the
+  wait for a note thought here fails both of its tests (and the older
+  `openingAsksAboutTheDownloadOffTheMainActor`); awaiting the fetch with no
+  deadline fails its test.
+- **A test's stand-in provider brings lanes of its own** (`StandInProvider`,
+  `ProviderCalls.lanes`). A test that held one of the app's shared lanes silent
+  for a minute — waiting, failing, for a state it had missed — held up
+  whichever other test's note hashed to that lane, one time in sixteen, by a
+  hash that differs per run: the Assistant's `createReadListAndGrep` was
+  told its scratch note "hasn't downloaded to this device". And a state that
+  passes — "Downloading" between asking and the answer — is held by the test
+  until it has seen it, never polled for against the deadline that ends it.
+
+**Checked:** the app suite twice, 916 tests in 140 suites; the iOS build.
+**Not done** — the review's other findings, each pre-existing and recorded in
+unimplemented.md §12: the editor's coordinated read of a note, the reconcile
+on every change seen on disk and the Assistant's read each ask the provider
+on the pool with no deadline, and `adopt(hydrated:)` asks it on the main
+actor.
+
+### 51.51 "Downloading from the cloud" with no end: a deadline nothing can hold up (2026-10-17)
+
+Reported from an iPad on an earlier build (31 or 32; the code below is
+unchanged since): in an iCloud Drive folder, opening a note said
+"Downloading “2026-10-10 DevFest Sydney” from the cloud…", with its spinner,
+and went on saying it — past a minute, which is as long as opening waits
+before saying instead that the note "hasn’t finished downloading … It will
+open once the download completes", with Try Again. `FileIO.materialise` had
+that minute "so a provider that never finishes leaves the user with a message
+rather than a spinner with no end".
+
+**Its deadline was checked between questions to the provider.** It asked
+whether the file had come (`URL.resourceValues` for the download status), and
+asked for it (`startDownloadingUbiquitousItem`), every 200 ms on the
+concurrency pool, and compared the clock in between. Both are synchronous
+calls to the file provider. One that does not return holds the wait — the
+banner — for good, and the pool thread under it with it.
+- **Reproduced**, with the provider asked whether the note had come never
+  answering (`FileIO.materialisedProbes`) and a limit of one second: still
+  "downloading" after 66 seconds.
+- **`FileIO.waitForDownload`** asks on a GCD queue of its own, so a call that
+  never returns holds one of GCD's threads and never one of the pool's few,
+  and is answered by whichever comes first: the questions, or a timer a
+  second past their deadline that nothing asked of the provider can hold up.
+  A late answer is dropped; the file, if it comes, is found the way any change
+  on disk is (`reconcileWithDisk`, "Arrived"). `materialise` is a wrapper.
+  *That first version was reviewed the same day and rebuilt — its timer
+  shared GCD's capped pool with the calls it outlasted, among other things
+  (§51.52).*
+- **It says which wait it was**: "hasn’t finished downloading" when the
+  provider answered and the file did not come; "its provider didn’t answer
+  when asked for it" when the provider never answered — so the next report
+  says which.
+- And opening no longer asks the pool for a thread to ask a question already
+  answered: for a note the folder's walk found was not here, "is it here?" is
+  not asked again before the wait.
+- `aDownloadNothingAnswersEndsInAMessageNotASpinner`: the banner ends with the
+  provider's silence named in it, and the note opens once the provider
+  answers. Control: the same test on the code before, above.
+
+**Not established.** That a call that never returns is what the iPad did:
+the device was not read, at the person's request, and the reproduction is of
+the mechanism. A pool held whole — every thread busy, as a large vault's
+first scan might make it — could not be tested: XCTest waits for a test on a
+nested run loop, and with no thread left the probe's own sleeps never came
+back. Whether the note then *opens* is iCloud's to decide: if the Files app
+cannot download it either, the app can only say so. The attachment viewer
+waits for a download the old way, and on the main thread (left for its own
+change).
+
+### 51.50 A process is what it executes, not what its command line mentions (2026-10-17)
+
+On 2026-10-12, sampling a test host for §51.49, `run-tests.sh` twice refused
+to run: "Mac app would not quit … this is a real macOS process: <pid>". No
+HelloNotes was running. The pid was the shell that had started the script —
+its command line named `HelloNotes.app/Contents/MacOS/HelloNotes`, and the
+script found the app with `pgrep -f`, which matches the **whole command line
+of every process**.
+
+**Every finder of the app worked that way.** `run-tests.sh` (the person's app,
+and the test hosts it then sends `kill -9`), `relaunch-debug.sh` (everything
+it sends SIGTERM and then SIGKILL), `window-parity.sh` (what it quits, and the
+pid whose windows it reads for private names), `ci-bounded.sh` (what it
+samples and `pkill`s on a stall), the screencapture guard, and the preflight
+check. Each took in anything that *named* the app — a shell, an editor open
+on it, `sample` — and three of them chose what to kill that way. Five decoys
+and three stand-ins, asked of each finder as it was:
+
+| | old finders | now |
+|---|---|---|
+| a binary named HelloNotes in a Mac bundle (the app) | found | found |
+| the same, launched with `-NSTreatUnknownArgumentsAsOpen` (a host) | found | found, as a host |
+| the same at a 263-character path with spaces | found | found |
+| a binary named HelloNotes in a flat bundle (the simulator's) | not found | not found |
+| a shell whose command names the path | **found, as the app** | not found |
+| a shell whose command names the path and the host argument | **found, as a host — `kill -9`** | not found |
+| a binary started *as* the app's path (`exec -a`) | **found, as a host** | not found |
+
+**And the preflight's host check had never run.** It was `pgrep -f
+-NSTreatUnknownArgumentsAsOpen`; pgrep reads a pattern that starts with `-`
+as options, said "illegal option -- N", and printed nothing — so the check
+said "ok" on every run, test host or no.
+
+**`scripts/hellonotes-processes.sh`** (`app`, `hosts`, `all`, `at
+<executable>`) is the one answer, and every place above asks it. A process is
+HelloNotes when the file the kernel executed is named `HelloNotes` (`ps -o
+ucomm`, which a shell's command line cannot change and `exec -a` does not)
+*and* it was started as a path ending in the Mac bundle's layout (`ps -o
+comm`, the full path, spaces and all — the simulator's bundle is flat). A
+host is such a process whose own arguments carry
+`-NSTreatUnknownArgumentsAsOpen`. It prints pids and always exits 0, because
+"none" is the usual answer and `relaunch-debug.sh` runs under `set -e`.
+- A trap on the way: a zsh variable named `path` **is** `$PATH`. The helper's
+  first version assigned one, and every command after it was "not found".
+- The screencapture guard now **fails closed** when it cannot ask: it took
+  "the check errored" for "not running", the one place it resolved
+  ambiguity toward taking the picture.
+
+**Checked, against the stand-ins and decoys** (nothing of the person's was
+touched): each finder as the scripts now define it reports the stand-ins
+it should — app, host, or both — and nothing else; `run-tests.sh` runs with every decoy alive (7
+tests), the helper sees the real test host during the run, cleanup kills the
+stand-in host and leaves every decoy; with the stand-in app up and AppleScript
+stubbed, it still refuses politely, naming the stand-in and not the decoy;
+`ci-bounded.sh`, stalled, samples and stops the stand-in host only; the guard
+still blocks with the stand-in app or host up over a private vault, no longer
+blocks on decoys, and blocks when its helper is missing; the preflight check
+fails on the stand-in host and passes with only decoys and another app run
+with Xcode's argument.
+
+**Not run:** `relaunch-debug.sh` and `window-parity.sh` for real — they quit
+and relaunch the person's app, and the second captures the screen; their
+finders were run as extracted. Not handled: an app started by a relative path
+(`./HelloNotes`), which LaunchServices and Xcode never do.
+
+### 51.49 The last two failures on CI's runner: a display of one pixel a point, and a read before the layout pass (2026-10-12, after build 32)
+
+After §51.48 the runner failed one test of the app's 902 and, two runs in
+five, one of the editor package's. Neither was a slow machine, and each had
+been given a cause it did not have.
+
+**The graph's labels were drawn, and the test could not see them.**
+`GraphLabelTests` finds the labels as the *near-black* pixels of the picture
+— channels summing to under 150 — and asks whether they are spread under the
+orbs or piled in a corner. That is a fact about a display of two pixels a
+point, where a label's strokes cover whole pixels. The runner's, by the
+count below, has one: an 11pt label's strokes fill no pixel there, and a
+label drawn perfectly has no near-black pixel in it.
+- **Two causes were written down first, and a change made for each**: the
+  layout had not landed in two seconds (the test now looks for thirty), then
+  the test's window was never shown so the graph's `.task` never ran (the
+  window is now ordered in, off-screen). Both runs failed with the same
+  words, "the graph drew no labels at all".
+- **What settled it was a number in the message.** The second change also
+  made the failure count the pixels of *anything* in the graph's area:
+  **2,621** on the runner. This Mac's own picture at half size has **2,735**
+  — the whole graph, labels and all — and no pixel under 150: its darkest
+  grey is 261, against 82 at full size. The runner had been drawing the graph
+  all along.
+- The labels are now the pixels that are **grey and about as dark as the
+  darkest grey in the picture** — they are the one thing drawn in the text
+  colour; orbs, arrows and the ring are coloured, and a shadow is a grey far
+  lighter. And the test reads its picture twice here, as drawn and at half
+  size, so the scale the runner draws at is one this Mac reads too.
+- Control: with the labels piled in a corner again it fails at both sizes —
+  "piled in (15, 251, 64, 8) of a 720×1040 graph" and "(10, 126, 28, 3) of a
+  360×520".
+- Not known: whether the runner draws the graph in a window that is not
+  ordered in. The run that counted pixels had it ordered in; it stays.
+- **And the reading itself was holding the main actor.** Its loops over the
+  picture were `for x in 0..<width`; in a debug build the first picture of a
+  run took twelve seconds — sampled: the range's iterator, unspecialised, and
+  the generic-metadata lookups under it, while the host was still starting —
+  on the one actor every test in the suite shares. (A later picture took a
+  tenth of a second, which is why timing one read showed nothing.) Plain
+  counters: the test alone went from 13.6s to 3.4s and the whole suite,
+  measured once each way, from 47.2s to 36.1s; the control reads the same
+  two boxes.
+
+**The paragraph under the heading had not moved; it had no frame yet.**
+`HeadingTypingTests` types in a heading and asks where the paragraph under it
+is on screen. On the runner it was "moved from 341.77 to −11468.97" — and the
+message added by §51.46 said the rest: the note had not scrolled, the
+paragraph was in the viewport's range, and *after the viewport was laid out
+again* it was at 341.77.
+- −11468.97 is minus the scroll offset: a fragment whose frame is zero.
+  **Reproduced here to the digit**: set an attribute over the heading's line
+  *and the blank line after it*, read at once, and the paragraph's fragment
+  is in state `.none` at −11468.968609865471; over the heading's line alone
+  it is where it was.
+- **Which is what the overlay refresh does.** 120ms after a key it restyles
+  the heading's block with the blank lines round it (`{20300, 27}`, the
+  paragraph at 20327), and TextKit makes the paragraph after an edited
+  paragraph break a new fragment — one with no frame until the view's next
+  layout pass.
+- That pass is the run loop's, and comes before anything is drawn, so
+  **nothing on screen ever showed this**. The test's wait ended on a sleep —
+  where main-actor tasks run — by a deadline, and on a runner whose tests
+  share one main actor a sleep can come back with the clock already past:
+  the read then follows the refresh with no turn of the run loop between.
+  Here the main actor is idle in that sleep, the run loop turns by itself,
+  and none of five stagings of the timing reproduced the read.
+- The wait counts looks and **ends with a turn of the run loop**, and a
+  fragment not laid out has no place — which is now its own failure, "left
+  the paragraph under the heading with no place on screen".
+- Control: restyle the whole note on the refresh, as build 28 did, and it
+  fails twice over — 40,479 characters restyled, and the paragraph with no
+  place after the run loop has turned: the blank frames of that build, which
+  the test could not tell from a move before.
+
+**The run after those two were fixed failed two others** — the graph test
+passing on the runner for the first time, and the editor package green —
+and both of these kept time.
+- **`aCancelledWalkStopsWaitingForItsListing` asserted how long a thing
+  took**: cancel, and expect the walk back within five seconds. The walk was
+  cancelled at once; coming back *to the test* took longer than that behind
+  the rest of the suite. Its listing now says when it has been asked for and
+  whether it was left to finish, and the test asks it: no clock. Control:
+  without the handler that passes the cancel on, the listing finishes and the
+  test says so, a minute later.
+- **`aWindowThatHasClosedIsNotTold` slept 100ms for "its catch-up done".** A
+  window that starts listening looks at the disk once, in a task of its own,
+  reading off the main actor. On the runner the read had not come back; the
+  test changed the file; and the read, begun before the window "closed",
+  brought the change in — "a note window that had closed was told".
+  **Reproduced here** by making that read take 300ms: the old wait fails with
+  those words, the new one passes. An editor and a window's tabs count their
+  reconciles under way (`reconcilesInFlight` — nothing in the app reads it),
+  and the test waits for none, where it slept. `aWindowThatComesBackCatchesUp`
+  had the same sleep, and a second and a half "for the watcher to have told
+  everyone listening": something still listening says when it has. Control:
+  with `stopObservingExternalChanges` doing nothing, both fail — three
+  expectations, each in its own words.
+- **The six pumps in the app's tests** were the editor package's, sleep last
+  and all. Each now runs for its seconds *and* for no fewer than twenty looks,
+  and ends on a turn of the run loop (`Waits.Pump`). Not looks alone, as in
+  the package: counted that way the suite took 58s here against 36s.
+- **Every sleep in the app's tests was read** — some seventy. What still goes
+  by the clock is of two kinds. A wait for something *not* to happen ("long
+  enough for it to have landed, had it") is weaker on a crowded runner and
+  never wrong there. And the tests that stage a race by the size of a note
+  (`SaveIndexingTests`) can find the race already over, and say "this tests
+  nothing"; they have not on the runner in five runs (unimplemented.md §12).
+- **A stand-in for the runner was tried and set aside**: one test that held
+  all but three threads of the concurrency pool and the main actor in 150ms
+  pulses. Under it the suite took 57s and neither of these two failed, at
+  any setting tried; what the runner has that it lacked is most likely three
+  slow cores doing real work, which this Mac was not asked to imitate while
+  it was in use. (One thing it taught: the pool has its width *at each
+  priority*, so threads held at another are held from nobody.)
+
+**What these have in common** is §51.48's lesson again, unlearnt within the
+day: a failure on the runner was given a cause that fitted — slowness, then a
+window — and a change was made for the cause instead of for a measurement.
+Each was settled by making the failing test say one more thing about what it
+saw, and by reproducing *that* here.
+
+**Checked:** the app suite, 902 tests in 138 suites; the editor package, 559
+in 61 on the Mac and 533 in 57 on the iPad simulator; every control above.
+**On the runner, all four jobs pass** — the app's 902 tests in 78s, the
+editor package's 559 (run 38232186521), after the graph test and the editor
+package first passed there one run earlier (38226200774) — and again on the
+same code (38234811944). That settles the failures that had a cause found.
+For the ones that came and went (the editor package's, two runs in five;
+this section's last two, one in five) two green runs are a good sign and no
+more than that.
+
+### 51.48 One folder, two names: what CI's failing tests were about (2026-10-12, after build 32)
+
+With the stall gone (§51.47) the runner failed eight tests that pass here, and
+they were filed as "tests that assume a roomy machine". Their own messages
+said otherwise for five of them: the same file under two names,
+`/var/folders/…/Doomed.md` and `/private/var/folders/…/Doomed.md`.
+
+**Why only there.** The runner's test host is unsigned, so unsandboxed, so its
+temporary folder is `/var/folders/…` — and `/var` is `/private/var`. Here the
+host is sandboxed and its folders have one name. **Run unsigned, the suite
+fails the same five here** — `./scripts/run-tests.sh -only-testing:HelloNotesTests
+CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=` — which
+is the reproduction CI's failures had been missing.
+
+**The defect is the app's.** A collection is meant to call every file by its
+own spelling of its folder, and the walk rewrote a listing to that only when
+`resolvingSymlinksInPath` reported a link. Foundation hides this one: it
+answers `/var/…` for either name, and `contentsOfDirectory(at:)` then hands
+every entry back as `/private/var/…`. So a collection rooted at `/var/…` held
+its scanned notes under one name and the ones it made, moved or renamed under
+the other, and a note's identity is its URL:
+- a tab on a note that had **not** moved was closed when another did — the
+  walk after the move spelled every note the other way;
+- a note made again at a path was "not at the same path";
+- a cloud note was not found in its own manifest.
+
+**An iPhone's containers are spelled both ways like this** (`/var/mobile/…`
+and `/private/var/mobile/…`) and the simulator's are not, so no test, parity
+run or simulator session could show it. Whether it has been biting on devices
+is not known; it is the first thing to suspect behind a tab that closes or a
+note that is not selected there.
+- **Both listers respell.** `LocalTreeSource.children` asks once a listing
+  whether the entries came back under another name
+  (`cameBackUnderAnotherName`), and the synchronous `Collection.enumerate`
+  once a scan (`listedRootLength`, `respelled`) — strings, decided from the
+  first entry, so a folder listed under its own name pays nothing a file.
+- `OneSpellingTests`: the rule on spellings written by hand, which bite in
+  the sandbox too, and a real folder walked both ways wherever one with two
+  names is to be had (CI, and an unsigned run here). Control, unsigned: the
+  seven tests that should fail do.
+- `ConflictSaveTests` listed a folder itself and opened a copy under the
+  listing's name; it names the copy as the app does.
+
+**Two of the other three were waits that gave up by the clock.**
+- **Ten `eventually` helpers and some twenty-five loops written out** all
+  said "until X, or until N seconds have passed". The tests share the main
+  actor, and a clock goes on running while another test has it: a wait came
+  back from its first sleep with its allowance spent and the work it waited
+  for queued behind it — "typing never settled", and here once, a tag index
+  "never built". They count **looks** now (`Waits`): as many as the seconds
+  hold sleeps, each after a turn in which the awaited work can run.
+- `GraphLabelTests` was the third, and **was not a wait at all** — it is
+  §51.49's. Two causes were written here for it, a layout that had not
+  landed in two seconds and then a window never shown, and a change made for
+  each; the test looks until there are labels and its window is ordered in,
+  far off any screen, and neither was what failed.
+- `aLookThatLandsAfterClosingSaysNothing` held two looks for 0.3 s and slept
+  0.1 s before closing; on three cores the looks were over first. Each look
+  says it is under way and is held until the collection is closed, one at a
+  time. Control: without the app's two guards it fails.
+
+**Checked:** the suite signed, 902 tests in 138 suites; unsigned, as the
+runner runs it, 902 with the two-names test taking part; the affected suites
+on the iPhone simulator.
+
+**Not settled.** With the pool held to one thread
+(`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`) six tests still fail:
+four stage a race that one thread cannot have, one waits on a timer of the
+app's that needs a thread the test is holding, and
+`aLookThatLandsAfterClosingSaysNothing` is not woken while its look holds the
+thread, for a reason not found. That is not the runner, which has three.
+
+**Two things this cost that should not be repeated.** Run with extra
+arguments, `run-tests.sh` drops its own `-only-testing:HelloNotesTests` — so
+the first unsigned runs also built and launched the interface tests' runner
+unsigned, and macOS told the person, repeatedly, that
+"HelloNotesUITests-Runner is damaged". And an unsandboxed host writes into the
+real `~/Library` (a preferences file, two Application Support folders, caches):
+moved out afterwards, and found only by listing before and after.
 
 ### 51.47 Three tests held the whole concurrency pool, and build 32 (2026-10-12)
 

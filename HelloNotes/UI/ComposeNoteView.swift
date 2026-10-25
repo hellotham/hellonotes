@@ -18,6 +18,9 @@ import SwiftUI
 
 struct ComposeNoteView: View {
     @Bindable var composer: NoteComposer
+    /// The model that writes the draft, as the app names it in a sentence —
+    /// for reporting one (`ResponseReport`).
+    var modelName: String = ""
     /// Whether each mode can run on the configured provider, and why not.
     var availability: (NoteComposer.Mode) -> String?
     var onRun: (String, NoteComposer.Mode, Int) -> Void
@@ -178,6 +181,11 @@ struct ComposeNoteView: View {
                 HStack {
                     Button("Discard") { composer.reset() }
                     Spacer()
+                    if let stamp = composer.stamp { ModelStampLabel(stamp: stamp) }
+                    ReportResponseButton {
+                        ResponseReport(feature: "New Note from a Prompt", model: composer.stamp?.name ?? modelName,
+                                       response: draft.body, prompt: prompt)
+                    }
                     Button("Create Note") {
                         onCreate(NoteDraft(title: ComposedNote.filename(editedTitle),
                                            body: editedBody))

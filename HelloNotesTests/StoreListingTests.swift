@@ -76,6 +76,20 @@ struct StoreListingTests {
                 "one Description per platform — iPhone and iPad, and Mac")
     }
 
+    /// The notes to App Review fit the 4,000 characters App Store Connect
+    /// takes — `scripts/asc-listing.py text` writes them from this file, and
+    /// they have grown with every guideline the app answered in them.
+    @Test func theNotesToAppReviewFit() throws {
+        let doc = try Self.doc
+        let re = try NSRegularExpression(pattern: "## Notes to reviewer \\(both platforms\\).*?\\n```\\n(.*?)\\n```",
+                                         options: [.dotMatchesLineSeparators])
+        let ns = doc as NSString
+        let match = try #require(re.firstMatch(in: doc, range: NSRange(location: 0, length: ns.length)),
+                                 "app-store-listing.md has no notes to App Review")
+        let notes = ns.substring(with: match.range(at: 1))
+        #expect(!notes.isEmpty && notes.count <= 4000, "the notes to App Review are \(notes.count) characters")
+    }
+
     /// Guideline 3.1.2(c), the half that lives in metadata rather than in the
     /// binary: an app using Apple's standard EULA must link to it from the App
     /// Description. Build 14 was rejected for its absence.

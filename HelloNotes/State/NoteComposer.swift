@@ -53,6 +53,9 @@ final class NoteComposer {
     }
 
     private(set) var phase: Phase = .idle
+    /// Where the draft is being written — the model when it was asked for
+    /// (`ModelStamp`), shown with the draft.
+    private(set) var stamp: ModelStamp?
     private var task: Task<Void, Never>?
 
     var isWorking: Bool { if case .working = phase { return true }; return false }
@@ -105,15 +108,17 @@ final class NoteComposer {
     func compose(prompt: String, in collection: Collection, settings: IntelligenceSettings) {
         let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
+        stamp = nil
         run { [weak self] in
             guard let self else { return }
             phase = .working("Finding related notes…")
             let related = await relatedTitles(to: prompt, in: collection)
 
             phase = .working("Writing…")
-            let reply = try await IntelligenceService(settings: settings)
-                .compose(prompt: prompt, relatedTitles: related)
+            let (reply, madeBy) = try await IntelligenceService(settings: settings)
+                .stamped { try await $0.compose(prompt: prompt, relatedTitles: related) }
             try Task.checkCancellation()
+            stamp = madeBy
 
             let draft = ComposedNote.draft(
                 from: reply, prompt: prompt, knownTitles: collection.notes.map(\.title))
@@ -127,6 +132,7 @@ final class NoteComposer {
     func research(question: String, depth: Int, context: ToolContext, settings: IntelligenceSettings) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty else { return }
+        stamp = nil
         run { [weak self] in
             guard let self else { return }
             let collection = context.collection
@@ -139,6 +145,9 @@ final class NoteComposer {
             phase = .working("Researching — this can take a few minutes…")
             var research = DeepResearch(settings: settings, context: context)
             research.onProgress = { [weak self] step in self?.phase = .working(step) }
+            research.onModel = { [weak self] option in
+                self?.stamp = ModelStamp(choice: option.choice, name: settings.models.title(of: option))
+            }
             let synthesis = try await research.run(
                 question: researchBrief(question, offering: related), depth: depth)
             try Task.checkCancellation()

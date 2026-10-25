@@ -2,8 +2,9 @@
 //  CollectionTools.swift
 //  HelloNotes
 //
-//  What a collection offers beyond its notes — the Mind Map of its links, the
-//  Assistant, and Ask Your Library — and how each is shown.
+//  What a collection offers beyond its notes — the Mind Map of its links and
+//  the Assistant (which Ask Your Library was folded into in 1.3.5) — and how
+//  each is shown.
 //
 //  They are the collection's, so they are chosen from the sidebar, where the
 //  collection is, and they open in the middle of the window as tabs beside the
@@ -17,7 +18,7 @@ import SwiftUI
 
 /// A tool tab: something about the collection, open beside its notes.
 enum CollectionTool: String, CaseIterable, Identifiable {
-    case mindMap, assistant, askLibrary
+    case mindMap, assistant
 
     var id: String { rawValue }
 
@@ -25,7 +26,6 @@ enum CollectionTool: String, CaseIterable, Identifiable {
         switch self {
         case .mindMap: "Mind Map"
         case .assistant: "Assistant"
-        case .askLibrary: "Ask Your Library"
         }
     }
 
@@ -33,7 +33,6 @@ enum CollectionTool: String, CaseIterable, Identifiable {
         switch self {
         case .mindMap: "brain"
         case .assistant: "sparkles"
-        case .askLibrary: "sparkles.rectangle.stack"
         }
     }
 }
@@ -68,7 +67,8 @@ struct ToolTabs: Equatable {
 /// A tool, filling the middle of the window.
 struct CollectionToolView: View {
     let tool: CollectionTool
-    /// The collection the sidebar has selected — what the Mind Map maps.
+    /// The collection the sidebar has selected — what the Mind Map maps, and
+    /// whose conversation the Assistant is.
     let collection: Collection?
     var accent: Color
 
@@ -85,35 +85,7 @@ struct CollectionToolView: View {
                                  description: Text("Open a collection to map its links."))
             }
         case .assistant:
-            AssistantHost()
-        case .askLibrary:
-            LibraryChatPanel()
-        }
-    }
-}
-
-// MARK: - Ask Library
-
-/// Retrieval-augmented Q&A over every open collection.
-struct LibraryChatPanel: View {
-    @Environment(Library.self) private var library
-    @Environment(IntelligenceSettings.self) private var intelligenceSettings
-
-    /// Taken as it is asked — when the tab appears, and again whenever a new
-    /// question is asked with the tab already in front (Explain, from a
-    /// selection), which a tab that stays open has to listen for. Held in
-    /// `@State` rather than read from the library in `body`, because taking it
-    /// *is* a mutation — a body that re-evaluated would find it already gone.
-    @State private var seed: String?
-
-    var body: some View {
-        LibraryChatView(intelligence: IntelligenceService(settings: intelligenceSettings),
-                        notes: library.allNotes,
-                        searches: library.collections.map(\.search),
-                        onOpenNote: { library.requestOpen($0.id) },
-                        initialQuestion: seed)
-        .task(id: library.pendingLibraryQuestion) {
-            if let question = library.takePendingLibraryQuestion() { seed = question }
+            AssistantHost(collection: collection)
         }
     }
 }

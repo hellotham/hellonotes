@@ -143,18 +143,28 @@ command = payload.get("tool_input", {}).get("command", "") or ""
 if not re.search(r"\bscreencapture\b", command):
     sys.exit(0)
 
-# Is the Mac app running? Match the macOS bundle layout only: a process in the
-# iOS Simulator is also named HelloNotes, and its container holds only the
-# seeded SampleVault, so it is not what this guard is about.
+# Is the Mac app running? Asked of what each process executes
+# (scripts/hellonotes-processes.sh), not of command lines: `pgrep -f` on the
+# bundle path also matched any process that merely *named* it — a shell, an
+# editor — and the Mac bundle's layout leaves out the app in the iOS Simulator,
+# which is also named HelloNotes and whose container holds only the seeded
+# SampleVault. A test host counts: it is the app.
+#
+# And if that cannot be asked, assume it is running, so the vault check below
+# decides — this guard resolves ambiguity toward not taking the picture, and
+# answering "not running" when the question failed was the one place it did not.
+HELPER = Path(__file__).resolve().parents[2] / "scripts/hellonotes-processes.sh"
 try:
-    running = subprocess.run(
-        ["pgrep", "-f", r"HelloNotes\.app/Contents/MacOS/HelloNotes"],
+    found = subprocess.run(
+        [str(HELPER), "all"],
         capture_output=True,
         text=True,
-        timeout=5,
-    ).returncode == 0
+        timeout=10,
+        check=True,
+    ).stdout
+    running = bool(found.strip())
 except Exception:
-    running = False
+    running = True
 
 if not (running or FORCE_RUNNING):
     sys.exit(0)

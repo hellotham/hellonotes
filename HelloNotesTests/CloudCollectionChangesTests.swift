@@ -1012,12 +1012,13 @@ struct CloudCollectionChangesTests {
     }
 
     private func eventually(timeout: Duration = .seconds(5), _ condition: () async -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while await !condition() {
-            guard ContinuousClock.now < deadline else { return false }
+        // Looks, not seconds — a deadline on the clock runs out while another
+        // test has the main actor (`Waits`).
+        for _ in 0..<Waits.looks(in: timeout, every: .milliseconds(10)) {
+            if await condition() { return true }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return true
+        return await condition()
     }
 }
 
@@ -1220,6 +1221,12 @@ final class StrictFolderStore: RemoteStore, @unchecked Sendable {
 }
 
 /// Opens once; everything waiting on it — before or after — goes on.
+///
+/// `wait` runs where it is called from (`#isolation`) instead of on the
+/// concurrency pool, where a plain `async` method of a class that belongs to
+/// no actor runs: a main-actor test waiting on a gate should not need a pool
+/// thread to do it, when the thing that opens a gate here is usually holding
+/// one.
 final class Gate: @unchecked Sendable {
     private let lock = NSLock()
     private var isOpen = false
@@ -1234,7 +1241,7 @@ final class Gate: @unchecked Sendable {
         for continuation in resumed { continuation.resume() }
     }
 
-    func wait() async {
+    func wait(isolation: isolated (any Actor)? = #isolation) async {
         await withCheckedContinuation { continuation in
             lock.lock()
             if isOpen {

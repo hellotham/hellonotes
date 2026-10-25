@@ -241,7 +241,7 @@ struct ScanProgressStrip: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         // The bar's colour, not `.bar`, which is each platform's own material.
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .bottom) { ChromeDivider() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Scanning \(collection.name). \(counts).")

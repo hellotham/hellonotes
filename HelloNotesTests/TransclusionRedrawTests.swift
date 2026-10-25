@@ -41,8 +41,8 @@ struct TransclusionRedrawTests {
 
         try FileIO.write("# Embedded\n\nSecond version.\n", to: embedded)
         collection.noteDidSave(embedded, text: "# Embedded\n\nSecond version.\n")
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !heard.value, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        var patience = Waits.Patience(.seconds(10))
+        while !heard.value, patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
 
         #expect(heard.value, "a view showing the cards never heard that one of them changed")
         #expect(provider.revision != before)

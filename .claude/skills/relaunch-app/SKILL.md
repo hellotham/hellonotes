@@ -95,10 +95,13 @@ it does. Never reach for `killall -9` or `pkill -9` on HelloNotes yourself.
   test the old binary. Always go through `scripts/relaunch-debug.sh`.
 - **Respect the user's screen.** Never drive the app with computer-use or
   screenshots. Prefer telemetry you can read from the terminal.
-- Confirm it's the new binary: `pgrep -f 'HelloNotes\.app/Contents/MacOS/HelloNotes'`
-  and check the start time is now. **Not `pgrep -x HelloNotes`** — that matches on
-  the process *name*, and an app running in the iOS Simulator is also called
-  `HelloNotes`, so it reports a Mac app that is not running.
+- Confirm it's the new binary: `scripts/hellonotes-processes.sh app` gives its
+  pid — `ps -o lstart= -p <pid>` should say now. It finds the app by what each
+  process *executes*. **Not `pgrep -x HelloNotes`**, which matches the process
+  *name* — the app in the iOS Simulator is also called `HelloNotes`, so it
+  reports a Mac app that is not running — and **not `pgrep -f` on the bundle
+  path**, which matches every command line that *mentions* it, your own shell's
+  included (docs/implemented.md §51.50).
 
 ## Running the app tests
 
@@ -125,7 +128,8 @@ launching. Work around it rather than paying for it repeatedly:
   cleanup and does nothing, which is how hosts kept surviving and appearing as
   "the app launched over itself". The host's actual signature is
   `-NSTreatUnknownArgumentsAsOpen`, which a normally-launched app never carries,
-  and that is what the script matches — so it can never hit the user's own app.
+  and that is what the script asks of each HelloNotes process
+  (`scripts/hellonotes-processes.sh hosts`) — so it can never hit the user's own app.
 - **Kill before, kill after. Don't leave anything you created.** A host running
   while the user's app is up is a second HelloNotes on their screen.
 

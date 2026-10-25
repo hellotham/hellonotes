@@ -53,12 +53,13 @@ struct NoteWindowWiringTests {
     }
 
     private func eventually(timeout: Duration = .seconds(5), _ condition: () async -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while await !condition() {
-            guard ContinuousClock.now < deadline else { return false }
+        // Looks, not seconds — a deadline on the clock runs out while another
+        // test has the main actor (`Waits`).
+        for _ in 0..<Waits.looks(in: timeout, every: .milliseconds(10)) {
+            if await condition() { return true }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return true
+        return await condition()
     }
 
     private func onTheProvider(_ path: String, in store: MockRemoteStore) async -> String? {

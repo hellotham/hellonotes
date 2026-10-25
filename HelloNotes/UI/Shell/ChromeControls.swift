@@ -325,23 +325,6 @@ private extension View {
     }
 }
 
-/// A toggle drawn as a push button that stays down while on.
-struct ChromeToggleButtonStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Button { configuration.isOn.toggle() } label: {
-            configuration.label
-                .foregroundStyle(configuration.isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(Chrome.Colour.label))
-        }
-        .buttonStyle(ChromePushStyle())
-        .overlay {
-            if configuration.isOn {
-                RoundedRectangle(cornerRadius: 6).fill(.tint.opacity(0.18)).allowsHitTesting(false)
-            }
-        }
-        .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
-    }
-}
-
 // MARK: - Choosing one of several
 
 /// One choice in a `ChromePopUp` or `ChromeSegmented`.
@@ -1169,7 +1152,7 @@ struct ChromeSheetBar<Leading: View, Trailing: View>: View {
         }
         .padding(.horizontal, Chrome.Metric.barPadding)
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
         .overlay(alignment: .bottom) { ChromeDivider() }
     }
 }

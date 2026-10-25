@@ -339,8 +339,8 @@ struct CollectionFreshnessTests {
     /// always meant to be testing.
     private static func eventually(_ timeout: Duration = .seconds(10),
                                    _ condition: @MainActor () -> Bool) async throws {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
+        // Looks, not seconds (`Waits`).
+        for _ in 0..<Waits.looks(in: timeout, every: .milliseconds(50)) {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(50))
         }

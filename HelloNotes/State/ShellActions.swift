@@ -367,8 +367,10 @@ struct ShellActions {
                 if path == from {
                     selection.wrappedValue = destination
                 } else if path.hasPrefix(from + "/") {
-                    selection.wrappedValue = URL(fileURLWithPath: destination.standardizedFileURL.path
-                                                 + path.dropFirst(from.count))
+                    // Under the destination's own spelling (`Collection.ownSpelling`),
+                    // which is what the sidebar's rows are named by.
+                    selection.wrappedValue = destination.appending(
+                        path: String(path.dropFirst(from.count + 1)), directoryHint: .notDirectory)
                 }
             }
         }

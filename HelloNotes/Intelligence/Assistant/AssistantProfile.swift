@@ -45,6 +45,10 @@ nonisolated struct AssistantProfile: LanguageModelSession.DynamicProfile {
     /// Tokens of conversation history the model is shown per request.
     let historyTokens: Int
     let toolBudget: ToolCallBudget
+    /// The summary of what no longer fits, read before every request — so a
+    /// new summary needs no new session, and the instructions, which a
+    /// session caches the model's work on, never change for one.
+    var earlier = EarlierSummary()
 
     var body: some LanguageModelSession.DynamicProfile {
         Profile {
@@ -62,8 +66,8 @@ nonisolated struct AssistantProfile: LanguageModelSession.DynamicProfile {
         // turns that fit. Switching from Private Cloud Compute's 32,768 tokens to
         // the on-device 8,192 therefore shortens what the model sees, not what
         // the person has.
-        .historyTransform { [historyTokens] history in
-            HistoryWindow.fit(history, tokens: historyTokens)
+        .historyTransform { [historyTokens, earlier] history in
+            HistoryWindow.fit(history, tokens: historyTokens, earlier: earlier.current)
         }
         .onToolCall { [toolBudget] _ in
             toolBudget.record()
@@ -71,9 +75,28 @@ nonisolated struct AssistantProfile: LanguageModelSession.DynamicProfile {
     }
 }
 
+/// What has fallen out of a conversation's window, summarised, and the last
+/// entry the summary covers (`AssistantModel`). Read by the profile before
+/// every request, from whatever thread the framework asks on.
+nonisolated final class EarlierSummary: Sendable {
+    struct Value: Equatable, Sendable {
+        var text: String
+        /// The id of the last entry `text` covers — `nil`, or an id no longer
+        /// in the history, when everything it covers has gone from it.
+        var through: String?
+    }
+
+    private let value = Mutex<Value?>(nil)
+
+    var current: Value? { value.withLock { $0 } }
+    func set(_ new: Value?) { value.withLock { $0 = new } }
+}
+
 /// Choosing which of a conversation's turns fit a window.
 nonisolated enum HistoryWindow {
-    /// The instructions, then the most recent **whole turns** that fit in `tokens`.
+    /// The instructions, then the most recent **whole turns** that fit in `tokens`
+    /// — after the summary of what doesn't, when there is one and something it
+    /// covers is not shown.
     ///
     /// **The instructions are always kept.** The history a profile's
     /// `historyTransform` receives *includes* the instructions entry — measured:
@@ -88,10 +111,29 @@ nonisolated enum HistoryWindow {
     /// output without the call that produced it. The latest turn is always kept,
     /// whatever it costs — if it alone is too large, the framework says so and
     /// the Assistant explains.
-    static func fit(_ history: [Transcript.Entry], tokens: Int) -> [Transcript.Entry] {
+    ///
+    /// **The summary is a turn, never instructions.** It is the model's own
+    /// account of replies that quote notes and web pages, so it carries no
+    /// more authority than a reply: it goes in as the answer to a question the
+    /// app asks, in the conversation's place, where the turns it stands for
+    /// were. It was in the instructions, contradicting their own rule that
+    /// nothing from a note or a page reaches them (`AssistantInstructions`).
+    static func fit(_ history: [Transcript.Entry], tokens: Int,
+                    earlier: EarlierSummary.Value? = nil) -> [Transcript.Entry] {
         let instructions = history.filter(isInstructions)
         let turns = history.filter { !isInstructions($0) }
+        let kept = keptFrom(turns, tokens: tokens)
+        guard let earlier, !earlier.text.isEmpty, shows(earlier, turns: turns, keptFrom: kept) else {
+            return instructions + turns[kept...]
+        }
+        let carried = summaryTurn(earlier.text)
+        return instructions + carried + turns[keptFrom(turns, tokens: tokens - cost(of: carried))...]
+    }
 
+    /// Where the turns `fit` keeps begin: the first of the most recent whole
+    /// turns that fit in `tokens` — so how many it leaves out, which is what
+    /// the Assistant summarises before they go (`AssistantModel`).
+    static func keptFrom(_ turns: [Transcript.Entry], tokens: Int) -> Int {
         var kept = turns.count
         var total = 0
         var pending = 0
@@ -103,15 +145,44 @@ nonisolated enum HistoryWindow {
             pending = 0
             kept = index
         }
-        let recent = kept < turns.count ? Array(turns[kept...]) : turns
-        return instructions + recent
+        return kept < turns.count ? kept : 0
+    }
+
+    /// How many of `history`'s turns, from the start, `fit` leaves out.
+    static func droppedCount(_ history: [Transcript.Entry], tokens: Int) -> Int {
+        keptFrom(history.filter { !isInstructions($0) }, tokens: tokens)
+    }
+
+    /// Whether the summary says something the turns shown don't: it covers a
+    /// turn that is not shown, or turns no longer in the history at all.
+    private static func shows(_ earlier: EarlierSummary.Value, turns: [Transcript.Entry],
+                              keptFrom kept: Int) -> Bool {
+        guard let through = earlier.through, turns.contains(where: { $0.id == through }) else { return true }
+        return kept > 0
+    }
+
+    /// The summary as a turn of the conversation.
+    static func summaryTurn(_ text: String) -> [Transcript.Entry] {
+        [.prompt(Transcript.Prompt(id: "hellonotes-earlier", segments: [.text(.init(
+            id: "hellonotes-earlier-question",
+            content: "What did we talk about earlier in this conversation?"))])),
+         .response(Transcript.Response(id: "hellonotes-earlier-summary", assetIDs: [], segments: [.text(.init(
+            id: "hellonotes-earlier-answer",
+            content: "A summary of what no longer fits in this conversation: \(text)"))]))]
+    }
+
+    /// What a summary costs once it is a turn — the room `fit` keeps for it.
+    static func cost(ofSummary text: String) -> Int { cost(of: summaryTurn(text)) }
+
+    static func cost(of entries: [Transcript.Entry]) -> Int {
+        entries.reduce(0) { $0 + estimate($1) }
     }
 
     static func estimate(_ entry: Transcript.Entry) -> Int {
         TokenBudget.estimate(entry.description) + 8
     }
 
-    private static func isInstructions(_ entry: Transcript.Entry) -> Bool {
+    static func isInstructions(_ entry: Transcript.Entry) -> Bool {
         if case .instructions = entry { return true }
         return false
     }
@@ -138,9 +209,17 @@ nonisolated enum AssistantInstructions {
             // that approval itself, in words — "Please confirm this is
             // correct" — and never called the tool: four requests out of four,
             // so a change asked for took two approvals, or none.
-            guidance += " When the person asks for a change, read the note first, then call edit_note for a change"
-            guidance += toolNames.contains("write_note") ? ", write_note to replace a whole note," : ""
-            guidance += " or create_note for a new note. Calling the tool is how you ask for approval: the app shows the person the exact change, saves it only if they approve, and commits it to Git. So never ask the person to approve or confirm a change in your reply — make the call, and they answer the app."
+            // What Ask Your Library asked of its answers, now that it is
+            // this: say which notes an answer came from.
+            guidance += " When an answer comes from the notes, cite the notes you used by title in brackets, like [Title]. If the notes don't hold the answer, say so rather than guess."
+            if toolNames.contains("edit_note") {
+                guidance += " When the person asks for a change, read the note first, then call edit_note for a change"
+                guidance += toolNames.contains("write_note") ? ", write_note to replace a whole note," : ""
+                guidance += " or create_note for a new note. Calling the tool is how you ask for approval: the app shows the person the exact change, saves it only if they approve, and commits it to Git. So never ask the person to approve or confirm a change in your reply — make the call, and they answer the app."
+            } else {
+                // 1.3.5 offers no tool that changes a note (`NoteTools.tools`).
+                guidance += " You can't create, change or delete notes here. If the person asks for a change, say so, and give them the text to paste in themselves."
+            }
             if toolNames.contains("web_fetch") {
                 guidance += " Use web_search and web_fetch for information from outside the notes."
             } else {

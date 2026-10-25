@@ -25,7 +25,6 @@ import SwiftUI
 import MarkdownEditor
 import UniformTypeIdentifiers
 import CoreTransferable
-import TipKit
 #if canImport(AppKit)
 import AppKit
 #else
@@ -102,8 +101,8 @@ struct ContentView: View {
     /// launcher instead.
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
 
-    /// Which model does what (the Assistant and Ask Library windows own their
-    /// models; the editor's writing tools read this directly).
+    /// The default model (the Assistant can choose another for a conversation;
+    /// the editor's writing tools read this directly).
     @Environment(IntelligenceSettings.self) private var intelligenceSettings
 
     /// Opt-in background local auto-commit (never auto-pushes).
@@ -319,7 +318,7 @@ struct ContentView: View {
     }
 
     /// The collection's tools open as tabs beside the notes — the Mind Map, the
-    /// Assistant, Ask Your Library — and which of them is in front.
+    /// Assistant — and which of them is in front.
     @State private var toolTabs = ToolTabs()
 
     /// The last AI request sent to the inspector from a menu command or the
@@ -408,7 +407,7 @@ struct ContentView: View {
             // The header draws its own rule, as the bar does.
             panelContent
         }
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     @ViewBuilder
@@ -831,7 +830,7 @@ struct ContentView: View {
         .onAppear { takeWindowRequest() }
         .onChange(of: WindowRequest.shared.pending) { _, _ in takeWindowRequest() }
         .onChange(of: library.pendingOpenNoteID) { _, id in
-            // The Graph, a tool (the Mind Map, Ask Library) or
+            // The Graph, a tool (the Mind Map, the Assistant) or
             // `NavigationRouter` asked us to show a note.
             guard let id else { return }
             // Same rule as the menu commands: nothing changes the selection
@@ -1065,6 +1064,7 @@ struct ContentView: View {
         .sheet(isPresented: $showCompose, onDismiss: { composer.reset() }) {
             ComposeNoteView(
                 composer: composer,
+                modelName: IntelligenceService(settings: intelligenceSettings).modelName,
                 availability: { NoteComposer.unavailableReason(for: $0, settings: intelligenceSettings) },
                 onRun: { prompt, mode, depth in runCompose(prompt, mode: mode, depth: depth) },
                 onCreate: { draft in
@@ -1269,10 +1269,6 @@ struct ContentView: View {
             graphView: closingOpenQuickly { showPanel(.graph) },
             canMindMap: !(scope?.notes.isEmpty ?? true),
             mindMap: closingOpenQuickly { showTool(.mindMap) },
-            // Asking the library needs notes to ask *about*, not a collection
-            // to stand in.
-            canAsk: !library.allNotes.isEmpty,
-            askLibrary: closingOpenQuickly { showTool(.askLibrary) },
             assistant: closingOpenQuickly { showTool(.assistant) },
             canCloseTab: tabs.openNotes.count > 1 && activeEditor != nil,
             closeTab: closingOpenQuickly { if let id = selectedNoteID { closeTab(id) } },
@@ -1448,8 +1444,10 @@ struct ContentView: View {
                 revealSearch(focusField: false)
             },
             explain: { phrase in
-                library.askAboutSelection(phrase)
-                showTool(.askLibrary)
+                // The conversation the tab is about to show: the sidebar's
+                // collection's (`CollectionToolView`).
+                library.askAboutSelection(phrase, in: railCollection ?? focused, settings: intelligenceSettings)
+                showTool(.assistant)
             }
         )
     }
@@ -1701,7 +1699,7 @@ struct ContentView: View {
         // item the OS drew at each platform's own size — and the band's large
         // "Collections" title spent 52pt saying what the list already shows.
         .safeAreaInset(edge: .top, spacing: 0) { sidebarHeader }
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     /// What the tree says when there is nothing in it. Over the tree alone,
@@ -1735,14 +1733,14 @@ struct ContentView: View {
         // The Mac's window buttons are drawn over this corner.
         .padding(.leading, WindowControls.leadingInset)
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome.windowDraggable())
+        .chromeDraggableBackground()
         .overlay(alignment: .bottom) {
             Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
         }
     }
 
     /// The collection's tools, above its tree: the Mind Map of its links, the
-    /// Assistant, Ask Your Library, and its Git. Each acts on the collection
+    /// Assistant, and its Git. Each acts on the collection
     /// the sidebar has selected.
     @ViewBuilder
     private var collectionToolCommands: some View {
@@ -1753,16 +1751,10 @@ struct ContentView: View {
         }
         .disabled(scope?.notes.isEmpty ?? true)
         .help("The links across this collection, as a mind map")
-        .popoverTip(MindMapTip())
         SidebarCommandRow("Assistant", systemImage: CollectionTool.assistant.systemImage, accent: accent) {
             showTool(.assistant)
         }
         .disabled(scope == nil)
-        SidebarCommandRow("Ask Your Library", systemImage: CollectionTool.askLibrary.systemImage,
-                          accent: accent) {
-            showTool(.askLibrary)
-        }
-        .disabled(library.allNotes.isEmpty)
         gitCommand
     }
 
@@ -1892,8 +1884,9 @@ struct ContentView: View {
                     hnJumpToHeading(ordinal: ordinal, title: heading.title, editor: editor.editorID)
                 },
                 summarize: !hasModel ? nil : { text in
-                    try await IntelligenceService(settings: intelligenceSettings).summarize(text)
+                    try await IntelligenceService(settings: intelligenceSettings).stamped { try await $0.summarize(text) }
                 },
+                modelName: IntelligenceService(settings: intelligenceSettings).modelName,
                 onInsertSummary: { saveSummary($0) },
                 allTags: collection.search.allTags(),
                 noteCount: { collection.search.noteCountTagged($0) },
@@ -1906,7 +1899,7 @@ struct ContentView: View {
                 ),
                 suggestTags: !hasModel ? nil : { text, existing in
                     try await IntelligenceService(settings: intelligenceSettings)
-                        .suggestTags(for: text, existing: existing)
+                        .stamped { try await $0.suggestTags(for: text, existing: existing) }
                 },
                 onInsertTag: { insertTag($0) },
                 backlinks: references.backlinks,
@@ -1957,12 +1950,12 @@ struct ContentView: View {
     /// what each stage is good at: the index finds notes sharing distinctive
     /// vocabulary (measured: 52.1% recall@10, `docs/semantic-retrieval-benchmark.md`),
     /// and the model decides which of those a reader would actually want linked.
-    private func suggestLinks(for text: String, in collection: Collection) async throws -> [String] {
+    private func suggestLinks(for text: String, in collection: Collection) async throws -> ([String], ModelStamp) {
+        let service = IntelligenceService(settings: intelligenceSettings)
         let neighbours = await collection.relatedNotes(
             to: text, excluding: selectedNote?.fileURL, limit: 40)
-        guard !neighbours.isEmpty else { return [] }
-        return try await IntelligenceService(settings: intelligenceSettings)
-            .suggestLinks(for: text, candidates: neighbours.map(\.title))
+        guard !neighbours.isEmpty else { return ([], service.stamp) }
+        return try await service.stamped { try await $0.suggestLinks(for: text, candidates: neighbours.map(\.title)) }
     }
 
     /// Write a suggested tag into the open note. See `NoteEdits`.
@@ -2098,7 +2091,7 @@ struct ContentView: View {
         .padding(.horizontal, 10)
         .frame(height: Chrome.Metric.statusRow)
         .padding(.vertical, 5)
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     private func closeTab(_ id: Note.ID) {
@@ -2270,8 +2263,6 @@ struct ContentView: View {
     /// The launch splash fades itself; the one About raises waits to be tapped.
     @State private var splashAutoDismisses = true
     /// The whole-note rewrite sheet, raised from the editor's toolbar menu.
-
-    /// Ask Library, and the question it should open with (`nil` = ask fresh).
 
     /// Search and a tag filter are questions about the library and override the
     /// rail's scope; otherwise the Library place owns the note-list column.
@@ -2456,7 +2447,7 @@ struct ContentView: View {
                 .padding(.bottom, 8)
             }
             .viewport()
-            .background(Chrome.Colour.chrome)
+            .chromeBackground()
         }
     }
 
@@ -2619,7 +2610,7 @@ struct ContentView: View {
             }
         }
         // A list place, like the others and the sidebar: the chrome colour.
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     /// A note in the compact list: the shared row, selected in the accent at
@@ -2708,7 +2699,7 @@ struct ContentView: View {
                 .viewport()
             }
         }
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     // MARK: - The inspector rail (right)
@@ -2732,8 +2723,6 @@ struct ContentView: View {
     private func aiPlaceList(scope: Collection?) -> some View {
         AIPlaceList(
             ai: aiActions,
-            canAsk: !library.allNotes.isEmpty,
-            askLibrary: { showTool(.askLibrary) },
             reviewLinks: editor.note != nil ? { beginLinkReview() } : nil,
             compose: scope == nil ? nil : { showCompose = true },
             assistant: { showTool(.assistant) },
@@ -2832,7 +2821,7 @@ struct ContentView: View {
             if text.isEmpty && !searchFocused { searchOpen = false }
         }
         .frame(height: Chrome.Metric.barHeight)
-        .background(Chrome.Colour.chrome.windowDraggable())
+        .chromeDraggableBackground()
         .overlay(alignment: .bottom) {
             Rectangle().fill(Chrome.Colour.separator).frame(height: 1)
         }

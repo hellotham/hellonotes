@@ -294,8 +294,6 @@ extension AppActions {
         }
 
         // Assistant
-        add("ask-library", "Assistant", "Ask Your Library", "sparkles.rectangle.stack",
-            shortcut: "⇧⌘J", enabled: canAsk, run: askLibrary)
         add("assistant", "Assistant", "Assistant", "sparkles",
             shortcut: "⇧⌘A", run: assistant)
 

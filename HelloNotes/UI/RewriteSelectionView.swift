@@ -38,6 +38,11 @@ struct RewriteSelectionView: View {
 
     @State private var instruction = ""
     @State private var result: String?
+    /// The model that made the result (`IntelligenceService.stamped`).
+    @State private var resultStamp: ModelStamp?
+    /// What was asked for the result — the instruction typed, or a preset's —
+    /// for a report of it. The field alone left a preset's report without one.
+    @State private var resultInstruction: String?
     @State private var busy = false
     @State private var errorText: String?
     @State private var runTask: Task<Void, Never>?
@@ -142,6 +147,11 @@ struct RewriteSelectionView: View {
                                 dismiss()
                             }
                             Spacer()
+                            if let resultStamp { ModelStampLabel(stamp: resultStamp) }
+                            ReportResponseButton {
+                                ResponseReport(feature: "Rewrite", model: resultStamp?.name ?? intelligence.modelName, response: result,
+                                               prompt: resultInstruction)
+                            }
                         }
                     }
                 }
@@ -169,8 +179,12 @@ struct RewriteSelectionView: View {
         result = nil
         runTask = Task {
             do {
-                let expanded = try await intelligence.expand(original)
+                let (expanded, stamp) = try await intelligence.stamped { try await $0.expand(original) }
+                // A run that was replaced says nothing — not even which model
+                // made a result it no longer shows.
                 guard !Task.isCancelled else { return }
+                resultStamp = stamp
+                resultInstruction = nil
                 result = expanded.isEmpty ? nil : expanded
                 if expanded.isEmpty { errorText = "The model returned nothing." }
             } catch {
@@ -195,8 +209,12 @@ struct RewriteSelectionView: View {
         result = nil
         runTask = Task {
             do {
-                let rewritten = try await intelligence.rewrite(original, instruction: taskInstruction)
+                let (rewritten, stamp) = try await intelligence.stamped {
+                    try await $0.rewrite(original, instruction: taskInstruction)
+                }
                 guard !Task.isCancelled else { return }
+                resultStamp = stamp
+                resultInstruction = taskInstruction
                 result = rewritten.isEmpty ? nil : rewritten
                 if rewritten.isEmpty { errorText = "The model returned nothing. Try rephrasing the instruction." }
             } catch {

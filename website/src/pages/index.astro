@@ -30,7 +30,7 @@ const features = [
   {
     icon: '✨',
     title: 'Intelligence on your device',
-    body: 'Summarise, suggest tags and links, find the links you meant to make, or ask questions across your whole library — on your device, with Apple Intelligence or an open model you run with MLX. No AI services, no API keys.',
+    body: 'Summarise, suggest tags and links, find the links you meant to make, or ask the Assistant about your notes — on your device, with Apple Intelligence or an open model you run with MLX. No third-party AI services, no API keys.',
   },
   {
     icon: '🕘',
@@ -201,9 +201,11 @@ const showcase = [
       </h2>
       <p class="mx-auto mt-4 max-w-[640px] text-lg text-muted">
         {APP.name} collects nothing. There is no account, no analytics and no tracking, and we operate
-        no server that could receive your notes. The AI runs on your device: your notes are not
-        sent to us or to any AI service. The exception is a web search the Assistant makes when a
-        question needs one — the privacy policy says exactly what that sends.
+        no server that could receive your notes. The AI runs on your device, and your notes are
+        not sent to us or to any AI service — unless you choose Cloud (Apple) in the App Store
+        version, which runs on Apple’s Private Cloud Compute. The other exception is a web search
+        the Assistant makes when a question needs one; the privacy policy says exactly what each
+        sends.
       </p>
       <p class="mt-5">
         <a href={href('/privacy')} class="font-semibold text-link hover:text-emphasis">

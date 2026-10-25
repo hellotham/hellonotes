@@ -180,11 +180,16 @@ nonisolated final class FileWatcher: @unchecked Sendable {
 }
 
 #else
+// No FSEvents off the Mac: the presenter below is the watcher there.
+#endif
+
 /// Watches a directory through the file-coordination system.
 ///
 /// Used on iOS; on macOS `FileWatcher` remains the better instrument, because
 /// FSEvents reports the things a presenter cannot — a moved root, an unmounted
-/// volume, a dropped batch.
+/// volume, a dropped batch. Compiled on both, so that a Mac test can register
+/// one and move a note under it: the class is only ever *run* on iOS, which is
+/// how a callback it never implemented went unnoticed (`presentedSubitem(at:didMoveTo:)`).
 ///
 /// `nonisolated` for the same reason as `FileWatcher` — its `deinit` calls
 /// `stop()` — and because every presenter callback arrives on
@@ -248,6 +253,16 @@ nonisolated final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecke
 
     func presentedSubitemDidAppear(at url: URL) { onEvent(.itemsChanged([url.path])) }
 
+    /// A note or folder inside the watched folder was renamed or moved under
+    /// file coordination — in the Files app, by Obsidian sharing the folder,
+    /// by any app that moves things properly. Both names, so the handler sees
+    /// that one went and the other came. It was not implemented, and a rename
+    /// made outside the app was never heard on iOS: the sidebar kept the old
+    /// name until an unrelated change walked the folder (implemented.md §51.57).
+    func presentedSubitem(at oldURL: URL, didMoveTo newURL: URL) {
+        onEvent(.itemsChanged([oldURL.path, newURL.path]))
+    }
+
     /// The completion-handler form, as `accommodatePresentedItemDeletion` has:
     /// written `async throws` on a `nonisolated` class, the Objective-C thunk
     /// Swift makes for it crashed the compiler (SILGen,
@@ -276,4 +291,3 @@ nonisolated final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecke
         completionHandler(nil)
     }
 }
-#endif

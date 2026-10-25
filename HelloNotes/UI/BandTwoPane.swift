@@ -146,7 +146,7 @@ private struct ContainerPane: View {
             .padding(.vertical, 4)
         }
         .viewport()
-        .background(Chrome.Colour.chrome)
+        .chromeBackground()
     }
 
     @ViewBuilder

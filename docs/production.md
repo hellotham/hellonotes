@@ -44,7 +44,7 @@ to an approved App Store release. Copy‑paste values are given for every field.
 | Version / build | `MARKETING_VERSION = 1.3.3`, `CURRENT_PROJECT_VERSION = 32` — **build 32 submitted for iPhone and iPad on 2026-10-12; the Mac still has build 31 waiting, until Xcode is signed in again** (§10k; build 31 was submitted on both that morning, §10j). **Mac builds 23 and 24 were rejected** (2.4.5(i), the Hugging Face temporary exception); 25 was the first without it and passed review, 26 makes its Access MLX Models panel open in the right folder, 27 carries everything since (§10f), 28 the rearrangement asked for after testing 27 (§10g), 29 the two `+` menus, the three-button bar and regular expressions in find (§10h), 30 the seven editor fixes reported from a day on 28 (§10i), and 31 what shooting the store's screenshots found — a note could not be typed in on an iPad held upright (§10j). 1.3.2 build 21 is what is live until Apple approves. **Verify fresh**: these bump every release, so read them from `HelloNotes.xcodeproj/project.pbxproj` rather than trusting this table (it has been stale here twice) |
 | Store listing | <https://apps.apple.com/app/id6803259848> — one page for Mac, iPhone and iPad |
 | Sandbox / Hardened Runtime | Enabled (required for the store) |
-| Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input — see §1b for the full current list, and §1b-PCC for the one still to come |
+| Entitlements | App Sandbox · User-selected files (r/w) · Network client (Git sync, MLX model downloads, the Assistant's web tools) · App Group · iCloud KV store · Audio input · Private Cloud Compute (managed, from build 33 — not in a Developer ID build) — see §1b for the full current list, and §1b-PCC |
 | Min OS | **macOS 26.5 / iOS 26.5** for 1.3.2 · **macOS 27 / iOS 27 from 1.3.3** |
 | Website | <https://hellotham.com/hellonotes/> — Privacy, Support, and (since 2026-09-15) the App Store links and iPhone/iPad screenshots |
 
@@ -100,9 +100,10 @@ load-bearing.
 
 ### 1b. ✅ Git remote sync — enabled
 The app ships an explicit entitlements file
-(`HelloNotes/HelloNotes.entitlements`, wired via `CODE_SIGN_ENTITLEMENTS`) granting
+(`HelloNotes/HelloNotes.entitlements`, wired via `CODE_SIGN_ENTITLEMENTS` through
+`HN_APP_ENTITLEMENTS` — §1b-PCC) granting
 **Outgoing Connections (Client)** alongside the sandbox and user‑selected‑files
-entitlements. **As of this session it carries seven keys** (confirmed by reading
+entitlements. **On 2026-10-17 it carries eight keys** (confirmed by reading
 the file directly — this list has grown since the four-key version this section
 used to describe, so verify it again the same way rather than trusting either
 copy):
@@ -110,6 +111,7 @@ copy):
 <key>com.apple.security.app-sandbox</key>                        <true/>
 <key>com.apple.security.application-groups</key>
 <array><string>group.com.hellotham.HelloNotes</string></array>
+<key>com.apple.developer.private-cloud-compute</key>               <true/>
 <key>com.apple.developer.ubiquity-kvstore-identifier</key>
 <string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 <key>com.apple.security.files.bookmarks.app-scope</key>          <true/>
@@ -125,20 +127,20 @@ widget's recent/daily-note snapshot with `HelloNotesWidgetsExtension` (see
 `docs/xcode-targets-setup.md`); `ubiquity-kvstore-identifier` and
 `device.audio-input` back the iCloud key-value preference sync and the
 SpeechAnalyzer dictation feature respectively, both shipped per
-`docs/native-roadmap.md`.
+`docs/native-roadmap.md`; `private-cloud-compute` lets the App Store build offer
+Apple's server model, and is left out of the DMG, which Apple will not provision
+for it (§1b-PCC).
 Verified present in the Release build. Git push/fetch to a remote can reach the
 network. Note: SSH‑agent/keychain credential access from a sandbox is still
 limited — **HTTPS remotes with a personal access token** are the reliable path
 for end users.
 
-### 1b-PCC. ⏳ Private Cloud Compute — the entitlement Apple has not granted yet
+### 1b-PCC. ✅ Private Cloud Compute — granted and enabled, 2026-10-17 (App Store builds only)
 
-`com.apple.developer.private-cloud-compute` is a **managed** entitlement: request
-it at <https://developer.apple.com/contact/request/private-cloud-compute/>. The
-form stays locked (*Access Unavailable*) until the App Store Small Business
-Program enrolment is approved; the request was waiting on that as of 2026-09-15.
-**Never add the key to `HelloNotes.entitlements` before Apple assigns it** — a
-profile without it fails to sign.
+`com.apple.developer.private-cloud-compute` is a **managed** entitlement,
+requested at <https://developer.apple.com/contact/request/private-cloud-compute/>
+once the App Store Small Business Program enrolment was approved. Apple granted
+it on 2026-10-17, and build 33 is the first build to carry it.
 
 **Without it, offering the model crashes the app.** Measured in the signed app:
 `PrivateCloudComputeLanguageModel.availability` reports `.available`, and the
@@ -149,17 +151,48 @@ offers Private Cloud Compute only when built with the `PRIVATE_CLOUD_COMPUTE`
 compilation condition (`LanguageModels.privateCloudComputeEnabled`; on the Mac
 the signed entitlement is checked at runtime as well).
 
-When Apple grants it, in **one** change:
-1. Add `<key>com.apple.developer.private-cloud-compute</key><true/>` to
+**Apple provisions it for Development, Ad hoc and App Store Connect — never
+Developer ID.** The Developer portal says so beside the capability, and an
+export says it again: *"Cannot create a Developer ID provisioning profile for
+"com.hellotham.HelloNotes". The Access to models on Private Cloud Compute
+capability is not available for Developer ID provisioning profiles."* The
+capability on the App ID does not stop a Developer ID profile being made for an
+app that does not ask for it — measured: archived without the key, the same App
+ID exported, with iCloud and the App Group intact. So the DMG is archived from
+the app's entitlements less this key (Appendix A2, step 0), through
+`HN_APP_ENTITLEMENTS` — the app target's entitlements are named by that setting,
+which no other target reads, so an override reaches the app alone — and the
+runtime check keeps that build from offering the model. Each archive has its own
+path, because one made for the DMG and uploaded to the App Store would be a
+build without the model and with nothing to say so.
+
+What was done, in one change:
+1. **The capability on the App ID** — Developer portal ▸ Identifiers ▸
+   `com.hellotham.HelloNotes` ▸ **Access to models on Private Cloud Compute**
+   (listed among the capabilities once granted; Platform Support: iOS, watchOS,
+   macOS, visionOS). Saving invalidates the App ID's profiles, and Xcode's
+   automatic signing makes new ones on the next `-allowProvisioningUpdates`.
+   Only the app's App ID: the extensions use no model.
+2. `<key>com.apple.developer.private-cloud-compute</key><true/>` in
    `HelloNotes/HelloNotes.entitlements`.
-2. Add `PRIVATE_CLOUD_COMPUTE` to the app target's
-   `SWIFT_ACTIVE_COMPILATION_CONDITIONS`, Debug **and** Release.
-3. Run `PrivateCloudComputeEntitlementTests` (fails if 1 and 2 disagree), then
-   `TEST_RUNNER_HN_PCC_PROBE=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/PrivateCloudComputeProbe`
-   for one real request from inside the app.
-4. Add Private Cloud Compute to the listing copy (`app-store-listing.md` says
-   where) and to the privacy policy, and re-read Apple's current guidance on how
-   Private Cloud Compute processing is declared in App Privacy (§5).
+3. `PRIVATE_CLOUD_COMPUTE` in the app target's
+   `SWIFT_ACTIVE_COMPILATION_CONDITIONS`, Debug **and** Release
+   (`"$(inherited) PRIVATE_CLOUD_COMPUTE"`, so Debug keeps `DEBUG`).
+4. `CODE_SIGN_ENTITLEMENTS = "$(HN_APP_ENTITLEMENTS)"`, with
+   `HN_APP_ENTITLEMENTS = HelloNotes/HelloNotes.entitlements`, in the app
+   target's two configurations (`theDirectDownloadCanBeSignedWithoutIt`).
+5. `PrivateCloudComputeEntitlementTests` and the probe —
+   `TEST_RUNNER_HN_PCC_PROBE=1 ./scripts/run-tests.sh -allowProvisioningUpdates
+   -only-testing:HelloNotesTests/PrivateCloudComputeEntitlementTests
+   -only-testing:HelloNotesTests/PrivateCloudComputeProbe` — passed, the probe
+   answered "OK" from inside the signed app in 1.2 s, and the development profile
+   made for it carried the entitlement.
+6. A Release archive exported for the Mac App Store (`app-store-connect`, to a
+   folder rather than uploaded) is signed Apple Distribution with the
+   entitlement; the same archive exported for Developer ID fails as quoted.
+   An iOS device build made its own development profile with the entitlement.
+7. The listing copy (`app-store-listing.md`, for build 33 and never earlier),
+   the privacy policy, both manuals, and App Privacy — re-read and unchanged (§5).
 
 ### 1c. ✅ Info.plist document types — done
 The placeholder `com.example.*` UTIs were replaced with a proper Markdown
@@ -290,7 +323,7 @@ reality instead of two.
 | Type | **App IDs → App** |
 | Description | `HelloNotes` |
 | Bundle ID | **Explicit** → `com.hellotham.HelloNotes` |
-| Capabilities | None required (Sandbox & file access are entitlements, not capabilities). *Leave all off unless you added a network/App‑Group capability in §1b.* |
+| Capabilities | **App Groups**, **iCloud** (the key-value store), **In-App Purchase**, and **Access to models on Private Cloud Compute** (managed — it appears in the list only once Apple has granted it; enabled 2026-10-17, §1b-PCC). Sandbox and file access are entitlements, not capabilities. |
 
 Click **Continue → Register**.
 *(You can skip this — Xcode auto‑creates it on first upload — but registering
@@ -462,9 +495,17 @@ App Store Connect ▸ your app ▸ **App Privacy**.
   credentials, a web page or search the assistant makes at their request, or (from
   1.3.3) Hugging Face when they choose to download an MLX model, which sends no
   note content. 1.3.2 also listed a cloud LLM provider under the user's own API
-  key; 1.3.3 removes those. Apple's on-device model sends nothing. When Private
-  Cloud Compute is enabled (§1b-PCC), re-read Apple's guidance for it before
-  answering this again. Disclose these
+  key; 1.3.3 removes those. Apple's on-device model sends nothing.
+  **Private Cloud Compute does not change the answer** — Apple's guidance
+  re-read in full on 2026-10-17, when the capability was enabled
+  (<https://developer.apple.com/app-store/app-privacy-details/>; it does not
+  name Private Cloud Compute). Two of its rules settle it: data sent off the
+  device only to service a request, and not retained after it, is not
+  "collected"; and for Apple frameworks and services, "you are not responsible
+  for disclosing data collected by Apple". Private Cloud Compute processes a
+  request and keeps none of it, and neither we nor any partner can reach it.
+  Read the page again if Apple's description of Private Cloud Compute changes,
+  or if anything the app sends there is kept. Disclose these
   user-directed flows plainly in the privacy policy (Appendix C) and the app
   description; do **not** claim "nothing is ever sent to a server."
 - **Privacy Policy URL** (required even when nothing is collected). ✅ **Live** — the
@@ -725,6 +766,134 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10n · 1.3.5 build 35 — to TestFlight, both platforms, not in review, 2026-10-24
+
+From the working tree on top of `eda5c49` — **uncommitted** when archived
+(the person asked for the upload, not a commit; the archive is what it read
+back as, below, and the commit is theirs to ask for). The first build made
+with **Xcode 27.1** (iOS SDK 27.1, macOS SDK 27.0). **What 35 is for**:
+implemented.md §51.56 — the iPad's two reports still in 34, a note with two
+names after New Note in a folder and an iCloud download that read its first
+answer for a minute; §51.57 — the iOS watcher hears a move as a move;
+§51.58 — the iPhone Duo: the chrome fills the status column's side and the
+home indicator's inset, the view's traits read where the device's were,
+and the app looked at in every pose.
+
+Before the archives, every gate under 27.1: the macOS suite (961 tests in
+146 suites), the editor's bundles on the Mac (318/39, 215/18, 26/4) and the
+iPad (533), chrome parity (sixteen scenes at 0 px), the phone's interface
+suite (15 run, 3 skipped by design), the iPad's typing test, the Duo's
+suite (15 run, 5 skipped — the two arrow-key tests on their new control,
+since the Duo simulator delivers no hardware keys), and window parity
+(0.017% empty, 0.065% with a note).
+
+Read back from each archive — by `scripts/archive-readback.sh`, new, which
+does by script what §10j–§10m did by hand: 1.3.5 (35) in the app and all
+six extensions; arm64 only; minos 27.0 (iOS built with SDK 27.1, the Mac
+with 27.0); the Private Cloud Compute entitlement present; no
+temporary-exception entitlement; all five cloud-provider keys present (by
+length: 15, 32, 32, 72, 36); `ITSAppUsesNonExemptEncryption` false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` 14:14, with Xcode's account (signed in since the 19th; screen unlocked, checked before each export) | `Upload succeeded` 14:17, the same account |
+
+Processing was not read back: the team key's issuer ID is not in this
+shell's environment, and `asc-listing.py` needs it — the builds show in
+TestFlight under 1.3.5 as they finish processing. Not submitted for review,
+as 34 was not; 34 stays on TestFlight beside it.
+
+## 10m · 1.3.5 build 34 — on TestFlight, both platforms, not in review, 2026-10-19
+
+From `d07ab39`. **What 34 is for**: implemented.md §51.55 — the models named
+by where they run, Local (Apple) standing in by itself when Cloud (Apple)'s
+allowance is spent, an Assistant that reads, changes nothing and says it is
+experimental (Ask Your Library folded in), its note tools taking the room the
+turn has left — and the fifteen fixes of a `/code-review max` pass over all
+of it. At the person's direction it goes to TestFlight and **not** to review:
+no 1.3.5 version record was made, and none is needed for TestFlight.
+
+Before the archives: the macOS suite (952 tests in 145 suites), the iPhone
+interface suite (19 run, 3 skipped by design) and the iPad typing test — which
+failed on the first version of one-Assistant-per-collection (the tab stayed on
+its spinner: implemented.md §51.55) and passed with the library's list
+observed — and a negative control for two of the review's fixes.
+
+**The Mac's screenshots were shot by script** for the first time
+(`scripts/store-shots-mac.sh`): ten at 2560×1600, each looked at, filed in
+`dist/Screenshots-macOS` and as the raw `light_0N`/`dark_0N`. The person's three
+open collections and default model were unchanged, and so was every other
+preference but one: `editorViewMode` was left as the last scene's, because the
+app saved the value the scene passed in as the person's own. It was written
+back by hand, and the script now writes back every key it passes in — as
+property-list values, because `defaults -float` keeps a 32-bit float. The
+pictures are not in App Store Connect yet: they go with the submission.
+
+Read back from each archive: 1.3.5 (34) in the app and all six extensions;
+arm64 only; 27.0; the Private Cloud Compute entitlement present; no
+temporary-exception entitlement; all five cloud-provider keys present (by
+length); `ITSAppUsesNonExemptEncryption` false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` 07:41 with the team's API key — Xcode's account had lapsed again (`Failed to Use Accounts`, screen unlocked); `VALID` 07:44 | `Upload succeeded` 07:56, after the person signed in again under Xcode ▸ Settings ▸ Accounts — the key cannot sign a Mac installer and the keychain holds no installer identity, so the export was retried every two minutes, each attempt only with the screen unlocked; `VALID` 07:58 |
+
+**Next, when the person says**: `asc-listing.py create 1.3.5` (it renames the
+iOS 1.3.4 left Developer Rejected, and makes the Mac's), `text 1.3.5`, the
+Mac's new pictures with `screenshots`, `build 1.3.5 34`, and `submit` — the
+listing text is `docs/app-store-listing.md`.
+
+## 10l · 1.3.4 build 33 — submitted for review, both platforms, 2026-10-17
+
+From `fa62783` (the work is `6183c57`; the version commit followed it).
+**There was nothing in review to pull**: Apple had approved 1.3.3 and released
+it on 13 October — iPhone and iPad with build 32, the Mac with build 31
+(`appVersionState` READY_FOR_DISTRIBUTION on both; the public lookup said
+1.3.3, released 2026-10-12T15:10Z). A released version's train takes no more
+builds, for TestFlight or review, so at the person's direction build 33 went
+as **1.3.4** — the reason a version number moved when only a build was asked
+for, and the reason it has to.
+
+**What 33 is for**: Private Cloud Compute (implemented.md §51.54), Report… and
+a free Contact section (§51.53), and iCloud downloads that end (§51.51–§51.52);
+on the Mac also build 32's fixes (§51.42–§51.45), because the Mac shipped 31.
+So What's New is one a platform now (`app-store-listing.md`).
+
+Read back from each archive: 1.3.4 (33) in the app and all six extensions;
+arm64 only; 27.0; the Private Cloud Compute entitlement present; no
+temporary-exception entitlement; all five cloud-provider keys present (by
+length); `ITSAppUsesNonExemptEncryption` false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` 18:26, with Xcode's account; `VALID` 18:28 | `Upload succeeded` 18:28; `VALID` 18:30 |
+| Version | `asc-listing.py create 1.3.4`: Prepare for Submission, released after approval as 1.3.3 was; App Store Connect carried the pictures over (6 iPhone, 5 iPad) and the App Review contact | the same; 10 pictures |
+| Text | `text 1.3.4`: description, What's New, promotional text and the notes to App Review, each read back equal | the same |
+| Review | `build 1.3.4 33`, `submit 1.3.4` — `WAITING_FOR_REVIEW` | `WAITING_FOR_REVIEW` |
+
+The in-app purchases needed nothing: Champion (`….champion.contribution`) and
+Commercial are approved; `….champion`, "missing metadata", is the original ID
+that `.contribution` replaced and is not in the app.
+
+**1.3.3's release steps, done the same day**: the website says the App Store
+has 1.3.3 (`e75df86` on `main`, deployed, `check-download-page.sh` passes run
+from `main` — it reads the `site.ts` of the checkout it is run in), and China
+mainland is back on (Pricing and Availability: 175 countries or regions, China
+mainland "Processing to Available").
+
+**Still to do for 1.3.4**: the download. The DMG is 1.3.3 build 32; a 1.3.4 one
+is the `/release` skill's job — Appendix A2, now with the step that leaves
+Private Cloud Compute out of a Developer ID build — and `site.ts`'s `version`,
+size and checksum move with it. **When Apple approves 1.3.4**: `liveVersion:
+'1.3.4'`, `pendingVersion: null` (or, if the DMG went out first, it says
+`pendingVersion: '1.3.4'` until then).
+
+**Xcode's account was lost and re-signed** during the day: a provisioning build
+ran with the screen locked, and from then on Xcode said "No Accounts" — the
+stored list was empty — until the person signed in again (AGENTS.md, "A locked
+screen takes the keychain with it"). Every `xcodebuild` here checks the lock
+first now.
 
 ## 10k · 1.3.3 build 32 — iPhone and iPad resubmitted, the Mac waiting on Xcode's sign-in, 2026-10-12
 
@@ -1264,27 +1433,41 @@ Apple Account password revokes it, and you'd re‑run this.
 **Either** archive + export in Xcode (Organizer ▸ Distribute App ▸ Direct
 Distribution), **or** headlessly — no Xcode UI needed:
 ```bash
+# 0 · The app's entitlements without Private Cloud Compute, which Apple never
+#     provisions for Developer ID (§1b-PCC). PlistBuddy, not plutil: plutil reads
+#     the key's dots as a key path and removes nothing.
+mkdir -p build
+cp HelloNotes/HelloNotes.entitlements build/HelloNotes-DeveloperID.entitlements
+/usr/libexec/PlistBuddy -c "Delete :com.apple.developer.private-cloud-compute" \
+  build/HelloNotes-DeveloperID.entitlements
+
 # 1 · Archive (arm64 — from 1.3.3, whose macOS 27 floor runs only on Apple silicon;
 #     Xcode 27's ARCHS_STANDARD is `arm64` at that deployment target. 1.3.2 and
-#     earlier, at 26.5, were universal.)
+#     earlier, at 26.5, were universal.), signed with those. Only the app target
+#     reads HN_APP_ENTITLEMENTS; the extensions keep their own. Its own path:
+#     this archive must never go to the App Store, whose build carries the
+#     entitlement (§9 archives to build/HelloNotes.xcarchive).
 xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'generic/platform=macOS' -skipPackagePluginValidation \
-  -archivePath build/HelloNotes.xcarchive -allowProvisioningUpdates
+  -archivePath build/HelloNotes-DeveloperID.xcarchive -allowProvisioningUpdates \
+  HN_APP_ENTITLEMENTS="$PWD/build/HelloNotes-DeveloperID.entitlements"
 
 # 2 · Export with Developer ID  (ExportOptions.plist: method=developer-id,
-#     teamID=RPL5R637DS, signingStyle=automatic)
-xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
-  -exportOptionsPlist ExportOptions.plist -exportPath build/export \
+#     teamID=RPL5R637DS, signingStyle=automatic). An archive that carries Private
+#     Cloud Compute fails here: "not available for Developer ID provisioning
+#     profiles".
+xcodebuild -exportArchive -archivePath build/HelloNotes-DeveloperID.xcarchive \
+  -exportOptionsPlist ExportOptions.plist -exportPath build/export-developer-id \
   -allowProvisioningUpdates
 
 # 3 · Notarize + staple the .app (package-dmg.sh requires this — it runs
 #     `stapler validate` on its input and refuses an un-notarized app)
-ditto -c -k --keepParent build/export/HelloNotes.app build/HelloNotes.zip
+ditto -c -k --keepParent build/export-developer-id/HelloNotes.app build/HelloNotes.zip
 xcrun notarytool submit build/HelloNotes.zip --keychain-profile "hellotham-notary" --wait
-xcrun stapler staple build/export/HelloNotes.app
+xcrun stapler staple build/export-developer-id/HelloNotes.app
 
 # 4 · Build, sign, notarize and staple the DMG
-scripts/package-dmg.sh build/export/HelloNotes.app
+scripts/package-dmg.sh build/export-developer-id/HelloNotes.app
 ```
 
 **Verify what you're shipping** (don't just trust the script's own output — mount it
@@ -1294,6 +1477,7 @@ spctl --assess -t open --context context:primary-signature --verbose dist/HelloN
 #   → accepted / source=Notarized Developer ID
 hdiutil attach dist/HelloNotes.dmg -nobrowse -mountpoint /tmp/hn
 lipo -info /tmp/hn/HelloNotes.app/Contents/MacOS/HelloNotes   # arm64 (1.3.3+)
+codesign -d --entitlements - /tmp/hn/HelloNotes.app | grep -c private-cloud-compute  # 0
 spctl --assess --type execute --verbose /tmp/hn/HelloNotes.app
 xcrun stapler validate /tmp/hn/HelloNotes.app                 # works offline
 hdiutil detach /tmp/hn
@@ -1330,7 +1514,8 @@ hdiutil detach /tmp/hn
 - [ ] Description carries the **EULA link** and the subscription's full terms
 - [ ] **No OpenAI/ChatGPT reference, and no third-party AI service**, in name,
       subtitle, promo, description, keywords **or screenshots** — and Private
-      Cloud Compute mentioned only if the build carries its entitlement (§1b-PCC)
+      Cloud Compute mentioned only if the build carries its entitlement (§1b-PCC:
+      build 33 and later; never with build 32)
 - [ ] Privacy and EULA URLs `curl` to 200 (privacy takes no trailing slash)
 - [ ] Reviewer notes answer all four questions in §4 — and point at
       `DefaultCollection` *in the binary*, never at the repo
@@ -1392,8 +1577,9 @@ hdiutil detach /tmp/hn
 > and run on your device with MLX; content processed this way never leaves your
 > device. Downloading an MLX model contacts Hugging Face and sends none of your
 > notes. HelloNotes has no third‑party AI services and stores no AI credentials;
-> keys stored by earlier versions are deleted. *(Add Private Cloud Compute here
-> only when §1b-PCC is done.)*
+> keys stored by earlier versions are deleted. *(§1b-PCC is done: the page's source,
+> `website/src/pages/privacy.astro`, has a Private Cloud Compute paragraph,
+> live once the site deploys from `main`.)*
 > - **Assistant web tools:** if you ask the assistant to search or fetch a web
 >   page, the query/URL is sent to the search engine or site in question.
 > - **Version control:** if you choose to use the built‑in Git features and

@@ -53,9 +53,9 @@ struct EscapedAliasLinkTests {
         _ = try #require(await collection.renameNote(old, to: "New"))
         // The links are rewritten after the rename returns.
         let expected = "| Link |\n| --- |\n| [[New\\|the old one]] |\n\n[[New\\|again]] and [[Old\\\\|not it]]\n"
-        let deadline = ContinuousClock.now + .seconds(10)
+        var patience = Waits.Patience(.seconds(10))
         var text = try FileIO.readString(at: linker)
-        while text != expected, ContinuousClock.now < deadline {
+        while text != expected, patience.lasts {
             try await Task.sleep(for: .milliseconds(20))
             text = try FileIO.readString(at: linker)
         }
@@ -97,8 +97,8 @@ struct EscapedAliasLinkTests {
         collection.scan()
         // A path-qualified name is the link graph's to resolve.
         collection.refreshDerived(force: true)
-        let deadline = ContinuousClock.now + .seconds(10)
-        while collection.linkGraph.resolve("Examples/Nested Note") == nil, ContinuousClock.now < deadline {
+        var patience = Waits.Patience(.seconds(10))
+        while collection.linkGraph.resolve("Examples/Nested Note") == nil, patience.lasts {
             try await Task.sleep(for: .milliseconds(10))
         }
 
