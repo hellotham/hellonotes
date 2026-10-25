@@ -799,10 +799,25 @@ length: 15, 32, 32, 72, 36); `ITSAppUsesNonExemptEncryption` false.
 |---|---|---|
 | Upload | `Upload succeeded` 14:14, with Xcode's account (signed in since the 19th; screen unlocked, checked before each export) | `Upload succeeded` 14:17, the same account |
 
-Processing was not read back: the team key's issuer ID is not in this
-shell's environment, and `asc-listing.py` needs it — the builds show in
-TestFlight under 1.3.5 as they finish processing. Not submitted for review,
-as 34 was not; 34 stays on TestFlight beside it.
+Processing was not read back that day: the team key's issuer ID was not in
+the shell. **Submitted the next morning, 2026-10-25, at the person's word**
+("submit build 35 to ASC for review and distribution"), with the key's
+identifiers taken from this session's own earlier use of them:
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Version | `asc-listing.py create 1.3.5`: the 1.3.4 left Developer Rejected renamed 1.3.5, its pictures and App Review contact kept | 1.3.5 made, Prepare for Submission, released after approval as 1.3.4 was |
+| Text | `text 1.3.5`: description, What's New (with 35's two lines — a note made in a folder can be renamed; iPhone Duo edge to edge), promotional text and the notes to App Review, each read back equal | the same |
+| Pictures | carried over (6 iPhone, 5 iPad) | `screenshots 1.3.5 --platform MAC_OS`: the ten shot on the 19th, 10 complete |
+| Build | `build 1.3.5 35`: VALID, attached | the same |
+| Review | `submit 1.3.5` 14:45 — `WAITING_FOR_REVIEW` | `WAITING_FOR_REVIEW` |
+
+The website says 1.3.5 is with Apple (`site.ts` `pendingVersion: '1.3.5'`,
+on `main`, which also took the release branch's 1.3.5 pages at the merge
+`bc212da`). **When Apple approves**: `liveVersion: '1.3.5'`, `pendingVersion:
+null`. The DMG is still 1.3.3 build 32 — a 1.3.5 one is the `/release`
+skill's job, without the Private Cloud Compute entitlement (A2). Build 34
+stays on TestFlight beside 35.
 
 ## 10m · 1.3.5 build 34 — on TestFlight, both platforms, not in review, 2026-10-19
 

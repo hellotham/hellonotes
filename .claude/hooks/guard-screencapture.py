@@ -289,7 +289,7 @@ def judge(prefs) -> "str | None":
 # Two views of the same preferences. The app's changes reach cfprefsd at once
 # and the file when cfprefsd writes it: ten seconds later for a running
 # sandboxed process whose plist exists, over a minute later where the plist
-# did not exist yet (implemented.md §51.53). So the file alone says a cloud
+# did not exist yet (implemented.md §51.59). So the file alone says a cloud
 # collection opened a moment ago is not open, and cfprefsd alone says nothing
 # of a file it cannot read — it answers an empty dictionary. Each view is
 # judged, and either one blocks.

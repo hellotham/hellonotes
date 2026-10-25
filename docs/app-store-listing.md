@@ -64,6 +64,8 @@ HelloNotes 1.3.5 can run its AI on Apple's Private Cloud Compute, and labels wha
 • Ask Your Library is now part of the Assistant, which searches your notes more thoroughly — by section, and to the end of a long note — shows the notes it read, and summarises earlier messages when a conversation grows long. The Assistant is experimental: it reads your notes and no longer changes them.
 • Report… beside the AI's answers and suggestions opens an email to us, and Settings > Support > Contact has our address.
 • A note or attachment that iCloud Drive keeps online is downloaded when you open it. If it can't be, HelloNotes says so and offers Try Again, instead of a download that never ends.
+• A note made in a folder of an iCloud Drive collection can be renamed — by its title, or from the sidebar.
+• On iPhone Duo, HelloNotes runs edge to edge on both displays, in every pose.
 • Tips no longer appear over the window.
 
 HelloNotes 1.3.5 requires iOS 27.
