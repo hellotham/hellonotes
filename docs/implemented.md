@@ -8416,6 +8416,33 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.60 1.3.5 to the download, the day it went to review (2026-10-25)
+
+From `efa9d58`, the commit that submitted build 35 — the same sources,
+archived again with the Developer ID entitlements (Private Cloud Compute
+taken out with PlistBuddy, `HN_APP_ENTITLEMENTS`; production.md A2),
+exported Developer ID, notarised (Accepted in under a minute), stapled and
+packaged by `scripts/package-dmg.sh`. Read back from the mounted image:
+Notarized Developer ID, arm64, no private-cloud-compute and no
+temporary-exception entitlement, 1.3.5 (35), minos 27.0, the five
+cloud-provider keys present. 29.2 MB (29,158,546 bytes), SHA-256
+`b1101ee1…d6faaa`. Published as `v1.3.5`, latest; the release notes carry
+1.3.4's changes too, since 1.3.4 had no download, and say that Cloud (Apple)
+is the App Store build's alone. `site.ts` prints the new version, size and
+checksum; the store notice stands until Apple approves.
+
+**A hundred seconds of the window the release skill exists to close.** The
+release was created as a prerelease and flipped to latest in the same
+minute as the push — and the push moved nothing, because the commit had
+been made on `release/1.3.3`, the branch the shell was still on, not
+`main`, which deploys. From 15:00:31 to 15:02:11 `latest` served 1.3.5
+while the page described 1.3.3 and printed 1.3.3's checksum. Two things
+hid it until the page was read: `check-download-page.sh` *live* compares
+`releases/latest` with the **checkout's** `site.ts`, not with the page, so
+it passed inside the window; and the deploy watched was the previous
+push's run, which had succeeded. The skill now says to check the branch
+before the commit and to read the live page, not the checkout, after.
+
 ### 51.59 The screencapture guard reads every list a collection comes back from (2026-10-17)
 
 *Written on `main` on 17 October, while 1.3.5's sections were on the release branch, and numbered at the merge of 2026-10-25 — §51.53 there is "What a model wrote can be reported".*

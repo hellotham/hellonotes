@@ -174,6 +174,16 @@ deploys. If the site is not ready to push, create the release with
 --latest`) in the same minute as the push: `latest` then never serves a file
 the page does not describe.
 
+**The push must move `main` — check `git branch --show-current` before the
+commit.** On 2026-10-25 the `site.ts` commit landed on `release/1.3.3`, the
+branch the shell was on; `git push origin main` said "Everything up-to-date",
+the release was flipped anyway, and `latest` served 1.3.5 against a page
+printing 1.3.3's checksum for a hundred seconds (implemented.md §51.60).
+Then **read the live page, not the checkout**: `check-download-page.sh`
+compares `releases/latest` with the `site.ts` of the checkout it runs in,
+so it passes inside that window; `curl` the deployed `download.html` for the
+new size and checksum, and watch the deploy run for *this* push's commit.
+
 ## App Store screenshots — inventory every surface, every time
 
 **A platform is not "done" because one of its tabs has images in it.** Build 13

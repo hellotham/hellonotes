@@ -815,9 +815,11 @@ identifiers taken from this session's own earlier use of them:
 The website says 1.3.5 is with Apple (`site.ts` `pendingVersion: '1.3.5'`,
 on `main`, which also took the release branch's 1.3.5 pages at the merge
 `bc212da`). **When Apple approves**: `liveVersion: '1.3.5'`, `pendingVersion:
-null`. The DMG is still 1.3.3 build 32 — a 1.3.5 one is the `/release`
-skill's job, without the Private Cloud Compute entitlement (A2). Build 34
-stays on TestFlight beside 35.
+null`. **The DMG followed the same afternoon** — 1.3.5 build 35, Developer ID
+without the Private Cloud Compute entitlement (A2), `v1.3.5` on GitHub, the
+page's version, size and checksum synced (implemented.md §51.60, with the
+hundred-second window that opened on the way). Build 34 stays on TestFlight
+beside 35.
 
 ## 10m · 1.3.5 build 34 — on TestFlight, both platforms, not in review, 2026-10-19
 
