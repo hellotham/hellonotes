@@ -13,9 +13,7 @@ import Foundation
 struct SkillStoreTests {
 
     private func sampleVault() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("SampleVault")
+        RepoFile.url("SampleVault")
     }
 
     @Test

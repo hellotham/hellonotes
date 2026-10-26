@@ -80,9 +80,7 @@ struct FileViewerDrawsTests {
             .appending(path: "FileViewerDraws-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let sample = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "SampleVault/tasks.csv")
+        let sample = RepoFile.url("SampleVault/tasks.csv")
         let csv = dir.appending(path: "tasks.csv")
         try FileManager.default.copyItem(at: sample, to: csv)
 

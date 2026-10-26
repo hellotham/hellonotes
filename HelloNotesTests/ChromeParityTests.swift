@@ -353,8 +353,7 @@ struct ChromeParityTests {
     /// and it is an explicit stack now.
     @Test("Every vertical stack names its spacing")
     func everyVerticalStackNamesItsSpacing() throws {
-        let root = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes")
+        let root = RepoFile.url("HelloNotes")
         let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
         let stack = try Regex(#"\b(?:Lazy)?VStack\s*(\((?:[^()]|\([^()]*\))*\))?\s*\{"#)

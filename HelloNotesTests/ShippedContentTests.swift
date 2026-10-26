@@ -21,8 +21,7 @@ import Foundation
 
 struct ShippedContentTests {
 
-    private static let repo = URL(filePath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent()
+    private static let repo = RepoFile.root
 
     /// Services 1.3.2 could call. Matched case-sensitively, as names are
     /// written. Open model families an MLX model may belong to — Mistral,

@@ -87,12 +87,21 @@ nonisolated enum PlatformImageKit {
         #endif
     }
 
-    /// Load an image file from disk (cross-platform).
-    static func loadImage(contentsOf url: URL) -> PlatformImage? {
+    /// An image from its bytes (cross-platform) — read through `FileIO`, never
+    /// from a URL: a picture in the vault read raw raced the provider writing
+    /// it (implemented.md §51.64). `name` is the file's: UIKit took an `@2x` or
+    /// `@3x` in it for the picture's scale when it read the file itself. AppKit
+    /// draws the same picture from its bytes as from its URL, an SVG and a
+    /// high-DPI PNG among them (probed).
+    static func loadImage(data: Data, named name: String) -> PlatformImage? {
         #if canImport(AppKit)
-        return NSImage(contentsOf: url)
+        return NSImage(data: data)
         #else
-        return UIImage(contentsOfFile: url.path)
+        // `photo@2x.png`, and `photo@2x~ipad.png` with a device after it.
+        var stem = (name as NSString).deletingPathExtension
+        for device in ["~ipad", "~iphone"] where stem.hasSuffix(device) { stem.removeLast(device.count) }
+        let scale: CGFloat = stem.hasSuffix("@3x") ? 3 : stem.hasSuffix("@2x") ? 2 : 1
+        return UIImage(data: data, scale: scale)
         #endif
     }
 

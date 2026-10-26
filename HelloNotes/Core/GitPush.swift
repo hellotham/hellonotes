@@ -6,13 +6,18 @@
 //
 //  SwiftGitX's `push()` ends in `git_remote_push(remote, nil, nil)` — no
 //  options, so no progress callback, and nothing through which a cancel can
-//  reach libgit2. Its *clone* installs `transfer_progress` and answers
-//  `Task.isCancelled` there, which is why Clone has had a working Stop while
-//  Push spun on `isBusy` until the network gave up (and why Create's Stop could
-//  stop everything but the push it ends in). This is the same push — the
+//  reach libgit2. Its *clone* installed `transfer_progress` and answered
+//  `Task.isCancelled` there, which is why Clone had a working Stop while Push
+//  spun on `isBusy` until the network gave up (and why Create's Stop could stop
+//  everything but the push it ends in) — the clone goes through libgit2 itself
+//  now too (`GitFetch`). This is the same push — the
 //  current branch, to its upstream's remote or else `origin`, with a push
 //  refspec for the branch added when there is none — written against libgit2
-//  itself, with callbacks that answer "stop" once the task is cancelled.
+//  itself, with callbacks that answer "stop" once the task waiting on it is
+//  cancelled. They read that through their payload (`GitCancel`): the push
+//  runs on a thread of its own (`GitThread`), where `Task.isCancelled` has no
+//  task to ask, because on the pool it held a thread of it for as long as the
+//  network took (implemented.md §51.66).
 //
 //  libgit2 is SwiftGitX's own dependency, pinned to exactly one version, so the
 //  module is always there to import. What a callback cannot stop is a connect
@@ -27,7 +32,7 @@ import libgit2
 
 nonisolated enum GitPush {
 
-    enum Failure: Error, Equatable, LocalizedError {
+    enum Failure: Error, Equatable, LocalizedError, CustomStringConvertible {
         /// HEAD is not on a branch, so there is nothing to push.
         case detachedHead
         /// Neither the branch's upstream nor `origin` names a remote.
@@ -45,13 +50,16 @@ nonisolated enum GitPush {
             case .libgit2(let message): message
             }
         }
+
+        var description: String { errorDescription ?? "Push failed." }
     }
 
     /// Push the current branch of the repository at `url`.
     ///
-    /// Synchronous and blocking, like every libgit2 call: run it detached, and
-    /// cancel *that* task to stop it.
-    static func push(repositoryAt url: URL) throws {
+    /// Synchronous and blocking, like every libgit2 call: run it on a thread
+    /// of its own (`GitThread.run`), and cancel the task waiting on it to stop
+    /// it — which sets `cancel`.
+    static func push(repositoryAt url: URL, cancel: GitCancel) throws {
         git_libgit2_init()
         defer { git_libgit2_shutdown() }
 
@@ -90,19 +98,20 @@ nonisolated enum GitPush {
         var options = git_push_options()
         try check(git_push_options_init(&options, UInt32(GIT_PUSH_OPTIONS_VERSION)))
         // Every callback a push makes, answering "stop" once cancelled: the
-        // pack being built, sent, and what the server says as it goes. The pack
-        // is built on this thread (`pb_parallelism` left at its default of
-        // one), because a callback on one of libgit2's own threads has no task
-        // to ask whether it was cancelled.
-        options.callbacks.pack_progress = { _, _, _, _ in Task.isCancelled ? -1 : 0 }
-        options.callbacks.push_transfer_progress = { _, _, _, _ in Task.isCancelled ? -1 : 0 }
-        options.callbacks.sideband_progress = { _, _, _ in Task.isCancelled ? -1 : 0 }
+        // pack being built, sent, and what the server says as it goes — each
+        // reading the flag through its payload, which reaches it on whichever
+        // thread libgit2 calls it (`pb_parallelism` is left at its default of
+        // one, so the pack is built on this one).
+        options.callbacks.pack_progress = { _, _, _, payload in GitCancel.isSet(payload) ? -1 : 0 }
+        options.callbacks.push_transfer_progress = { _, _, _, payload in GitCancel.isSet(payload) ? -1 : 0 }
+        options.callbacks.sideband_progress = { _, _, payload in GitCancel.isSet(payload) ? -1 : 0 }
+        options.callbacks.payload = cancel.payload
 
         let status = git_remote_push(remote, nil, &options)
         // Checked whatever the status: a callback's "stop" comes back as an
         // error, and a cancel that landed after the last callback still means
         // the person asked for it to stop — but only if it did not finish.
-        if status != 0, Task.isCancelled { throw Failure.cancelled }
+        if status != 0, cancel.isSet { throw Failure.cancelled }
         try check(status)
     }
 

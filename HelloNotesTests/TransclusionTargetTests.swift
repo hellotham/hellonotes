@@ -61,9 +61,7 @@ struct TransclusionTargetTests {
     /// The real regression guard: this file is inside the binary, and it is the
     /// only demonstration of the feature a new user sees.
     @Test func theShippedTourNoteTranscludesSomethingThatResolves() throws {
-        let root = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "DefaultCollection")
+        let root = RepoFile.url("DefaultCollection")
         let text = try String(contentsOf: root.appending(path: "Transclusion.md"), encoding: .utf8)
 
         // **Only real embeds.** The note also *documents* the syntax as inline

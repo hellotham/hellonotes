@@ -53,10 +53,14 @@ public enum HTMLBlockImageRenderer {
     /// to centre an image in a note. Nothing in the harness could see it
     /// either: a height sweep over one-construct examples has no images in its
     /// HTML blocks.
+    ///
+    /// `readFile` reads what the block points at — the app's coordinated read,
+    /// handed in, because this package has no `FileIO` (`BlockAssetScheme`).
     public static func image(source: String, maxWidth: CGFloat, base: CGFloat,
                              palette: GFMRenderer.Palette?, isDark: Bool,
                              keepsTrailingMargin: Bool = true,
-                             baseURL: URL? = nil) async -> PlatformImage? {
+                             baseURL: URL? = nil,
+                             readFile: (@Sendable (URL) async -> Data?)? = nil) async -> PlatformImage? {
         guard maxWidth > 1, !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return nil }
 
@@ -70,7 +74,7 @@ public enum HTMLBlockImageRenderer {
 
         let host = OffscreenWebHost(width: maxWidth, isDark: isDark)
         defer { host.dismantle() }
-        guard await host.load(page, baseURL: baseURL) else { return nil }
+        guard await host.load(page, baseURL: baseURL, readFile: readFile) else { return nil }
         guard let height = await host.contentHeight(keepsTrailingMargin: keepsTrailingMargin)
         else { return nil }
         // "It rendered nothing" is an answer, and a different one from "it did
@@ -118,32 +122,58 @@ final class BlockAssetScheme: NSObject, WKURLSchemeHandler {
     /// block, so there is never a second pair to confuse this with.
     var page = ""
     var root: URL?
+    /// How a file the page points at is read: the app's coordinated read,
+    /// handed in. It was `Data(contentsOf:)` here, raw and on the main thread,
+    /// so a picture in the note's folder that its provider held, or had not
+    /// downloaded, held the app until it let go (the app's implemented.md
+    /// §51.64). Without one — this package's own tests and the parity harness
+    /// — a plain read, off the main actor.
+    var read: (@Sendable (URL) async -> Data?)?
+    /// Files being read for the page that WebKit has not stopped — the only
+    /// ones that may still be answered — and the reads, to stop with them: a
+    /// read of a picture not yet downloaded waits as long as a download is
+    /// given anywhere.
+    private var reading: [ObjectIdentifier: Task<Void, Never>] = [:]
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         guard let url = task.request.url else { return task.didFailWithError(URLError(.badURL)) }
-        let data: Data, mime: String
         if url.path == Self.pageURL.path {
-            data = Data(page.utf8); mime = "text/html"
-        } else if let root, let file = try? Data(contentsOf: Self.resolve(url.path, under: root)) {
-            data = file
-            // By content, not by extension: `<img src="photo">` is legal, and a
-            // wrong `Content-Type` is a picture that does not draw.
-            mime = data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png"
-                 : data.starts(with: [0xFF, 0xD8]) ? "image/jpeg"
-                 : data.starts(with: [0x47, 0x49, 0x46]) ? "image/gif"
-                 : data.starts(with: Array("<svg".utf8)) || data.starts(with: Array("<?xml".utf8))
-                     ? "image/svg+xml"
-                 : "application/octet-stream"
-        } else {
-            return task.didFailWithError(URLError(.fileDoesNotExist))
+            return Self.answer(task, url, Data(page.utf8), mime: "text/html")
         }
+        guard let root else { return task.didFailWithError(URLError(.fileDoesNotExist)) }
+        let file = Self.resolve(url.path, under: root)
+        let read = self.read ?? { file in await Task.detached { try? Data(contentsOf: file) }.value }
+        let id = ObjectIdentifier(task)
+        reading[id] = Task { @MainActor in
+            let data = await read(file)
+            // Stopped meanwhile: answering it now is an exception in WebKit.
+            guard self.reading.removeValue(forKey: id) != nil else { return }
+            guard let data else { return task.didFailWithError(URLError(.fileDoesNotExist)) }
+            Self.answer(task, url, data, mime: Self.mime(of: data))
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {
+        reading.removeValue(forKey: ObjectIdentifier(task))?.cancel()
+    }
+
+    private static func answer(_ task: any WKURLSchemeTask, _ url: URL, _ data: Data, mime: String) {
         task.didReceive(URLResponse(url: url, mimeType: mime,
                                     expectedContentLength: data.count, textEncodingName: "utf-8"))
         task.didReceive(data)
         task.didFinish()
     }
 
-    func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {}
+    /// By content, not by extension: `<img src="photo">` is legal, and a wrong
+    /// `Content-Type` is a picture that does not draw.
+    private static func mime(of data: Data) -> String {
+        data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png"
+            : data.starts(with: [0xFF, 0xD8]) ? "image/jpeg"
+            : data.starts(with: [0x47, 0x49, 0x46]) ? "image/gif"
+            : data.starts(with: Array("<svg".utf8)) || data.starts(with: Array("<?xml".utf8))
+                ? "image/svg+xml"
+            : "application/octet-stream"
+    }
 
     /// A reference as a file under `root`. The leading slash is dropped rather
     /// than honoured — `URL(string:relativeTo:)` would send `/pic.png` to the
@@ -238,7 +268,8 @@ final class OffscreenWebHost: NSObject, WKNavigationDelegate {
     /// Without one, `loadHTMLString` as before: a block with no folder to
     /// resolve against gains nothing from an origin, and giving every such
     /// page one would quietly change what a root-absolute `/url` means.
-    func load(_ html: String, baseURL: URL? = nil) async -> Bool {
+    func load(_ html: String, baseURL: URL? = nil,
+              readFile: (@Sendable (URL) async -> Data?)? = nil) async -> Bool {
         await withCheckedContinuation { continuation in
             finished = continuation
             guard let baseURL else {
@@ -247,6 +278,7 @@ final class OffscreenWebHost: NSObject, WKNavigationDelegate {
             }
             assets.page = html
             assets.root = baseURL
+            assets.read = readFile
             var request = URLRequest(url: BlockAssetScheme.pageURL)
             request.cachePolicy = .reloadIgnoringLocalCacheData
             web.load(request)

@@ -131,6 +131,10 @@ nonisolated final class CollectionEmbedProvider: @unchecked Sendable {
         if let cached = lock.withLock({ cache[key] }) { return cached }
 
         // Read and sectioned off the main actor; only the drawing needs it.
+        // Waited for first if it is online-only, with the deadline a download
+        // has anywhere: a coordinated read downloads inside the read, and held
+        // its lane for as long as that took (implemented.md §51.64).
+        guard await FileIO.waitForDownload(at: url, using: .scans) == .arrived else { return nil }
         let sectioned = await FileIO.onScanLane(for: url) { () -> String? in
             guard let markdown = try? FileIO.readString(at: url) else { return nil }
             return NoteTranscluder.section(heading, from: markdown)

@@ -51,6 +51,7 @@ struct EditorWiring {
         editor.onSaved = { url, text in collection(url)?.noteDidSave(url, text: text) }
         editor.onBecameAvailable = { url in collection(url)?.noteBecameAvailable(url) }
         editor.onFileMade = { url in collection(url)?.fileMadeHere(url) }
+        editor.onFileMaking = { url in collection(url)?.fileWillBeMadeHere(url) }
         editor.saveBlockedReason = { url in Self.saveBlockedReason(for: url, in: collection(url)) }
         editor.isPlaceholder = { url in collection(url)?.isPlaceholder(at: url) ?? false }
     }

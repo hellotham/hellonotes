@@ -198,16 +198,18 @@ final class GitService {
             lastError = nil
             defer { isBusy = false; isPushing = false }
 
-            // Detached, because libgit2 blocks its thread; cancellation is
-            // forwarded, because a detached task does not inherit it.
-            let inner = Task.detached(priority: .userInitiated) { () -> Result<Void, Error> in
-                do { try GitPush.push(repositoryAt: url); return .success(()) }
-                catch { return .failure(error) }
-            }
-            let result = await withTaskCancellationHandler {
-                await inner.value
-            } onCancel: {
-                inner.cancel()
+            // On a thread of its own (`GitThread`): libgit2 blocks its thread
+            // for as long as the network takes, and detached it was a thread
+            // of the pool (implemented.md §51.66). A cancel of this task sets
+            // the flag the push's callbacks read.
+            let result: Result<Void, Error>
+            do {
+                try await GitThread.run(GitThread.push, for: url) { cancel in
+                    try GitPush.push(repositoryAt: url, cancel: cancel)
+                }
+                result = .success(())
+            } catch {
+                result = .failure(error)
             }
             switch result {
             case .success:
@@ -235,9 +237,13 @@ final class GitService {
     /// Fetch remote refs (SwiftGitX has no merge yet, so this doesn't pull).
     func fetch() async {
         guard let url = repositoryRoot else { return }
+        // On a thread of its own, through `GitFetch`: SwiftGitX's fetch gave
+        // libgit2 no callbacks, and blocked a thread of the pool for as long
+        // as the network took (implemented.md §51.66).
         await run(success: "Fetched from remote") {
-            let repo = try Repository.open(at: url)
-            try await repo.fetch()
+            try await GitThread.run(GitThread.fetch, for: url) { cancel in
+                try GitFetch.fetch(repositoryAt: url, cancel: cancel)
+            }
         }
     }
 
@@ -398,8 +404,8 @@ final class GitService {
     private var lastQueued: Task<Void, Never>?
 
     /// The in-flight clone, retained so the UI can cancel it. Cancelling the
-    /// handle forwards into the detached libgit2 clone (whose transfer-progress
-    /// callback checks `Task.isCancelled` and aborts the transfer).
+    /// handle sets the flag the clone's transfer-progress callback reads
+    /// (`GitThread`, `GitFetch`), and libgit2 aborts the transfer.
     private var cloneHandle: Task<URL?, Never>?
     private var createHandle: Task<URL?, Never>?
     private var pushHandle: Task<Void, Never>?
@@ -609,7 +615,16 @@ final class GitService {
         guard !safeName.isEmpty else { lastError = "Enter a repository name."; return nil }
         let directory = parentDirectory.appendingPathComponent(safeName, isDirectory: true)
 
-        if let contents = try? FileManager.default.contentsOfDirectory(atPath: directory.path), !contents.isEmpty {
+        // Looked at on the folder's lane, never the main actor: the person may
+        // have picked a cloud provider's folder, where a look waits on the
+        // provider (implemented.md §51.64).
+        let (occupied, wasThere, isFolder) = await FileIO.onLane(for: directory) { () -> (Bool, Bool, Bool) in
+            let listed = try? FileManager.default.contentsOfDirectory(atPath: directory.path)
+            var isFolder: ObjCBool = false
+            let there = FileManager.default.fileExists(atPath: directory.path, isDirectory: &isFolder)
+            return (!(listed ?? []).isEmpty, there, isFolder.boolValue)
+        }
+        if occupied {
             lastError = "“\(safeName)” already exists and isn't empty."
             return nil
         }
@@ -619,21 +634,22 @@ final class GitService {
         // cleanup, and an empty folder the person had made went the same way.
         // A file of that name is refused; a folder that was already there is
         // left where it was.
-        var isFolder: ObjCBool = false
-        let wasThere = FileManager.default.fileExists(atPath: directory.path, isDirectory: &isFolder)
-        if wasThere, !isFolder.boolValue {
+        if wasThere, !isFolder {
             lastError = "“\(safeName)” already exists, and isn't a folder."
             return nil
         }
+        // Taken away under coordination (`FileIO.remove`), on the folder's
+        // lane: the person may have put the new repository in a cloud
+        // provider's folder (implemented.md §51.64).
         let undo: @Sendable () -> Void = {
             guard wasThere else {
-                try? FileManager.default.removeItem(at: directory)
+                try? FileIO.remove(at: directory)
                 return
             }
             // The folder was empty and is the person's: out go the two things
             // put in it.
             for made in ["README.md", ".git"] {
-                try? FileManager.default.removeItem(at: directory.appendingPathComponent(made))
+                try? FileIO.remove(at: directory.appendingPathComponent(made))
             }
         }
 
@@ -657,19 +673,25 @@ final class GitService {
             lastError = nil
             defer { isBusy = false }
 
-            // libgit2 blocks its thread, so this runs detached and cancellation
-            // is forwarded explicitly — a detached task doesn't inherit it.
-            let inner = Task.detached(priority: .userInitiated) { () -> Result<Void, Error> in
-                do {
-                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                    let readme = directory.appendingPathComponent("README.md")
+            // The folder and its README on the folder's lane, as every
+            // coordinated call is (implemented.md §51.64); then libgit2's work
+            // on a thread of its own (`GitThread`) — it blocks its thread, and
+            // the push it ends in for as long as the network takes, and
+            // detached that thread was the pool's (§51.66). A cancel of this
+            // task sets the flag the push's callbacks read.
+            let result: Result<Void, Error>
+            do {
+                try await FileIO.onLane(for: directory) { () throws -> Void in
+                    try FileIO.createDirectory(at: directory)
                     // Coordinated, as every write into a folder that is — or
-                    // is about to be — a collection is: the person may have
-                    // put the new repository in a cloud provider's folder.
-                    // The folder is new or empty (checked above), so there is
-                    // no README to write over, and `create` would refuse one.
-                    try FileIO.create(Data("# \(safeName)\n".utf8), at: readme)
-
+                    // is about to be — a collection is: the person may have put
+                    // the new repository in a cloud provider's folder. The
+                    // folder is new or empty (checked above), so there is no
+                    // README to write over, and `create` would refuse one.
+                    try FileIO.create(Data("# \(safeName)\n".utf8),
+                                      at: directory.appendingPathComponent("README.md"))
+                }
+                try await GitThread.run(GitThread.create, for: directory) { cancel in
                     let repo = try Repository(at: directory, createIfNotExists: true)
                     Self.ensureCommitIdentity(repo)
                     try repo.add(path: "README.md")
@@ -678,22 +700,17 @@ final class GitService {
                     if let pushURL {
                         // The local repo is made; don't start a network op that
                         // was already cancelled.
-                        try Task.checkCancellation()
+                        guard !cancel.isSet else { throw CancellationError() }
                         try repo.remote.add(named: "origin", at: pushURL)
                         // `GitPush`, not SwiftGitX's push, which gives libgit2
                         // no callback to stop at: Stop used to wait for the
                         // network like everything else.
-                        try GitPush.push(repositoryAt: directory)
+                        try GitPush.push(repositoryAt: directory, cancel: cancel)
                     }
-                    return .success(())
-                } catch {
-                    return .failure(error)
                 }
-            }
-            let result = await withTaskCancellationHandler {
-                await inner.value
-            } onCancel: {
-                inner.cancel()
+                result = .success(())
+            } catch {
+                result = .failure(error)
             }
 
             // Stop can land after the work finished, so cancellation is checked
@@ -701,7 +718,7 @@ final class GitService {
             // reports success and gets opened.
             if Task.isCancelled {
                 lastError = "Create cancelled."
-                await offMain(undo)
+                await FileIO.onLane(for: directory, undo)
                 return nil
             }
             switch result {
@@ -710,7 +727,7 @@ final class GitService {
                 return directory
             case .failure(let error):
                 lastError = Self.scrubCredentials("Couldn't create the repository: \(error)")
-                await offMain(undo)
+                await FileIO.onLane(for: directory, undo)
                 return nil
             }
         }
@@ -739,10 +756,29 @@ final class GitService {
         let folderName = leaf.hasSuffix(".git") ? String(leaf.dropLast(4)) : leaf
         let destination = parentDirectory.appendingPathComponent(folderName.isEmpty ? "cloned-repo" : folderName)
 
-        // libgit2 requires the target to be absent or empty.
-        if let contents = try? FileManager.default.contentsOfDirectory(atPath: destination.path), !contents.isEmpty {
+        // libgit2 requires the target to be absent or empty — looked at on the
+        // folder's lane, as a new repository's folder is (`createRepository`).
+        let (occupied, wasThere) = await FileIO.onLane(for: destination) { () -> (Bool, Bool) in
+            let listed = try? FileManager.default.contentsOfDirectory(atPath: destination.path)
+            return (!(listed ?? []).isEmpty, FileManager.default.fileExists(atPath: destination.path))
+        }
+        if occupied {
             lastError = "“\(destination.lastPathComponent)” already exists and isn't empty."
             return nil
+        }
+        // **Only what the clone made is taken away again**, as a new
+        // repository's is (`createRepository`): an empty folder that was there
+        // is the person's and keeps its place, and a file of that name — which
+        // the clone fails on — is not removed in its stead. Under coordination
+        // (`FileIO.remove`), on the folder's lane: it was `removeItem`, bare,
+        // recursive and on the main thread (implemented.md §51.64).
+        let undo: @Sendable () -> Void = {
+            guard wasThere else {
+                try? FileIO.remove(at: destination)
+                return
+            }
+            let made = (try? FileManager.default.contentsOfDirectory(at: destination, includingPropertiesForKeys: nil)) ?? []
+            for item in made { try? FileIO.remove(at: item) }
         }
 
         let remoteURL: URL = {
@@ -764,23 +800,20 @@ final class GitService {
             lastError = nil
             defer { isBusy = false }
 
-            // libgit2's clone blocks its thread, so it runs detached (off the
-            // cooperative pool). A plain detached task wouldn't inherit this
-            // task's cancellation, so forward it: cancelling `handle` fires the
-            // cancellation handler, which cancels `inner`; SwiftGitX's transfer-
-            // progress callback then sees `Task.isCancelled` and stops the fetch.
-            let inner = Task.detached(priority: .userInitiated) { () -> Result<Void, Error> in
-                do {
-                    _ = try await Repository.clone(from: remoteURL, to: destination)
-                    return .success(())
-                } catch {
-                    return .failure(error)
+            // libgit2's clone blocks its thread for as long as the network
+            // takes, so it runs on a thread of its own (`GitThread`) — it ran
+            // detached, which is the pool, through SwiftGitX's clone, which
+            // says so itself (implemented.md §51.66). Cancelling `handle` sets
+            // the flag the clone's transfer-progress callback reads, and
+            // libgit2 stops the transfer (`GitFetch`).
+            let result: Result<Void, Error>
+            do {
+                try await GitThread.run(GitThread.clone, for: destination) { cancel in
+                    try GitFetch.clone(from: remoteURL, to: destination, cancel: cancel)
                 }
-            }
-            let result = await withTaskCancellationHandler {
-                await inner.value
-            } onCancel: {
-                inner.cancel()
+                result = .success(())
+            } catch {
+                result = .failure(error)
             }
 
             switch result {
@@ -791,7 +824,7 @@ final class GitService {
                 // cancelled clone still reports success and gets opened.
                 if Task.isCancelled {
                     lastError = "Clone cancelled."
-                    try? FileManager.default.removeItem(at: destination)
+                    await FileIO.onLane(for: destination, undo)
                     return nil
                 }
                 lastMessage = "Cloned “\(folderName)”"
@@ -803,7 +836,7 @@ final class GitService {
                     lastError = Self.scrubCredentials("Clone failed: \(error)")
                 }
                 // Best-effort cleanup of a partial checkout.
-                try? FileManager.default.removeItem(at: destination)
+                await FileIO.onLane(for: destination, undo)
                 return nil
             }
         }

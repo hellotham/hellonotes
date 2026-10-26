@@ -164,15 +164,16 @@ enum SidebarMenu {
         }
 
         if let file = item.file {
-            var menu = [entry(FileReveal.openInDefaultAppTitle, "arrow.up.forward.app") {
-                FileReveal.openInDefaultApp(file.url)
-            }]
-            if FileReveal.canReveal(file.url) {
-                menu.append(entry(FileReveal.revealTitle, "folder") {
-                    FileReveal.reveal(file.url)
-                })
-            }
-            return menu
+            // Reveal unconditionally, as a note's is above and for the same
+            // reason — a look at the disk for every attachment row on every
+            // rebuild — and `FileReveal.reveal` looks, off the main actor, when
+            // it is asked (implemented.md §51.67).
+            return [
+                entry(FileReveal.openInDefaultAppTitle, "arrow.up.forward.app") {
+                    FileReveal.openInDefaultApp(file.url)
+                },
+                entry(FileReveal.revealTitle, "folder") { FileReveal.reveal(file.url) },
+            ]
         }
 
         if let collection = item.collection {
@@ -198,7 +199,10 @@ enum SidebarMenu {
             }
             menu.append(separator())
             menu.append(entry("Focus Collection", "scope") { actions.focusCollection(collection) })
-            if FileReveal.canReveal(collection.rootURL) {
+            // Where the collection's last look found its folder — what the
+            // collection already knows, where a look at the disk was asked for
+            // every collection's row (implemented.md §51.67).
+            if collection.isAvailable {
                 menu.append(entry(FileReveal.revealTitle, "folder") {
                     FileReveal.reveal(collection.rootURL)
                 })
@@ -224,10 +228,10 @@ enum SidebarMenu {
                     actions.newFolder(nil, folderID)
                 },
             ]
-            if FileReveal.canReveal(url) {
-                menu.append(separator())
-                menu.append(entry(FileReveal.revealTitle, "folder") { FileReveal.reveal(url) })
-            }
+            // Unconditionally: the folder came from the walk, and
+            // `FileReveal.reveal` looks for it when asked (implemented.md §51.67).
+            menu.append(separator())
+            menu.append(entry(FileReveal.revealTitle, "folder") { FileReveal.reveal(url) })
             menu.append(separator())
             menu.append(entry("Move to Trash", "trash", destructive: true) {
                 actions.deleteFolder(folderID)

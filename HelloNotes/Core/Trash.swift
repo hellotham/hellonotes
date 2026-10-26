@@ -23,6 +23,10 @@
 //  because "moved to Trash" and "deleted permanently" are different promises
 //  and the UI should be able to tell the user which one happened.
 //
+//  And a test host has a Trash of its own (`testBin`): the hosted suite
+//  deletes notes and folders the way the app does, and on the Mac each went
+//  to the Trash of the Mac running it (implemented.md §51.65).
+//
 
 import Foundation
 
@@ -50,6 +54,13 @@ nonisolated enum Trash {
         // failure would strand a row in the sidebar for a file that no longer
         // exists — the exact phantom the caller drops the note to avoid.
         guard FileManager.default.fileExists(atPath: url.path) else { return .deleted }
+        // A test host trashes into a Trash of its own, never the Mac's.
+        if let bin = testBin {
+            let place = bin.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: place, withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: url, to: place.appending(path: url.lastPathComponent))
+            return .trashed
+        }
         do {
             try FileManager.default.trashItem(at: url, resultingItemURL: nil)
             return .trashed
@@ -70,6 +81,47 @@ nonisolated enum Trash {
             try FileManager.default.removeItem(at: url)
             return .deleted
             #endif
+        }
+    }
+
+    /// The test host's own Trash: where a hosted test's deletes go on the Mac,
+    /// in place of the Trash of the Mac the suite runs on.
+    ///
+    /// The suite deletes notes and folders as the app does — `deleteNote`,
+    /// `deleteFolder`, the cloud mirror's delete — and every one went to the
+    /// person's Trash, named as the test named it, dozens a day
+    /// (implemented.md §51.65). Here an item is moved as the Trash moves it,
+    /// into a folder of the run's own in the host's temporary folder, and the
+    /// outcome is `.trashed`: nothing that is tested changes, as nothing does
+    /// for the rest of what `TestEnvironment` keeps from a test host. A run's
+    /// folder outlives the run, for a test to look in; the next run to trash
+    /// something clears the folders of runs a day old, so a run going on at
+    /// the same time keeps its own.
+    ///
+    /// `nil` outside a test host — and on iOS, where an app's container has
+    /// no Trash, and nothing a test deletes in the simulator reaches the Mac's.
+    static let testBin: URL? = {
+        #if os(macOS)
+        guard TestEnvironment.isRunningTests else { return nil }
+        let runs = FileManager.default.temporaryDirectory
+            .appending(path: "HelloNotes Test Trash", directoryHint: .isDirectory)
+        clearRuns(in: runs, changedBefore: Date().addingTimeInterval(-86_400))
+        let bin = runs.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        return bin
+        #else
+        return nil
+        #endif
+    }()
+
+    /// Clear the folders of earlier runs last changed before `date`.
+    private static func clearRuns(in runs: URL, changedBefore date: Date) {
+        let fm = FileManager.default
+        guard let folders = try? fm.contentsOfDirectory(at: runs, includingPropertiesForKeys: [.contentModificationDateKey])
+        else { return }
+        for folder in folders {
+            let changed = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if (changed ?? .distantPast) < date { try? fm.removeItem(at: folder) }
         }
     }
 

@@ -22,10 +22,7 @@ struct HelloNotesTests {
     /// The repo's committed sample vault (`SampleVault/`), located relative to
     /// this source file so tests exercise the same demo content shipped in the repo.
     static var sampleVaultURL: URL {
-        URL(filePath: #filePath)          // …/HelloNotesTests/HelloNotesTests.swift
-            .deletingLastPathComponent()  // …/HelloNotesTests
-            .deletingLastPathComponent()  // …/<repo root>
-            .appending(path: "SampleVault")
+        RepoFile.url("SampleVault")
     }
 
     /// The sample vault's note titles (Markdown files, recursively — including the
@@ -645,7 +642,7 @@ struct HelloNotesTests {
 
         let placement = ImagePaste.place(nextTo: noteURL, subfolder: "assets",
                                          timestamp: Date(timeIntervalSince1970: 1_000_000))
-        #expect(await ImagePaste.write(try #require(ImagePaste.pasteboardPNG(pasteboard)), to: placement))
+        #expect(await ImagePaste.write(try #require(ImagePaste.pasteboardPNG(pasteboard)), to: placement) == placement)
         let markdown = placement.markdown
 
         #expect(markdown.hasPrefix("![](assets/Pasted-"))
@@ -673,7 +670,7 @@ struct HelloNotesTests {
 
         let placement = ImagePaste.place(nextTo: noteURL, subfolder: "",
                                          timestamp: Date(timeIntervalSince1970: 2_000_000))
-        #expect(await ImagePaste.write(try #require(ImagePaste.pasteboardPNG(pasteboard)), to: placement))
+        #expect(await ImagePaste.write(try #require(ImagePaste.pasteboardPNG(pasteboard)), to: placement) == placement)
         let markdown = placement.markdown
 
         // No subfolder in the link, and the file sits beside the note.
@@ -698,8 +695,8 @@ struct HelloNotesTests {
         let first = ImagePaste.place(nextTo: noteURL, subfolder: "assets", timestamp: when)
         let second = ImagePaste.place(nextTo: noteURL, subfolder: "assets", timestamp: when)
         #expect(first.url != second.url, "two pastes chose one file")
-        #expect(await ImagePaste.write(Data([0x89, 0x50]), to: first))
-        #expect(await ImagePaste.write(Data([0x89, 0x51]), to: second))
+        #expect(await ImagePaste.write(Data([0x89, 0x50]), to: first) == first)
+        #expect(await ImagePaste.write(Data([0x89, 0x51]), to: second) == second)
         #expect(try Data(contentsOf: first.url) == Data([0x89, 0x50]))
         #expect(try Data(contentsOf: second.url) == Data([0x89, 0x51]))
     }

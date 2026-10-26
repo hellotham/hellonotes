@@ -23,9 +23,7 @@ struct AgentToolTests {
     private func makeContext(approving: Bool = true) throws -> (ToolContext, URL) {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("AgentToolTests-\(UUID().uuidString)", isDirectory: true)
-        let sample = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("SampleVault")
+        let sample = RepoFile.url("SampleVault")
         try FileManager.default.copyItem(at: sample, to: base)
 
         let collection = Collection(rootURL: base)

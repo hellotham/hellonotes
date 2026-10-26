@@ -18,12 +18,24 @@ final class BookmarksStore {
     private(set) var paths: [String] = []
 
     private var rootURL: URL?
+    /// The root's spellings, and the key its bookmarks are stored under —
+    /// worked out with the collection's identity, off the main actor where it
+    /// is opened (`Collection.Identity`). Each was asked of the root's
+    /// `standardizedFileURL` at every `isBookmarked` — a sidebar row's — which
+    /// on an iPhone's `/private/var/…` root is a look at the disk
+    /// (implemented.md §51.67).
+    private var rootSpellings: [String] = []
+    private var storageKey: String?
 
     /// Point the store at a collection and load its saved bookmarks.
-    func load(rootURL: URL?) {
+    /// `standardizedPath` and `spellings` are the root's, from its identity;
+    /// without them they are worked out here.
+    func load(rootURL: URL?, standardizedPath: String? = nil, spellings: [String]? = nil) {
         self.rootURL = rootURL
-        guard let key = Self.key(for: rootURL) else { paths = []; return }
-        paths = UserDefaults.standard.stringArray(forKey: key) ?? []
+        storageKey = (standardizedPath ?? rootURL?.standardizedFileURL.path).map { "bookmarks:" + $0 }
+        rootSpellings = spellings ?? rootURL.map(CollectionIndexCache.rootPrefixes) ?? []
+        guard let storageKey else { paths = []; return }
+        paths = UserDefaults.standard.stringArray(forKey: storageKey) ?? []
     }
 
     func isBookmarked(_ note: Note) -> Bool {
@@ -68,21 +80,18 @@ final class BookmarksStore {
         relativePath(ofURL: note.fileURL)
     }
 
+    /// Where `url` is inside the collection, under whichever of the root's
+    /// names it is spelled — nothing asked of the disk.
     private func relativePath(ofURL url: URL) -> String? {
-        guard let rootURL else { return nil }
-        let file = url.standardizedFileURL.path
-        var base = rootURL.standardizedFileURL.path
-        if !base.hasSuffix("/") { base += "/" }
-        guard file.hasPrefix(base) else { return nil }
-        return String(file.dropFirst(base.count))
+        let file = url.path
+        for spelling in rootSpellings where file.hasPrefix(spelling) {
+            return String(file.dropFirst(spelling.count))
+        }
+        return nil
     }
 
     private func persist() {
-        guard let key = Self.key(for: rootURL) else { return }
-        UserDefaults.standard.set(paths, forKey: key)
-    }
-
-    private static func key(for rootURL: URL?) -> String? {
-        rootURL.map { "bookmarks:" + $0.standardizedFileURL.path }
+        guard let storageKey else { return }
+        UserDefaults.standard.set(paths, forKey: storageKey)
     }
 }

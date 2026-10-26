@@ -42,6 +42,11 @@ actor BlockRenderAdapter: BlockRenderer {
     private let renderInlineMathFn: @Sendable (String, CGFloat, Bool) async -> PlatformImage?
 
     private var cache: [String: PlatformImage] = [:]
+    /// The picture reads in flight, by file and date: one read for a picture
+    /// however many ask for it at once. The actor lets the next caller in
+    /// while a read waits, and each began a read of its own (implemented.md
+    /// §51.64).
+    private var reads: [String: Task<Data?, Never>] = [:]
 
     init(
         resolve: @escaping @Sendable (String) -> URL?,
@@ -71,7 +76,7 @@ actor BlockRenderAdapter: BlockRenderer {
             // An image *file* → load + scale here (off-main). Otherwise the
             // target is a note → render a transclusion card on the main actor.
             if let url = resolve(target), Self.imageExtensions.contains(url.pathExtension.lowercased()) {
-                return imageEmbed(url: url, maxWidth: maxWidth)
+                return await imageEmbed(url: url, maxWidth: maxWidth)
             }
             return scaled(await renderTransclusion(target, darkMode), maxWidth: maxWidth)
         case .mermaid(let source):
@@ -87,12 +92,31 @@ actor BlockRenderAdapter: BlockRenderer {
         }
     }
 
-    private func imageEmbed(url: URL, maxWidth: CGFloat) -> PlatformImage? {
-        let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+    private func imageEmbed(url: URL, maxWidth: CGFloat) async -> PlatformImage? {
+        // As the file is now: a URL answers from its first look off the main
+        // run loop (`FileIO.currentResourceValues`, implemented.md §51.56).
+        // Asked here and not on the picture's lane: a date is the file
+        // system's to give, which no provider's hold holds up, and on a lane a
+        // picture already drawn would wait behind another file's (§51.64).
+        let mtime = (try? FileIO.currentResourceValues(at: url, keys: [.contentModificationDateKey]))?
             .contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
         let key = "\(url.path)\u{1}\(mtime)\u{1}\(Int(maxWidth))"
         if let cached = cache[key] { return cached }
-        guard let image = PlatformImageKit.loadImage(contentsOf: url) else { return nil }
+        // Through `FileIO`: waited for if it is online-only, with a deadline,
+        // then read under coordination. It was read raw — racing a provider
+        // still writing it, and holding a thread of the pool while one still
+        // downloading came (implemented.md §51.64).
+        let file = "\(url.path)\u{1}\(mtime)"
+        let read = reads[file] ?? Task { await FileIO.embeddedData(at: url) }
+        reads[file] = read
+        let data = await read.value
+        // Only its own: a read begun for the file since, by a caller after the
+        // last one left, is that caller's.
+        if reads[file] == read { reads[file] = nil }
+        // Drawn at this width by whoever asked first, while this waited.
+        if let cached = cache[key] { return cached }
+        guard let data, let image = PlatformImageKit.loadImage(data: data, named: url.lastPathComponent)
+        else { return nil }
         let result = scaled(image, maxWidth: maxWidth) ?? image
         // Keys are mtime-versioned; bound the cache so edited/embedded images
         // don't accumulate rendered images for the process lifetime.

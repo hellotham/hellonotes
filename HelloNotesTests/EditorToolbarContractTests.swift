@@ -154,6 +154,6 @@ struct EditorToolbarContractTests {
     }
 
     private static var repoRoot: URL {
-        URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        RepoFile.root
     }
 }

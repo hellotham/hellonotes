@@ -277,13 +277,19 @@ final class Library {
     /// activate it, and remember it for next launch. Returns the collection.
     @discardableResult
     func open(url: URL) async -> Collection {
-        let id = url.standardizedFileURL.path
-        if let existing = collections.first(where: { $0.id == id }) {
+        // What the folder is called, worked out on its lane: it asks the disk
+        // (`Collection.Identity`), and on a provider's folder or a stalled
+        // share that waits — it was asked on the main actor (implemented.md
+        // §51.67). And the folder is known by the collection's own `id`: it
+        // was compared by its standardized path, which a folder reached
+        // through a symlink spells another way, so it could be opened twice.
+        let identity = await FileIO.onLane(for: url) { Collection.Identity(of: url) }
+        if let existing = collections.first(where: { $0.id == identity.id }) {
             focusedID = existing.id
             onOpened(url)
             return existing
         }
-        let collection = Collection(rootURL: url)
+        let collection = Collection(rootURL: url, identity: identity)
         collections.append(collection)
         focusedID = collection.id
         await collection.activate(onExternalChange: { [weak self] in self?.collectionChangedOnDisk() })
@@ -701,33 +707,61 @@ final class Library {
         var restored: [Collection] = []
         var refreshedBookmarks = false
 
-        // **Resolved off the main actor, all of them at once.** Resolving can
-        // mount a volume and minting a stale one again asks the sandbox; it
-        // was done here, one bookmark after another, holding the launch up
-        // behind the splash (implemented.md §51.36).
+        // **Resolved off the main actor**, one after another, in the order
+        // they were saved. Resolving can mount a volume and minting a stale
+        // one again asks the sandbox; it was done here, on the main actor,
+        // holding the launch up behind the splash (implemented.md §51.36).
+        // Each on a lane, keyed by the folder it last named — the app's, at the
+        // priority of the launch it holds up, not the scans' utility one:
+        // resolving can wait on a volume or a provider, and in one `offMain`
+        // it held a thread of the pool for all of them (§51.64). The key is
+        // the path alone — `URL(fileURLWithPath:)` asks the disk whether it is
+        // a folder.
+        // And what each folder is called (`Collection.Identity`), in the same
+        // hop — it asks the disk too, and on the main actor it was asked
+        // once for every collection, and of a dead bookmark's path, the one
+        // most likely to be on a volume that has gone (§51.67).
         let bookmarks = datas
-        let resolutions = await offMain { bookmarks.map { Bookmark.resolveRefreshing($0) } }
+        let places = paths
+        let foundFolders = await offMainAwaiting { () -> [Found?] in
+            var found: [Found?] = []
+            for (index, data) in bookmarks.enumerated() {
+                let lastPath = index < places.count ? places[index] : nil
+                let place = URL(filePath: lastPath ?? "/", directoryHint: .inferFromPath)
+                found.append(await FileIO.onLane(for: place) { () -> Found? in
+                    if let resolved = Bookmark.resolveRefreshing(data) {
+                        return Found(url: resolved.url, identity: Collection.Identity(of: resolved.url),
+                                     refreshed: resolved.refreshed, isDead: false)
+                    }
+                    guard let lastPath else { return nil }   // pre-migration: nothing to show
+                    let url = URL(fileURLWithPath: lastPath)
+                    return Found(url: url, identity: Collection.Identity(of: url), refreshed: nil, isDead: true)
+                })
+            }
+            return found
+        }
 
         for (index, data) in datas.enumerated() {
-            let lastKnownPath = index < paths.count ? paths[index] : nil
+            guard let found = foundFolders[index] else { continue }
+            if !found.isDead, found.refreshed != nil { refreshedBookmarks = true }
 
-            guard let resolved = resolutions[index] else {
+            if found.isDead {
                 // The bookmark is dead — the folder is gone, or its volume is.
                 // Dropping it here is what made collections silently disappear
                 // between launches. Keep it, say why, and let the user decide.
-                guard let lastKnownPath else { continue }   // pre-migration: nothing to show
-                let url = URL(fileURLWithPath: lastKnownPath)
-                let id = url.standardizedFileURL.path
-                guard !collections.contains(where: { $0.id == id }) else { continue }
-                let collection = Collection(rootURL: url)
+                let url = found.url
+                guard !collections.contains(where: { $0.id == found.identity.id }) else { continue }
+                let collection = Collection(rootURL: url, identity: found.identity)
                 collection.bookmarkData = data
                 // Missing, at once; the reason is corrected by a look at the
-                // folder off the main actor that nothing waits for. The list
+                // folder off the main actor, on the collection's own lane
+                // (`Collection.onRootLane`), that nothing waits for. The list
                 // is built whole here, so the look was a listing of a dead
                 // folder on the main actor inside it.
                 collection.markUnavailable(.missing)
+                let lane = collection.rootCalls
                 Task { [weak collection] in
-                    let reason = await offMain { Collection.unavailability(of: url) }
+                    let reason = await lane.onLane(for: url) { Collection.unavailability(of: url) }
                     // Unless something has answered since — a Try Again.
                     guard let collection, let reason, collection.state == .unavailable(.missing) else { return }
                     collection.markUnavailable(reason)
@@ -735,13 +769,10 @@ final class Library {
                 collections.append(collection)
                 continue
             }
-            if resolved.refreshed != nil { refreshedBookmarks = true }
 
-            let url = resolved.url
-            let id = url.standardizedFileURL.path
-            guard !collections.contains(where: { $0.id == id }) else { continue }
-            let collection = Collection(rootURL: url)
-            collection.bookmarkData = resolved.refreshed ?? data
+            guard !collections.contains(where: { $0.id == found.identity.id }) else { continue }
+            let collection = Collection(rootURL: found.url, identity: found.identity)
+            collection.bookmarkData = found.refreshed ?? data
             collections.append(collection)
             restored.append(collection)
         }
@@ -868,6 +899,16 @@ final class Library {
         }
     }
 
+    /// What launch found for one saved folder, off the main actor: its URL
+    /// and identity, and the bookmark minted again — or, for a bookmark that
+    /// no longer resolves, the path it last named (`isDead`).
+    private nonisolated struct Found: Sendable {
+        let url: URL
+        let identity: Collection.Identity
+        let refreshed: Data?
+        let isDead: Bool
+    }
+
     /// Try an unavailable collection again — the drive was plugged back in, or
     /// the folder came out of the Trash. Re-resolves the bookmark first, so a
     /// folder that *moved* is followed rather than reported missing forever.
@@ -875,14 +916,21 @@ final class Library {
     func retry(_ collection: Collection) async -> Bool {
         // Resolved off the main actor, and without mounting: a share gone away
         // is mounted in the Finder, not by Try Again on the main thread
-        // (implemented.md §51.36).
+        // (implemented.md §51.36) — on the collection's own lane, where it
+        // waits for no other file (§51.64).
         if let data = collection.bookmarkData,
-           let resolved = await offMain({ Bookmark.resolveRefreshing(data, mounting: false) }) {
+           let named = await collection.onRootLane({ () -> ((url: URL, refreshed: Data?), String)? in
+               // And what the folder it names is called, in the same hop — the
+               // collection's own kind of name, so a folder reached through a
+               // symlink is not taken for a move at every Try Again (§51.67).
+               Bookmark.resolveRefreshing(data, mounting: false).map { ($0, Collection.Identity(of: $0.url).id) }
+           }) {
+            let (resolved, id) = named
             if let refreshed = resolved.refreshed { collection.bookmarkData = refreshed }
             // Moved: the bookmark tracks the folder by identity, so it now points
             // somewhere else. The collection's id *is* its path, so it has to be
             // reopened there rather than mutated in place.
-            if resolved.url.standardizedFileURL.path != collection.id {
+            if id != collection.id {
                 close(collection)
                 await open(url: resolved.url)
                 return true
@@ -908,9 +956,13 @@ final class Library {
         guard let collection = collections.first(where: { $0.id == collectionID }) else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        // Minted off the main actor (implemented.md §51.36).
-        collection.bookmarkData = await offMain { Bookmark.data(for: url) }
-        if url.standardizedFileURL.path != collection.id {
+        // Minted off the main actor (implemented.md §51.36), on the folder's
+        // lane: minting can wait on its volume or provider, as resolving can,
+        // and in `offMain` it held a thread of the pool (§51.64).
+        // And what the folder is called, in the same hop (§51.67).
+        let (bookmark, id) = await FileIO.onLane(for: url) { (Bookmark.data(for: url), Collection.Identity(of: url).id) }
+        collection.bookmarkData = bookmark
+        if id != collection.id {
             // Picked a different folder than the one that was broken (the user
             // is relocating a moved vault, not just re-granting the same one)
             // — the collection's id is its path, so it has to be reopened

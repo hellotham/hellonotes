@@ -202,7 +202,8 @@ final class RemoteMirror {
         if let given {
             data = given
         } else {
-            guard let read = try await offMain({ try Self.readIfPresent(url) }) else { return }
+            // A coordinated read, so on the file's lane, never `offMain` (§51.64).
+            guard let read = try await FileIO.onLane(for: url, { try Self.readIfPresent(url) }) else { return }
             data = read
         }
         let target = known?.remotePath ?? remotePath(forRelative: relative)
@@ -259,7 +260,8 @@ final class RemoteMirror {
         // Never over a file already there: it wrote a same-day name blind, so
         // a second conflict replaced the first's copy — or the copy of mine an
         // editor keeps beside a note with a conflict open.
-        let copy = try FileIO.createConflictedCopy(beside: url, holding: theirs)
+        // On the note's lane, off the main actor: it writes the provider's whole copy.
+        let copy = try await FileIO.onLane(for: url) { try FileIO.createConflictedCopy(beside: url, holding: theirs) }
         try? await upload(relative: Self.relativePath(of: copy, in: cacheRoot), data: theirs)
     }
 
@@ -840,6 +842,11 @@ final class RemoteMirror {
             // marked as the newer, and the next save passed the conflict check
             // and wrote over the provider's newer copy (implemented.md §51.36).
             guard Self.sameRevision(still, entry) else { continue }
+            // Here, on the main actor, and not on the note's lane: the checks
+            // above and this rename must have nothing between them, or a
+            // rename of the note gets in first and the bytes land at the name
+            // it has left (above). It is a rename inside the app's own cache,
+            // which no provider holds (implemented.md §51.64).
             try FileIO.putInPlace(staged, at: url)
             var current = manifest
             current.entries[now]?.hydrated = true
@@ -1166,7 +1173,7 @@ final class RemoteMirror {
         let change = PendingChange(source: Self.relativePath(of: url, in: cacheRoot), destination: nil)
         pending.append(change)
         do {
-            try await offMain(remove)
+            try await FileIO.onLane(for: url, remove)
         } catch {
             settle(change)
             throw error

@@ -18,7 +18,10 @@
 //  theirs.
 //
 
+import CoreGraphics
 import Foundation
+import MarkdownEditor
+import PDFKit
 import Synchronization
 import Testing
 @testable import HelloNotes
@@ -109,6 +112,248 @@ struct HeldFileTests {
         hold.release()
         _ = await scanning.value
     }
+
+    // MARK: - Through FileIO (implemented.md §51.64)
+
+    /// **A note is trashed under coordination**: held by its provider, it is
+    /// not taken away until the provider lets go. `Trash.item` was called bare,
+    /// on the pool, and moved a file its provider was still writing.
+    @Test(.timeLimit(.minutes(1)))
+    func aNoteIsTrashedOnlyOnceItsProviderLetsGo() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "Going.md")
+        try Data("# Going\n".utf8).write(to: url)
+        let collection = Collection(rootURL: folder)
+        await collection.scanOffMain()
+        let note = try #require(collection.notes.first { $0.title == "Going" })
+
+        let hold = ProviderHold(url, breaker: .seconds(50))
+        defer { hold.release() }
+        let deleting = Task { await collection.deleteNote(note) }
+        try await waitUntilBusy(FileIO.ProviderCalls.live.lane(for: url))
+        #expect(FileManager.default.fileExists(atPath: url.path), "the note was taken away while its provider held it")
+
+        hold.release()
+        await deleting.value
+        #expect(!FileManager.default.fileExists(atPath: url.path), "the note was not trashed once it was let go")
+    }
+
+    /// **A folder is made under coordination**: at a path something holds, it
+    /// is not made until the hold lets go. `FileManager.createDirectory` made
+    /// it at once, behind the presenters' backs.
+    @Test(.timeLimit(.minutes(1)))
+    func aFolderIsMadeOnlyOnceItsPathIsLetGo() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let collection = Collection(rootURL: folder)
+        await collection.scanOffMain()
+        // The name the folder will be given, held before it exists.
+        let expected = folder.appending(path: "Projects", directoryHint: .isDirectory)
+
+        let hold = ProviderHold(expected, breaker: .seconds(50))
+        defer { hold.release() }
+        let making = Task { await collection.createFolder(named: "Projects") }
+        try await waitUntilBusy(FileIO.ProviderCalls.live.lane(for: folder))
+        #expect(!FileManager.default.fileExists(atPath: expected.path), "the folder was made at a path something held")
+
+        hold.release()
+        let made = await making.value
+        #expect(made?.lastPathComponent == "Projects")
+        var isFolder: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: expected.path, isDirectory: &isFolder) && isFolder.boolValue)
+    }
+
+    /// **A PDF is read under coordination, off the main actor**: held by its
+    /// provider, it is not shown until the provider lets go — and the main
+    /// actor goes on meanwhile, which this test, running on it, is. It was
+    /// `PDFDocument(url:)`, raw and on the main thread.
+    @Test(.timeLimit(.minutes(1)))
+    func aPDFIsShownOnlyOnceItsProviderLetsGo() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "Paper.pdf")
+        try Self.onePagePDF().write(to: url)
+
+        let hold = ProviderHold(url, breaker: .seconds(50))
+        defer { hold.release() }
+        let view = FilePDFView()
+        view.show(url)
+        try await waitUntilBusy(FilePDFView.calls.lane(for: url))
+        #expect(view.document == nil, "the PDF was read while its provider held it")
+
+        hold.release()
+        var patience = Waits.Patience(.seconds(10))
+        while view.document == nil, patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(view.document?.pageCount == 1, "the PDF was not shown once it was let go")
+    }
+
+    /// **An embedded picture is read under coordination**: held by its
+    /// provider, it is not drawn until the provider lets go. It was read raw
+    /// (`NSImage(contentsOf:)`), on the render adapter's thread of the pool.
+    @Test(.timeLimit(.minutes(1)))
+    func anEmbeddedPictureIsDrawnOnlyOnceItsProviderLetsGo() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "Picture.png")
+        try #require(Data(base64Encoded: Self.onePixelPNG)).write(to: url)
+        let adapter = BlockRenderAdapter(resolve: { _ in url })
+
+        let hold = ProviderHold(url, breaker: .seconds(50))
+        defer { hold.release() }
+        let drawn = Counter()
+        let drawing = Task {
+            let image = await adapter.render(.image(target: "Picture.png"), maxWidth: 200, darkMode: false)
+            if image != nil { drawn.add() }
+            return image != nil
+        }
+        try await waitUntilBusy(FileIO.ProviderCalls.scans.lane(for: url))
+        #expect(drawn.value == 0, "the picture was read while its provider held it")
+
+        hold.release()
+        #expect(await drawing.value, "the picture was not drawn once it was let go")
+    }
+
+    /// **A PDF that cannot be opened says so.** Bytes that are not a PDF, or
+    /// a read that failed, left an empty view — what a PDF still coming looks
+    /// like.
+    @Test(.timeLimit(.minutes(1)))
+    func aPDFThatCannotBeOpenedSaysSo() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "Paper.pdf")
+        try Data("Not a PDF at all.".utf8).write(to: url)
+
+        let view = FilePDFView()
+        var why: String?
+        view.onUnreadable = { why = $0 }
+        view.show(url)
+        var patience = Waits.Patience(.seconds(10))
+        while why == nil, patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(why?.isEmpty == false, "a file that is not a PDF said nothing")
+        #expect(view.document == nil)
+    }
+
+    /// **A PDF read for a view that has gone is not made into a document.**
+    /// The view is let go of while its read waits on the file; what the read
+    /// brings back is dropped, unparsed.
+    @Test(.timeLimit(.minutes(1)))
+    func aPDFIsNotOpenedForAViewThatHasGone() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "Paper.pdf")
+        try Self.onePagePDF().write(to: url)
+
+        let hold = ProviderHold(url, breaker: .seconds(50))
+        defer { hold.release() }
+        let view = FilePDFView()
+        view.show(url)
+        try await waitUntilBusy(FilePDFView.calls.lane(for: url))
+        view.stop()
+        hold.release()
+        // The lane's next turn comes after the read: a marker that has run
+        // says the read is over.
+        let after = Counter()
+        FilePDFView.calls.lane(for: url).async { after.add() }
+        var patience = Waits.Patience(.seconds(10))
+        while after.value == 0, patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(50))    // and its answer back on the main actor
+        #expect(after.value == 1, "the read never finished")
+        #expect(view.document == nil, "a PDF was opened for a view that had gone")
+    }
+
+    /// **One read for a picture, however many draw it at once.** The render
+    /// adapter is an actor, and it lets the next caller in while a read
+    /// waits: each of three drawings of one picture read it for itself. The
+    /// download wait's question is asked once a read (`isMaterialized`), so
+    /// it counts them.
+    @Test(.timeLimit(.minutes(1)))
+    func aPictureIsReadOnceHoweverManyDrawItAtOnce() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "Picture.png")
+        try #require(Data(base64Encoded: Self.onePixelPNG)).write(to: url)
+        let adapter = BlockRenderAdapter(resolve: { _ in url })
+        let asked = Counter()
+        FileIO.materialisedProbes.withLock { $0[url.path] = { _ in asked.add() } }
+        defer { _ = FileIO.materialisedProbes.withLock { $0.removeValue(forKey: url.path) } }
+
+        let hold = ProviderHold(url, breaker: .seconds(50))
+        defer { hold.release() }
+        let drawings = (0..<3).map { _ in
+            Task { await adapter.render(.image(target: "Picture.png"), maxWidth: 200, darkMode: false) != nil }
+        }
+        try await waitUntilBusy(FileIO.ProviderCalls.scans.lane(for: url))
+        hold.release()
+        for drawing in drawings { #expect(await drawing.value, "a drawing of the picture came back empty") }
+        #expect(asked.value == 1, "one picture was read \(asked.value) times for three drawings of it at once")
+    }
+
+    /// **A folder that is there is left alone**, uncoordinated, as
+    /// `FileManager` leaves it: a coordinated write on it is a change to it
+    /// for every presenter of it — on iOS the collection's own — when nothing
+    /// changes. Held, it is not waited for.
+    @Test(.timeLimit(.minutes(1)))
+    func aFolderThatIsThereIsLeftAlone() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let assets = folder.appending(path: "assets", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+
+        let hold = ProviderHold(assets, breaker: .seconds(50))
+        defer { hold.release() }
+        try await finishes("making a folder that was there waited for its hold: it was written") {
+            _ = await FileIO.onLane(for: assets) { try? FileIO.createDirectory(at: assets) }
+        }
+        #expect(!hold.isLetGo)
+    }
+
+    /// **A look at the collection's folder waits for no other file.** It is
+    /// taken in the collection's turns, on a lane of the collection's own
+    /// (`Collection.onRootLane`): on the scans' lanes it waited behind a scan
+    /// held on another file there — and every event after it with it, an
+    /// unmount or an edit made elsewhere.
+    @Test(.timeLimit(.minutes(1)))
+    func aLookAtTheFolderWaitsForNoOtherFile() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let collection = Collection(rootURL: folder)
+        await collection.scanOffMain()
+        defer { collection.deactivate() }
+        // On the scans' lane the folder's own path falls on; not a note, so
+        // the walk the look asks for does not read it.
+        let other = try aFile(onTheLaneOf: collection.rootURL, in: folder, lanes: FileIO.ProviderCalls.scans)
+
+        let hold = ProviderHold(other, breaker: .seconds(50))
+        defer { hold.release() }
+        let scanning = Task { await FileIO.onScanLane(for: other) { try? FileIO.readData(at: other) } }
+        try await waitUntilBusy(FileIO.ProviderCalls.scans.lane(for: collection.rootURL))
+
+        try await finishes("a look at the folder waited behind a scan of another file") {
+            await collection.receive(.rootChanged) {}.value
+        }
+        #expect(collection.state == .ready)
+        #expect(!hold.isLetGo, "the look went only once the other file was let go")
+        hold.release()
+        _ = await scanning.value
+    }
+
+    /// A PDF of one page, drawn here rather than kept as a fixture.
+    private static func onePagePDF() -> Data {
+        let data = NSMutableData()
+        var box = CGRect(x: 0, y: 0, width: 200, height: 200)
+        guard let consumer = CGDataConsumer(data: data),
+              let context = CGContext(consumer: consumer, mediaBox: &box, nil) else { return Data() }
+        context.beginPDFPage(nil)
+        context.fill(CGRect(x: 20, y: 20, width: 60, height: 60))
+        context.endPDFPage()
+        context.closePDF()
+        return data as Data
+    }
+
+    /// A PNG of one pixel.
+    private static let onePixelPNG =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
     // MARK: - Helpers
 
@@ -201,14 +446,30 @@ struct HeldFileTests {
         throw CocoaError(.fileNoSuchFile)
     }
 
-    /// Wait until `lane` is busy — a marker put on it does not run — which a
-    /// body waiting on a held file makes it.
+    /// A file in `folder` whose path falls on the lane of `lanes` that
+    /// `target`'s does — found by trying names, since a path's hash is the
+    /// process's own.
+    private func aFile(onTheLaneOf target: URL, in folder: URL, lanes: FileIO.ProviderCalls) throws -> URL {
+        for i in 0..<1_000 {
+            let file = folder.appending(path: "Held \(i).bin")
+            guard lanes.lane(for: file) === lanes.lane(for: target) else { continue }
+            try Data([0]).write(to: file)
+            return file
+        }
+        throw CocoaError(.fileNoSuchFile)
+    }
+
+    /// Wait until `lane` is busy — a marker put on it does not run for a
+    /// look of 150 ms — which a body waiting on a held file makes it, and a
+    /// moment's other work on the lane does not: a shorter look let a scan of
+    /// another test's file stand in for the wait, and a test pass whatever
+    /// its step did.
     private func waitUntilBusy(_ lane: DispatchQueue, sourceLocation: SourceLocation = #_sourceLocation) async throws {
-        var patience = Waits.Patience(.seconds(10))
+        var patience = Waits.Patience(.seconds(10), every: .milliseconds(150))
         while patience.lasts {
             let ran = Counter()
             lane.async { ran.add() }
-            try await Task.sleep(for: .milliseconds(50))
+            try await Task.sleep(for: .milliseconds(150))
             if ran.value == 0 { return }
         }
         Issue.record("the lane never waited on the held file, so this tests nothing", sourceLocation: sourceLocation)

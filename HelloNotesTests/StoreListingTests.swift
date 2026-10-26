@@ -29,10 +29,7 @@ import Testing
 struct StoreListingTests {
 
     private static func read(_ path: String) throws -> String {
-        let url = URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: path)
+        let url = RepoFile.url(path)
         return try String(contentsOf: url, encoding: .utf8)
     }
 

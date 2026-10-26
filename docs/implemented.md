@@ -8416,6 +8416,477 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.68 The suite that waited for someone to answer macOS (2026-10-26)
+
+A signed `run-tests.sh` run printed nothing for fifty-eight minutes — from
+16:39:01 to 17:36:57 — and then finished with every test passing, each "after
+3474 seconds". The Mac had been left alone, so it read as the idle Mac
+stopping the host, with holding the display awake the fix on offer. The
+system log said otherwise.
+
+- **What the host waited for.** At 16:39:01.622, as Swift Testing began,
+  `sandboxd` asked TCC for approval sixteen times in 35 ms, and
+  `UserNotificationCenter` put up a dialog. No test moved again until
+  17:36:55.996, when the dialog's button was clicked: `chronod` logged *tcc
+  authorization(s) changed* for com.hellotham.HelloNotes at 17:36:56.143, and
+  the tests resumed 38 ms after that. The checkout is on an external USB disk,
+  `/Volumes/Photos`, and macOS asks before an app reads a removable volume;
+  twenty-two test files read the repository — the app's sources, the sample
+  vault, the bundled notes, the project file — through their own `#filePath`,
+  and the suite starts them all at once.
+- **Why the whole suite, and not sixteen tests.** A read blocked on that
+  question holds its thread, and the sixteen were threads of the concurrency
+  pool, which on this Mac is sixteen wide: every thread of it was in a
+  syscall waiting for a person. Nothing else could run, main-actor tests
+  included, since they await work on the pool. The host's main thread was
+  alive throughout — it flushed its window state at 16:39:04 and 16:39:19 and
+  heard the display sleep at 16:47:33 — which is why it never looked like a
+  hang from inside.
+- **Why that run.** TCC keeps an answer for the build that was given it, by
+  its code signature. The CI-style run is unsigned and the plain one signed,
+  so each is another app to it, and the first run of either after the other
+  asks again. That afternoon had four such switches, and each raised a burst
+  of requests at the same moment of the run, each followed by a click:
+
+  | Run | Swift Testing began | Requests | Answered | Swift Testing took |
+  |---|---|---|---|---|
+  | unsigned | 16:06:31 | 17 | 16:06:32 | 50 s |
+  | signed | 16:08:32 | 17 | 16:08:35 | 52 s |
+  | unsigned | 16:37:03 | 17 | 16:37:23 | 68 s |
+  | signed | 16:39:01 | 16 | 17:36:55 | 3,522 s |
+
+  Whoever was at the Mac answered within seconds, so a switch had only ever
+  looked like a slow run. The click at 16:37:23 was the person's last input
+  before leaving it; the signed run started ninety seconds later asked a
+  question nobody was there to answer.
+- **Not the idle Mac.** The screen was unlocked and the display on until
+  16:47:33, eight minutes into the wait, and a signed run started at 18:16
+  with the Mac idle for eleven minutes and its display asleep ran its tests in
+  51 seconds. Holding the display awake would have changed nothing.
+- **The fix.** The tests read the repository through `RepoFile`, and
+  `run-tests.sh` keeps what they read on the start-up disk —
+  `DerivedData/HelloNotes-Repo`, 10 MB, refreshed by `rsync --delete` in 0.04 s
+  when nothing has changed — and tells the host where (`TEST_RUNNER_HN_REPO`).
+  Nothing asks about the start-up disk, so no run the script makes waits for
+  a person, whichever kind of build ran before it. Xcode's ⌘U and CI's own
+  `xcodebuild` set nothing and read the checkout, as before; CI's is on the
+  runner's own disk.
+- **How to see one.** A run that prints nothing from the moment Swift Testing
+  starts: read the system log at that second for `sandboxd`'s *request
+  approval*, and, where it resumed, for a click in `UserNotificationCenter`.
+  A burst of them at once, unanswered, is the dialog; single requests
+  answered within milliseconds come in every run — three of the four in the
+  unsigned run below were WebKit starting a web content process for a
+  preview test, to the millisecond — and wait for nothing. Name
+  `/usr/bin/log`: zsh has a builtin `log` that takes the same words and
+  prints nothing, and the first reads of this stall came back empty for that
+  reason alone.
+- **Found on the way.** The unsigned run that checked the fix failed one test,
+  `MainActorLooksTests.aCollectionsIdentityIsWorkedOutOffTheMainActor`
+  (§51.67), which had only ever been run signed: it listened for the
+  collection's identity under the folder's path as the test spelled it, and
+  an unsandboxed host's temporary folder has two names — the launch's look,
+  for a folder its bookmark brought back as `/private/var/…`, was never heard
+  (§51.48's two names, again). It listens under every spelling now
+  (`rootPrefixes`). CI runs unsigned, the way this run did.
+
+**Tests** (`RepoFileTests`): no test file but `RepoFile.swift` names
+`#filePath`. **Control**: one reader put back the old way, and the test fails
+naming its file.
+
+**Checked**: the macOS suite, signed, reading the copy (992 tests in 151
+suites); the unsigned CI-style suite — the switch that asked at 16:06 and
+16:37 — in 49 seconds with no dialog, and its one failure the identity test
+above, which then passed unsigned (6 tests in 1 suite); the signed suite
+straight after it — the switch that waited fifty-eight minutes — 992 tests in
+151 suites in 50 seconds, with no dialog; in each, the approval requests
+counted from the log: four singles at the same moments of both runs, each
+answered within milliseconds. The touched suites on the iPad simulator, where
+`RepoFile` reads the checkout (32 tests in 6 suites). What the unsigned runs
+wrote into `~/Library` was moved out afterwards, as §51.48 says. **Not done**:
+a control that brings the dialog back. It would have put the dialog on a Mac
+nobody was at, and an answer to it moves the grant; the afternoon's four
+switches, each of which asked, stand in for it.
+
+### 51.67 The last looks at the disk on the main actor (2026-10-26)
+
+§51.64 left three looks at the disk on the main actor, and they were not the
+only ones of their kind. `fileExists`, `standardizedFileURL` on a path spelled
+`/private/…` and `resolvingSymlinksInPath` each ask the disk, and a
+provider's folder not yet listed, or a share that has stalled, answers when it
+pleases.
+
+- **Asked as things were drawn.** `FileReveal.canReveal` is a `fileExists`,
+  and the file viewer's bar asked it in its body — at every draw; so did the
+  sidebar's menus for an attachment, a folder and a collection, built from a
+  row's body — a look for every such row at every rebuild of the sidebar;
+  and so did the open note's actions, built in `ContentView`'s body. The
+  sidebar's note menu had stopped asking for exactly that reason, and said
+  so; its neighbours had not. Reveal is offered now from what the app knows —
+  a note, an attachment and a folder from its walk, a collection from its last
+  look at its folder (`isAvailable`), the viewer's file from its own fetch
+  (anything but missing) — and `FileReveal.reveal` looks, once, off the main
+  actor on the file's lane, when someone asks; a file that is not there is
+  not handed over. And the bookmark store compared every row's note with its
+  root through `standardizedFileURL`, which asks the disk of a path spelled
+  `/private/…` — every root on an iPhone. It knows the root's spellings now,
+  and asks nothing.
+- **Asked as a collection was made.** `Collection.init` worked out its `id`
+  (the canonical path: symlinks resolved), its spellings and two stored keys
+  from the folder's URL, each a look at the disk, on the main actor — at
+  launch once for every collection, and, for a bookmark that no longer
+  resolves, of the path most likely to be on a volume that has gone, which
+  `URL(fileURLWithPath:)` had asked about first. They are the collection's
+  `Identity` now, worked out off the main actor on the folder's lane wherever
+  the library opens a collection, brings one back at launch, tries one again
+  or relocates one, and handed to `init(rootURL:identity:)`. `init(rootURL:)`
+  works it out where it is — for a test's folder, or a cloud collection's
+  cache in the app's own container.
+- **Two names that disagreed, found on the way.** The library compared a
+  folder with the collections already open by its standardized path, and Try
+  Again and Relocate compared a bookmark's folder with its collection the same
+  way — while a collection's `id` is its canonical path. A folder reached
+  through a symlink could be opened twice, and every Try Again took it for a
+  folder that had moved. And "show non-note files" was written under `id` and
+  read under the standardized path, so a symlinked folder's choice never came
+  back. Each uses the identity now.
+- **A paste chose its name by looking.** `ImagePaste.place` looked on the main
+  actor for each name it tried, before the paste could answer with its
+  Markdown. It chooses from the time and the names other pastes hold, without
+  a look; a name already on disk is the write's to find, on the file's lane:
+  it takes the next one free and says which, and the paste puts its Markdown
+  right, as it does for the alt text that follows. Nothing is written over —
+  the create refuses a file that is there.
+
+**Tests** (`MainActorLooksTests`): a reveal looks for its file off the main
+thread (`FileReveal.lookProbes`); nothing but `FileReveal` asks `canReveal` (a
+reading of the app's sources); the file viewer draws without a look at the disk
+on the main thread; a collection's identity is worked out off the main thread
+where the library opens it and where launch brings it back
+(`Collection.identityProbes`); a folder reached through a symlink keeps its
+choice of files; and a paste names its picture without a look, and passes over
+a name already taken on disk without writing over the picture that has it.
+**Control**: each undone — the reveal's look on the main actor, a stray
+`canReveal` in the sidebar's menu, the viewer's bar asking as it draws, the
+identity worked out on the main actor, the choice read by the standardized
+path, the paste looking — and each test fails with its own sentence.
+
+**Checked**: the build for macOS and the iOS simulator, with no warning in a
+changed file; the macOS suite, signed (991 tests in 150 suites, in 50 seconds);
+the touched suites on a one-thread pool (35 tests in 8 suites, with §51.66's);
+and on the iPad simulator (28 tests in 6 suites).
+
+### 51.66 libgit2's network work on a thread of its own (2026-10-26)
+
+Every libgit2 call blocks its thread, and a network one for as long as the
+network takes — a clone of a big repository for minutes, a push to a host
+that accepts and never answers until the connection ends. Push, Fetch, Clone
+and a new repository's first push ran in `Task.detached`, which is the
+concurrency pool: a thread a core, through which every sleeping task in the
+process wakes, the main actor's included (§51.62). SwiftGitX says it over its
+own clone — "libgit2 calls block Swift's cooperative threads" — and the
+comment over ours said the opposite, "detached (off the cooperative pool)",
+until §51.64's review read it.
+
+They run on a thread of their own now (`GitThread.run`), awaited without
+holding a thread of the pool, each named for what it is
+(`com.hellotham.HelloNotes.git.push`, `.fetch`, `.clone`, `.create`) so that a
+stack sample says which. Stop reached libgit2 by its progress callbacks asking
+`Task.isCancelled`, which on a plain thread has no task to ask; so the cancel
+of the task that waits sets a flag (`GitCancel`), and the callbacks read it
+through their payload. `GitPush` reads it there, and Clone and Fetch are
+written against libgit2 as `GitPush` is (`GitFetch`): SwiftGitX's clone asked
+`Task.isCancelled`, and its fetch gave libgit2 no options at all, so nothing
+could have stopped a fetch. `GitThread.run` returns once the work has
+stopped, never before — a clone's cleanup must not run under a clone still
+writing. What no callback can stop is still a connection that is open and
+silent, since libgit2 calls nothing while it waits on a socket; but it waits
+on a thread of its own now, and holds up nothing else. The local work —
+status, history, a commit — still runs detached: it waits on the disk, not
+the network.
+
+**Tests** (`GitThreadTests`): more runs than the pool has threads, each
+waiting on a gate as a push waits on a silent host, while a task that sleeps
+keeps waking (`workThatWaitsHoldsNoThreadOfThePool`); a cancel of the waiting
+task reaches work on its own thread through the flag, where `Task.isCancelled`
+says nothing; the service's Push, Fetch, Clone and a new repository pushed to
+its remote each heard on its own thread by name, over libgit2's local
+transport (`GitThread.probes`, keyed by path); and pushes — more of them than
+the pool has threads — to a server on the loopback that accepts and says
+nothing, while the process goes on waking. That last runs only where the host
+may listen, and the sandboxed app may not (`network.server` is not among its
+entitlements): it is skipped in the signed run, and runs in CI's unsigned one
+and on the iPad simulator, where an app needs no entitlement to listen.
+`GitPushTests` hands `GitPush` its flag. **Control**: the work back in a
+detached task fails the gate's test (at its 30-second breaker), the wiring
+test (every run heard on "the pool") and, unsigned, the silent server's (the
+pushes stopped the process until the breaker closed their connections); the
+flag never set fails the cancel test; and Clone back on SwiftGitX's detached
+clone fails the wiring test's clone.
+
+**Checked**: the build for macOS and the iOS simulator, with no warning in
+the changed files; the macOS suite signed — once in 59 minutes, every test
+passing, the run silent from 16:39 until 17:36:57, four seconds after the
+Mac's display came back on (it had gone off at 16:47; what it waited for is
+§51.68), and with the Mac in use,
+§51.67's changes with it, in 50 seconds — and as CI runs it, unsigned (985
+tests in 149 suites, the silent server's among them, with what the run left in
+the real `~/Library` moved out); Git's suites on a one-thread pool, the gate's
+test among them; and on the iPad simulator, where the silent server's test
+runs too (28 tests in 6 suites, with §51.67's).
+
+### 51.65 A test host's Trash is its own (2026-10-26)
+
+The hosted suite deletes notes and folders the way the app does — through
+`Collection.deleteNote`, `deleteFolder`, the cloud mirror's delete and the
+Assistant's — and on the Mac `Trash.item` moved each into the Trash of the Mac
+running the suite, under the name the test gave it. On 26 October one Mac's
+Trash held 102 items, 84 of them named as six tests name what they delete
+(`Going`, `Old`, `Note 2`, `Welcome`, `Doomed`, `Fresh`), and every run added
+more.
+
+In a test host on the Mac (`TestEnvironment.isRunningTests`) `Trash.item`
+moves an item into `Trash.testBin` instead: a folder of the run's own in the
+host's temporary folder (`HelloNotes Test Trash/<run>`), as the Trash would
+move it, and says `.trashed` as before — nothing that is tested changes, as
+nothing does for the rest of what `TestEnvironment` keeps from a test host. A
+run's folder outlives the run, for a test to look in; the next run to trash
+something clears the folders of runs a day old, so a run going on at the same
+time keeps its own. Outside a test host nothing changes, and on iOS nothing
+needed to: an app's container has no Trash, and the deleting suites run on the
+iPad simulator left the Mac's Trash as they found it.
+
+**Tests**: `TrashTests.whatATestTrashesGoesToTheHostsOwnTrash` trashes a note
+and a folder and finds both in the run's folder (on iOS: no test Trash, and
+both gone). `onlyTrashItemAsksForTheSystemTrash` reads the app's sources, its
+tests' and the editor package's for a second caller of `FileManager.trashItem`,
+which would put what it deletes in the Mac's Trash again — and on iOS go
+without the fallback that makes a delete there a delete. **Control**: with the
+items put beside the run's folder rather than in it, the first fails at both
+of its looks; with a stray caller in `FileIO.swift`, inside an `#if false`,
+the second names the file. Neither control used the real Trash, so neither
+put anything there.
+
+**Checked**: the macOS suite, signed and as CI runs it (981 tests in 148
+suites each), with the Trash counted before and after every run: 102 items,
+and the same 102. The items already there are the person's to empty — nothing
+here takes them out, because emptying the Trash is for good.
+
+### 51.64 The vault I/O that went around FileIO (2026-10-26)
+
+The two reviews of §51.63 found vault I/O that never went through `FileIO` at
+all, and provider questions still asked from the pool — none of it made by
+§51.63. Each now goes through a coordinated `FileIO` call on a lane: the
+app's (`FileIO.onLane`) for one file on someone's behalf, the scans'
+(`FileIO.onScanLane`) for work in the background, and lanes of their own for
+things that wait on one kind of file — an editor's note (§51.63), PDF views'
+files, a collection's folder.
+
+- **Read raw.** An embedded picture (`BlockRenderAdapter.imageEmbed`) was
+  `NSImage(contentsOf:)` / `UIImage(contentsOfFile:)` on the adapter actor's
+  thread of the pool. It is `FileIO.embeddedData` now: a wait for the
+  download, with the deadline a download has anywhere, then a coordinated
+  read on the scans' lanes — where the transclusions drawn beside it are read,
+  and they wait for their download first now too: a coordinated read of a
+  file not here downloads it inside the read, and held its lane for as long
+  as that took. Three drawings of one picture at once read it once
+  (`BlockRenderAdapter.reads`), where the actor let each caller in while a
+  read waited and each read it for itself — and a caller leaving takes only
+  its own entry, so a read begun since is not orphaned. Its date is asked on
+  the actor, not on a lane: a date is the file system's to give, which no
+  provider's hold holds up, and on a lane a picture already drawn would wait
+  behind another file's. The picture is made from its bytes
+  (`PlatformImageKit.loadImage(data:named:)`, which replaces the URL loader):
+  AppKit draws them as it drew the URL — an SVG and a 144-dpi PNG among them,
+  probed — and UIKit is given the `@2x` or `@3x` scale it took from the
+  file's name, `~ipad` and all.
+  A PDF (`PDFDocument(url:)`) was read on the main thread every time the
+  viewer was made or updated. `FilePDFView` reads it on lanes of their own,
+  a file always on one (a lane a view kept one more thread for each time a
+  held PDF was opened again), **mapped** (`.mappedIfSafe` —
+  `PDFDocument(url:)` read pages as it drew them, and a scanned book held
+  whole on the heap is how an iPad ends an app), makes the document there (a
+  damaged cross-reference table is rebuilt by reading the whole file: 246 ms
+  of the main actor for one of 109 MB), reads nothing for a view that has
+  gone, and says when it cannot open the file — **Couldn’t open “…”**, with
+  Try Again — where an empty view looked like a PDF still coming. It
+  remembers which file it shows, because a document made from data has no
+  `documentURL` to compare.
+  An HTML block's pictures in Edit were `Data(contentsOf:)` on the main
+  actor, in the editor package's `BlockAssetScheme`. The package has no
+  `FileIO`, so the app hands it `FileIO.embeddedData` (`readFile:`); a
+  request is answered when its read comes back, never once WebKit has
+  stopped it — that would be an exception — and its read stops with it.
+- **Changed uncoordinated.** Folders made with `FileManager.createDirectory`
+  — New Folder, a daily note's folder, the paste's pictures folder, the
+  Assistant's create tool, a new repository — and notes and folders trashed
+  with `Trash.item`, bare (Delete, and the cloud mirror's `removing`).
+  `FileIO.createDirectory` coordinates a write on the new folder's URL, and
+  fails as before when `withIntermediateDirectories` is false and the folder
+  is there; a folder that is there is otherwise left alone, uncoordinated, as
+  `FileManager` leaves it — a coordinated write on a folder is a change to it
+  for every presenter of it, on iOS the collection's own, when nothing has
+  changed. (Probed: such a write waits for nothing held inside the folder,
+  where a `.forDeleting` write on the folder waits for a file held in it.)
+  `FileIO.trash` puts `Trash.item` — which still decides between the Trash
+  and a delete for the platform — inside a coordinated write for deleting, so
+  a provider is told the item is going rather than finding it gone. What the
+  app made and takes back — a new repository after a create or a clone that
+  failed, the self-test's scratch note — is `FileIO.remove`, coordinated, where
+  it was `removeItem`: bare, and for a clone recursive and on the main actor.
+  And a failed clone takes away only what it made, as a failed create does
+  (§51.45): it removed the person's empty folder of that name, or a file of
+  it. Every coordinated call in `FileIO` now fails if its block never ran,
+  where six said they had written when the coordinator had neither run the
+  block nor said why — which Foundation is not known to do, and the new
+  calls had been written not to trust.
+- **Heard as someone else's.** A coordinated delete reaches the collection's
+  own presenter on iOS *while* it is made, and a folder's word that it has
+  appeared can come while the file it was made for is still being written. A
+  deleted note was registered as the app's own change by `forget`, after the
+  trash, so the presenter's word of it could be judged first; a folder made
+  or deleted, and the folder a pasted picture was put in, were never
+  registered. Each asked for a walk of the vault on top of the walk the
+  operation runs itself — and on the Mac FSEvents asked the same of the
+  folders, after the fact. Every change the collection makes to a path not
+  there yet, or away from one, registers before it acts now: a new note, a
+  new folder (found, registered, then made, in two steps, looking again if
+  the name is taken between them), a daily note, a copy, a pasted picture
+  (`fileWillBeMadeHere`), a rename, a move, a delete. A write over a file
+  that is there — a save, an append, a link rewrite — registers after, as it
+  did: its word comes after the write, and a save that wrote nothing must not
+  hide the next change made elsewhere.
+  **And none of it worked on an iPhone.** The log knew a path by its
+  canonical name, and Foundation drops `/private` only from a path that
+  exists — probed: `/private/var/…/missing` stays as it is, the same path made
+  becomes `/var/…`, and a path spelled `/var/…` keeps that name either way.
+  An iPhone hands a folder over spelled `/private/var/…`, so a folder
+  registered before it was made was looked up by its other name once it had
+  been. The log knows a path by its place in the collection now
+  (`selfWriteKey`, under every name the root has — `rootSpellings`), which
+  also asks the disk nothing. **And what is not the collection's is not
+  news**: a path outside it — a move's destination, whose source says it — or
+  under a hidden name anywhere below the root, which no walk lists. Only the
+  last name was asked whether it was hidden, so on the Mac every commit
+  walked the vault for `.git/index`, while the comments on both sides said
+  `.git` was filtered; and `.obsidian/workspace.json` did the same.
+- **Asked from the pool, on the main actor, or behind another file.** The
+  free-name searches and existence checks before a new note, a copy, a
+  folder, a rename and a move; a new repository's and a clone's look at their
+  folder (on the main actor) and the folder and README the repository is
+  made with (in the detached task, on the pool); the root's health check
+  (`Collection.unavailability(of:)`) at its async call sites; bookmark
+  resolution at launch and at Try Again, which can wait on a volume as well
+  as a provider; a relocated folder's new bookmark; the cloud mirror's read
+  of a file it uploads; and the self-test's looks for its scratch note. Each
+  on a lane — launch's resolutions on the app's, at the priority of the launch
+  they hold up, and every look at a collection's own folder (after a root
+  change, at a recheck, at Try Again, at a dead bookmark) on a lane of the
+  collection's own (`onRootLane`). On the scans' lanes those looks waited
+  behind any file a scan was held on there, and they are taken in the
+  collection's turns, so every event after them waited too: an unmount, an
+  edit made elsewhere. A lane's key is a path and nothing more
+  (`URL(fileURLWithPath:)` asks the disk whether it is a folder).
+- **Left, each for a reason.** `ImagePaste.place` finds a free name
+  synchronously on the main actor, because the paste puts its Markdown in at
+  once: a look for a name in the note's folder or its pictures folder
+  (`assets` by default), which a provider can answer slowly in a folder it has
+  not listed yet — chosen without a look since §51.67. `RemoteMirror.hydrate`'s `putInPlace` stays on the main
+  actor: its checks and the rename must have no suspension between them, or a
+  rename of the note gets in first and the bytes land at the name it left
+  (§51.36) — and it is a rename inside the app's own cache, which no provider
+  holds. The walk's listings (`ResumableTreeWalk`), which are its design and
+  its benchmark's; `Collection.scan()`, which is tests only; Quick Look's
+  preview, which reads the file in a process of its own; Preview's and
+  Slides' pictures, which WebKit fetches itself from the page's folder; the
+  bookmark resolutions views read as they draw (Recents, saved libraries,
+  cloud accounts, the MLX folder), which would need a cache to become async;
+  the Assistant's create tool, not offered in 1.3.5, whose folder is made
+  before its note is registered; and three looks at the disk on the main
+  actor this pass did not reach — `FileReveal.canReveal`, asked as the file
+  viewer draws, the path of a dead bookmark at launch, and the canonical name
+  a new collection takes, each off the main actor since §51.67. libgit2's
+  clone and push held a thread of the pool
+  for as long as the network took — on threads of their own since §51.66. And
+  a delete is
+  coordinated on the item's shared lane, where a folder's delete now waits —
+  rightly — for a file held inside it, holding that lane meanwhile: reasoned
+  in review, not measured.
+
+**Reviews.** The first vault-I/O review passed the change and found two medium
+regressions in it — a folder that was there written all the same, and the
+app's own deletes and new folders heard as news on iOS — and raw calls the
+change had not reached: five in `GitService`, one in the self-test, one in the
+editor package. Its account of the first was half right: a write on a folder
+does not wait for a file held inside it (probed), so the fix stands on the
+presenter alone. The first concurrency review found the folder looks on the
+scans' lanes inside the collection's turns, the PDF read whole onto the heap
+and parsed on the main actor, pictures read twice when drawn at once, and the
+stat a lane's key made on the pool. **Both looked again** at the fixes. The
+vault-I/O review found that registering a change before it was made did not
+work on an iPhone at all (the two names, above), that the hidden-name filter
+asked only the last name, that a rename, a move, a copy and a pasted picture
+still registered after, and Git's looks still on the main actor; the
+concurrency review found Git's folder and README made on the pool, an
+unconditional `reads[file] = nil` that could orphan a newer read, a lane per
+PDF view that let reopening a held PDF take thread after thread, launch's
+resolutions moved to the scans' utility priority, and a gap in this file's
+own Swift 6 recipe: `-typecheck` does not run region-based isolation checks,
+so a `sending` capture it passes is refused by `-emit-sil` (probed — the
+AGENTS.md rule says so now). Each is fixed here or named under Left.
+
+**Tests**: `HeldFileTests` gains nine, each holding the file with
+`ProviderHold` where a file is held: a note is not trashed, a folder not made
+at a path something holds, a PDF not shown and an embedded picture not drawn
+until the provider lets go; a folder that is there is not waited for
+(`aFolderThatIsThereIsLeftAlone`); a look at the collection's folder does not
+wait behind a scan held on another file on its scans' lane
+(`aLookAtTheFolderWaitsForNoOtherFile`); three drawings of a picture read it
+once, counted by the download wait's question; a PDF that cannot be opened
+says so; and one read for a view that has gone is not made into a document.
+`DirectoryPresenterTests` feeds a real presenter's events to a collection as
+the app does — the collection spelled `/private/var/…`, as an iPhone hands a
+folder over, wherever the host's temporary folder has that name — and deletes
+a note, makes a folder, deletes one, renames a note, moves it and copies it,
+counting the walks asked for (`walksAskedFor`, none); knows a path by its
+place in the collection under `/etc` and `/private/etc`, whether or not it is
+there; and hears a commit's `.git`, Obsidian's workspace and a path outside
+the collection as nobody's news, and a note changed elsewhere as news.
+`NewRepositoryTests` gains two failed clones, into an empty folder and onto a
+file of the clone's name.
+**Control**: each path back in its old form — `Trash.item` bare,
+`FileManager.createDirectory`, raw reads for the PDF and the picture, the
+folder written whatever is there, the look back on the scans' lanes, each
+drawing reading for itself, no word of a PDF that cannot be opened, the gone
+view's checks taken out, the registrations taken out, the clone's cleanup
+removing whatever has the name, the key spelled one way, only the last name
+asked whether it is hidden — and each test fails with its own sentence. The
+old canonical key fails the presenter's test where the folder is spelled
+`/private/var/…` — CI's unsandboxed host, run here — with two walks, and
+passes it where the folder has one name, which is why no test had seen it.
+The rename, the move and the copy did **not** fail theirs registered after:
+on the Mac the presenter hears of a move after it is made, so their early
+registration is a guarantee of order no test here can show failing. The
+busy-lane wait the held-file tests share looks for 150 ms now, not 50, so a
+moment of another suite's work on the lane cannot stand in for the wait on
+the held file.
+
+**Checked**: the build for macOS and the iOS simulator, with no warning in a
+changed file; the macOS suite signed (981 tests in 148 suites) and as CI runs
+it, unsigned and unsandboxed (981 in 148, with what it left in the real
+`~/Library` moved out); the touched suites on a one-thread pool (156 tests in
+12 suites — four fail there, each recorded before this change on
+2026-10-12: `aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt`, whose probe
+holds the walk's own look with a semaphore on the pool's one thread, and three
+`SaveIndexingTests` premises staged by note size); the touched suites hosted
+on the iPad simulator (32 tests in 5 suites) — the presenter's test among
+them, on the platform it is about, where the app's container has no Trash and
+a delete is a delete; the
+editor package on macOS (559 tests in 61 suites) and on the iPad simulator
+(533 in 57); and the Edit ≡ Preview gate (`render-parity.sh`: every block
+within a point, 60 of 60 documents at 1200, 800 and 560pt, and at 420pt the
+two known).
+
 ### 51.63 Coordinated file I/O off the concurrency pool, and off the main actor (2026-10-26)
 
 §51.62 found that opening a note held a thread of the concurrency pool for as

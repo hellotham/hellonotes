@@ -85,7 +85,29 @@ if [[ -n "$(mac_app)" ]]; then
   echo "App quit."
 fi
 
-# 2. Run — after clearing any stubs a *previous* run left behind. Cleaning only
+# 2. What the tests read of the repository — the app's sources, the sample
+#    vault, the bundled notes, the project file — kept on the start-up disk,
+#    and the host told where (`RepoFile`). The checkout may be on an external
+#    disk, and macOS asks before an app reads one, keeping the answer for the
+#    build it was given to: an unsigned (CI-style) run and a signed one are two
+#    builds to it, so the first of either after the other asked again, and the
+#    tests that read a file waited for the answer — sixteen at once, every
+#    thread of the concurrency pool, and the whole suite behind them, for the
+#    fifty-eight minutes nobody was there to give it (docs/implemented.md
+#    §51.68). Nothing asks about the start-up disk. `--delete` keeps the copy
+#    the checkout's own: a file gone from one is gone from the other. A test
+#    that reads a part not listed here finds it missing — list it.
+repo_copy=$HOME/Library/Developer/Xcode/DerivedData/HelloNotes-Repo
+mkdir -p "$repo_copy"
+if ! rsync -aR --delete HelloNotes HelloNotesTests Packages/NotesEditor/Sources \
+    SampleVault DefaultCollection HelloNotes.xcodeproj/project.pbxproj \
+    website/src/lib/site.ts docs "$repo_copy/"; then
+  echo "Could not copy what the tests read to $repo_copy." >&2
+  exit 1
+fi
+export TEST_RUNNER_HN_REPO=$repo_copy
+
+# 3. Run — after clearing any stubs a *previous* run left behind. Cleaning only
 #    afterwards is not enough: this run's own build may re-sign the app, and it
 #    would then trip over the last run's leftovers before reaching the tests.
 cleanup_preview_dylibs
@@ -101,7 +123,7 @@ xcodebuild test \
 # A failing suite would have exited 0 — the script would have lied.
 result=$?
 
-# 3. Clean up regardless of the result.
+# 4. Clean up regardless of the result.
 cleanup_hosts
 cleanup_preview_dylibs
 exit $result

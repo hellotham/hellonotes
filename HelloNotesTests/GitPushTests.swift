@@ -7,7 +7,9 @@
 //
 //  SwiftGitX's push gave libgit2 no callback, so nothing could stop it and the
 //  Git pane spun until the network gave up. `GitPush` is the same push with
-//  callbacks that answer "stop" once the task is cancelled.
+//  callbacks that answer "stop" once the task waiting on it is cancelled — a
+//  flag, read through their payload (`GitCancel`), because the push runs on a
+//  thread of its own (`GitThread`).
 //
 
 import Foundation
@@ -75,7 +77,7 @@ struct GitPushTests {
         defer { try? FileManager.default.removeItem(at: base) }
         let branch = try branch(in: local)
 
-        try GitPush.push(repositoryAt: local)
+        try GitPush.push(repositoryAt: local, cancel: GitCancel())
         let pushed = try #require(commit(branch, in: remote), "the remote has no \(branch)")
         #expect(pushed == commit("HEAD", in: local))
     }
@@ -87,12 +89,10 @@ struct GitPushTests {
         defer { try? FileManager.default.removeItem(at: base) }
         let branch = try branch(in: local)
 
-        let failure = await Task.detached { () -> GitPush.Failure? in
-            withUnsafeCurrentTask { $0?.cancel() }
-            do { try GitPush.push(repositoryAt: local); return nil }
-            catch { return error as? GitPush.Failure }
-        }.value
-        #expect(failure == .cancelled)
+        // Cancelled before it began, as the task waiting on it would set it.
+        let cancel = GitCancel()
+        cancel.set()
+        #expect(throws: GitPush.Failure.cancelled) { try GitPush.push(repositoryAt: local, cancel: cancel) }
         #expect(commit(branch, in: remote) == nil, "a cancelled push wrote the remote's branch")
     }
 

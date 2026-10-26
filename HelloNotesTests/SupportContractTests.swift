@@ -139,9 +139,7 @@ struct SupportContractTests {
     /// The allow-list is three files and is meant to stay three. Adding a
     /// fourth is the decision this test exists to make deliberate.
     @Test func onlyTheSupportRequestConsultsAPurchase() throws {
-        let root = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes")
+        let root = RepoFile.url("HelloNotes")
         let allowed: Set<String> = [
             "StoreService.swift",           // owns the entitlement
             "SupportSettingsView.swift",    // the purchase screen itself
@@ -237,10 +235,7 @@ struct SupportContractTests {
     // MARK: -
 
     private static func source(_ name: String) throws -> String {
-        let url = URL(filePath: #filePath)
-            .deletingLastPathComponent()   // …/HelloNotesTests
-            .deletingLastPathComponent()   // …/<repo root>
-            .appending(path: "HelloNotes")
+        let url = RepoFile.url("HelloNotes")
             .appending(path: name)
         return try String(contentsOf: url, encoding: .utf8)
     }

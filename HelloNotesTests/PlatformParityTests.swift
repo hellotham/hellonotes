@@ -33,10 +33,7 @@ struct PlatformParityTests {
     /// *not* on this list must be wired on both — so adding a Mac-only command
     /// is a deliberate act with a justification beside it, not an omission.
     private static func source(_ name: String) throws -> String {
-        let url = URL(filePath: #filePath)
-            .deletingLastPathComponent()   // …/HelloNotesTests
-            .deletingLastPathComponent()   // …/<repo root>
-            .appending(path: "HelloNotes")
+        let url = RepoFile.url("HelloNotes")
             .appending(path: name)
         return try String(contentsOf: url, encoding: .utf8)
     }
@@ -135,9 +132,7 @@ struct PlatformParityTests {
             "Name": "in the New Folder alert, whose title and prompt both say “New Folder”",
         ]
 
-        let root = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes")
+        let root = RepoFile.url("HelloNotes")
         let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
 

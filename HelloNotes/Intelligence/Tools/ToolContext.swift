@@ -512,7 +512,7 @@ final class ToolContext {
         // resolves symlinks. Both checks touch the file system, so both run off
         // the main actor, together.
         let url = directory.appendingPathComponent(safe + ".md")
-        let (inside, exists) = await offMain { [directory] in
+        let (inside, exists) = await FileIO.onLane(for: url) { [directory] in
             (Self.contains(root: root, directory), FileManager.default.fileExists(atPath: url.path))
         }
         guard inside else {
@@ -533,7 +533,7 @@ final class ToolContext {
 
         let folder = directory
         do {
-            try await offMain { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+            try await FileIO.onLane(for: folder) { try FileIO.createDirectory(at: folder) }
         } catch {
             throw ToolError.failed("Couldn't create the folder: \(error.localizedDescription)")
         }

@@ -97,7 +97,7 @@
 - Cold builds take 30–47 min (74 targets). A long `xcodebuild` is a cold build, not a hang.
 - Debug proves nothing about Release: check `-configuration Release` before archiving (a Release-only optimizer crash once broke every archive — implemented.md §13).
 - A viewport must report the size it is **offered**, never the size it **contains**. Every representable wrapping a scrolling/content-sized view implements `sizeThatFits` via `viewportSizeThatFits` and never returns `nil` — `nil` means "ask the platform view", whose `fittingSize` is the whole document (3433pt for a 76-line note), which inflates every ancestor until the top of the content sits above the window, unreachable. Pair every `minWidth/minHeight` with a maximum. Details: implemented.md §17.
-- Vault content I/O goes through `Core/FileIO` (coordinated), never `String(contentsOf:)`/`.write(to:)` — raw reads of dataless cloud files fail with EDEADLK. The `vault-io-reviewer` agent checks this.
+- Vault content I/O goes through `Core/FileIO` (coordinated), never `String(contentsOf:)`/`.write(to:)` — raw reads of dataless cloud files fail with EDEADLK. That includes the ones that do not look like I/O: a folder is made with `FileIO.createDirectory`, an item trashed with `FileIO.trash` (which wraps `Trash.item`), something the app made and takes back removed with `FileIO.remove`, and a picture or a PDF is made from `FileIO`'s bytes — `embeddedData` for a file a note shows, which waits for its download with a deadline — never `NSImage(contentsOf:)`, `UIImage(contentsOfFile:)` or `PDFDocument(url:)`, which read raw and, on the main thread, held the app until a provider let go. And a change the collection makes to a path not there yet, or away from one — a new note or folder, a copy, a pasted picture, a rename, a move, a delete — is registered as its own (`rememberSelfWrite`) **before** it is made, and a path is known there by its place in the collection (`selfWriteKey`), never by a canonical path: a coordinated delete reaches the iOS presenter while it is made, and canonical drops `/private` only from a path that exists, so on an iPhone, whose folders come spelled `/private/var/…`, a key taken before a folder was made and one taken after it named two paths. A write over a file that is there is registered after it is written: a save that wrote nothing must not hide the next change made elsewhere (implemented.md §51.64). The `vault-io-reviewer` agent checks this.
 - **`git checkout -- <file>` is a destructive command in this tree.** Thousands
   of lines sit uncommitted for a whole session, so it does not "undo my last
   edit" — it discards every uncommitted change to that file. Revert an
@@ -305,6 +305,25 @@
   `ScratchDefaults.suite(label)` name the suite by a path in a folder of the
   test's own in the temporary directory, and delete the folder when the test
   ends; `ScratchDefaultsTests` guards it (implemented.md §51.31).
+- **A look at the disk is never part of drawing, or of a call that must
+  answer at once.** `fileExists`, `standardizedFileURL` on a path spelled
+  `/private/…` (every iPhone root) and `resolvingSymlinksInPath` each ask the
+  disk, and a provider's folder or a stalled share answers when it pleases. A
+  view's body, a row's menu and a paste's answer use what the app already
+  knows — its walk, a fetch's state, a collection's last look — and a look
+  that must happen happens off the main actor, on the file's lane, when
+  someone asks (`FileReveal.reveal`). A collection's identity is worked out
+  that way before it is made (`Collection.Identity`); `Collection(rootURL:)`
+  is for tests and the app's own caches (implemented.md §51.67).
+- **A test host's Trash is its own.** The hosted suite deletes notes and
+  folders the way the app does, and on the Mac `Trash.item` put each in the
+  Trash of the Mac running it, under the name the test gave it — 84 of one
+  Mac's 102 Trash items on 26 October. In a test host it moves them into
+  `Trash.testBin`, a folder of the run's own in the host's temporary folder,
+  and says `.trashed` as before; `TrashTests` fails if anything but
+  `Trash.item` asks for the system Trash (implemented.md §51.65). Never empty
+  the person's Trash to tidy up after a run: it is theirs, and emptying it is
+  for good.
 - **Read every summary a command prints.** The iOS editor suite emits **three**
   bundle lines (18/4, 173/13, 196/13); `tail -3` shows the last one, and
   reporting "196 of 383 tests ran" from it invented a coverage hole that did not
@@ -577,7 +596,11 @@
   files, on 2026-10-08), so most files are never checked and the run reads
   clean: a deliberate type error put in RemoteMirror.swift went unreported.
   Before believing a clean result, put a deliberate error in the file under
-  review and see it reported (implemented.md §51.34).
+  review and see it reported (implemented.md §51.34). **And `-typecheck`
+  stops before region-based isolation is checked**: a `sending` closure that
+  captures a non-Sendable value (`SendingClosureRisksDataRace`) passes it, and
+  `-emit-sil -o /dev/null` — or a full compile — refuses it (probed,
+  implemented.md §51.64).
 - **A `nonisolated async` helper that waits or polls must be `@concurrent`.**
   Under approachable concurrency it inherits the caller's actor, so
   `FileIO.materialise` polled the file provider on the main thread every 200 ms
@@ -1129,7 +1152,11 @@
   it at quit was lost (§51.63). `offMain` is for computation; its synchronous body holds a pool
   thread for as long as a provider holds the file, and every sleeping task
   wakes through the pool — the main actor's included — so three at once
-  stopped the process on CI's three-thread runner (§51.62). A loop over many
+  stopped the process on CI's three-thread runner (§51.62). libgit2's network
+  work — a push, a fetch, a clone — goes on a thread of its own for the same
+  reason (`GitThread.run`), and Stop reaches it through a flag its callbacks
+  read (`GitCancel`), never `Task.isCancelled`, which has no task to ask there
+  (§51.66). A loop over many
   files awaits one hop per file in `offMainAwaiting` (§51.63), which is
   `@concurrent` in its closure's type, because an async closure in this
   target can otherwise be inferred main-actor. Never call `onLane` from a
@@ -1201,6 +1228,21 @@
   plausible causes had been written down (a locked screen, an unsigned build)
   and one five-second `sample` of the stalled process made both unnecessary
   (implemented.md §51.47).
+- **A question macOS asks is a wait no log of the run shows — and sixteen
+  readers waiting on one are the whole pool.** The checkout is on an external
+  disk, and macOS asks before an app reads one, keeping the answer for the
+  build it was given to, so an unsigned (CI-style) run and a signed one each
+  asked again after the other. Twenty-two test files read the repository
+  through `#filePath`; sixteen did at once as Swift Testing began, every
+  thread of the pool blocked in a read, and the suite printed nothing for
+  fifty-eight minutes, until someone came back and clicked — the idle Mac it
+  was blamed on had nothing to do with it (implemented.md §51.68). A test
+  reads the repository through `RepoFile`, which `run-tests.sh` points at a
+  copy on the start-up disk, and `RepoFileTests` fails on a `#filePath`
+  anywhere else. A run that stops printing as Swift Testing starts: read the
+  log at that second for `sandboxd`'s *request approval*, and where it
+  resumed for a click in `UserNotificationCenter` — with `/usr/bin/log`, since
+  zsh's builtin `log` takes the same words and prints nothing.
 - **A locked screen takes the keychain with it.** With the Mac locked,
   `notarytool` says "No Keychain password item found for profile" and
   `xcodebuild -exportArchive` says "Failed to Use Accounts" — the same words

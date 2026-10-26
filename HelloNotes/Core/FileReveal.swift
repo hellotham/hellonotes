@@ -20,11 +20,15 @@
 //  On iOS this is the `shareddocuments:` scheme, which opens Files at a path.
 //  It is the mechanism the platform provides and it can fail — a provider that
 //  does not surface the location, a path Files will not browse — so the call
-//  reports whether it worked rather than assuming, and the menu item is offered
-//  only where a reveal is possible at all.
+//  looks before it hands the path over rather than assuming — off the main
+//  actor, on the file's lane. The menu item is offered wherever the app knows
+//  the file is, from its walk or the viewer's fetch: asked while a menu or a
+//  row was drawn, the look was a look at the disk on the main thread, for
+//  every row (implemented.md §51.67).
 //
 
 import Foundation
+import Synchronization
 #if canImport(AppKit)
 import AppKit
 #else
@@ -47,23 +51,28 @@ enum FileReveal {
     /// The menu title, so both shells spell it the same way.
     static var revealTitle: String { "Reveal in \(fileManagerName)" }
 
-    /// Whether `url` can be shown at all.
+    /// Whether `url` can be shown at all — a look at the disk, so asked off
+    /// the main actor (`reveal`), never while anything is drawn.
     ///
     /// macOS can always reveal a real file. iOS can only hand Files a path it
-    /// is willing to browse, so a file that is not there is not revealable —
-    /// and an enabled menu item that silently does nothing is worse than a
-    /// disabled one.
-    static func canReveal(_ url: URL) -> Bool {
-        FileManager.default.fileExists(atPath: url.path)
+    /// is willing to browse, so a file that is not there is not revealable.
+    nonisolated static func canReveal(_ url: URL) -> Bool {
+        if let probe = lookProbes.withLock({ $0[url.path] }) { probe(Thread.isMainThread) }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
-    /// Show `url` in the platform's file manager.
-    ///
-    /// - Returns: whether the file manager was actually asked to open it.
-    @discardableResult
-    static func reveal(_ url: URL) -> Bool {
-        guard canReveal(url) else { return false }
-        return handToFileManager(url)
+    /// Told, for a path, whether a look for it ran on the main thread. Keyed
+    /// by path; empty outside tests.
+    nonisolated static let lookProbes = Mutex<[String: @Sendable (_ onMainThread: Bool) -> Void]>([:])
+
+    /// Show `url` in the platform's file manager — once a look, off the main
+    /// actor on the file's lane, has found it there. A file that is not there
+    /// is not handed over.
+    static func reveal(_ url: URL) {
+        Task { @MainActor in
+            guard await FileIO.onLane(for: url, { FileReveal.canReveal(url) }) else { return }
+            handToFileManager(url)
+        }
     }
 
     /// Ask the platform's file manager to show `url`.

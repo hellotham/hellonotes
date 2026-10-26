@@ -123,6 +123,11 @@ final class Collection: Identifiable {
     /// dedupes a folder opened twice).
     nonisolated let id: String
 
+    /// Every spelling of the root, each ending in a separator — what a path is
+    /// matched against to be known by its place inside the collection
+    /// (`selfWriteKey`, `CollectionIndexCache.rootPrefixes`).
+    nonisolated let rootSpellings: [String]
+
     /// The folder this collection indexes.
     let rootURL: URL
 
@@ -288,12 +293,12 @@ final class Collection: Identifiable {
     /// A recheck's turn: look at the folder, and bring the collection back if
     /// it can be read. Off the main actor, because the look lists the folder,
     /// and on a File Provider or iCloud volume a listing can be a blocking XPC
-    /// call.
+    /// call — on the collection's own lane (`onRootLane`).
     private func lookAgain() async -> Recheck {
         // A turn before this one — another recheck — may have brought it back.
         guard !isClosed, case .unavailable = state else { return isAvailable ? .alreadyBack : .stillUnavailable }
         let root = rootURL
-        let reason = await offMain { Collection.unavailability(of: root) }
+        let reason = await onRootLane { Collection.unavailability(of: root) }
         guard !isClosed, reason == nil else { return .stillUnavailable }
         state = .ready
         recoveries &+= 1
@@ -303,6 +308,21 @@ final class Collection: Identifiable {
     /// Counts the rechecks that found the folder readable, so a walk's
     /// verdict can tell it is older than one (`performScan`).
     @ObservationIgnored private var recoveries = 0
+
+    /// Where the collection looks at its own folder — whether it is there,
+    /// and what its bookmark names now: on a lane of its own, as an editor
+    /// asks about its note on one (`EditorModel.provider`). On the scans'
+    /// lanes a look waited behind any file a scan was held on there — and it
+    /// is looked at in the collection's turns (`inTurn`), so every event after
+    /// it waited as well, an unmount or an edit made elsewhere, for as long as
+    /// that other file was held (implemented.md §51.64).
+    nonisolated let rootCalls = FileIO.ProviderCalls.ownLane("com.hellotham.HelloNotes.collection-root")
+
+    /// Do `body` — a look at the collection's folder, which its provider can
+    /// hold up — on the collection's own lane (`rootCalls`).
+    func onRootLane<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
+        await rootCalls.onLane(for: rootURL, body)
+    }
 
     /// Why the folder can't be read, or `nil` when it can.
     ///
@@ -649,6 +669,10 @@ final class Collection: Identifiable {
     /// autosaving, or iCloud streaming a file down in pieces) into a single
     /// scan + reconcile, instead of re-walking the whole vault per event.
     private var externalReconcileTask: Task<Void, Never>?
+    /// How many walks what the collection heard about its folder has asked
+    /// for (`reconcileSoon`) — for a test to ask, where sleeping past the
+    /// debounce and counting walks would ask how long something took.
+    @ObservationIgnored private(set) var walksAskedFor = 0
     /// Whether that reconcile is past its debounce and walking — when a change
     /// seen asks for one more pass rather than cancelling it.
     private var reconcileIsWalking = false
@@ -713,7 +737,43 @@ final class Collection: Identifiable {
         url.resolvingSymlinksInPath().standardizedFileURL
     }
 
-    init(rootURL: URL) {
+    /// What a collection is called and keyed by, worked out from its folder's
+    /// URL — which asks the disk: `canonical` resolves symlinks, and it and
+    /// `standardizedFileURL` drop `/private` only from a path that exists, so on
+    /// a provider's folder or a share that has stalled each can wait. `Library`
+    /// works it out off the main actor, on the folder's lane, wherever it opens
+    /// a collection or brings one back, and hands it to
+    /// `init(rootURL:identity:)`; `init` worked it out on the main actor, at
+    /// launch once for every collection (implemented.md §51.67).
+    /// `init(rootURL:)` still works it out where it is — for a test's folder,
+    /// or a cloud collection's cache in the app's own container.
+    nonisolated struct Identity: Sendable {
+        /// The canonical path — the collection's `id`.
+        let id: String
+        /// Every spelling of the root — `rootSpellings`.
+        let spellings: [String]
+        /// The root standardized — what its bookmarks are stored under.
+        let standardizedPath: String
+
+        init(of rootURL: URL) {
+            if let probe = Collection.identityProbes.withLock({ $0[rootURL.path] }) { probe(Thread.isMainThread) }
+            id = Collection.canonical(rootURL).path
+            spellings = CollectionIndexCache.rootPrefixes(rootURL)
+            standardizedPath = rootURL.standardizedFileURL.path
+        }
+    }
+
+    /// Told, for a folder's path, whether its identity was worked out on the
+    /// main thread — as `availabilityProbes` tells of a look at a folder.
+    /// Keyed by path; empty outside tests.
+    nonisolated static let identityProbes = Mutex<[String: @Sendable (_ onMainThread: Bool) -> Void]>([:])
+
+    /// A collection whose identity is worked out here — see `Identity`.
+    convenience init(rootURL: URL) {
+        self.init(rootURL: rootURL, identity: Identity(of: rootURL))
+    }
+
+    init(rootURL: URL, identity: Identity) {
         // **`rootURL` is stored exactly as granted, never canonicalised.**
         //
         // On iOS a security-scoped URL grants access to *that exact URL*, so
@@ -725,16 +785,21 @@ final class Collection: Identifiable {
         // nothing, which is precisely what an iPad reported.
         //
         // Canonical form is for *identity* — `id`, and comparisons — not for the
-        // URL the app actually reads through. `recentSelfWrites` already
-        // normalises on both write and read, so it never needed this either.
+        // URL the app actually reads through. The log of the collection's own
+        // changes knows a path by its place inside the collection, under any
+        // of the root's names (`selfWriteKey`), so it never needed this either.
         self.rootURL = rootURL
-        self.id = Self.canonical(rootURL).path
+        self.id = identity.id
+        self.rootSpellings = identity.spellings
         // Default on: a collection that silently withheld half its contents on
         // first open would be lying by omission before the user ever chose.
-        let key = Self.showFilesKey(rootURL.standardizedFileURL.path)
-        self.showsNonNoteFiles = UserDefaults.standard.object(forKey: key) as? Bool ?? true
+        // Read under the key it is written under (`showsNonNoteFiles`, by
+        // `id`): it was read under the standardized path, which a folder
+        // reached through a symlink spells another way, so that folder's
+        // choice never came back (implemented.md §51.67).
+        self.showsNonNoteFiles = UserDefaults.standard.object(forKey: Self.showFilesKey(identity.id)) as? Bool ?? true
         git.rootURL = rootURL
-        bookmarks.load(rootURL: rootURL)
+        bookmarks.load(rootURL: rootURL, standardizedPath: identity.standardizedPath, spellings: identity.spellings)
         embedProvider.owner = self
     }
 
@@ -1936,8 +2001,10 @@ final class Collection: Identifiable {
     ///
     /// **A turn must never wait for a turn** — `inTurn(…).value`, or anything
     /// that does, such as `recheckAvailability()`: it would wait for itself,
-    /// and every turn after it with it. Turns call synchronous code and
-    /// `offMain`, nothing else.
+    /// and every turn after it with it. Turns call synchronous code and look
+    /// at the folder on the collection's own lane (`onRootLane`), nothing
+    /// else: on a lane another file shares, a file held there held every turn
+    /// after the look.
     @discardableResult
     private func inTurn<T: Sendable>(_ work: @escaping @MainActor () async -> T) -> Task<T, Never> {
         let previous = lastTurn
@@ -1976,9 +2043,10 @@ final class Collection: Identifiable {
             // *back*, or an editor's atomic save-over of the folder, can raise
             // this while leaving a perfectly readable directory behind. Looked
             // at off the main actor — it lists the folder, and on a File
-            // Provider or iCloud volume a listing can be a blocking XPC call.
+            // Provider or iCloud volume a listing can be a blocking XPC call —
+            // on the collection's own lane, which no other file holds up.
             let root = rootURL
-            let reason = await offMain { Collection.unavailability(of: root) }
+            let reason = await onRootLane { Collection.unavailability(of: root) }
             guard !isClosed else { return }
             if let reason {
                 markUnavailable(reason)
@@ -2078,6 +2146,7 @@ final class Collection: Identifiable {
     /// caused ourselves has stopped being news.
     private func reconcileSoon(onExternalChange: @escaping @MainActor () -> Void,
                                after delay: Duration) {
+        walksAskedFor &+= 1
         // **A walk under way is not cancelled for a change seen during it** —
         // a cancelled walk keeps nothing and the next starts over, so changes
         // arriving through a long walk of a big vault kept it from ever
@@ -2123,7 +2192,25 @@ final class Collection: Identifiable {
         recentSelfWrites = recentSelfWrites.filter {
             time.timeIntervalSince($0.value) < Self.selfWriteMemory
         }
-        recentSelfWrites[Self.normalize(url.path)] = time
+        guard let key = selfWriteKey(url.path) else { return }
+        recentSelfWrites[key] = time
+    }
+
+    /// The name a path goes by in the log of the collection's own changes:
+    /// its place inside the collection, under whichever of the folder's names
+    /// it is spelled (`rootSpellings`). It was the canonical path, and
+    /// canonical drops `/private` only from a path that exists — so on an
+    /// iPhone, whose folders have both names, a folder registered before it
+    /// was made was looked up under the other name once it had been, and a
+    /// deleted one the same way round, and the collection walked the vault for
+    /// its own change (implemented.md §51.64). Nothing here asks the disk.
+    /// `nil` for a path outside the collection.
+    func selfWriteKey(_ path: String) -> String? {
+        for spelling in rootSpellings {
+            if path.hasPrefix(spelling) { return String(path.dropFirst(spelling.count)) }
+            if path + "/" == spelling { return "" }
+        }
+        return nil
     }
 
     /// Whether `paths` contains a change we didn't cause. Filters out our own
@@ -2131,12 +2218,11 @@ final class Collection: Identifiable {
     /// `.git` directory that auto-commit touches, `.DS_Store`), so the app's own
     /// writes never trigger a full re-scan + re-index of the collection.
     ///
-    /// Cross-platform along with the log it reads, though only a watcher that
-    /// reports *which* paths changed can ask it: the iOS presenter path asks the
-    /// weaker, path-less form of the same question in `selfWriteSettleDelay`.
-    /// Kept here, and not back inside the macOS branch, so that the day the
-    /// presenter starts forwarding its subitem URL there is one filter to point
-    /// it at rather than a second one to write.
+    /// Cross-platform along with the log it reads: FSEvents names the paths
+    /// that changed, and so does the iOS presenter for anything inside the
+    /// folder (`DirectoryPresenter`). A change to the folder itself comes with
+    /// no path, and asks the weaker, path-less form of the same question in
+    /// `selfWriteSettleDelay`.
     private func hasExternalChanges(in paths: [String]) -> Bool {
         let now = Date()
         recentSelfWrites = recentSelfWrites.filter {
@@ -2161,19 +2247,24 @@ final class Collection: Identifiable {
         // which is the *grandparent* of a note in a folder. Suppressing only the
         // parent silenced `Events` and left `My Vault` still scheduling a walk.
         var selfWriteParents = Set<String>()
-        let rootKey = Self.normalize(rootURL.path)
         for (key, at) in recentSelfWrites where now.timeIntervalSince(at) < Self.selfWriteWindow {
-            var dir = (key as NSString).deletingLastPathComponent
-            while dir.count >= rootKey.count, dir != "/" {
-                selfWriteParents.insert(dir)
-                if dir == rootKey { break }
+            // Every folder above it, up to the collection's own (`""`).
+            var dir = key
+            repeat {
                 dir = (dir as NSString).deletingLastPathComponent
-            }
+                selfWriteParents.insert(dir)
+            } while !dir.isEmpty
         }
 
         let external = paths.filter { path in
-            if (path as NSString).lastPathComponent.hasPrefix(".") { return false }
-            let key = Self.normalize(path)
+            // Not the collection's: a path outside it — a move's destination,
+            // whose source says it — or under a hidden name, which no walk
+            // lists (`.skipsHiddenFiles`): `.git`, whose every commit wrote
+            // `.git/index` and walked the vault, `.obsidian`, a volume's
+            // `.Trashes`. Only the last name was asked whether it was hidden
+            // (implemented.md §51.64).
+            guard let key = selfWriteKey(path),
+                  !key.split(separator: "/").contains(where: { $0.hasPrefix(".") }) else { return false }
             if let wroteAt = recentSelfWrites[key],
                now.timeIntervalSince(wroteAt) < Self.selfWriteWindow { return false }
             if selfWriteParents.contains(key) { return false }
@@ -2195,12 +2286,6 @@ final class Collection: Identifiable {
                 + "  [selfWrites=\(recentSelfWrites.count)]")
         }
         return !external.isEmpty
-    }
-
-    /// Normalise a path for comparison — resolves symlinks and the `/private`
-    /// prefix so FSEvents paths and our own write paths match.
-    private nonisolated static func normalize(_ path: String) -> String {
-        canonical(URL(fileURLWithPath: path)).path
     }
 
     /// Record that the editor just saved `url`, and refresh the content-derived
@@ -2504,7 +2589,7 @@ final class Collection: Identifiable {
         // folder both the existence checks and the coordinated create wait for
         // the provider, and every New Note — and the Assistant's create_note —
         // awaits this.
-        let candidate = await offMain { () -> URL in
+        let candidate = await FileIO.onLane(for: folder) { () -> URL in
             var candidate = folder.appendingPathComponent("\(base).md")
             var counter = 2
             while FileManager.default.fileExists(atPath: candidate.path) {
@@ -2541,6 +2626,14 @@ final class Collection: Identifiable {
         remote.sendSave(of: url, data: data) { [weak self] error in
             self?.report("Couldn't upload “\(name)” to \(remote.store.providerName): \(error.localizedDescription)")
         }
+    }
+
+    /// A file the editor is about to put beside a note — a pasted picture,
+    /// and the folder made for it if there is none — registered before it is
+    /// made: the folder's word reached the presenter on iOS while the picture
+    /// was still being written, before `fileMadeHere` (implemented.md §51.64).
+    func fileWillBeMadeHere(_ url: URL) {
+        rememberSelfWrite(url)
     }
 
     /// A file the editor put beside a note: a pasted picture.
@@ -2648,7 +2741,8 @@ final class Collection: Identifiable {
             == note.fileURL.standardizedFileURL.path.lowercased()
         // Asked off the main actor: on a File Provider's folder it is a round
         // trip to the provider (implemented.md §51.36).
-        let taken = sameFile ? false : await offMain { FileManager.default.fileExists(atPath: destination.path) }
+        let taken = sameFile ? false
+            : await FileIO.onLane(for: destination) { FileManager.default.fileExists(atPath: destination.path) }
         guard !taken else {
             report("A note named “\(title)” already exists in this folder.")
             return nil
@@ -2659,6 +2753,13 @@ final class Collection: Identifiable {
         // provider kept the old name, which came back at the next sync, and the
         // new one was never uploaded.
         let moving = remote?.willMove(from: note.fileURL, to: destination)
+        // Both names registered before the move, as every change the
+        // collection makes to a path not there yet, or away from one, is: a
+        // coordinated move reaches its presenter on iOS while it is made,
+        // before `adopt(renamed:)` registers them again (implemented.md §51.64).
+        let now = Date()
+        rememberSelfWrite(note.fileURL, at: now)
+        rememberSelfWrite(destination, at: now)
         do {
             // Coordinated, and off the main actor: on a File Provider folder a
             // move waits for the provider, and an *uncoordinated* one can be
@@ -2770,7 +2871,7 @@ final class Collection: Identifiable {
         let folder = note.fileURL.deletingLastPathComponent()
         let base = "\(note.title) copy"
         // The free name found off the main actor, as `createNote` finds one.
-        let candidate = await offMain { () -> URL in
+        let candidate = await FileIO.onLane(for: folder) { () -> URL in
             var candidate = folder.appendingPathComponent("\(base).md")
             var counter = 2
             while FileManager.default.fileExists(atPath: candidate.path) {
@@ -2780,6 +2881,8 @@ final class Collection: Identifiable {
             return candidate
         }
         let destination = candidate
+        // Registered before the copy is made, as a new note is (`createNote`).
+        rememberSelfWrite(destination)
         do {
             try await FileIO.onLane(for: note.fileURL) { try FileIO.copy(from: note.fileURL, to: destination) }
         } catch {
@@ -2887,15 +2990,18 @@ final class Collection: Identifiable {
         // iCloud or File Provider folder, where the check and the coordinated
         // create both wait for the provider — and quick capture, Siri and
         // dictation all come this way.
-        if await !offMain({ FileManager.default.fileExists(atPath: url.path) }) {
+        if await !FileIO.onLane(for: url, { FileManager.default.fileExists(atPath: url.path) }) {
             let data = Data(content().utf8)
             // Reported before it exists, as `createNote`'s is: a daily note made
-            // on the phone may already be on the provider under this name.
+            // on the phone may already be on the provider under this name. And
+            // registered before it exists, so no watcher hears of it — or of a
+            // folder made for it — first, and takes it for someone else's
+            // (implemented.md §51.64).
+            rememberSelfWrite(url)
             remote?.willMake(url)
             do {
                 try await FileIO.onLane(for: url) {
-                    try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                             withIntermediateDirectories: true)
+                    try? FileIO.createDirectory(at: url.deletingLastPathComponent())
                     try FileIO.create(data, at: url)
                 }
             } catch {
@@ -3034,6 +3140,12 @@ final class Collection: Identifiable {
         // removed the note from the sidebar, left it on disk, and let the next
         // scan bring it back.
         let url = note.fileURL
+        // Registered before it goes, as a new note is before it exists: the
+        // delete is coordinated, and a coordinated delete reaches the
+        // collection's own presenter on iOS *while* it is made — before
+        // `forget` — which took it for someone else's and walked the vault
+        // (implemented.md §51.64).
+        rememberSelfWrite(url)
         do {
             // A direct-API collection must delete on the provider too, or the
             // next sync silently brings back the note the user just deleted —
@@ -3045,11 +3157,11 @@ final class Collection: Identifiable {
             // the file goes away from the main actor.
             if let remote {
                 let title = note.title
-                try await remote.sendDelete(of: url, removing: { _ = try Trash.item(at: url) }) { [weak self] error in
+                try await remote.sendDelete(of: url, removing: { _ = try FileIO.trash(at: url) }) { [weak self] error in
                     self?.report("Couldn't delete “\(title)” on \(remote.store.providerName): \(error.localizedDescription)")
                 }
             } else {
-                try await offMain { _ = try Trash.item(at: url) }
+                try await FileIO.onLane(for: url) { _ = try FileIO.trash(at: url) }
             }
         } catch {
             report("Couldn't delete “\(note.title)”: \(error.localizedDescription)")
@@ -3069,16 +3181,31 @@ final class Collection: Identifiable {
         let container = parent.map(ownSpelling) ?? rootURL
         // The name found and the folder made off the main actor: on a File
         // Provider's folder each is a round trip to the provider, and they
-        // were made on the main thread (implemented.md §51.36).
-        let made = await offMain { () -> Result<URL, Error> in
-            var candidate = container.appendingPathComponent(base, isDirectory: true)
-            var counter = 2
-            while FileManager.default.fileExists(atPath: candidate.path) {
-                candidate = container.appendingPathComponent("\(base) \(counter)", isDirectory: true)
-                counter += 1
+        // were made on the main thread (implemented.md §51.36) — then on the
+        // pool, the folder uncoordinated; now on the parent's lane, and made
+        // under coordination (§51.64). In two steps, so the name is known in
+        // time to be registered before the folder exists, as a new note's is
+        // (`createNote`): a coordinated create reaches the collection's own
+        // presenter on iOS, which took the folder for someone else's and
+        // walked the vault on top of the walk below. A name taken between the
+        // two is looked for again.
+        var made: Result<URL, Error> = .failure(CocoaError(.fileWriteUnknown))
+        for _ in 0..<8 {
+            let candidate = await FileIO.onLane(for: container) { () -> URL in
+                var candidate = container.appendingPathComponent(base, isDirectory: true)
+                var counter = 2
+                while FileManager.default.fileExists(atPath: candidate.path) {
+                    candidate = container.appendingPathComponent("\(base) \(counter)", isDirectory: true)
+                    counter += 1
+                }
+                return candidate
             }
-            return Result { try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: false) }
-                .map { candidate }
+            rememberSelfWrite(candidate)
+            made = await FileIO.onLane(for: container) { () -> Result<URL, Error> in
+                Result { try FileIO.createDirectory(at: candidate, withIntermediateDirectories: false) }
+                    .map { candidate }
+            }
+            guard case .failure(let error) = made, (error as? CocoaError)?.code == .fileWriteFileExists else { break }
         }
         let candidate: URL
         switch made {
@@ -3103,15 +3230,17 @@ final class Collection: Identifiable {
 
     /// Move a folder (and its contents) to the Trash and re-index.
     func deleteFolder(at url: URL) async {
+        // Registered before it goes, as a note's delete is (`deleteNote`).
+        rememberSelfWrite(url)
         do {
             // On the provider too, reported before the folder goes, as a
             // note's delete is (`deleteNote`) — and away from the main actor.
             if let remote {
-                try await remote.sendDelete(of: url, removing: { _ = try Trash.item(at: url) }) { [weak self] error in
+                try await remote.sendDelete(of: url, removing: { _ = try FileIO.trash(at: url) }) { [weak self] error in
                     self?.report("Couldn't delete the folder on \(remote.store.providerName): \(error.localizedDescription)")
                 }
             } else {
-                try await offMain { _ = try Trash.item(at: url) }
+                try await FileIO.onLane(for: url) { _ = try FileIO.trash(at: url) }
             }
         } catch {
             report("Couldn't delete the folder: \(error.localizedDescription)")
@@ -3128,12 +3257,19 @@ final class Collection: Identifiable {
         let itemURL = ownSpelling(of: itemURL)
         let destination = ownSpelling(of: folder).appendingPathComponent(itemURL.lastPathComponent)
         guard destination.standardizedFileURL != itemURL.standardizedFileURL else { return nil }
-        guard await !offMain({ FileManager.default.fileExists(atPath: destination.path) }) else {
+        guard await !FileIO.onLane(for: destination, { FileManager.default.fileExists(atPath: destination.path) }) else {
             report("“\(itemURL.lastPathComponent)” already exists in that folder.")
             return nil
         }
         // Reported before the file moves, as a rename is (`renameNote`).
         let moving = remote?.willMove(from: itemURL, to: destination)
+        // Ours, both names, before the move: the watcher reports a move by
+        // both — FSEvents after it, the presenter's
+        // `presentedSubitem(at:didMoveTo:)` while it is made — and the walk
+        // below is the one this move gets, not a second from the report.
+        let now = Date()
+        rememberSelfWrite(itemURL, at: now)
+        rememberSelfWrite(destination, at: now)
         do {
             try await FileIO.onLane(for: itemURL) { try FileIO.move(from: itemURL, to: destination) }
         } catch {
@@ -3147,12 +3283,6 @@ final class Collection: Identifiable {
                 self?.report("Couldn't move “\(name)” on \(remote.store.providerName): \(error.localizedDescription)")
             }
         }
-        // Ours, both names: the watcher reports a move by both (FSEvents, and
-        // the presenter's `presentedSubitem(at:didMoveTo:)`), and the walk
-        // below is the one this move gets — not a second from the report.
-        let now = Date()
-        rememberSelfWrite(itemURL, at: now)
-        rememberSelfWrite(destination, at: now)
         bookmarks.updatePath(from: itemURL, to: destination)   // keep the pin
         savesToIndex[itemURL] = nil               // see `indexSaved`
         keptSaves[itemURL] = nil                  // and `KeptSave`: read again where it went

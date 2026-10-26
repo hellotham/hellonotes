@@ -519,23 +519,28 @@ struct EditorHost: View {
         // written off the main actor (`ImagePaste.write`).
         let placement = ImagePaste.place(nextTo: note.fileURL, subfolder: attachmentFolder, timestamp: .now)
         let markdown = placement.markdown
-        let rel = placement.relativePath
-        let assetURL = placement.url
+        editor.onFileMaking?(placement.url)
         Task { @MainActor in
-            guard await ImagePaste.write(png, to: placement) else {
+            guard let written = await ImagePaste.write(png, to: placement) else {
                 // Not written: the Markdown comes back out, as a paste that
                 // wrote nothing inserted nothing — never a note that shows a
                 // picture it does not have.
                 document.replaceFirst(markdown, with: "", near: proxy.selection().location)
                 return
             }
-            editor.onFileMade?(assetURL)
-            guard let alt = await VisionAlt.describe(assetURL) else { return }
+            // Written under the next name — the one chosen was taken on disk,
+            // which the choosing did not look for (`ImagePaste.place`): the
+            // Markdown follows the picture, as the alt text below does.
+            if written != placement {
+                document.replaceFirst(markdown, with: written.markdown, near: proxy.selection().location)
+            }
+            editor.onFileMade?(written.url)
+            guard let alt = await VisionAlt.describe(written.url) else { return }
             // Rewrite through the document so the edit reaches the parser and
             // the undo stack, exactly as typing would. `near:` is the caret —
             // the placeholder was just inserted there, and a document-wide
             // search would rewrite an identical earlier embed instead.
-            document.replaceFirst(markdown, with: "![\(alt)](\(rel))",
+            document.replaceFirst(written.markdown, with: "![\(alt)](\(written.relativePath))",
                                   near: proxy.selection().location)
         }
         return markdown
@@ -645,7 +650,10 @@ struct EditorHost: View {
                     // drew the picture in Preview and a broken-image box in
                     // Edit — the same markup, the same page builder, two base
                     // URLs.
-                    baseURL: noteDir)
+                    baseURL: noteDir,
+                    // And what it points at is read as every file a note shows
+                    // is: through `FileIO`, off the main actor (§51.64).
+                    readFile: { await FileIO.embeddedData(at: $0) })
             },
             renderInlineMath: { latex, mathFontSize, isDark in
                 await MainActor.run {

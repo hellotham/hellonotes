@@ -1295,8 +1295,10 @@ struct ContentView: View {
                         library.collection(containing: note.fileURL)?.bookmarks.toggle(note)
                     },
                     copyWikiLink: { Clipboard.copy(note.wikiLink) },
-                    revealInFileManager: FileReveal.canReveal(note.fileURL)
-                        ? { FileReveal.reveal(note.fileURL) } : nil,
+                    // The open note is there; `reveal` looks again when asked,
+                    // off the main actor — a look here was one on the main
+                    // thread at every redraw (implemented.md §51.67).
+                    revealInFileManager: { FileReveal.reveal(note.fileURL) },
                     openInNewWindow: { openWindow(value: NoteRef(note.fileURL)) },
                     // `actions.export`, not the active editor's buffer: read
                     // that way, exporting or printing a note that was not open

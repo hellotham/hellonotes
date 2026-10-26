@@ -48,10 +48,7 @@ struct ShellComplianceTests {
     }
 
     private static func source(_ name: String) throws -> String {
-        try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "HelloNotes")
+        try String(contentsOf: RepoFile.url("HelloNotes")
             .appending(path: name), encoding: .utf8)
     }
 
@@ -118,8 +115,7 @@ struct ShellComplianceTests {
     /// "both shells do X" assertion below.
     @Test("No platform gate in the app has only one branch")
     func nothingIsOneSided() throws {
-        let repo = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
+        let repo = RepoFile.root
         let roots = [repo.appending(path: "HelloNotes"),
                      repo.appending(path: "Packages/NotesEditor/Sources")]
         // The files whose split *was* the divergence. Each pair was one thing
@@ -545,9 +541,7 @@ struct ShellComplianceTests {
             #expect(source.contains("actions.revalidateSelection()"),
                     "\(file) does not call the shared revalidation")
         }
-        let shared = try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/State/ShellActions.swift"), encoding: .utf8)
+        let shared = try String(contentsOf: RepoFile.url("HelloNotes/State/ShellActions.swift"), encoding: .utf8)
         let body = shared.components(separatedBy: "func revalidateSelection()")[1]
             .components(separatedBy: "\n    }")[0]
         #expect(!body.contains("selection.wrappedValue = "),
@@ -570,9 +564,7 @@ struct ShellComplianceTests {
     /// it when the view is in a window), and both views must have one.
     @Test("Both editors listen on the same editor notifications")
     func bothEditorsAnswerTheCommandBus() throws {
-        let package = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "Packages/NotesEditor/Sources/MarkdownEditor")
+        let package = RepoFile.url("Packages/NotesEditor/Sources/MarkdownEditor")
         let source = try String(contentsOf: package.appending(path: "MarkdownEditorView.swift"),
                                 encoding: .utf8)
         // Both halves are in one file now, so each name must appear twice —
@@ -616,9 +608,7 @@ struct ShellComplianceTests {
     /// replace it.
     @Test("Every command on the editor's bus names its editor")
     func theEditorBusIsAddressed() throws {
-        let app = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes")
+        let app = RepoFile.url("HelloNotes")
         let files = (FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL } ?? []).filter { $0.pathExtension == "swift" }
         #expect(files.count > 150, "the scan read \(files.count) sources — it is not reading the app")
@@ -667,9 +657,7 @@ struct ShellComplianceTests {
     /// format on one platform and not the other.
     @Test("Both editor proxies offer the same API")
     func editorProxiesMatch() throws {
-        let package = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "Packages/NotesEditor/Sources/MarkdownEditor")
+        let package = RepoFile.url("Packages/NotesEditor/Sources/MarkdownEditor")
         let whole = try String(contentsOf: package.appending(path: "MarkdownEditorView.swift"),
                                encoding: .utf8)
         func api(_ half: Int) throws -> Set<String> {
@@ -763,9 +751,7 @@ struct ShellComplianceTests {
     /// contents read as current.
     @Test("Neither sidebar decides for itself what a collection row says")
     func collectionRowsShareTheirContent() throws {
-        let source = try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/UI/NoteOutlineList.swift"), encoding: .utf8)
+        let source = try String(contentsOf: RepoFile.url("HelloNotes/UI/NoteOutlineList.swift"), encoding: .utf8)
         // One renderer now — the AppKit outline and the SwiftUI list became one
         // drawn list (`ChromeRows`) — so one call, and nothing derived beside it.
         #expect(source.ranges(of: "CollectionRowContent.make(").count >= 1,
@@ -797,9 +783,7 @@ struct ShellComplianceTests {
         let shell = try Self.source("ContentView.swift")
         #expect(shell.contains(#"@SceneStorage("inspectorPresented") private var inspectorPresented = false"#),
                 "the inspector default is not `false`, so a fresh scene can show a toggle with nothing behind it")
-        let overlay = try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/UI/InspectorOverlay.swift"), encoding: .utf8)
+        let overlay = try String(contentsOf: RepoFile.url("HelloNotes/UI/InspectorOverlay.swift"), encoding: .utf8)
         #expect(!overlay.contains("openedByHand"),
                 "the overlay has a second condition again, which the toolbar toggle cannot see")
     }
@@ -847,8 +831,7 @@ struct ShellComplianceTests {
     /// not matched here.
     @Test("No view draws the platform's orange")
     func noViewDrawsThePlatformsOrange() throws {
-        let root = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes")
+        let root = RepoFile.url("HelloNotes")
         let files = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
             .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
         #expect(files.count > 100, "the app's sources were not found, so this checks nothing")

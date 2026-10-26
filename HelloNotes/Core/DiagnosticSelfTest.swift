@@ -144,12 +144,14 @@ enum DiagnosticSelfTest {
     /// file goes. Removed from the cache alone, it stayed on the provider and
     /// the next walk put an empty placeholder back (implemented.md §51.36).
     static func removeLeftover(_ url: URL, in collection: Collection) async {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        // Looked for on its lane, and removed under coordination: it is in the
+        // person's collection, which may be a provider's folder
+        // (implemented.md §51.64).
+        guard await FileIO.onLane(for: url, { FileManager.default.fileExists(atPath: url.path) }) else { return }
         if let remote = collection.remote {
-            try? await remote.sendDelete(of: url, removing: { try FileManager.default.removeItem(at: url) },
-                                         failed: { _ in })
+            try? await remote.sendDelete(of: url, removing: { try FileIO.remove(at: url) }, failed: { _ in })
         } else {
-            try? FileManager.default.removeItem(at: url)
+            try? await FileIO.onLane(for: url) { try FileIO.remove(at: url) }
         }
     }
 
@@ -166,11 +168,13 @@ enum DiagnosticSelfTest {
         await hooks.close(note.id)
         await collection.deleteNote(note)
 
-        if FileManager.default.fileExists(atPath: note.fileURL.path) {
+        // Looked for on the note's lane, never the main actor (§51.64).
+        let url = note.fileURL
+        if await FileIO.onLane(for: url, { FileManager.default.fileExists(atPath: url.path) }) {
             MainActorWatchdog.note("SELFTEST cleanup — file survived deleteNote, removing it")
-            await removeLeftover(note.fileURL, in: collection)
+            await removeLeftover(url, in: collection)
         }
-        let gone = !FileManager.default.fileExists(atPath: note.fileURL.path)
+        let gone = await !FileIO.onLane(for: url, { FileManager.default.fileExists(atPath: url.path) })
         MainActorWatchdog.note("SELFTEST cleaned up \(note.fileURL.lastPathComponent) — removed=\(gone)")
     }
 

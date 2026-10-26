@@ -142,7 +142,7 @@ import Testing
     /// evaluation suites still did after §51.31, and every Mac they ran on
     /// kept one (`HelloNotesEvaluations.plist`).
     @Test func noTestNamesASuiteThatLivesInPreferences() throws {
-        let folder = URL(filePath: #filePath).deletingLastPathComponent()
+        let folder = RepoFile.url("HelloNotesTests")
         let sources = try FileManager.default.contentsOfDirectory(atPath: folder.path)
             .filter { $0.hasSuffix(".swift") && $0 != "ScratchDefaults.swift" && $0 != "ScratchDefaultsTests.swift" }
         #expect(sources.count > 50, "the scan read \(sources.count) test files")

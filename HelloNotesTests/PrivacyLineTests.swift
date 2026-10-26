@@ -83,10 +83,7 @@ struct PrivacyLineTests {
     }
 
     private static func source(_ name: String) throws -> String {
-        try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "HelloNotes")
+        try String(contentsOf: RepoFile.url("HelloNotes")
             .appending(path: name), encoding: .utf8)
     }
 }

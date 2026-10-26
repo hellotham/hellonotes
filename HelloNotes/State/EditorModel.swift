@@ -239,6 +239,11 @@ final class EditorModel {
     /// alone, and the note that showed it everywhere else pointed at nothing.
     var onFileMade: (@MainActor (URL) -> Void)?
 
+    /// Called before the editor puts a file beside its note, so the note's
+    /// collection registers it as its own before any watcher can hear of it
+    /// (`Collection.fileWillBeMadeHere`).
+    var onFileMaking: (@MainActor (URL) -> Void)?
+
     /// Asked before every write; a non-nil return refuses the save and becomes
     /// `saveError`. Set by the shell, which knows whether the note's collection
     /// is still readable.

@@ -256,9 +256,7 @@ struct FrontMatterSpliceTests {
     /// and moves no line of the body. Every one of them writes `tags:` as a
     /// flow list, which the first property added turned into a block list.
     @Test func everyShippedNoteKeepsItsFrontMatterAsWritten() throws {
-        let root = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "DefaultCollection")
+        let root = RepoFile.url("DefaultCollection")
         let files = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL } ?? []).filter { $0.pathExtension == "md" }
         var checked = 0

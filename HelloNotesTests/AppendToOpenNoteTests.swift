@@ -184,5 +184,39 @@ struct NewRepositoryTests {
         #expect(try FileIO.readString(at: taken.appendingPathComponent("README.md")) == "# Mine\n")
         #expect(git.lastError?.contains("isn't empty") == true)
     }
+
+    /// **A failed clone takes away only what it made.** Into an empty folder
+    /// that was there — the person's — its cleanup removed the folder itself
+    /// (implemented.md §51.64).
+    @Test func aFailedCloneLeavesAnEmptyFolderThatWasThere() async throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NewRepository-\(UUID().uuidString)", isDirectory: true)
+        let empty = parent.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let git = GitService()
+        #expect(await git.cloneRepository(from: "file:///nowhere-\(UUID().uuidString)/repo.git", into: parent) == nil)
+        var isFolder: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: empty.path, isDirectory: &isFolder) && isFolder.boolValue,
+                "a failed clone took away the empty folder that was there")
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: empty.path)) == [],
+                "a failed clone left what it made")
+    }
+
+    /// **A file of the clone's name is not deleted** when the clone fails on
+    /// it: the cleanup removed whatever had the name.
+    @Test func aFailedCloneLeavesAFileOfThatName() async throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NewRepository-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let file = parent.appendingPathComponent("repo")
+        try Data("mine".utf8).write(to: file)
+
+        let git = GitService()
+        #expect(await git.cloneRepository(from: "file:///nowhere-\(UUID().uuidString)/repo.git", into: parent) == nil)
+        #expect((try? Data(contentsOf: file)) == Data("mine".utf8), "a failed clone deleted a file of its name")
+    }
 }
 

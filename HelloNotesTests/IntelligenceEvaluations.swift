@@ -403,9 +403,7 @@ private enum AssistantHarness {
     static func run(_ prompt: String) async throws -> ModelSubject<String> {
         let vault = FileManager.default.temporaryDirectory
             .appendingPathComponent("AssistantEval-\(UUID().uuidString)", isDirectory: true)
-        let sample = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("SampleVault")
+        let sample = RepoFile.url("SampleVault")
         try FileManager.default.copyItem(at: sample, to: vault)
         defer { try? FileManager.default.removeItem(at: vault) }
 
@@ -518,9 +516,7 @@ struct AssistantWithoutToolsEvaluation {
         let base = manager.temporaryDirectory.appendingPathComponent("ChatOnlyEval-\(UUID().uuidString)", isDirectory: true)
         let vault = base.appendingPathComponent("SampleVault", isDirectory: true)
         try manager.createDirectory(at: base, withIntermediateDirectories: true)
-        try manager.copyItem(at: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("SampleVault"), to: vault)
+        try manager.copyItem(at: RepoFile.url("SampleVault"), to: vault)
         defer { try? manager.removeItem(at: base) }
 
         let collection = Collection(rootURL: vault)

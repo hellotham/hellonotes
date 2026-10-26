@@ -68,9 +68,7 @@ struct ResponseReportTests {
     /// since a test that reads a document fails silently when the document
     /// moves (CLAUDE.md).
     @Test func theContactAddressIsTheOneTheWebsitePublishes() throws {
-        let site = try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "website/src/lib/site.ts"), encoding: .utf8)
+        let site = try String(contentsOf: RepoFile.url("website/src/lib/site.ts"), encoding: .utf8)
         let published = try #require(site.firstMatch(of: /email: '([^']+)'/)?.output.1,
                                      "website/src/lib/site.ts no longer says `email: '…'`")
         #expect(String(published) == SupportRequestSection.supportAddress)
@@ -87,9 +85,7 @@ struct ResponseReportTests {
 struct AIReportSurfacesTests {
 
     private static func source(_ path: String) throws -> String {
-        try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/\(path)"), encoding: .utf8)
+        try String(contentsOf: RepoFile.url("HelloNotes/\(path)"), encoding: .utf8)
     }
 
     /// File, and the features in it that show a model's text.

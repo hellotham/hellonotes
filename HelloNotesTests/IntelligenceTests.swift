@@ -584,9 +584,7 @@ struct AssistantInstructionsTests {
 /// only useful in a build that offers the model.
 struct PrivateCloudComputeEntitlementTests {
     @Test func theFlagAndTheEntitlementAgree() throws {
-        let entitlements = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/HelloNotes.entitlements")
+        let entitlements = RepoFile.url("HelloNotes/HelloNotes.entitlements")
         let plist = try #require(NSDictionary(contentsOf: entitlements))
         let entitled = (plist["com.apple.developer.private-cloud-compute"] as? Bool) == true
 
@@ -613,9 +611,7 @@ struct PrivateCloudComputeEntitlementTests {
     /// file the test above reads. Written back as a plain path, the override
     /// would override nothing, and the release's export would fail.
     @Test func theDirectDownloadCanBeSignedWithoutIt() throws {
-        let project = try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes.xcodeproj/project.pbxproj"), encoding: .utf8)
+        let project = try String(contentsOf: RepoFile.url("HelloNotes.xcodeproj/project.pbxproj"), encoding: .utf8)
         func count(_ line: String) -> Int { project.components(separatedBy: line).count - 1 }
         // The app target's Debug and Release, and no other target's.
         #expect(count("CODE_SIGN_ENTITLEMENTS = \"$(HN_APP_ENTITLEMENTS)\";") == 2)
@@ -652,8 +648,7 @@ struct PrivateCloudComputeWordingTests {
     /// Assistant told people retired from an AI service they could choose
     /// "(Function)". One compiler warning was the whole signal (§51.55).
     @Test func noSentenceInterpolatesTheFunctionItself() throws {
-        let app = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes")
+        let app = RepoFile.url("HelloNotes")
         let files = try #require(FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil))
         var found: [String] = []
         for case let url as URL in files where url.pathExtension == "swift" {
@@ -691,9 +686,7 @@ struct PrivateCloudComputeWordingTests {
         #expect(models.privacySummary(of: .privateCloud).hasSuffix(claim))
         #expect(line.hasSuffix(claim))
         // And the Assistant draws it, once there is a conversation.
-        let assistant = try String(contentsOf: URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/UI/Assistant/AssistantView.swift"), encoding: .utf8)
+        let assistant = try String(contentsOf: RepoFile.url("HelloNotes/UI/Assistant/AssistantView.swift"), encoding: .utf8)
         #expect(assistant.contains("if !model.entries.isEmpty, let line = models.conversationPrivacy(of: model.modelChoice)"))
     }
 }

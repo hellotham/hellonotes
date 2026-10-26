@@ -43,8 +43,9 @@ nonisolated enum FileIO {
     // MARK: - Reads
 
     /// Coordinated `Data` read. Materializes an online-only (dataless) file on
-    /// demand before returning its bytes.
-    static func readData(at url: URL) throws -> Data {
+    /// demand before returning its bytes. `options` as `Data(contentsOf:)`
+    /// takes them — a PDF is read `.mappedIfSafe` (`FilePDFView`).
+    static func readData(at url: URL, options: Data.ReadingOptions = []) throws -> Data {
         var coordinatorError: NSError?
         var result: Result<Data, Error>?
         let coordinator = NSFileCoordinator(filePresenter: nil)
@@ -52,7 +53,7 @@ nonisolated enum FileIO {
         // (`.immediatelyAvailableMetadataOnly` would *avoid* materialization —
         // the opposite of what a content read wants.)
         coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
-            result = Result { try Data(contentsOf: actualURL) }
+            result = Result { try Data(contentsOf: actualURL, options: options) }
         }
         if let coordinatorError { throw coordinatorError }
         guard let result else { throw CocoaError(.fileReadUnknown) }
@@ -159,9 +160,12 @@ nonisolated enum FileIO {
     /// mid-write from ever leaving a truncated note on disk.
     static func write(_ data: Data, to url: URL) throws {
         var coordinatorError: NSError?
-        var writeError: Error?
+        // Failed until the block runs: a coordinator that neither ran it nor
+        // said why has written nothing (implemented.md §51.64).
+        var writeError: Error? = CocoaError(.fileWriteUnknown)   // until the block runs
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+            writeError = nil
             do { try data.write(to: actualURL, options: .atomic) }
             catch { writeError = error }
         }
@@ -272,9 +276,10 @@ nonisolated enum FileIO {
     /// half of a copy under the copy's name; `create` writes in place.
     private static func createAtomically(_ data: Data, at url: URL) throws {
         var coordinatorError: NSError?
-        var writeError: Error?
+        var writeError: Error? = CocoaError(.fileWriteUnknown)   // until the block runs
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(writingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+            writeError = nil
             let staging = actualURL.deletingLastPathComponent()
                 .appendingPathComponent(".\(UUID().uuidString).hellonotes-staging")
             do {
@@ -297,14 +302,80 @@ nonisolated enum FileIO {
     /// the `.withoutOverwriting` guarantee callers relied on.
     static func create(_ data: Data, at url: URL) throws {
         var coordinatorError: NSError?
-        var writeError: Error?
+        var writeError: Error? = CocoaError(.fileWriteUnknown)   // until the block runs
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(writingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+            writeError = nil
             do { try data.write(to: actualURL, options: .withoutOverwriting) }
             catch { writeError = error }
         }
         if let coordinatorError { throw coordinatorError }
         if let writeError { throw writeError }
+    }
+
+    /// Coordinated **folder** creation, and any folder it sits in that is not
+    /// there yet. `FileManager.createDirectory` made folders in the vault
+    /// behind every presenter's back — a provider's among them — where a
+    /// coordinated write on the new folder's URL tells the presenters of the
+    /// one it is made in (implemented.md §51.64). `withIntermediateDirectories:
+    /// false` fails if the folder is already there, which a caller finding a
+    /// free name relies on.
+    ///
+    /// **A folder that is there is left alone, uncoordinated**, as
+    /// `FileManager` leaves it. A coordinated write on it is a change to it for
+    /// every presenter of it — on iOS the collection's own, which took a daily
+    /// note's folder, or a pasted picture's, for news — when nothing changes.
+    /// (It waits for nothing held inside it: a write on a folder does not wait
+    /// for a file in it, probed, where a delete of the folder does.)
+    static func createDirectory(at url: URL, withIntermediateDirectories: Bool = true) throws {
+        if withIntermediateDirectories {
+            var isFolder: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), isFolder.boolValue { return }
+        }
+        var coordinatorError: NSError?
+        var made: Result<Void, Error> = .failure(CocoaError(.fileWriteUnknown))
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+            made = Result {
+                try FileManager.default.createDirectory(at: actualURL,
+                                                        withIntermediateDirectories: withIntermediateDirectories)
+            }
+        }
+        if let coordinatorError { throw coordinatorError }
+        try made.get()
+    }
+
+    /// Coordinated **trash** — `Trash.item`, which decides between the Trash
+    /// and a delete for the platform, inside a coordinated write for deleting:
+    /// a provider is told the item is going rather than finding it gone, and a
+    /// presenter of it is asked to let go (`accommodatePresentedItemDeletion`).
+    /// It was called bare, on the pool (implemented.md §51.64).
+    @discardableResult
+    static func trash(at url: URL) throws -> Trash.Outcome {
+        var coordinatorError: NSError?
+        var outcome: Result<Trash.Outcome, Error> = .failure(CocoaError(.fileWriteUnknown))
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: url, options: .forDeleting, error: &coordinatorError) { actualURL in
+            outcome = Result { try Trash.item(at: actualURL) }
+        }
+        if let coordinatorError { throw coordinatorError }
+        return try outcome.get()
+    }
+
+    /// Coordinated **delete**, for what the app made and takes back — a new
+    /// repository's folder after a create or a clone that failed, the
+    /// self-test's scratch note — and never for what the person made, which
+    /// goes to the Trash (`trash`). They were `FileManager.removeItem`, bare,
+    /// in folders a cloud provider may keep (implemented.md §51.64).
+    static func remove(at url: URL) throws {
+        var coordinatorError: NSError?
+        var removed: Result<Void, Error> = .failure(CocoaError(.fileWriteUnknown))
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: url, options: .forDeleting, error: &coordinatorError) { actualURL in
+            removed = Result { try FileManager.default.removeItem(at: actualURL) }
+        }
+        if let coordinatorError { throw coordinatorError }
+        try removed.get()
     }
 
     /// Coordinated **move** — a rename, or a move into another folder.
@@ -322,11 +393,12 @@ nonisolated enum FileIO {
     /// tell every other presenter to *follow* the file instead of losing it.
     static func move(from source: URL, to destination: URL) throws {
         var coordinatorError: NSError?
-        var moveError: Error?
+        var moveError: Error? = CocoaError(.fileWriteUnknown)   // until the block runs
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(writingItemAt: source, options: .forMoving,
                                writingItemAt: destination, options: .forReplacing,
                                error: &coordinatorError) { from, to in
+            moveError = nil
             coordinator.item(at: from, willMoveTo: to)
             do { try FileManager.default.moveItem(at: from, to: to) }
             catch { moveError = error }
@@ -352,10 +424,11 @@ nonisolated enum FileIO {
     /// one rename — a download, put in place after its checks.
     static func putInPlace(_ staged: URL, at destination: URL) throws {
         var coordinatorError: NSError?
-        var replaceError: Error?
+        var replaceError: Error? = CocoaError(.fileWriteUnknown)   // until the block runs
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(writingItemAt: destination, options: .forReplacing,
                                error: &coordinatorError) { to in
+            replaceError = nil
             do { _ = try FileManager.default.replaceItemAt(to, withItemAt: staged) }
             catch { replaceError = error }
         }
@@ -368,11 +441,12 @@ nonisolated enum FileIO {
     /// coordinator, and the destination is a write another presenter must see.
     static func copy(from source: URL, to destination: URL) throws {
         var coordinatorError: NSError?
-        var copyError: Error?
+        var copyError: Error? = CocoaError(.fileWriteUnknown)   // until the block runs
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(readingItemAt: source, options: [],
                                writingItemAt: destination, options: .forReplacing,
                                error: &coordinatorError) { from, to in
+            copyError = nil
             do { try FileManager.default.copyItem(at: from, to: to) }
             catch { copyError = error }
         }
@@ -519,6 +593,20 @@ nonisolated enum FileIO {
         }
     }
 
+    /// The bytes of a file a note shows — a picture it embeds, or one its HTML
+    /// points at: waited for if its provider has it online-only, with the
+    /// deadline a download is given anywhere (`waitForDownload`), then read
+    /// under coordination — the questions and the read on the scans' lanes,
+    /// where the transclusions drawn beside it are read. A coordinated read of
+    /// a file not here yet downloads it inside the read, and held its lane for
+    /// as long as that took, with no end (implemented.md §51.64). `nil` when
+    /// it is not here by then, or cannot be read; a file that is not there at
+    /// all is not waited for (`isMaterialized`).
+    static func embeddedData(at url: URL) async -> Data? {
+        guard await waitForDownload(at: url, using: .scans) == .arrived else { return nil }
+        return await onScanLane(for: url) { try? FileIO.readData(at: url) }
+    }
+
     /// Where the app asks about one file at a time (`ProviderCalls.lanes`).
     static let sharedLanes = ProviderCalls.makeLanes("com.hellotham.HelloNotes.file-provider")
     /// Where loops over many files ask (`onScanLane`): lanes of their own, at
@@ -531,9 +619,11 @@ nonisolated enum FileIO {
     /// stand-in provider to ask. A coordinated `FileIO` call goes through
     /// here, through an editor's `provider` (a lane of the editor's own), or
     /// through `onScanLane`; never `offMain`, whose synchronous body holds a
-    /// thread of the pool for the whole wait (implemented.md §51.63). Not yet
-    /// through any of them: directory listings, folder creation, deletes and
-    /// bookmark resolution, which are not `FileIO` calls.
+    /// thread of the pool for the whole wait (implemented.md §51.63). Folders
+    /// are made and items deleted through `FileIO` as well (`createDirectory`,
+    /// `trash`, `remove`), and a collection looks at its own folder on a lane
+    /// of its own (`Collection.onRootLane`, §51.64). Not through any of them,
+    /// by design: the walk's listings (`ResumableTreeWalk`).
     static func onLane<T: Sendable, E: Error>(for url: URL,
                                               _ body: @escaping @Sendable () throws(E) -> T) async throws(E) -> T {
         try await ProviderCalls.live.onLane(for: url, body)

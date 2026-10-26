@@ -212,9 +212,7 @@ struct RecursiveListingTests {
 struct RecursiveListingCoverageTests {
 
     private static func source(_ name: String) throws -> String {
-        let url = URL(filePath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "HelloNotes/Core/Remote/\(name)")
+        let url = RepoFile.url("HelloNotes/Core/Remote/\(name)")
         return try String(contentsOf: url, encoding: .utf8)
     }
 
