@@ -570,43 +570,6 @@ extension UnloadedNoteTests {
     }
 }
 
-/// A file held the way a cloud provider holds one it is still writing: under a
-/// coordinated write, which a coordinated read — `FileIO.readData` — waits for,
-/// and so does a coordinated write. Held until the test lets it go, and only
-/// then. It used to let go by itself ten seconds after it was made, so that a
-/// save queued behind it would finish and fail the test rather than hang it;
-/// and on CI's runner, every test in the target sharing the main actor, the
-/// test had not reached its save by then — the note loaded, the save wrote
-/// into a loaded note, and two tests failed with the app right
-/// (implemented.md §51.62). The step that may queue is waited for with the
-/// test's patience instead (`finishesWhileHeld`), and the hold let go after.
-nonisolated private final class ProviderHold: @unchecked Sendable {
-    private let done = DispatchSemaphore(value: 0)
-    private let lock = NSLock()
-    private var released = false
-
-    init(_ url: URL) {
-        let held = DispatchSemaphore(value: 0)
-        Thread { [done] in
-            var error: NSError?
-            NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forReplacing,
-                                                             error: &error) { _ in
-                held.signal()
-                done.wait()
-            }
-            if error != nil { held.signal() }
-        }.start()
-        held.wait()
-    }
-
-    func release() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !released else { return }
-        released = true
-        done.signal()
-    }
-}
 
 /// Whether a step `finishesWhileHeld` started has come back.
 @MainActor private final class Finished {

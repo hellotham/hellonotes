@@ -173,8 +173,10 @@ final class EditorModel {
     /// How long opening waits for a note still in the cloud before saying it
     /// has not come. A test makes it short; nothing else changes it.
     @ObservationIgnored var downloadPatience: Duration = .seconds(60)
-    /// The file provider's calls — a test's stand-in, or the real ones.
-    @ObservationIgnored var provider: FileIO.ProviderCalls = .live
+    /// The file provider's calls — a test's stand-in, or the real ones on a
+    /// lane of this editor's own, so its note's open, save and look at the
+    /// disk never wait behind another file's held I/O (implemented.md §51.63).
+    @ObservationIgnored var provider: FileIO.ProviderCalls = .ownLane("com.hellotham.HelloNotes.editor")
 
     /// Set when the note's contents could not be loaded — still downloading, or
     /// unreadable. **While this is set the editor never writes**, because the
@@ -697,7 +699,7 @@ final class EditorModel {
         let buffer = text
         let generation = textGeneration
         let baseline = lastSavedChanges
-        let found = await offMain { () -> (disk: String, unchanged: Bool, bufferIsKnown: Bool)? in
+        let found = await provider.onLane(for: url) { () -> (disk: String, unchanged: Bool, bufferIsKnown: Bool)? in
             guard FileIO.isMaterialized(at: url), let disk = try? FileIO.readString(at: url) else { return nil }
             let unchanged = Self.sameBytes(disk, known)
             // Only asked when the file did change: whether the buffer still
@@ -851,7 +853,7 @@ final class EditorModel {
         let mine = text
         let previous = conflictCopy.flatMap { Self.openNoteURLs.contains($0.url) ? nil : $0 }
         do {
-            let kept = try await offMain { () throws -> (url: URL, text: String) in
+            let kept = try await provider.onLane(for: url) { () throws -> (url: URL, text: String) in
                 var bytes = mine
                 bytes.makeContiguousUTF8()
                 let data = Data(bytes.utf8)
@@ -948,7 +950,7 @@ final class EditorModel {
             // elsewhere since the last look was written over at the next save,
             // and a save already past its checks when a change was noticed put
             // mine over theirs with the banner up. `nil`: the file has moved.
-            let written = try await offMain { () throws -> (wrote: Bool, saved: String)? in
+            let written = try await provider.onLane(for: url) { () throws -> (wrote: Bool, saved: String)? in
                 var bytes = snapshot
                 bytes.makeContiguousUTF8()
                 guard !Self.sameBytes(bytes, onDisk) else { return (false, bytes) }

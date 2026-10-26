@@ -177,7 +177,7 @@ final class NoteComposer {
         do {
             // Off the main actor: a coordinated write to a cloud folder waits
             // for its provider.
-            try await offMain { try FileIO.write(data, to: url) }
+            try await FileIO.onLane(for: url) { try FileIO.write(data, to: url) }
         } catch {
             collection.lastError = "Couldn't write the note: \(error.localizedDescription)"
             return note

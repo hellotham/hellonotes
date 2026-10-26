@@ -277,7 +277,7 @@ final class MLXModelStore {
             return
         }
         let directory = chosen.directory
-        if let missing = await offMain({ MLXModelStore.firstFileNotOnDevice(in: directory) }) {
+        if let missing = await FileIO.onScanLane(for: directory, { MLXModelStore.firstFileNotOnDevice(in: directory) }) {
             availability = .unavailable("“\(missing)” in \(chosen.name) hasn't downloaded to this device yet.")
             return
         }

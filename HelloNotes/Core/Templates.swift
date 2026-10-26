@@ -53,7 +53,7 @@ enum Templates {
     /// dataless cloud file, and the rule is that nothing folder-scale or
     /// provider-backed happens on the editor's thread.
     static func expanded(_ template: TemplateRef, noteTitle: String) async -> String? {
-        let raw = await offMain { try? FileIO.readString(at: template.url) }
+        let raw = await FileIO.onLane(for: template.url) { try? FileIO.readString(at: template.url) }
         guard let raw else { return nil }
         return TemplateExpander.expand(raw, title: noteTitle, date: .now)
     }

@@ -81,7 +81,7 @@ enum MentionLinker {
             return
         }
         // Otherwise the file — and only over the text the link was found in.
-        let updated = await offMain { () -> String? in
+        let updated = await FileIO.onScanLane(for: note.fileURL) { () -> String? in
             guard let text = try? FileIO.readString(at: note.fileURL),
                   let updated = MentionScanner.linkingFirstMention(of: names, to: title, in: text),
                   (try? FileIO.replace(updated, at: note.fileURL, ifContentsEqual: text)) == true

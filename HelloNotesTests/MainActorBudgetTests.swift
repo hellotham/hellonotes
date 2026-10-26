@@ -30,18 +30,24 @@ import UIKit
 /// **These tests are expected to FAIL until the indexer work lands.** They are
 /// the baseline, written first on purpose. A failure here is the bug, printed as
 /// a number, and the number is what says whether a change helped.
-/// **Run this suite alone**, and never as part of the whole test run:
+/// **Run this suite alone**, and never as part of the whole test run — and
+/// through the script, never a bare `xcodebuild test`, which opens the app on
+/// the person's screen (CLAUDE.md):
 ///
-///     xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes \
-///       -destination 'platform=macOS' \
-///       -only-testing:HelloNotesTests/MainActorBudgetTests
-///
-/// It is **skipped unless `HN_BUDGET_TESTS` is set**, because it cannot give a
+/// It is **skipped unless `HN_BUDGET_TESTS` is set** in the test host,
+/// because it cannot give a
 /// true answer inside a full run and a suite that always fails is a suite
 /// everyone learns to ignore:
 ///
-///     HN_BUDGET_TESTS=1 ./scripts/run-tests.sh \
+///     TEST_RUNNER_HN_BUDGET_TESTS=1 ./scripts/run-tests.sh \
 ///       -only-testing:HelloNotesTests/MainActorBudgetTests
+///
+/// `TEST_RUNNER_`, because xcodebuild hands the test host only variables with
+/// that prefix (and takes it off). Set as `HN_BUDGET_TESTS=1`, as this said
+/// until §51.63, the variable never arrived and every test skipped — which
+/// the run reports as seventeen tests passed in a thousandth of a second, so
+/// two paths over budget went unseen. And name the suite, not a test: one
+/// function under `-only-testing` runs nothing.
 ///
 /// It measures main-thread CPU, and the main thread is shared. Swift Testing
 /// runs tests concurrently and every test in this target is `@MainActor`, so a
@@ -53,7 +59,7 @@ import UIKit
 /// This is the fourth instrument for this measurement and the third to be caught
 /// by its own control. The controls stay first in the file for that reason.
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["HN_BUDGET_TESTS"] != nil,
-                             "measures main-thread CPU; set HN_BUDGET_TESTS=1 and run this suite alone"))
+                             "measures main-thread CPU; set TEST_RUNNER_HN_BUDGET_TESTS=1 and run this suite alone"))
 @MainActor
 struct MainActorBudgetTests {
 

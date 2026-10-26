@@ -65,7 +65,7 @@ enum ImagePaste {
     /// Write `pngData` where `placement` says, off the main actor. Whether it
     /// was written.
     static func write(_ pngData: Data, to placement: Placement) async -> Bool {
-        let written = await offMain { () -> Bool in
+        let written = await FileIO.onLane(for: placement.url) { () -> Bool in
             try? FileManager.default.createDirectory(at: placement.folder, withIntermediateDirectories: true)
             return (try? FileIO.create(pngData, at: placement.url)) != nil
         }

@@ -445,28 +445,43 @@ nonisolated enum FileIO {
             isHere: { url, need in need == .latest ? FileIO.isCurrent(at: url) : FileIO.isMaterialized(at: url) },
             askFor: { url in try? FileIO.download(at: url) })
 
+        /// The live calls, asked on the scans' lanes (`FileIO.onScanLane`).
+        static let scans = ProviderCalls(isHere: live.isHere, askFor: live.askFor, lanes: FileIO.scanLanes)
+
+        /// The live calls, asked on a lane of their own — an editor's, so its
+        /// note's open, save, Keep Mine and look at the disk never wait behind
+        /// another file's held I/O, and a save at quit is not lost behind one
+        /// (implemented.md §51.63).
+        static func ownLane(_ label: String) -> ProviderCalls {
+            ProviderCalls(isHere: live.isHere, askFor: live.askFor,
+                          lanes: [DispatchQueue(label: label, qos: .userInitiated)])
+        }
+
         /// Sixteen serial queues: a silent provider holds at most one a file,
         /// and sixteen in all.
-        static func makeLanes(_ label: String) -> [DispatchQueue] {
-            (0..<16).map { DispatchQueue(label: "\(label).\($0)", qos: .userInitiated) }
+        static func makeLanes(_ label: String, qos: DispatchQoS = .userInitiated) -> [DispatchQueue] {
+            (0..<16).map { DispatchQueue(label: "\(label).\($0)", qos: qos) }
         }
 
         func lane(for url: URL) -> DispatchQueue {
             lanes[Int(UInt(bitPattern: url.path.hashValue) % UInt(lanes.count))]
         }
 
-        /// Do `body` — a synchronous call the file's provider can hold up, such
-        /// as a coordinated read — on the file's lane, and wait for it without
-        /// holding a thread of the concurrency pool. On the pool, a read of a
-        /// file its provider held kept one of the pool's few threads for the
-        /// whole wait, and every sleeping task wakes through the pool — the
-        /// main actor's too — so three at once stopped every task in the
-        /// process on CI's three-core runner until a hold let go
-        /// (implemented.md §51.62).
-        func onLane<T: Sendable>(for url: URL, _ body: @escaping @Sendable () -> T) async -> T {
-            await withCheckedContinuation { continuation in
-                lane(for: url).async { continuation.resume(returning: body()) }
+        /// Do `body` — a synchronous call the file's provider can hold up: a
+        /// coordinated read, write, move or copy, or a question to the provider
+        /// — on the file's lane, and wait for it without holding a thread of
+        /// the concurrency pool. On the pool, a read of a file its provider held
+        /// kept one of the pool's few threads for the whole wait, and every
+        /// sleeping task wakes through the pool — the main actor's too — so
+        /// three at once stopped every task in the process on CI's three-core
+        /// runner until a hold let go (implemented.md §51.62, §51.63). Throws
+        /// what `body` throws, and nothing when it throws nothing.
+        func onLane<T: Sendable, E: Error>(for url: URL,
+                                           _ body: @escaping @Sendable () throws(E) -> T) async throws(E) -> T {
+            let result: Result<T, E> = await withCheckedContinuation { continuation in
+                lane(for: url).async { continuation.resume(returning: Result { () throws(E) -> T in try body() }) }
             }
+            return try result.get()
         }
     }
 
@@ -504,8 +519,35 @@ nonisolated enum FileIO {
         }
     }
 
-    /// Where the app asks the provider (`ProviderCalls.lanes`).
+    /// Where the app asks about one file at a time (`ProviderCalls.lanes`).
     static let sharedLanes = ProviderCalls.makeLanes("com.hellotham.HelloNotes.file-provider")
+    /// Where loops over many files ask (`onScanLane`): lanes of their own, at
+    /// utility priority, so a file a background scan waits on holds up no one
+    /// else's open, save, rename or append.
+    static let scanLanes = ProviderCalls.makeLanes("com.hellotham.HelloNotes.scans", qos: .utility)
+
+    /// `ProviderCalls.onLane` on the app's own lanes, for one file at a time —
+    /// a rename, an append, a new note, an export — from code with no
+    /// stand-in provider to ask. A coordinated `FileIO` call goes through
+    /// here, through an editor's `provider` (a lane of the editor's own), or
+    /// through `onScanLane`; never `offMain`, whose synchronous body holds a
+    /// thread of the pool for the whole wait (implemented.md §51.63). Not yet
+    /// through any of them: directory listings, folder creation, deletes and
+    /// bookmark resolution, which are not `FileIO` calls.
+    static func onLane<T: Sendable, E: Error>(for url: URL,
+                                              _ body: @escaping @Sendable () throws(E) -> T) async throws(E) -> T {
+        try await ProviderCalls.live.onLane(for: url, body)
+    }
+
+    /// `onLane` for a loop over many files — the search index, a rebuild, the
+    /// Assistant's exact-text search — and for work in the background, on the
+    /// scans' own lanes. On one set of lanes for everything, a file a scan
+    /// waited on held up every other file on its lane — an open, a save, a
+    /// rename — one file in sixteen (implemented.md §51.63).
+    static func onScanLane<T: Sendable, E: Error>(for url: URL,
+                                                  _ body: @escaping @Sendable () throws(E) -> T) async throws(E) -> T {
+        try await ProviderCalls.scans.onLane(for: url, body)
+    }
 
     /// Where deadlines are kept. Serial, so it is given a thread even when
     /// GCD's shared pool is full of calls that have not come back.

@@ -86,16 +86,20 @@ final class CollectionSearchModel {
 
         // Read the files AND fold them into the derived aggregates entirely off
         // the main actor — the editor thread never sees this work.
-        let derived = await offMain { () -> Derived in
-            let entries: [Entry] = urls.compactMap { url in
+        let derived = await offMainAwaiting { () -> Derived in
+            var entries: [Entry] = []
+            for url in urls {
                 // Skip files whose content isn't local so metadata indexing never
                 // downloads a whole cloud vault — and never mistakes a mirror
                 // placeholder for an empty note. They're indexed once hydrated.
-                guard let note = noteByURL[url], FileIO.hasContentAvailable(note),
-                      let text = try? FileIO.readString(at: url) else { return nil }
+                // Asked and read on the note's lane (`FileIO.onLane`).
+                guard let note = noteByURL[url],
+                      let text = await FileIO.onScanLane(for: url, {
+                          FileIO.hasContentAvailable(note) ? try? FileIO.readString(at: url) : nil
+                      }) else { continue }
                 let parsed = CollectionIndexCache.parse(text)
-                return Entry(note: note, headings: parsed.headings,
-                             tags: parsed.tags, aliases: parsed.aliases)
+                entries.append(Entry(note: note, headings: parsed.headings,
+                                     tags: parsed.tags, aliases: parsed.aliases))
             }
             return CollectionSearchModel.computeDerived(from: entries)
         }
@@ -362,15 +366,18 @@ final class CollectionSearchModel {
         }
         guard !urls.isEmpty else { return [] }
 
-        let found = await offMain { () -> [(URL, String)] in
+        let found = await offMainAwaiting { () -> [(URL, String)] in
             var hits: [(URL, String)] = []
             for url in urls {
                 // Full-text search reads bodies; skip files whose content isn't
                 // local so a query never silently downloads the vault, nor
                 // matches nothing against a placeholder. Title/tag/alias search
-                // (metadata) still covers them.
-                guard let note = noteByURL[url], FileIO.hasContentAvailable(note),
-                      let text = try? FileIO.readString(at: url),
+                // (metadata) still covers them. Asked and read on the note's
+                // lane (`FileIO.onLane`).
+                guard let note = noteByURL[url],
+                      let text = await FileIO.onScanLane(for: url, {
+                          FileIO.hasContentAvailable(note) ? try? FileIO.readString(at: url) : nil
+                      }),
                       let snippet = Self.snippet(of: text, matching: q) else { continue }
                 hits.append((url, snippet))
                 if hits.count >= limit { break }

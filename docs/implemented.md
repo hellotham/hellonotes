@@ -8416,6 +8416,139 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.63 Coordinated file I/O off the concurrency pool, and off the main actor (2026-10-26)
+
+§51.62 found that opening a note held a thread of the concurrency pool for as
+long as the note's provider held its file — a coordinated read blocks its
+thread until the provider lets go — and that three such waits stopped every
+task in the process on CI's three-core runner, because every sleeping task
+wakes through the pool, the main actor's too. The open's read went to the
+file's lane. This does the same for everything else.
+
+**The inventory**: 121 `offMain` and `Task.detached` sites in the app; 37
+reached a coordinated `FileIO` call or a question to a provider, directly or
+through a helper — read from each closure, since a name match is not a call
+(six of the "via" matches were `Array.append` and the like). Seven more
+coordinated calls ran outside any of them: three helpers those sites call,
+the open's read already moved, and — worse than the pool — four on the main
+actor, where a held file held the app itself.
+
+- **One file, on its lane** (`FileIO.onLane(for:)`, the app's own lanes, or
+  an editor's `provider.onLane` so a test's stand-in brings its own): the
+  editor's save, keep-mine copy and look at the disk; the collection's new
+  note, note from a path, append (Quick Capture, dictation, the daily note),
+  rename, move, duplicate and both downloads; the opening lines of a note;
+  the Assistant's read, new note and approved save; Compose's link and new
+  note; a template; an image pasted into the vault; a CSV (read on its lane,
+  parsed off the main actor); a transcluded section; an image's alt text
+  (`VisionAlt`, `@concurrent`); and an MLX folder's question of whether its
+  files have downloaded.
+- **On the main actor until now**: the read behind Export and Print
+  (`ShellActions.text(of:)`, now `async` — it was already only called from
+  the async export path, and a note not yet downloaded was materialised on
+  the main thread), Remove Download's eviction, and the Mac's export write
+  after the save panel.
+- **Many files, one lane hop each**: the search model's index and its
+  full-text results, the derived-index rebuild, the relatedness index, the
+  Assistant's exact-text search, unlinked mentions, the skills folder, and
+  the link rewrite after a rename (its read and its write each on the
+  note's lane, the pattern between them off the main actor). These loops
+  were synchronous `offMain` bodies, so they now run in `offMainAwaiting` —
+  `offMain` for work that awaits, `@concurrent` in the closure's type as
+  well — and await `FileIO.onLane` per file. An async closure here can be
+  inferred main-actor (memory: the default-isolation trap), so it was
+  probed under the target's settings first: off the main thread before and
+  after a lane hop, touching a main-actor type or not.
+- **Left where they are, each for a reason**: the cloud mirror's own cache
+  (`RemoteMirror`, `Library.restoreRemoteCollections`) is in the app's
+  container, which no provider holds; libgit2 (`GitService`) does its own,
+  uncoordinated I/O; a new repository's README is a new file in a new folder,
+  in a job that then pushes over the network and would hold a lane for it;
+  the walk's listings are directory reads, not coordination; the Assistant's
+  section cut is string work; and `Collection.adopt(hydrated:)` reads a
+  modification date and a size, which the file system answers without the
+  provider.
+
+`FileIO.onLane` takes typed throws, so a body that throws nothing is awaited
+without `try`, and runs on the file's serial lane — one file, one lane, a held
+file holding its lane and never the pool (a concurrent queue would hold one of
+GCD's capped threads per wait, §51.51). Nothing on a lane calls back into a
+lane, which on a serial queue would wait for itself.
+
+**Then two reviews** — the project's concurrency and vault-I/O reviewers, each
+reading the diff on its own — found the same thing first: **one set of lanes
+for everything coupled unrelated files.** Sixteen lanes chosen by a path's
+hash, each running one body at a time, so a background scan waiting on a file
+its provider held held up every other file on that lane — an open, a save, a
+rename — one file in sixteen (measured on a replica: 2.09 s behind a 2.1 s
+hold, 1.2 ms on another lane). And at quit, a save queued behind it outlived
+the five seconds a flush is given, and was lost. So there are three kinds of
+lane now: **an editor's own** (`ProviderCalls.ownLane`, every editor's
+default `provider`), so its note's open, save, Keep Mine and look at the disk
+wait for nothing but that note; **the scans'** (`FileIO.onScanLane`, sixteen
+more at utility priority) for every loop over many files and the work done in
+the background — the search index and its results, the rebuild, relatedness,
+the Assistant's exact-text search, unlinked mentions, skills, the bulk
+download for search, transcluded cards, Compose's link, an image's alt text,
+an MLX folder's question; and **the app's** (`FileIO.onLane`) for one file
+at a time on someone's behalf. One file's work need not stay in order across
+the sets: coordination keeps writers apart, and the saves and appends that
+matter replace only over what they read.
+
+The reviews' other findings, each taken: **the rename's link rewrite** had
+become two hops, a read and then a plain write, so an editor's save could
+land between them and be lost; it is one hop on the note's lane now, replaced
+only over the text it read and read again up to three times, as `append` is
+(`Collection.rewritingLinks`). **Unlinked mentions read Spotlight's candidates
+whether or not they were on the device**, which for a common title downloads
+the vault; they skip the ones that are not, as every other loop does, and
+stop when a newer selection's refresh starts — so do skills. **A transcluded
+card keyed its cache on a modification date read from a stored URL** off the
+main run loop, which keeps its first answer (§51.56); it reads
+`FileIO.currentResourceValues`. **`@discardableResult` came off `onLane`**,
+which would have dropped a `replace`'s `false` without a word, and **the
+`offMainAwaiting` documentation says its body awaits nothing but a lane**:
+an `await` of main-actor state there compiles silently, Swift 5 or 6, and
+would hop to the main actor and back on every pass. The doc comment that
+said every provider question goes through a lane says what does not:
+directory listings, folder creation, deletes and bookmark resolution, which
+are not `FileIO` calls — and, with the raw reads of embedded images and PDFs
+the vault review found, a task of their own.
+
+**`HeldFileTests`** hold more files than the pool has threads
+(`activeProcessorCount + 2`), each loaded in an editor on its own lane, start
+a save — or a look at the disk — on each, and ask whether a task that sleeps
+off the main actor keeps waking while every one of them waits. The premise,
+that every step is waiting on its file, is a marker put on each editor's
+lane while the files are held, which cannot run behind a body waiting on a
+held file and does run behind one that never came: counting the steps not
+yet finished, as it first did, would pass a step that never started.
+(Control: a save step that does nothing fails it — "18 of 18 steps were not
+waiting on their files".) Two more hold a file, with a read waiting on it on
+its lane, and ask that a save of another note on the same lane goes
+(`aSaveNeverWaitsBehindAnotherFilesHold`) and that a one-file read is not held
+up by a scan of another (`aScanWaitingOnAHeldFileHoldsUpNoOneFileOperation`);
+with editors and scans put back on the app's lanes, both fail — "the save
+waited behind another file's hold". A hold that the stopped process cannot let go has a breaker
+on a thread of its own (`ProviderHold(_:breaker:)`, which moved to a file of
+its own). **Control**: with the save's and the look's I/O put back on the
+pool, both fail at the breaker — "the process stopped while 18 files were
+held" — and pass in a third of a second with the lanes. Run side by side,
+one test's breakers freed the pool for the other, and under the control the
+save test passed; the suite is `.serialized` for that reason.
+
+**Checked**: the build, with no new warning in the changed files (the
+concurrency review also typechecked the whole module under Swift 5 and Swift
+6, with the same diagnostics before and after); the macOS suite, signed (965
+tests in 147 suites); the file-holding suites and the ones that exercise the
+moved paths on a one-thread pool (121 tests in 12 suites); and the main-actor
+budgets, which the suite's own instructions could not run — `HN_BUDGET_TESTS=1`
+never reaches the test host, which xcodebuild gives only variables named
+`TEST_RUNNER_…`; with that, fifteen of seventeen pass and creating and
+renaming a note are over budget (0.15 s and 0.29 s of main-thread CPU against
+0.1) the same with the old code as with this, measured both ways — a task of
+its own.
+
 ### 51.62 CI was red on `main`: three tests that asked the wrong question, and a read that held the pool (2026-10-26)
 
 **The 08:13 failure** (run 40232556548, `70054ce`) was the third red

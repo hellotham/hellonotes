@@ -92,10 +92,15 @@ enum EditorExport {
         panel.nameFieldStringValue = suggestedName
         panel.allowedContentTypes = [type]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try FileIO.write(data, to: url)   // coordinated: the export target may be a cloud folder
-        } catch {
-            presentError("HelloNotes couldn't write “\(url.lastPathComponent)”: \(error.localizedDescription)")
+        // Coordinated — the export target may be a cloud folder — and on its
+        // lane (`FileIO.onLane`), so a provider holding it holds a lane, not
+        // the main thread the panel came back on.
+        Task {
+            do {
+                try await FileIO.onLane(for: url) { try FileIO.write(data, to: url) }
+            } catch {
+                presentError("HelloNotes couldn't write “\(url.lastPathComponent)”: \(error.localizedDescription)")
+            }
         }
     }
 

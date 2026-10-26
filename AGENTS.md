@@ -39,6 +39,13 @@
 - **Window parity**: `./scripts/window-parity.sh` — the whole window: the iPad app in the `HN-iPad` simulator in landscape against the Mac app at exactly its safe area, same settings, same sample collection, captured empty and with a note open, compared pixel by pixel with only the OS's own masked — the traffic lights and the sidebar toggle they displace, the window's corners, iPadOS's resize grabber. It is what found the 28pt strip a hidden Mac title bar still reserves (`contentUnderTitleBar`) and the notes saved in the same second listed in a different order on each (`Note.newestFirst`) — neither visible to the scene renders. **The safe area is measured**: the capture test asks SpringBoard for the status bar's height and the script sizes the Mac's window and cuts the iPad's picture from that. It was 24pt, written down, and the simulator's is 32 now — the gate failed on 3.5% of an empty window that matched until it was (implemented.md §51.43); SpringBoard's number, because one taken from where the app drew would pass an app that began 8pt low. **With a note open the note is reported, not judged**: its text is 17pt on iOS and 16pt on the Mac on purpose (`baseEditorFontSize`), so the verdict there is the chrome's. It quits your running HelloNotes gracefully, launches the Debug build as a capture session with only `DefaultCollection` open (all three lists in the argument domain), reads the window through Accessibility for any other collection's name before each picture (`window-names.swift` — a count, never a name), and afterwards only *reads* your preferences back to check them: an earlier version imported a backup and lost the race with `cfprefsd`, leaving the sample as the only open collection. `PARITY_REUSE_IPAD=1` keeps the last iPad half. Its negative control is in the script's header: one point of padding above the shell on the Mac alone fails both states (1.3% and 4.0% on 2026-10-12). The Mac half needs the screen unlocked: with `loginwindow` in front, a new window stays at 90% of its size and cannot be captured, which reads exactly like a window-sizing bug.
 - **Chrome parity**: `./scripts/chrome-parity.sh` — renders the chrome (bar, rows, status bar, panel header, a settings form, a sheet bar, an empty state) on macOS *and* in the `HN-iPad` simulator and compares the two pictures pixel by pixel; anything past antialiasing (Δ>12, or >0.1% of a scene) fails, and a one-pixel shift fails it by 4–7%. Run it after touching `Chrome*.swift` or any shared control. The macOS half is app-hosted, so it goes through `run-tests.sh`.
 - **Model evaluations** (Apple's Evaluations framework, real on-device model, ~30s, opt-in — needs Apple Intelligence, so never CI): `TEST_RUNNER_HN_EVALUATIONS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/IntelligenceEvaluationTests`. Tags, links, rewrites, long-note summaries and Assistant tool trajectories. Add `TEST_RUNNER_HN_EVAL_MLX_FOLDER=<absolute path>` to run the same suite on an MLX model — a model folder, or a model's `models--org--name` folder in `~/.cache/huggingface/hub` (list what is there with `mlx_lm.manage --scan`; never download one without asking), loaded through the app's own folder path; a `~` would expand inside the test host's container. Two more suites run under the same flags and pick themselves by the model: `AssistantEditEvaluation` (a tool call, an approval, and the note on disk changes — the trajectory suite denies every approval, so nothing else ever writes) and `AssistantWithoutToolsEvaluation` (a model whose template has no tools must answer in words, not imitation calls). Add them with their own `-only-testing:` flags. Run after touching any prompt, schema, tool, `HistoryWindow` or `TokenBudget` — the unit tests prove plumbing and could not see the two defects this suite found in its first hour (below). Read per-sample results with `xcrun xcresulttool export attachments --path <xcresult> --output-path <dir>` (`.xcevalresult` JSON). Two more opt-in probes run inside the signed app: `TEST_RUNNER_HN_RESEARCH_PROBE=1 … -only-testing:HelloNotesTests/ResearchProbe` (a real deep-research run, ~30s, searches the web) and `TEST_RUNNER_HN_PCC_PROBE=1 … -only-testing:HelloNotesTests/PrivateCloudComputeProbe` (one PCC request; does nothing unless the build is entitled).
+- **Main-actor budgets** (opt-in, alone, ~60 s):
+  `TEST_RUNNER_HN_BUDGET_TESTS=1 ./scripts/run-tests.sh -only-testing:HelloNotesTests/MainActorBudgetTests`
+  — main-thread CPU for scanning, rebuilding indexes, creating, renaming,
+  saving and searching on a 2,000-note vault, against 0.1 s. **The
+  `TEST_RUNNER_` prefix is what gets a variable to the test host**; without
+  it every test skips and the run says seventeen passed in a thousandth of a
+  second (implemented.md §51.63). Read the `BUDGET …` lines it prints.
 - **iOS interface tests** — the only check that a screen actually *draws*:
   `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=iOS Simulator,name=HN-iPhone' -skipPackagePluginValidation -only-testing:HelloNotesUITests`
   (~4.5 min, 15 cases and the launch test, 2026-10-12 — the run prints
@@ -1111,14 +1118,26 @@
   one monotonic deadline, and say which way it ended (`FileIO.waitForDownload`,
   `finishes(within:)`). A test's stand-in provider brings lanes of its own —
   held silent on the app's, it held up whichever test's note hashed to the
-  same lane (implemented.md §51.51, §51.52). **And a coordinated read goes
-  on the lane too** (`ProviderCalls.onLane`): `EditorModel.open` read on the
-  pool, so a note its provider held kept a pool thread for the whole wait,
-  and since every sleeping task wakes through the pool — the main actor's
-  included — three at once stopped the process on CI's three-thread runner
-  (§51.62). A one-thread pool
-  (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`) turns that into a hang,
-  which is how to see it here; a `sample` of the host says where. **And a question about *now* is
+  same lane (implemented.md §51.51, §51.52). **And every coordinated call
+  goes on a lane** — read, write, replace, move, copy, create, download,
+  evict, and any question to the provider — and on the right one of three:
+  an editor's own (`EditorModel.provider`, `ProviderCalls.ownLane`) for its
+  note; the scans' (`FileIO.onScanLane`) for a loop over many files or work
+  in the background; the app's (`FileIO.onLane`) for one file at a time on
+  someone's behalf. On one set for everything, a file a scan waited on held
+  up every other file on its lane, one in sixteen, and a save queued behind
+  it at quit was lost (§51.63). `offMain` is for computation; its synchronous body holds a pool
+  thread for as long as a provider holds the file, and every sleeping task
+  wakes through the pool — the main actor's included — so three at once
+  stopped the process on CI's three-thread runner (§51.62). A loop over many
+  files awaits one hop per file in `offMainAwaiting` (§51.63), which is
+  `@concurrent` in its closure's type, because an async closure in this
+  target can otherwise be inferred main-actor. Never call `onLane` from a
+  lane body: a serial queue waits for itself. A one-thread pool
+  (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`) turns a held pool
+  thread into a hang, which is how to see one here; a `sample` of the host
+  says where; and `HeldFileTests` hold more files than the pool has threads
+  to catch one in any run. **And a question about *now* is
   asked of a URL with no memory**: `URL.resourceValues` answers from a cache
   on the URL that only the main run loop clears, and a lane has none, so the
   wait read its first "not downloaded" back for the whole minute, and the

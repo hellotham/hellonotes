@@ -76,12 +76,23 @@ final class NoteReferences {
                 && !excluded.contains($0.fileURL)
         }
 
-        let found = await offMain { () -> [Note] in
-            candidates.compactMap { candidate in
-                guard let text = try? FileIO.readString(at: candidate.fileURL),
-                      MentionScanner.containsMention(of: names, in: text) else { return nil }
-                return candidate
+        let found = await offMainAwaiting { () -> [Note] in
+            var found: [Note] = []
+            for candidate in candidates {
+                // A newer selection's refresh replaces this one: stop reading.
+                guard !Task.isCancelled else { break }
+                // Each read on the scans' lane for the note
+                // (`FileIO.onScanLane`), and only of a note already on this
+                // device — a coordinated read of one online-only downloads it,
+                // and Spotlight's candidates for a common title can be the vault.
+                let url = candidate.fileURL
+                guard let text = await FileIO.onScanLane(for: url, {
+                          FileIO.hasContentAvailable(candidate) ? try? FileIO.readString(at: url) : nil
+                      }),
+                      MentionScanner.containsMention(of: names, in: text) else { continue }
+                found.append(candidate)
             }
+            return found
         }
         guard !Task.isCancelled else { return }
         unlinkedMentions = found

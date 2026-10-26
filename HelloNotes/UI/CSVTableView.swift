@@ -78,8 +78,9 @@ struct CSVTableView: View {
         rows = []; truncated = false; error = nil
         let url = self.url
         let cap = rowCap
-        let parsed = await offMain { () -> (rows: [[String]], truncated: Bool)? in
-            guard let text = try? FileIO.readString(at: url) else { return nil }
+        let parsed = await offMainAwaiting { () -> (rows: [[String]], truncated: Bool)? in
+            // Read on its lane (`FileIO.onLane`); parsed here, off the main actor.
+            guard let text = await FileIO.onLane(for: url, { try? FileIO.readString(at: url) }) else { return nil }
             let delimiter: Character = url.pathExtension.lowercased() == "tsv" ? "\t" : ","
             var rows = CSVParser.parse(text, delimiter: delimiter)
             let truncated = rows.count > cap

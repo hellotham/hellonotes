@@ -30,7 +30,7 @@ nonisolated enum VisionAlt {
     /// the one thing `FileIO` exists to prevent.
     @concurrent
     static func describe(_ url: URL) async -> String? {
-        guard let data = try? FileIO.readData(at: url),
+        guard let data = await FileIO.onScanLane(for: url, { try? FileIO.readData(at: url) }),
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
 

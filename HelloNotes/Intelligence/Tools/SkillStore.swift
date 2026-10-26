@@ -50,8 +50,19 @@ final class SkillStore {
         let task = Task { [weak self] in
             var parsed: [Skill] = []
             if !candidates.isEmpty {
-                parsed = await offMain {
-                    candidates.filter(FileIO.hasContentAvailable).compactMap { SkillStore.parse($0.fileURL) }
+                parsed = await offMainAwaiting {
+                    // Each skill asked about and read on its file's lane.
+                    var found: [Skill] = []
+                    for candidate in candidates {
+                        guard !Task.isCancelled else { break }
+                        let url = candidate.fileURL
+                        if let skill = await FileIO.onScanLane(for: url, {
+                            FileIO.hasContentAvailable(candidate) ? SkillStore.parse(url) : nil
+                        }) {
+                            found.append(skill)
+                        }
+                    }
+                    return found
                 }
             }
             guard !Task.isCancelled else { return }

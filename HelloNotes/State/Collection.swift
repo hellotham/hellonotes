@@ -399,22 +399,27 @@ final class Collection: Identifiable {
             relatednessBuild = Task { () -> TermVectorRelatednessIndex? in
                 // Reading and preparing happens off the main actor; so does the
                 // tokenising inside `rebuild`, because the index is an actor.
-                let documents = await offMain { () -> [RelatednessDocument] in
-                    notes.compactMap { note in
+                let documents = await offMainAwaiting { () -> [RelatednessDocument] in
+                    var documents: [RelatednessDocument] = []
+                    for note in notes {
                         // Dropped: the rest of the vault is not worth reading
                         // — on an iCloud vault that is seconds of coordinated
                         // I/O, which a detached build went on doing.
-                        guard !Task.isCancelled else { return nil }
+                        guard !Task.isCancelled else { break }
                         // Only notes already on this device. The first Compose,
                         // Research or Suggest Links builds this, and reading an
                         // online-only note downloads it — so without the check
                         // that one request pulled the whole cloud vault local.
-                        guard FileIO.hasContentAvailable(note),
-                              let raw = try? FileIO.readString(at: note.fileURL) else { return nil }
+                        // Asked and read on the note's lane (`FileIO.onLane`).
+                        let url = note.fileURL
+                        guard let raw = await FileIO.onScanLane(for: url, {
+                                  FileIO.hasContentAvailable(note) ? try? FileIO.readString(at: url) : nil
+                              }) else { continue }
                         let text = RetrievalText.prepare(raw)
-                        guard text.count >= 80 else { return nil }
-                        return RelatednessDocument(url: note.fileURL, title: note.title, text: text)
+                        guard text.count >= 80 else { continue }
+                        documents.append(RelatednessDocument(url: url, title: note.title, text: text))
                     }
+                    return documents
                 }
                 guard relatednessGeneration == generation else { return nil }
                 let index = TermVectorRelatednessIndex()
@@ -542,7 +547,7 @@ final class Collection: Identifiable {
     /// review. Front matter stripped: it is metadata, and it is what the top of
     /// the file actually holds.
     func openingLines(of url: URL, limit: Int = 400) async -> String {
-        await offMain {
+        await FileIO.onLane(for: url) {
             guard let raw = try? FileIO.readString(at: url) else {
                 return "Couldn't read that note."
             }
@@ -1547,7 +1552,7 @@ final class Collection: Identifiable {
                     // A File-Provider item: ask the OS to materialise it, which
                     // is the same thing opening the note would do.
                     let target = url
-                    try await Task.detached(priority: .utility) { try FileIO.download(at: target) }.value
+                    try await FileIO.onScanLane(for: target) { try FileIO.download(at: target) }
                 }
                 fetched += 1
                 progress(fetched, pending.count)
@@ -1576,7 +1581,7 @@ final class Collection: Identifiable {
                 adopt(hydrated: url)
                 reindexSoon()
             } else {
-                try await Task.detached(priority: .utility) { try FileIO.download(at: url) }.value
+                try await FileIO.onLane(for: url) { try FileIO.download(at: url) }
             }
         } catch {
             report("Couldn't download “\(url.lastPathComponent)”: \(error.localizedDescription)")
@@ -1735,7 +1740,7 @@ final class Collection: Identifiable {
         // `offMain` runs at the caller's priority: this is the one the reads
         // ran at in a detached task, ahead of background work.
         deriveTask = Task(priority: .userInitiated) {
-            let found = await offMain { () -> RebuildRecords in
+            let found = await offMainAwaiting { () -> RebuildRecords in
                 let cached = force ? [:] : (CollectionIndexCache.loadForRebuild(for: root) ?? [:])
                 var found = RebuildRecords()
                 var reparsed = 0
@@ -1744,8 +1749,10 @@ final class Collection: Identifiable {
                     let saved = unread.contains(note.fileURL)
                     if !saved, let record = cached[rel], record.matches(note) {
                         found.append(note, record)
-                    } else if FileIO.hasContentAvailable(note),
-                              let text = try? FileIO.readString(at: note.fileURL) {
+                    } else if let text = await FileIO.onScanLane(for: note.fileURL, {
+                                  // Asked and read on the note's lane (`FileIO.onLane`).
+                                  FileIO.hasContentAvailable(note) ? try? FileIO.readString(at: note.fileURL) : nil
+                              }) {
                         found.append(note, CollectionIndexCache.record(for: note, relativeTo: root, text: text))
                         if saved { found.read.insert(note.fileURL) }
                         reparsed += 1
@@ -2513,7 +2520,7 @@ final class Collection: Identifiable {
         rememberSelfWrite(candidate)
         remote?.willMake(candidate)
         do {
-            try await offMain { try FileIO.create(Data(), at: candidate) }
+            try await FileIO.onLane(for: candidate) { try FileIO.create(Data(), at: candidate) }
         } catch {
             remote?.cancelMaking(candidate)
             report("Couldn't create the note: \(error.localizedDescription)")
@@ -2656,7 +2663,7 @@ final class Collection: Identifiable {
             // Coordinated, and off the main actor: on a File Provider folder a
             // move waits for the provider, and an *uncoordinated* one can be
             // undone by it — which is what "the rename didn't stick" looks like.
-            try await offMain { try FileIO.move(from: note.fileURL, to: destination) }
+            try await FileIO.onLane(for: note.fileURL) { try FileIO.move(from: note.fileURL, to: destination) }
         } catch {
             if let moving { remote?.cancel(moving) }
             report("Couldn't rename the note: \(error.localizedDescription)")
@@ -2774,7 +2781,7 @@ final class Collection: Identifiable {
         }
         let destination = candidate
         do {
-            try await offMain { try FileIO.copy(from: note.fileURL, to: destination) }
+            try await FileIO.onLane(for: note.fileURL) { try FileIO.copy(from: note.fileURL, to: destination) }
         } catch {
             report("Couldn't duplicate the note: \(error.localizedDescription)")
             return nil
@@ -2804,27 +2811,19 @@ final class Collection: Identifiable {
         // Read + rewrite the candidates off the main actor — it's file I/O.
         // Collect the notes we couldn't rewrite so the shell can tell the user
         // exactly which links may now be stale, rather than failing silently.
-        let outcome: (written: [(url: URL, text: String)], failed: [String]) = await offMain {
-            let escaped = NSRegularExpression.escapedPattern(for: oldTitle)
-            guard let regex = try? NSRegularExpression(
-                pattern: #"(\[\[)\s*"# + escaped + #"\s*(?=[#|\]]|\\\|)"#,
-                options: [.caseInsensitive]
-            ) else { return ([], []) }
-            let template = "$1" + NSRegularExpression.escapedTemplate(for: newTitle)
+        let outcome: (written: [(url: URL, text: String)], failed: [String]) = await offMainAwaiting {
             var written: [(url: URL, text: String)] = []
             var failed: [String] = []
             for url in urls {
-                guard let text = try? FileIO.readString(at: url),
-                      text.contains("[[") else { continue }
-                let range = NSRange(text.startIndex..., in: text)
-                guard regex.firstMatch(in: text, options: [], range: range) != nil else { continue }
-                let updated = regex.stringByReplacingMatches(in: text, options: [], range: range,
-                                                             withTemplate: template)
-                do {
-                    try FileIO.write(Data(updated.utf8), to: url)
-                    written.append((url, updated))
-                } catch {
-                    failed.append(url.lastPathComponent)
+                // Read, rewritten and replaced in one hop on the note's lane,
+                // and replaced only over the text it was read from: a save that
+                // lands meanwhile is read again, never written over. As two hops,
+                // a read and then a plain write, an editor's save could land
+                // between them and be lost (implemented.md §51.63).
+                switch await FileIO.onLane(for: url, { Collection.rewritingLinks(in: url, from: oldTitle, to: newTitle) }) {
+                case .rewritten(let text): written.append((url, text))
+                case .failed: failed.append(url.lastPathComponent)
+                case .unchanged: break
                 }
             }
             return (written, failed)
@@ -2848,6 +2847,36 @@ final class Collection: Identifiable {
         }
     }
 
+    /// What rewriting one note's links to a renamed note came to.
+    nonisolated enum LinkRewrite: Sendable {
+        case rewritten(String), unchanged, failed
+    }
+
+    /// Rewrite the `[[links]]` to `oldTitle` in the note at `url` to `newTitle`,
+    /// replacing the file only over the text it was read from
+    /// (`FileIO.replace(…ifContentsEqual:)`) — and read again, up to three
+    /// times, when something else wrote to it meanwhile, as `append` is. Done
+    /// whole on the note's lane.
+    nonisolated static func rewritingLinks(in url: URL, from oldTitle: String, to newTitle: String) -> LinkRewrite {
+        let escaped = NSRegularExpression.escapedPattern(for: oldTitle)
+        guard let regex = try? NSRegularExpression(pattern: #"(\[\[)\s*"# + escaped + #"\s*(?=[#|\]]|\\\|)"#,
+                                                   options: [.caseInsensitive]) else { return .unchanged }
+        let template = "$1" + NSRegularExpression.escapedTemplate(for: newTitle)
+        for _ in 0..<3 {
+            guard let text = try? FileIO.readString(at: url), text.contains("[[") else { return .unchanged }
+            let range = NSRange(text.startIndex..., in: text)
+            guard regex.firstMatch(in: text, options: [], range: range) != nil else { return .unchanged }
+            let updated = regex.stringByReplacingMatches(in: text, options: [], range: range,
+                                                         withTemplate: template)
+            do {
+                if try FileIO.replace(updated, at: url, ifContentsEqual: text) { return .rewritten(updated) }
+            } catch {
+                return .failed
+            }
+        }
+        return .failed
+    }
+
     /// Return the note at `relativePath`, creating the file (and any intermediate
     /// folders) with `content` if it doesn't exist yet. Used for daily notes.
     @discardableResult
@@ -2864,7 +2893,7 @@ final class Collection: Identifiable {
             // on the phone may already be on the provider under this name.
             remote?.willMake(url)
             do {
-                try await offMain {
+                try await FileIO.onLane(for: url) {
                     try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                              withIntermediateDirectories: true)
                     try FileIO.create(data, at: url)
@@ -2937,7 +2966,7 @@ final class Collection: Identifiable {
         }
         // Read, join and write in one hop off the main actor — both file calls
         // are coordinated, so both can block on a provider.
-        let outcome = await offMain { () -> Appended in
+        let outcome = await FileIO.onLane(for: url) { () -> Appended in
             // A file that changed between the read and the write is read
             // again; three times is a note something else is writing to.
             for _ in 0..<3 {
@@ -3106,7 +3135,7 @@ final class Collection: Identifiable {
         // Reported before the file moves, as a rename is (`renameNote`).
         let moving = remote?.willMove(from: itemURL, to: destination)
         do {
-            try await offMain { try FileIO.move(from: itemURL, to: destination) }
+            try await FileIO.onLane(for: itemURL) { try FileIO.move(from: itemURL, to: destination) }
         } catch {
             if let moving { remote?.cancel(moving) }
             report("Couldn't move “\(itemURL.lastPathComponent)”: \(error.localizedDescription)")

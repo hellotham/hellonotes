@@ -141,11 +141,15 @@ struct ShellActions {
     ///   direct-API mirror note that has not been downloaded — those are real
     ///   zero-byte placeholders on disk, so the read *succeeded* and returned
     ///   nothing at all.
-    func text(of note: Note) -> String? {
+    func text(of note: Note) async -> String? {
         if let editor = tabs.editor(withID: note.id), editor.note?.fileURL == note.fileURL {
             return editor.text
         }
-        guard let text = try? FileIO.readString(at: note.fileURL) else { return nil }
+        // On the note's lane (`FileIO.onLane`): read here, on the main actor, a
+        // note its provider held — or had not yet downloaded — held the whole
+        // app until it let go.
+        let url = note.fileURL
+        guard let text = await FileIO.onLane(for: url, { try? FileIO.readString(at: url) }) else { return nil }
         // A zero-byte file for a note the collection knows is online-only is a
         // placeholder, not an empty note.
         if text.isEmpty && note.isOnlineOnly { return nil }
@@ -155,16 +159,16 @@ struct ShellActions {
     /// The note's text, downloading it first if the collection keeps it in a
     /// remote mirror.
     ///
-    /// The synchronous `text(of:)` cannot do this — hydration is async — which
-    /// is why exporting a cloud note that was never opened used to produce an
-    /// empty document. `hydrateIfNeeded` is cheap and safe for local
+    /// `text(of:)` reads what is on this device and cannot fetch a mirror's
+    /// note — hydration is the collection's — which is why exporting a cloud
+    /// note that was never opened used to produce an empty document. `hydrateIfNeeded` is cheap and safe for local
     /// collections and for anything already downloaded.
     func exportText(of note: Note) async -> String? {
         if let editor = tabs.editor(withID: note.id), editor.note?.fileURL == note.fileURL {
             return editor.text
         }
         await library.collection(containing: note.fileURL)?.hydrateIfNeeded(note.fileURL)
-        return text(of: note)
+        return await text(of: note)
     }
 
     /// Fetch a note that is not on this device.
@@ -394,7 +398,11 @@ struct ShellActions {
             reviewLinks: { _ in reviewLinks() },
             export: { note, kind in export(note, as: kind) },
             download: { note in download(note) },
-            removeDownload: { note in try? FileIO.evict(at: note.fileURL) },
+            removeDownload: { note in
+                // On the note's lane: an eviction is a call to its provider.
+                let url = note.fileURL
+                Task { _ = await FileIO.onLane(for: url) { try? FileIO.evict(at: url) } }
+            },
             newNote: { createNote(in: $0, folderID: $1) },
             newFolder: { beginNewFolder(in: $0, folderID: $1) },
             deleteFolder: { folderID in

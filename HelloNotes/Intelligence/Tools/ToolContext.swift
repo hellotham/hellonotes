@@ -254,7 +254,7 @@ final class ToolContext {
         guard await FileIO.materialise(at: url) else { throw ToolError.failed(notOnDevice(note)) }
         collection.noteBecameAvailable(url)
         do {
-            return try await offMain { try FileIO.readString(at: url) }
+            return try await FileIO.onLane(for: url) { try FileIO.readString(at: url) }
         } catch {
             throw ToolError.failed("Couldn't read “\(note.title)”: \(error.localizedDescription)")
         }
@@ -431,11 +431,15 @@ final class ToolContext {
         // A bound on the scan, not on the result: past it, the line count is
         // only a floor, and says so. More lines than this never fit a window.
         let limit = 2_000
-        let found = await offMain { () -> [String] in
+        let found = await offMainAwaiting { () -> [String] in
             var out: [String] = []
             for target in targets {
-                guard FileIO.hasContentAvailable(target),
-                      let text = try? FileIO.readString(at: target.fileURL),
+                // Each note asked about and read on its file's lane
+                // (`FileIO.onLane`), the search between them off the main actor.
+                let url = target.fileURL
+                guard let text = await FileIO.onScanLane(for: url, {
+                          FileIO.hasContentAvailable(target) ? try? FileIO.readString(at: url) : nil
+                      }),
                       // A note without the text is passed over whole, not
                       // lowered a line at a time.
                       text.lowercased().contains(needle) else { continue }
@@ -539,7 +543,7 @@ final class ToolContext {
         do {
             let data = Data(content.utf8)
             let noteURL = note.fileURL
-            try await offMain { try FileIO.write(data, to: noteURL) }
+            try await FileIO.onLane(for: noteURL) { try FileIO.write(data, to: noteURL) }
         } catch {
             throw ToolError.failed("Couldn't write the note: \(error.localizedDescription)")
         }
@@ -634,7 +638,7 @@ final class ToolContext {
         }
         let replaced: Bool
         do {
-            replaced = try await offMain { try FileIO.replace(text, at: url, ifContentsEqual: before) }
+            replaced = try await FileIO.onLane(for: url) { try FileIO.replace(text, at: url, ifContentsEqual: before) }
         } catch {
             throw ToolError.failed("Couldn't write “\(note.title)”: \(error.localizedDescription)")
         }

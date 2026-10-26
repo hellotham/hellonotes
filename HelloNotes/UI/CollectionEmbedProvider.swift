@@ -122,14 +122,16 @@ nonisolated final class CollectionEmbedProvider: @unchecked Sendable {
         // whole on every call, hit or miss — at each pause in typing in Edit
         // and each page in Preview.
         let key = await offMain { () -> String in
-            let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            // As the file is now: a stored URL answers from its first look,
+            // off the main run loop (`FileIO.currentResourceValues`, §51.56).
+            let mtime = (try? FileIO.currentResourceValues(at: url, keys: [.contentModificationDateKey]))?
                 .contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
             return "\(isDark ? "d" : "l")\u{1}\(url.path)\u{1}\(heading ?? "")\u{1}\(mtime)"
         }
         if let cached = lock.withLock({ cache[key] }) { return cached }
 
         // Read and sectioned off the main actor; only the drawing needs it.
-        let sectioned = await offMain { () -> String? in
+        let sectioned = await FileIO.onScanLane(for: url) { () -> String? in
             guard let markdown = try? FileIO.readString(at: url) else { return nil }
             return NoteTranscluder.section(heading, from: markdown)
         }
