@@ -8449,16 +8449,32 @@ was other tests altogether, on the `main` of the day.)
   every wait answered with the deadline's word, a lane a file, sixteen at
   most — required the whole to take under ten seconds. On the three-core
   runner, under the whole suite, every answer was right and it took 12.8,
-  twice. It asks what happened now: each wait gives two seconds, and the
-  unrelated work's answer must come before any wait's — it ran while all two
-  hundred were still waiting — with a one-minute time limit for a hang.
-  **Control**: with the unrelated work held three seconds, past every
-  deadline, the test fails on that order (and passes without it).
+  twice. **The first fix was a clock too**: it asked that the unrelated
+  work's answer come before any wait's, and the runner (`6eefe12`) answered it
+  after all two hundred. Nothing was starved — the silent provider parks its
+  sixteen lane threads on a semaphore, on serial queues that always get a
+  thread, and the deadline queue answered every wait on time — but GCD
+  starts a shared-queue thread only while fewer run than there are cores,
+  and three cores busy with the rest of the suite held the unrelated block
+  until the waits were done. An order on a loaded machine measures the load.
+  What the test needs was already its shape: the provider is released only
+  after the last answer (the `defer`), so every answer, the unrelated one
+  included, came while the provider was silent; a wait no deadline answers,
+  or work that cannot get a thread at all, never comes back, and a one-minute
+  time limit says so. **Control**: the unrelated work held 75 seconds fails
+  the test at 60 ("Time limit was exceeded"); without it, it passes in 1.5.
+  Its sibling `aSilentProviderIsNoAnswerByTheDeadline` carried the same
+  bound — "generous: the point is that it comes back at all", which is the
+  time limit's job — and failed on a one-thread pool
+  (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`) with its answer right;
+  it has the time limit now, and no elapsed-time bound is left in the app's
+  tests.
 
 The CI-mode run left `~/Library/Preferences/com.hellotham.HelloNotes.plist`
 outside the container, as an unsandboxed host does; it went to the Trash.
-Checked: the five suites that read the flag in CI's mode (40 tests), and the
-whole macOS suite signed (961).
+Checked: the five suites that read the flag in CI's mode (40 tests), the
+waiting suites on a one-thread pool, and the whole macOS suite signed (961) —
+and CI, after each push.
 
 ### 51.61 1.3.5 on the App Store, and a check that read a cached store (2026-10-26)
 

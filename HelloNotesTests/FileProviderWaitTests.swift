@@ -67,14 +67,15 @@ struct FileProviderWaitTests {
     }
 
     /// One that never answers is "no answer", by its deadline (and a second).
-    @Test func aSilentProviderIsNoAnswerByTheDeadline() async {
+    /// That it comes back at all is the time limit's to say, not a clock's:
+    /// "within ten seconds" was meant to be generous, and failed on a
+    /// one-thread pool with the answer right (implemented.md §51.62).
+    @Test(.timeLimit(.minutes(1)))
+    func aSilentProviderIsNoAnswerByTheDeadline() async {
         let provider = StandInProvider(silent: true)
         defer { provider.release() }
-        let started = ContinuousClock.now
         let wait = await FileIO.waitForDownload(at: Self.file(), timeout: .milliseconds(500), using: provider.calls)
         #expect(wait == .noAnswer)
-        // Generous: the point is that it comes back at all.
-        #expect(ContinuousClock.now - started < .seconds(10))
     }
 
     /// **A wait cancelled before it begins asks nothing** — no question, and
@@ -102,27 +103,31 @@ struct FileProviderWaitTests {
     /// file's questions share a lane, the lanes are sixteen, and the timers
     /// have a queue of their own.
     ///
-    /// Asked what happened, never how long it all took: every wait says the
-    /// deadline's word, the unrelated work's answer comes before any of
-    /// theirs — it ran while all two hundred were still waiting — and a hang
-    /// is the time limit's to catch. It used to say "within ten seconds", and
-    /// on CI's three-core runner, under the whole suite, every answer was
-    /// right and the run took 12.8 (implemented.md §51.62).
+    /// Asked what happened, never how long it took. Every wait says the
+    /// deadline's word, and every answer — the unrelated work's too — comes
+    /// while the provider is still silent: it is released only after the
+    /// last (the `defer`). A wait no deadline answers, or work that cannot get
+    /// a thread while the provider holds sixteen, never comes back, and the
+    /// time limit says so. It said "within ten seconds", and on CI's
+    /// three-core runner every answer was right and the run took 12.8; then
+    /// "the unrelated work first", and the runner answered it after all two
+    /// hundred, its cores busy with the rest of the suite — GCD starts a
+    /// shared-queue thread only while fewer run than there are cores, so an
+    /// order on a loaded machine is a clock as well (implemented.md §51.62).
     @Test(.timeLimit(.minutes(1)))
     func manySilentWaitsAreAllAnsweredAndNothingElseStops() async {
         let provider = StandInProvider(silent: true)
         defer { provider.release() }
         // A hundred for one file — Try Again, over and over — and a hundred
-        // for as many files, which is every lane held. Each gives two seconds,
-        // which is the margin the unrelated work has to go first.
+        // for as many files, which is every lane held.
         let answers = await withTaskGroup(of: FileIO.DownloadWait.self) { group in
             let one = Self.file()
             for _ in 0..<100 {
-                group.addTask { await FileIO.waitForDownload(at: one, timeout: .seconds(2), using: provider.calls) }
+                group.addTask { await FileIO.waitForDownload(at: one, timeout: .milliseconds(500), using: provider.calls) }
             }
             for _ in 0..<100 {
                 group.addTask {
-                    await FileIO.waitForDownload(at: Self.file(), timeout: .seconds(2), using: provider.calls)
+                    await FileIO.waitForDownload(at: Self.file(), timeout: .milliseconds(500), using: provider.calls)
                 }
             }
             // And something unrelated, on GCD's shared queue, meanwhile.
@@ -136,11 +141,11 @@ struct FileProviderWaitTests {
             for await answer in group { all.append(answer) }
             return all
         }
+        // All here, with the provider still silent: two hundred by their
+        // deadlines, and the unrelated work's.
         #expect(answers.count == 201)
         #expect(answers.filter { $0 == .noAnswer }.count == 200, "not every wait was answered no-answer")
-        // In the order they came: the unrelated work first, or it waited on them.
-        #expect(answers.first == .arrived,
-                "the unrelated work was answered after \(answers.firstIndex(of: .arrived) ?? answers.count) waits")
+        #expect(answers.contains(.arrived), "the unrelated work never answered")
         // A file's questions wait behind its first: at most one question a
         // lane, sixteen in all, however many waits.
         #expect(provider.questionCount <= 16, "\(provider.questionCount) questions held threads at once")
