@@ -494,10 +494,15 @@ final class EditorModel {
             // collection took the note's cloud badge off its row.
             if known, loadFailure == nil { onBecameAvailable?(url) }
             if loadFailure == nil {
-                // Read off the main actor so opening a large note never stalls the UI.
-                let outcome = await Task.detached(priority: .userInitiated) {
+                // Read off the main actor so opening a large note never stalls
+                // the UI — and on the file's lane, never on the concurrency
+                // pool: a coordinated read waits for as long as the file's
+                // provider holds it, and the pool has a thread a core. Its
+                // download questions are asked on the same lane, for the same
+                // reason (`FileIO.ProviderCalls.onLane`, implemented.md §51.62).
+                let outcome = await provider.onLane(for: url) {
                     Result { try FileIO.readString(at: url) }
-                }.value
+                }
                 switch outcome {
                 case .success(let text):
                     loaded = text

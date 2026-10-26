@@ -8416,7 +8416,7 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
-### 51.62 CI was red on `main` for three tests that asked the wrong question (2026-10-26)
+### 51.62 CI was red on `main`: three tests that asked the wrong question, and a read that held the pool (2026-10-26)
 
 **The 08:13 failure** (run 40232556548, `70054ce`) was the third red
 "Build & test" on `main` in a row, and the same as the one before it
@@ -8469,6 +8469,33 @@ was other tests altogether, on the `main` of the day.)
   (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`) with its answer right;
   it has the time limit now, and no elapsed-time bound is left in the app's
   tests.
+
+**Then the runner (`bee2598`) failed two tests it had passed three times**,
+and the cause was the app's. `UnloadedNoteTests.typingIntoANoteStillLoadingIsNeverSavedOverIt`
+and `aChangeSeenWhileTheNoteLoadsIsNotAConflict` hold a note under a
+coordinated write, as a provider holds a file it is still writing, and the
+hold let itself go after ten seconds counted from its creation — a breaker so
+that a save queued behind it (the defect) would fail rather than hang. Both
+ran about twenty seconds, and both found the typed text where the note
+should be: the hold had expired before the test reached its save, the note
+had loaded, and the save wrote into a loaded note. Removing the breaker — the
+test waiting for the step that might queue, with its patience, and letting
+go after (`finishesWhileHeld`) — hung the run on a one-thread pool for ten
+minutes, and one `sample` said why: the pool's only thread was in
+`EditorModel.open`, in a coordinated read (`Task.detached { FileIO.readString }`)
+waiting for the held file, and with it every sleeping task in the process,
+because a sleep wakes through the pool — the main actor's included. **Opening
+a note held a thread of the pool for as long as its provider held the
+file.** Three such opens fill CI's three-thread pool, and the whole process
+stops until a hold lets go: the runner's twenty seconds, and on a device, a
+few notes iCloud is still writing opened at once would stop every task the
+same way. The read goes on the file's lane now, as its download questions
+already did (`FileIO.ProviderCalls.onLane`): a held file holds a lane, never
+the pool. **Control**: the same tests with the old read hung on a one-thread
+pool; with the new one they pass there (30 tests in 2.9 s), and the whole
+suite does, signed (961). The editor's other coordinated I/O — a save, a look
+at the disk — and the rest of the app's (`offMain`) still run on the pool;
+that is the same hazard on a wider front, and its own task.
 
 The CI-mode run left `~/Library/Preferences/com.hellotham.HelloNotes.plist`
 outside the container, as an unsandboxed host does; it went to the Trash.

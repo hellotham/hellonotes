@@ -1111,7 +1111,14 @@
   one monotonic deadline, and say which way it ended (`FileIO.waitForDownload`,
   `finishes(within:)`). A test's stand-in provider brings lanes of its own —
   held silent on the app's, it held up whichever test's note hashed to the
-  same lane (implemented.md §51.51, §51.52). **And a question about *now* is
+  same lane (implemented.md §51.51, §51.52). **And a coordinated read goes
+  on the lane too** (`ProviderCalls.onLane`): `EditorModel.open` read on the
+  pool, so a note its provider held kept a pool thread for the whole wait,
+  and since every sleeping task wakes through the pool — the main actor's
+  included — three at once stopped the process on CI's three-thread runner
+  (§51.62). A one-thread pool
+  (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`) turns that into a hang,
+  which is how to see it here; a `sample` of the host says where. **And a question about *now* is
   asked of a URL with no memory**: `URL.resourceValues` answers from a cache
   on the URL that only the main run loop clears, and a lane has none, so the
   wait read its first "not downloaded" back for the whole minute, and the

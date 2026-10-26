@@ -454,6 +454,20 @@ nonisolated enum FileIO {
         func lane(for url: URL) -> DispatchQueue {
             lanes[Int(UInt(bitPattern: url.path.hashValue) % UInt(lanes.count))]
         }
+
+        /// Do `body` — a synchronous call the file's provider can hold up, such
+        /// as a coordinated read — on the file's lane, and wait for it without
+        /// holding a thread of the concurrency pool. On the pool, a read of a
+        /// file its provider held kept one of the pool's few threads for the
+        /// whole wait, and every sleeping task wakes through the pool — the
+        /// main actor's too — so three at once stopped every task in the
+        /// process on CI's three-core runner until a hold let go
+        /// (implemented.md §51.62).
+        func onLane<T: Sendable>(for url: URL, _ body: @escaping @Sendable () -> T) async -> T {
+            await withCheckedContinuation { continuation in
+                lane(for: url).async { continuation.resume(returning: body()) }
+            }
+        }
     }
 
     /// `materialise`, saying how it ended — and **ended by its deadline,

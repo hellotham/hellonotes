@@ -194,8 +194,9 @@ struct UnloadedNoteTests {
     /// The note is held here as a provider holds a file it is still
     /// materialising: under a coordinated write, which the read has to wait
     /// for — and so, before the fix, did the save, which then went second. The
-    /// save is awaited: refused, it returns at once; queued behind the file, it
-    /// returns when the provider lets go of its own accord, and has written.
+    /// save is waited for while the file is held: refused, it comes back at
+    /// once; queued behind the file, it cannot, the wait says so, and once the
+    /// file is let go it writes, which the checks below say too.
     @Test func typingIntoANoteStillLoadingIsNeverSavedOverIt() async throws {
         let body = "# Start Here\n\nA five-minute tour.\n"
         let (note, dir) = try makeNote(body)
@@ -211,7 +212,9 @@ struct UnloadedNoteTests {
 
         // Typed into the blank on screen, carried as the editor carries it, saved.
         #expect(editor.adopt("Typed while it loaded.\n", fromLoad: editor.loadRevision))
-        await editor.save()
+        try await finishesWhileHeld("the save waited for the file the note is loading from") {
+            await editor.save()
+        }
 
         provider.release()
         await opening.value
@@ -248,7 +251,9 @@ struct UnloadedNoteTests {
         try await waitUntil { editor.note?.fileURL == second.fileURL }
 
         editor.text += "Typed while the second note loaded.\n"
-        await editor.flush()
+        try await finishesWhileHeld("the flush waited for the file of the note being opened") {
+            await editor.flush()
+        }
 
         provider.release()
         await opening.value
@@ -260,6 +265,23 @@ struct UnloadedNoteTests {
 }
 
 extension UnloadedNoteTests {
+    /// Run `step` — a save, a flush, a look at the disk — while a file is
+    /// held (`ProviderHold`), and wait for it to come back with the test's
+    /// patience. A step that is refused, or never needs the file, comes back
+    /// at once; one queued behind the hold — the defect — cannot, and the wait
+    /// says so. Left running, it finishes once the test lets the file go.
+    func finishesWhileHeld(_ why: Comment, _ step: @escaping @MainActor () async -> Void,
+                           sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        let finished = Finished()
+        Task { @MainActor in
+            await step()
+            finished.value = true
+        }
+        var patience = Waits.Patience(.seconds(60))
+        while !finished.value, patience.lasts { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(finished.value, why, sourceLocation: sourceLocation)
+    }
+
     /// Wait for the editor to get somewhere — polled, because every test in
     /// this target shares the main actor, and under a full run a step can take
     /// seconds to be scheduled. The cap only ends a test that is broken.
@@ -289,7 +311,9 @@ extension UnloadedNoteTests {
         try await waitUntil { editor.loadFailure == nil }
         #expect(editor.adopt("Typed while it loaded.\n", fromLoad: editor.loadRevision))
 
-        await editor.reconcileWithDisk()
+        try await finishesWhileHeld("the look at the disk waited for the file the note is loading from") {
+            await editor.reconcileWithDisk()
+        }
 
         provider.release()
         await opening.value
@@ -548,23 +572,27 @@ extension UnloadedNoteTests {
 
 /// A file held the way a cloud provider holds one it is still writing: under a
 /// coordinated write, which a coordinated read — `FileIO.readData` — waits for,
-/// and so does a coordinated write. Released once, by whichever of a test's
-/// paths gets there first — or by itself after `limit`, so that a save queued
-/// behind it (the defect) finishes, writes, and fails the test rather than
-/// hanging it.
+/// and so does a coordinated write. Held until the test lets it go, and only
+/// then. It used to let go by itself ten seconds after it was made, so that a
+/// save queued behind it would finish and fail the test rather than hang it;
+/// and on CI's runner, every test in the target sharing the main actor, the
+/// test had not reached its save by then — the note loaded, the save wrote
+/// into a loaded note, and two tests failed with the app right
+/// (implemented.md §51.62). The step that may queue is waited for with the
+/// test's patience instead (`finishesWhileHeld`), and the hold let go after.
 nonisolated private final class ProviderHold: @unchecked Sendable {
     private let done = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var released = false
 
-    init(_ url: URL, limit: DispatchTimeInterval = .seconds(10)) {
+    init(_ url: URL) {
         let held = DispatchSemaphore(value: 0)
         Thread { [done] in
             var error: NSError?
             NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forReplacing,
                                                              error: &error) { _ in
                 held.signal()
-                _ = done.wait(timeout: .now() + limit)
+                done.wait()
             }
             if error != nil { held.signal() }
         }.start()
@@ -578,4 +606,9 @@ nonisolated private final class ProviderHold: @unchecked Sendable {
         released = true
         done.signal()
     }
+}
+
+/// Whether a step `finishesWhileHeld` started has come back.
+@MainActor private final class Finished {
+    var value = false
 }
