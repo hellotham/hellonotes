@@ -1363,7 +1363,12 @@
   list held none (`DVTDeveloperAccountManagerAppleIDLists`, counted, never
   printed) and its keychain items were gone, while the running Xcode could
   still look signed in. Check the lock *before* an `-allowProvisioningUpdates`
-  run, not after.
+  run, not after. **So uploads never use Xcode's account at all** — the
+  person, 2026-11-08: "please don't use xcode signin - use the key … xcode
+  keeps signing out when you use it". Both platforms go up with the team's
+  API key (`-authenticationKeyPath`, `-authenticationKeyID`,
+  `-authenticationKeyIssuerID` on the export); the Mac's did from build 36
+  (production.md §9, §10o). Never ask the person to sign in to Xcode for one.
 - **A test that sleeps "past" a timer is racing it.** The walk test slept
   900 ms to get past a 750 ms reveal — but the reveal's clock starts when its
   task first has the main actor, and with the whole suite's work queued there

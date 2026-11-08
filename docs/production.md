@@ -674,16 +674,17 @@ xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
 The export step uploads directly. (For CI, authenticate `notarytool`/`altool`
 with an **App Store Connect API key** instead of your Apple ID.)
 
-**When Xcode's sign-in has lapsed**, both exports fail before anything is sent:
-`exportArchive Failed to Use Accounts — App Store Connect access for
-"RPL5R637DS" is required`. Sign in again under Xcode ▸ Settings ▸ Accounts.
-The team's API key, in `~/.appstoreconnect/private_keys/`, can stand in for
-the account on **iOS only**. Add `-authenticationKeyPath`,
-`-authenticationKeyID` and `-authenticationKeyIssuerID` to the export. The
-issuer ID is at the top of Users and Access ▸ Integrations ▸ App Store Connect
-API. The key cannot do a **macOS** export: its Mac Installer Distribution
-certificate is cloud-managed, which the key's role may not use, so it fails
-with "Cloud signing permission error". Build 28 went up both ways (§10g).
+**Upload with the team's API key, on both platforms — never Xcode's
+account.** The person's direction (2026-11-08): Xcode's sign-in keeps lapsing
+when a run uses it, and an export through it then fails before anything is
+sent (`exportArchive Failed to Use Accounts — App Store Connect access for
+"RPL5R637DS" is required`). The key is in `~/.appstoreconnect/private_keys/`;
+add `-authenticationKeyPath`, `-authenticationKeyID` and
+`-authenticationKeyIssuerID` to each export. The key ID is the file's name and
+the issuer ID is at the top of Users and Access ▸ Integrations ▸ App Store
+Connect API; neither goes into this repository. Build 28's **macOS** export
+failed with the key ("Cloud signing permission error", §10g); build 36's
+succeeded with it (§10o), so the Mac no longer needs the account either.
 
 ### Option C — iOS, command line
 
@@ -766,6 +767,41 @@ On the version page:
 
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
+
+## 10o · 1.3.6 build 36 — on TestFlight, both platforms, not in review, 2026-11-08
+
+From `2759b02` on `release/1.3.6`, a clean tree: the work is `4f29b53` and
+`f2aa985`, and `2759b02` is the bump and 1.3.6's What's New
+(`docs/app-store-listing.md`). The branch is not pushed. **What 36 is for**:
+implemented.md §51.69 — notes reopen where they were left, no walk of the
+vault on a return to the app, and Pull; §51.70 and §51.71 — what the app keeps
+through a move of its container, and Open Recent; §51.72 — the review of all
+of it and the release's gates, and the offset a page posts, from an automated
+security review of the commit.
+
+Before the archives: the macOS suite (1,041 tests in 158 suites), the
+main-actor budget suite alone (18), the editor's bundles on the Mac (573) and
+the iPad (547), this work's app suites on the iPad (58 in 8), the phone's
+interface suite (15 run, 3 skipped by design), the iPad's typing test, Release
+builds for both, and a Swift 6 type-check of the module. Not run: chrome and
+window parity — no chrome or layout changed.
+
+Read back from each archive by `scripts/archive-readback.sh`: 1.3.6 (36) in
+the app and all six extensions; arm64 only; minos 27.0, built with SDK 27.2
+on both; the Private Cloud Compute entitlement present; no
+temporary-exception entitlement; all five cloud-provider keys present (by
+length: 15, 32, 32, 72, 36); `ITSAppUsesNonExemptEncryption` false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` 19:43, with the team key | `Upload succeeded` 19:46, with the team key |
+| TestFlight | processed in minutes: Ready to Submit, in "HelloNotes testers" | the same, a few minutes later |
+
+**Both with the team key, at the person's word** ("please don't use xcode
+signin - use the key … xcode keeps signing out when you use it"). Xcode's
+stored account list was empty, and nothing asked for it. The Mac's export
+with the key is the first to succeed (§9). No 1.3.6 version record is made:
+TestFlight needs none.
 
 ## 10n · 1.3.5 build 35 — released on the App Store, both platforms, 2026-10-25; the DMG the same day
 
