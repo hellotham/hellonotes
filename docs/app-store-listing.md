@@ -1,4 +1,4 @@
-# App Store listing — 1.3.5
+# App Store listing — 1.3.6
 
 > **The copy for the version being prepared — not a record of what is live.**
 > App Store Connect is the source of truth for the live listing
@@ -54,35 +54,34 @@ Plain Markdown files you own, with AI from Apple Foundation Models on your devic
 markdown,knowledge base,wiki,backlinks,zettelkasten,pkm,notes,notetaking,git,graph,local,privacy
 ```
 
-**Version** — What's New, iPhone and iPad (1.3.5; this platform had 1.3.3 build 32 — 1.3.4 was withdrawn before release, so its changes are new here too):
+**Version** — What's New, iPhone and iPad (1.3.6; this platform has 1.3.5 build 35):
 ```
-HelloNotes 1.3.5 can run its AI on Apple's Private Cloud Compute, and labels what each model made.
+HelloNotes 1.3.6 opens each note where you left it, stops rescanning your collection every time you come back, and can pull from Git.
 
-• The models are named by where they run: Local (Apple) on your device, Cloud (Apple) on Apple's Private Cloud Compute, and Local with a model's name for an open model you run with MLX. Choose the default in Settings > AI; the Assistant can use another for one conversation.
-• Cloud (Apple) reads far more of your notes at once than the model on your device; what it is sent isn't stored, and isn't accessible to Apple. Suggestions as you type still need a model on your device. When its daily allowance is used up, Local (Apple) takes over until it resets.
-• Each Assistant reply, summary, suggested tag or link, rewrite and draft says which model made it.
-• Ask Your Library is now part of the Assistant, which searches your notes more thoroughly — by section, and to the end of a long note — shows the notes it read, and summarises earlier messages when a conversation grows long. The Assistant is experimental: it reads your notes and no longer changes them.
-• Report… beside the AI's answers and suggestions opens an email to us, and Settings > Support > Contact has our address.
-• A note or attachment that iCloud Drive keeps online is downloaded when you open it. If it can't be, HelloNotes says so and offers Try Again, instead of a download that never ends.
-• A note made in a folder of an iCloud Drive collection can be renamed — by its title, or from the sidebar.
-• On iPhone Duo, HelloNotes runs edge to edge on both displays, in every pose.
-• Tips no longer appear over the window.
+• A note opens where you left it — in Edit and in Preview — even after iOS has closed the app.
+• Coming back to HelloNotes no longer rescans your collection when nothing has changed, and opening it no longer shows a collection as scanning when its notes are already on screen. Changes made on your other devices still appear.
+• Pull, in the Git pane's Sync menu, brings in what was pushed from another device and merges it with what you have committed here. If the same part of a note changed in both places, or a pull would write over changes you haven't committed, it changes nothing and says which note.
+• Your recent collections, pinned notes, the note you had open and your Assistant conversations are no longer lost if iOS moves the app's data.
+• Open Recent lists each collection once.
+• Making and renaming notes in a large collection is faster.
+• Fixed: a collection from Dropbox, Box, Google Drive or OneDrive could disappear when HelloNotes opened again, if another collection's folder had been moved or renamed.
+• Fixed: HelloNotes could reopen on Library instead of the cloud collection you had open.
 
-HelloNotes 1.3.5 requires iOS 27.
+HelloNotes 1.3.6 requires iOS 27.
 ```
 
-**Version** — What's New, Mac (1.3.5; this platform had 1.3.4 build 33):
+**Version** — What's New, Mac (1.3.6; this platform has 1.3.5 build 35):
 ```
-HelloNotes 1.3.5 names its models by where they run, and labels what each model made.
+HelloNotes 1.3.6 opens each note where you left it, and can pull from Git.
 
-• Local (Apple) runs on your Mac, Cloud (Apple) on Apple's Private Cloud Compute, and Local with a model's name is an open model you run with MLX. Choose the default in Settings > AI; the Assistant can use another for one conversation.
-• Each Assistant reply, summary, suggested tag or link, rewrite and draft says which model made it.
-• When Cloud (Apple)'s daily allowance is used up, Local (Apple) takes over until it resets.
-• Ask Your Library is now part of the Assistant, which searches your notes more thoroughly — by section, and to the end of a long note — shows the notes it read, and summarises earlier messages when a conversation grows long. The Assistant is experimental: it reads your notes and no longer changes them.
-• The notice about AI services HelloNotes no longer supports names the model you can choose, where it showed "(Function)".
-• Tips no longer appear over the window.
+• A note opens where you left it — in Edit and in Preview — after you quit HelloNotes and open it again.
+• Pull, in the Git pane's Sync menu, brings in what was pushed from another Mac or device and merges it with what you have committed here. If the same part of a note changed in both places, or a pull would write over changes you haven't committed, it changes nothing and says which note.
+• Opening HelloNotes no longer shows a collection as scanning when its notes are already on screen.
+• Making and renaming notes in a large collection is faster.
+• Fixed: a collection from Dropbox, Box, Google Drive or OneDrive could disappear when HelloNotes opened again, if another collection's folder had been moved or renamed.
+• Fixed: HelloNotes could reopen on Library instead of the cloud collection you had open.
 
-HelloNotes 1.3.5 requires macOS 27.
+HelloNotes 1.3.6 requires macOS 27.
 ```
 
 ## Description
