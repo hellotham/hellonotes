@@ -10,7 +10,7 @@ export const APP = {
    * The current release — what the direct download for Mac is. The App Store
    * can be a version behind while Apple reviews it: see `APP_STORE` below.
    */
-  version: '1.3.5',
+  version: '1.3.6',
   /** The Mac floor. Also the DMG's requirement — that channel is Mac-only. */
   minMacOS: 'macOS 27 or later',
   minIOS: 'iOS & iPadOS 27 or later',
@@ -65,12 +65,20 @@ export const APP_STORE = {
    * the day the store has the new version until this is done.
    */
   liveVersion: '1.3.5',
-  pendingVersion: null as string | null,
+  pendingVersion: '1.3.6' as string | null,
 } as const;
 
 /** Whether the App Store is a version behind the direct download. */
 export const STORE_IS_PENDING =
   APP_STORE.pendingVersion !== null && APP_STORE.pendingVersion !== APP_STORE.liveVersion;
+
+/**
+ * The version the site's iPhone and iPad pictures are of (`DEVICE_SHOTS`).
+ * The screenshots page says they are a version ahead of the App Store only
+ * while they are: 1.3.6 went to review with 1.3.5's pictures — what the App
+ * Store already has — and the page would have called them 1.3.6.
+ */
+export const DEVICE_SHOTS_VERSION = '1.3.5';
 
 export const PUBLISHER = {
   name: 'Hello Tham',
@@ -87,8 +95,8 @@ export const DOWNLOAD = {
   url: `${REPO}/releases/latest/download/HelloNotes.dmg`,
   releasesPage: `${REPO}/releases/latest`,
   fileName: 'HelloNotes.dmg',
-  size: '29.2 MB',
-  sha256: 'b1101ee14b934c31ec34cc25fa0eab4899f295dde11111194426e2fd24d6faaa',
+  size: '29.4 MB',
+  sha256: 'e609f3ef390100df381ae6a7cab018a8b7947c6f0a2edd97202c38c8c4b451d9',
 } as const;
 
 /** Primary nav. Secondary/legal links live in the footer. */

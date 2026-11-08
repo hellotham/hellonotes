@@ -6,7 +6,7 @@ import Shot from '../components/Shot.astro';
 import { href } from '../lib/paths';
 import { SCREENS } from '../lib/screens';
 import { DEVICE_SHOTS } from '../lib/devices';
-import { APP, APP_STORE, STORE_IS_PENDING } from '../lib/site';
+import { APP, APP_STORE, DEVICE_SHOTS_VERSION, STORE_IS_PENDING } from '../lib/site';
 
 const phones = DEVICE_SHOTS.filter((s) => s.device === 'iPhone');
 const pads = DEVICE_SHOTS.filter((s) => s.device === 'iPad');
@@ -74,7 +74,7 @@ const pads = DEVICE_SHOTS.filter((s) => s.device === 'iPad');
             about AI providers and API keys beside a page saying there are
             none. */}
         {
-          STORE_IS_PENDING && (
+          STORE_IS_PENDING && DEVICE_SHOTS_VERSION === APP_STORE.pendingVersion && (
             <p class="mt-3 text-sm text-muted">
               These show {APP.name} {APP_STORE.pendingVersion}, which arrives on iPhone and iPad when
               Apple approves it. Until then the App Store has {APP_STORE.liveVersion}.
