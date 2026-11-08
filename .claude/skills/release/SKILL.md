@@ -35,6 +35,12 @@ held at build time**. Building without it ships empty cloud-provider keys.
 ## The pipeline
 
 ```bash
+# The team's API key, never Xcode's account — its sign-in keeps lapsing when a
+# run uses it (the person, 2026-11-08). The identifiers come from the
+# environment and never go into this repository.
+KEY=(-authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+     -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+
 # 0 · The app's entitlements without Private Cloud Compute, which Apple never
 #     provisions for Developer ID (docs/production.md §1b-PCC). PlistBuddy, not
 #     plutil: plutil reads the key's dots as a key path and removes nothing.
@@ -50,14 +56,14 @@ cp HelloNotes/HelloNotes.entitlements build/HelloNotes-DeveloperID.entitlements
 #     App Store, whose build carries the entitlement.
 xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'generic/platform=macOS' -skipPackagePluginValidation \
-  -archivePath build/HelloNotes-DeveloperID.xcarchive -allowProvisioningUpdates \
+  -archivePath build/HelloNotes-DeveloperID.xcarchive -allowProvisioningUpdates "${KEY[@]}" \
   HN_APP_ENTITLEMENTS="$PWD/build/HelloNotes-DeveloperID.entitlements"
 
 # 2 · Export with Developer ID — fails "not available for Developer ID provisioning
 #     profiles" if the archive carries Private Cloud Compute
 xcodebuild -exportArchive -archivePath build/HelloNotes-DeveloperID.xcarchive \
   -exportOptionsPlist ExportOptions.plist -exportPath build/export-developer-id \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates "${KEY[@]}"
 
 # 3 · Notarize + staple the .app (package-dmg.sh refuses an un-notarized app)
 ditto -c -k --keepParent build/export-developer-id/HelloNotes.app build/HelloNotes.zip

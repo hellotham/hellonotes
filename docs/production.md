@@ -669,7 +669,7 @@ xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginVa
 
 xcodebuild -exportArchive -archivePath build/HelloNotes.xcarchive \
   -exportOptionsPlist ExportOptions-AppStore-macOS.plist -exportPath build/export \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates "${KEY[@]}"   # the team key's flags — see A2's KEY=(…)
 ```
 The export step uploads directly. (For CI, authenticate `notarytool`/`altool`
 with an **App Store Connect API key** instead of your Apple ID.)
@@ -703,7 +703,7 @@ xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginVa
 
 xcodebuild -exportArchive -archivePath build/HelloNotes-iOS.xcarchive \
   -exportOptionsPlist ExportOptions-AppStore-iOS.plist -exportPath build/export-ios \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates "${KEY[@]}"   # the team key's flags — see A2's KEY=(…)
 ```
 Same App Store Connect App ID, same bundle ID, same build-number rule (§1f) —
 this uploads as an iOS build attached to the *same* app record the macOS
@@ -768,7 +768,7 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
-## 10o · 1.3.6 build 36 — on TestFlight, both platforms, not in review, 2026-11-08
+## 10o · 1.3.6 build 36 — in review on both platforms, and the DMG, 2026-11-08
 
 From `2759b02` on `release/1.3.6`, a clean tree: the work is `4f29b53` and
 `f2aa985`, and `2759b02` is the bump and 1.3.6's What's New
@@ -800,8 +800,24 @@ length: 15, 32, 32, 72, 36); `ITSAppUsesNonExemptEncryption` false.
 **Both with the team key, at the person's word** ("please don't use xcode
 signin - use the key … xcode keeps signing out when you use it"). Xcode's
 stored account list was empty, and nothing asked for it. The Mac's export
-with the key is the first to succeed (§9). No 1.3.6 version record is made:
-TestFlight needs none.
+with the key is the first to succeed (§9).
+
+**Submitted the same evening, at the person's word** ("submit to ASC for
+review"), with the team key's identifiers in the environment:
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Version | `asc-listing.py create 1.3.6`: made, released after approval as 1.3.5 was | the same |
+| Text | `text 1.3.6`: What's New and promotional text written, read back equal; description and review notes already as the file | the same |
+| Pictures | carried over (6 iPhone, 5 iPad), all complete | carried over (10), all complete |
+| Build | `build 1.3.6 36`: VALID, attached | the same |
+| Review | `submit 1.3.6` 19:54 — `WAITING_FOR_REVIEW` | `WAITING_FOR_REVIEW` |
+
+**The DMG followed within the hour**: 1.3.6 build 36, Developer ID without
+the Private Cloud Compute entitlement (A2), archived and exported with the
+team key, `v1.3.6` latest on GitHub at 20:01, the page's version, size and
+checksum synced and `pendingVersion: '1.3.6'` (implemented.md §51.73).
+**When Apple approves**: `liveVersion: '1.3.6'`, `pendingVersion: null`.
 
 ## 10n · 1.3.5 build 35 — released on the App Store, both platforms, 2026-10-25; the DMG the same day
 
@@ -1493,6 +1509,12 @@ Apple Account password revokes it, and you'd re‑run this.
 **Either** archive + export in Xcode (Organizer ▸ Distribute App ▸ Direct
 Distribution), **or** headlessly — no Xcode UI needed:
 ```bash
+# The team's API key, never Xcode's account — its sign-in keeps lapsing when a
+# run uses it (the person, 2026-11-08). The identifiers come from the
+# environment and never go into this repository.
+KEY=(-authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+     -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+
 # 0 · The app's entitlements without Private Cloud Compute, which Apple never
 #     provisions for Developer ID (§1b-PCC). PlistBuddy, not plutil: plutil reads
 #     the key's dots as a key path and removes nothing.
@@ -1509,7 +1531,7 @@ cp HelloNotes/HelloNotes.entitlements build/HelloNotes-DeveloperID.entitlements
 #     entitlement (§9 archives to build/HelloNotes.xcarchive).
 xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
   -destination 'generic/platform=macOS' -skipPackagePluginValidation \
-  -archivePath build/HelloNotes-DeveloperID.xcarchive -allowProvisioningUpdates \
+  -archivePath build/HelloNotes-DeveloperID.xcarchive -allowProvisioningUpdates "${KEY[@]}" \
   HN_APP_ENTITLEMENTS="$PWD/build/HelloNotes-DeveloperID.entitlements"
 
 # 2 · Export with Developer ID  (ExportOptions.plist: method=developer-id,
@@ -1518,7 +1540,7 @@ xcodebuild archive -project HelloNotes.xcodeproj -scheme HelloNotes \
 #     profiles".
 xcodebuild -exportArchive -archivePath build/HelloNotes-DeveloperID.xcarchive \
   -exportOptionsPlist ExportOptions.plist -exportPath build/export-developer-id \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates "${KEY[@]}"
 
 # 3 · Notarize + staple the .app (package-dmg.sh requires this — it runs
 #     `stapler validate` on its input and refuses an un-notarized app)

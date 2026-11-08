@@ -8416,6 +8416,60 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.73 1.3.6 (36): TestFlight, App Review and the download (2026-11-08)
+
+At the person's word, in three steps: "bump to 1.3.6 (36) and commit the
+draft, and build testflight", then `/release 1.3.6` and "submit to ASC for
+review".
+
+- **TestFlight.** Archived from `2759b02` for each platform and read back by
+  `archive-readback.sh`: 1.3.6 (36) in the app and all six extensions, arm64,
+  minos 27.0 with SDK 27.2, Private Cloud Compute present, no temporary
+  exception, the five provider keys, encryption false. Both uploaded with the
+  team's API key — the Mac's for the first time, where build 28's had failed
+  with "Cloud signing permission error" — and both processed within minutes
+  into the "HelloNotes testers" group. **Uploads never use Xcode's account
+  again**: its sign-in keeps lapsing when a run uses it, the person said, and
+  its stored list was empty that day (production.md §9, §10o).
+- **App Review.** `asc-listing.py` with the team key: `create 1.3.6` (both
+  platforms, released after approval as 1.3.5 was); `text 1.3.6`, which wrote
+  What's New and the promotional text and read both back equal — the
+  descriptions already matched the file, the Mac's included, which the
+  store's public lookup cannot show; `build 1.3.6 36`; `status` — iPhone 6,
+  iPad 5 and Mac 10 pictures, all complete at the store's sizes, and the text
+  equal to the file; `submit 1.3.6`. WAITING_FOR_REVIEW on both at 19:54.
+- **The download.** Archived again with the Developer ID entitlements, and
+  with the team key in place of the account for the archive's provisioning
+  and the Developer ID export. Notarised (Accepted), stapled and packaged by
+  `package-dmg.sh`. Read back from the mounted image: Notarized Developer ID,
+  arm64, no private-cloud-compute entitlement, the staple valid, 1.3.6 (36).
+  29.4 MB (29,353,130 bytes), SHA-256 `e609f3ef…c4b451d9`; 1.3.5's image kept
+  as `dist/HelloNotes-1.3.5.dmg`.
+- **Published in the order the page needs.** `main` went first without
+  `site.ts`: the Pull pages deployed, and the download page still described
+  what `latest` served. Then `v1.3.6` was made as a prerelease that is not
+  latest, `site.ts` pushed (`d3a53f9`: 1.3.6, 29.4 MB, the checksum, and 1.3.6
+  with Apple for review), and the release flipped to latest the moment that
+  deploy finished, at 20:01:28. The live page was read, not the checkout: the
+  new checksum and size, the notice, no trace of the old checksum. And
+  `check-download-page.sh` downloaded what the button serves and found it
+  1.3.6, 29.4 MB, that checksum.
+- **The screenshots page would have called 1.3.5's pictures 1.3.6.** Its line
+  about pictures a version ahead of the App Store showed whenever a version
+  was pending, and the iPhone and iPad pictures are 1.3.5's — what the store
+  already has. It shows only while the pictures are of the pending version
+  (`DEVICE_SHOTS_VERSION`).
+- **GitHub's download route answered 504 for six minutes after the flip, for
+  every repository.** The button's `releases/latest/download/…` redirected to
+  v1.3.6 and the next hop timed out, in the sandbox and out of it; `cli/cli`'s
+  assets did the same while GitHub's status page said all systems
+  operational, and the same file came down through the API's asset endpoint.
+  It answered at 20:07:31, and the check above ran after.
+
+**Left.** When Apple approves 1.3.6: `liveVersion: '1.3.6'` and
+`pendingVersion: null` in `site.ts`, and push — `check-download-page.sh`
+fails from the day the store changes until then.
+
 ### 51.72 The review of §51.69–§51.71, and what it found (2026-11-08)
 
 `/code-review max --fix` over the uncommitted tree — §51.69's reading
