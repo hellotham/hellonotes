@@ -768,7 +768,7 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
-## 10o · 1.3.6 build 36 — in review on both platforms, and the DMG, 2026-11-08
+## 10o · 1.3.6 build 36 — released on the App Store, both platforms, 2026-11-08; the DMG the same day
 
 From `2759b02` on `release/1.3.6`, a clean tree: the work is `4f29b53` and
 `f2aa985`, and `2759b02` is the bump and 1.3.6's What's New
@@ -817,7 +817,11 @@ review"), with the team key's identifiers in the environment:
 the Private Cloud Compute entitlement (A2), archived and exported with the
 team key, `v1.3.6` latest on GitHub at 20:01, the page's version, size and
 checksum synced and `pendingVersion: '1.3.6'` (implemented.md §51.73).
-**When Apple approves**: `liveVersion: '1.3.6'`, `pendingVersion: null`.
+**Apple released it on both platforms the same day** — `READY_FOR_DISTRIBUTION`
+on iPhone, iPad and Mac, build 36, `currentVersionReleaseDate`
+2026-11-08T22:32:42Z (the morning of the 9th here) — and the site said so the
+next morning (`liveVersion: '1.3.6'`, `pendingVersion: null`, `d5da89a`), with
+the README, CHANGELOG and the release notes on GitHub.
 
 ## 10n · 1.3.5 build 35 — released on the App Store, both platforms, 2026-10-25; the DMG the same day
 

@@ -8416,7 +8416,7 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
-### 51.73 1.3.6 (36): TestFlight, App Review and the download (2026-11-08)
+### 51.73 1.3.6 (36): TestFlight, App Review, the download and the release (2026-11-08)
 
 At the person's word, in three steps: "bump to 1.3.6 (36) and commit the
 draft, and build testflight", then `/release 1.3.6` and "submit to ASC for
@@ -8478,9 +8478,24 @@ review".
   busy before it measures anything (`waitUntilBusy`). It passes here, and
   with a one-thread pool.
 
-**Left.** When Apple approves 1.3.6: `liveVersion: '1.3.6'` and
-`pendingVersion: null` in `site.ts`, and push — `check-download-page.sh`
-fails from the day the store changes until then.
+- **Apple released it on both platforms the same day** —
+  READY_FOR_DISTRIBUTION on iPhone, iPad and Mac, build 36, and the store's
+  lookup answering 1.3.6 with `currentVersionReleaseDate`
+  2026-11-08T22:32:42Z (09:32 on the 9th here), under fourteen hours after
+  the submission. The next morning, at the person's word ("App Store review
+  approved - finalise release and publish on website, update README etc"):
+  `check-download-page.sh` first, which failed as it should — "the App Store
+  has 1.3.6 now — set APP_STORE.liveVersion to it and pendingVersion to
+  null"; then `site.ts` (`liveVersion: '1.3.6'`, `pendingVersion: null`),
+  the README's version and its features (a note opens where it was left;
+  Pull's refusals name the note, and Stop ends one still fetching), 1.3.6 in
+  CHANGELOG, and the listing file's headings (`d5da89a`), and the release
+  notes on GitHub, which still said 1.3.6 was with Apple. Read from the live
+  site once its deploy had finished, not from the checkout: no notice on any
+  page, the App Store card naming 1.3.6, the checksum and size as they were;
+  and the live check passes.
+
+**Left.** Nothing for 1.3.6.
 
 ### 51.72 The review of §51.69–§51.71, and what it found (2026-11-08)
 
