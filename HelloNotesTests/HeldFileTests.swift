@@ -386,6 +386,15 @@ struct HeldFileTests {
         let holds = try editors.map { ProviderHold(try #require($0.note?.fileURL), breaker: .seconds(60)) }
         defer { holds.forEach { $0.release() } }
         let steps = editors.map { editor in Task { @MainActor in await step(editor) } }
+        // Every step on its file's lane before anything is measured. The
+        // steps start on the main actor, and on CI's three-core runner, with
+        // the rest of the suite running beside them, none had reached its
+        // lane when the check below looked: "5 of 5 steps were not waiting
+        // on their files", the files still held, the saves written once they
+        // were let go (implemented.md §51.73).
+        for editor in editors {
+            try await waitUntilBusy(editor.provider.lane(for: try #require(editor.note?.fileURL)))
+        }
 
         // A task that sleeps, off the main actor: every wake-up goes through the pool.
         let ticks = Counter()

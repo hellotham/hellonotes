@@ -8466,6 +8466,18 @@ review".
   operational, and the same file came down through the API's asset endpoint.
   It answered at 20:07:31, and the check above ran after.
 
+- **CI's first run of this work failed one test of 1,041** —
+  `savesWaitingOnHeldFilesHoldNoThreadOfThePool`, on its own premise: "5 of
+  5 steps were not waiting on their files". The process had not stopped, and
+  every save wrote once its file was let go; the test had assumed each save
+  was on its file's lane once the pool had woken twenty times, and gave the
+  check 300 ms. On the three-core runner, with the rest of the suite beside
+  it, the saves were still waiting for the main actor. Nothing on the path
+  had changed (`EditorModel`, `FileIO` and the test were untouched since
+  their last green run); `whileHeld` now waits until every step's lane is
+  busy before it measures anything (`waitUntilBusy`). It passes here, and
+  with a one-thread pool.
+
 **Left.** When Apple approves 1.3.6: `liveVersion: '1.3.6'` and
 `pendingVersion: null` in `site.ts`, and push — `check-download-page.sh`
 fails from the day the store changes until then.
