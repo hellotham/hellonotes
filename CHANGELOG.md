@@ -6,6 +6,52 @@ the one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
+## 1.3.6 — 2026-11-08 · direct download and App Store (iPhone, iPad and Mac)
+
+*Build 36. The download went out with the submission and the App Store
+released it the same day.*
+
+### Back where you were
+
+- **A note opens where you left it** — in Edit and in Preview — after you quit
+  HelloNotes and open it again, and on iPhone and iPad after iOS has closed it
+  in the background. A note renamed, or moved with its folder, keeps its place.
+- **Opening HelloNotes no longer shows a collection as scanning when its notes
+  are already on screen**, and on iPhone and iPad coming back to it no longer
+  rescans your collection when nothing has changed. Changes made on your other
+  devices still appear, and a rescan you ask for still says how it is going.
+- **Your recent collections, pinned notes, the note you had open, where you
+  were reading and your Assistant conversations are no longer lost if iOS moves
+  the app's data**, and Open Recent lists each collection once. (iPhone and
+  iPad.)
+
+### Pull
+
+- **Pull**, in the Git pane's Sync menu, brings in what was pushed from another
+  Mac or device and merges it with what you have committed here. If the same
+  part of a note changed in both places, or a pull would write over changes you
+  haven't committed, it changes nothing and says which note. **Stop** stops a
+  pull that is still fetching.
+
+### Faster
+
+- **Making and renaming notes in a large collection is faster.** In a
+  collection of 2,000 notes, each took a sixth to a third of a second of the
+  app's attention; now it takes a few hundredths — and naming a new note is a
+  rename.
+
+### Fixed
+
+- A collection from Dropbox, Box, Google Drive or OneDrive could disappear when
+  HelloNotes opened again, if another collection's folder had been moved or
+  renamed.
+- HelloNotes could reopen on Library instead of the cloud collection you had
+  open.
+- With several windows coming back at launch, a link that opened HelloNotes —
+  from a widget, say — could open nothing.
+
+---
+
 ## 1.3.5 — 2026-10-25 · direct download and App Store (iPhone, iPad and Mac)
 
 *Build 35, the first built with Xcode 27.1. The download went out with the

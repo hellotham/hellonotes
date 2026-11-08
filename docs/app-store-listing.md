@@ -54,7 +54,7 @@ Plain Markdown files you own, with AI from Apple Foundation Models on your devic
 markdown,knowledge base,wiki,backlinks,zettelkasten,pkm,notes,notetaking,git,graph,local,privacy
 ```
 
-**Version** — What's New, iPhone and iPad (1.3.6; this platform has 1.3.5 build 35):
+**Version** — What's New, iPhone and iPad (1.3.6 build 36, on the App Store since 8 November 2026):
 ```
 HelloNotes 1.3.6 opens each note where you left it, stops rescanning your collection every time you come back, and can pull from Git.
 
@@ -70,7 +70,7 @@ HelloNotes 1.3.6 opens each note where you left it, stops rescanning your collec
 HelloNotes 1.3.6 requires iOS 27.
 ```
 
-**Version** — What's New, Mac (1.3.6; this platform has 1.3.5 build 35):
+**Version** — What's New, Mac (1.3.6 build 36, on the App Store since 8 November 2026):
 ```
 HelloNotes 1.3.6 opens each note where you left it, and can pull from Git.
 

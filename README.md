@@ -1,6 +1,6 @@
 # HelloNotes
 
-> **Version 1.3.5** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
+> **Version 1.3.6** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
 
 HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps like Obsidian and cross-platform editors like Typora. It's built strictly on modern Swift — **AppKit + TextKit 2 + SwiftUI** — prioritising high-FPS text rendering, plain `.md` files as the absolute source of truth, and seamless background Git synchronisation. **No proprietary database. Your files in Finder *are* the database** — and those files can live locally *or* in Box, Dropbox, OneDrive, Google Drive or iCloud, opened on demand without pulling the whole vault down.
 
@@ -20,7 +20,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, in user-facing terms |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
-## ✨ Features (v1.3.5)
+## ✨ Features (v1.3.6)
 
 **Local-first, multi-collection**
 - No CoreData, SwiftData or database; your `.md` files are the truth (settings sync through iCloud's key-value store — never a note). Open **several collections at once** as a *library*, with a launcher, recents, and saved library sets. The first launch opens **DefaultCollection**, the bundled tour and user manual; File ▸ Open Default Collection brings it back.
@@ -34,6 +34,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **GitHub-identical Preview** — the read-only Preview renders through **cmark-gfm** (the same engine GitHub uses) + GitHub's own CSS, proven by 672/672 GFM-spec conformance and byte-parity with the GitHub Markdown API. The live editor's styling is driven by the same engine.
 - **View modes**: Edit (live), Preview (read-only), Markdown (source), and Split — plus **⌘F find & replace**, image paste → `assets/`, smart paste (HTML → Markdown), multi-tab and multi-window editing, document statistics, outline with jump-to-heading, and **HTML/PDF export**.
 - **Marp slide decks** — notes with Marp front matter get a native slides preview.
+- **A note opens where you left it** — in Edit and in Preview, after HelloNotes quits and opens again (on iPhone and iPad, after the system has ended it in the background too). A note renamed, or moved with its folder, keeps its place.
 
 **Knowledge graph**
 - `[[wiki-links]]` with autocomplete, **aliases**, link-to-heading, backlinks, outgoing links, and unlinked mentions with one-click linking.
@@ -67,7 +68,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **Both live in one screen** — `File ▸ Open Collection ▸ from Cloud…` opens **Manage Cloud Collections**: the cloud collections you already have (removable, without deleting a thing), the ways to add another, and your accounts. **Several accounts per service** are first-class — a personal *and* a work OneDrive each keep their own credentials, are named whatever you call them, and can each supply as many collections as you like. Which route applies is answered rather than asked: on macOS the app reads the installed provider clients and names them.
 
 **Seamless Git sync**
-- Repo status, init, local commits, opt-in debounced auto-commit (never auto-pushes), user-initiated pull/push/fetch (a pull merges, and a conflict stops it with nothing changed), per-note **version history** (browse & restore), **clone** (cancelable) and **create-remote** with HTTPS token auth, and an in-app git identity.
+- Repo status, init, local commits, opt-in debounced auto-commit (never auto-pushes), user-initiated pull/push/fetch (a pull merges what was pushed from elsewhere; a conflict, or a pull that would write over uncommitted changes, stops it with nothing changed and names the note, and **Stop** ends one still fetching), per-note **version history** (browse & restore), **clone** (cancelable) and **create-remote** with HTTPS token auth, and an in-app git identity.
 
 **Deep system integration**
 - **Siri & Shortcuts** — `NoteEntity` App Intents (open, create, append, search) with an `AppShortcutsProvider`, so notes are scriptable from Shortcuts and callable by voice.
