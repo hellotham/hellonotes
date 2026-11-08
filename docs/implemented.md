@@ -8588,6 +8588,16 @@ fixed.
   main actor at every open — a bookmark minted, the folder looked into for
   `.obsidian` — on the folder's lane now. A renamed note's place, kept on
   the way in under its old name, is taken back.
+- **An offset a page posted could stop the app.** Preview's page reports
+  how far it is scrolled, and the place was kept as a whole number of
+  points with `Int($0.rounded())`, which traps on an infinite offset or one
+  past `Int`'s range — and a page's script, or script in a note's HTML,
+  posts what it likes. Found by an automated security review of the
+  commit. The relay passes over an offset no page has
+  (`PreviewScrollRelay.report(from:)`: not finite, or past a billion
+  points), and the place is converted with `Int(exactly:)` after a clamp
+  all the same; `anOffsetNoPageHasIsPassedOver` holds it, and with the
+  check taken out it failed on all five impossible offsets.
 - Release builds for macOS and iOS, and a Swift 6 type-check of the module —
   a planted error reported, and no other — whose one warning on a line of
   this work's is a `weak` capture of the view's own `@State` proxy, which

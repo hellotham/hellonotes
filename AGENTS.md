@@ -722,6 +722,12 @@
   Anything shown per line of a note — the approval diff — is computed once off
   the main actor and laid out in a `LazyVStack` (a plain `VStack` of 10,000 lines
   took 898 ms).
+- **A number a web page posts is checked before it is used.** Preview's page
+  posts how far it is scrolled, and the place was kept with
+  `Int($0.rounded())`, which traps on infinity — a page's script, or script
+  in a note's HTML, posts what it likes. `PreviewScrollRelay.report(from:)`
+  passes over an offset no page has, and a conversion of a posted number
+  uses `Int(exactly:)` after a clamp (implemented.md §51.72).
 - **A regular expression on the main actor needs a time limit, and only
   `.reportProgress` can impose one.** The find bar searches on every keystroke,
   on the main actor, and `(a*)*b` over 28 `a`s ran past five seconds with

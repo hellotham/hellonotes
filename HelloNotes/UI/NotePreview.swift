@@ -63,7 +63,11 @@ struct NotePreview: View {
         /// in, beyond the app (`ReadingPositions`).
         func keep() {
             guard let note else { return }
-            ReadingPositions.keep(offset.map { Int($0.rounded()) }, of: note, kind: .previewOffset)
+            // Converted without trapping, whatever the page reported: the
+            // relay passes over an offset no page has, and this does not
+            // trust that it did (§51.72).
+            let points = offset.flatMap { $0.isFinite ? Int(exactly: min(max($0, 0), 1e9).rounded()) : nil }
+            ReadingPositions.keep(points, of: note, kind: .previewOffset)
         }
     }
 

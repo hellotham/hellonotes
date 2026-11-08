@@ -320,13 +320,21 @@ enum PreviewRoom {
         }
     }
 
-    /// What a page's message says: which page, scrolled how far.
+    /// What a page's message says: which page, scrolled how far — or nothing,
+    /// for an offset no page has: not a number, infinite, or past any page's
+    /// height. A page's script posts it, and the host keeps it as a whole
+    /// number of points (`ReadingPositions`), where an infinite one trapped
+    /// (implemented.md §51.72).
     static func report(from body: Any) -> (page: Int, offset: Double)? {
         guard let fields = body as? [String: Any],
               let page = (fields["page"] as? NSNumber)?.intValue,
-              let offset = (fields["y"] as? NSNumber)?.doubleValue else { return nil }
+              let offset = (fields["y"] as? NSNumber)?.doubleValue,
+              offset.isFinite, abs(offset) <= maximumOffset else { return nil }
         return (page, offset)
     }
+
+    /// Further down than any page goes — a 2 MB note is a few million points.
+    static let maximumOffset: Double = 1_000_000_000
 }
 
 /// Where the reader left each note's page, and which page is on screen.

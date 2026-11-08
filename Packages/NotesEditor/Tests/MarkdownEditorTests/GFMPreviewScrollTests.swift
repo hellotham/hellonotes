@@ -236,6 +236,17 @@ struct GFMPreviewScrollTests {
         #expect(PreviewScrollRelay.report(from: ["y": 480]) == nil)
     }
 
+    /// **An offset no page has is passed over.** A page's script posts it,
+    /// and the host keeps it as a whole number of points, so an infinite one
+    /// trapped the app as it kept the reader's place (implemented.md §51.72).
+    /// The control is the same page's real offset, read as sent.
+    @Test func anOffsetNoPageHasIsPassedOver() throws {
+        for offset in [Double.infinity, -Double.infinity, Double.nan, 1e300, PreviewScrollRelay.maximumOffset * 2] {
+            #expect(PreviewScrollRelay.report(from: ["page": 3, "y": offset]) == nil, "\(offset) was taken for a place")
+        }
+        #expect(try #require(PreviewScrollRelay.report(from: ["page": 3, "y": 1_234_567.0])).offset == 1_234_567)
+    }
+
     // MARK: - The page's own script
 
     /// The page's script in JavaScriptCore, told to open at `offset`, with
